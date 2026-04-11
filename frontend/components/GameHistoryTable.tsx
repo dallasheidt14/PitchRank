@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
+import { ChevronDown, ChevronRight, Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { LastUpdated } from '@/components/ui/LastUpdated';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useTeamGames, useTeam } from '@/lib/hooks';
+import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate } from '@/lib/dateUtils';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
@@ -24,6 +25,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { GameBreakdownPanel } from '@/components/GameBreakdownPanel';
+import { hasPremiumAccess, useUser } from '@/hooks/useUser';
 
 function UnlinkOpponentButton({
   game,
@@ -147,8 +150,11 @@ interface GameHistoryTableProps {
 export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTableProps) {
   // Default to 100 games for better performance - users rarely need all games at once
   const gamesLimit = limit ?? 100;
+  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
+  const { profile, isLoading: userLoading } = useUser();
+  const isPremium = hasPremiumAccess(profile);
 
   // Fetch team name if not provided (React Query will reuse cached data from TeamHeader)
   const { data: team } = useTeam(teamId);
@@ -158,6 +164,13 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
   const gamesData = data as TeamGamesData | undefined;
   const games: GameWithTeams[] | undefined = gamesData?.games;
+  const visibleGameIds = games?.map((game) => game.id) ?? [];
+  const { data: explainabilityRows, isLoading: explainabilityLoading } = useGameExplainability(
+    teamId,
+    visibleGameIds,
+    !userLoading && isPremium
+  );
+  const explainabilityByGameId = new Map((explainabilityRows ?? []).map((row) => [row.game_uuid, row]));
   // Prefer team.last_scraped_at (updated every scrape run, even when no new games found)
   // over game-derived lastScrapedAt (only reflects when the most recent game was scraped)
   const lastScrapedAt: string | null = team?.last_scraped_at ?? gamesData?.lastScrapedAt ?? null;
@@ -231,6 +244,10 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     const teamScore = isHome ? game.home_score : game.away_score;
     const opponentScore = isHome ? game.away_score : game.home_score;
     return { team: teamScore, opponent: opponentScore };
+  }, []);
+
+  const toggleExpandedGame = useCallback((gameId: string) => {
+    setExpandedGameId((current) => (current === gameId ? null : gameId));
   }, []);
 
   if (isLoading) {
@@ -356,6 +373,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               <TableHead className="text-center">Result</TableHead>
               <TableHead className="text-right">Score</TableHead>
               <TableHead className="hidden sm:table-cell">Competition</TableHead>
+              <TableHead className="w-[52px] text-right">Why</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -367,82 +385,123 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                 const opponentId = getOpponentId(game, teamId);
                 const opponentProviderId = getOpponentProviderId(game, teamId);
                 const score = getScore(game, teamId);
+                const isExpanded = expandedGameId === game.id;
+                const breakdown = explainabilityByGameId.get(game.id);
 
                 return (
-                  <TableRow key={game.id} className="group">
-                    <TableCell className="text-xs sm:text-sm whitespace-nowrap">
-                      {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
-                    </TableCell>
-                    <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
-                      {opponentId ? (
-                        // Team is linked - show link or fallback text
-                        <div className="flex flex-col">
-                          <div className="flex items-center">
-                            {opponent ? (
-                              <Link
-                                href={`/teams/${opponentId}`}
-                                onMouseEnter={() => prefetchTeam(opponentId)}
-                                className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
-                                aria-label={`View ${opponent} team details`}
-                                title={opponent}
-                              >
-                                {opponent}
-                              </Link>
-                            ) : (
-                              // Team is linked but name lookup failed - still show link
-                              <Link
-                                href={`/teams/${opponentId}`}
-                                onMouseEnter={() => prefetchTeam(opponentId)}
-                                className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
-                                aria-label="View team details"
-                              >
-                                (Team linked)
-                              </Link>
+                  <Fragment key={game.id}>
+                    <TableRow className="group">
+                      <TableCell className="text-xs sm:text-sm whitespace-nowrap">
+                        {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
+                      </TableCell>
+                      <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
+                        {opponentId ? (
+                          // Team is linked - show link or fallback text
+                          <div className="flex flex-col">
+                            <div className="flex items-center">
+                              {opponent ? (
+                                <Link
+                                  href={`/teams/${opponentId}`}
+                                  onMouseEnter={() => prefetchTeam(opponentId)}
+                                  className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
+                                  aria-label={`View ${opponent} team details`}
+                                  title={opponent}
+                                >
+                                  {opponent}
+                                </Link>
+                              ) : (
+                                // Team is linked but name lookup failed - still show link
+                                <Link
+                                  href={`/teams/${opponentId}`}
+                                  onMouseEnter={() => prefetchTeam(opponentId)}
+                                  className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-muted-foreground"
+                                  aria-label="View team details"
+                                >
+                                  (Team linked)
+                                </Link>
+                              )}
+                              <UnlinkOpponentButton
+                                game={game}
+                                currentTeamId={teamId}
+                                opponentName={opponent}
+                                onUnlinked={() => refetch()}
+                              />
+                            </div>
+                            {opponentClub && (
+                              <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
+                                {opponentClub}
+                              </span>
                             )}
-                            <UnlinkOpponentButton
-                              game={game}
-                              currentTeamId={teamId}
-                              opponentName={opponent}
-                              onUnlinked={() => refetch()}
-                            />
                           </div>
-                          {opponentClub && (
-                            <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
-                              {opponentClub}
-                            </span>
+                        ) : opponentProviderId ? (
+                          // Team is NOT linked but has provider ID - show linking option
+                          <UnknownOpponentLink
+                            game={game}
+                            currentTeamId={teamId}
+                            opponentProviderId={opponentProviderId}
+                            onLinked={() => refetch()}
+                            defaultAge={team?.age}
+                            defaultGender={team?.gender}
+                          />
+                        ) : (
+                          // No team ID and no provider ID - truly unknown
+                          <span className="text-muted-foreground truncate sm:whitespace-normal">
+                            {opponent || 'Unknown'}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">{result.text}</TableCell>
+                      <TableCell className="text-right font-mono">
+                        {score.team !== null && score.opponent !== null ? (
+                          <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
+                            {score.team}-{score.opponent}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
+                        {game.competition || game.division_name || '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          disabled={userLoading}
+                          onClick={() => toggleExpandedGame(game.id)}
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isPremium
+                              ? `Toggle rating breakdown for ${opponent || 'this game'}`
+                              : `Toggle premium rating breakdown teaser for ${opponent || 'this game'}`
+                          }
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : isPremium ? (
+                            <ChevronRight className="h-4 w-4" />
+                          ) : (
+                            <Lock className="h-4 w-4" />
                           )}
-                        </div>
-                      ) : opponentProviderId ? (
-                        // Team is NOT linked but has provider ID - show linking option
-                        <UnknownOpponentLink
-                          game={game}
-                          currentTeamId={teamId}
-                          opponentProviderId={opponentProviderId}
-                          onLinked={() => refetch()}
-                          defaultAge={team?.age}
-                          defaultGender={team?.gender}
-                        />
-                      ) : (
-                        // No team ID and no provider ID - truly unknown
-                        <span className="text-muted-foreground truncate sm:whitespace-normal">
-                          {opponent || 'Unknown'}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">{result.text}</TableCell>
-                    <TableCell className="text-right font-mono">
-                      {score.team !== null && score.opponent !== null ? (
-                        <span className={scoreColor(getTeamPerspectiveOverperformance(game, teamId))}>
-                          {score.team}-{score.opponent}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                      {game.competition || game.division_name || '—'}
-                    </TableCell>
-                  </TableRow>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="bg-muted/10 px-3 py-4 sm:px-6">
+                          <GameBreakdownPanel
+                            teamId={teamId}
+                            gameId={game.id}
+                            breakdown={breakdown}
+                            isPremium={isPremium}
+                            isLoading={isPremium && explainabilityLoading}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 );
               } catch (rowError) {
                 console.error('[GameHistoryTable] Error rendering row:', game?.id, rowError);

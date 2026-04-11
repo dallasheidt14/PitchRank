@@ -29,6 +29,7 @@ import type {
   RankingWithTeam,
   TeamTrajectory,
   GameWithTeams,
+  GameExplainability,
   TeamWithRanking,
   RankHistoryPoint,
 } from './types';
@@ -1033,6 +1034,39 @@ export const api = {
     }
 
     return payload as MatchPredictionResponse;
+  },
+
+  /**
+   * Get persisted explainability breakdowns for a team's visible games.
+   * Premium-only server route; the browser never reads the table directly.
+   */
+  async getGameExplainability(teamId: string, gameIds: string[]): Promise<GameExplainability[]> {
+    const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));
+    if (uniqueGameIds.length === 0) {
+      return [];
+    }
+
+    const response = await fetch(`/api/game-explainability/${teamId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ gameIds: uniqueGameIds }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; breakdowns?: GameExplainability[] }
+      | null;
+
+    if (!response.ok) {
+      const message =
+        payload && typeof payload === 'object' && 'error' in payload && payload.error
+          ? payload.error
+          : 'Failed to load game explainability';
+      throw new AppError(message, 'game_explainability_failed', response.status);
+    }
+
+    return Array.isArray(payload?.breakdowns) ? payload.breakdowns : [];
   },
 
   /**

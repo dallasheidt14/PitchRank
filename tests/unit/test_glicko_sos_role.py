@@ -226,6 +226,24 @@ class _DummySupabase:
         return _DummySupabaseQuery()
 
 
+class _RecordingRpcResult:
+    def __init__(self, data):
+        self.data = data
+
+    def execute(self):
+        return SimpleNamespace(data=self.data)
+
+
+class _RecordingSupabase:
+    def __init__(self):
+        self.calls: list[tuple[str, dict]] = []
+
+    def rpc(self, name: str, payload: dict):
+        self.calls.append((name, payload))
+        row_count = len(payload.get("rows", []))
+        return _RecordingRpcResult(row_count)
+
+
 @pytest.mark.asyncio
 async def test_compute_all_cohorts_builds_glicko_pass2_map_from_mu(monkeypatch):
     calls: list[dict] = []
@@ -432,3 +450,168 @@ async def test_compute_all_cohorts_can_skip_snapshot_and_rank_change_side_effect
     assert all(call["save_snapshot"] is False for call in calls)
     assert "same_age_games" in result["teams"].columns
     assert "publication_cap_rank" in result["teams"].columns
+
+
+@pytest.mark.asyncio
+async def test_persist_game_explainability_shapes_batch_rpc_payload():
+    supabase = _RecordingSupabase()
+    explainability = pd.DataFrame(
+        [
+          {
+              "id": "11111111-1111-1111-1111-111111111111",
+              "game_id": "provider-game-1",
+              "team_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "opp_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+              "game_date": pd.Timestamp("2026-04-01"),
+              "gf": 3,
+              "ga": 1,
+              "team_mu": 1510.5,
+              "team_sigma": 82.2,
+              "opp_mu": 1544.1,
+              "opp_sigma": 79.8,
+              "expected_outcome": 0.41,
+              "actual_outcome": 0.83,
+              "outcome_surprise": 0.42,
+              "g_factor": 0.94,
+              "recency_weight": 1.18,
+              "rating_contribution": 0.13,
+              "off_residual": 1.2,
+              "def_residual": 0.7,
+          },
+          {
+              "id": None,
+              "game_id": "provider-game-2",
+              "team_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "opp_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+              "game_date": pd.Timestamp("2026-04-02"),
+              "gf": 1,
+              "ga": 2,
+              "team_mu": 1510.5,
+              "team_sigma": 82.2,
+              "opp_mu": 1490.0,
+              "opp_sigma": 75.0,
+              "expected_outcome": 0.58,
+              "actual_outcome": 0.24,
+              "outcome_surprise": -0.34,
+              "g_factor": 0.93,
+              "recency_weight": 1.05,
+              "rating_contribution": -0.08,
+              "off_residual": -0.9,
+              "def_residual": -0.6,
+          },
+        ]
+    )
+
+    updated, failed = await calculator._persist_game_explainability(supabase, explainability)
+
+    assert updated == 1
+    assert failed == 0
+    assert len(supabase.calls) == 1
+
+    rpc_name, payload = supabase.calls[0]
+    assert rpc_name == "batch_upsert_game_explainability"
+    assert len(payload["rows"]) == 1
+    row = payload["rows"][0]
+    assert row["game_uuid"] == "11111111-1111-1111-1111-111111111111"
+    assert row["team_id"] == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert row["opp_id"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert row["game_date"] == "2026-04-01"
+    assert row["gf"] == 3
+    assert row["ga"] == 1
+    assert row["rating_contribution"] == pytest.approx(0.13)
+
+
+@pytest.mark.asyncio
+async def test_compute_all_cohorts_merges_game_explainability_and_threads_flag(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_compute_rankings_with_ml(
+        supabase_client,
+        games_df,
+        today,
+        v53_cfg=None,
+        layer13_cfg=None,
+        fetch_from_supabase=True,
+        lookback_days=365,
+        provider_filter=None,
+        ctx=None,
+    ):
+        pass_label = ctx.pass_label if ctx else None
+        age = str(games_df.iloc[0]["age"])
+        team_id = "A" if age == "14" else "C"
+        opp_id = "B" if age == "14" else "D"
+
+        calls.append(
+            {
+                "pass_label": pass_label,
+                "persist_game_explainability": ctx.persist_game_explainability if ctx else None,
+            }
+        )
+
+        return {
+            "teams": pd.DataFrame(
+                [
+                    {
+                        "team_id": team_id,
+                        "age": int(age),
+                        "age_num": int(age),
+                        "gender": "male",
+                        "mu": 1500.0,
+                        "sigma": 80.0,
+                        "volatility": 0.06,
+                        "sos": 0.5,
+                        "sos_norm": 0.5,
+                        "power_score_true": 0.5,
+                        "power_score_final": 0.5,
+                        "powerscore_adj": 0.5,
+                        "powerscore_ml": 0.5,
+                        "positive_ml_evidence_scale": 1.0,
+                        "publication_cap_score": pd.NA,
+                        "status": "Active",
+                        "rank_in_cohort_final": 1,
+                    }
+                ]
+            ),
+            "games_used": games_df.copy(),
+            "game_explainability": pd.DataFrame(
+                [
+                    {
+                        "team_id": team_id,
+                        "opp_id": opp_id,
+                        "game_uuid": f"{age}-{pass_label}",
+                        "rating_contribution": 0.1,
+                    }
+                ]
+            ),
+            "pre_sos_state": {"legacy": age},
+        }
+
+    async def fake_save_ranking_snapshot(*_args, **_kwargs):
+        return None
+
+    async def fake_save_prediction_feature_snapshot(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(calculator, "compute_rankings_with_ml", fake_compute_rankings_with_ml)
+    monkeypatch.setattr(calculator, "save_ranking_snapshot", fake_save_ranking_snapshot)
+    monkeypatch.setattr(calculator, "_save_prediction_feature_snapshot_safe", fake_save_prediction_feature_snapshot)
+
+    games = pd.DataFrame(
+        _make_game_pair("A", "B", 2, 1, "2026-03-01", age="14")
+        + _make_game_pair("C", "D", 3, 2, "2026-03-02", age="15")
+    )
+
+    result = await calculator.compute_all_cohorts(
+        supabase_client=_DummySupabase(),
+        games_df=games,
+        fetch_from_supabase=False,
+        use_glicko=True,
+        persist_game_explainability=False,
+        calculate_rank_changes=False,
+        save_snapshot=False,
+    )
+
+    assert not result["game_explainability"].empty
+    assert sorted(result["game_explainability"]["game_uuid"].tolist()) == ["14-Pass2", "15-Pass2"]
+    assert len(calls) == 4
+    assert all(call["persist_game_explainability"] is False for call in calls)

@@ -48,6 +48,7 @@ class RankingContext:
     force_rebuild: bool = False
     save_snapshot: bool = True
     persist_game_residuals: bool = True
+    persist_game_explainability: bool = True
     calculate_rank_changes: bool = True
     # Instrumentation
     timing_report: Optional[Any] = None
@@ -86,6 +87,146 @@ async def _save_prediction_feature_snapshot_safe(
         )
     except Exception as error:
         logger.warning("Skipping prediction feature snapshot save after write failure: %s", error)
+
+
+async def _persist_game_explainability(supabase_client, game_explainability: pd.DataFrame) -> Tuple[int, int]:
+    """
+    Persist per-game explainability rows using a batch RPC.
+
+    The explainability breakdown is additive metadata derived from final
+    converged ratings. Persistence failures should not block rankings
+    publication, so this helper mirrors the retry and partial-failure behavior
+    used for ML residual persistence.
+    """
+    if game_explainability.empty:
+        return (0, 0)
+
+    persist_df = game_explainability.copy().dropna(subset=["id", "team_id", "opp_id"])
+    if persist_df.empty:
+        logger.warning("No explainability rows had game UUID + team/opponent IDs; skipping persistence")
+        return (0, 0)
+
+    batch_size = 500
+    max_retries = 3
+    retry_delay = 2
+    total_upserted = 0
+    failed_count = 0
+    failed_batches = []
+
+    for i in range(0, len(persist_df), batch_size):
+        batch = persist_df.iloc[i : i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (len(persist_df) + batch_size - 1) // batch_size
+
+        if batch_num > 1:
+            await asyncio.sleep(0.1)
+
+        batch_data = []
+        for row in batch.itertuples(index=False):
+            game_date = pd.Timestamp(row.game_date) if pd.notna(row.game_date) else None
+            batch_data.append(
+                {
+                    "game_uuid": str(row.id),
+                    "game_id": str(row.game_id) if pd.notna(row.game_id) else str(row.id),
+                    "team_id": str(row.team_id),
+                    "opp_id": str(row.opp_id),
+                    "game_date": game_date.date().isoformat() if game_date is not None else None,
+                    "gf": int(row.gf),
+                    "ga": int(row.ga),
+                    "team_mu": float(row.team_mu),
+                    "team_sigma": float(row.team_sigma),
+                    "opp_mu": float(row.opp_mu),
+                    "opp_sigma": float(row.opp_sigma),
+                    "expected_outcome": float(row.expected_outcome),
+                    "actual_outcome": float(row.actual_outcome),
+                    "outcome_surprise": float(row.outcome_surprise),
+                    "g_factor": float(row.g_factor),
+                    "recency_weight": float(row.recency_weight),
+                    "rating_contribution": float(row.rating_contribution),
+                    "off_residual": float(row.off_residual),
+                    "def_residual": float(row.def_residual),
+                }
+            )
+
+        batch_retry_delay = retry_delay
+        batch_saved = False
+        for attempt in range(max_retries):
+            try:
+                result = supabase_client.rpc(
+                    "batch_upsert_game_explainability",
+                    {"rows": batch_data},
+                ).execute()
+
+                if result.data is not None:
+                    total_upserted += result.data
+                else:
+                    total_upserted += len(batch_data)
+
+                batch_saved = True
+                break
+            except Exception as error:
+                error_msg = str(error)
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Retriable explainability error on batch {batch_num}/{total_batches}, "
+                        f"attempt {attempt + 1}/{max_retries}. "
+                        f"Retrying in {batch_retry_delay}s... Error: {error_msg[:100]}"
+                    )
+                    await asyncio.sleep(batch_retry_delay)
+                    batch_retry_delay *= 2
+                else:
+                    logger.warning(
+                        f"Explainability batch {batch_num}/{total_batches} failed after "
+                        f"{max_retries} attempts: {error_msg[:100]}"
+                    )
+                    failed_batches.append((batch_num, batch_data))
+                    break
+
+        if not batch_saved:
+            failed_count += len(batch_data)
+
+        if batch_num % 10 == 0:
+            logger.info(f"  Explainability progress: {total_upserted:,} / {len(persist_df):,} rows upserted...")
+
+    if failed_batches:
+        logger.info(f"Retrying {len(failed_batches)} failed explainability batch(es)...")
+        for batch_num, batch_data in failed_batches:
+            batch_retry_delay = retry_delay
+            for attempt in range(max_retries):
+                try:
+                    result = supabase_client.rpc(
+                        "batch_upsert_game_explainability",
+                        {"rows": batch_data},
+                    ).execute()
+
+                    if result.data is not None:
+                        total_upserted += result.data
+                    else:
+                        total_upserted += len(batch_data)
+
+                    failed_count -= len(batch_data)
+                    logger.info(f"Explainability batch {batch_num} saved on retry")
+                    break
+                except Exception as error:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(batch_retry_delay)
+                        batch_retry_delay *= 2
+                    else:
+                        logger.error(f"Explainability batch {batch_num} failed after all retries: {str(error)[:100]}")
+
+    if failed_count > 0 and total_upserted == 0:
+        logger.error(
+            f"Explainability persistence failed: 0/{len(persist_df):,} rows upserted, {failed_count:,} failed"
+        )
+    elif failed_count > 0:
+        logger.warning(
+            f"Explainability persistence partial: {total_upserted:,} upserted, "
+            f"{failed_count:,} failed out of {len(persist_df):,}"
+        )
+    else:
+        logger.info(f"✅ Successfully upserted {total_upserted:,} game explainability rows")
+
+    return (total_upserted, failed_count)
 
 
 def _safe_int(value: Any) -> int:
@@ -571,7 +712,8 @@ async def compute_rankings_with_ml(
     Returns:
         {
             "teams": teams_df_with_ml,
-            "games_used": games_used_df
+            "games_used": games_used_df,
+            "game_explainability": explainability_df
         }
     """
     ctx = ctx or RankingContext()
@@ -579,6 +721,7 @@ async def compute_rankings_with_ml(
     force_rebuild = ctx.force_rebuild
     save_snapshot = ctx.save_snapshot
     persist_game_residuals = ctx.persist_game_residuals
+    persist_game_explainability = ctx.persist_game_explainability
     calculate_rank_changes_enabled = ctx.calculate_rank_changes
     global_strength_map = ctx.global_strength_map
     merge_version = ctx.merge_version
@@ -609,7 +752,11 @@ async def compute_rankings_with_ml(
 
     if games_df.empty:
         logger.warning("⚠️  No games found - returning empty results")
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+        return {
+            "teams": pd.DataFrame(),
+            "games_used": pd.DataFrame(),
+            "game_explainability": pd.DataFrame(),
+        }
 
     logger.info(f"📊 Computing rankings for {len(games_df):,} game perspectives...")
 
@@ -653,6 +800,7 @@ async def compute_rankings_with_ml(
     _ecfg = _GCfg() if use_glicko else v53_cfg
     _ml = layer13_cfg or Layer13Config(lookback_days=_ecfg.WINDOW_DAYS if hasattr(_ecfg, "WINDOW_DAYS") else 365)
     _cfg_dict = {
+        "cache_schema": 2,
         "engine": "glicko" if use_glicko else "v53e",
         "min_games": _ecfg.MIN_GAMES_PROVISIONAL,
         "window": getattr(_ecfg, "WINDOW_DAYS", 365),
@@ -683,6 +831,7 @@ async def compute_rankings_with_ml(
     cache_key = hashlib.md5(hash_input.encode()).hexdigest()
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
     cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
+    cache_file_explain = cache_dir / f"rankings_{cache_key}_game_explainability.parquet"
 
     # Try to load from cache (both teams and games_used)
     base = None
@@ -690,14 +839,28 @@ async def compute_rankings_with_ml(
         try:
             cached_teams = pd.read_parquet(cache_file_teams)
             if not cached_teams.empty:
-                # Cache hit - load both teams and games_used, skip v53e entirely
+                # Cache hit - load teams plus any auxiliary DataFrames.
                 cached_games_used = pd.DataFrame()
+                cached_game_explainability = pd.DataFrame()
                 if cache_file_games.exists():
                     try:
                         cached_games_used = pd.read_parquet(cache_file_games)
                     except Exception:
                         pass  # games_used cache failed, use empty
-                base = {"teams": cached_teams, "games_used": cached_games_used}
+                if use_glicko:
+                    if cache_file_explain.exists():
+                        try:
+                            cached_game_explainability = pd.read_parquet(cache_file_explain)
+                        except Exception as error:
+                            logger.warning("Game explainability cache load failed; rebuilding rankings: %s", error)
+                            raise
+                    else:
+                        raise FileNotFoundError("Missing game explainability cache for Glicko run")
+                base = {
+                    "teams": cached_teams,
+                    "games_used": cached_games_used,
+                    "game_explainability": cached_game_explainability,
+                }
         except Exception:
             # Cache load failed - continue with computation
             pass
@@ -742,6 +905,10 @@ async def compute_rankings_with_ml(
             if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
                 games_used_to_cache.to_parquet(cache_file_games, index=False)
                 logger.debug(f"💾 Cached games_used to {cache_file_games}")
+            explainability_to_cache = base.get("game_explainability")
+            if explainability_to_cache is not None and not getattr(explainability_to_cache, "empty", True):
+                explainability_to_cache.to_parquet(cache_file_explain, index=False)
+                logger.debug(f"💾 Cached game explainability to {cache_file_explain}")
         except Exception:
             # Cache save failed - continue without caching
             pass
@@ -750,12 +917,16 @@ async def compute_rankings_with_ml(
 
     teams_base = base["teams"]
     games_used = base.get("games_used")
+    game_explainability = base.get("game_explainability")
     _pre_sos_state = base.get("pre_sos_state")
 
     if teams_base.empty:
         return {
             "teams": teams_base,
             "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
+            "game_explainability": (
+                game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame()
+            ),
         }
 
     # Log PowerScore summary before ML layer
@@ -813,6 +984,23 @@ async def compute_rankings_with_ml(
             logger.warning("⚠️ No game residuals to persist — check extraction logs above")
             logger.warning("   Common causes: missing columns (id, home_team_master_id), empty feats, or filter issues")
 
+    with _section(timing_report, "persist_game_explainability"):
+        if not persist_game_explainability:
+            logger.info("Skipping explainability persistence (disabled for this run)")
+        elif skip_persist:
+            logger.info("Skipping explainability persistence (Pass 1 - will persist in Pass 2)")
+        elif getattr(game_explainability, "empty", True):
+            logger.info("No game explainability rows to persist for this cohort")
+        else:
+            logger.info("Persisting %s game explainability rows to database...", len(game_explainability))
+            updated, failed = await _persist_game_explainability(supabase_client, game_explainability)
+            if failed > 0:
+                logger.warning("Game explainability: %s persisted, %s failed", f"{updated:,}", f"{failed:,}")
+            elif updated == 0:
+                logger.warning("Game explainability: 0 records persisted despite non-empty input")
+            else:
+                logger.info("Game explainability persisted: %s records", f"{updated:,}")
+
     # Log PowerScore summary after ML layer
     if not teams_with_ml.empty and "powerscore_ml" in teams_with_ml.columns:
         ps_ml = teams_with_ml["powerscore_ml"]
@@ -866,6 +1054,7 @@ async def compute_rankings_with_ml(
     return {
         "teams": teams_with_ml,
         "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
+        "game_explainability": game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame(),
         "pre_sos_state": _pre_sos_state,
     }
 
@@ -909,7 +1098,11 @@ async def compute_rankings_v53e_only(
 
     if games_df.empty:
         logger.warning("⚠️  No games found - returning empty results")
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+        return {
+            "teams": pd.DataFrame(),
+            "games_used": pd.DataFrame(),
+            "game_explainability": pd.DataFrame(),
+        }
 
     logger.info(f"📊 Computing v53e rankings for {len(games_df):,} game perspectives...")
 
@@ -925,7 +1118,10 @@ async def compute_rankings_v53e_only(
         )
     logger.info(f"✅ v53e engine completed: {len(result['teams']):,} teams ranked")
 
-    return result
+    return {
+        **result,
+        "game_explainability": result.get("game_explainability", pd.DataFrame()),
+    }
 
 
 async def compute_all_cohorts(
@@ -942,6 +1138,7 @@ async def compute_all_cohorts(
     timing_report: Optional["TimingReport"] = None,
     use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
     persist_game_residuals: bool = True,
+    persist_game_explainability: bool = True,
     calculate_rank_changes: bool = True,
     save_snapshot: bool = True,
 ) -> Dict[str, pd.DataFrame]:
@@ -979,7 +1176,11 @@ async def compute_all_cohorts(
             raise ValueError("games_df is required if fetch_from_supabase is False")
 
     if games_df.empty:
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+        return {
+            "teams": pd.DataFrame(),
+            "games_used": pd.DataFrame(),
+            "game_explainability": pd.DataFrame(),
+        }
 
     # ========== FETCH TEAM STATE METADATA FOR SCF ==========
     # Fetch state_code for all teams to enable Schedule Connectivity Factor (SCF)
@@ -1073,7 +1274,11 @@ async def compute_all_cohorts(
 
     if games_df.empty:
         logger.error("❌ No valid games remain after age validation")
-        return {"teams": pd.DataFrame(), "games_used": pd.DataFrame()}
+        return {
+            "teams": pd.DataFrame(),
+            "games_used": pd.DataFrame(),
+            "game_explainability": pd.DataFrame(),
+        }
 
     # Group by (age, gender) cohorts
     cohorts = list(games_df.groupby(["age", "gender"]))
@@ -1102,6 +1307,7 @@ async def compute_all_cohorts(
                 pass_label="Pass1",
                 use_glicko=use_glicko,
                 persist_game_residuals=persist_game_residuals,
+                persist_game_explainability=persist_game_explainability,
                 calculate_rank_changes=calculate_rank_changes,
             ),
         )
@@ -1172,6 +1378,7 @@ async def compute_all_cohorts(
                 use_glicko=use_glicko,
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
                 persist_game_residuals=persist_game_residuals,
+                persist_game_explainability=persist_game_explainability,
                 calculate_rank_changes=calculate_rank_changes,
             ),
         )
@@ -1184,16 +1391,22 @@ async def compute_all_cohorts(
     with _section(timing_report, "merge_and_filter"):
         all_teams = []
         all_games_used = []
+        all_game_explainability = []
 
         for result in pass2_results:
             if not result["teams"].empty:
                 all_teams.append(result["teams"])
             if not result.get("games_used", pd.DataFrame()).empty:
                 all_games_used.append(result["games_used"])
+            if not result.get("game_explainability", pd.DataFrame()).empty:
+                all_game_explainability.append(result["game_explainability"])
 
         # Combine results
         teams_combined = pd.concat(all_teams, ignore_index=True) if all_teams else pd.DataFrame()
         games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
+        game_explainability_combined = (
+            pd.concat(all_game_explainability, ignore_index=True) if all_game_explainability else pd.DataFrame()
+        )
 
     # ========== Filter deprecated teams ==========
     # Remove any deprecated teams that slipped through game-level merge resolution.
@@ -1746,4 +1959,8 @@ async def compute_all_cohorts(
 
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
-    return {"teams": teams_combined, "games_used": games_used_combined}
+    return {
+        "teams": teams_combined,
+        "games_used": games_used_combined,
+        "game_explainability": game_explainability_combined,
+    }

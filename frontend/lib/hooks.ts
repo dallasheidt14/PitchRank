@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { MatchPredictionResponse } from './matchPredictionService';
-import type { TeamTrajectory, GameWithTeams, TeamWithRanking, RankHistoryPoint } from './types';
+import type { TeamTrajectory, GameWithTeams, GameExplainability, TeamWithRanking, RankHistoryPoint } from './types';
 
 /**
  * React Query hooks for data fetching
@@ -79,6 +79,24 @@ export function useTeamGames(id: string, limit: number = 50) {
     gcTime: 15 * 60 * 1000, // Keep in cache for 15 minutes
     retry: 1, // Retry once on failure (overrides global network-only retry)
     throwOnError: false, // Never throw to error boundaries (React 19 compat)
+  });
+}
+
+/**
+ * Get persisted explainability rows for a team's visible games.
+ * This uses a premium-only server route rather than direct browser-side Supabase.
+ */
+export function useGameExplainability(teamId: string, gameIds: string[], enabled: boolean) {
+  const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));
+
+  return useQuery<GameExplainability[]>({
+    queryKey: ['game-explainability', teamId, uniqueGameIds],
+    queryFn: () => api.getGameExplainability(teamId, uniqueGameIds),
+    enabled: enabled && !!teamId && uniqueGameIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: 1,
+    throwOnError: false,
   });
 }
 

@@ -210,3 +210,27 @@ export interface GameWithTeams extends Game {
   away_team_club_name?: string | null;
   was_overperformed?: boolean | null; // Deprecated: use ml_overperformance from Game interface
 }
+
+export interface GameExplainability {
+  team_id: string;
+  game_uuid: string;
+  game_id: string;
+  opp_id: string;
+  game_date: string | null;
+  gf: number | null;
+  ga: number | null;
+  team_mu: number | null;
+  team_sigma: number | null;
+  opp_mu: number | null;
+  opp_sigma: number | null;
+  expected_outcome: number | null;
+  actual_outcome: number | null;
+  outcome_surprise: number | null;
+  g_factor: number | null;
+  recency_weight: number | null;
+  rating_contribution: number | null;
+  off_residual: number | null;
+  def_residual: number | null;
+  last_calculated?: string;
+  created_at?: string;
+}
