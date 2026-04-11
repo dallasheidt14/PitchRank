@@ -263,6 +263,7 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     return {
         "cap_rank": 400,
         "soft_cap_rank": 250,
+        "thin_schedule_cap_rank": 1500,
         "severe_cap_rank": 2000,
         "cap_band_min_width": 0.005,
         "cap_band_max_width": 0.020,
@@ -270,6 +271,11 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
         "severe_min_avg_opp_power": 0.55,
+        "thin_schedule_max_top500": 2,
+        "thin_schedule_max_avg_opp_power": 0.50,
+        "isolation_override_max_scf": 0.50,
+        "isolation_override_max_states": 2,
+        "isolation_override_repeat_share": 0.45,
         "max_repeat_share": 0.40,
         "full_release_min_top100": 3,
         "full_release_combo_top100": 2,
@@ -537,11 +543,29 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     connectivity_constrained = low_state or repeat_heavy
     severe_weak_avg = avg_opp_power is None or avg_opp_power < float(policy["severe_min_avg_opp_power"])
+    scf = _safe_float(row.get("scf"))
+    unique_states = _safe_int(row.get("unique_opp_states")) if row.get("unique_opp_states") is not None else None
+
+    thin_schedule = (
+        top100 == 0
+        and top500 <= int(policy["thin_schedule_max_top500"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["thin_schedule_max_avg_opp_power"])
+    )
+    isolation_override = (
+        (scf is not None and scf <= float(policy["isolation_override_max_scf"]))
+        or (unique_states is not None and unique_states <= int(policy["isolation_override_max_states"]))
+        or repeat_share >= float(policy["isolation_override_repeat_share"])
+    )
 
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
     if top100 == 0 and top500 == 0 and top500_non_loss == 0 and top1000_non_loss == 0 and severe_weak_avg:
         return int(policy["severe_cap_rank"])
+    if thin_schedule and isolation_override:
+        return int(policy["severe_cap_rank"])
+    if thin_schedule:
+        return int(policy["thin_schedule_cap_rank"])
     if severe_connectivity:
         return int(policy["cap_rank"])
 

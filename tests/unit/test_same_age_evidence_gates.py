@@ -250,6 +250,40 @@ def test_publication_cap_rank_hits_severe_empty_schedule_bucket():
     assert _publication_cap_rank(row) == 2000
 
 
+def test_publication_cap_rank_hits_thin_schedule_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 1,
+            "same_age_avg_opp_power_adj": 0.49,
+            "repeat_opponent_share": 0.33,
+            "unique_opp_states": 5,
+            "scf": 1.0,
+        }
+    )
+    assert _publication_cap_rank(row) == 1500
+
+
+def test_publication_cap_rank_thin_isolated_team_hits_severe_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 2,
+            "same_age_top500_non_loss_opp_count": 1,
+            "same_age_top1000_non_loss_opp_count": 1,
+            "same_age_avg_opp_power_adj": 0.46,
+            "repeat_opponent_share": 0.21,
+            "unique_opp_states": 2,
+            "scf": 0.50,
+        }
+    )
+    assert _publication_cap_rank(row) == 2000
+
+
 def test_publication_cap_rank_skips_multi_top100_team_with_depth():
     row = pd.Series(
         {
