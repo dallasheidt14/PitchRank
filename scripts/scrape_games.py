@@ -14,7 +14,7 @@ import threading
 from asyncio import Semaphore
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
-from src.scrapers.gotsport import GotSportScraper
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
 from supabase import create_client
 
 console = Console()
@@ -44,6 +44,17 @@ if env_local.exists():
     logger.info("Loaded .env.local")
 else:
     logger.info("Loaded .env")
+
+
+def _is_placeholder_unknown_team(team: Dict) -> bool:
+    """Return True for placeholder teams like unknown_3712624 that should not be scraped."""
+    team_name = str(team.get("team_name") or "").strip()
+    provider_team_id = str(team.get("provider_team_id") or "").strip()
+
+    if not team_name or not provider_team_id:
+        return False
+
+    return team_name.lower() == f"unknown_{provider_team_id}".lower()
 
 
 def _bulk_fetch_scrape_dates(supabase, provider_id: str, team_ids: List[str]) -> Dict[str, Optional[datetime]]:
@@ -88,7 +99,7 @@ def _bulk_fetch_scrape_dates(supabase, provider_id: str, team_ids: List[str]) ->
     return scrape_dates
 
 
-def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Tuple[str, int]]):
+def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[str, Any]]):
     """OPTIMIZATION: Batch log team scrapes instead of individual calls"""
     if not scrape_logs:
         return
@@ -98,17 +109,24 @@ def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Tuple[s
 
     # Prepare batch updates for teams table and log entries
     log_entries = []
+    team_ids_to_update = []
 
-    for team_id_master, games_found in scrape_logs:
+    for scrape_log in scrape_logs:
+        team_id_master = scrape_log["team_id_master"]
+        games_found = int(scrape_log.get("games_found", 0))
+        status = str(scrape_log.get("status") or ("success" if games_found > 0 else "partial"))
+
         log_entries.append(
             {
                 "team_id": team_id_master,
                 "provider_id": provider_id,
                 "scraped_at": now_iso,
                 "games_found": games_found,
-                "status": "success" if games_found > 0 else "partial",
+                "status": status,
             }
         )
+        if scrape_log.get("update_last_scraped_at", True):
+            team_ids_to_update.append(team_id_master)
 
     # Batch insert scrape logs first
     batch_size = 500  # Larger batches for inserts
@@ -125,9 +143,9 @@ def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Tuple[s
     # Supabase doesn't support bulk UPDATE with different values easily, so we update individually but in batches
     batch_size = 100
     updated_count = 0
-    for i in range(0, len(scrape_logs), batch_size):
-        batch = scrape_logs[i : i + batch_size]
-        for team_id_master, _ in batch:
+    for i in range(0, len(team_ids_to_update), batch_size):
+        batch = team_ids_to_update[i : i + batch_size]
+        for team_id_master in batch:
             try:
                 supabase.table("teams").update({"last_scraped_at": now_iso}).eq(
                     "team_id_master", team_id_master
@@ -147,11 +165,11 @@ async def _scrape_team_concurrent(
     scrape_dates_cache: Dict[str, Optional[datetime]],
     file_lock: threading.Lock,
     output_file_handle,
-    log_buffer: List[Tuple[str, int]],
+    log_buffer: List[Dict[str, Any]],
     flush_counter: List[int],  # Thread-safe counter for flush tracking
     progress: Progress,
     task_id,
-) -> Tuple[int, Optional[str]]:
+) -> Tuple[int, Optional[str], bool]:
     """Scrape a single team (runs in thread pool for concurrency)"""
     async with semaphore:
         team_id = team.get("provider_team_id")
@@ -192,7 +210,15 @@ async def _scrape_team_concurrent(
                     should_flush = True
 
                 # Add to log buffer
-                log_buffer.append((team_master_id, len(game_data_list)))
+                if team_master_id:
+                    log_buffer.append(
+                        {
+                            "team_id_master": team_master_id,
+                            "games_found": len(game_data_list),
+                            "status": "success" if game_data_list else "partial",
+                            "update_last_scraped_at": True,
+                        }
+                    )
 
             # Flush outside lock to avoid blocking other threads
             if should_flush:
@@ -200,13 +226,35 @@ async def _scrape_team_concurrent(
                     output_file_handle.flush()
 
             progress.update(task_id, advance=1)
-            return games_count, None
+            return games_count, None, False
+
+        except TeamNotFoundError as e:
+            logger.warning(
+                "Skipping team %s (%s): %s. The provider_team_id appears stale or is a placeholder unknown team.",
+                team_id,
+                team_name,
+                e,
+            )
+
+            with file_lock:
+                if team_master_id:
+                    log_buffer.append(
+                        {
+                            "team_id_master": team_master_id,
+                            "games_found": 0,
+                            "status": "error",
+                            "update_last_scraped_at": True,
+                        }
+                    )
+
+            progress.update(task_id, advance=1)
+            return 0, None, True
 
         except Exception as e:
             error_msg = f"Team {team_id} ({team_name}): {str(e)}"
             logger.error(error_msg, exc_info=True)
             progress.update(task_id, advance=1)
-            return 0, error_msg
+            return 0, error_msg, False
 
 
 async def scrape_games(
@@ -356,8 +404,14 @@ async def scrape_games(
     len(teams)
     filtered_teams = []
     skipped_count = 0
+    placeholder_unknown_count = 0
 
     for team in teams:
+        if _is_placeholder_unknown_team(team):
+            logger.debug(f"Skipping placeholder unknown team: {team.get('team_name', 'Unknown')}")
+            placeholder_unknown_count += 1
+            continue
+
         age_group = team.get("age_group", "").upper().strip()
         birth_year = team.get("birth_year")
 
@@ -376,6 +430,8 @@ async def scrape_games(
         filtered_teams.append(team)
 
     teams = filtered_teams
+    if placeholder_unknown_count > 0:
+        console.print(f"[yellow]Filtered out {placeholder_unknown_count} placeholder unknown teams[/yellow]")
     if skipped_count > 0:
         console.print(f"[yellow]Filtered out {skipped_count} out-of-range teams (PitchRank is U10-U19 only)[/yellow]")
 
@@ -390,7 +446,7 @@ async def scrape_games(
 
     console.print(
         f"[bold cyan]Scraping games for {len(teams)} teams "
-        f"(of {total_eligible} eligible, {skipped_count} out-of-range filtered)[/bold cyan]"
+        f"(of {total_eligible} eligible after filtering)[/bold cyan]"
     )
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
@@ -417,6 +473,7 @@ async def scrape_games(
     output_file_handle = open(output_path, "w", encoding="utf-8")
     file_lock = threading.Lock()  # Thread-safe file access
     games_saved_count = 0
+    not_found_count = 0
     errors = []
     log_buffer = []  # Batch logging buffer
     flush_counter = [0]  # Thread-safe counter for periodic flushing
@@ -460,8 +517,10 @@ async def scrape_games(
                 if isinstance(result, Exception):
                     errors.append(str(result))
                 elif isinstance(result, tuple):
-                    games_count, error = result
+                    games_count, error, team_not_found = result
                     games_saved_count += games_count
+                    if team_not_found:
+                        not_found_count += 1
                     if error:
                         errors.append(error)
 
@@ -481,6 +540,8 @@ async def scrape_games(
     console.print("\n[bold green]✅ Scraping complete![/bold green]")
     console.print(f"  Games scraped: {games_saved_count:,}")
     console.print(f"  Teams processed: {len(teams)}")
+    if not_found_count > 0:
+        console.print(f"  Missing provider teams skipped: {not_found_count}")
     console.print(f"  Errors: {len(errors)}")
     console.print(f"  Output file: {output_path}")
 
