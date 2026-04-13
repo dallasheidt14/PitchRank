@@ -1,5 +1,6 @@
 import React from 'react';
 import { BASE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 export interface BreadcrumbItem {
   name: string;
@@ -27,12 +28,7 @@ export function BreadcrumbSchema({ items }: BreadcrumbSchemaProps) {
     })),
   };
 
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, '\\u003c') }}
-    />
-  );
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(schema) }} />;
 }
 
 // Also export as default for flexibility

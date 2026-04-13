@@ -5,6 +5,7 @@
  */
 
 import type { FAQ } from '@/lib/blog-faqs';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 interface BlogFAQSchemaProps {
   faqs: FAQ[];
@@ -28,7 +29,7 @@ export function BlogFAQSchema({ faqs }: BlogFAQSchemaProps) {
     <script
       type="application/ld+json"
       dangerouslySetInnerHTML={{
-        __html: JSON.stringify(schema).replace(/</g, '\\u003c'),
+        __html: safeJsonLd(schema),
       }}
     />
   );

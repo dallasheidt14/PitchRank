@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { RankingsPageContent } from '@/components/RankingsPageContent';
 import { BASE_URL, US_STATES } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 /**
  * Rankings landing page — server component for SEO.
@@ -44,10 +45,7 @@ const rankingsSchema = {
 export default function RankingsPage() {
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(rankingsSchema).replace(/</g, '\\u003c') }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(rankingsSchema) }} />
       {/* Server-rendered H1 and intro for SEO — appears before client component */}
       <section className="container mx-auto px-4 pt-8 pb-4">
         <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">

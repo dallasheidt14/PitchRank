@@ -1,5 +1,6 @@
 import React from 'react';
 import { BASE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 interface BlogPostSchemaProps {
   title: string;
@@ -71,12 +72,7 @@ export function BlogPostSchema({
     }),
   };
 
-  return (
-    <script
-      type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(schema).replace(/</g, '\\u003c') }}
-    />
-  );
+  return <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(schema) }} />;
 }
 
 // Also export as default for flexibility

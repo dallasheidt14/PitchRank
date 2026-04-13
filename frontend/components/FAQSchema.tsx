@@ -1,3 +1,5 @@
+import { safeJsonLd } from '@/lib/schema-utils';
+
 /**
  * FAQ Schema (Structured Data) for Methodology Page
  * Helps Google display FAQ rich results in search
@@ -102,7 +104,7 @@ export function FAQSchema() {
     <script
       type="application/ld+json"
       dangerouslySetInnerHTML={{
-        __html: JSON.stringify(faqSchema).replace(/</g, '\\u003c'),
+        __html: safeJsonLd(faqSchema),
       }}
     />
   );

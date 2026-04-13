@@ -1,3 +1,5 @@
+import { safeJsonLd } from '@/lib/schema-utils';
+
 interface TeamSchemaProps {
   teamName: string;
   clubName?: string;
@@ -73,7 +75,7 @@ export function TeamSchema({
     <script
       type="application/ld+json"
       dangerouslySetInnerHTML={{
-        __html: JSON.stringify(schema).replace(/</g, '\\u003c'),
+        __html: safeJsonLd(schema),
       }}
     />
   );

@@ -51,6 +51,11 @@ const nextConfig: NextConfig = {
         destination: '/blog/california-youth-soccer-rankings-guide',
         permanent: true,
       },
+      {
+        source: '/blog/2026-03-14-texas-youth-soccer-rankings',
+        destination: '/blog/texas-youth-soccer-rankings-guide',
+        permanent: true,
+      },
     ];
   },
 

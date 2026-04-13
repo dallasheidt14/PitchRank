@@ -1,4 +1,5 @@
 import { BASE_URL, formatGender } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 interface RankedTeam {
   teamName: string;
@@ -99,13 +100,13 @@ export function RankingsSchema({ region, ageGroup, gender, topTeams, totalTeams,
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(rankingsSchema).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(rankingsSchema),
         }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(webPageSchema).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(webPageSchema),
         }}
       />
     </>
