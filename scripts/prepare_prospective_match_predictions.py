@@ -9,6 +9,7 @@ and stores the result in prospective_match_predictions.
 
 from __future__ import annotations
 
+import asyncio
 import argparse
 import json
 import logging
@@ -31,6 +32,11 @@ else:
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from scripts.backtest_predictor import (  # noqa: E402
+    build_snapshot_index as build_historical_snapshot_index,
+    fetch_prediction_feature_snapshots,
+    fetch_team_names,
+)
 from scripts.process_match_prediction_shadow import (  # noqa: E402
     _apply_optional_calibration,
     _build_shadow_payload,
@@ -40,6 +46,7 @@ from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from src.predictions.point_in_time_calibration import PointInTimeProbabilityCalibrator  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
+    _snapshot_as_of,
     build_point_in_time_matchup_row,
 )
 from src.utils.merge_resolver import MergeResolver  # noqa: E402
@@ -436,25 +443,34 @@ def _fetch_recent_games(
     supabase: Client,
     team_ids: Iterable[str],
     lookback_days: int,
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> List[PredictorGame]:
     ids = sorted({str(team_id) for team_id in team_ids if team_id})
     if not ids:
         return []
 
-    cutoff_date = (datetime.now(timezone.utc).date() - timedelta(days=lookback_days)).isoformat()
+    if start_date:
+        cutoff_date = str(start_date)
+    else:
+        reference_date = pd.Timestamp(end_date).date() if end_date else datetime.now(timezone.utc).date()
+        cutoff_date = (reference_date - timedelta(days=lookback_days)).isoformat()
     rows_by_id: Dict[str, Dict[str, Any]] = {}
     select_fields = "id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, is_excluded"
 
     for batch in _chunked(ids, 100):
         for column_name in ("home_team_master_id", "away_team_master_id"):
-            response = (
+            query = (
                 supabase.table("games")
                 .select(select_fields)
                 .gte("game_date", cutoff_date)
                 .eq("is_excluded", False)
                 .in_(column_name, batch)
-                .execute()
             )
+            if end_date:
+                query = query.lte("game_date", str(end_date))
+            response = query.execute()
             for row in response.data or []:
                 game_id = str(row.get("id") or "")
                 if not game_id:
@@ -672,21 +688,22 @@ def _build_offline_prediction(
     *,
     home_team_id: str,
     away_team_id: str,
-    team_contexts: Dict[str, Dict[str, Any]],
+    team_names: Dict[str, str],
     recent_games: List[PredictorGame],
     snapshot_index: Dict[str, List[Dict[str, Any]]],
     model: PointInTimeMatchModel,
     calibrator: Optional[PointInTimeProbabilityCalibrator],
     model_version: str,
 ) -> Dict[str, Any]:
-    if home_team_id not in team_contexts:
-        raise ValueError(f"Missing team context for home team {home_team_id}")
-    if away_team_id not in team_contexts:
-        raise ValueError(f"Missing team context for away team {away_team_id}")
-
     game_date = fixture.game_date or datetime.now(timezone.utc).date().isoformat()
-    home_snapshot = _build_snapshot_payload(team_contexts[home_team_id], game_date)
-    away_snapshot = _build_snapshot_payload(team_contexts[away_team_id], game_date)
+    home_snapshot = _snapshot_as_of(snapshot_index, home_team_id, game_date)
+    away_snapshot = _snapshot_as_of(snapshot_index, away_team_id, game_date)
+    if home_snapshot is None:
+        raise ValueError(f"Missing point-in-time snapshot for home team {home_team_id} as of {game_date}")
+    if away_snapshot is None:
+        raise ValueError(f"Missing point-in-time snapshot for away team {away_team_id} as of {game_date}")
+
+    prior_games = [game for game in recent_games if str(game.game_date) < game_date]
     matchup_frame = pd.DataFrame(
         [
             build_point_in_time_matchup_row(
@@ -694,12 +711,12 @@ def _build_offline_prediction(
                 team_b_id=away_team_id,
                 team_a_snapshot=home_snapshot,
                 team_b_snapshot=away_snapshot,
-                all_games=recent_games,
+                all_games=prior_games,
                 game_date=game_date,
                 snapshot_index=snapshot_index,
                 team_names={
-                    home_team_id: team_contexts[home_team_id].get("team_name"),
-                    away_team_id: team_contexts[away_team_id].get("team_name"),
+                    home_team_id: team_names.get(home_team_id) or fixture.home_team_name,
+                    away_team_id: team_names.get(away_team_id) or fixture.away_team_name,
                 },
                 game_id=f"prospective:{fixture.fixture_key}",
                 example_orientation="prospective",
@@ -785,7 +802,27 @@ def prepare_prospective_match_predictions(
             if resolution.team_id_master
         }
     )
-    recent_games = _fetch_recent_games(supabase, resolved_team_ids, lookback_days)
+    resolved_fixture_dates = sorted(
+        {
+            fixture.game_date
+            for fixture in fixtures
+            if resolution_index.get((fixture.provider_code, fixture.home_provider_team_id), TeamResolution(None, None)).team_id_master
+            and resolution_index.get((fixture.provider_code, fixture.away_provider_team_id), TeamResolution(None, None)).team_id_master
+            and fixture.game_date
+        }
+    )
+    min_fixture_date = resolved_fixture_dates[0] if resolved_fixture_dates else None
+    max_fixture_date = resolved_fixture_dates[-1] if resolved_fixture_dates else None
+    recent_game_start = None
+    if min_fixture_date:
+        recent_game_start = (pd.Timestamp(min_fixture_date).date() - timedelta(days=lookback_days)).isoformat()
+    recent_games = _fetch_recent_games(
+        supabase,
+        resolved_team_ids,
+        lookback_days,
+        start_date=recent_game_start,
+        end_date=max_fixture_date,
+    )
     involved_team_ids = set(resolved_team_ids)
     for game in recent_games:
         if game.home_team_master_id:
@@ -793,8 +830,20 @@ def prepare_prospective_match_predictions(
         if game.away_team_master_id:
             involved_team_ids.add(str(game.away_team_master_id))
 
-    team_contexts = _fetch_team_contexts(supabase, involved_team_ids)
-    snapshot_index = _build_snapshot_index(team_contexts, datetime.now(timezone.utc).date().isoformat())
+    team_names: Dict[str, str] = {}
+    snapshot_index: Dict[str, List[Dict[str, Any]]] = {}
+    if involved_team_ids and min_fixture_date and max_fixture_date:
+        snapshot_start = (pd.Timestamp(min_fixture_date).date() - timedelta(days=30)).isoformat()
+        snapshots_df = asyncio.run(
+            fetch_prediction_feature_snapshots(
+                supabase,
+                sorted(involved_team_ids),
+                snapshot_start,
+                max_fixture_date,
+            )
+        )
+        snapshot_index = build_historical_snapshot_index(snapshots_df)
+        team_names = asyncio.run(fetch_team_names(supabase, sorted(involved_team_ids)))
 
     model = None
     calibrator = None
@@ -893,7 +942,7 @@ def prepare_prospective_match_predictions(
                     fixture,
                     home_team_id=str(home_resolution.team_id_master),
                     away_team_id=str(away_resolution.team_id_master),
-                    team_contexts=team_contexts,
+                    team_names=team_names,
                     recent_games=recent_games,
                     snapshot_index=snapshot_index,
                     model=model,
