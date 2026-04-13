@@ -28,9 +28,9 @@ on:
         default: "365"
         type: string
       training_run_id:
-        description: "Optional model-training run ID to freeze offline predictions"
+        description: "Model-training run ID to freeze offline predictions (defaults to current hybrid candidate)"
         required: false
-        default: ""
+        default: "24367490034"
         type: string
       model_artifact_name:
         description: "Optional model artifact name override"
@@ -43,9 +43,9 @@ on:
         default: false
         type: boolean
       offline_model_version:
-        description: "Optional explicit offline model version label"
+        description: "Explicit offline model version label (defaults to current hybrid candidate)"
         required: false
-        default: ""
+        default: "pitm_24367490034_hybrid"
         type: string
       force_offline_refresh:
         description: "Recompute offline predictions even if rows already have completed offline payloads"
