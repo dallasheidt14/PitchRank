@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES, AGE_GROUPS_ALL, BASE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 import { api } from '@/lib/api';
 
 // Revalidate every hour for ISR caching
@@ -156,10 +157,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, '\\u003c') }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(structuredData) }} />
 
       <div className="container mx-auto py-8 px-4">
         <Breadcrumbs

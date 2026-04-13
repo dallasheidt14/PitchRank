@@ -1395,47 +1395,32 @@ async def compute_all_cohorts(
     team_ids.update(games_df["opp_id"].dropna().astype(str).tolist())
 
     team_state_map = {}
-    with _section(timing_report, "team_state_map"):
+    tier_league_map: Dict[str, str] = {}
+    with _section(timing_report, "team_metadata"):
         if team_ids:
-            logger.info(f"🗺️  Fetching state metadata for {len(team_ids):,} teams (for SCF)...")
+            logger.info(f"🗺️  Fetching state+league metadata for {len(team_ids):,} teams (for SCF + tier multiplier)...")
             rows = batch_fetch_rows(
                 supabase_client,
                 "teams",
-                "team_id_master, state_code",
+                "team_id_master, state_code, league",
                 "team_id_master",
                 list(team_ids),
             )
             for row in rows:
                 team_id = str(row.get("team_id_master", ""))
+                if not team_id:
+                    continue
                 state_code = row.get("state_code", "UNKNOWN")
-                if team_id:
-                    team_state_map[team_id] = state_code if state_code else "UNKNOWN"
+                team_state_map[team_id] = state_code if state_code else "UNKNOWN"
+                league = row.get("league")
+                if league:
+                    tier_league_map[team_id] = league
 
             state_counts: Dict[str, int] = {}
             for state in team_state_map.values():
                 state_counts[state] = state_counts.get(state, 0) + 1
             top_states = sorted(state_counts.items(), key=lambda x: -x[1])[:5]
             logger.info(f"✅ Fetched state_code for {len(team_state_map):,} teams. Top states: {dict(top_states)}")
-        else:
-            logger.warning("⚠️ No team IDs found for state metadata fetch - SCF will be disabled")
-
-    # Build tier_league_map for SOS opponent strength discounting
-    tier_league_map: Dict[str, str] = {}
-    with _section(timing_report, "tier_league_map"):
-        if team_ids:
-            logger.info(f"🏆 Fetching league metadata for {len(team_ids):,} teams (for tier multiplier)...")
-            rows = batch_fetch_rows(
-                supabase_client,
-                "teams",
-                "team_id_master, league",
-                "team_id_master",
-                list(team_ids),
-            )
-            for row in rows:
-                team_id = str(row.get("team_id_master", ""))
-                league = row.get("league")
-                if team_id and league:
-                    tier_league_map[team_id] = league
             league_counts: Dict[str, int] = {}
             for lg in tier_league_map.values():
                 league_counts[lg] = league_counts.get(lg, 0) + 1
@@ -1444,7 +1429,7 @@ async def compute_all_cohorts(
                 f"✅ Fetched league for {len(tier_league_map):,} teams. Distribution: {top_league_distribution}"
             )
         else:
-            logger.warning("⚠️ No team IDs found for league metadata fetch")
+            logger.warning("⚠️ No team IDs found for metadata fetch - SCF and tier multiplier will be disabled")
 
     # ========== AGE-BUCKET VALIDATION ==========
     # Reject/quarantine ages outside PitchRank's supported range (U10–U19).

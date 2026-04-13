@@ -1,4 +1,5 @@
 import { BASE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 /**
  * Structured Data (Schema.org JSON-LD) component
@@ -63,7 +64,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(organizationSchema).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(organizationSchema),
         }}
       />
 
@@ -71,7 +72,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(websiteSchema).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(websiteSchema),
         }}
       />
 
@@ -79,7 +80,7 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(sportsOrgSchema).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(sportsOrgSchema),
         }}
       />
     </>

@@ -4,6 +4,7 @@ import { US_STATES, BASE_URL, formatGender } from '@/lib/constants';
 import { api } from '@/lib/api';
 import { formatPowerScore } from '@/lib/utils';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -150,8 +151,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
     url: `${BASE_URL}/rankings/${safeRegion}/${safeAgeGroup}/${safeGender}`,
   };
 
-  // Escape </script> sequences to prevent XSS in JSON-LD structured data
-  const safeJsonLd = JSON.stringify(structuredData).replace(/</g, '\\u003c');
+  const jsonLd = safeJsonLd(structuredData);
 
   // Build breadcrumb trail
   const breadcrumbItems = [
@@ -165,7 +165,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   return (
     <>
       <BreadcrumbSchema items={breadcrumbItems} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
 
       {/* Server-rendered SEO content — H1 and intro visible, team list hidden (duplicates interactive table) */}
       <section className="container mx-auto px-4 pt-8 pb-4">

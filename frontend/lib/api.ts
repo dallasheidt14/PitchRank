@@ -26,13 +26,13 @@ import { normalizeAgeGroup } from './utils';
 import type {
   Team,
   Game,
-  RankingWithTeam,
   TeamTrajectory,
   GameWithTeams,
   GameExplainability,
   TeamWithRanking,
   RankHistoryPoint,
 } from './types';
+import type { RankingRow } from '@/types/RankingRow';
 import type { MatchPredictionResponse } from './matchPredictionService';
 import type { TeamPredictive } from '@/types/TeamPredictive';
 
@@ -52,16 +52,16 @@ export const api = {
    * @param region - State code (2 letters) or null/undefined for national rankings
    * @param ageGroup - Age group filter (e.g., 'u10', 'u11') - will be normalized to integer
    * @param gender - Gender filter ('M', 'F', 'B', 'G')
-   * @returns Array of RankingWithTeam objects
+   * @returns Array of RankingRow objects
    */
   async getRankings(
     region?: string | null,
     ageGroup?: string,
     gender?: 'M' | 'F' | 'B' | 'G' | null,
     options?: { limit?: number }
-  ): Promise<RankingWithTeam[]> {
+  ): Promise<RankingRow[]> {
     const BATCH_SIZE = 1000;
-    const allResults: RankingWithTeam[] = [];
+    const allResults: RankingRow[] = [];
     let offset = 0;
     let hasMore = true;
 
@@ -93,7 +93,7 @@ export const api = {
         if (!data || data.length === 0) {
           hasMore = false;
         } else {
-          allResults.push(...(data as RankingWithTeam[]));
+          allResults.push(...(data as RankingRow[]));
           if (data.length < batchSize) {
             hasMore = false;
           } else if (fetchLimit && allResults.length >= fetchLimit) {
@@ -123,7 +123,7 @@ export const api = {
         throw rpcResult.error;
       }
 
-      let data = rpcResult.data as RankingWithTeam[] | null;
+      let data = rpcResult.data as RankingRow[] | null;
 
       if (rpcResult.error && isMissingNationalRankingsRpc(rpcResult.error)) {
         let fallbackQuery = supabase
@@ -149,13 +149,13 @@ export const api = {
           throw fallbackResult.error;
         }
 
-        data = fallbackResult.data as RankingWithTeam[] | null;
+        data = fallbackResult.data as RankingRow[] | null;
       }
 
       if (!data || data.length === 0) {
         hasMore = false;
       } else {
-        allResults.push(...(data as RankingWithTeam[]));
+        allResults.push(...(data as RankingRow[]));
         if (data.length < batchSize) {
           hasMore = false;
         } else if (fetchLimit && allResults.length >= fetchLimit) {
@@ -1054,9 +1054,10 @@ export const api = {
       body: JSON.stringify({ gameIds: uniqueGameIds }),
     });
 
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string; breakdowns?: GameExplainability[] }
-      | null;
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      breakdowns?: GameExplainability[];
+    } | null;
 
     if (!response.ok) {
       const message =

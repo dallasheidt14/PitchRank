@@ -5,6 +5,7 @@ import { ChevronRight, Home } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useMemo } from 'react';
 import { BASE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/schema-utils';
 
 interface BreadcrumbItem {
   label: string;
@@ -157,7 +158,7 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(structuredData).replace(/</g, '\\u003c'),
+          __html: safeJsonLd(structuredData),
         }}
       />
 
