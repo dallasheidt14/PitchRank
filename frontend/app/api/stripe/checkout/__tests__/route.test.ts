@@ -75,8 +75,12 @@ describe('POST /api/stripe/checkout', () => {
     expect(body.url).toBe('https://checkout.stripe.com/anon');
     expect(mockCheckoutSessionsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        customer_creation: 'always',
+        mode: 'subscription',
         metadata: { anonymous_checkout: 'true' },
+        subscription_data: expect.objectContaining({
+          trial_period_days: 7,
+          metadata: { anonymous_checkout: 'true' },
+        }),
       })
     );
   });
