@@ -253,6 +253,18 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _parse_age_number(value: Any) -> int | None:
+    if value is None:
+        return None
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except (TypeError, ValueError):
+        return None
+
+
 def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     """Uniform evidence policy for ML authority and publication caps.
 
@@ -273,6 +285,11 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "severe_min_avg_opp_power": 0.55,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
+        "local_loop_max_top500": 1,
+        "local_loop_max_avg_opp_power": 0.52,
+        "local_loop_repeat_share": 0.60,
+        "local_loop_max_states": 1,
+        "local_loop_max_scf": 0.40,
         "isolation_override_max_scf": 0.50,
         "isolation_override_max_states": 2,
         "isolation_override_repeat_share": 0.45,
@@ -285,6 +302,14 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "connectivity_min_unique_states": 3,
         "connectivity_repeat_share": 0.45,
         "partial_ml_scale": 0.25,
+        "play_up_partial_ml_scale": 0.50,
+        "play_up_min_game_share": 0.40,
+        "play_up_min_top500_non_loss": 2,
+        "play_up_min_top1000_non_loss": 4,
+        "play_up_min_avg_opp_power": 0.58,
+        "play_up_bonus_per_top500_non_loss": 0.015,
+        "play_up_bonus_per_top1000_non_loss": 0.005,
+        "play_up_bonus_max": 0.060,
     }
 
 
@@ -361,6 +386,14 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
             "same_age_top500_non_loss_opp_count": 0,
             "same_age_top1000_non_loss_opp_count": 0,
             "same_age_avg_opp_power_adj": pd.NA,
+            "play_up_games": 0,
+            "play_up_game_share": 0.0,
+            "play_up_unique_opponents": 0,
+            "play_up_top100_opp_count": 0,
+            "play_up_top500_opp_count": 0,
+            "play_up_top500_non_loss_opp_count": 0,
+            "play_up_top1000_non_loss_opp_count": 0,
+            "play_up_avg_opp_power_adj": pd.NA,
             "repeat_opponent_share": 0.0,
         }
     )
@@ -397,24 +430,53 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
             continue
         team_age = str(tg["age"].iloc[0])
         team_gender = str(tg["gender"].iloc[0])
+        team_age_num = _parse_age_number(team_age)
         same_age = tg[(tg["opp_age"] == team_age) & (tg["opp_gender"] == team_gender)]
+        play_up = tg[
+            (tg["opp_gender"] == team_gender)
+            & (tg["opp_age"].map(_parse_age_number) == (team_age_num + 1 if team_age_num is not None else None))
+        ]
         unique_same_age_opp_ids = same_age["opp_id"].dropna().astype(str).unique().tolist()
+        unique_play_up = play_up[["opp_id", "opp_age", "opp_gender"]].dropna(subset=["opp_id"]).copy()
+        unique_play_up["opp_id"] = unique_play_up["opp_id"].astype(str)
+        unique_play_up = unique_play_up.drop_duplicates(subset=["opp_id", "opp_age", "opp_gender"])
         if {"gf", "ga"}.issubset(same_age.columns):
             non_loss_same_age = same_age[same_age["gf"].fillna(-999) >= same_age["ga"].fillna(999)]
         else:
             non_loss_same_age = same_age.iloc[0:0]
+        if {"gf", "ga"}.issubset(play_up.columns):
+            non_loss_play_up = play_up[play_up["gf"].fillna(-999) >= play_up["ga"].fillna(999)]
+        else:
+            non_loss_play_up = play_up.iloc[0:0]
         unique_non_loss_same_age_opp_ids = non_loss_same_age["opp_id"].dropna().astype(str).unique().tolist()
+        unique_non_loss_play_up = non_loss_play_up[["opp_id", "opp_age", "opp_gender"]].dropna(subset=["opp_id"]).copy()
+        unique_non_loss_play_up["opp_id"] = unique_non_loss_play_up["opp_id"].astype(str)
+        unique_non_loss_play_up = unique_non_loss_play_up.drop_duplicates(subset=["opp_id", "opp_age", "opp_gender"])
         cohort_rank_map = base_rank_lookup.get((team_age, team_gender), {})
         opp_ranks = [cohort_rank_map.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in cohort_rank_map]
         non_loss_opp_ranks = [
             cohort_rank_map.get(opp_id) for opp_id in unique_non_loss_same_age_opp_ids if opp_id in cohort_rank_map
         ]
+        play_up_opp_ranks = [
+            base_rank_lookup.get((str(row.opp_age), str(row.opp_gender)), {}).get(str(row.opp_id))
+            for row in unique_play_up.itertuples(index=False)
+        ]
+        play_up_non_loss_opp_ranks = [
+            base_rank_lookup.get((str(row.opp_age), str(row.opp_gender)), {}).get(str(row.opp_id))
+            for row in unique_non_loss_play_up.itertuples(index=False)
+        ]
         opp_powers = [
             base_power_lookup.get(opp_id) for opp_id in unique_same_age_opp_ids if opp_id in base_power_lookup
+        ]
+        play_up_opp_powers = [
+            base_power_lookup.get(str(opp_id))
+            for opp_id in unique_play_up["opp_id"].tolist()
+            if str(opp_id) in base_power_lookup
         ]
         counts = tg["opp_id"].value_counts()
         repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
         clean_opp_powers = [float(val) for val in opp_powers if val is not None and not pd.isna(val)]
+        clean_play_up_powers = [float(val) for val in play_up_opp_powers if val is not None and not pd.isna(val)]
 
         rows.append(
             {
@@ -433,6 +495,24 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
                 "same_age_avg_opp_power_adj": (
                     float(sum(clean_opp_powers) / len(clean_opp_powers)) if clean_opp_powers else pd.NA
                 ),
+                "play_up_games": int(len(play_up)),
+                "play_up_game_share": float(len(play_up) / len(tg)) if len(tg) else 0.0,
+                "play_up_unique_opponents": int(len(unique_play_up)),
+                "play_up_top100_opp_count": int(
+                    sum(1 for rank in play_up_opp_ranks if rank is not None and rank <= 100)
+                ),
+                "play_up_top500_opp_count": int(
+                    sum(1 for rank in play_up_opp_ranks if rank is not None and rank <= 500)
+                ),
+                "play_up_top500_non_loss_opp_count": int(
+                    sum(1 for rank in play_up_non_loss_opp_ranks if rank is not None and rank <= 500)
+                ),
+                "play_up_top1000_non_loss_opp_count": int(
+                    sum(1 for rank in play_up_non_loss_opp_ranks if rank is not None and rank <= 1000)
+                ),
+                "play_up_avg_opp_power_adj": (
+                    float(sum(clean_play_up_powers) / len(clean_play_up_powers)) if clean_play_up_powers else pd.NA
+                ),
                 "repeat_opponent_share": repeat_share,
             }
         )
@@ -450,6 +530,14 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         "same_age_top500_non_loss_opp_count",
         "same_age_top1000_non_loss_opp_count",
         "same_age_avg_opp_power_adj",
+        "play_up_games",
+        "play_up_game_share",
+        "play_up_unique_opponents",
+        "play_up_top100_opp_count",
+        "play_up_top500_opp_count",
+        "play_up_top500_non_loss_opp_count",
+        "play_up_top1000_non_loss_opp_count",
+        "play_up_avg_opp_power_adj",
         "repeat_opponent_share",
     ]:
         default_col = f"{col}_default"
@@ -487,6 +575,56 @@ def _has_full_same_age_release(
     return top100 >= int(policy["full_release_combo_top100"]) and top500 >= int(policy["full_release_combo_top500"])
 
 
+def _has_play_up_support(
+    play_up_share: float,
+    play_up_top500_non_loss: int,
+    play_up_top1000_non_loss: int,
+    play_up_avg_opp_power: float | None,
+    policy: dict[str, float | int],
+) -> bool:
+    if play_up_avg_opp_power is None:
+        return False
+    return (
+        play_up_share >= float(policy["play_up_min_game_share"])
+        and play_up_top500_non_loss >= int(policy["play_up_min_top500_non_loss"])
+        and play_up_top1000_non_loss >= int(policy["play_up_min_top1000_non_loss"])
+        and play_up_avg_opp_power >= float(policy["play_up_min_avg_opp_power"])
+    )
+
+
+def _play_up_bonus(row: pd.Series) -> float:
+    age_num = _safe_int(row.get("age_num"))
+    policy = _same_age_evidence_policy(age_num)
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
+    connectivity_constrained = low_state or repeat_heavy
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
+        return 0.0
+
+    play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
+    play_up_top500_non_loss = _safe_int(row.get("play_up_top500_non_loss_opp_count"))
+    play_up_top1000_non_loss = _safe_int(row.get("play_up_top1000_non_loss_opp_count"))
+    play_up_avg_opp_power = _safe_float(row.get("play_up_avg_opp_power_adj"))
+    if not _has_play_up_support(
+        play_up_share,
+        play_up_top500_non_loss,
+        play_up_top1000_non_loss,
+        play_up_avg_opp_power,
+        policy,
+    ):
+        return 0.0
+
+    bonus = (
+        play_up_top500_non_loss * float(policy["play_up_bonus_per_top500_non_loss"])
+        + max(0, play_up_top1000_non_loss - play_up_top500_non_loss) * float(policy["play_up_bonus_per_top1000_non_loss"])
+    )
+    bonus = min(bonus, float(policy["play_up_bonus_max"]))
+    if severe_connectivity:
+        bonus *= 0.75
+    return bonus
+
+
 def _positive_ml_evidence_scale(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
@@ -496,11 +634,26 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     connectivity_constrained = low_state or repeat_heavy
+    play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
+    play_up_top500_non_loss = _safe_int(row.get("play_up_top500_non_loss_opp_count"))
+    play_up_top1000_non_loss = _safe_int(row.get("play_up_top1000_non_loss_opp_count"))
+    play_up_avg_opp_power = _safe_float(row.get("play_up_avg_opp_power_adj"))
+    has_play_up_support = _has_play_up_support(
+        play_up_share,
+        play_up_top500_non_loss,
+        play_up_top1000_non_loss,
+        play_up_avg_opp_power,
+        policy,
+    )
 
     if severe_connectivity:
+        if has_play_up_support:
+            return float(policy["partial_ml_scale"])
         return 0.0
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return 1.0
+    if has_play_up_support:
+        return float(policy["play_up_partial_ml_scale"])
     if connectivity_constrained and top100 >= 1:
         return float(policy["partial_ml_scale"])
     if top100 == 1:
@@ -545,12 +698,34 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     severe_weak_avg = avg_opp_power is None or avg_opp_power < float(policy["severe_min_avg_opp_power"])
     scf = _safe_float(row.get("scf"))
     unique_states = _safe_int(row.get("unique_opp_states")) if row.get("unique_opp_states") is not None else None
+    play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
+    play_up_top500_non_loss = _safe_int(row.get("play_up_top500_non_loss_opp_count"))
+    play_up_top1000_non_loss = _safe_int(row.get("play_up_top1000_non_loss_opp_count"))
+    play_up_avg_opp_power = _safe_float(row.get("play_up_avg_opp_power_adj"))
+    has_play_up_support = _has_play_up_support(
+        play_up_share,
+        play_up_top500_non_loss,
+        play_up_top1000_non_loss,
+        play_up_avg_opp_power,
+        policy,
+    )
 
     thin_schedule = (
         top100 == 0
         and top500 <= int(policy["thin_schedule_max_top500"])
         and avg_opp_power is not None
         and avg_opp_power < float(policy["thin_schedule_max_avg_opp_power"])
+    )
+    local_loop_override = (
+        top100 == 0
+        and top500 <= int(policy["local_loop_max_top500"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["local_loop_max_avg_opp_power"])
+        and (
+            repeat_share >= float(policy["local_loop_repeat_share"])
+            or (unique_states is not None and unique_states <= int(policy["local_loop_max_states"]))
+            or (scf is not None and scf <= float(policy["local_loop_max_scf"]))
+        )
     )
     isolation_override = (
         (scf is not None and scf <= float(policy["isolation_override_max_scf"]))
@@ -560,6 +735,12 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
 
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
+    if has_play_up_support and severe_connectivity:
+        return int(policy["soft_cap_rank"])
+    if has_play_up_support and connectivity_constrained:
+        return int(policy["soft_cap_rank"])
+    if local_loop_override:
+        return int(policy["severe_cap_rank"])
     if top100 == 0 and top500 == 0 and top500_non_loss == 0 and top1000_non_loss == 0 and severe_weak_avg:
         return int(policy["severe_cap_rank"])
     if thin_schedule and isolation_override:
@@ -1587,6 +1768,13 @@ async def compute_all_cohorts(
             "same_age_top500_opp_count",
             "same_age_top500_non_loss_opp_count",
             "same_age_top1000_non_loss_opp_count",
+            "play_up_games",
+            "play_up_game_share",
+            "play_up_unique_opponents",
+            "play_up_top100_opp_count",
+            "play_up_top500_opp_count",
+            "play_up_top500_non_loss_opp_count",
+            "play_up_top1000_non_loss_opp_count",
             "repeat_opponent_share",
         ]:
             if col in teams_combined.columns:
@@ -1595,9 +1783,14 @@ async def compute_all_cohorts(
             teams_combined["same_age_avg_opp_power_adj"] = pd.to_numeric(
                 teams_combined["same_age_avg_opp_power_adj"], errors="coerce"
             )
+        if "play_up_avg_opp_power_adj" in teams_combined.columns:
+            teams_combined["play_up_avg_opp_power_adj"] = pd.to_numeric(
+                teams_combined["play_up_avg_opp_power_adj"], errors="coerce"
+            )
 
         teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
         teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
+        teams_combined["play_up_bonus"] = teams_combined.apply(_play_up_bonus, axis=1)
 
         cap_ranks = {
             int(val)
@@ -1786,6 +1979,17 @@ async def compute_all_cohorts(
                         logger.info(f"  📊 Age {age}: No ML data, using powerscore_adj directly")
                     elif not has_sos:
                         logger.info(f"  📊 Age {age}: No SOS data, using powerscore_adj directly")
+
+                if "play_up_bonus" in teams_age.columns:
+                    play_up_bonus = pd.to_numeric(teams_age["play_up_bonus"], errors="coerce").fillna(0.0)
+                    if (play_up_bonus > 0).any():
+                        base = (base + play_up_bonus).clip(0.0, 1.0)
+                        logger.info(
+                            f"  ðŸ“Š Age {age}: play-up evidence bonus applied to "
+                            f"{int((play_up_bonus > 0).sum())} team(s), "
+                            f"avg_bonus={float(play_up_bonus[play_up_bonus > 0].mean()):.4f}, "
+                            f"max_bonus={float(play_up_bonus.max()):.4f}"
+                        )
 
                 # Hard publication cap for weak same-age evidence.
                 if "publication_cap_score" in teams_age.columns:

@@ -5,6 +5,7 @@ import pandas as pd
 from src.rankings.calculator import (
     _apply_publication_cap_band,
     _compute_same_age_evidence_metrics,
+    _play_up_bonus,
     _positive_ml_evidence_scale,
     _publication_cap_rank,
 )
@@ -94,6 +95,72 @@ def test_compute_same_age_evidence_metrics_counts_quality_non_loss_results():
     assert int(a["same_age_top1000_non_loss_opp_count"]) == 2
 
 
+def test_compute_same_age_evidence_metrics_tracks_exact_one_year_play_up_results():
+    teams = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C", "D", "E"],
+            "age": ["12", "13", "13", "14", "12"],
+            "gender": ["Male", "Male", "Male", "Male", "Female"],
+            "powerscore_adj": [0.70, 0.94, 0.88, 0.92, 0.90],
+            "status": ["Active", "Active", "Active", "Active", "Active"],
+        }
+    )
+    games_used = pd.DataFrame(
+        [
+            {
+                "team_id": "A",
+                "opp_id": "B",
+                "age": "12",
+                "gender": "Male",
+                "opp_age": "13",
+                "opp_gender": "Male",
+                "gf": 2,
+                "ga": 2,
+            },
+            {
+                "team_id": "A",
+                "opp_id": "C",
+                "age": "12",
+                "gender": "Male",
+                "opp_age": "13",
+                "opp_gender": "Male",
+                "gf": 3,
+                "ga": 1,
+            },
+            {
+                "team_id": "A",
+                "opp_id": "D",
+                "age": "12",
+                "gender": "Male",
+                "opp_age": "14",
+                "opp_gender": "Male",
+                "gf": 1,
+                "ga": 1,
+            },
+            {
+                "team_id": "A",
+                "opp_id": "E",
+                "age": "12",
+                "gender": "Male",
+                "opp_age": "12",
+                "opp_gender": "Female",
+                "gf": 5,
+                "ga": 0,
+            },
+        ]
+    )
+
+    result = _compute_same_age_evidence_metrics(games_used, teams).set_index("team_id")
+    a = result.loc["A"]
+
+    assert int(a["play_up_games"]) == 2
+    assert int(a["play_up_unique_opponents"]) == 2
+    assert int(a["play_up_top100_opp_count"]) == 2
+    assert int(a["play_up_top500_opp_count"]) == 2
+    assert int(a["play_up_top500_non_loss_opp_count"]) == 2
+    assert int(a["play_up_top1000_non_loss_opp_count"]) == 2
+
+
 def test_positive_ml_evidence_scale_blocks_weak_u12_case():
     row = pd.Series(
         {
@@ -148,6 +215,24 @@ def test_positive_ml_evidence_scale_full_release_requires_multi_top100_depth():
         }
     )
     assert _positive_ml_evidence_scale(row) == 1.0
+
+
+def test_positive_ml_evidence_scale_allows_supported_play_up_team():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_avg_opp_power_adj": 0.49,
+            "repeat_opponent_share": 0.30,
+            "unique_opp_states": 1,
+            "play_up_game_share": 0.80,
+            "play_up_top500_non_loss_opp_count": 3,
+            "play_up_top1000_non_loss_opp_count": 5,
+            "play_up_avg_opp_power_adj": 0.62,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 0.5
 
 
 def test_positive_ml_evidence_scale_connectivity_override_only_allows_partial():
@@ -267,6 +352,27 @@ def test_publication_cap_rank_hits_thin_schedule_bucket():
     assert _publication_cap_rank(row) == 1500
 
 
+def test_publication_cap_rank_hits_severe_local_loop_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 0,
+            "same_age_avg_opp_power_adj": 0.499,
+            "repeat_opponent_share": 0.647,
+            "unique_opp_states": 1,
+            "scf": 0.40,
+            "play_up_game_share": 0.0,
+            "play_up_top500_non_loss_opp_count": 0,
+            "play_up_top1000_non_loss_opp_count": 0,
+            "play_up_avg_opp_power_adj": None,
+        }
+    )
+    assert _publication_cap_rank(row) == 2000
+
+
 def test_publication_cap_rank_thin_isolated_team_hits_severe_bucket():
     row = pd.Series(
         {
@@ -296,6 +402,43 @@ def test_publication_cap_rank_skips_multi_top100_team_with_depth():
         }
     )
     assert _publication_cap_rank(row) is None
+
+
+def test_publication_cap_rank_softens_for_supported_play_up_team():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 0,
+            "same_age_avg_opp_power_adj": 0.49,
+            "repeat_opponent_share": 0.52,
+            "unique_opp_states": 1,
+            "play_up_game_share": 0.83,
+            "play_up_top500_non_loss_opp_count": 2,
+            "play_up_top1000_non_loss_opp_count": 4,
+            "play_up_avg_opp_power_adj": 0.60,
+        }
+    )
+    assert _publication_cap_rank(row) == 250
+
+
+def test_play_up_bonus_is_bounded_and_requires_quality():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "repeat_opponent_share": 0.35,
+            "unique_opp_states": 1,
+            "play_up_game_share": 0.90,
+            "play_up_top500_non_loss_opp_count": 4,
+            "play_up_top1000_non_loss_opp_count": 6,
+            "play_up_avg_opp_power_adj": 0.63,
+        }
+    )
+    assert _play_up_bonus(row) == 0.06
 
 
 def test_apply_publication_cap_band_preserves_relative_order():
