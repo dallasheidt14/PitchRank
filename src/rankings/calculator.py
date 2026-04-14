@@ -275,6 +275,10 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     return {
         "cap_rank": 400,
         "soft_cap_rank": 250,
+        "regional_thin_cap_rank": 800,
+        "regional_thin_escalated_cap_rank": 1200,
+        "one_top100_thin_cap_rank": 800,
+        "one_top100_thin_escalated_cap_rank": 1200,
         "mid_thin_cap_rank": 1000,
         "thin_schedule_cap_rank": 1500,
         "severe_cap_rank": 2000,
@@ -284,9 +288,15 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
         "severe_min_avg_opp_power": 0.55,
+        "regional_thin_max_top500": 4,
+        "regional_thin_min_top500_non_loss": 4,
+        "regional_thin_max_avg_opp_power": 0.60,
         "mid_thin_max_top500": 1,
         "mid_thin_max_top1000_non_loss": 3,
         "mid_thin_max_avg_opp_power": 0.56,
+        "one_top100_thin_max_top500": 3,
+        "one_top100_thin_max_top500_non_loss": 2,
+        "one_top100_thin_max_avg_opp_power": 0.58,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
         "local_loop_max_top500": 1,
@@ -315,8 +325,9 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "play_up_bonus_per_top1000_non_loss": 0.005,
         "play_up_bonus_max": 0.060,
         "diagnostic_top_rank": 25,
-        "diagnostic_max_top500": 2,
-        "diagnostic_max_avg_opp_power": 0.55,
+        "diagnostic_max_top500": 4,
+        "diagnostic_min_top500_non_loss": 4,
+        "diagnostic_max_avg_opp_power": 0.60,
     }
 
 
@@ -413,7 +424,12 @@ def _validate_publication_caps(teams_age: pd.DataFrame, capped_scores: pd.Series
 
 def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Series) -> pd.DataFrame:
     """Return top provisional teams that still look weak but were not capped."""
-    required_cols = {"same_age_top100_opp_count", "same_age_top500_opp_count", "same_age_avg_opp_power_adj"}
+    required_cols = {
+        "same_age_top100_opp_count",
+        "same_age_top500_opp_count",
+        "same_age_top500_non_loss_opp_count",
+        "same_age_avg_opp_power_adj",
+    }
     if not required_cols.issubset(teams_age.columns):
         return pd.DataFrame()
 
@@ -431,15 +447,21 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
     publication_cap_rank = pd.to_numeric(work.get("publication_cap_rank"), errors="coerce")
     top100 = pd.to_numeric(work["same_age_top100_opp_count"], errors="coerce").fillna(0)
     top500 = pd.to_numeric(work["same_age_top500_opp_count"], errors="coerce").fillna(0)
+    top500_non_loss = pd.to_numeric(work["same_age_top500_non_loss_opp_count"], errors="coerce").fillna(0)
     avg_opp = pd.to_numeric(work["same_age_avg_opp_power_adj"], errors="coerce")
+    unique_states = pd.to_numeric(work.get("unique_opp_states"), errors="coerce")
 
     mask = (
         (work["provisional_rank"] <= int(policy["diagnostic_top_rank"]))
         & publication_cap_rank.isna()
         & (top100 <= 0)
         & (top500 <= int(policy["diagnostic_max_top500"]))
+        & (top500_non_loss < int(policy["diagnostic_min_top500_non_loss"]))
         & avg_opp.notna()
-        & (avg_opp < float(policy["diagnostic_max_avg_opp_power"]))
+        & (
+            (avg_opp < float(policy["diagnostic_max_avg_opp_power"]))
+            | (unique_states.notna() & (unique_states <= int(policy["isolation_override_max_states"])))
+        )
     )
     if not mask.any():
         return pd.DataFrame()
@@ -451,6 +473,7 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
         "base_after_cap",
         "same_age_top100_opp_count",
         "same_age_top500_opp_count",
+        "same_age_top500_non_loss_opp_count",
         "same_age_avg_opp_power_adj",
         "repeat_opponent_share",
         "unique_opp_states",
@@ -803,12 +826,29 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power is not None
         and avg_opp_power < float(policy["thin_schedule_max_avg_opp_power"])
     )
+    regional_thin = (
+        top100 == 0
+        and top500 <= int(policy["regional_thin_max_top500"])
+        and top500_non_loss < int(policy["regional_thin_min_top500_non_loss"])
+    )
+    regional_thin_quality = (
+        regional_thin
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["regional_thin_max_avg_opp_power"])
+    )
     mid_thin_quality = (
         top100 == 0
         and top500 <= int(policy["mid_thin_max_top500"])
         and top1000_non_loss <= int(policy["mid_thin_max_top1000_non_loss"])
         and avg_opp_power is not None
         and avg_opp_power < float(policy["mid_thin_max_avg_opp_power"])
+    )
+    one_top100_thin = (
+        top100 == 1
+        and top500 <= int(policy["one_top100_thin_max_top500"])
+        and top500_non_loss <= int(policy["one_top100_thin_max_top500_non_loss"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["one_top100_thin_max_avg_opp_power"])
     )
     local_loop_override = (
         top100 == 0
@@ -826,6 +866,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         or (unique_states is not None and unique_states <= int(policy["isolation_override_max_states"]))
         or repeat_share >= float(policy["isolation_override_repeat_share"])
     )
+    regional_thin_low_connectivity = regional_thin and isolation_override
 
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
@@ -839,13 +880,21 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["severe_cap_rank"])
     if thin_schedule and isolation_override:
         return int(policy["severe_cap_rank"])
+    if regional_thin_low_connectivity:
+        return int(policy["regional_thin_escalated_cap_rank"])
     if mid_thin_quality and not isolation_override:
         return int(policy["mid_thin_cap_rank"])
+    if regional_thin_quality:
+        return int(policy["regional_thin_cap_rank"])
     if thin_schedule:
         return int(policy["thin_schedule_cap_rank"])
     if severe_connectivity:
         return int(policy["cap_rank"])
 
+    if one_top100_thin and isolation_override:
+        return int(policy["one_top100_thin_escalated_cap_rank"])
+    if one_top100_thin:
+        return int(policy["one_top100_thin_cap_rank"])
     thin_top100 = (
         top100 == 1
         and avg_opp_power is not None

@@ -290,7 +290,7 @@ def test_publication_cap_rank_hits_thin_single_top100_profile():
             "unique_opp_states": 6,
         }
     )
-    assert _publication_cap_rank(row) == 400
+    assert _publication_cap_rank(row) == 800
 
 
 def test_publication_cap_rank_soft_caps_connectivity_constrained_team():
@@ -371,6 +371,40 @@ def test_publication_cap_rank_hits_mid_thin_quality_bucket():
     assert _publication_cap_rank(row) == 1000
 
 
+def test_publication_cap_rank_hits_regional_thin_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 2,
+            "same_age_top500_non_loss_opp_count": 2,
+            "same_age_top1000_non_loss_opp_count": 2,
+            "same_age_avg_opp_power_adj": 0.548,
+            "repeat_opponent_share": 0.13,
+            "unique_opp_states": 3,
+            "scf": 0.80,
+        }
+    )
+    assert _publication_cap_rank(row) == 800
+
+
+def test_publication_cap_rank_hits_regional_thin_escalator_bucket():
+    row = pd.Series(
+        {
+            "age_num": 14,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 3,
+            "same_age_top500_non_loss_opp_count": 3,
+            "same_age_top1000_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.645,
+            "repeat_opponent_share": 0.15,
+            "unique_opp_states": 1,
+            "scf": 0.80,
+        }
+    )
+    assert _publication_cap_rank(row) == 1200
+
+
 def test_publication_cap_rank_hits_severe_local_loop_bucket():
     row = pd.Series(
         {
@@ -407,6 +441,23 @@ def test_publication_cap_rank_thin_isolated_team_hits_severe_bucket():
         }
     )
     assert _publication_cap_rank(row) == 2000
+
+
+def test_publication_cap_rank_hits_one_top100_thin_bucket():
+    row = pd.Series(
+        {
+            "age_num": 14,
+            "same_age_top100_opp_count": 1,
+            "same_age_top500_opp_count": 3,
+            "same_age_top500_non_loss_opp_count": 2,
+            "same_age_top1000_non_loss_opp_count": 4,
+            "same_age_avg_opp_power_adj": 0.487,
+            "repeat_opponent_share": 0.07,
+            "unique_opp_states": 5,
+            "scf": 0.80,
+        }
+    )
+    assert _publication_cap_rank(row) == 800
 
 
 def test_publication_cap_rank_skips_multi_top100_team_with_depth():
@@ -526,6 +577,7 @@ def test_collect_top_tier_weak_uncapped_flags_surf_type_profile():
             "publication_cap_rank": [pd.NA, pd.NA, 400],
             "same_age_top100_opp_count": [0, 3, 0],
             "same_age_top500_opp_count": [2, 7, 1],
+            "same_age_top500_non_loss_opp_count": [1, 6, 0],
             "same_age_avg_opp_power_adj": [0.514, 0.71, 0.49],
             "repeat_opponent_share": [0.22, 0.12, 0.40],
             "unique_opp_states": [3, 8, 2],
