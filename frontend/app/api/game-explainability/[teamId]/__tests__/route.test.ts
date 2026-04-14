@@ -1,16 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NextResponse } from 'next/server';
 
-const { mockCreateServiceSupabase, mockFrom, mockSelect, mockEq, mockIn, mockOrder } = vi.hoisted(() => ({
-  mockCreateServiceSupabase: vi.fn(),
-  mockFrom: vi.fn(),
-  mockSelect: vi.fn(),
-  mockEq: vi.fn(),
-  mockIn: vi.fn(),
-  mockOrder: vi.fn(),
-}));
+const { mockCreateServiceSupabase, mockFrom, mockSelect, mockEq, mockIn, mockOrder, mockRequirePremium } = vi.hoisted(
+  () => ({
+    mockCreateServiceSupabase: vi.fn(),
+    mockFrom: vi.fn(),
+    mockSelect: vi.fn(),
+    mockEq: vi.fn(),
+    mockIn: vi.fn(),
+    mockOrder: vi.fn(),
+    mockRequirePremium: vi.fn(),
+  })
+);
 
 vi.mock('@/lib/supabase/service', () => ({
   createServiceSupabase: mockCreateServiceSupabase,
+}));
+
+vi.mock('@/lib/api/requirePremium', () => ({
+  requirePremium: mockRequirePremium,
 }));
 
 import { POST } from '../route';
@@ -31,6 +39,12 @@ function makeRequest(body: Record<string, unknown>) {
 describe('POST /api/game-explainability/[teamId]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    mockRequirePremium.mockResolvedValue({
+      user: { id: 'test-user-id', email: 'test@example.com' },
+      supabase: {},
+      error: null,
+    });
 
     mockOrder.mockReturnValue({
       data: [
@@ -94,5 +108,20 @@ describe('POST /api/game-explainability/[teamId]', () => {
     expect(mockIn).toHaveBeenCalledWith('game_uuid', [GAME_ID]);
     expect(body.breakdowns).toHaveLength(1);
     expect(body.breakdowns[0].rating_contribution).toBe(0.12);
+  });
+
+  it('returns 401 when requirePremium fails', async () => {
+    mockRequirePremium.mockResolvedValueOnce({
+      user: null,
+      supabase: null,
+      error: NextResponse.json({ error: 'Not authenticated' }, { status: 401 }),
+    });
+
+    const response = await POST(makeRequest({ gameIds: [GAME_ID] }), {
+      params: Promise.resolve({ teamId: TEAM_ID }),
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Not authenticated' });
   });
 });

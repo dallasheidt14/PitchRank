@@ -1,4 +1,5 @@
 import { createServiceSupabase } from '@/lib/supabase/service';
+import { requirePremium } from '@/lib/api/requirePremium';
 import { NextResponse } from 'next/server';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,6 +31,9 @@ const SELECT_COLUMNS = [
 
 export async function POST(req: Request, { params }: { params: Promise<{ teamId: string }> }) {
   try {
+    const auth = await requirePremium();
+    if (auth.error) return auth.error;
+
     const { teamId } = await params;
     if (!UUID_REGEX.test(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
