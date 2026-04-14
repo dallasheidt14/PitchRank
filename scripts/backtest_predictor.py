@@ -17,6 +17,7 @@ import asyncio
 import logging
 import os
 import sys
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -25,6 +26,14 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from tqdm import tqdm
+
+try:
+    import psycopg2  # type: ignore
+
+    HAS_PSYCOPG2 = True
+except ImportError:  # pragma: no cover - exercised only when psycopg2 is unavailable
+    psycopg2 = None
+    HAS_PSYCOPG2 = False
 
 # Load environment variables
 env_local = Path(".env.local")
@@ -45,6 +54,166 @@ from supabase import Client, create_client  # noqa: E402
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+DIRECT_DB_BATCH_SIZE = 5000
+
+
+def _database_url() -> Optional[str]:
+    return os.getenv("DATABASE_URL")
+
+
+def _can_use_direct_db() -> bool:
+    return bool(_database_url()) and HAS_PSYCOPG2
+
+
+def _open_direct_db_connection():
+    database_url = _database_url()
+    if not database_url or not HAS_PSYCOPG2:
+        raise RuntimeError("DATABASE_URL or psycopg2 is unavailable")
+    return psycopg2.connect(database_url)
+
+
+def _fetch_historical_games_via_db(
+    lookback_days: int,
+    limit: Optional[int] = None,
+    test_slice: Optional[Tuple[str, str]] = None,
+) -> pd.DataFrame:
+    cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    logger.info("Fetching historical games from %s via direct Postgres...", cutoff_date)
+
+    params: List[object] = [cutoff_date]
+    joins = ""
+    filters = ""
+
+    if test_slice:
+        state_code, age_group = test_slice
+        joins = """
+        JOIN teams home_team ON home_team.team_id_master = g.home_team_master_id
+        JOIN teams away_team ON away_team.team_id_master = g.away_team_master_id
+        """
+        filters = """
+          AND home_team.state_code = %s
+          AND away_team.state_code = %s
+          AND home_team.age_group ILIKE %s
+          AND away_team.age_group ILIKE %s
+        """
+        params.extend([state_code, state_code, f"%{age_group}%", f"%{age_group}%"])
+
+    limit_clause = ""
+    if limit:
+        limit_clause = "LIMIT %s"
+        params.append(int(limit))
+
+    sql = f"""
+        SELECT
+            g.id,
+            g.game_date,
+            g.home_team_master_id,
+            g.away_team_master_id,
+            g.home_score,
+            g.away_score
+        FROM games g
+        {joins}
+        WHERE g.home_team_master_id IS NOT NULL
+          AND g.away_team_master_id IS NOT NULL
+          AND g.home_score IS NOT NULL
+          AND g.away_score IS NOT NULL
+          AND g.game_date >= %s
+          {filters}
+        ORDER BY g.game_date ASC
+        {limit_clause}
+    """
+
+    with closing(_open_direct_db_connection()) as conn:
+        games_df = pd.read_sql_query(sql, conn, params=params)
+
+    logger.info("Fetched %s games total via direct Postgres", f"{len(games_df):,}")
+    return games_df
+
+
+def _fetch_prediction_feature_snapshots_via_db(
+    team_ids: List[str],
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    logger.info(
+        "Fetching prediction feature snapshots for %s teams between %s and %s via direct Postgres...",
+        f"{len(team_ids):,}",
+        start_date,
+        end_date,
+    )
+
+    sql = """
+        SELECT
+            snapshot_date,
+            team_id,
+            age_group,
+            gender,
+            status,
+            rank_in_cohort_final,
+            power_score_final,
+            sos_norm,
+            offense_norm,
+            defense_norm,
+            glicko_rating,
+            glicko_rd,
+            glicko_volatility,
+            wins,
+            losses,
+            draws,
+            games_played,
+            win_percentage,
+            exp_margin,
+            exp_win_rate,
+            exp_goals_for,
+            exp_goals_against
+        FROM prediction_feature_history
+        WHERE snapshot_date >= %s
+          AND snapshot_date <= %s
+          AND team_id = ANY(%s::uuid[])
+    """
+
+    frames: List[pd.DataFrame] = []
+    rows_fetched = 0
+
+    with closing(_open_direct_db_connection()) as conn:
+        for index in range(0, len(team_ids), DIRECT_DB_BATCH_SIZE):
+            batch = team_ids[index : index + DIRECT_DB_BATCH_SIZE]
+            frame = pd.read_sql_query(sql, conn, params=[start_date, end_date, batch])
+            if not frame.empty:
+                frames.append(frame)
+                rows_fetched += len(frame)
+            logger.info(
+                "  Direct Postgres snapshot batch %s-%s complete (%s team ids, %s rows so far)",
+                f"{index:,}",
+                f"{min(index + len(batch), len(team_ids)):,}",
+                f"{len(batch):,}",
+                f"{rows_fetched:,}",
+            )
+
+    snapshots_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    logger.info("Fetched %s prediction snapshots via direct Postgres", f"{len(snapshots_df):,}")
+    return snapshots_df
+
+
+def _fetch_team_names_via_db(team_ids: List[str]) -> Dict[str, str]:
+    logger.info("Fetching team names for %s teams via direct Postgres...", f"{len(team_ids):,}")
+    sql = """
+        SELECT team_id_master, team_name
+        FROM teams
+        WHERE team_id_master = ANY(%s::uuid[])
+    """
+
+    team_names: Dict[str, str] = {}
+    with closing(_open_direct_db_connection()) as conn:
+        for index in range(0, len(team_ids), DIRECT_DB_BATCH_SIZE):
+            batch = team_ids[index : index + DIRECT_DB_BATCH_SIZE]
+            frame = pd.read_sql_query(sql, conn, params=[batch])
+            for _, row in frame.iterrows():
+                if row.get("team_id_master") and row.get("team_name"):
+                    team_names[str(row["team_id_master"])] = str(row["team_name"])
+    logger.info("Fetched canonical names for %s teams via direct Postgres", f"{len(team_names):,}")
+    return team_names
+
 
 async def fetch_historical_games(
     supabase: Client,
@@ -61,6 +230,13 @@ async def fetch_historical_games(
         limit: Maximum number of games to fetch (None = all)
         test_slice: Optional tuple (state, age_group) for testing (e.g., ('AZ', 'u12'))
     """
+    if _can_use_direct_db():
+        return _fetch_historical_games_via_db(
+            lookback_days=lookback_days,
+            limit=limit,
+            test_slice=test_slice,
+        )
+
     cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
     logger.info(f"Fetching historical games from {cutoff_date}...")
@@ -202,6 +378,16 @@ async def fetch_prediction_feature_snapshots(
     """
     if not team_ids:
         return pd.DataFrame()
+
+    if _can_use_direct_db():
+        try:
+            return _fetch_prediction_feature_snapshots_via_db(
+                team_ids=team_ids,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception as error:
+            logger.warning("Direct Postgres snapshot fetch failed, falling back to Supabase REST: %s", error)
 
     logger.info(
         "Fetching prediction feature snapshots for %s teams between %s and %s...",
@@ -427,6 +613,12 @@ async def fetch_team_game_histories(
 
 async def fetch_team_names(supabase: Client, team_ids: List[str]) -> Dict[str, str]:
     """Fetch canonical team names for predictor age fallback and reporting."""
+    if _can_use_direct_db():
+        try:
+            return _fetch_team_names_via_db(team_ids)
+        except Exception as error:
+            logger.warning("Direct Postgres team-name fetch failed, falling back to Supabase REST: %s", error)
+
     logger.info(f"Fetching team names for {len(team_ids):,} teams...")
 
     team_names: Dict[str, str] = {}
