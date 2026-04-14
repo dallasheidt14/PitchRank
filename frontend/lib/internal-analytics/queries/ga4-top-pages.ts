@@ -1,8 +1,12 @@
-// frontend/lib/internal-analytics/queries/ga4-top-pages.ts
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
-import { GA4_PROPERTY_ID, CACHE_TTL_SECONDS, DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT } from '../constants';
+import {
+  GA4_PROPERTY_ID,
+  CACHE_TTL_SECONDS,
+  DEFAULT_ROW_LIMIT,
+  MAX_ROW_LIMIT,
+} from '../constants';
 import type { DateRange, TileResponse } from '../types';
 import { resolveDateRange, detectFreshness, rangeDays } from '../dates';
 import { ga4RowsToObjects } from '../transforms/ga4';
@@ -18,7 +22,6 @@ export type Ga4TopPagesParams = {
 
 export type Ga4TopPagesRow = {
   pagePath: string;
-  pageTitle: string;
   screenPageViews: number;
   activeUsers: number;
   engagementRate: number;
@@ -31,8 +34,12 @@ async function fetchRaw(range: DateRange, limit: number) {
       property: `properties/${GA4_PROPERTY_ID}`,
       requestBody: {
         dateRanges: [{ startDate: range.start, endDate: range.end }],
-        dimensions: [{ name: 'pagePath' }, { name: 'pageTitle' }],
-        metrics: [{ name: 'screenPageViews' }, { name: 'activeUsers' }, { name: 'engagementRate' }],
+        dimensions: [{ name: 'pagePath' }],
+        metrics: [
+          { name: 'screenPageViews' },
+          { name: 'activeUsers' },
+          { name: 'engagementRate' },
+        ],
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit: String(limit),
       },
@@ -51,7 +58,6 @@ async function runOnce(params: Ga4TopPagesParams): Promise<TileResponse<Ga4TopPa
   const raw = await fetchRaw(range, limit);
   const rows = ga4RowsToObjects(raw as never).map((r) => ({
     pagePath: String(r.pagePath ?? ''),
-    pageTitle: String(r.pageTitle ?? ''),
     screenPageViews: Number(r.screenPageViews ?? 0),
     activeUsers: Number(r.activeUsers ?? 0),
     engagementRate: Number(r.engagementRate ?? 0),
@@ -61,7 +67,7 @@ async function runOnce(params: Ga4TopPagesParams): Promise<TileResponse<Ga4TopPa
       screenPageViews: acc.screenPageViews + r.screenPageViews,
       activeUsers: acc.activeUsers + r.activeUsers,
     }),
-    { screenPageViews: 0, activeUsers: 0 }
+    { screenPageViews: 0, activeUsers: 0 },
   );
   const fresh = detectFreshness('ga4', range, tz);
 
@@ -84,7 +90,7 @@ async function runOnce(params: Ga4TopPagesParams): Promise<TileResponse<Ga4TopPa
         estimated_units: rangeDays(range) * 2,
         range_days: rangeDays(range),
         metric_count: 3,
-        dimension_count: 2,
+        dimension_count: 1,
         limit,
       },
     },
