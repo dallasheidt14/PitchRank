@@ -62,6 +62,16 @@ function formatStrategy(value: string | null | undefined): string {
   return value.replace(/_/g, ' ');
 }
 
+function strategyFromModelVersion(modelVersion: string | null | undefined): string | null {
+  if (!modelVersion) return null;
+  const match = modelVersion.match(/^pitm_\d+_(.+)$/);
+  return match ? match[1] : null;
+}
+
+function formatModelName(modelVersion: string | null | undefined): string {
+  return formatStrategy(strategyFromModelVersion(modelVersion) ?? modelVersion ?? 'N/A');
+}
+
 function githubRunUrl(runId: number): string {
   return `https://github.com/dallasheidt14/PitchRank/actions/runs/${runId}`;
 }
@@ -189,24 +199,65 @@ function drawSummaryText(heuristic: ModelPerformanceSummary, offline: ModelPerfo
   return `Live heuristic catches actual draws ${formatPercentPointDelta(Math.abs(delta))} more often.`;
 }
 
+function pickTrainingLeader(
+  runs: TrainingRunSummary[],
+  selector: (run: TrainingRunSummary) => number | null,
+  higherIsBetter = true
+): TrainingRunSummary | null {
+  let leader: TrainingRunSummary | null = null;
+  let leaderValue: number | null = null;
+
+  for (const run of runs) {
+    const value = selector(run);
+    if (value == null || Number.isNaN(value)) continue;
+    if (leader == null || leaderValue == null) {
+      leader = run;
+      leaderValue = value;
+      continue;
+    }
+    if ((higherIsBetter && value > leaderValue) || (!higherIsBetter && value < leaderValue)) {
+      leader = run;
+      leaderValue = value;
+    }
+  }
+
+  return leader;
+}
+
 function QuickReadCard({ data }: { data: MissionControlSnapshot }) {
   const latestTrainingRun = data.trainingRuns[0] ?? null;
+  const bestWinnerTrainingRun = pickTrainingLeader(data.trainingRuns, (run) => run.winnerAccuracy, true);
+  const bestDrawTrainingRun = pickTrainingLeader(data.trainingRuns, (run) => run.drawRecall, true);
 
   return (
     <Card variant="flat" className="border-white/10 bg-white/5">
       <CardHeader className="border-b border-white/10">
-        <CardTitle className="text-white">Quick Read</CardTitle>
+        <CardTitle className="text-white">Start Here</CardTitle>
         <CardDescription className="text-gray-400">
-          Plain-English readout of what the current numbers are saying
+          Plain-English answer to what is winning right now and why the tables below can disagree
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 pt-6 text-sm text-gray-200">
         <p>
-          The comparison is currently based on <strong>{formatNumber(data.sharedSettledGames)}</strong> comparable games:
-          games where both models made a frozen prediction before kickoff and we now have a final score to judge them on.
+          If you had to choose a live replacement today, the current answer is <strong>{formatModelName(data.currentOfflineVersion)}</strong>.
+          That decision is based on <strong>{formatNumber(data.sharedSettledGames)}</strong> real finished games where both models
+          predicted before kickoff.
         </p>
         <p>{winnerSummaryText(data.heuristic, data.offline)}</p>
         <p>{drawSummaryText(data.heuristic, data.offline)}</p>
+        {bestWinnerTrainingRun || bestDrawTrainingRun ? (
+          <p>
+            The training table is a lab test, not the final winner. Right now the best recent training-only winner accuracy is{' '}
+            <strong>
+              {bestWinnerTrainingRun ? `${formatModelName(bestWinnerTrainingRun.modelVersion)} (${formatPercent(bestWinnerTrainingRun.winnerAccuracy)})` : 'N/A'}
+            </strong>
+            , while the best recent training-only draw recall is{' '}
+            <strong>
+              {bestDrawTrainingRun ? `${formatModelName(bestDrawTrainingRun.modelVersion)} (${formatPercent(bestDrawTrainingRun.drawRecall)})` : 'N/A'}
+            </strong>
+            . That is why the training section and the live benchmark section are not always the same model.
+          </p>
+        ) : null}
         {latestTrainingRun ? (
           <p>
             The latest offline training run was recorded on <strong>{formatDateTime(latestTrainingRun.createdAt)}</strong> and
@@ -216,9 +267,8 @@ function QuickReadCard({ data }: { data: MissionControlSnapshot }) {
           </p>
         ) : null}
         <p>
-          There are <strong>{formatNumber(data.pipeline.pendingResult)}</strong> frozen fixtures still waiting on final scores and{' '}
-          <strong>{formatNumber(data.pipeline.pendingResolution)}</strong> fixtures that still need cleaner team matching before
-          they can be judged.
+          Rule of thumb: <strong>Real-World Scoreboard</strong> decides what should go live. <strong>Recent Training Runs</strong>{' '}
+          only tell you whether a new retrain looks promising enough to test on future fixtures.
         </p>
       </CardContent>
     </Card>
@@ -256,10 +306,9 @@ function LatestTrainingCard({
       <CardHeader className="border-b border-white/10">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
-            <CardTitle className="text-white">Latest Offline Training Run</CardTitle>
+            <CardTitle className="text-white">Latest Training Run (Lab Test Only)</CardTitle>
             <CardDescription className="text-gray-400">
-              Offline holdout metrics from the training workflow. Use this to spot retrain improvement before the model has enough
-              prospective games to judge live.
+              Offline holdout metrics from the training workflow. Useful for spotting promising retrains, but not the final go-live decision.
             </CardDescription>
           </div>
           <a
@@ -285,7 +334,7 @@ function LatestTrainingCard({
             variant="outline"
             className={isCurrentBenchmark ? 'border-emerald-400/30 text-emerald-200' : 'border-amber-400/30 text-amber-200'}
           >
-            {isCurrentBenchmark ? 'current prospective benchmark' : 'newer than current benchmark'}
+            {isCurrentBenchmark ? 'same as live benchmark' : 'not yet the live benchmark'}
           </Badge>
           <Badge variant="outline" className="border-white/20 text-gray-200">
             calibration: {latest.calibrationEnabled ? `${latest.calibrationMethod ?? 'on'}` : 'off'}
@@ -299,7 +348,7 @@ function LatestTrainingCard({
             <div className="rounded-lg border border-white/10 bg-black/20 p-4">
               <h3 className="text-sm font-medium text-white">Training Data Used</h3>
               <p className="mt-1 text-xs text-gray-400">
-                This is the historical dataset the offline run actually trained and tested on.
+                This is the historical dataset the offline run actually trained and tested on. Bigger is usually better, but only if the holdout metrics improve too.
               </p>
               <div className="mt-4 grid grid-cols-2 gap-4">
                 <MetricTile
@@ -363,7 +412,7 @@ function LatestTrainingCard({
             <div className="rounded-lg border border-white/10 bg-black/20 p-4">
               <h3 className="text-sm font-medium text-white">Holdout Accuracy Snapshot</h3>
               <p className="mt-1 text-xs text-gray-400">
-                These numbers come from the offline holdout set for this exact training run.
+                These numbers come from the offline holdout set for this exact training run. Treat them as a lab test, not the final winner.
               </p>
               <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                 <MetricTile
@@ -852,7 +901,7 @@ export function ModelSnapshotDashboard() {
         <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr]">
           <Card variant="flat" className="border-white/10 bg-white/5">
             <CardHeader className="border-b border-white/10">
-              <CardTitle className="text-white">Current Model Comparison</CardTitle>
+              <CardTitle className="text-white">Real-World Scoreboard (This Decides What Goes Live)</CardTitle>
               <CardDescription className="text-gray-400">
                 Offline draw probability lift: {formatPercent(data.headToHead.avgDrawProbabilityDeltaOfflineMinusHeuristic)}.
                 Winner disagreement: {formatPercent(data.headToHead.winnerDisagreementRate)}.
@@ -869,25 +918,25 @@ export function ModelSnapshotDashboard() {
 
           <Card variant="flat" className="border-white/10 bg-white/5">
             <CardHeader className="border-b border-white/10">
-              <CardTitle className="text-white">How to Read This</CardTitle>
-              <CardDescription className="text-gray-400">Short definitions for the most important ideas on this page</CardDescription>
+              <CardTitle className="text-white">How To Read This Page</CardTitle>
+              <CardDescription className="text-gray-400">Short definitions for the sections that actually matter</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6 text-sm text-gray-300">
               <div>
-                <p className="font-medium text-white">Comparable games</p>
-                <p>Both models predicted before the game started, and we now have a final score. This is the sample that matters most.</p>
+                <p className="font-medium text-white">Real-World Scoreboard</p>
+                <p>This is the answer to “which model should go live?” because it uses frozen pregame predictions and real final scores.</p>
               </div>
               <div>
-                <p className="font-medium text-white">Winner accuracy</p>
-                <p>How often the model picked the correct outcome: team A win, draw, or team B win.</p>
+                <p className="font-medium text-white">Latest Training Run</p>
+                <p>This is the answer to “did the newest retrain look better in the lab?” It does not override the real-world scoreboard by itself.</p>
               </div>
               <div>
-                <p className="font-medium text-white">Draw recall</p>
-                <p>Out of the games that really ended in a draw, how often the model actually said draw.</p>
+                <p className="font-medium text-white">Recent Training Runs</p>
+                <p>Use this to see trend lines: more games used, better or worse holdout accuracy, and whether a retrain is worth testing prospectively.</p>
               </div>
               <div>
-                <p className="font-medium text-white">PIT coverage</p>
-                <p>How much point-in-time history we have. More coverage means more leakage-safe training games.</p>
+                <p className="font-medium text-white">PIT Coverage</p>
+                <p>This tells you how much leakage-safe history exists. More PIT coverage means future retrains can use more trustworthy games.</p>
               </div>
             </CardContent>
           </Card>
@@ -977,23 +1026,23 @@ export function ModelSnapshotDashboard() {
 
           <Card variant="flat" className="border-white/10 bg-white/5">
             <CardHeader className="border-b border-white/10">
-              <CardTitle className="text-white">Training vs Live Results</CardTitle>
+              <CardTitle className="text-white">Why The Sections Can Disagree</CardTitle>
               <CardDescription className="text-gray-400">
-                Why both sections matter and how to interpret them together
+                The dashboard is showing two different kinds of evidence on purpose
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6 text-sm text-gray-300">
               <div>
-                <p className="font-medium text-white">Training run metrics</p>
-                <p>Offline holdout numbers from the training workflow. Useful for seeing whether a retrain got better before enough live games finish.</p>
+                <p className="font-medium text-white">Training can favor sharper models</p>
+                <p>Models like poisson draw gate can look stronger in holdout winner accuracy and log loss while still not being the best real-world replacement.</p>
               </div>
               <div>
-                <p className="font-medium text-white">Prospective comparison</p>
-                <p>Frozen pregame predictions judged against real final scores. This is the real scoreboard for deciding whether to swap models live.</p>
+                <p className="font-medium text-white">Real games decide the final call</p>
+                <p>The prospective comparison uses actual finished matches, so it is the final tie-breaker when training metrics pull in different directions.</p>
               </div>
               <div>
                 <p className="font-medium text-white">Best decision rule</p>
-                <p>If a new training run looks better here, freeze it into future fixtures and wait for the prospective section to confirm the gain on real games.</p>
+                <p>If a new training run looks promising, freeze it into future fixtures and wait for the real-world scoreboard to confirm it before changing live compare.</p>
               </div>
             </CardContent>
           </Card>
@@ -1001,9 +1050,9 @@ export function ModelSnapshotDashboard() {
 
         <Card variant="flat" className="border-white/10 bg-white/5">
           <CardHeader className="border-b border-white/10">
-            <CardTitle className="text-white">Offline Version Benchmarks</CardTitle>
+            <CardTitle className="text-white">Real-World Results By Offline Version</CardTitle>
             <CardDescription className="text-gray-400">
-              Prospective performance by offline model version so you can see whether a newer retrain actually improved things
+              Prospective performance by offline model version. This is the cleanest view of which offline version has actually held up on real finished games.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -1013,9 +1062,9 @@ export function ModelSnapshotDashboard() {
 
         <Card variant="flat" className="border-white/10 bg-white/5">
           <CardHeader className="border-b border-white/10">
-            <CardTitle className="text-white">Recent Training Runs</CardTitle>
+            <CardTitle className="text-white">Recent Training Runs (Lab Test Only)</CardTitle>
             <CardDescription className="text-gray-400">
-              Latest recorded offline training runs so you can see whether retrains are trending in the right direction
+              Latest recorded offline training runs so you can see whether retrains are trending in the right direction before testing them on future fixtures
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
