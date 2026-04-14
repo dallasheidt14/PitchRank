@@ -111,7 +111,7 @@ async function runOnce(params: Ga4UpgradeViewsParams): Promise<TileResponse<Ga4U
       ...derived,
       upgrade_views_delta: pctDelta(totals.upgradeViews, prevTotals.upgradeViews),
       conversion_rate_delta:
-        (prevTotals.totalSessions === 0 ? 0 : prevTotals.upgradeViews / prevTotals.totalSessions) - conversionRate,
+        conversionRate - (prevTotals.totalSessions === 0 ? 0 : prevTotals.upgradeViews / prevTotals.totalSessions),
     };
     previous_period = { rows: [], totals: prevTotals, derived: {} };
   }
