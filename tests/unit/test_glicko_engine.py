@@ -949,6 +949,30 @@ class TestBaseEvidenceShrink:
         assert scale_map["A"] < 1.0
         assert scale_map["A"] >= 1.0 - cfg.BASE_EVIDENCE_SHRINK_MAX
 
+    def test_quality_poor_schedule_with_some_depth_still_gets_shrunk(self):
+        cfg = GlickoConfig()
+        team_rows = [{"team_id": "A", "mu": 1700.0}]
+        for idx in range(1, 1201):
+            team_rows.append({"team_id": f"W{idx}", "mu": 1400.0 - idx})
+        team_df = pd.DataFrame(team_rows)
+        weak_quality_games = pd.DataFrame(
+            [
+                {"team_id": "A", "opp_id": "W700", "gf": 1, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W760", "gf": 2, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W810", "gf": 2, "ga": 0, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W880", "gf": 1, "ga": 0, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W940", "gf": 0, "ga": 2, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M"},
+            ]
+        )
+        scales = _compute_base_evidence_scale(
+            team_df,
+            {"A": weak_quality_games},
+            {"A": {"scf": 0.62}},
+            cfg,
+        )
+        scale_map = dict(zip(team_df["team_id"], scales))
+        assert scale_map["A"] < 1.0
+
 
 class TestComputeRankingsV2:
     def test_returns_teams_and_games(self):

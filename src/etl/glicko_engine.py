@@ -992,6 +992,7 @@ def _compute_base_evidence_scale(
 
         top100 = sum(1 for rank in opp_ranks if rank <= 100)
         top500 = sum(1 for rank in opp_ranks if rank <= 500)
+        top500_non_loss = sum(1 for rank in non_loss_ranks if rank <= 500)
         top1000_non_loss = sum(1 for rank in non_loss_ranks if rank <= 1000)
         avg_rank = float(sum(opp_ranks) / len(opp_ranks)) if opp_ranks else float("inf")
 
@@ -1019,6 +1020,13 @@ def _compute_base_evidence_scale(
             and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_LIGHT
         ):
             shrink = cfg.BASE_EVIDENCE_SHRINK_LIGHT
+        elif (
+            top100 == 0
+            and top500 <= cfg.BASE_EVIDENCE_SHRINK_QUALITY_MAX_TOP500
+            and top500_non_loss <= cfg.BASE_EVIDENCE_SHRINK_QUALITY_MAX_TOP500_NON_LOSS
+            and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_QUALITY
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_QUALITY
 
         if scf <= cfg.BASE_EVIDENCE_SHRINK_LOW_SCF:
             shrink += cfg.BASE_EVIDENCE_SHRINK_LOW_CONNECTIVITY_BONUS
