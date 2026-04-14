@@ -1,0 +1,207 @@
+name: Weekly Prospective Settle And Evaluate
+
+on:
+  workflow_dispatch:
+    inputs:
+      settlement_status:
+        description: "evaluation_status bucket to settle"
+        required: false
+        default: "pending_result"
+        type: choice
+        options:
+          - pending_result
+          - result_not_found
+          - ambiguous_result
+      settlement_limit:
+        description: "Maximum number of prospective rows to settle"
+        required: false
+        default: "5000"
+        type: string
+      evaluation_limit:
+        description: "Optional settled-row limit for evaluation"
+        required: false
+        default: ""
+        type: string
+      evaluation_artifact_name:
+        description: "Optional evaluation artifact name override"
+        required: false
+        default: "weekly-prospective-evaluation"
+        type: string
+  schedule:
+    # Monday 16:00 UTC = Monday 9:00 AM America/Phoenix
+    - cron: '0 16 * * 1'
+
+concurrency:
+  group: weekly-prospective-settle-evaluate
+  cancel-in-progress: false
+
+jobs:
+  settle-and-evaluate-prospective:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    env:
+      INPUT_SETTLEMENT_STATUS: ${{ github.event.inputs.settlement_status }}
+      INPUT_SETTLEMENT_LIMIT: ${{ github.event.inputs.settlement_limit }}
+      INPUT_EVALUATION_LIMIT: ${{ github.event.inputs.evaluation_limit }}
+      INPUT_EVALUATION_ARTIFACT_NAME: ${{ github.event.inputs.evaluation_artifact_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          python -c "import supabase, pandas, numpy; print('Prospective settlement/evaluation imports successful')"
+
+      - name: Settle prospective rows
+        id: settle
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          SETTLEMENT_STATUS="${INPUT_SETTLEMENT_STATUS:-pending_result}"
+          SETTLEMENT_LIMIT="${INPUT_SETTLEMENT_LIMIT:-5000}"
+          SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_settlement_summary.json"
+
+          python scripts/settle_prospective_match_predictions.py \
+            --status "$SETTLEMENT_STATUS" \
+            --limit "$SETTLEMENT_LIMIT" \
+            --summary-path "$SUMMARY_PATH"
+
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate settled rows
+        id: evaluate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          OUTPUT_DIR="$RUNNER_TEMP/weekly_prospective_evaluation"
+          SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_evaluation_summary.json"
+
+          CMD=(
+            python scripts/evaluate_prospective_match_predictions.py
+            --output-dir "$OUTPUT_DIR"
+            --summary-path "$SUMMARY_PATH"
+          )
+
+          if [ -n "${INPUT_EVALUATION_LIMIT:-}" ]; then
+            CMD+=(--limit "${INPUT_EVALUATION_LIMIT}")
+          fi
+
+          printf 'Running command:\n'
+          printf ' %q' "${CMD[@]}"
+          printf '\n'
+
+          "${CMD[@]}"
+
+          echo "output_dir=$OUTPUT_DIR" >> "$GITHUB_OUTPUT"
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload settlement summary
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: weekly-prospective-settlement-summary-${{ github.run_id }}
+          path: ${{ steps.settle.outputs.summary_path }}
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload evaluation artifact
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ github.event.inputs.evaluation_artifact_name != '' && github.event.inputs.evaluation_artifact_name || format('weekly-prospective-evaluation-{0}', github.run_id) }}
+          path: ${{ steps.evaluate.outputs.output_dir }}
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Write run summary
+        if: always()
+        env:
+          SETTLEMENT_SUMMARY_PATH: ${{ steps.settle.outputs.summary_path }}
+          EVALUATION_SUMMARY_PATH: ${{ steps.evaluate.outputs.summary_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def load_json(path_value: str):
+              path = Path(path_value) if path_value else None
+              if not path or not path.is_file():
+                  return None
+              return json.loads(path.read_text(encoding="utf-8"))
+
+          settlement = load_json(os.environ.get("SETTLEMENT_SUMMARY_PATH", ""))
+          evaluation = load_json(os.environ.get("EVALUATION_SUMMARY_PATH", ""))
+          heuristic = (evaluation or {}).get("heuristic_summary") or {}
+          offline = (evaluation or {}).get("offline_summary") or {}
+          head_to_head = (evaluation or {}).get("head_to_head") or {}
+
+          lines = [
+              "## Weekly Prospective Settle And Evaluate",
+              "",
+              "- Schedule: Monday 9:00 AM America/Phoenix (16:00 UTC)",
+              "",
+          ]
+
+          if settlement:
+              lines.extend(
+                  [
+                      "### Settlement",
+                      f"- Requested status: `{settlement.get('requested_status')}`",
+                      f"- Rows fetched: {settlement.get('fetched_rows')}",
+                      f"- Rows processed: {settlement.get('processed')}",
+                      f"- Rows settled: {settlement.get('settled')}",
+                      f"- Result not found: {settlement.get('not_found')}",
+                      f"- Ambiguous: {settlement.get('ambiguous')}",
+                      "",
+                  ]
+              )
+
+          if evaluation:
+              lines.extend(
+                  [
+                      "### Evaluation",
+                      f"- Settled rows: {evaluation.get('settled_rows')}",
+                      f"- Comparable games: {head_to_head.get('fixtures_with_both_predictions')}",
+                      f"- Heuristic winner accuracy: {heuristic.get('winner_accuracy')}",
+                      f"- Offline winner accuracy: {offline.get('winner_accuracy')}",
+                      f"- Heuristic draw recall: {heuristic.get('draw_recall')}",
+                      f"- Offline draw recall: {offline.get('draw_recall')}",
+                      f"- Heuristic log loss: {heuristic.get('log_loss')}",
+                      f"- Offline log loss: {offline.get('log_loss')}",
+                      f"- Winner disagreement rate: {head_to_head.get('winner_disagreement_rate')}",
+                      f"- Avg draw-prob delta (offline - heuristic): {head_to_head.get('avg_draw_probability_delta_offline_minus_heuristic')}",
+                  ]
+              )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+              handle.write("\n")
+          PY
