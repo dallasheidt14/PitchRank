@@ -65,17 +65,17 @@ async def fetch_historical_games(
 
     logger.info(f"Fetching historical games from {cutoff_date}...")
 
-    # Base query
-    query = (
-        supabase.table("games")
-        .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
-        .not_.is_("home_team_master_id", "null")
-        .not_.is_("away_team_master_id", "null")
-        .not_.is_("home_score", "null")
-        .not_.is_("away_score", "null")
-        .gte("game_date", cutoff_date)
-        .order("game_date", desc=False)  # Oldest first for consistent processing
-    )
+    def build_base_query():
+        return (
+            supabase.table("games")
+            .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+            .not_.is_("home_team_master_id", "null")
+            .not_.is_("away_team_master_id", "null")
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .gte("game_date", cutoff_date)
+            .order("game_date", desc=False)  # Oldest first for consistent processing
+        )
 
     # If test slice specified, filter by state and age_group via teams table
     if test_slice:
@@ -90,7 +90,7 @@ async def fetch_historical_games(
     offset = 0
 
     while True:
-        batch_query = query.range(offset, offset + batch_size - 1)
+        batch_query = build_base_query().range(offset, offset + batch_size - 1)
 
         try:
             response = batch_query.execute()
