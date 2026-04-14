@@ -5,7 +5,7 @@ import { createServerClient } from '@supabase/ssr';
 const PREMIUM_ROUTES = ['/watchlist', '/compare', '/teams'];
 
 // Routes that require admin plan
-const ADMIN_ROUTES = ['/mission-control'];
+const ADMIN_ROUTES = ['/mission-control', '/analytics'];
 
 // All routes requiring authentication (derived to prevent list drift)
 const PROTECTED_ROUTES = [...PREMIUM_ROUTES, ...ADMIN_ROUTES];
