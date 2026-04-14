@@ -4,10 +4,12 @@ import pandas as pd
 
 from src.rankings.calculator import (
     _apply_publication_cap_band,
+    _collect_top_tier_weak_uncapped,
     _compute_same_age_evidence_metrics,
     _play_up_bonus,
     _positive_ml_evidence_scale,
     _publication_cap_rank,
+    _validate_publication_caps,
 )
 
 
@@ -349,7 +351,24 @@ def test_publication_cap_rank_hits_thin_schedule_bucket():
             "scf": 1.0,
         }
     )
-    assert _publication_cap_rank(row) == 1500
+    assert _publication_cap_rank(row) == 1000
+
+
+def test_publication_cap_rank_hits_mid_thin_quality_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 1,
+            "same_age_top1000_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.553,
+            "repeat_opponent_share": 0.43,
+            "unique_opp_states": 4,
+            "scf": 0.70,
+        }
+    )
+    assert _publication_cap_rank(row) == 1000
 
 
 def test_publication_cap_rank_hits_severe_local_loop_bucket():
@@ -477,3 +496,44 @@ def test_apply_publication_cap_band_leaves_uncapped_and_below_cap_scores_alone()
     assert adjusted.loc[1] < 0.73320145
     assert adjusted.loc[2] == base_scores.loc[2]
     assert adjusted.loc[3] == base_scores.loc[3]
+
+
+def test_validate_publication_caps_raises_when_score_finishes_above_cap():
+    teams_age = pd.DataFrame(
+        {
+            "team_id": ["A", "B"],
+            "team_name": ["Alpha", "Beta"],
+            "publication_cap_score": [0.70, pd.NA],
+        },
+        index=[1, 2],
+    )
+    capped_scores = pd.Series([0.71, 0.65], index=[1, 2], dtype=float)
+
+    try:
+        _validate_publication_caps(teams_age, capped_scores)
+    except ValueError as exc:
+        assert "Alpha(A)" in str(exc)
+    else:
+        raise AssertionError("Expected cap validation to fail")
+
+
+def test_collect_top_tier_weak_uncapped_flags_surf_type_profile():
+    teams_age = pd.DataFrame(
+        {
+            "team_id": ["surf", "elite", "capped"],
+            "team_name": ["Surf", "Elite", "Capped"],
+            "age_num": [13, 13, 13],
+            "publication_cap_rank": [pd.NA, pd.NA, 400],
+            "same_age_top100_opp_count": [0, 3, 0],
+            "same_age_top500_opp_count": [2, 7, 1],
+            "same_age_avg_opp_power_adj": [0.514, 0.71, 0.49],
+            "repeat_opponent_share": [0.22, 0.12, 0.40],
+            "unique_opp_states": [3, 8, 2],
+            "scf": [0.80, 1.00, 0.50],
+        }
+    )
+    base_scores = pd.Series([0.90, 0.89, 0.88], index=teams_age.index, dtype=float)
+
+    flagged = _collect_top_tier_weak_uncapped(teams_age, base_scores)
+
+    assert flagged["team_id"].tolist() == ["surf"]

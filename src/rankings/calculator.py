@@ -275,6 +275,7 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     return {
         "cap_rank": 400,
         "soft_cap_rank": 250,
+        "mid_thin_cap_rank": 1000,
         "thin_schedule_cap_rank": 1500,
         "severe_cap_rank": 2000,
         "cap_band_min_width": 0.005,
@@ -283,6 +284,9 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "min_top500": 5,
         "min_avg_opp_power": 0.68,
         "severe_min_avg_opp_power": 0.55,
+        "mid_thin_max_top500": 1,
+        "mid_thin_max_top1000_non_loss": 3,
+        "mid_thin_max_avg_opp_power": 0.56,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
         "local_loop_max_top500": 1,
@@ -310,6 +314,9 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "play_up_bonus_per_top500_non_loss": 0.015,
         "play_up_bonus_per_top1000_non_loss": 0.005,
         "play_up_bonus_max": 0.060,
+        "diagnostic_top_rank": 25,
+        "diagnostic_max_top500": 2,
+        "diagnostic_max_avg_opp_power": 0.55,
     }
 
 
@@ -371,6 +378,86 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
         adjusted.loc[ranked.index] = compressed
 
     return adjusted
+
+
+def _validate_publication_caps(teams_age: pd.DataFrame, capped_scores: pd.Series) -> None:
+    """Fail fast if any capped team still finishes above its cohort ceiling."""
+    if "publication_cap_score" not in teams_age.columns:
+        return
+
+    cap_scores = pd.to_numeric(teams_age["publication_cap_score"], errors="coerce")
+    if cap_scores.isna().all():
+        return
+
+    actual_scores = pd.to_numeric(capped_scores, errors="coerce")
+    violations = teams_age.loc[
+        cap_scores.notna() & actual_scores.notna() & (actual_scores > (cap_scores + 1e-9))
+    ].copy()
+    if violations.empty:
+        return
+
+    violations["actual_score"] = actual_scores.loc[violations.index]
+    violations["cap_score"] = cap_scores.loc[violations.index]
+    sample = []
+    for row in violations.head(5).itertuples(index=False):
+        team_name = getattr(row, "team_name", None) or getattr(row, "team_id", "unknown")
+        sample.append(
+            f"{team_name}({getattr(row, 'team_id', 'unknown')}): "
+            f"actual={float(getattr(row, 'actual_score')):.6f} > cap={float(getattr(row, 'cap_score')):.6f}"
+        )
+    raise ValueError(
+        "Publication cap violation after band compression for "
+        f"{len(violations)} team(s): {'; '.join(sample)}"
+    )
+
+
+def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Series) -> pd.DataFrame:
+    """Return top provisional teams that still look weak but were not capped."""
+    required_cols = {"same_age_top100_opp_count", "same_age_top500_opp_count", "same_age_avg_opp_power_adj"}
+    if not required_cols.issubset(teams_age.columns):
+        return pd.DataFrame()
+
+    work = teams_age.copy()
+    work["team_id"] = work["team_id"].astype(str)
+    work["base_after_cap"] = pd.to_numeric(base_scores, errors="coerce")
+    work = work[work["base_after_cap"].notna()].sort_values(["base_after_cap", "team_id"], ascending=[False, True])
+    if work.empty:
+        return pd.DataFrame()
+
+    work = work.reset_index(drop=True)
+    work["provisional_rank"] = work.index + 1
+    age_num = _safe_int(work["age_num"].iloc[0]) if "age_num" in work.columns else 0
+    policy = _same_age_evidence_policy(age_num)
+    publication_cap_rank = pd.to_numeric(work.get("publication_cap_rank"), errors="coerce")
+    top100 = pd.to_numeric(work["same_age_top100_opp_count"], errors="coerce").fillna(0)
+    top500 = pd.to_numeric(work["same_age_top500_opp_count"], errors="coerce").fillna(0)
+    avg_opp = pd.to_numeric(work["same_age_avg_opp_power_adj"], errors="coerce")
+
+    mask = (
+        (work["provisional_rank"] <= int(policy["diagnostic_top_rank"]))
+        & publication_cap_rank.isna()
+        & (top100 <= 0)
+        & (top500 <= int(policy["diagnostic_max_top500"]))
+        & avg_opp.notna()
+        & (avg_opp < float(policy["diagnostic_max_avg_opp_power"]))
+    )
+    if not mask.any():
+        return pd.DataFrame()
+
+    cols = [
+        "team_id",
+        "team_name",
+        "provisional_rank",
+        "base_after_cap",
+        "same_age_top100_opp_count",
+        "same_age_top500_opp_count",
+        "same_age_avg_opp_power_adj",
+        "repeat_opponent_share",
+        "unique_opp_states",
+        "scf",
+    ]
+    existing = [col for col in cols if col in work.columns]
+    return work.loc[mask, existing].copy()
 
 
 def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
@@ -716,6 +803,13 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power is not None
         and avg_opp_power < float(policy["thin_schedule_max_avg_opp_power"])
     )
+    mid_thin_quality = (
+        top100 == 0
+        and top500 <= int(policy["mid_thin_max_top500"])
+        and top1000_non_loss <= int(policy["mid_thin_max_top1000_non_loss"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["mid_thin_max_avg_opp_power"])
+    )
     local_loop_override = (
         top100 == 0
         and top500 <= int(policy["local_loop_max_top500"])
@@ -745,6 +839,8 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["severe_cap_rank"])
     if thin_schedule and isolation_override:
         return int(policy["severe_cap_rank"])
+    if mid_thin_quality and not isolation_override:
+        return int(policy["mid_thin_cap_rank"])
     if thin_schedule:
         return int(policy["thin_schedule_cap_rank"])
     if severe_connectivity:
@@ -1982,10 +2078,29 @@ async def compute_all_cohorts(
                     cap_mask = cap_scores.notna()
                     if cap_mask.any():
                         base = _apply_publication_cap_band(base, teams_age)
+                        _validate_publication_caps(teams_age, base)
                         logger.info(
                             f"  📊 Age {age}: publication cap band applied to "
                             f"{int(cap_mask.sum())} team(s) on weak same-age evidence"
                         )
+                        top_tier_weak = _collect_top_tier_weak_uncapped(teams_age, base)
+                        if not top_tier_weak.empty:
+                            detail_parts = []
+                            for row in top_tier_weak.itertuples(index=False):
+                                team_name = getattr(row, "team_name", None)
+                                label = team_name if isinstance(team_name, str) and team_name else row.team_id
+                                detail_parts.append(
+                                    f"{label}({row.team_id})"
+                                    f" rank={int(row.provisional_rank)}"
+                                    f" top500={int(_safe_int(row.same_age_top500_opp_count))}"
+                                    f" avg_opp={float(row.same_age_avg_opp_power_adj):.3f}"
+                                )
+                            details = "; ".join(detail_parts)
+                            logger.warning(
+                                "⚠️ Age %s: weak same-age teams remain uncapped in the top tier: %s",
+                                age,
+                                details,
+                            )
 
                 # Scale by anchor and clip to [0, anchor_val]
                 ps_scaled = (base * anchor_val).clip(0.0, anchor_val)
