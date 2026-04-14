@@ -6,6 +6,7 @@ import { DEFAULT_PRESET, REACT_QUERY_STALE_MS, REACT_QUERY_GC_MS } from '@/lib/i
 import type { DateRangePreset } from '@/lib/internal-analytics/types';
 import { DateRangePicker } from './DateRangePicker';
 import { Button } from '@/components/ui/button';
+import { UpgradeFunnelTile } from './tiles/UpgradeFunnelTile';
 import { TrafficOverviewTile } from './tiles/TrafficOverviewTile';
 import { TopPagesTile } from './tiles/TopPagesTile';
 import { UpgradeViewsTile } from './tiles/UpgradeViewsTile';
@@ -13,6 +14,8 @@ import { SearchPerformanceTile } from './tiles/SearchPerformanceTile';
 import { TrafficSourcesTile } from './tiles/TrafficSourcesTile';
 import { TopQueriesTile } from './tiles/TopQueriesTile';
 import { LandingPagesTile } from './tiles/LandingPagesTile';
+import { MostWantedTeamsTile } from './tiles/MostWantedTeamsTile';
+import { UpgradeSourcesTile } from './tiles/UpgradeSourcesTile';
 import { ChatSidebar } from './chat/ChatSidebar';
 
 export function DashboardGrid() {
@@ -44,6 +47,7 @@ export function DashboardGrid() {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <UpgradeFunnelTile range={range} />
             <TrafficOverviewTile range={range} />
             <UpgradeViewsTile range={range} />
             <TopPagesTile range={range} />
@@ -51,6 +55,8 @@ export function DashboardGrid() {
             <SearchPerformanceTile range={range} />
             <TopQueriesTile range={range} />
             <LandingPagesTile range={range} />
+            <MostWantedTeamsTile range={range} />
+            <UpgradeSourcesTile range={range} />
           </div>
           <div className="lg:col-span-1">
             <ChatSidebar range={range} />
