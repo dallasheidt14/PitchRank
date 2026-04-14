@@ -948,6 +948,7 @@ def build_point_in_time_dataset(
     snapshot_index: Dict[str, List[dict]],
     team_names: Optional[Dict[str, str]] = None,
     include_mirrored_examples: bool = True,
+    progress_log_every: int = 0,
 ) -> DatasetBuildResult:
     """
     Build a leakage-safe training frame from point-in-time snapshots.
@@ -1004,7 +1005,9 @@ def build_point_in_time_dataset(
             actual_score_b=score_b,
         )
 
-    for _, game_row in games_df.iterrows():
+    total_games = len(games_df)
+
+    for index, (_, game_row) in enumerate(games_df.iterrows(), start=1):
         if pd.isna(game_row.get("home_team_master_id")) or pd.isna(game_row.get("away_team_master_id")):
             continue
         if pd.isna(game_row.get("home_score")) or pd.isna(game_row.get("away_score")):
@@ -1064,6 +1067,16 @@ def build_point_in_time_dataset(
         )
         per_team_history[home_id].append(predictor_game)
         per_team_history[away_id].append(predictor_game)
+
+        if progress_log_every and index % progress_log_every == 0:
+            logger.info(
+                "Dataset build progress: processed %s/%s games, used=%s, skipped_missing_snapshot=%s, examples=%s",
+                f"{index:,}",
+                f"{total_games:,}",
+                f"{games_used:,}",
+                f"{skipped_missing_snapshot:,}",
+                f"{len(rows):,}",
+            )
 
     dataset = pd.DataFrame(rows)
     if not dataset.empty:
