@@ -294,53 +294,131 @@ function LatestTrainingCard({
 
         <p className="text-sm text-gray-300">{trainingChangeSummary(latest, previous)}</p>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <MetricTile
-            title="Games used"
-            tooltip="Historical matches that had valid point-in-time snapshots and were actually used to train and test this run."
-            value={formatNumber(latest.gamesUsed)}
-            subtitle={`${formatNumber(latest.examplesBuilt)} mirrored examples built`}
-            icon={Database}
-          />
-          <MetricTile
-            title="Winner accuracy"
-            tooltip="Offline holdout accuracy on picking the correct winner or draw outcome for this specific training run."
-            value={formatPercent(latest.winnerAccuracy)}
-            subtitle={`Requested ${formatStrategy(latest.requestedProbabilityStrategy)}`}
-            icon={Trophy}
-          />
-          <MetricTile
-            title="Draw recall"
-            tooltip="Out of the holdout games that truly ended in a draw, how often this training run called draw."
-            value={formatPercent(latest.drawRecall)}
-            subtitle={`Predicted draw rate ${formatPercent(latest.predictedDrawRate)}`}
-            icon={Target}
-          />
-          <MetricTile
-            title="Log loss"
-            tooltip="Offline holdout probability-quality score for this run. Lower is better."
-            value={formatDecimal(latest.logLoss)}
-            subtitle={
-              latest.calibratedLogLoss != null
-                ? `Calibrated ${formatDecimal(latest.calibratedLogLoss)}`
-                : `Exact score ${formatPercent(latest.exactScoreAccuracy)}`
-            }
-            icon={TrendingUp}
-          />
-          <MetricTile
-            title="Margin MAE"
-            tooltip="Average offline holdout error in expected goal margin. Lower is better."
-            value={formatDecimal(latest.marginMae)}
-            subtitle={`Lookback ${formatNumber(latest.lookbackDays)} days`}
-            icon={FlaskConical}
-          />
-          <MetricTile
-            title="Snapshot dates used"
-            tooltip="How many distinct point-in-time snapshot dates were actually used in this training run."
-            value={formatNumber(latest.uniqueSnapshotDatesUsed)}
-            subtitle={`Recorded ${formatDateTime(latest.createdAt)}`}
-            icon={History}
-          />
+        <div className="grid gap-6 xl:grid-cols-[1.15fr_1fr]">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+              <h3 className="text-sm font-medium text-white">Training Data Used</h3>
+              <p className="mt-1 text-xs text-gray-400">
+                This is the historical dataset the offline run actually trained and tested on.
+              </p>
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <MetricTile
+                  title="Games seen"
+                  tooltip="Historical scored games fetched before filtering for valid point-in-time snapshots."
+                  value={formatNumber(latest.gamesSeen)}
+                  subtitle={`Lookback ${formatNumber(latest.lookbackDays)} days`}
+                  icon={Database}
+                />
+                <MetricTile
+                  title="Games used"
+                  tooltip="Historical matches that had valid point-in-time snapshots and were actually used to train and test this run."
+                  value={formatNumber(latest.gamesUsed)}
+                  subtitle="Leakage-safe training pool"
+                  icon={Database}
+                />
+                <MetricTile
+                  title="Examples built"
+                  tooltip="Mirrored team-perspective examples created from the usable games."
+                  value={formatNumber(latest.examplesBuilt)}
+                  subtitle="Rows fed into the model harness"
+                  icon={History}
+                />
+                <MetricTile
+                  title="Snapshot dates used"
+                  tooltip="How many distinct point-in-time snapshot dates were actually used in this training run."
+                  value={formatNumber(latest.uniqueSnapshotDatesUsed)}
+                  subtitle={`Recorded ${formatDateTime(latest.createdAt)}`}
+                  icon={History}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-gray-300">
+              <div className="flex items-center justify-between gap-4">
+                <span>Requested strategy</span>
+                <span>{formatStrategy(latest.requestedProbabilityStrategy)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span>Selected strategy</span>
+                <span>{formatStrategy(latest.selectedProbabilityStrategy)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span>Minimum examples</span>
+                <span>{formatNumber(latest.minExamples)}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span>Test split</span>
+                <span>{latest.testRatio != null ? formatPercent(latest.testRatio) : 'N/A'}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span>Model dir</span>
+                <span className="max-w-[260px] truncate text-right" title={latest.modelDir}>
+                  {latest.modelDir}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+              <h3 className="text-sm font-medium text-white">Holdout Accuracy Snapshot</h3>
+              <p className="mt-1 text-xs text-gray-400">
+                These numbers come from the offline holdout set for this exact training run.
+              </p>
+              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <MetricTile
+                  title="Winner accuracy"
+                  tooltip="Offline holdout accuracy on picking the correct winner or draw outcome for this specific training run."
+                  value={formatPercent(latest.winnerAccuracy)}
+                  subtitle="Higher is better"
+                  icon={Trophy}
+                />
+                <MetricTile
+                  title="Draw recall"
+                  tooltip="Out of the holdout games that truly ended in a draw, how often this training run called draw."
+                  value={formatPercent(latest.drawRecall)}
+                  subtitle={`Predicted draw rate ${formatPercent(latest.predictedDrawRate)}`}
+                  icon={Target}
+                />
+                <MetricTile
+                  title="Log loss"
+                  tooltip="Offline holdout probability-quality score for this run. Lower is better."
+                  value={formatDecimal(latest.logLoss)}
+                  subtitle={
+                    latest.calibratedLogLoss != null
+                      ? `Calibrated ${formatDecimal(latest.calibratedLogLoss)}`
+                      : 'Lower is better'
+                  }
+                  icon={TrendingUp}
+                />
+                <MetricTile
+                  title="Margin MAE"
+                  tooltip="Average offline holdout error in expected goal margin. Lower is better."
+                  value={formatDecimal(latest.marginMae)}
+                  subtitle={`Exact score ${formatPercent(latest.exactScoreAccuracy)}`}
+                  icon={FlaskConical}
+                />
+              </div>
+            </div>
+
+            {latest.calibratedLogLoss != null || latest.calibratedDrawRecall != null || latest.calibratedBrierScore != null ? (
+              <div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm text-gray-300">
+                <h3 className="text-sm font-medium text-white">Calibration Output</h3>
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <span>Calibrated log loss</span>
+                  <span>{formatDecimal(latest.calibratedLogLoss)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <span>Calibrated draw recall</span>
+                  <span>{formatPercent(latest.calibratedDrawRecall)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <span>Calibrated Brier</span>
+                  <span>{formatDecimal(latest.calibratedBrierScore)}</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -370,6 +448,9 @@ function TrainingHistoryTable({
                 label="Model version"
                 tooltip="Version string that can later become the offline benchmark in the prospective pipeline."
               />
+            </TableHead>
+            <TableHead className="text-right text-gray-400">
+              <InfoLabel label="Games seen" tooltip="Historical scored games fetched before PIT filtering for that run." />
             </TableHead>
             <TableHead className="text-right text-gray-400">
               <InfoLabel label="Games used" tooltip="Leakage-safe historical matches used by that training run." />
@@ -417,6 +498,7 @@ function TrainingHistoryTable({
                     {formatStrategy(run.selectedProbabilityStrategy ?? run.requestedProbabilityStrategy)}
                   </div>
                 </TableCell>
+                <TableCell className="text-right text-gray-300">{formatNumber(run.gamesSeen)}</TableCell>
                 <TableCell className="text-right text-gray-300">{formatNumber(run.gamesUsed)}</TableCell>
                 <TableCell className="text-right text-gray-300">{formatPercent(run.winnerAccuracy)}</TableCell>
                 <TableCell className="text-right text-gray-300">{formatPercent(run.drawRecall)}</TableCell>
@@ -431,7 +513,7 @@ function TrainingHistoryTable({
           })}
           {runs.length === 0 ? (
             <TableRow className="border-white/10">
-              <TableCell colSpan={6} className="text-center text-gray-500">
+              <TableCell colSpan={7} className="text-center text-gray-500">
                 No recorded training runs yet
               </TableCell>
             </TableRow>
