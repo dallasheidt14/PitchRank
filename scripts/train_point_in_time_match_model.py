@@ -31,7 +31,6 @@ from scripts.backtest_predictor import (  # noqa: E402
     build_snapshot_index,
     fetch_historical_games,
     fetch_prediction_feature_snapshots,
-    fetch_team_names,
 )
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     DatasetBuildResult,
@@ -106,6 +105,11 @@ async def main():
         action="store_true",
         help="Persist the built training frame to CSV for inspection",
     )
+    parser.add_argument(
+        "--include-team-names",
+        action="store_true",
+        help="Fetch canonical team names for dataset/reporting output (slower; disabled by default in CI)",
+    )
     args = parser.parse_args()
 
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -141,7 +145,17 @@ async def main():
         sys.exit(1)
 
     snapshot_index = build_snapshot_index(snapshots_df)
-    team_names = await fetch_team_names(supabase, team_ids)
+    team_names = {}
+    if args.include_team_names:
+        from scripts.backtest_predictor import fetch_team_names  # noqa: E402
+
+        team_names = await fetch_team_names(supabase, team_ids)
+    else:
+        logger.info(
+            "Skipping canonical team-name fetch for %s teams during training; names are metadata-only and not "
+            "required for model fitting.",
+            f"{len(team_ids):,}",
+        )
 
     logger.info(
         "Building point-in-time dataset from %s games, %s snapshots, and %s teams",
@@ -154,6 +168,7 @@ async def main():
         snapshot_index=snapshot_index,
         team_names=team_names,
         include_mirrored_examples=True,
+        progress_log_every=5000,
     )
 
     model_dir = Path(args.model_dir)
