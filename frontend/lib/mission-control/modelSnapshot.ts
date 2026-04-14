@@ -5,6 +5,7 @@ import type {
   ModelPerformanceSummary,
   ModelVersionSummary,
   PipelineSummary,
+  TrainingRunSummary,
 } from '@/types/mission-control';
 
 const EPSILON = 1e-15;
@@ -364,7 +365,8 @@ function buildPipelineSummary(rows: ProspectiveSnapshotRow[]): PipelineSummary {
 
 export function buildMissionControlSnapshot(
   rows: ProspectiveSnapshotRow[],
-  pitCoverage: MissionControlSnapshot['pitCoverage']
+  pitCoverage: MissionControlSnapshot['pitCoverage'],
+  trainingRuns: TrainingRunSummary[] = []
 ): MissionControlSnapshot {
   const heuristicVersions = buildVersionSummaries(rows, 'heuristic');
   const offlineVersions = buildVersionSummaries(rows, 'offline');
@@ -387,5 +389,6 @@ export function buildMissionControlSnapshot(
     offlineVersions,
     pipeline: buildPipelineSummary(rows),
     pitCoverage,
+    trainingRuns,
   };
 }

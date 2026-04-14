@@ -1,8 +1,8 @@
 'use client';
 
-import { Info, Trophy, Target, Clock3, Database, GitCompareArrows } from 'lucide-react';
+import { ArrowUpRight, Clock3, Database, FlaskConical, GitCompareArrows, History, Info, Target, Trophy, TrendingUp, type LucideIcon } from 'lucide-react';
 import { useMissionControlSnapshot } from '@/hooks/useMissionControl';
-import type { MissionControlSnapshot, ModelPerformanceSummary, ModelVersionSummary } from '@/types/mission-control';
+import type { MissionControlSnapshot, ModelPerformanceSummary, ModelVersionSummary, TrainingRunSummary } from '@/types/mission-control';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,11 +35,35 @@ function formatShortDate(value: string | null | undefined): string {
   }).format(new Date(`${value}T00:00:00Z`));
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return 'N/A';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 function formatPercentPointDelta(value: number | null): string {
   if (value == null || Number.isNaN(value)) return 'N/A';
   const points = value * 100;
   const sign = points > 0 ? '+' : '';
   return `${sign}${points.toFixed(2)} pts`;
+}
+
+function formatDeltaMagnitude(value: number, digits = 2): string {
+  return `${Math.abs(value * 100).toFixed(digits)} pts`;
+}
+
+function formatStrategy(value: string | null | undefined): string {
+  if (!value) return 'N/A';
+  return value.replace(/_/g, ' ');
+}
+
+function githubRunUrl(runId: number): string {
+  return `https://github.com/dallasheidt14/PitchRank/actions/runs/${runId}`;
 }
 
 function SectionSkeleton() {
@@ -84,7 +108,7 @@ function MetricTile({
   tooltip: string;
   value: string;
   subtitle?: string;
-  icon: typeof Trophy;
+  icon: LucideIcon;
 }) {
   return (
     <Card variant="flat" className="border-white/10 bg-white/5">
@@ -104,6 +128,37 @@ function MetricTile({
       </CardContent>
     </Card>
   );
+}
+
+function trainingChangeSummary(current: TrainingRunSummary, previous: TrainingRunSummary | null): string {
+  if (!previous) {
+    return 'No earlier recorded training run yet. This is the baseline holdout snapshot for the new training tracker.';
+  }
+
+  const parts: string[] = [];
+  if (current.winnerAccuracy != null && previous.winnerAccuracy != null) {
+    const delta = current.winnerAccuracy - previous.winnerAccuracy;
+    parts.push(`winner accuracy ${delta >= 0 ? 'up' : 'down'} ${formatDeltaMagnitude(delta)}`);
+  }
+  if (current.drawRecall != null && previous.drawRecall != null) {
+    const delta = current.drawRecall - previous.drawRecall;
+    parts.push(`draw recall ${delta >= 0 ? 'up' : 'down'} ${formatDeltaMagnitude(delta)}`);
+  }
+  if (current.logLoss != null && previous.logLoss != null) {
+    const delta = current.logLoss - previous.logLoss;
+    parts.push(`log loss ${delta <= 0 ? 'down' : 'up'} ${Math.abs(delta).toFixed(3)}`);
+  }
+  if (current.gamesUsed != null && previous.gamesUsed != null) {
+    const delta = current.gamesUsed - previous.gamesUsed;
+    const sign = delta > 0 ? '+' : '';
+    parts.push(`games used ${sign}${delta.toLocaleString()}`);
+  }
+
+  if (!parts.length) {
+    return 'No comparable metrics were available from the previous recorded training run.';
+  }
+
+  return `Versus the previous recorded run: ${parts.join(', ')}.`;
 }
 
 function winnerSummaryText(heuristic: ModelPerformanceSummary, offline: ModelPerformanceSummary): string {
@@ -135,6 +190,8 @@ function drawSummaryText(heuristic: ModelPerformanceSummary, offline: ModelPerfo
 }
 
 function QuickReadCard({ data }: { data: MissionControlSnapshot }) {
+  const latestTrainingRun = data.trainingRuns[0] ?? null;
+
   return (
     <Card variant="flat" className="border-white/10 bg-white/5">
       <CardHeader className="border-b border-white/10">
@@ -150,6 +207,14 @@ function QuickReadCard({ data }: { data: MissionControlSnapshot }) {
         </p>
         <p>{winnerSummaryText(data.heuristic, data.offline)}</p>
         <p>{drawSummaryText(data.heuristic, data.offline)}</p>
+        {latestTrainingRun ? (
+          <p>
+            The latest offline training run was recorded on <strong>{formatDateTime(latestTrainingRun.createdAt)}</strong> and
+            used <strong>{formatNumber(latestTrainingRun.gamesUsed)}</strong> leakage-safe games, with holdout winner accuracy of{' '}
+            <strong>{formatPercent(latestTrainingRun.winnerAccuracy)}</strong> and log loss of{' '}
+            <strong>{formatDecimal(latestTrainingRun.logLoss)}</strong>.
+          </p>
+        ) : null}
         <p>
           There are <strong>{formatNumber(data.pipeline.pendingResult)}</strong> frozen fixtures still waiting on final scores and{' '}
           <strong>{formatNumber(data.pipeline.pendingResolution)}</strong> fixtures that still need cleaner team matching before
@@ -157,6 +222,223 @@ function QuickReadCard({ data }: { data: MissionControlSnapshot }) {
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+function LatestTrainingCard({
+  runs,
+  currentOfflineVersion,
+}: {
+  runs: TrainingRunSummary[];
+  currentOfflineVersion: string | null;
+}) {
+  const latest = runs[0] ?? null;
+  const previous = runs[1] ?? null;
+
+  if (!latest) {
+    return (
+      <Card variant="flat" className="border-white/10 bg-white/5">
+        <CardHeader className="border-b border-white/10">
+          <CardTitle className="text-white">Latest Offline Training Run</CardTitle>
+          <CardDescription className="text-gray-400">
+            Holdout results from the training workflow will appear here once a run is recorded
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6 text-sm text-gray-400">No recorded training runs yet.</CardContent>
+      </Card>
+    );
+  }
+
+  const isCurrentBenchmark = currentOfflineVersion != null && latest.modelVersion === currentOfflineVersion;
+
+  return (
+    <Card variant="flat" className="border-white/10 bg-white/5">
+      <CardHeader className="border-b border-white/10">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-2">
+            <CardTitle className="text-white">Latest Offline Training Run</CardTitle>
+            <CardDescription className="text-gray-400">
+              Offline holdout metrics from the training workflow. Use this to spot retrain improvement before the model has enough
+              prospective games to judge live.
+            </CardDescription>
+          </div>
+          <a
+            href={githubRunUrl(latest.workflowRunId)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-emerald-200 transition hover:text-white"
+          >
+            Open run #{latest.workflowRunId}
+            <ArrowUpRight className="h-4 w-4" />
+          </a>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-6">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className="border-white/20 text-gray-200">
+            {latest.modelVersion}
+          </Badge>
+          <Badge variant="outline" className="border-white/20 text-gray-200">
+            strategy: {formatStrategy(latest.selectedProbabilityStrategy ?? latest.requestedProbabilityStrategy)}
+          </Badge>
+          <Badge
+            variant="outline"
+            className={isCurrentBenchmark ? 'border-emerald-400/30 text-emerald-200' : 'border-amber-400/30 text-amber-200'}
+          >
+            {isCurrentBenchmark ? 'current prospective benchmark' : 'newer than current benchmark'}
+          </Badge>
+          <Badge variant="outline" className="border-white/20 text-gray-200">
+            calibration: {latest.calibrationEnabled ? `${latest.calibrationMethod ?? 'on'}` : 'off'}
+          </Badge>
+        </div>
+
+        <p className="text-sm text-gray-300">{trainingChangeSummary(latest, previous)}</p>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <MetricTile
+            title="Games used"
+            tooltip="Historical matches that had valid point-in-time snapshots and were actually used to train and test this run."
+            value={formatNumber(latest.gamesUsed)}
+            subtitle={`${formatNumber(latest.examplesBuilt)} mirrored examples built`}
+            icon={Database}
+          />
+          <MetricTile
+            title="Winner accuracy"
+            tooltip="Offline holdout accuracy on picking the correct winner or draw outcome for this specific training run."
+            value={formatPercent(latest.winnerAccuracy)}
+            subtitle={`Requested ${formatStrategy(latest.requestedProbabilityStrategy)}`}
+            icon={Trophy}
+          />
+          <MetricTile
+            title="Draw recall"
+            tooltip="Out of the holdout games that truly ended in a draw, how often this training run called draw."
+            value={formatPercent(latest.drawRecall)}
+            subtitle={`Predicted draw rate ${formatPercent(latest.predictedDrawRate)}`}
+            icon={Target}
+          />
+          <MetricTile
+            title="Log loss"
+            tooltip="Offline holdout probability-quality score for this run. Lower is better."
+            value={formatDecimal(latest.logLoss)}
+            subtitle={
+              latest.calibratedLogLoss != null
+                ? `Calibrated ${formatDecimal(latest.calibratedLogLoss)}`
+                : `Exact score ${formatPercent(latest.exactScoreAccuracy)}`
+            }
+            icon={TrendingUp}
+          />
+          <MetricTile
+            title="Margin MAE"
+            tooltip="Average offline holdout error in expected goal margin. Lower is better."
+            value={formatDecimal(latest.marginMae)}
+            subtitle={`Lookback ${formatNumber(latest.lookbackDays)} days`}
+            icon={FlaskConical}
+          />
+          <MetricTile
+            title="Snapshot dates used"
+            tooltip="How many distinct point-in-time snapshot dates were actually used in this training run."
+            value={formatNumber(latest.uniqueSnapshotDatesUsed)}
+            subtitle={`Recorded ${formatDateTime(latest.createdAt)}`}
+            icon={History}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrainingHistoryTable({
+  runs,
+  currentOfflineVersion,
+}: {
+  runs: TrainingRunSummary[];
+  currentOfflineVersion: string | null;
+}) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-white/10 hover:bg-white/5">
+            <TableHead className="text-gray-400">
+              <InfoLabel
+                label="Run"
+                tooltip="GitHub Actions training run that produced this offline model summary."
+              />
+            </TableHead>
+            <TableHead className="text-gray-400">
+              <InfoLabel
+                label="Model version"
+                tooltip="Version string that can later become the offline benchmark in the prospective pipeline."
+              />
+            </TableHead>
+            <TableHead className="text-right text-gray-400">
+              <InfoLabel label="Games used" tooltip="Leakage-safe historical matches used by that training run." />
+            </TableHead>
+            <TableHead className="text-right text-gray-400">
+              <InfoLabel label="Winner acc." tooltip="Offline holdout winner accuracy for that run." />
+            </TableHead>
+            <TableHead className="text-right text-gray-400">
+              <InfoLabel label="Draw recall" tooltip="Offline holdout draw recall for that run." />
+            </TableHead>
+            <TableHead className="text-right text-gray-400">
+              <InfoLabel label="Log loss" tooltip="Offline holdout probability-quality score. Lower is better." />
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {runs.map((run) => {
+            const isCurrentBenchmark = currentOfflineVersion != null && run.modelVersion === currentOfflineVersion;
+            return (
+              <TableRow key={run.workflowRunId} className="border-white/10 hover:bg-white/5">
+                <TableCell className="text-white">
+                  <div className="space-y-1">
+                    <a
+                      href={githubRunUrl(run.workflowRunId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-white transition hover:text-emerald-200"
+                    >
+                      #{run.workflowRunId}
+                      <ArrowUpRight className="h-3.5 w-3.5" />
+                    </a>
+                    <div className="text-xs text-gray-500">{formatDateTime(run.createdAt)}</div>
+                  </div>
+                </TableCell>
+                <TableCell className="max-w-[360px] truncate text-white" title={run.modelVersion}>
+                  <div className="flex items-center gap-2">
+                    <span>{run.modelVersion}</span>
+                    {isCurrentBenchmark ? (
+                      <Badge variant="outline" className="border-emerald-400/30 text-emerald-200">
+                        benchmark
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-500">
+                    {formatStrategy(run.selectedProbabilityStrategy ?? run.requestedProbabilityStrategy)}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right text-gray-300">{formatNumber(run.gamesUsed)}</TableCell>
+                <TableCell className="text-right text-gray-300">{formatPercent(run.winnerAccuracy)}</TableCell>
+                <TableCell className="text-right text-gray-300">{formatPercent(run.drawRecall)}</TableCell>
+                <TableCell className="text-right text-gray-300">
+                  <div>{formatDecimal(run.logLoss)}</div>
+                  {run.calibratedLogLoss != null ? (
+                    <div className="text-xs text-gray-500">cal {formatDecimal(run.calibratedLogLoss)}</div>
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+          {runs.length === 0 ? (
+            <TableRow className="border-white/10">
+              <TableCell colSpan={6} className="text-center text-gray-500">
+                No recorded training runs yet
+              </TableCell>
+            </TableRow>
+          ) : null}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -257,11 +539,11 @@ function ComparisonTable({
 function StatusTable({ snapshot }: { snapshot: MissionControlSnapshot }) {
   const rows = [
     {
-      label: 'Ready to compare',
+      label: 'Settled rows across all versions',
       tooltip:
-        'Fixtures where we matched the final result back to the frozen predictions. These rows actively count toward the accuracy numbers above.',
+        'Fixtures where we matched the final result back to frozen predictions. This includes older model versions, so it can be larger than the current apples-to-apples comparison sample above.',
       value: formatNumber(snapshot.pipeline.settled),
-      meaning: 'Final score found and both predictions can be judged.',
+      meaning: 'Final score found and at least one version pairing can be judged.',
     },
     {
       label: 'Waiting on final score',
@@ -534,7 +816,7 @@ export function ModelSnapshotDashboard() {
             <CardHeader className="border-b border-white/10">
               <CardTitle className="text-white">Pipeline Status</CardTitle>
               <CardDescription className="text-gray-400">
-                Where the prospective evaluation pipeline is currently getting stuck or moving cleanly
+                Operational counts for the prospective evaluation pipeline, including older model versions
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
@@ -608,6 +890,33 @@ export function ModelSnapshotDashboard() {
           </Card>
         </div>
 
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+          <LatestTrainingCard runs={data.trainingRuns} currentOfflineVersion={data.currentOfflineVersion} />
+
+          <Card variant="flat" className="border-white/10 bg-white/5">
+            <CardHeader className="border-b border-white/10">
+              <CardTitle className="text-white">Training vs Live Results</CardTitle>
+              <CardDescription className="text-gray-400">
+                Why both sections matter and how to interpret them together
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6 text-sm text-gray-300">
+              <div>
+                <p className="font-medium text-white">Training run metrics</p>
+                <p>Offline holdout numbers from the training workflow. Useful for seeing whether a retrain got better before enough live games finish.</p>
+              </div>
+              <div>
+                <p className="font-medium text-white">Prospective comparison</p>
+                <p>Frozen pregame predictions judged against real final scores. This is the real scoreboard for deciding whether to swap models live.</p>
+              </div>
+              <div>
+                <p className="font-medium text-white">Best decision rule</p>
+                <p>If a new training run looks better here, freeze it into future fixtures and wait for the prospective section to confirm the gain on real games.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <Card variant="flat" className="border-white/10 bg-white/5">
           <CardHeader className="border-b border-white/10">
             <CardTitle className="text-white">Offline Version Benchmarks</CardTitle>
@@ -617,6 +926,18 @@ export function ModelSnapshotDashboard() {
           </CardHeader>
           <CardContent className="pt-6">
             <VersionTable versions={data.offlineVersions} currentVersion={data.currentOfflineVersion} />
+          </CardContent>
+        </Card>
+
+        <Card variant="flat" className="border-white/10 bg-white/5">
+          <CardHeader className="border-b border-white/10">
+            <CardTitle className="text-white">Recent Training Runs</CardTitle>
+            <CardDescription className="text-gray-400">
+              Latest recorded offline training runs so you can see whether retrains are trending in the right direction
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <TrainingHistoryTable runs={data.trainingRuns} currentOfflineVersion={data.currentOfflineVersion} />
           </CardContent>
         </Card>
       </div>

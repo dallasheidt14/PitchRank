@@ -48,6 +48,37 @@ export interface PitCoverageSummary {
   last365TrainableGames: number | null;
 }
 
+export interface TrainingRunSummary {
+  createdAt: string;
+  workflowRunId: number;
+  workflowRunAttempt: number;
+  gitSha: string | null;
+  modelDir: string;
+  modelVersion: string;
+  lookbackDays: number | null;
+  limitValue: number | null;
+  testRatio: number | null;
+  minExamples: number | null;
+  requestedProbabilityStrategy: string | null;
+  selectedProbabilityStrategy: string | null;
+  calibrationEnabled: boolean;
+  calibrationMethod: string | null;
+  drawCalibrationMethod: string | null;
+  gamesSeen: number | null;
+  gamesUsed: number | null;
+  examplesBuilt: number | null;
+  uniqueSnapshotDatesUsed: number | null;
+  winnerAccuracy: number | null;
+  drawRecall: number | null;
+  predictedDrawRate: number | null;
+  logLoss: number | null;
+  marginMae: number | null;
+  exactScoreAccuracy: number | null;
+  calibratedLogLoss: number | null;
+  calibratedDrawRecall: number | null;
+  calibratedBrierScore: number | null;
+}
+
 export interface MissionControlSnapshot {
   generatedAt: string;
   currentHeuristicVersion: string | null;
@@ -59,4 +90,5 @@ export interface MissionControlSnapshot {
   offlineVersions: ModelVersionSummary[];
   pipeline: PipelineSummary;
   pitCoverage: PitCoverageSummary;
+  trainingRuns: TrainingRunSummary[];
 }
