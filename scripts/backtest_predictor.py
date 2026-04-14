@@ -56,9 +56,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 DIRECT_DB_BATCH_SIZE = 5000
-# Keep REST batches at 100 team ids so each request stays below PostgREST's default 1,000-row cap.
-REST_SNAPSHOT_BATCH_SIZE = 100
+# Batch team ids, then paginate within each batch so we don't truncate at the PostgREST row cap.
+REST_SNAPSHOT_BATCH_SIZE = 250
 REST_SNAPSHOT_CONCURRENCY = 8
+REST_PAGE_SIZE = 1000
 
 
 def _database_url() -> Optional[str]:
@@ -259,16 +260,33 @@ async def _fetch_prediction_feature_snapshots_via_rest(
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0)) as client:
         async def fetch_batch(index: int, batch: List[str]) -> List[dict]:
-            params = [
-                ("select", fields),
-                ("team_id", f"in.({','.join(batch)})"),
-                ("snapshot_date", f"gte.{start_date}"),
-                ("snapshot_date", f"lte.{end_date}"),
-            ]
-            async with semaphore:
-                response = await client.get(endpoint, params=params, headers=headers)
-                response.raise_for_status()
-                return response.json()
+            batch_rows: List[dict] = []
+            offset = 0
+
+            while True:
+                params = [
+                    ("select", fields),
+                    ("team_id", f"in.({','.join(batch)})"),
+                    ("snapshot_date", f"gte.{start_date}"),
+                    ("snapshot_date", f"lte.{end_date}"),
+                    ("order", "team_id.asc,snapshot_date.asc"),
+                    ("limit", str(REST_PAGE_SIZE)),
+                    ("offset", str(offset)),
+                ]
+                async with semaphore:
+                    response = await client.get(endpoint, params=params, headers=headers)
+                    response.raise_for_status()
+                    page_rows = response.json()
+
+                if not page_rows:
+                    break
+
+                batch_rows.extend(page_rows)
+                if len(page_rows) < REST_PAGE_SIZE:
+                    break
+                offset += REST_PAGE_SIZE
+
+            return batch_rows
 
         tasks = [
             fetch_batch(index, team_ids[index : index + REST_SNAPSHOT_BATCH_SIZE])

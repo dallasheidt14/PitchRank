@@ -61,6 +61,39 @@ class _FakeConnection:
         return None
 
 
+class _FakeHttpResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAsyncClient:
+    def __init__(self, pages):
+        self._pages = pages
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, endpoint, params=None, headers=None):
+        params_dict = {}
+        for key, value in params or []:
+            params_dict.setdefault(key, []).append(value)
+        offset = int(params_dict["offset"][0])
+        limit = int(params_dict["limit"][0])
+        self.calls.append((endpoint, params_dict, headers))
+        page = self._pages.get((offset, limit), [])
+        return _FakeHttpResponse(page)
+
+
 def test_fetch_historical_games_rebuilds_query_each_batch():
     backtest_predictor._database_url.cache_clear() if hasattr(backtest_predictor._database_url, "cache_clear") else None
     batches = [
@@ -190,3 +223,39 @@ def test_fetch_prediction_feature_snapshots_prefers_direct_database_url(monkeypa
     assert len(snapshots_df) == 1
     assert len(calls) == 1
     assert "FROM prediction_feature_history" in calls[0][0]
+
+
+def test_fetch_prediction_feature_snapshots_rest_path_paginates(monkeypatch):
+    client = _FakeAsyncClient(
+        {
+            (0, 2): [
+                {"snapshot_date": "2026-04-01", "team_id": "team-1"},
+                {"snapshot_date": "2026-04-02", "team_id": "team-1"},
+            ],
+            (2, 2): [
+                {"snapshot_date": "2026-04-03", "team_id": "team-2"},
+            ],
+        }
+    )
+
+    monkeypatch.setattr(backtest_predictor, "REST_SNAPSHOT_BATCH_SIZE", 2)
+    monkeypatch.setattr(backtest_predictor, "REST_PAGE_SIZE", 2)
+    monkeypatch.setattr(backtest_predictor, "REST_SNAPSHOT_CONCURRENCY", 1)
+    monkeypatch.setattr(backtest_predictor, "_supabase_rest_credentials", lambda: ("https://example.supabase.co", "key"))
+    monkeypatch.setattr(backtest_predictor.httpx, "AsyncClient", lambda *args, **kwargs: client)
+
+    snapshots_df = asyncio.run(
+        backtest_predictor._fetch_prediction_feature_snapshots_via_rest(
+            team_ids=["team-1", "team-2"],
+            start_date="2026-04-01",
+            end_date="2026-04-10",
+        )
+    )
+
+    assert len(snapshots_df) == 3
+    assert len(client.calls) == 2
+    first_params = client.calls[0][1]
+    second_params = client.calls[1][1]
+    assert first_params["limit"] == ["2"]
+    assert first_params["offset"] == ["0"]
+    assert second_params["offset"] == ["2"]
