@@ -344,7 +344,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           ) : (
             <div className="rounded-md border overflow-hidden">
               {/* Table wrapper - no horizontal scroll on mobile, columns flex to fit */}
-              <div className="touch-pan-y">
+              <div>
                 {/* Table Header */}
                 <div
                   data-testid="rankings-table-header"
@@ -442,6 +442,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                         <Link
                           key={team.team_id_master}
                           href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
+                          draggable={false}
                           data-index={virtualRow.index}
                           data-testid={`rankings-row-${virtualRow.index}`}
                           ref={virtualizer.measureElement}
@@ -460,7 +461,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           }
                           aria-label={`View ${team.team_name} team details`}
                           className={`
-                            rankings-row-link
+                            rankings-row-link touch-auto
                             grid grid-cols-[44px_1fr_58px_50px_28px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
                             ${isTop3 ? 'hover:bg-accent/[0.12]' : 'hover:bg-primary/[0.04]'} hover:shadow-md
                             transition-[background-color,box-shadow,opacity] duration-200 ease-in-out
