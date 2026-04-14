@@ -6,7 +6,7 @@ on:
       days_ahead:
         description: "How many days ahead to search for upcoming fixtures"
         required: false
-        default: "7"
+        default: "5"
         type: string
       max_events:
         description: "Maximum number of events to scrape (0 = no limit)"
@@ -123,7 +123,7 @@ jobs:
           GOTSPORT_EVENT_TIMEOUT: "240"
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          DAYS_AHEAD="${INPUT_DAYS_AHEAD:-7}"
+          DAYS_AHEAD="${INPUT_DAYS_AHEAD:-5}"
           MAX_EVENTS="${INPUT_MAX_EVENTS:-25}"
           MAX_RUNTIME="${INPUT_MAX_RUNTIME:-100}"
 
