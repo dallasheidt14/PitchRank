@@ -42,6 +42,20 @@ describe('previousPeriod', () => {
       end: '2026-04-06',
     });
   });
+
+  it('returns the prior single day for a 1-day range', () => {
+    expect(previousPeriod({ start: '2026-04-14', end: '2026-04-14' })).toEqual({
+      start: '2026-04-13',
+      end: '2026-04-13',
+    });
+  });
+
+  it('crosses year boundaries correctly', () => {
+    expect(previousPeriod({ start: '2026-01-01', end: '2026-01-07' })).toEqual({
+      start: '2025-12-25',
+      end: '2025-12-31',
+    });
+  });
 });
 
 describe('rangeDays', () => {
