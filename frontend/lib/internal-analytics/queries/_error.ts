@@ -26,6 +26,7 @@ export function toTaxonomyError(err: unknown): TaxonomyError {
       const ms = retryAfter ? Number(retryAfter) * 1000 : undefined;
       return { type: 'RATE_LIMIT', message, retryable: true, retry_after_ms: ms };
     }
+    case 401:
     case 403:
       return { type: 'AUTH', message, retryable: false };
     case 400:

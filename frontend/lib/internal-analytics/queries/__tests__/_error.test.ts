@@ -16,6 +16,12 @@ describe('toTaxonomyError', () => {
     expect(t.retryable).toBe(false);
   });
 
+  it('maps 401 to AUTH (not retryable)', () => {
+    const t = toTaxonomyError({ code: 401, message: 'Unauthenticated' });
+    expect(t.type).toBe('AUTH');
+    expect(t.retryable).toBe(false);
+  });
+
   it('maps 400 to VALIDATION with the original message', () => {
     const t = toTaxonomyError({ code: 400, message: 'Invalid metric' });
     expect(t.type).toBe('VALIDATION');
