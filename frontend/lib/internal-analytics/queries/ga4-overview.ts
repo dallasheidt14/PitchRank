@@ -135,12 +135,12 @@ async function runOnce(params: Ga4OverviewParams): Promise<TileResponse<Ga4Overv
     });
   }
 
-  const raw = await fetchOverviewRaw(range);
   if (params.compareToPrevious) {
     const prevRange = previousPeriod(range);
-    const prevRaw = await fetchOverviewRaw(prevRange);
+    const [raw, prevRaw] = await Promise.all([fetchOverviewRaw(range), fetchOverviewRaw(prevRange)]);
     return normalize(raw, range, tz, { raw: prevRaw, range: prevRange });
   }
+  const raw = await fetchOverviewRaw(range);
   return normalize(raw, range, tz);
 }
 
