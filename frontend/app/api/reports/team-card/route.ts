@@ -1,6 +1,7 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit } from '@/lib/api/rateLimit';
+import { optionalAuth } from '@/lib/api/optionalAuth';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
@@ -16,6 +17,8 @@ export async function POST(request: NextRequest) {
     if (!checkRateLimit(ip, 3, 60000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
+
+    await optionalAuth();
 
     const body = await request.json();
     const { teamId, email, role } = body;
