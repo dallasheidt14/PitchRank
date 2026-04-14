@@ -1,0 +1,312 @@
+name: Weekly Prospective Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      days_ahead:
+        description: "How many days ahead to search for upcoming fixtures"
+        required: false
+        default: "7"
+        type: string
+      max_events:
+        description: "Maximum number of events to scrape (0 = no limit)"
+        required: false
+        default: "25"
+        type: string
+      max_runtime:
+        description: "Maximum scraper runtime in minutes"
+        required: false
+        default: "100"
+        type: string
+      lookback_days:
+        description: "Historical window for recent-game context when freezing offline predictions"
+        required: false
+        default: "365"
+        type: string
+      training_run_id:
+        description: "Model-training run ID for the current offline benchmark"
+        required: false
+        default: "24367490034"
+        type: string
+      model_artifact_name:
+        description: "Optional model artifact name override"
+        required: false
+        default: ""
+        type: string
+      offline_model_version:
+        description: "Offline model version label"
+        required: false
+        default: "pitm_24367490034_hybrid"
+        type: string
+      heuristic_limit:
+        description: "Maximum number of pending heuristic rows to freeze"
+        required: false
+        default: "2000"
+        type: string
+  schedule:
+    # Tuesday 19:00 UTC = Tuesday 12:00 PM America/Phoenix
+    - cron: '0 19 * * 2'
+
+concurrency:
+  group: weekly-prospective-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-prospective-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+
+    env:
+      INPUT_DAYS_AHEAD: ${{ github.event.inputs.days_ahead }}
+      INPUT_MAX_EVENTS: ${{ github.event.inputs.max_events }}
+      INPUT_MAX_RUNTIME: ${{ github.event.inputs.max_runtime }}
+      INPUT_LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+      INPUT_TRAINING_RUN_ID: ${{ github.event.inputs.training_run_id }}
+      INPUT_MODEL_ARTIFACT_NAME: ${{ github.event.inputs.model_artifact_name }}
+      INPUT_OFFLINE_MODEL_VERSION: ${{ github.event.inputs.offline_model_version }}
+      INPUT_HEURISTIC_LIMIT: ${{ github.event.inputs.heuristic_limit }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install psycopg2-binary beautifulsoup4 lxml requests certifi
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Create working directories
+        run: |
+          mkdir -p data/raw
+          mkdir -p data/cache
+          mkdir -p logs
+
+      - name: Scrape upcoming fixtures
+        id: scrape
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          GOTSPORT_DELAY_MIN: "0.1"
+          GOTSPORT_DELAY_MAX: "0.2"
+          GOTSPORT_MAX_RETRIES: "2"
+          GOTSPORT_TIMEOUT: "12"
+          GOTSPORT_MAX_SCHEDULE_PAGES: "25"
+          GOTSPORT_PAGE_DELAY: "0.05"
+          GOTSPORT_EVENT_TIMEOUT: "240"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          DAYS_AHEAD="${INPUT_DAYS_AHEAD:-7}"
+          MAX_EVENTS="${INPUT_MAX_EVENTS:-25}"
+          MAX_RUNTIME="${INPUT_MAX_RUNTIME:-100}"
+
+          python scripts/scrape_upcoming_gotsport_events.py \
+            --days-ahead "$DAYS_AHEAD" \
+            --max-events "$MAX_EVENTS" \
+            --max-runtime "$MAX_RUNTIME"
+
+          FIXTURE_FILE="$(find data/raw -type f -name 'upcoming_events_*.jsonl' | sort | tail -n 1)"
+          SUMMARY_FILE="$(find data/raw -type f -name 'upcoming_events_*_summary.json' | sort | tail -n 1)"
+
+          if [ -z "$FIXTURE_FILE" ]; then
+            echo "No upcoming fixture JSONL was produced."
+            exit 1
+          fi
+
+          echo "fixture_file=$FIXTURE_FILE" >> "$GITHUB_OUTPUT"
+          echo "scrape_summary_file=$SUMMARY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Download offline model artifact
+        id: model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TRAINING_RUN_ID="${INPUT_TRAINING_RUN_ID:-24367490034}"
+          ARTIFACT_NAME="${INPUT_MODEL_ARTIFACT_NAME:-}"
+          if [ -z "$ARTIFACT_NAME" ]; then
+            ARTIFACT_NAME="point-in-time-match-model-$TRAINING_RUN_ID"
+          fi
+
+          DOWNLOAD_ROOT="$RUNNER_TEMP/weekly_prospective_model"
+          mkdir -p "$DOWNLOAD_ROOT"
+
+          gh run download "$TRAINING_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir "$DOWNLOAD_ROOT"
+
+          MODEL_ARTIFACT="$(find "$DOWNLOAD_ROOT" -type f -name 'point_in_time_match_model.pkl' -print -quit)"
+          if [ -z "$MODEL_ARTIFACT" ]; then
+            echo "point_in_time_match_model.pkl not found under $DOWNLOAD_ROOT"
+            find "$DOWNLOAD_ROOT" -maxdepth 3 -mindepth 1 -print
+            exit 1
+          fi
+
+          echo "artifact_name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "model_artifact=$MODEL_ARTIFACT" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze offline predictions
+        id: prepare
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          LOOKBACK_DAYS="${INPUT_LOOKBACK_DAYS:-365}"
+          OFFLINE_MODEL_VERSION="${INPUT_OFFLINE_MODEL_VERSION:-pitm_24367490034_hybrid}"
+          SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_prepare_summary.json"
+
+          python scripts/prepare_prospective_match_predictions.py \
+            --fixtures-file "${{ steps.scrape.outputs.fixture_file }}" \
+            --source-artifact-path "weekly-prospective-refresh:${GITHUB_RUN_ID}" \
+            --lookback-days "$LOOKBACK_DAYS" \
+            --model-artifact "${{ steps.model.outputs.model_artifact }}" \
+            --offline-model-version "$OFFLINE_MODEL_VERSION" \
+            --summary-path "$SUMMARY_PATH"
+
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Freeze heuristic predictions
+        id: heuristic
+        working-directory: frontend
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          HEURISTIC_LIMIT="${INPUT_HEURISTIC_LIMIT:-2000}"
+          SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_heuristic_summary.json"
+
+          npm run process:prospective:heuristic -- \
+            --status pending \
+            --limit "$HEURISTIC_LIMIT" \
+            --summary-path "$SUMMARY_PATH"
+
+          echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload fixture artifact
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: weekly-prospective-refresh-fixtures-${{ github.run_id }}
+          path: |
+            data/raw/upcoming_events_*.jsonl
+            data/raw/upcoming_events_*_summary.json
+            logs/*.log
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload refresh summaries
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: weekly-prospective-refresh-summaries-${{ github.run_id }}
+          path: |
+            ${{ steps.prepare.outputs.summary_path }}
+            ${{ steps.heuristic.outputs.summary_path }}
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Write run summary
+        if: always()
+        env:
+          SCRAPE_SUMMARY_PATH: ${{ steps.scrape.outputs.scrape_summary_file }}
+          PREPARE_SUMMARY_PATH: ${{ steps.prepare.outputs.summary_path }}
+          HEURISTIC_SUMMARY_PATH: ${{ steps.heuristic.outputs.summary_path }}
+          MODEL_ARTIFACT_NAME: ${{ steps.model.outputs.artifact_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def load_json(path_value: str):
+              path = Path(path_value) if path_value else None
+              if not path or not path.is_file():
+                  return None
+              return json.loads(path.read_text(encoding="utf-8"))
+
+          scrape = load_json(os.environ.get("SCRAPE_SUMMARY_PATH", ""))
+          prepare = load_json(os.environ.get("PREPARE_SUMMARY_PATH", ""))
+          heuristic = load_json(os.environ.get("HEURISTIC_SUMMARY_PATH", ""))
+
+          lines = [
+              "## Weekly Prospective Refresh",
+              "",
+              "- Schedule: Tuesday 12:00 PM America/Phoenix (19:00 UTC)",
+              f"- Offline model artifact: `{os.environ.get('MODEL_ARTIFACT_NAME', '')}`",
+              "",
+          ]
+
+          if scrape:
+              lines.extend(
+                  [
+                      "### Fixture scrape",
+                      f"- Upcoming games found: {scrape.get('upcoming_games_found')}",
+                      f"- Unique fixtures: {scrape.get('unique_games_saved')}",
+                      f"- Events scanned: {scrape.get('events_processed')}",
+                      "",
+                  ]
+              )
+
+          if prepare:
+              lines.extend(
+                  [
+                      "### Offline freeze",
+                      f"- Fixtures seen: {prepare.get('fixtures_seen')}",
+                      f"- Resolved: {prepare.get('resolved')}",
+                      f"- Partial: {prepare.get('partial')}",
+                      f"- Unresolved: {prepare.get('unresolved')}",
+                      f"- Offline completed: {prepare.get('offline_completed')}",
+                      f"- Offline errored: {prepare.get('offline_errored')}",
+                      f"- Offline skipped: {prepare.get('offline_skipped')}",
+                      "",
+                  ]
+              )
+
+          if heuristic:
+              lines.extend(
+                  [
+                      "### Heuristic freeze",
+                      f"- Rows fetched: {heuristic.get('fetchedRows')}",
+                      f"- Rows processed: {heuristic.get('processed')}",
+                      f"- Rows completed: {heuristic.get('completed')}",
+                      f"- Rows errored: {heuristic.get('errored')}",
+                  ]
+              )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines))
+              handle.write("\n")
+          PY
