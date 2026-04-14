@@ -25,6 +25,11 @@ class GlickoConfig:
     MAX_GAMES: int = 30
     WINDOW_DAYS: int = 365
     INACTIVE_DAYS: int = 180
+    BALANCED_SELECTION_ENABLED: bool = True
+    BALANCED_SELECTION_RECENT_GAMES: int = 20
+    BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES: int = 7
+    BALANCED_SELECTION_BRIDGE_GAMES: int = 3
+    BALANCED_SELECTION_CROSS_AGE_BRIDGE_MULT: float = 0.6
 
     # Recency
     RECENCY_LAMBDA: float = 1.0
@@ -83,6 +88,12 @@ class GlickoConfig:
     SCF_FLOOR: float = 0.4
     MIN_BRIDGE_GAMES: int = 3
     ISOLATION_SOS_CAP: float = 0.60
+    SCF_QUALITY_WEIGHT_ENABLED: bool = True
+    SCF_BRIDGE_QUALITY_MIDPOINT: float = 1500.0
+    SCF_BRIDGE_QUALITY_SCALE: float = 125.0
+    SCF_BRIDGE_QUALITY_FLOOR: float = 0.25
+    SCF_CROSS_AGE_BRIDGE_MULT: float = 0.6
+    SCF_DISABLE_LEAGUE_BELOW_AGE: int = 13
 
     # League-aware SCF: detect closed-league bubbles
     # Diversity is measured by league FAMILY, not exact league string.
@@ -102,6 +113,22 @@ class GlickoConfig:
     SOS_ADJ_STRONG_THRESHOLD: float = 0.60     # Dead zone upper edge (sos_norm scale)
     SOS_ADJ_WEAK_MAX: float = 0.16             # Max 16% penalty for weakest SOS
     SOS_ADJ_STRONG_MAX: float = 0.03           # Max 3% reward for strongest SOS
+    BASE_EVIDENCE_SHRINK_ENABLED: bool = True
+    BASE_EVIDENCE_SHRINK_MAX: float = 0.08
+    BASE_EVIDENCE_SHRINK_STRONG: float = 0.05
+    BASE_EVIDENCE_SHRINK_MODERATE: float = 0.035
+    BASE_EVIDENCE_SHRINK_LIGHT: float = 0.02
+    BASE_EVIDENCE_SHRINK_LOW_CONNECTIVITY_BONUS: float = 0.015
+    BASE_EVIDENCE_SHRINK_REPEAT_BONUS: float = 0.01
+    BASE_EVIDENCE_SHRINK_STRONG_MAX_TOP500: int = 2
+    BASE_EVIDENCE_SHRINK_MODERATE_MAX_TOP500: int = 4
+    BASE_EVIDENCE_SHRINK_LIGHT_MAX_TOP500: int = 3
+    BASE_EVIDENCE_SHRINK_MAX_TOP1000_NON_LOSS: int = 2
+    BASE_EVIDENCE_SHRINK_AVG_RANK_STRONG: float = 900.0
+    BASE_EVIDENCE_SHRINK_AVG_RANK_MODERATE: float = 650.0
+    BASE_EVIDENCE_SHRINK_AVG_RANK_LIGHT: float = 550.0
+    BASE_EVIDENCE_SHRINK_LOW_SCF: float = 0.60
+    BASE_EVIDENCE_SHRINK_REPEAT_SHARE: float = 0.45
 
     # ML
     ML_ALPHA: float = 0.08

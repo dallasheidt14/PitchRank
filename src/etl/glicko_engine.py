@@ -329,6 +329,168 @@ def select_games(
     return filtered.head(max_games)
 
 
+def _parse_age_number(age_value) -> Optional[int]:
+    if age_value is None or (isinstance(age_value, float) and math.isnan(age_value)):
+        return None
+    digits = "".join(ch for ch in str(age_value) if ch.isdigit())
+    if not digits:
+        return None
+    return int(digits)
+
+
+def _selection_quality_weight(opp_mu: float, cfg: GlickoConfig) -> float:
+    centered = (float(opp_mu) - cfg.SCF_BRIDGE_QUALITY_MIDPOINT) / max(cfg.SCF_BRIDGE_QUALITY_SCALE, 1e-6)
+    logistic = 1.0 / (1.0 + math.exp(-centered))
+    scaled = 0.35 + 0.65 * float(logistic)
+    return max(cfg.SCF_BRIDGE_QUALITY_FLOOR, scaled)
+
+
+def _effective_selection_opponent_mu(
+    row: pd.Series,
+    rating_lookup: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    cohort_age,
+    cohort_gender,
+    global_rating_map: Optional[Dict[str, float]] = None,
+    tier_mult_fn=None,
+) -> float:
+    opp_id = str(row.get("opp_id"))
+    opp_age = row.get("opp_age")
+    opp_gender = row.get("opp_gender")
+    is_cross_age = False
+    if opp_age is not None and opp_gender is not None:
+        is_cross_age = str(opp_age) != str(cohort_age) or str(opp_gender) != str(cohort_gender)
+
+    if is_cross_age and global_rating_map is not None:
+        opp_mu = float(global_rating_map.get(opp_id, cfg.INITIAL_MU))
+        opp_mu = scale_cross_age_rating(
+            opp_mu,
+            str(opp_age) if opp_age is not None else str(cohort_age),
+            str(opp_gender) if opp_gender is not None else str(cohort_gender),
+            str(cohort_age),
+            str(cohort_gender),
+            cfg,
+        )
+    elif opp_id in rating_lookup:
+        opp_mu = float(rating_lookup[opp_id][0])
+    elif global_rating_map is not None and opp_id in global_rating_map:
+        opp_mu = float(global_rating_map[opp_id])
+    else:
+        opp_mu = cfg.INITIAL_MU
+
+    if tier_mult_fn is not None:
+        opp_mu *= float(tier_mult_fn(opp_id))
+    return opp_mu
+
+
+def select_games_balanced(
+    games_df: pd.DataFrame,
+    team_id: str,
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+    rating_lookup: Optional[Dict[str, Tuple[float, float, float]]] = None,
+    global_rating_map: Optional[Dict[str, float]] = None,
+    team_state_map: Optional[Dict[str, str]] = None,
+    tier_mult_fn=None,
+) -> pd.DataFrame:
+    """Select a balanced evidence window: recent + same-age quality + bridge quality.
+
+    The output keeps the engine mostly recency-driven while reserving slots for
+    quality same-age evidence and meaningful connectivity games.
+    """
+    filtered = select_games(games_df, team_id, max_games=len(games_df), window_days=cfg.WINDOW_DAYS, today=today)
+    if filtered.empty:
+        return filtered
+    if not getattr(cfg, "BALANCED_SELECTION_ENABLED", False) or len(filtered) <= cfg.MAX_GAMES:
+        return filtered.head(cfg.MAX_GAMES)
+
+    work = filtered.copy()
+    work["team_id"] = work["team_id"].astype(str)
+    work["opp_id"] = work["opp_id"].astype(str)
+    cohort_age = work["age"].iloc[0] if "age" in work.columns else None
+    cohort_gender = work["gender"].iloc[0] if "gender" in work.columns else None
+    rating_lookup = rating_lookup or {}
+
+    work["is_same_age"] = False
+    if {"opp_age", "opp_gender"}.issubset(work.columns):
+        work["is_same_age"] = (work["opp_age"].astype(str) == str(cohort_age)) & (
+            work["opp_gender"].astype(str) == str(cohort_gender)
+        )
+
+    work["is_non_loss"] = False
+    if {"gf", "ga"}.issubset(work.columns):
+        work["is_non_loss"] = work["gf"].fillna(-999) >= work["ga"].fillna(999)
+
+    team_state = team_state_map.get(str(team_id), "") if team_state_map else ""
+    if team_state_map:
+        opp_states = work["opp_id"].map(lambda opp_id: team_state_map.get(str(opp_id), ""))
+        work["is_bridge_game"] = opp_states.ne("") & opp_states.ne("UNKNOWN") & opp_states.ne(team_state)
+    else:
+        work["is_bridge_game"] = False
+
+    work["opp_mu_selection"] = work.apply(
+        lambda row: _effective_selection_opponent_mu(
+            row,
+            rating_lookup,
+            cfg,
+            cohort_age,
+            cohort_gender,
+            global_rating_map=global_rating_map,
+            tier_mult_fn=tier_mult_fn,
+        ),
+        axis=1,
+    )
+    work["bridge_quality"] = work["opp_mu_selection"].map(lambda mu: _selection_quality_weight(mu, cfg))
+    work.loc[~work["is_same_age"], "bridge_quality"] *= float(cfg.BALANCED_SELECTION_CROSS_AGE_BRIDGE_MULT)
+    work["selection_bucket"] = "recent_backfill"
+
+    selected_parts: List[pd.DataFrame] = []
+    selected_idx: set = set()
+
+    def _take(bucket_name: str, candidates: pd.DataFrame, count: int) -> None:
+        if count <= 0 or candidates.empty:
+            return
+        chosen = candidates.head(count).copy()
+        if chosen.empty:
+            return
+        chosen["selection_bucket"] = bucket_name
+        selected_parts.append(chosen)
+        selected_idx.update(chosen.index.tolist())
+
+    recent = work.sort_values("date", ascending=False)
+    _take("recent", recent, int(cfg.BALANCED_SELECTION_RECENT_GAMES))
+
+    remaining = work.loc[~work.index.isin(selected_idx)].copy()
+    same_age_quality = remaining[remaining["is_same_age"]].sort_values(
+        ["is_non_loss", "opp_mu_selection", "date"],
+        ascending=[False, False, False],
+    )
+    _take("same_age_quality", same_age_quality, int(cfg.BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES))
+
+    remaining = work.loc[~work.index.isin(selected_idx)].copy()
+    bridge_quality = remaining[remaining["is_bridge_game"]].sort_values(
+        ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date"],
+        ascending=[False, False, False, False, False],
+    )
+    _take("bridge_quality", bridge_quality, int(cfg.BALANCED_SELECTION_BRIDGE_GAMES))
+
+    remaining = work.loc[~work.index.isin(selected_idx)].sort_values(
+        ["date", "is_non_loss", "opp_mu_selection"],
+        ascending=[False, False, False],
+    )
+    _take("recent_backfill", remaining, max(0, int(cfg.MAX_GAMES) - len(selected_idx)))
+
+    if not selected_parts:
+        return work.sort_values("date", ascending=False).head(cfg.MAX_GAMES)
+
+    selected = pd.concat(selected_parts, ignore_index=False)
+    selected = selected.sort_values("date", ascending=False)
+    selected = selected[~selected.index.duplicated(keep="first")]
+    if len(selected) > cfg.MAX_GAMES:
+        selected = selected.head(cfg.MAX_GAMES)
+    return selected
+
+
 def _get_team_games(
     team_id: str,
     team_games: Optional[Dict[str, pd.DataFrame]],
@@ -661,6 +823,13 @@ def compute_scf(
     from collections import Counter
 
     result: Dict[str, Dict] = {}
+    cohort_age_num = None
+    if "age" in games_df.columns and len(games_df) > 0:
+        cohort_age_num = _parse_age_number(games_df["age"].iloc[0])
+    use_league_scf = (
+        tier_league_map is not None
+        and (cohort_age_num is None or cohort_age_num >= int(cfg.SCF_DISABLE_LEAGUE_BELOW_AGE))
+    )
 
     for team_id in team_ratings:
         if not cfg.SCF_ENABLED:
@@ -689,12 +858,38 @@ def compute_scf(
         valid_states = [s for s in opp_states if s and s != "UNKNOWN"]
         bridge_count = sum(1 for s in valid_states if s != team_state)
         unique_states = len(set(valid_states))
+        weighted_bridge_games = float(bridge_count)
+        weighted_unique_states = float(unique_states)
 
-        # SCF score: diversity of opponent states
-        scf_raw = min(unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
+        if cfg.SCF_QUALITY_WEIGHT_ENABLED and len(tg) > 0:
+            team_age = tg["age"].iloc[0] if "age" in tg.columns else None
+            team_gender = tg["gender"].iloc[0] if "gender" in tg.columns else None
+            state_best_weight: Dict[str, float] = {}
+            weighted_bridge_games = 0.0
+            for idx, opp_id in enumerate(opp_ids):
+                opp_state = opp_states[idx] if idx < len(opp_states) else ""
+                if not opp_state or opp_state == "UNKNOWN" or opp_state == team_state:
+                    continue
+                opp_mu = team_ratings.get(opp_id, (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY))[0]
+                bridge_weight = _selection_quality_weight(float(opp_mu), cfg)
+                is_same_age = True
+                if {"opp_age", "opp_gender", "age", "gender"}.issubset(tg.columns):
+                    is_same_age = str(tg["opp_age"].iloc[idx]) == str(team_age) and str(tg["opp_gender"].iloc[idx]) == str(
+                        team_gender
+                    )
+                if not is_same_age:
+                    bridge_weight *= float(cfg.SCF_CROSS_AGE_BRIDGE_MULT)
+                weighted_bridge_games += bridge_weight
+                state_best_weight[opp_state] = max(state_best_weight.get(opp_state, 0.0), bridge_weight)
+            weighted_unique_states = float(sum(state_best_weight.values()))
+
+        # SCF score: diversity of opponent states, quality-weighted when enabled
+        scf_raw = min(weighted_unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
         scf = max(cfg.SCF_FLOOR, scf_raw)
 
-        is_isolated = bridge_count < cfg.MIN_BRIDGE_GAMES or unique_states < cfg.SCF_MIN_UNIQUE_STATES
+        is_isolated = (
+            weighted_bridge_games < cfg.MIN_BRIDGE_GAMES or weighted_unique_states < cfg.SCF_MIN_UNIQUE_STATES
+        )
 
         # League diversity (only when tier_league_map provided)
         # Uses league FAMILIES, not exact league strings. Top-tier leagues
@@ -705,7 +900,7 @@ def compute_scf(
         dominant_share = 0.0
         league_scf = 1.0
 
-        if tier_league_map:
+        if use_league_scf:
             _TOP_TIER = {"ECNL", "GA", "MLS_NEXT_HD"}
             opp_leagues_known = [tier_league_map[str(o)] for o in opp_ids if str(o) in tier_league_map]
 
@@ -745,10 +940,10 @@ def compute_scf(
 
         result[team_id] = {
             "scf": scf,
-            "unique_states": unique_states,
-            "bridge_games": bridge_count,
+            "unique_states": weighted_unique_states,
+            "bridge_games": weighted_bridge_games,
             "is_isolated": is_isolated,
-            "quality_boosted": False,
+            "quality_boosted": bool(cfg.SCF_QUALITY_WEIGHT_ENABLED),
             "unique_leagues": unique_leagues,
             "league_scf": league_scf,
             "dominant_opp_league": dominant_league,
@@ -756,6 +951,84 @@ def compute_scf(
         }
 
     return result
+
+
+def _compute_base_evidence_scale(
+    team_df: pd.DataFrame,
+    team_games: Dict[str, pd.DataFrame],
+    scf_data: Optional[Dict[str, Dict]],
+    cfg: GlickoConfig,
+) -> pd.Series:
+    """Return multiplicative evidence scales for published base scores."""
+    if team_df.empty or not cfg.BASE_EVIDENCE_SHRINK_ENABLED:
+        return pd.Series(1.0, index=team_df.index if not team_df.empty else pd.Index([]), dtype=float)
+
+    ranked = team_df.sort_values(["mu", "team_id"], ascending=[False, True]).reset_index(drop=True)
+    rank_lookup = {str(row.team_id): idx + 1 for idx, row in enumerate(ranked.itertuples(index=False))}
+    scale_lookup: Dict[str, float] = {}
+
+    for row in team_df.itertuples(index=False):
+        team_id = str(row.team_id)
+        tg = team_games.get(team_id)
+        if tg is None or tg.empty:
+            scale_lookup[team_id] = 1.0
+            continue
+
+        same_age = tg
+        if {"opp_age", "opp_gender", "age", "gender"}.issubset(tg.columns):
+            same_age = tg[
+                (tg["opp_age"].astype(str) == str(tg["age"].iloc[0]))
+                & (tg["opp_gender"].astype(str) == str(tg["gender"].iloc[0]))
+            ]
+        unique_same_age = same_age["opp_id"].dropna().astype(str).unique().tolist()
+        if {"gf", "ga"}.issubset(same_age.columns):
+            non_loss_same_age = same_age[same_age["gf"].fillna(-999) >= same_age["ga"].fillna(999)]
+        else:
+            non_loss_same_age = same_age.iloc[0:0]
+        unique_non_loss = non_loss_same_age["opp_id"].dropna().astype(str).unique().tolist()
+
+        opp_ranks = [rank_lookup.get(opp_id) for opp_id in unique_same_age if rank_lookup.get(opp_id) is not None]
+        non_loss_ranks = [rank_lookup.get(opp_id) for opp_id in unique_non_loss if rank_lookup.get(opp_id) is not None]
+
+        top100 = sum(1 for rank in opp_ranks if rank <= 100)
+        top500 = sum(1 for rank in opp_ranks if rank <= 500)
+        top1000_non_loss = sum(1 for rank in non_loss_ranks if rank <= 1000)
+        avg_rank = float(sum(opp_ranks) / len(opp_ranks)) if opp_ranks else float("inf")
+
+        counts = tg["opp_id"].astype(str).value_counts()
+        repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
+        scf = float((scf_data or {}).get(team_id, {}).get("scf", 1.0))
+
+        shrink = 0.0
+        if (
+            top100 == 0
+            and top500 <= cfg.BASE_EVIDENCE_SHRINK_STRONG_MAX_TOP500
+            and top1000_non_loss <= cfg.BASE_EVIDENCE_SHRINK_MAX_TOP1000_NON_LOSS
+            and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_STRONG
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_STRONG
+        elif (
+            top100 == 0
+            and top500 <= cfg.BASE_EVIDENCE_SHRINK_MODERATE_MAX_TOP500
+            and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_MODERATE
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_MODERATE
+        elif (
+            top100 <= 1
+            and top500 <= cfg.BASE_EVIDENCE_SHRINK_LIGHT_MAX_TOP500
+            and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_LIGHT
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_LIGHT
+
+        if scf <= cfg.BASE_EVIDENCE_SHRINK_LOW_SCF:
+            shrink += cfg.BASE_EVIDENCE_SHRINK_LOW_CONNECTIVITY_BONUS
+        if repeat_share >= cfg.BASE_EVIDENCE_SHRINK_REPEAT_SHARE:
+            shrink += cfg.BASE_EVIDENCE_SHRINK_REPEAT_BONUS
+
+        shrink = min(float(cfg.BASE_EVIDENCE_SHRINK_MAX), max(0.0, shrink))
+        scale_lookup[team_id] = 1.0 - shrink
+
+    return team_df["team_id"].astype(str).map(scale_lookup).fillna(1.0).astype(float)
 
 
 def compute_game_explainability(
@@ -950,6 +1223,7 @@ def run_glicko2_cohort(
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
     cohort_gender: str = "Male",
+    team_state_map: Optional[Dict[str, str]] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Run Glicko-2 for a single (age, gender) cohort.
 
@@ -972,6 +1246,8 @@ def run_glicko2_cohort(
         tier_league_map: Optional dict of {team_id: league} for tier-based opponent
                         strength discounting during convergence.
         cohort_gender: "Male" or "Female" for tier lookup.
+        team_state_map: Optional dict of {team_id: state_code} for balanced window
+                        bridge selection.
 
     Returns:
         Tuple of (DataFrame, team_games dict):
@@ -993,12 +1269,7 @@ def run_glicko2_cohort(
     # 3. Clip outlier goals
     df = clip_outlier_goals(games_df, cfg.OUTLIER_GUARD_ZSCORE)
 
-    # 4. Select games per team
-    team_games: Dict[str, pd.DataFrame] = {}
-    for t in all_teams:
-        team_games[t] = select_games(df, t, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
-
-    # 5. Determine cohort age/gender for cross-age detection
+    # 4. Determine cohort age/gender for cross-age detection
     # Use the first row's age/gender as the cohort identity
     cohort_age = df["age"].iloc[0] if len(df) > 0 else None
     _cohort_gender_detected = df["gender"].iloc[0] if len(df) > 0 else None
@@ -1026,6 +1297,20 @@ def run_glicko2_cohort(
         if opp_key not in _tier_cache:
             _tier_cache[opp_key] = _get_tier_mult_fn(tier_league_map.get(opp_key), cohort_gender, age=_cohort_age_int)
         return _tier_cache[opp_key]
+
+    # 5. Select games per team
+    team_games: Dict[str, pd.DataFrame] = {}
+    for t in all_teams:
+        team_games[t] = select_games_balanced(
+            df,
+            t,
+            cfg,
+            today,
+            rating_lookup=ratings,
+            global_rating_map=global_rating_map,
+            team_state_map=team_state_map,
+            tier_mult_fn=_tier_mult_conv,
+        )
 
     # 6. Pre-convert team games to arrays (avoid iterrows in the hot loop)
     team_arrays: Dict[str, Optional[Dict]] = {}
@@ -1229,6 +1514,7 @@ def compute_rankings_v2(
         initial_ratings=initial_ratings,
         tier_league_map=tier_league_map,
         cohort_gender=_cohort_gender,
+        team_state_map=team_state_map,
     )
 
     # 3. Build the converged ratings dict for all downstream derived metrics
@@ -1263,6 +1549,7 @@ def compute_rankings_v2(
     )
 
     # 6. Apply SCF post-convergence dampening (if team_state_map provided and SCF_ENABLED)
+    scf_data: Dict[str, Dict] = {}
     if cfg.SCF_ENABLED and team_state_map:
         scf_data = compute_scf(
             games_df,
@@ -1289,9 +1576,14 @@ def compute_rankings_v2(
             1.0 + cfg.SOS_ADJ_STRONG_MAX,
         )
         mu_sos = cfg.INITIAL_MU + (team_df["mu"] - cfg.INITIAL_MU) * sos_scale
+        evidence_scale = _compute_base_evidence_scale(team_df, team_games, scf_data, cfg)
+        mu_sos = cfg.INITIAL_MU + (mu_sos - cfg.INITIAL_MU) * evidence_scale
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_sos)
     else:
-        team_df["powerscore_core"] = sigmoid_zscore_normalize(team_df["mu"])
+        mu_publish = team_df["mu"]
+        evidence_scale = _compute_base_evidence_scale(team_df, team_games, scf_data, cfg)
+        mu_publish = cfg.INITIAL_MU + (mu_publish - cfg.INITIAL_MU) * evidence_scale
+        team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_publish)
 
     # 8. Provisional multiplier from sigma
     team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)
@@ -1407,11 +1699,9 @@ def compute_rankings_v2(
 
     logger.info(f"Glicko-2 engine complete{label}: {len(team_df)} teams ranked")
 
-    # Collect the actual games used by Glicko-2 (union of per-team select_games)
-    used_indices: set = set()
-    for tg in team_games.values():
-        used_indices.update(tg.index.tolist())
-    games_used = games_df.loc[games_df.index.isin(used_indices)] if used_indices else games_df
+    # Collect the actual games used by Glicko-2, preserving per-team selection metadata.
+    selected_frames = [tg.copy() for tg in team_games.values() if tg is not None and not tg.empty]
+    games_used = pd.concat(selected_frames, ignore_index=False) if selected_frames else games_df.copy()
 
     return {
         "teams": team_df,

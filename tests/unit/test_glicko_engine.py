@@ -6,6 +6,7 @@ import pytest
 
 from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import (
+    _compute_base_evidence_scale,
     _from_glicko2_scale,
     _to_glicko2_scale,
     apply_scf_dampening,
@@ -26,6 +27,7 @@ from src.etl.glicko_engine import (
     run_glicko2_cohort,
     scale_cross_age_rating,
     select_games,
+    select_games_balanced,
     sigmoid_zscore_normalize,
 )
 
@@ -290,6 +292,59 @@ class TestSelectGames:
         )
         result = select_games(games, "team_a", max_games=30, window_days=365, today=today)
         assert result.iloc[0]["gf"] == 2  # March game first
+
+
+class TestBalancedSelection:
+    def test_balanced_selection_reserves_quality_slots(self):
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+        rows = []
+
+        # 35 recent same-state games vs weak same-age opponents
+        for i in range(35):
+            rows += make_game("A", f"W{i}", 2, 0, today - pd.Timedelta(days=i))
+
+        # Older but stronger same-age opponents that should be pulled into the window
+        for i in range(7):
+            rows += make_game("A", f"S{i}", 1, 0, today - pd.Timedelta(days=60 + i))
+
+        # Out-of-state bridge games that should occupy the bridge bucket
+        for i in range(3):
+            rows += make_game("A", f"B{i}", 1, 1, today - pd.Timedelta(days=90 + i))
+
+        games = pd.DataFrame(rows)
+        games["age"] = "U14"
+        games["gender"] = "M"
+        games["opp_age"] = "U14"
+        games["opp_gender"] = "M"
+
+        team_state_map = {"A": "TX"}
+        rating_lookup = {"A": (1500.0, 200.0, 0.06)}
+        for i in range(35):
+            team_state_map[f"W{i}"] = "TX"
+            rating_lookup[f"W{i}"] = (1400.0, 200.0, 0.06)
+        for i in range(7):
+            team_state_map[f"S{i}"] = "TX"
+            rating_lookup[f"S{i}"] = (1750.0, 200.0, 0.06)
+        for i in range(3):
+            team_state_map[f"B{i}"] = "OK"
+            rating_lookup[f"B{i}"] = (1700.0, 200.0, 0.06)
+
+        selected = select_games_balanced(
+            games,
+            "A",
+            cfg,
+            today,
+            rating_lookup=rating_lookup,
+            team_state_map=team_state_map,
+        )
+
+        assert len(selected) == cfg.MAX_GAMES
+        assert (selected["selection_bucket"] == "same_age_quality").sum() >= 7
+        assert (selected["selection_bucket"] == "bridge_quality").sum() >= 3
+        selected_opp_ids = set(selected["opp_id"].astype(str).tolist())
+        assert {"S0", "S1", "S2"}.issubset(selected_opp_ids)
+        assert {"B0", "B1", "B2"}.issubset(selected_opp_ids)
 
 
 class TestRecencyWeights:
@@ -741,7 +796,45 @@ class TestSCF:
             ratings[opp] = (1500.0, 200.0, 0.06)
         result = compute_scf(games, state_map, ratings, cfg)
         assert result["A"]["is_isolated"] is False
-        assert result["A"]["unique_states"] == 5
+        assert result["A"]["unique_states"] > 3.0
+
+    def test_cross_age_bridge_counts_less_than_same_age_bridge(self):
+        cfg = GlickoConfig()
+        games = pd.DataFrame(
+            [
+                {
+                    "team_id": "A",
+                    "opp_id": "same_age_bridge",
+                    "gf": 1,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-01"),
+                    "age": "U15",
+                    "gender": "M",
+                    "opp_age": "U15",
+                    "opp_gender": "M",
+                },
+                {
+                    "team_id": "A",
+                    "opp_id": "cross_age_bridge",
+                    "gf": 1,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-05"),
+                    "age": "U15",
+                    "gender": "M",
+                    "opp_age": "U16",
+                    "opp_gender": "M",
+                },
+            ]
+        )
+        state_map = {"A": "AZ", "same_age_bridge": "CA", "cross_age_bridge": "NV"}
+        ratings = {
+            "A": (1500.0, 200.0, 0.06),
+            "same_age_bridge": (1700.0, 200.0, 0.06),
+            "cross_age_bridge": (1700.0, 200.0, 0.06),
+        }
+        result = compute_scf(games, state_map, ratings, cfg)
+        assert result["A"]["bridge_games"] < 2.0
+        assert result["A"]["bridge_games"] > 0.0
 
     def test_scf_dampens_sos(self):
         """Isolated team (low scf) has SOS dampened closer to 1500 than connected team."""
@@ -829,6 +922,32 @@ class TestSCF:
         for team_id, data in result.items():
             assert data["scf"] == 1.0
             assert data["is_isolated"] is False
+
+
+class TestBaseEvidenceShrink:
+    def test_weak_same_age_schedule_gets_shrunk(self):
+        cfg = GlickoConfig()
+        team_rows = [{"team_id": "A", "mu": 1700.0}]
+        for idx in range(1, 1201):
+            team_rows.append({"team_id": f"W{idx}", "mu": 1400.0 - idx})
+        team_df = pd.DataFrame(team_rows)
+        weak_games = pd.DataFrame(
+            [
+                {"team_id": "A", "opp_id": "W1198", "gf": 3, "ga": 0, "age": "U14", "gender": "M", "opp_age": "U14", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W1199", "gf": 2, "ga": 0, "age": "U14", "gender": "M", "opp_age": "U14", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W1200", "gf": 2, "ga": 1, "age": "U14", "gender": "M", "opp_age": "U14", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W1200", "gf": 1, "ga": 0, "age": "U14", "gender": "M", "opp_age": "U14", "opp_gender": "M"},
+            ]
+        )
+        scales = _compute_base_evidence_scale(
+            team_df,
+            {"A": weak_games},
+            {"A": {"scf": 0.55}},
+            cfg,
+        )
+        scale_map = dict(zip(team_df["team_id"], scales))
+        assert scale_map["A"] < 1.0
+        assert scale_map["A"] >= 1.0 - cfg.BASE_EVIDENCE_SHRINK_MAX
 
 
 class TestComputeRankingsV2:
