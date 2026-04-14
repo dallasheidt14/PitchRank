@@ -40,6 +40,15 @@ async function fetchRaw(range: DateRange, limit: number) {
           { name: 'activeUsers' },
           { name: 'engagementRate' },
         ],
+        metricFilter: {
+          filter: {
+            fieldName: 'engagementRate',
+            numericFilter: {
+              operation: 'GREATER_THAN',
+              value: { doubleValue: 0 },
+            },
+          },
+        },
         orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
         limit: String(limit),
       },
