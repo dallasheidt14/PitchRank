@@ -31,25 +31,25 @@ export function SearchPerformanceTile({ range }: { range: DateRangePreset }) {
     <TileShell title="Search Performance" description="Clicks · impressions · CTR · position" state={state}>
       {q.data && (
         <div className="space-y-3">
-          <div className="grid grid-cols-4 gap-2 text-sm">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
             <div>
-              <div className="text-muted-foreground">Clicks</div>
-              <div className="text-lg font-semibold">{q.data.totals.clicks.toLocaleString()}</div>
+              <span className="text-muted-foreground">Clicks </span>
+              <span className="font-semibold">{q.data.totals.clicks.toLocaleString()}</span>
             </div>
             <div>
-              <div className="text-muted-foreground">Impressions</div>
-              <div className="text-lg font-semibold">{q.data.totals.impressions.toLocaleString()}</div>
+              <span className="text-muted-foreground">Impr. </span>
+              <span className="font-semibold">{q.data.totals.impressions.toLocaleString()}</span>
             </div>
             <div>
-              <div className="text-muted-foreground">CTR</div>
-              <div className="text-lg font-semibold">{(q.data.totals.ctr * 100).toFixed(2)}%</div>
+              <span className="text-muted-foreground">CTR </span>
+              <span className="font-semibold">{(q.data.totals.ctr * 100).toFixed(2)}%</span>
             </div>
             <div>
-              <div className="text-muted-foreground">Pos.</div>
-              <div className="text-lg font-semibold">{q.data.totals.position.toFixed(1)}</div>
+              <span className="text-muted-foreground">Pos. </span>
+              <span className="font-semibold">{q.data.totals.position.toFixed(1)}</span>
             </div>
           </div>
-          <div className="h-32">
+          <div className="h-20">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={q.data.rows}>
                 <XAxis dataKey="date" hide />

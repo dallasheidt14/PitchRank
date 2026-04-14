@@ -5,7 +5,6 @@ import type { DateRangePreset } from '@/lib/internal-analytics/types';
 
 type Row = {
   pagePath: string;
-  pageTitle: string;
   screenPageViews: number;
   activeUsers: number;
   engagementRate: number;

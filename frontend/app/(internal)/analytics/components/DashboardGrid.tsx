@@ -10,6 +10,7 @@ import { TrafficOverviewTile } from './tiles/TrafficOverviewTile';
 import { TopPagesTile } from './tiles/TopPagesTile';
 import { UpgradeViewsTile } from './tiles/UpgradeViewsTile';
 import { SearchPerformanceTile } from './tiles/SearchPerformanceTile';
+import { TrafficSourcesTile } from './tiles/TrafficSourcesTile';
 import { TopQueriesTile } from './tiles/TopQueriesTile';
 import { LandingPagesTile } from './tiles/LandingPagesTile';
 import { ChatSidebar } from './chat/ChatSidebar';
@@ -46,6 +47,7 @@ export function DashboardGrid() {
             <TrafficOverviewTile range={range} />
             <UpgradeViewsTile range={range} />
             <TopPagesTile range={range} />
+            <TrafficSourcesTile range={range} />
             <SearchPerformanceTile range={range} />
             <TopQueriesTile range={range} />
             <LandingPagesTile range={range} />
