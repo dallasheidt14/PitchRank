@@ -12,10 +12,16 @@ export function coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 export function sortedKeys(obj: unknown): string {
   if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-  if (Array.isArray(obj)) return JSON.stringify(obj.map((v) => JSON.parse(sortedKeys(v))));
+  if (Array.isArray(obj)) {
+    return JSON.stringify(
+      obj.map((v) => (v === undefined ? null : JSON.parse(sortedKeys(v)))),
+    );
+  }
   const sorted: Record<string, unknown> = {};
   for (const k of Object.keys(obj as object).sort()) {
-    sorted[k] = JSON.parse(sortedKeys((obj as Record<string, unknown>)[k]));
+    const v = (obj as Record<string, unknown>)[k];
+    if (v === undefined) continue;
+    sorted[k] = JSON.parse(sortedKeys(v));
   }
   return JSON.stringify(sorted);
 }
