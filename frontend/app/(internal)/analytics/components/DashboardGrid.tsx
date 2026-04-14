@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DEFAULT_PRESET, REACT_QUERY_STALE_MS, REACT_QUERY_GC_MS } from '@/lib/internal-analytics/constants';
 import type { DateRangePreset } from '@/lib/internal-analytics/types';
 import { DateRangePicker } from './DateRangePicker';
+import { Button } from '@/components/ui/button';
 import { TrafficOverviewTile } from './tiles/TrafficOverviewTile';
 import { TopPagesTile } from './tiles/TopPagesTile';
 import { UpgradeViewsTile } from './tiles/UpgradeViewsTile';
@@ -26,7 +27,19 @@ export function DashboardGrid() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Internal Analytics</h1>
-          <DateRangePicker />
+          <div className="flex items-center gap-2">
+            <DateRangePicker />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await fetch('/api/internal/analytics/refresh', { method: 'POST' });
+                client.invalidateQueries();
+              }}
+            >
+              Refresh
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
