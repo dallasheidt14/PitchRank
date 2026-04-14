@@ -5,6 +5,7 @@ import type { DateRangePreset } from './types';
 import { DATE_RANGE_PRESETS, MAX_ROW_LIMIT } from './constants';
 import { getGa4Overview } from './queries/ga4-overview';
 import { getGa4TopPages, type Ga4TopPagesParams } from './queries/ga4-top-pages';
+import { getGa4TrafficSources } from './queries/ga4-traffic-sources';
 import { getGa4UpgradeViews, type Ga4UpgradeViewsParams } from './queries/ga4-upgrade-views';
 import { getGscPerformance, type GscPerformanceParams } from './queries/gsc-performance';
 import { getGscTopQueries, type GscTopQueriesParams } from './queries/gsc-top-queries';
@@ -49,6 +50,13 @@ export const REPORTS = {
     paramsSchema: z.object({ ...Common, limit: z.number().int().min(1).max(MAX_ROW_LIMIT).optional() }),
     handler: (p: WithLimit) =>
       getGa4TopPages({ dateRange: p.date_range, limit: p.limit, forceFresh: p.forceFresh } as Ga4TopPagesParams),
+    summaryRequired: ['totals'],
+  },
+  ga4_traffic_sources: {
+    source: 'ga4',
+    description: 'Top traffic sources by sessions, with user counts.',
+    paramsSchema: z.object({ ...Common, limit: z.number().int().min(1).max(MAX_ROW_LIMIT).optional() }),
+    handler: (p: any) => getGa4TrafficSources({ dateRange: p.date_range, limit: p.limit, forceFresh: p.forceFresh }),
     summaryRequired: ['totals'],
   },
   ga4_upgrade_views: {
