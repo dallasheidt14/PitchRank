@@ -257,11 +257,11 @@ function ComparisonTable({
 function StatusTable({ snapshot }: { snapshot: MissionControlSnapshot }) {
   const rows = [
     {
-      label: 'Ready to compare',
+      label: 'Settled rows across all versions',
       tooltip:
-        'Fixtures where we matched the final result back to the frozen predictions. These rows actively count toward the accuracy numbers above.',
+        'All settled prospective rows in the system, including older model versions. This is an operational pipeline count, not the current apples-to-apples comparison sample.',
       value: formatNumber(snapshot.pipeline.settled),
-      meaning: 'Final score found and both predictions can be judged.',
+      meaning: 'Final score found and both predictions can be judged, but some rows may belong to older model versions.',
     },
     {
       label: 'Waiting on final score',
@@ -531,10 +531,10 @@ export function ModelSnapshotDashboard() {
 
         <div className="grid gap-6 xl:grid-cols-[1.15fr_1fr]">
           <Card variant="flat" className="border-white/10 bg-white/5">
-            <CardHeader className="border-b border-white/10">
+          <CardHeader className="border-b border-white/10">
               <CardTitle className="text-white">Pipeline Status</CardTitle>
               <CardDescription className="text-gray-400">
-                Where the prospective evaluation pipeline is currently getting stuck or moving cleanly
+                Operational counts across all stored prospective rows, including older model versions
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
