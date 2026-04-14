@@ -56,7 +56,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 DIRECT_DB_BATCH_SIZE = 5000
-REST_SNAPSHOT_BATCH_SIZE = 250
+# Keep REST batches at 100 team ids so each request stays below PostgREST's default 1,000-row cap.
+REST_SNAPSHOT_BATCH_SIZE = 100
 REST_SNAPSHOT_CONCURRENCY = 8
 
 
