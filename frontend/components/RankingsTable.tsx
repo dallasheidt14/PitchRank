@@ -8,7 +8,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
 import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
-import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -348,7 +348,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 {/* Table Header */}
                 <div
                   data-testid="rankings-table-header"
-                  className="grid grid-cols-[44px_1fr_58px_50px] sm:grid-cols-[70px_2fr_1fr_1fr] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
+                  className="grid grid-cols-[44px_1fr_58px_50px_28px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
                 >
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
@@ -419,10 +419,11 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
+                  <div aria-hidden="true" />
                 </div>
 
                 {/* Virtualized Table Body */}
-                <div ref={parentRef} className="overflow-auto h-[400px] sm:h-[500px] md:h-[600px]">
+                <div ref={parentRef} className="rankings-body overflow-auto h-[400px] sm:h-[500px] md:h-[600px]">
                   <div
                     style={{
                       height: `${totalHeight}px`,
@@ -435,18 +436,35 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       const team = sortedRankings[virtualRow.index];
                       const displayRank = getDisplayRank(team);
                       const borderClass = getRankBorderClass(displayRank ?? null);
+                      const isTop3 = displayRank != null && displayRank <= 3;
 
                       return (
-                        <div
+                        <Link
                           key={team.team_id_master}
+                          href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
                           data-index={virtualRow.index}
                           data-testid={`rankings-row-${virtualRow.index}`}
                           ref={virtualizer.measureElement}
+                          onMouseEnter={() => prefetchTeam(team.team_id_master)}
+                          onClick={() =>
+                            trackTeamRowClicked({
+                              team_id_master: team.team_id_master,
+                              team_name: team.team_name,
+                              club_name: team.club_name,
+                              state: team.state,
+                              age: team.age,
+                              gender: team.gender,
+                              rank_in_cohort_final: team.rank_in_cohort_final,
+                              rank_in_state_final: team.rank_in_state_final ?? undefined,
+                            })
+                          }
+                          aria-label={`View ${team.team_name} team details`}
                           className={`
-                            grid grid-cols-[44px_1fr_58px_50px] sm:grid-cols-[70px_2fr_1fr_1fr] border-b group cursor-pointer
-                            hover:bg-accent/70 hover:shadow-md
-                            transition-[background-color,box-shadow] duration-200 ease-in-out
-                            md:hover:scale-[1.01] hover:z-10
+                            rankings-row-link
+                            grid grid-cols-[44px_1fr_58px_50px_28px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
+                            ${isTop3 ? 'hover:bg-accent/[0.12]' : 'hover:bg-primary/[0.04]'} hover:shadow-md
+                            transition-[background-color,box-shadow,opacity] duration-200 ease-in-out
+                            hover:z-10
                             ${borderClass}
                           `}
                           style={{
@@ -495,26 +513,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
-                            <Link
-                              href={`/teams/${team.team_id_master}?region=${region || 'national'}&ageGroup=${ageGroup}&gender=${gender?.toLowerCase() || 'male'}`}
-                              onMouseEnter={() => prefetchTeam(team.team_id_master)}
-                              onClick={() =>
-                                trackTeamRowClicked({
-                                  team_id_master: team.team_id_master,
-                                  team_name: team.team_name,
-                                  club_name: team.club_name,
-                                  state: team.state,
-                                  age: team.age,
-                                  gender: team.gender,
-                                  rank_in_cohort_final: team.rank_in_cohort_final,
-                                  rank_in_state_final: team.rank_in_state_final ?? undefined,
-                                })
-                              }
-                              className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block text-xs sm:text-sm truncate block w-full"
-                              aria-label={`View ${team.team_name} team details`}
-                            >
+                            <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
                               {team.team_name}
-                            </Link>
+                            </span>
                             <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
                               {team.club_name && <span>{team.club_name}</span>}
                               {team.club_name && team.state && <span> &bull; </span>}
@@ -533,7 +534,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               return (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <span className="truncate cursor-help">#{sosRank}</span>
+                                    <span className="truncate">#{sosRank}</span>
                                   </TooltipTrigger>
                                   <TooltipContent>
                                     <p>
@@ -545,7 +546,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               );
                             })()}
                           </div>
-                        </div>
+                          <div className="flex items-center justify-end gap-1 px-1 sm:px-2">
+                            <span className="hidden sm:inline text-[0.72rem] font-medium text-primary opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-[180ms] delay-100">
+                              View team
+                            </span>
+                            <ChevronRight className="h-4 w-4 sm:h-[1.1rem] sm:w-[1.1rem] text-muted-foreground opacity-50 sm:opacity-50 group-hover:text-primary group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-200 shrink-0" />
+                          </div>
+                        </Link>
                       );
                     })}
                     {paddingBottom > 0 && <div style={{ height: `${paddingBottom}px` }} />}
