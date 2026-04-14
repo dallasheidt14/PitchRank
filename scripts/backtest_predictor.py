@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import httpx
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
@@ -55,6 +56,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 DIRECT_DB_BATCH_SIZE = 5000
+REST_SNAPSHOT_BATCH_SIZE = 250
+REST_SNAPSHOT_CONCURRENCY = 8
 
 
 def _database_url() -> Optional[str]:
@@ -215,6 +218,83 @@ def _fetch_team_names_via_db(team_ids: List[str]) -> Dict[str, str]:
     return team_names
 
 
+def _supabase_rest_credentials() -> Tuple[Optional[str], Optional[str]]:
+    return (
+        os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL"),
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY"),
+    )
+
+
+async def _fetch_prediction_feature_snapshots_via_rest(
+    team_ids: List[str],
+    start_date: str,
+    end_date: str,
+) -> pd.DataFrame:
+    supabase_url, supabase_key = _supabase_rest_credentials()
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("Supabase REST credentials are unavailable for concurrent snapshot fetch")
+
+    logger.info(
+        "Fetching prediction feature snapshots for %s teams between %s and %s via concurrent Supabase REST...",
+        f"{len(team_ids):,}",
+        start_date,
+        end_date,
+    )
+
+    fields = (
+        "snapshot_date,team_id,age_group,gender,status,rank_in_cohort_final,"
+        "power_score_final,sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
+        "glicko_volatility,wins,losses,draws,games_played,win_percentage,exp_margin,"
+        "exp_win_rate,exp_goals_for,exp_goals_against"
+    )
+    endpoint = f"{supabase_url.rstrip('/')}/rest/v1/prediction_feature_history"
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+    }
+    semaphore = asyncio.Semaphore(REST_SNAPSHOT_CONCURRENCY)
+    rows: List[dict] = []
+    rows_fetched = 0
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0)) as client:
+        async def fetch_batch(index: int, batch: List[str]) -> List[dict]:
+            params = [
+                ("select", fields),
+                ("team_id", f"in.({','.join(batch)})"),
+                ("snapshot_date", f"gte.{start_date}"),
+                ("snapshot_date", f"lte.{end_date}"),
+            ]
+            async with semaphore:
+                response = await client.get(endpoint, params=params, headers=headers)
+                response.raise_for_status()
+                return response.json()
+
+        tasks = [
+            fetch_batch(index, team_ids[index : index + REST_SNAPSHOT_BATCH_SIZE])
+            for index in range(0, len(team_ids), REST_SNAPSHOT_BATCH_SIZE)
+        ]
+
+        for completed_index, task in enumerate(asyncio.as_completed(tasks), start=1):
+            batch_rows = await task
+            if batch_rows:
+                rows.extend(batch_rows)
+                rows_fetched += len(batch_rows)
+            if completed_index % 10 == 0 or completed_index == len(tasks):
+                teams_processed = min(completed_index * REST_SNAPSHOT_BATCH_SIZE, len(team_ids))
+                logger.info(
+                    "  Concurrent REST snapshot fetch: completed %s/%s batches (%s/%s team ids, %s rows)",
+                    f"{completed_index:,}",
+                    f"{len(tasks):,}",
+                    f"{teams_processed:,}",
+                    f"{len(team_ids):,}",
+                    f"{rows_fetched:,}",
+                )
+
+    snapshots_df = pd.DataFrame(rows)
+    logger.info("Fetched %s prediction snapshots via concurrent Supabase REST", f"{len(snapshots_df):,}")
+    return snapshots_df
+
+
 async def fetch_historical_games(
     supabase: Client,
     lookback_days: int = 365,
@@ -231,11 +311,14 @@ async def fetch_historical_games(
         test_slice: Optional tuple (state, age_group) for testing (e.g., ('AZ', 'u12'))
     """
     if _can_use_direct_db():
-        return _fetch_historical_games_via_db(
-            lookback_days=lookback_days,
-            limit=limit,
-            test_slice=test_slice,
-        )
+        try:
+            return _fetch_historical_games_via_db(
+                lookback_days=lookback_days,
+                limit=limit,
+                test_slice=test_slice,
+            )
+        except Exception as error:
+            logger.warning("Direct Postgres historical-game fetch failed, falling back to Supabase REST: %s", error)
 
     cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
@@ -388,6 +471,15 @@ async def fetch_prediction_feature_snapshots(
             )
         except Exception as error:
             logger.warning("Direct Postgres snapshot fetch failed, falling back to Supabase REST: %s", error)
+
+    try:
+        return await _fetch_prediction_feature_snapshots_via_rest(
+            team_ids=team_ids,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception as error:
+        logger.warning("Concurrent Supabase REST snapshot fetch failed, falling back to serial client: %s", error)
 
     logger.info(
         "Fetching prediction feature snapshots for %s teams between %s and %s...",
