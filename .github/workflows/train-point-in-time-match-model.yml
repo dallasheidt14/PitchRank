@@ -269,6 +269,50 @@ jobs:
           step_summary.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
           PY
 
+      - name: Record training run for mission control
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+
+          MODEL_DIR="${{ github.event.inputs.model_dir }}"
+          if [ ! -f "$MODEL_DIR/training_metrics.json" ]; then
+            echo "training_metrics.json not found in $MODEL_DIR; skipping mission control record"
+            exit 0
+          fi
+
+          CMD=(
+            python scripts/record_point_in_time_training_run.py
+            --workflow-run-id "${{ github.run_id }}"
+            --workflow-run-attempt "${{ github.run_attempt }}"
+            --git-sha "${{ github.sha }}"
+            --model-dir "$MODEL_DIR"
+            --lookback-days "${{ github.event.inputs.lookback_days }}"
+            --limit "${{ github.event.inputs.limit }}"
+            --test-ratio "${{ github.event.inputs.test_ratio }}"
+            --min-examples "${{ github.event.inputs.min_examples }}"
+            --requested-probability-strategy "${{ github.event.inputs.probability_strategy }}"
+          )
+
+          if [ "${{ github.event.inputs.calibrate }}" = "true" ]; then
+            CMD+=(
+              --calibration-enabled
+              --calibration-method "${{ github.event.inputs.calibration_method }}"
+              --draw-calibration-method "${{ github.event.inputs.draw_calibration_method }}"
+            )
+          fi
+
+          printf 'Recording command:\n'
+          printf ' %q' "${CMD[@]}"
+          printf '\n'
+
+          "${CMD[@]}"
+
       - name: Upload model artifacts
         if: always()
         uses: actions/upload-artifact@v4

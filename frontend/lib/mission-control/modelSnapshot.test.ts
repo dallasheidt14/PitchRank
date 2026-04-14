@@ -125,5 +125,6 @@ describe('buildMissionControlSnapshot', () => {
     expect(snapshot.offline.drawRecall).toBe(1);
     expect(snapshot.headToHead.fixturesWithBothPredictions).toBe(2);
     expect(snapshot.headToHead.winnerDisagreementRate).toBe(0.5);
+    expect(snapshot.trainingRuns).toEqual([]);
   });
 });
