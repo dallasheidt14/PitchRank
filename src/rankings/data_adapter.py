@@ -193,7 +193,7 @@ async def fetch_games_for_rankings(
     base_query = (
         db.table("games")
         .select(
-            "id, game_uid, game_date, home_team_master_id, away_team_master_id, home_score, away_score, provider_id"
+            "id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, provider_id"
         )
         .gte("game_date", cutoff_date_str)
         .lte(
@@ -245,12 +245,11 @@ async def fetch_games_for_rankings(
                 description=f"Fetching games batch at offset {offset}",
             )
         except Exception as e:
-            logger.warning(
-                f"⚠️  Failed to fetch games at offset {offset} after retries. "
-                f"Using {len(games_data):,} games fetched so far."
-            )
-            logger.warning(f"   Error: {str(e)[:200]}")
-            break
+            raise RuntimeError(
+                f"Failed to fetch games at offset {offset} after retries; "
+                f"aborting rankings fetch instead of publishing a partial "
+                f"{len(games_data):,}-game snapshot. Error: {str(e)[:200]}"
+            ) from e
 
         if not games_result.data:
             break
@@ -340,9 +339,11 @@ async def fetch_games_for_rankings(
     team_gender_series = pd.Series(team_gender_map)
 
     # Vectorized conversion: build game_id column
-    game_uid_col = games_df["game_uid"] if "game_uid" in games_df.columns else pd.Series(dtype="object")
     games_df = games_df.copy()
-    games_df["_game_id"] = game_uid_col.fillna(games_df["id"]).astype(str)
+    if "game_uid" in games_df.columns:
+        games_df["_game_id"] = games_df["game_uid"].fillna(games_df["id"]).astype(str)
+    else:
+        games_df["_game_id"] = games_df["id"].astype(str)
     games_df["_date"] = pd.to_datetime(games_df["game_date"])
 
     # Filter out rows missing required fields
