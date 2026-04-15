@@ -281,6 +281,7 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "one_top100_thin_escalated_cap_rank": 1200,
         "mid_thin_cap_rank": 1000,
         "thin_schedule_cap_rank": 1500,
+        "quality_result_void_cap_rank": 1500,
         "severe_cap_rank": 2000,
         "cap_band_min_width": 0.005,
         "cap_band_max_width": 0.020,
@@ -299,6 +300,9 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "one_top100_thin_max_avg_opp_power": 0.58,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
+        "quality_result_void_max_top500": 3,
+        "quality_result_void_max_avg_opp_power": 0.60,
+        "quality_result_void_severe_max_avg_opp_power": 0.52,
         "local_loop_max_top500": 1,
         "local_loop_max_avg_opp_power": 0.52,
         "local_loop_repeat_share": 0.60,
@@ -896,6 +900,14 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         or repeat_share >= float(policy["isolation_override_repeat_share"])
     )
     regional_thin_low_connectivity = regional_thin and isolation_override
+    quality_result_void = (
+        top100 == 0
+        and top500 <= int(policy["quality_result_void_max_top500"])
+        and top500_non_loss == 0
+        and top1000_non_loss == 0
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["quality_result_void_max_avg_opp_power"])
+    )
 
     if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
@@ -907,6 +919,10 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["severe_cap_rank"])
     if top100 == 0 and top500 == 0 and top500_non_loss == 0 and top1000_non_loss == 0 and severe_weak_avg:
         return int(policy["severe_cap_rank"])
+    if quality_result_void:
+        if avg_opp_power < float(policy["quality_result_void_severe_max_avg_opp_power"]):
+            return int(policy["severe_cap_rank"])
+        return int(policy["quality_result_void_cap_rank"])
     if thin_schedule and isolation_override:
         return int(policy["severe_cap_rank"])
     if regional_thin_low_connectivity:

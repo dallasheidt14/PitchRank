@@ -609,3 +609,37 @@ def test_collect_top_tier_weak_uncapped_flags_surf_type_profile():
     flagged = _collect_top_tier_weak_uncapped(teams_age, base_scores)
 
     assert flagged["team_id"].tolist() == ["surf"]
+
+def test_publication_cap_rank_hits_quality_result_void_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 2,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 0,
+            "same_age_avg_opp_power_adj": 0.56,
+            "repeat_opponent_share": 0.18,
+            "unique_opp_states": 3,
+            "scf": 0.72,
+        }
+    )
+    assert _publication_cap_rank(row) == 1500
+
+
+def test_publication_cap_rank_escalates_severe_quality_result_void_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 0,
+            "same_age_top1000_non_loss_opp_count": 0,
+            "same_age_avg_opp_power_adj": 0.47,
+            "repeat_opponent_share": 0.12,
+            "unique_opp_states": 3,
+            "scf": 0.74,
+        }
+    )
+    assert _publication_cap_rank(row) == 2000
+
