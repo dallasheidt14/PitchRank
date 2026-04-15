@@ -6,6 +6,7 @@ import { DATE_RANGE_PRESETS, MAX_ROW_LIMIT } from './constants';
 import { getGa4Overview } from './queries/ga4-overview';
 import { getGa4TopPages, type Ga4TopPagesParams } from './queries/ga4-top-pages';
 import { getGa4UpgradeViews, type Ga4UpgradeViewsParams } from './queries/ga4-upgrade-views';
+import { getGa4ConversionFunnel } from './queries/ga4-conversion-funnel';
 import { getGscPerformance, type GscPerformanceParams } from './queries/gsc-performance';
 import { getGscTopQueries, type GscTopQueriesParams } from './queries/gsc-top-queries';
 import { getGscLandingPages, type GscLandingPagesParams } from './queries/gsc-landing-pages';
@@ -63,6 +64,18 @@ export const REPORTS = {
       } as Ga4UpgradeViewsParams),
     summaryRequired: ['totals', 'conversion_rate'],
     derivedMetrics: ['conversion_rate'],
+  },
+  ga4_conversion_funnel: {
+    source: 'ga4',
+    description: 'Unique users through the 4-step upgrade funnel: viewed → plan selected → checkout → subscribed.',
+    paramsSchema: z.object({ ...Common }),
+    handler: (p: CommonParams) =>
+      getGa4ConversionFunnel({
+        dateRange: p.date_range as never,
+        forceFresh: p.forceFresh,
+      }),
+    summaryRequired: ['totals', 'overall'],
+    derivedMetrics: ['view_to_plan', 'plan_to_checkout', 'checkout_to_subscribe', 'overall'],
   },
   gsc_performance: {
     source: 'gsc',

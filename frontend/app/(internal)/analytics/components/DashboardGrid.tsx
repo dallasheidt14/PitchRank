@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { TrafficOverviewTile } from './tiles/TrafficOverviewTile';
 import { TopPagesTile } from './tiles/TopPagesTile';
 import { UpgradeViewsTile } from './tiles/UpgradeViewsTile';
+import { ConversionFunnelTile } from './tiles/ConversionFunnelTile';
 import { SearchPerformanceTile } from './tiles/SearchPerformanceTile';
 import { TopQueriesTile } from './tiles/TopQueriesTile';
 import { LandingPagesTile } from './tiles/LandingPagesTile';
@@ -45,6 +46,7 @@ export function DashboardGrid() {
           <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
             <TrafficOverviewTile range={range} />
             <UpgradeViewsTile range={range} />
+            <ConversionFunnelTile range={range} />
             <TopPagesTile range={range} />
             <SearchPerformanceTile range={range} />
             <TopQueriesTile range={range} />
