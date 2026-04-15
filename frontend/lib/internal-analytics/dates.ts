@@ -27,15 +27,14 @@ export function resolveDateRange(input: DateRangePreset | DateRange, timeZone: s
   if (typeof input === 'object') return { start: input.start, end: input.end };
 
   const today = todayInPropertyTz(timeZone);
-  const yesterday = addDaysISO(today, -1);
 
   switch (input) {
     case 'today':
       return { start: today, end: today, preset: 'today' };
     case 'last_7_days':
-      return { start: addDaysISO(yesterday, -6), end: yesterday, preset: 'last_7_days' };
+      return { start: addDaysISO(today, -6), end: today, preset: 'last_7_days' };
     case 'last_28_days':
-      return { start: addDaysISO(yesterday, -27), end: yesterday, preset: 'last_28_days' };
+      return { start: addDaysISO(today, -27), end: today, preset: 'last_28_days' };
     case 'mtd':
       return { start: startOfMonthISO(today), end: today, preset: 'mtd' };
   }

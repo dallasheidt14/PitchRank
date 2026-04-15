@@ -130,6 +130,7 @@ export function buildTools(ctx: ToolContext) {
                   ? [{ metric: { metricName: args.order_by.metric }, desc: args.order_by.desc }]
                   : undefined,
                 limit: String(args.limit),
+                keepEmptyRows: args.dimensions?.includes('date') ? true : undefined,
               },
             });
             return { source: 'ga4', rows: ga4RowsToObjects(res.data as never), date_range: range };

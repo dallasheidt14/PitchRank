@@ -14,14 +14,14 @@ describe('resolveDateRange', () => {
     expect(r).toEqual({ start: '2026-04-14', end: '2026-04-14', preset: 'today' });
   });
 
-  it("resolves 'last_7_days' as the prior 7 days ending yesterday", () => {
+  it("resolves 'last_7_days' as the 7 days ending today (inclusive)", () => {
     const r = resolveDateRange('last_7_days', 'America/Phoenix');
-    expect(r).toEqual({ start: '2026-04-07', end: '2026-04-13', preset: 'last_7_days' });
+    expect(r).toEqual({ start: '2026-04-08', end: '2026-04-14', preset: 'last_7_days' });
   });
 
-  it("resolves 'last_28_days' as the prior 28 days ending yesterday", () => {
+  it("resolves 'last_28_days' as the 28 days ending today (inclusive)", () => {
     const r = resolveDateRange('last_28_days', 'America/Phoenix');
-    expect(r).toEqual({ start: '2026-03-17', end: '2026-04-13', preset: 'last_28_days' });
+    expect(r).toEqual({ start: '2026-03-18', end: '2026-04-14', preset: 'last_28_days' });
   });
 
   it("resolves 'mtd' from the 1st through today", () => {
