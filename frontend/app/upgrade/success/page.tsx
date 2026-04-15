@@ -49,16 +49,8 @@ function UpgradeSuccessContent() {
   const confettiLaunched = useRef(false);
   const syncStarted = useRef(false);
 
-  useEffect(() => {
-    // Trigger confetti animation on mount (once only)
-    if (!confettiLaunched.current) {
-      confettiLaunched.current = true;
-      launchConfetti();
-      trackSubscriptionCompleted();
-    }
-  }, []);
-
-  // Sync subscription status from Stripe as webhook fallback
+  // Sync subscription status from Stripe as webhook fallback.
+  // Only fire confetti + subscription_completed event after sync confirms a real purchase.
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
     if (!sessionId || syncStarted.current) return;
@@ -73,6 +65,11 @@ function UpgradeSuccessContent() {
       .then((data) => {
         if (data.synced) {
           console.log(`Subscription synced: plan=${data.plan}, status=${data.status}`);
+          if (!confettiLaunched.current) {
+            confettiLaunched.current = true;
+            launchConfetti();
+            trackSubscriptionCompleted();
+          }
         } else {
           console.error('Sync failed:', data.error);
         }

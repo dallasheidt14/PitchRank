@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil, BarChart3, Eye, ArrowRight } from 'lucide-react';
@@ -70,9 +70,12 @@ function UpgradePageContent() {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
 
   const source = searchParams.get('next') || searchParams.get('source') || 'direct';
+  const pageViewTracked = useRef(false);
 
-  // Track page view on mount
+  // Track page view once per mount, regardless of param changes
   useEffect(() => {
+    if (pageViewTracked.current) return;
+    pageViewTracked.current = true;
     trackUpgradePageViewed({ source });
   }, [source]);
 

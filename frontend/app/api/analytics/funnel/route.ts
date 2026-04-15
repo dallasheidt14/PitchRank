@@ -5,7 +5,6 @@ import { getDateRange } from '@/lib/analytics-utils';
 import type { FunnelData, FunnelStep, ConversionRates } from '@/types/analytics';
 
 const FUNNEL_EVENTS = [
-  { event: 'upgrade_page_viewed', label: 'Page Viewed' },
   { event: 'plan_selected', label: 'Plan Selected' },
   { event: 'checkout_initiated', label: 'Checkout Started' },
   { event: 'subscription_completed', label: 'Subscribed' },
@@ -27,35 +26,50 @@ export async function GET(req: Request) {
 
     const client = getAnalyticsDataClient();
 
-    const res = await client.properties.runReport({
-      property: propertyId,
-      requestBody: {
-        dateRanges: [{ startDate, endDate }],
-        dimensions: [{ name: 'eventName' }],
-        metrics: [{ name: 'eventCount' }],
-        dimensionFilter: {
-          filter: {
-            fieldName: 'eventName',
-            inListFilter: {
-              values: FUNNEL_EVENTS.map((e) => e.event),
+    const [eventsRes, pageViewsRes] = await Promise.all([
+      client.properties.runReport({
+        property: propertyId,
+        requestBody: {
+          dateRanges: [{ startDate, endDate }],
+          dimensions: [{ name: 'eventName' }],
+          metrics: [{ name: 'eventCount' }],
+          dimensionFilter: {
+            filter: {
+              fieldName: 'eventName',
+              inListFilter: { values: FUNNEL_EVENTS.map((e) => e.event) },
             },
           },
         },
-      },
-    });
+      }),
+      client.properties.runReport({
+        property: propertyId,
+        requestBody: {
+          dateRanges: [{ startDate, endDate }],
+          metrics: [{ name: 'screenPageViews' }],
+          dimensionFilter: {
+            filter: { fieldName: 'pagePath', stringFilter: { matchType: 'EXACT', value: '/upgrade' } },
+          },
+        },
+      }),
+    ]);
 
     const eventCounts = new Map<string, number>();
-    for (const row of res.data.rows || []) {
+    for (const row of eventsRes.data.rows || []) {
       const name = row.dimensionValues?.[0]?.value || '';
       const count = parseInt(row.metricValues?.[0]?.value || '0', 10);
       eventCounts.set(name, count);
     }
 
-    const funnel: FunnelStep[] = FUNNEL_EVENTS.map((e) => ({
-      event: e.event,
-      label: e.label,
-      count: eventCounts.get(e.event) || 0,
-    }));
+    const upgradeViews = parseInt(pageViewsRes.data.rows?.[0]?.metricValues?.[0]?.value || '0', 10);
+
+    const funnel: FunnelStep[] = [
+      { event: 'upgrade_page_viewed', label: 'Page Viewed', count: upgradeViews },
+      ...FUNNEL_EVENTS.map((e) => ({
+        event: e.event,
+        label: e.label,
+        count: eventCounts.get(e.event) || 0,
+      })),
+    ];
 
     const viewed = funnel[0].count;
     const planned = funnel[1].count;

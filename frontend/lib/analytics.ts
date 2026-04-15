@@ -6,39 +6,36 @@
 // gtag type is declared in types/gtag.d.ts
 
 /**
- * Check if analytics is available and not in development mode
- */
-function isAnalyticsEnabled(): boolean {
-  return typeof window !== 'undefined' && typeof window.gtag === 'function' && process.env.NODE_ENV !== 'development';
-}
-
-/**
- * Send a custom event to Google Analytics 4
+ * Send a custom event to Google Analytics 4.
+ *
+ * Pushes directly to window.dataLayer so events emitted before the gtag script
+ * finishes loading are still captured (dataLayer is initialized by GoogleAnalytics
+ * before the script tag; gtag replays the queue on load).
  *
  * @param eventName - The name of the event (snake_case, no spaces)
  * @param eventParams - Optional parameters to send with the event
- *
- * @example
- * gtagEvent('team_row_clicked', { team_id: '123', team_name: 'Rangers' });
  */
 export function gtagEvent(
   eventName: string,
   eventParams?: Record<string, string | number | boolean | null | undefined>
 ): void {
-  if (!isAnalyticsEnabled()) {
-    // Log in development for debugging
+  if (typeof window === 'undefined' || process.env.NODE_ENV === 'development') {
     if (process.env.NODE_ENV === 'development') {
       console.log('[Analytics Event]', eventName, eventParams);
     }
     return;
   }
 
-  // Filter out null/undefined values from params
   const cleanParams = eventParams
     ? Object.fromEntries(Object.entries(eventParams).filter(([, value]) => value !== null && value !== undefined))
     : undefined;
 
-  window.gtag!('event', eventName, cleanParams);
+  // Ensure dataLayer exists — GoogleAnalytics component initializes it, but guard
+  // against the event firing before the Script tag has mounted.
+  const w = window as Window & { dataLayer?: unknown[] };
+  w.dataLayer = w.dataLayer || [];
+  // Mirrors the shape gtag('event', name, params) pushes.
+  w.dataLayer.push(['event', eventName, cleanParams]);
 }
 
 /**
