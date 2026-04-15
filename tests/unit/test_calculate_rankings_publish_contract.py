@@ -167,6 +167,62 @@ async def test_save_rankings_retries_incrementally_for_multiple_optional_schema_
 
 
 @pytest.mark.asyncio
+async def test_save_rankings_coerces_nullable_integer_fields_before_publish(monkeypatch):
+    team_id = "team-int"
+    teams_df = pd.DataFrame([{"team_id": team_id}])
+
+    monkeypatch.setattr(
+        calc,
+        "v53e_to_rankings_full_format",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            [
+                {
+                    "team_id": team_id,
+                    "age_group": "u12",
+                    "gender": "Male",
+                    "state_code": "AZ",
+                    "power_score_true": 0.75,
+                    "power_score_final": 0.63,
+                    "same_age_games": 27.0,
+                    "same_age_unique_opponents": 23.0,
+                    "same_age_top100_opp_count": 0.0,
+                    "same_age_top500_opp_count": 4.0,
+                    "publication_cap_rank": 2000.0,
+                }
+            ]
+        ),
+    )
+
+    calls = []
+
+    async def fake_save_batch(_supabase_client, table_name, records, table_name_display=None):
+        calls.append((table_name, records, table_name_display))
+        return len(records)
+
+    monkeypatch.setattr(calc, "_save_batch_with_retry", fake_save_batch)
+
+    saved = await calc.save_rankings_to_supabase(
+        _FakeSupabase(team_id),
+        teams_df,
+        use_rankings_full=True,
+        maintain_backward_compat=False,
+    )
+
+    assert saved == 1
+    record = calls[0][1][0]
+    assert record["same_age_games"] == 27
+    assert isinstance(record["same_age_games"], int)
+    assert record["same_age_unique_opponents"] == 23
+    assert isinstance(record["same_age_unique_opponents"], int)
+    assert record["same_age_top100_opp_count"] == 0
+    assert isinstance(record["same_age_top100_opp_count"], int)
+    assert record["same_age_top500_opp_count"] == 4
+    assert isinstance(record["same_age_top500_opp_count"], int)
+    assert record["publication_cap_rank"] == 2000
+    assert isinstance(record["publication_cap_rank"], int)
+
+
+@pytest.mark.asyncio
 async def test_save_rankings_raises_when_rankings_full_publish_is_incomplete(monkeypatch):
     team_id = "team-2"
     teams_df = pd.DataFrame([{"team_id": team_id}])

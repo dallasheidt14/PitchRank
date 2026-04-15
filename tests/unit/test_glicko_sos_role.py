@@ -522,6 +522,70 @@ async def test_persist_game_explainability_shapes_batch_rpc_payload():
 
 
 @pytest.mark.asyncio
+async def test_persist_game_explainability_dedupes_team_game_primary_key():
+    supabase = _RecordingSupabase()
+    explainability = pd.DataFrame(
+        [
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "game_id": "provider-game-1",
+                "team_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "opp_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                "game_date": pd.Timestamp("2026-04-01"),
+                "gf": 2,
+                "ga": 1,
+                "team_mu": 1510.5,
+                "team_sigma": 82.2,
+                "opp_mu": 1544.1,
+                "opp_sigma": 79.8,
+                "expected_outcome": 0.41,
+                "actual_outcome": 0.83,
+                "outcome_surprise": 0.42,
+                "g_factor": 0.94,
+                "recency_weight": 1.18,
+                "rating_contribution": 0.11,
+                "off_residual": 0.9,
+                "def_residual": 0.6,
+            },
+            {
+                "id": "11111111-1111-1111-1111-111111111111",
+                "game_id": "provider-game-1-revised",
+                "team_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "opp_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                "game_date": pd.Timestamp("2026-04-01"),
+                "gf": 3,
+                "ga": 1,
+                "team_mu": 1512.0,
+                "team_sigma": 81.0,
+                "opp_mu": 1540.0,
+                "opp_sigma": 80.0,
+                "expected_outcome": 0.43,
+                "actual_outcome": 0.85,
+                "outcome_surprise": 0.42,
+                "g_factor": 0.95,
+                "recency_weight": 1.19,
+                "rating_contribution": 0.14,
+                "off_residual": 1.1,
+                "def_residual": 0.5,
+            },
+        ]
+    )
+
+    updated, failed = await calculator._persist_game_explainability(supabase, explainability)
+
+    assert updated == 1
+    assert failed == 0
+    assert len(supabase.calls) == 1
+    rpc_name, payload = supabase.calls[0]
+    assert rpc_name == "batch_upsert_game_explainability"
+    assert len(payload["rows"]) == 1
+    row = payload["rows"][0]
+    assert row["game_id"] == "provider-game-1-revised"
+    assert row["gf"] == 3
+    assert row["team_mu"] == pytest.approx(1512.0)
+
+
+@pytest.mark.asyncio
 async def test_compute_all_cohorts_merges_game_explainability_and_threads_flag(monkeypatch):
     calls: list[dict] = []
 

@@ -106,6 +106,15 @@ async def _persist_game_explainability(supabase_client, game_explainability: pd.
         logger.warning("No explainability rows had game UUID + team/opponent IDs; skipping persistence")
         return (0, 0)
 
+    before_dedup = len(persist_df)
+    persist_df = persist_df.drop_duplicates(subset=["team_id", "id"], keep="last")
+    deduped_rows = before_dedup - len(persist_df)
+    if deduped_rows > 0:
+        logger.warning(
+            "Dropped %s duplicate explainability row(s) on (team_id, game_uuid) before batch upsert",
+            deduped_rows,
+        )
+
     batch_size = 500
     max_retries = 3
     retry_delay = 2
@@ -482,7 +491,10 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
     top500 = pd.to_numeric(work["same_age_top500_opp_count"], errors="coerce").fillna(0)
     top500_non_loss = pd.to_numeric(work["same_age_top500_non_loss_opp_count"], errors="coerce").fillna(0)
     avg_opp = pd.to_numeric(work["same_age_avg_opp_power_adj"], errors="coerce")
-    unique_states = pd.to_numeric(work.get("unique_opp_states"), errors="coerce")
+    if "unique_opp_states" in work.columns:
+        unique_states = pd.to_numeric(work["unique_opp_states"], errors="coerce")
+    else:
+        unique_states = pd.Series(np.nan, index=work.index, dtype=float)
 
     mask = (
         (work["provisional_rank"] <= int(policy["diagnostic_top_rank"]))

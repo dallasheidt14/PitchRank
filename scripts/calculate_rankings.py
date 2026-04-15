@@ -54,6 +54,33 @@ OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS = {
     "publication_cap_score",
 }
 
+RANKINGS_FULL_INTEGER_COLUMNS = {
+    "games_played",
+    "games_last_180_days",
+    "wins",
+    "losses",
+    "draws",
+    "goals_for",
+    "goals_against",
+    "sos_rank_national",
+    "sos_rank_state",
+    "rank_in_cohort_ml",
+    "rank_in_cohort",
+    "rank_in_cohort_final",
+    "national_rank",
+    "state_rank",
+    "global_rank",
+    "rank_change_7d",
+    "rank_change_30d",
+    "rank_change_state_7d",
+    "rank_change_state_30d",
+    "same_age_games",
+    "same_age_unique_opponents",
+    "same_age_top100_opp_count",
+    "same_age_top500_opp_count",
+    "publication_cap_rank",
+}
+
 
 def _should_retry_without_optional_prediction_columns(error: Exception) -> bool:
     return bool(_extract_optional_rankings_full_columns(error))
@@ -85,6 +112,22 @@ def _strip_optional_rankings_full_prediction_columns(
 
 def _is_optional_rankings_full_schema_error(error: Exception, table_name: str) -> bool:
     return table_name == "rankings_full" and _should_retry_without_optional_prediction_columns(error)
+
+
+def _coerce_rankings_full_value(key: str, value):
+    if pd.isna(value):
+        return None
+
+    if key in RANKINGS_FULL_INTEGER_COLUMNS:
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return value
+
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+
+    return value
 
 
 # Load environment variables - prioritize .env.local if it exists
@@ -221,17 +264,17 @@ async def save_rankings_to_supabase(
                             )
                             console.print(f"  {ag}: psf={psf}, nps={nps}, ps_adj={ps_adj} → {match}")
 
-                # Clean up records: convert numpy types to Python native types
+                # Clean up records: convert nullable integer fields back to real
+                # ints so PostgREST does not receive strings like "2000.0" for
+                # integer columns such as publication_cap_rank.
                 for record in records_full:
                     for key, value in record.items():
-                        if isinstance(value, (np.integer, np.int64)):
-                            record[key] = int(value)
-                        elif isinstance(value, (np.floating, np.float64)):
-                            record[key] = float(value) if pd.notna(value) else None
-                        elif isinstance(value, pd.Timestamp):
-                            record[key] = value.isoformat() if pd.notna(value) else None
-                        elif pd.isna(value):
-                            record[key] = None
+                        record[key] = _coerce_rankings_full_value(key, value)
+
+                        if isinstance(record[key], (np.integer, np.int64)):
+                            record[key] = int(record[key])
+                        elif isinstance(record[key], (np.floating, np.float64)):
+                            record[key] = float(record[key]) if pd.notna(record[key]) else None
 
                 # Save to rankings_full table. When production lags on optional
                 # schema columns, strip only the specific missing fields instead
