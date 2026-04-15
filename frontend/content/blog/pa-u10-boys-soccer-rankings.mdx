@@ -24,9 +24,9 @@ Quick context before the table: **Black Conshy '16 B (FC DELCO)** holds the #1 s
 
 ## Top 25 PA U10 Boys Teams
 
-Sorted by PowerScore, highest first. This is a snapshot — rankings update weekly as new results come in.
+Ordered by PitchRank's Glicko-2 cohort rank — the same ordering used on the [PA U10 Boys rankings page](/rankings/pa/u10/male). PowerScore is shown alongside as a 0–1 readability score; because it's a smoothed display metric, a slightly higher PowerScore doesn't always outrank a team above it (strength-of-schedule and rating uncertainty are what decide the order — more on that below). This is a snapshot; rankings update weekly.
 
-| PA # | Team | Club | PowerScore | Record |
+| PA Rank | Team | Club | PowerScore | Record |
 |---|---|---|---|---|
 | 1 | Black Conshy '16 B | FC DELCO | 0.945 | 22-1-7 |
 | 2 | Pittsburgh Riverhounds 2016 PRE ECNL | Pittsburgh Riverhounds | 0.936 | 13-3-1 |
@@ -70,11 +70,11 @@ See the full cohort — all 371 PA U10 boys teams — on the [PA U10 Boys rankin
 
 This is the question every U10 parent asks when they see the table: **How is a 25-0-5 team ranked #9 instead of #1?**
 
-West-Mont United S.A's 2016 Blue has an undefeated record. FC DELCO's #1 team has seven draws and a loss. Yet FC DELCO ranks higher.
+West-Mont United S.A's 2016 Blue has an undefeated record and a PowerScore (0.943) that is almost identical to FC DELCO's #1 team. Yet FC DELCO ranks higher — and so does every other team between them.
 
-The answer is **strength of schedule**. PitchRank's [Glicko-2 engine](/blog/pennsylvania-youth-soccer-rankings-guide#how-pennsylvania-soccer-rankings-actually-work) doesn't just count wins — it weights each result by the quality of the opponent. FC DELCO's schedule included repeated matchups against other top-5 PA teams, MLS Next opponents, and nationally-ranked out-of-state clubs. West-Mont's schedule, while dominant, didn't include the same density of elite opponents.
+The answer is **strength of schedule plus rating confidence**. PitchRank's [Glicko-2 engine](/blog/pennsylvania-youth-soccer-rankings-guide#how-pennsylvania-soccer-rankings-actually-work) doesn't just count wins — it weights each result by the quality of the opponent and the engine's confidence in both ratings. FC DELCO and the other teams above West-Mont played denser schedules against other top-5 PA teams, MLS Next opponents, and nationally-ranked out-of-state clubs. That gave the engine more signal. West-Mont's schedule, while dominant, had fewer matchups against opponents the engine was already confident about — so the same PowerScore carries more uncertainty, and the final rank sits lower.
 
-That doesn't mean West-Mont isn't a genuinely strong team — a 0.943 PowerScore is elite. It just means the data supports FC DELCO slightly more confidently.
+That doesn't mean West-Mont isn't a genuinely strong team — a 0.943 PowerScore is elite. It just means the data currently supports the teams ranked above them slightly more confidently.
 
 For U10 parents, the lesson: **a team's record tells you less than its opponents' records**. When evaluating whether a team is playing at the right level, look at who they play — not just whether they win.
 
