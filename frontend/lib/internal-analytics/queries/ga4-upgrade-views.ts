@@ -37,6 +37,7 @@ async function fetchRaw(range: DateRange) {
             filter: { fieldName: 'pagePath', stringFilter: { matchType: 'EXACT', value: '/upgrade' } },
           },
           orderBys: [{ dimension: { dimensionName: 'date' } }],
+          keepEmptyRows: true,
         },
       }),
       client.properties.runReport({
@@ -46,6 +47,7 @@ async function fetchRaw(range: DateRange) {
           dimensions: [{ name: 'date' }],
           metrics: [{ name: 'sessions' }],
           orderBys: [{ dimension: { dimensionName: 'date' } }],
+          keepEmptyRows: true,
         },
       }),
     ]);

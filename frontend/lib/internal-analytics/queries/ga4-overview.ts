@@ -34,6 +34,7 @@ async function fetchOverviewRaw(range: DateRange): Promise<unknown> {
         dimensions: [{ name: 'date' }],
         metrics: [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'screenPageViews' }],
         orderBys: [{ dimension: { dimensionName: 'date' } }],
+        keepEmptyRows: true,
       },
     });
     return res.data;
