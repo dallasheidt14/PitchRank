@@ -279,7 +279,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return (
       <Card>
         <CardContent className="pt-6">
-          <div>No teams available.</div>
+          <div>No teams available — new rankings are running, check back shortly.</div>
         </CardContent>
       </Card>
     );
