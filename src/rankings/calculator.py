@@ -343,6 +343,35 @@ def _score_cutoff_for_rank(cohort_df: pd.DataFrame, score_col: str, target_rank:
     return max(0.0, cutoff - 1e-6)
 
 
+def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Series) -> pd.Series:
+    """Translate cap ranks onto the pre-cap final-score scale.
+
+    Publication caps should be derived from the same score domain that drives the
+    published ranking, not raw powerscore_adj.
+    """
+    result = pd.Series(pd.NA, index=teams_age.index, dtype="Float64")
+    if "publication_cap_rank" not in teams_age.columns:
+        return result
+
+    cap_rank_series = pd.to_numeric(teams_age["publication_cap_rank"], errors="coerce")
+    if not cap_rank_series.notna().any():
+        return result
+
+    pre_cap_df = teams_age[["team_id"]].copy()
+    if "status" in teams_age.columns:
+        pre_cap_df["status"] = teams_age["status"]
+    pre_cap_df["pre_cap_base"] = pd.to_numeric(base_scores, errors="coerce")
+
+    age_cap_lookup: dict[int, float] = {}
+    for cap_rank in sorted(cap_rank_series.dropna().astype(int).unique()):
+        age_cap_lookup[int(cap_rank)] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", cap_rank)
+
+    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(
+        lambda val: age_cap_lookup[int(val)]
+    )
+    return result
+
+
 def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame) -> pd.Series:
     """Apply publication caps without flattening all capped teams to one score.
 
@@ -1885,7 +1914,6 @@ async def compute_all_cohorts(
             teams_combined["age_num"] = 0  # Default to 0, will get no anchor scaling
 
     # ========== Same-Age Evidence Metrics ==========
-    publication_cap_lookup: dict[tuple[int, str, int], float] = {}
     if not teams_combined.empty:
         evidence_df = _compute_same_age_evidence_metrics(games_used_combined, teams_combined)
         teams_combined = teams_combined.merge(evidence_df, on="team_id", how="left")
@@ -1921,33 +1949,7 @@ async def compute_all_cohorts(
         teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
         teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
         teams_combined["play_up_bonus"] = teams_combined.apply(_play_up_bonus, axis=1)
-
-        cap_ranks = {
-            int(val)
-            for val in pd.to_numeric(
-                teams_combined["publication_cap_rank"], errors="coerce"
-            ).dropna().astype(int).unique()
-        }
-        for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
-            for cap_rank in cap_ranks:
-                publication_cap_lookup[(int(age_val), str(gender), cap_rank)] = _score_cutoff_for_rank(
-                    grp, "powerscore_adj", cap_rank
-                )
-
-        teams_combined["publication_cap_score"] = teams_combined.apply(
-            lambda row: (
-                publication_cap_lookup.get(
-                    (
-                        _safe_int(row.get("age_num")),
-                        str(row.get("gender")),
-                        _safe_int(row.get("publication_cap_rank")),
-                    )
-                )
-                if pd.notna(row.get("publication_cap_rank"))
-                else pd.NA
-            ),
-            axis=1,
-        )
+        teams_combined["publication_cap_score"] = pd.NA
 
         ps_ml_series = pd.to_numeric(teams_combined.get("powerscore_ml"), errors="coerce")
         ps_adj_series = pd.to_numeric(teams_combined.get("powerscore_adj"), errors="coerce")
@@ -2120,6 +2122,11 @@ async def compute_all_cohorts(
                             f"avg_bonus={float(play_up_bonus[play_up_bonus > 0].mean()):.4f}, "
                             f"max_bonus={float(play_up_bonus.max()):.4f}"
                         )
+
+                if "publication_cap_rank" in teams_age.columns:
+                    teams_age["publication_cap_score"] = _compute_publication_cap_scores(teams_age, base)
+                    if pd.to_numeric(teams_age["publication_cap_score"], errors="coerce").notna().any():
+                        teams_combined.loc[teams_age.index, "publication_cap_score"] = teams_age["publication_cap_score"]
 
                 # Hard publication cap for weak same-age evidence.
                 if "publication_cap_score" in teams_age.columns:

@@ -5,6 +5,7 @@ import pandas as pd
 from src.rankings.calculator import (
     _apply_publication_cap_band,
     _collect_top_tier_weak_uncapped,
+    _compute_publication_cap_scores,
     _compute_same_age_evidence_metrics,
     _play_up_bonus,
     _positive_ml_evidence_scale,
@@ -528,6 +529,25 @@ def test_apply_publication_cap_band_preserves_relative_order():
     assert adjusted.loc[20] > adjusted.loc[10] > adjusted.loc[30]
     assert adjusted.nunique() == 3
     assert (adjusted < 0.73320145).all()
+
+
+def test_compute_publication_cap_scores_uses_pre_cap_base_scale():
+    teams_age = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C"],
+            "status": ["Active", "Active", "Active"],
+            "publication_cap_rank": [2, 2, pd.NA],
+            "powerscore_adj": [0.95, 0.40, 0.20],
+        },
+        index=[1, 2, 3],
+    )
+    pre_cap_base = pd.Series([0.40, 0.70, 0.20], index=[1, 2, 3], dtype=float)
+
+    cap_scores = _compute_publication_cap_scores(teams_age, pre_cap_base)
+
+    assert round(float(cap_scores.loc[1]), 6) == round(0.40 - 1e-6, 6)
+    assert round(float(cap_scores.loc[2]), 6) == round(0.40 - 1e-6, 6)
+    assert pd.isna(cap_scores.loc[3])
 
 
 def test_apply_publication_cap_band_leaves_uncapped_and_below_cap_scores_alone():
