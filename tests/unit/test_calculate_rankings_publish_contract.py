@@ -104,10 +104,66 @@ async def test_save_rankings_retries_without_optional_exp_goal_columns(monkeypat
     assert saved == 1
     assert [call[0] for call in calls] == ["rankings_full", "rankings_full"]
     retry_record = calls[1][1][0]
-    assert "exp_margin" not in retry_record
-    assert "exp_win_rate" not in retry_record
-    assert "exp_goals_for" not in retry_record
     assert "exp_goals_against" not in retry_record
+    assert "exp_margin" in retry_record
+    assert "exp_win_rate" in retry_record
+    assert "exp_goals_for" in retry_record
+
+
+@pytest.mark.asyncio
+async def test_save_rankings_retries_incrementally_for_multiple_optional_schema_gaps(monkeypatch):
+    team_id = "team-1b"
+    teams_df = pd.DataFrame(
+        [
+            {
+                "team_id": team_id,
+                "positive_ml_evidence_scale": 0.25,
+                "publication_cap_rank": 800,
+                "publication_cap_score": 0.61,
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        calc,
+        "v53e_to_rankings_full_format",
+        lambda *_args, **_kwargs: _sample_rankings_full_df(team_id).assign(
+            positive_ml_evidence_scale=0.25,
+            publication_cap_rank=800,
+            publication_cap_score=0.61,
+        ),
+    )
+
+    calls = []
+
+    async def fake_save_batch(_supabase_client, table_name, records, table_name_display=None):
+        calls.append((table_name, records, table_name_display))
+        if len(calls) == 1:
+            raise RuntimeError("Could not find the 'exp_goals_against' column of 'rankings_full' in the schema cache")
+        if len(calls) == 2:
+            raise RuntimeError("Could not find the 'exp_margin' column of 'rankings_full' in the schema cache")
+        return len(records)
+
+    monkeypatch.setattr(calc, "_save_batch_with_retry", fake_save_batch)
+
+    saved = await calc.save_rankings_to_supabase(
+        _FakeSupabase(team_id),
+        teams_df,
+        use_rankings_full=True,
+        maintain_backward_compat=False,
+    )
+
+    assert saved == 1
+    assert [call[0] for call in calls] == ["rankings_full", "rankings_full", "rankings_full"]
+    second_retry_record = calls[1][1][0]
+    assert "exp_goals_against" not in second_retry_record
+    assert "exp_margin" in second_retry_record
+    assert "positive_ml_evidence_scale" in second_retry_record
+    final_retry_record = calls[2][1][0]
+    assert "exp_goals_against" not in final_retry_record
+    assert "exp_margin" not in final_retry_record
+    assert "positive_ml_evidence_scale" in final_retry_record
+    assert "publication_cap_rank" in final_retry_record
+    assert "publication_cap_score" in final_retry_record
 
 
 @pytest.mark.asyncio

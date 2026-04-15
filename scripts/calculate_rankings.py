@@ -56,21 +56,29 @@ OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS = {
 
 
 def _should_retry_without_optional_prediction_columns(error: Exception) -> bool:
-    message = str(error).lower()
-    return (
-        (
-            "column" in message
-            or "schema cache" in message
-            or "could not find" in message
-            or "does not exist" in message
-        )
-        and any(column_name.lower() in message for column_name in OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS)
-    )
+    return bool(_extract_optional_rankings_full_columns(error))
 
 
-def _strip_optional_rankings_full_prediction_columns(records: list[dict]) -> list[dict]:
+def _extract_optional_rankings_full_columns(error: Exception) -> set[str]:
+    message = str(error)
+    lowered = message.lower()
+    if not (
+        "column" in lowered or "schema cache" in lowered or "could not find" in lowered or "does not exist" in lowered
+    ):
+        return set()
+    return {
+        column_name
+        for column_name in OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS
+        if column_name.lower() in lowered
+    }
+
+
+def _strip_optional_rankings_full_prediction_columns(
+    records: list[dict], columns_to_strip: set[str] | None = None
+) -> list[dict]:
+    columns = columns_to_strip or OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS
     return [
-        {key: value for key, value in record.items() if key not in OPTIONAL_RANKINGS_FULL_PREDICTION_COLUMNS}
+        {key: value for key, value in record.items() if key not in columns}
         for record in records
     ]
 
@@ -225,25 +233,32 @@ async def save_rankings_to_supabase(
                         elif pd.isna(value):
                             record[key] = None
 
-                # Save to rankings_full table
-                try:
-                    rankings_full_saved = await _save_batch_with_retry(
-                        supabase_client, "rankings_full", records_full, table_name_display="rankings_full"
-                    )
-                except Exception as save_error:
-                    if not _should_retry_without_optional_prediction_columns(save_error):
-                        raise
+                # Save to rankings_full table. When production lags on optional
+                # schema columns, strip only the specific missing fields instead
+                # of dropping the whole optional evidence/debug block.
+                records_for_publish = records_full
+                stripped_optional_columns: set[str] = set()
+                while True:
+                    try:
+                        rankings_full_saved = await _save_batch_with_retry(
+                            supabase_client, "rankings_full", records_for_publish, table_name_display="rankings_full"
+                        )
+                        break
+                    except Exception as save_error:
+                        missing_optional_columns = _extract_optional_rankings_full_columns(save_error)
+                        new_missing_columns = missing_optional_columns - stripped_optional_columns
+                        if not new_missing_columns:
+                            raise
 
-                    console.print(
-                        "[yellow]rankings_full is missing optional prediction columns; "
-                        "retrying without them[/yellow]"
-                    )
-                    rankings_full_saved = await _save_batch_with_retry(
-                        supabase_client,
-                        "rankings_full",
-                        _strip_optional_rankings_full_prediction_columns(records_full),
-                        table_name_display="rankings_full",
-                    )
+                        stripped_optional_columns.update(new_missing_columns)
+                        cols_display = ", ".join(sorted(new_missing_columns))
+                        console.print(
+                            "[yellow]rankings_full is missing optional columns "
+                            f"({cols_display}); retrying without them[/yellow]"
+                        )
+                        records_for_publish = _strip_optional_rankings_full_prediction_columns(
+                            records_full, stripped_optional_columns
+                        )
                 if rankings_full_saved != rankings_full_expected:
                     raise RuntimeError(
                         f"rankings_full publish incomplete: saved {rankings_full_saved:,} of "
