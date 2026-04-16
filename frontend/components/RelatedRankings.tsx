@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { US_STATES, AGE_GROUPS, formatGender } from '@/lib/constants';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
 interface RelatedRankingsProps {
   currentRegion: string;
@@ -34,96 +35,106 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
   const oppositeGenderDisplay = formatGender(oppositeGender);
 
   return (
-    <div className="mt-8 pt-6 border-t border-border">
-      <h3 className="text-lg font-semibold mb-4 text-foreground">Related Rankings</h3>
+    <Card variant="flat" className="gap-0 py-0">
+      <CardHeader className="pt-5 pb-0">
+        <CardTitle>
+          <h3 className="font-display text-base font-semibold uppercase tracking-wide">Explore More Rankings</h3>
+        </CardTitle>
+      </CardHeader>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* Same region, different age groups */}
-        <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">
-            Other Age Groups {isNational ? '(National)' : `in ${currentState?.name || currentRegion.toUpperCase()}`}
-          </h4>
-          <ul className="space-y-1">
-            {neighboringAges.map((age) => (
-              <li key={age}>
-                <Link
-                  href={`/rankings/${currentRegion}/${age}/${currentGender}`}
-                  className="text-sm text-primary hover:underline"
-                >
-                  {age.toUpperCase()} {genderDisplay}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Same age group, different regions */}
-        <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">
-            {ageDisplay} {genderDisplay} in Other Regions
-          </h4>
-          <ul className="space-y-1">
-            {relatedRegions.map((region) => {
-              const stateName =
-                region === 'national' ? 'National' : US_STATES.find((s) => s.code === region)?.name || region;
-              return (
-                <li key={region}>
+      <CardContent className="pt-4 pb-5">
+        <div className="grid gap-6 sm:grid-cols-3">
+          {/* Same region, different age groups */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+              Other Ages {isNational ? '' : `in ${currentState?.name || currentRegion.toUpperCase()}`}
+            </p>
+            <ul className="space-y-0">
+              {neighboringAges.map((age) => (
+                <li key={age} className="py-1 border-b border-border/40 last:border-0">
                   <Link
-                    href={`/rankings/${region.toLowerCase()}/${currentAgeGroup}/${currentGender}`}
+                    href={`/rankings/${currentRegion}/${age}/${currentGender}`}
                     className="text-sm text-primary hover:underline"
                   >
-                    {stateName}
+                    {age.toUpperCase()} {genderDisplay}
                   </Link>
                 </li>
-              );
-            })}
-          </ul>
-        </div>
+              ))}
+            </ul>
+          </div>
 
-        {/* Opposite gender */}
-        <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">{oppositeGenderDisplay} Rankings</h4>
-          <ul className="space-y-1">
-            <li>
-              <Link
-                href={`/rankings/${currentRegion}/${currentAgeGroup}/${oppositeGender}`}
-                className="text-sm text-primary hover:underline"
-              >
-                {ageDisplay} {oppositeGenderDisplay}{' '}
-                {isNational ? '(National)' : `- ${currentState?.name || currentRegion.toUpperCase()}`}
-              </Link>
-            </li>
-            {neighboringAges.slice(0, 2).map((age) => (
-              <li key={age}>
+          {/* Same age group, different regions */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+              {ageDisplay} {genderDisplay} Elsewhere
+            </p>
+            <ul className="space-y-0">
+              {relatedRegions.map((region) => {
+                const stateName =
+                  region === 'national' ? 'National' : US_STATES.find((s) => s.code === region)?.name || region;
+                return (
+                  <li key={region} className="py-1 border-b border-border/40 last:border-0">
+                    <Link
+                      href={`/rankings/${region.toLowerCase()}/${currentAgeGroup}/${currentGender}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      {stateName}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Opposite gender */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+              {oppositeGenderDisplay} Rankings
+            </p>
+            <ul className="space-y-0">
+              <li className="py-1 border-b border-border/40">
                 <Link
-                  href={`/rankings/${currentRegion}/${age}/${oppositeGender}`}
+                  href={`/rankings/${currentRegion}/${currentAgeGroup}/${oppositeGender}`}
                   className="text-sm text-primary hover:underline"
                 >
-                  {age.toUpperCase()} {oppositeGenderDisplay}
+                  {ageDisplay} {oppositeGenderDisplay}{' '}
+                  {isNational ? '(National)' : `\u2014 ${currentState?.name || currentRegion.toUpperCase()}`}
                 </Link>
               </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Popular national rankings */}
-      {!isNational && (
-        <div className="mt-4">
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">National Rankings</h4>
-          <div className="flex flex-wrap gap-2">
-            {['u12', 'u13', 'u14', 'u15'].map((age) => (
-              <Link
-                key={age}
-                href={`/rankings/national/${age}/${currentGender}`}
-                className="text-xs px-2 py-1 bg-muted rounded hover:bg-muted/80 text-foreground"
-              >
-                {age.toUpperCase()} {genderDisplay} National
-              </Link>
-            ))}
+              {neighboringAges.slice(0, 2).map((age) => (
+                <li key={age} className="py-1 border-b border-border/40 last:border-0">
+                  <Link
+                    href={`/rankings/${currentRegion}/${age}/${oppositeGender}`}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    {age.toUpperCase()} {oppositeGenderDisplay}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
-      )}
-    </div>
+
+        {/* National quick links */}
+        {!isNational && (
+          <div className="mt-5 pt-4 border-t border-border/60">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+              National Rankings
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {['u12', 'u13', 'u14', 'u15'].map((age) => (
+                <Link
+                  key={age}
+                  href={`/rankings/national/${age}/${currentGender}`}
+                  className="text-xs px-3 py-1.5 bg-muted rounded-lg hover:bg-muted/80 text-foreground font-medium"
+                >
+                  {age.toUpperCase()} {genderDisplay} National
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
