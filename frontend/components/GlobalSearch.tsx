@@ -201,9 +201,11 @@ export function GlobalSearch() {
           }}
           onKeyDown={handleKeyDown}
           className="pl-8 sm:pl-10 pr-8 sm:pr-10 w-full text-sm h-10 sm:h-11"
+          role="combobox"
           aria-label="Search for teams"
           aria-autocomplete="list"
           aria-expanded={isOpen && searchResults.length > 0}
+          aria-controls="global-search-results"
         />
         {searchQuery && (
           <button
@@ -231,10 +233,12 @@ export function GlobalSearch() {
                 No teams found matching &quot;{searchQuery}&quot;
               </div>
             ) : (
-              <div className="space-y-1" ref={listRef}>
+              <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
                 {searchResults.map((team, index) => (
                   <button
                     key={team.team_id_master}
+                    role="option"
+                    aria-selected={index === selectedIndex}
                     onClick={() => handleSelect(team)}
                     className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
                       index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
