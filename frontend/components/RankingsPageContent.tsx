@@ -43,8 +43,12 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
       <div className="space-y-6">
         <RankingsFilter />
 
-        {/* Share Buttons */}
-        <div className="flex justify-end">
+        <Suspense fallback={<RankingsTableSkeleton />}>
+          <RankingsTable region={region === 'national' ? null : region} ageGroup={ageGroup} gender={genderForAPI} />
+        </Suspense>
+
+        {/* Share + Related below the table */}
+        <div className="flex justify-end pt-2">
           <ShareButtons
             title={shareTitle}
             hashtags={['YouthSoccer', 'SoccerRankings', 'PitchRank', `${ageGroupDisplay}Soccer`]}
@@ -52,11 +56,6 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
           />
         </div>
 
-        <Suspense fallback={<RankingsTableSkeleton />}>
-          <RankingsTable region={region === 'national' ? null : region} ageGroup={ageGroup} gender={genderForAPI} />
-        </Suspense>
-
-        {/* Internal linking for SEO */}
         <RelatedRankings currentRegion={region} currentAgeGroup={ageGroup} currentGender={gender} />
       </div>
     </div>
