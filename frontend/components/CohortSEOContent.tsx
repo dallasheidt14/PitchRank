@@ -33,11 +33,8 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
   } = data;
 
   const scope = isNational ? 'nationally' : `in ${locationText}`;
-  const hasMovers = risers.length > 0 || fallers.length > 0;
-  const movers = [
-    ...risers.map((t) => ({ ...t, direction: 'up' as const })),
-    ...fallers.map((t) => ({ ...t, direction: 'down' as const })),
-  ];
+  const hasRisers = risers.length > 0;
+  const hasFallers = fallers.length > 0;
 
   return (
     <section className="container mx-auto px-4 pb-6">
@@ -57,9 +54,9 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
           </CardDescription>
         </CardHeader>
 
-        {/* Body: two-column grid — clubs + movers */}
+        {/* Body: three-column grid — clubs | risers | fallers */}
         <CardContent className="pt-4 pb-0">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-0 sm:divide-x sm:divide-border">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-0 sm:divide-x sm:divide-border">
             {/* Top Clubs */}
             {topClubs.length > 0 && (
               <div className="pb-4 sm:pb-0 sm:pr-5">
@@ -77,33 +74,54 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
               </div>
             )}
 
-            {/* Movers */}
-            {hasMovers && (
-              <div className="pt-4 sm:pt-0 sm:pl-5 border-t sm:border-t-0 border-border/40">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-                  Movers This Week
+            {/* Rising */}
+            {hasRisers && (
+              <div className="pt-4 sm:pt-0 sm:px-5 border-t sm:border-t-0 border-border/40">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-green-600 mb-2">
+                  Rising This Week
                 </p>
                 <ul className="text-sm space-y-0">
-                  {movers.map((t) => (
+                  {risers.map((t) => (
                     <li
                       key={t.teamId}
                       className="flex items-baseline gap-1.5 py-1.5 border-b border-border/40 last:border-0"
                     >
-                      <span className={t.direction === 'up' ? 'text-green-600 text-xs' : 'text-red-500 text-xs'}>
-                        {t.direction === 'up' ? '\u25B2' : '\u25BC'}
-                      </span>
+                      <span className="text-green-600 text-xs">{'\u25B2'}</span>
                       <a
                         href={`/teams/${t.teamId}`}
                         className="underline decoration-border underline-offset-2 hover:decoration-foreground truncate"
                       >
                         {t.teamName}
                       </a>
-                      <span
-                        className={`ml-auto text-xs font-medium tabular-nums whitespace-nowrap ${
-                          t.direction === 'up' ? 'text-green-600' : 'text-red-500'
-                        }`}
+                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-green-600">
+                        +{t.change}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Falling */}
+            {hasFallers && (
+              <div className="pt-4 sm:pt-0 sm:pl-5 border-t sm:border-t-0 border-border/40">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-red-500 mb-2">
+                  Falling This Week
+                </p>
+                <ul className="text-sm space-y-0">
+                  {fallers.map((t) => (
+                    <li
+                      key={t.teamId}
+                      className="flex items-baseline gap-1.5 py-1.5 border-b border-border/40 last:border-0"
+                    >
+                      <span className="text-red-500 text-xs">{'\u25BC'}</span>
+                      <a
+                        href={`/teams/${t.teamId}`}
+                        className="underline decoration-border underline-offset-2 hover:decoration-foreground truncate"
                       >
-                        {t.direction === 'up' ? '+' : ''}
+                        {t.teamName}
+                      </a>
+                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-red-500">
                         {t.change}
                       </span>
                     </li>
