@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Scale, Layers, TrendingUp, Shield, ChevronRight } from 'lucide-react';
@@ -50,9 +50,9 @@ export function HowWeRank() {
     <Card className="overflow-hidden border-0 shadow-lg">
       <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative overflow-hidden">
         <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <CardTitle className="text-2xl sm:text-3xl font-display font-bold uppercase tracking-wide">
+        <h2 className="text-2xl sm:text-3xl font-display font-bold uppercase tracking-wide leading-none">
           Why Our Rankings Are Different
-        </CardTitle>
+        </h2>
         <p className="text-primary-foreground/80 text-sm sm:text-base">Built to be accurate, not gameable</p>
       </CardHeader>
       <CardContent className="p-4 sm:p-6">

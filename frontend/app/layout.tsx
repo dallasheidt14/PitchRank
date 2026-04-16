@@ -133,6 +133,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Preconnect to Supabase for faster API requests */}
+        <link rel="preconnect" href="https://pfkrhmprwxtghtpinrot.supabase.co" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://pfkrhmprwxtghtpinrot.supabase.co" />
+
         {/* Structured Data for SEO */}
         <StructuredData />
 
