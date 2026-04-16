@@ -403,7 +403,7 @@ def test_publication_cap_rank_hits_regional_thin_escalator_bucket():
             "scf": 0.80,
         }
     )
-    assert _publication_cap_rank(row) == 1200
+    assert _publication_cap_rank(row) == 1800
 
 
 def test_publication_cap_rank_hits_severe_local_loop_bucket():
@@ -459,6 +459,23 @@ def test_publication_cap_rank_hits_one_top100_thin_bucket():
         }
     )
     assert _publication_cap_rank(row) == 800
+
+
+def test_publication_cap_rank_hits_one_top100_thin_escalator_bucket():
+    row = pd.Series(
+        {
+            "age_num": 14,
+            "same_age_top100_opp_count": 1,
+            "same_age_top500_opp_count": 3,
+            "same_age_top500_non_loss_opp_count": 2,
+            "same_age_top1000_non_loss_opp_count": 4,
+            "same_age_avg_opp_power_adj": 0.487,
+            "repeat_opponent_share": 0.07,
+            "unique_opp_states": 2,
+            "scf": 0.80,
+        }
+    )
+    assert _publication_cap_rank(row) == 1800
 
 
 def test_publication_cap_rank_skips_multi_top100_team_with_depth():
