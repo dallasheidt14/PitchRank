@@ -5,6 +5,8 @@ import { api } from '@/lib/api';
 import { formatPowerScore } from '@/lib/utils';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 import { safeJsonLd } from '@/lib/schema-utils';
+import { computeCohortModules } from '@/lib/cohort-seo';
+import { CohortSEOContent } from '@/components/CohortSEOContent';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -110,27 +112,17 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // This ensures fresh data fetching on client-side navigation between different rankings pages
   const routeKey = `${region}-${ageGroup}-${gender}`;
 
-  // Server-side fetch top 25 teams so the initial HTML has real content for Googlebot.
-  // Rendered as a static section below the interactive table — does not interfere with client-side loading.
+  // Server-side fetch all teams for SEO content modules + top-25 sr-only list.
+  // ISR caches for 1 hour so this runs at most once/hour/page.
   const genderForAPI = (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | null;
   const regionForAPI = region.toLowerCase() === 'national' ? null : region;
-  let topTeams: Array<{
-    team_id_master: string;
-    team_name: string;
-    club_name: string | null;
-    power_score_final: number;
-  }> = [];
+  let allTeams: Awaited<ReturnType<typeof api.getRankings>> = [];
   try {
-    const data = await api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 25 });
-    topTeams = data.map((t) => ({
-      team_id_master: t.team_id_master,
-      team_name: t.team_name,
-      club_name: t.club_name,
-      power_score_final: t.power_score_final,
-    }));
+    allTeams = await api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 2000 });
   } catch (e) {
-    console.warn(`[ISR] Failed to fetch top teams for ${region}/${ageGroup}/${gender}:`, e);
+    console.warn(`[ISR] Failed to fetch teams for ${region}/${ageGroup}/${gender}:`, e);
   }
+  const topTeams = allTeams.slice(0, 25);
 
   // Prepare structured data for SEO
   const formattedAgeGroup = formatAgeGroup(ageGroup);
@@ -152,6 +144,12 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   };
 
   const jsonLd = safeJsonLd(structuredData);
+
+  // Compute programmatic SEO content modules from the full team set
+  const cohortData =
+    allTeams.length > 0
+      ? computeCohortModules(allTeams, locationText, formattedAgeGroup, formattedGender, isNational, safeRegion)
+      : null;
 
   // Build breadcrumb trail
   const breadcrumbItems = [
@@ -178,6 +176,9 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
             : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
         </p>
       </section>
+
+      {/* Programmatic SEO content modules — visible, unique per page */}
+      {cohortData && <CohortSEOContent data={cohortData} />}
 
       {/* Top teams in DOM for Googlebot but visually hidden — the interactive table shows the same data */}
       {topTeams.length > 0 && (
