@@ -23,6 +23,7 @@ import { renderLeagueDistributionToCanvas } from '@/components/infographics/leag
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES, AGE_GROUP_OPTIONS, GENDER_OPTIONS } from '@/lib/constants';
+import type { RankingRow } from '@/types/RankingRow';
 import {
   Download,
   Share2,
@@ -130,6 +131,32 @@ export default function InfographicsPage() {
   // Fetch rankings
   const { data: rankings, isLoading, error, refetch } = useRankings(selectedRegion, selectedAgeGroup, selectedGender);
 
+  const getPublishedRank = useCallback(
+    (team: RankingRow): number | null => {
+      return selectedRegion ? (team.rank_in_state_final ?? null) : (team.rank_in_cohort_final ?? null);
+    },
+    [selectedRegion]
+  );
+
+  const publishedRankings = React.useMemo(() => {
+    if (!rankings || rankings.length === 0) return [];
+
+    return [...rankings]
+      .sort((a, b) => {
+        const aRank = getPublishedRank(a) ?? Number.POSITIVE_INFINITY;
+        const bRank = getPublishedRank(b) ?? Number.POSITIVE_INFINITY;
+
+        if (aRank !== bRank) {
+          return aRank - bRank;
+        }
+
+        return a.team_id_master.localeCompare(b.team_id_master);
+      })
+      .filter((team) => getPublishedRank(team) != null);
+  }, [getPublishedRank, rankings]);
+
+  const top10Teams = publishedRankings.slice(0, 10);
+
   // Collect team IDs for Instagram handle lookup (top 25 teams)
   const relevantTeamIds = React.useMemo(() => {
     if (!rankings || rankings.length === 0) return [];
@@ -145,7 +172,7 @@ export default function InfographicsPage() {
     let teamIds: string[] = [];
     switch (selectedInfographicType) {
       case 'top10':
-        teamIds = rankings.slice(0, 10).map((t) => t.team_id_master);
+        teamIds = top10Teams.map((t) => t.team_id_master);
         break;
       case 'spotlight':
         if (rankings[selectedSpotlightTeamIndex]) {
@@ -172,6 +199,7 @@ export default function InfographicsPage() {
   }, [
     handleMap,
     rankings,
+    top10Teams,
     selectedInfographicType,
     selectedSpotlightTeamIndex,
     headToHeadTeam1Index,
@@ -226,6 +254,10 @@ export default function InfographicsPage() {
         setErrorMessage('No team data available to generate image.');
         return null;
       }
+      if (selectedInfographicType === 'top10' && top10Teams.length === 0) {
+        setErrorMessage('No published rankings available to generate the top 10 image.');
+        return null;
+      }
     }
 
     try {
@@ -234,7 +266,7 @@ export default function InfographicsPage() {
       switch (selectedInfographicType) {
         case 'top10':
           canvas = await renderInfographicToCanvas({
-            teams: rankings!.slice(0, 10),
+            teams: top10Teams,
             platform: selectedPlatform,
             ageGroup: selectedAgeGroup,
             gender: selectedGender,
@@ -341,6 +373,7 @@ export default function InfographicsPage() {
     selectedAgeGroup,
     selectedGender,
     selectedRegion,
+    top10Teams,
     getRegionName,
     selectedSpotlightTeamIndex,
     headToHeadTeam1Index,
@@ -425,7 +458,6 @@ export default function InfographicsPage() {
     }
   }, [isGenerating, generateImage, getFilename, selectedGender, selectedAgeGroup, getRegionName, canShare]);
 
-  const top10Teams = rankings?.slice(0, 10) || [];
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
   const genderLabel = selectedGender === 'M' ? 'Boys' : 'Girls';
   const categoryLabel = `${selectedAgeGroup.toUpperCase()} ${genderLabel} - ${getRegionName()}`;
