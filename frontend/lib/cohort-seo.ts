@@ -14,6 +14,8 @@ export interface CohortModuleData {
   genderLabel: string;
   isNational: boolean;
   region: string;
+  /** Raw URL-safe gender param ('male' or 'female') for link construction */
+  genderSlug: string;
 }
 
 function getPositioningHook(count: number): string {
@@ -29,7 +31,8 @@ export function computeCohortModules(
   ageGroupDisplay: string,
   genderDisplay: string,
   isNational: boolean,
-  region: string
+  region: string,
+  genderSlug: string,
 ): CohortModuleData {
   const totalTeams = teams.length;
   const positioningHook = getPositioningHook(totalTeams);
@@ -81,7 +84,8 @@ export function computeCohortModules(
   }
 
   const lastCalculated = teams[0]?.last_calculated ?? null;
-  const genderLabel = genderDisplay === 'Male' ? 'boys' : 'girls';
+  // formatGender returns "Boys"/"Girls", not "Male"/"Female"
+  const genderLabel = genderDisplay === 'Boys' || genderDisplay === 'Male' ? 'boys' : 'girls';
 
   return {
     totalTeams,
@@ -97,6 +101,7 @@ export function computeCohortModules(
     genderLabel,
     isNational,
     region,
+    genderSlug,
   };
 }
 

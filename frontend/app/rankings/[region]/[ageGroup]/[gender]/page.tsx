@@ -6,7 +6,7 @@ import { formatPowerScore } from '@/lib/utils';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 import { safeJsonLd } from '@/lib/schema-utils';
 import { computeCohortModules } from '@/lib/cohort-seo';
-import { CohortSEOContent } from '@/components/CohortSEOContent';
+import { CohortSEOContent, CohortFAQ } from '@/components/CohortSEOContent';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -148,7 +148,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // Compute programmatic SEO content modules from the full team set
   const cohortData =
     allTeams.length > 0
-      ? computeCohortModules(allTeams, locationText, formattedAgeGroup, formattedGender, isNational, safeRegion)
+      ? computeCohortModules(allTeams, locationText, formattedAgeGroup, formattedGender, isNational, safeRegion, gender)
       : null;
 
   // Build breadcrumb trail
@@ -198,6 +198,9 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       )}
 
       <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
+
+      {/* FAQ below the interactive table — JSON-LD tells Google it exists regardless of position */}
+      {cohortData && <CohortFAQ data={cohortData} />}
     </>
   );
 }
