@@ -1,5 +1,5 @@
 /**
- * FAQ data for state-specific blog posts.
+ * FAQ data for blog posts.
  * Used to render FAQPage structured data for rich snippet eligibility.
  * Keyed by blog post slug.
  */
@@ -10,119 +10,13 @@ export interface FAQ {
 }
 
 export const BLOG_FAQS: Record<string, FAQ[]> = {
-  'texas-youth-soccer-rankings-guide': [
-    {
-      question: 'How are Texas youth soccer teams ranked?',
-      answer:
-        'PitchRank ranks Texas teams using a PowerScore algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 9,460+ Texas teams.',
-    },
-    {
-      question: 'How many youth soccer teams are ranked in Texas?',
-      answer:
-        'PitchRank tracks over 9,460 youth soccer teams in Texas across all age groups from U10 to U19, including FC Dallas, Solar SC, Albion Hurricanes, Lonestar, Challenge SC, and hundreds more clubs.',
-    },
-    {
-      question: 'How often are Texas soccer rankings updated?',
-      answer:
-        'Texas youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
-    },
-    {
-      question: 'What is a good PowerScore for a Texas youth soccer team?',
-      answer:
-        'A PowerScore of 0.85+ is elite/national-level, 0.70-0.84 is top competitive tier, 0.50-0.69 is solid competitive, and 0.30-0.49 is developing. Scores are on a 0.0 to 1.0 scale.',
-    },
-    {
-      question: 'Can Texas youth soccer rankings help with college recruiting?',
-      answer:
-        'Rankings provide context for college coaches evaluating players. Division I coaches notice teams in the top 5% nationally, while Division II looks at the top 15-20%. However, individual highlight video, academics, and showcase attendance matter more than team rankings alone.',
-    },
-  ],
-  'california-youth-soccer-rankings-guide': [
-    {
-      question: 'How are California youth soccer teams ranked?',
-      answer:
-        'PitchRank ranks California teams using a PowerScore algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 15,693+ California teams.',
-    },
-    {
-      question: 'How many youth soccer teams are ranked in California?',
-      answer:
-        'PitchRank tracks over 15,693 youth soccer teams in California — more than any other state. This includes LA Galaxy Academy, San Diego Surf, Beach FC, and hundreds more clubs across all age groups from U10 to U19.',
-    },
-    {
-      question: 'How often are California soccer rankings updated?',
-      answer:
-        'California youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
-    },
-    {
-      question: 'What is a good PowerScore for a California youth soccer team?',
-      answer:
-        "A PowerScore of 0.85+ is elite/national-level, 0.70-0.84 is top competitive tier, 0.50-0.69 is solid competitive, and 0.30-0.49 is developing. Given California's depth of competition, even a 0.60 is impressive.",
-    },
-    {
-      question: 'How do California youth soccer rankings compare to other states?',
-      answer:
-        'California has the most ranked teams of any state (15,693+). Cross-state comparison works through tournaments and national events that connect California teams to the rest of the country, creating a nationally interconnected ranking ecosystem.',
-    },
-  ],
-  'michigan-youth-soccer-rankings-guide': [
-    {
-      question: 'How are Michigan youth soccer teams ranked?',
-      answer:
-        'PitchRank ranks Michigan teams using a PowerScore algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data.',
-    },
-    {
-      question: 'What are the top youth soccer clubs in Michigan?',
-      answer:
-        'Major Michigan youth soccer clubs include Michigan Hawks, Vardar SC, Detroit City FC Youth, Crew SC, Michigan Wolves, FC Alliance, and Rush Michigan. Rankings vary by age group — check PitchRank for current standings.',
-    },
-    {
-      question: 'How often are Michigan soccer rankings updated?',
-      answer:
-        'Michigan youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
-    },
-    {
-      question: 'What is a good PowerScore for a Michigan youth soccer team?',
-      answer:
-        'A PowerScore of 0.85+ is elite/national-level, 0.70-0.84 is top competitive tier, 0.50-0.69 is solid competitive, and 0.30-0.49 is developing. Scores are on a 0.0 to 1.0 scale.',
-    },
-    {
-      question: 'Does indoor soccer season affect Michigan rankings?',
-      answer:
-        'Indoor season can cause mid-winter ranking dips since fewer outdoor games are tracked. However, Michigan teams often surge in spring rankings as indoor training translates to improved outdoor performance.',
-    },
-  ],
-  'colorado-youth-soccer-rankings-guide': [
-    {
-      question: 'How are Colorado youth soccer teams ranked?',
-      answer:
-        'PitchRank ranks Colorado teams using a PowerScore algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data.',
-    },
-    {
-      question: 'What are the top youth soccer clubs in Colorado?',
-      answer:
-        'Major Colorado youth soccer clubs include Colorado Rapids Youth, Real Colorado, Colorado Storm, Colorado Rush, and Pride Soccer Club. Rankings vary by age group — check PitchRank for current standings.',
-    },
-    {
-      question: 'How often are Colorado soccer rankings updated?',
-      answer:
-        'Colorado youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
-    },
-    {
-      question: 'What is a good PowerScore for a Colorado youth soccer team?',
-      answer:
-        'A PowerScore of 0.85+ is elite/national-level, 0.70-0.84 is top competitive tier, 0.50-0.69 is solid competitive, and 0.30-0.49 is developing. Scores are on a 0.0 to 1.0 scale.',
-    },
-    {
-      question: 'Does altitude affect Colorado soccer rankings?',
-      answer:
-        'Altitude itself does not directly factor into rankings. However, Colorado teams that train at elevation often have a fitness advantage in tournaments at lower altitudes, which can lead to better results and higher rankings over time.',
-    },
-  ],
+  /* ─── State Pillar Guides (alphabetical) ─────────────────────── */
+
   'arizona-youth-soccer-rankings-guide': [
     {
       question: 'How are Arizona youth soccer teams ranked?',
       answer:
-        'PitchRank ranks Arizona teams using a PowerScore algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,940+ Arizona teams.',
+        'PitchRank ranks Arizona teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,940+ Arizona teams.',
     },
     {
       question: 'What are the top youth soccer clubs in Arizona?',
@@ -135,14 +29,490 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
         'Arizona youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
     },
     {
-      question: 'What is a good PowerScore for an Arizona youth soccer team?',
+      question: 'What factors go into Arizona youth soccer rankings?',
       answer:
-        'A PowerScore of 0.85+ is elite/national-level, 0.70-0.84 is top competitive tier, 0.50-0.69 is solid competitive, and 0.30-0.49 is developing. Scores are on a 0.0 to 1.0 scale.',
+        'PitchRank evaluates every game result, factoring in strength of schedule, goal differential, consistency over the season, and how recently games were played. Teams that beat higher-ranked opponents climb faster.',
     },
     {
       question: 'How does Arizona compare to California and Texas in youth soccer?',
       answer:
         "Arizona has 1,940+ ranked teams compared to California (15,693+) and Texas (9,460+). While smaller in volume, Arizona's top clubs compete nationally. Cross-state tournaments connect Arizona teams to the broader national ranking ecosystem.",
+    },
+  ],
+
+  'california-youth-soccer-rankings-guide': [
+    {
+      question: 'How are California youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks California teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 15,693+ California teams.',
+    },
+    {
+      question: 'How many youth soccer teams are ranked in California?',
+      answer:
+        'PitchRank tracks over 15,693 youth soccer teams in California — more than any other state. This includes LA Galaxy Academy, San Diego Surf, Beach FC, and hundreds more clubs across all age groups from U10 to U19.',
+    },
+    {
+      question: 'How often are California soccer rankings updated?',
+      answer:
+        'California youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Are California youth soccer rankings comparable across age groups?',
+      answer:
+        'Rankings are calculated within each age group separately, so a top-ranked U12 team and a top-ranked U16 team are not directly compared. Use the age group filter on PitchRank to find the right rankings for your child.',
+    },
+    {
+      question: 'How do California youth soccer rankings compare to other states?',
+      answer:
+        'California has the most ranked teams of any state (15,693+). Cross-state comparison works through tournaments and national events that connect California teams to the rest of the country, creating a nationally interconnected ranking ecosystem.',
+    },
+  ],
+
+  'colorado-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Colorado youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Colorado teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Colorado?',
+      answer:
+        'Major Colorado youth soccer clubs include Colorado Rapids Youth, Real Colorado, Colorado Storm, Colorado Rush, and Pride Soccer Club. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Colorado soccer rankings updated?',
+      answer:
+        'Colorado youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Can I compare my Colorado team to teams in other states?',
+      answer:
+        "Yes. PitchRank's national rankings include cross-state comparisons because tournament and league results connect teams across state lines. Switch to the national view to see where Colorado teams stack up.",
+    },
+    {
+      question: 'Does altitude affect Colorado soccer rankings?',
+      answer:
+        'Altitude itself does not directly factor into rankings. However, Colorado teams that train at elevation often have a fitness advantage in tournaments at lower altitudes, which can lead to better results and higher rankings over time.',
+    },
+  ],
+
+  'florida-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Florida youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Florida teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 5,300+ Florida teams.',
+    },
+    {
+      question: 'How many youth soccer teams are ranked in Florida?',
+      answer:
+        'PitchRank tracks over 5,300 youth soccer teams in Florida — the 3rd most of any state. This spans clubs from Miami to Jacksonville across all age groups from U10 to U19.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Florida?',
+      answer:
+        'Major Florida youth soccer clubs include Weston FC, Florida Elite, Chargers Soccer Club, FC United, Tampa Bay United, and Jacksonville FC. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Florida soccer rankings updated?',
+      answer:
+        'Florida youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: "Do Florida's year-round seasons affect rankings?",
+      answer:
+        "Florida's warm climate means teams play year-round with fewer weather-related gaps. This gives Florida teams more games in the ranking system, which generally leads to more stable and accurate rankings compared to states with shorter outdoor seasons.",
+    },
+  ],
+
+  'michigan-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Michigan youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Michigan teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Michigan?',
+      answer:
+        'Major Michigan youth soccer clubs include Michigan Hawks, Vardar SC, Detroit City FC Youth, Crew SC, Michigan Wolves, FC Alliance, and Rush Michigan. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Michigan soccer rankings updated?',
+      answer:
+        'Michigan youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'How do Michigan youth soccer rankings handle league differences?',
+      answer:
+        'PitchRank ranks every Michigan team on the same scale regardless of league. Whether your team plays ECNL, MLS NEXT, or a state league, the algorithm weighs actual game results so teams that play tougher opponents are rewarded.',
+    },
+    {
+      question: 'Does indoor soccer season affect Michigan rankings?',
+      answer:
+        'Indoor season can cause mid-winter ranking dips since fewer outdoor games are tracked. However, Michigan teams often surge in spring rankings as indoor training translates to improved outdoor performance.',
+    },
+  ],
+
+  'new-jersey-youth-soccer-rankings-guide': [
+    {
+      question: 'How are New Jersey youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks New Jersey teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in New Jersey?',
+      answer:
+        'Major New Jersey youth soccer clubs include PDA, STA, Match Fit Academy, FC Copa, Players Development Academy, and TSF Academy. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are New Jersey soccer rankings updated?',
+      answer:
+        'New Jersey youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover EDP and NJ state league results?',
+      answer:
+        "Yes. PitchRank ingests results from EDP, NJ state leagues, ECNL, MLS NEXT, and major tournaments. All verified game results count toward a team's ranking regardless of the league or event.",
+    },
+    {
+      question: 'Can New Jersey team rankings help with college recruiting?',
+      answer:
+        "Rankings provide context for college coaches evaluating players. A team's position in their age group shows relative strength, and coaches can see how a player's team performs against top competition. However, individual highlight video, academics, and showcase attendance matter more than team rankings alone.",
+    },
+  ],
+
+  'north-carolina-youth-soccer-rankings-guide': [
+    {
+      question: 'How are North Carolina youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks North Carolina teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 2,600+ NC teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in North Carolina?',
+      answer:
+        'Major North Carolina youth soccer clubs include Charlotte SA, NCFC Youth, NC Fusion, Wake FC, Charlotte Independence, and CASL. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are North Carolina soccer rankings updated?',
+      answer:
+        'North Carolina youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover ECNL and MLS NEXT results in North Carolina?',
+      answer:
+        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, and state-level competitions. All verified game results count toward rankings regardless of the league.',
+    },
+    {
+      question: 'How do Charlotte and Raleigh area clubs compare in rankings?',
+      answer:
+        "Both metro areas produce nationally competitive clubs. Charlotte SA and Charlotte Independence anchor the Charlotte scene, while NCFC Youth and Wake FC lead in the Triangle. Use PitchRank's state filter to compare clubs across regions.",
+    },
+  ],
+
+  'pa-u10-boys-soccer-rankings': [
+    {
+      question: 'Who are the top U10 boys soccer teams in Pennsylvania?',
+      answer:
+        'The top-ranked PA U10 boys teams include FC DELCO, Philadelphia Union SWAG, Pittsburgh Riverhounds, and PA Classics. Rankings change weekly — check PitchRank for the latest standings.',
+    },
+    {
+      question: 'How are PA U10 boys soccer teams ranked?',
+      answer:
+        'PitchRank ranks PA U10 boys teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, consistency, and recency. Rankings are updated every Monday.',
+    },
+    {
+      question: 'How many U10 boys soccer teams are ranked in Pennsylvania?',
+      answer:
+        'PitchRank tracks U10 boys teams across Pennsylvania from dozens of clubs in the Philadelphia, Pittsburgh, and central PA regions. The exact count changes as new teams enter the system each season.',
+    },
+    {
+      question: 'When do U10 youth soccer rankings start?',
+      answer:
+        'U10 is the youngest age group ranked on PitchRank. Teams need a minimum number of verified game results before they appear in the rankings, so new U10 teams may take a few weeks of the season to show up.',
+    },
+    {
+      question: 'How often are PA U10 boys rankings updated?',
+      answer:
+        'PA U10 boys soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+  ],
+
+  'pennsylvania-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Pennsylvania youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Pennsylvania teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 5,357+ PA teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Pennsylvania?',
+      answer:
+        'Major Pennsylvania youth soccer clubs include Philadelphia Union YDA, Penn Fusion, FC Bucks, PA Classics, Pittsburgh Riverhounds, and Century FC. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Pennsylvania soccer rankings updated?',
+      answer:
+        'Pennsylvania youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank include EDP and EPYSA league results?',
+      answer:
+        "Yes. PitchRank ingests results from EDP, EPYSA leagues, ECNL, MLS NEXT, and major tournaments. All verified game results count toward a team's ranking regardless of the league or event.",
+    },
+    {
+      question: 'How do Philadelphia and Pittsburgh area clubs compare?',
+      answer:
+        "Philadelphia-area clubs benefit from a higher density of competitive teams and proximity to strong NJ and MD programs, creating tougher schedules. Pittsburgh clubs compete well regionally. Use PitchRank's state filter to compare clubs across both metros.",
+    },
+  ],
+
+  'texas-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Texas youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Texas teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 9,460+ Texas teams.',
+    },
+    {
+      question: 'How many youth soccer teams are ranked in Texas?',
+      answer:
+        'PitchRank tracks over 9,460 youth soccer teams in Texas across all age groups from U10 to U19, including FC Dallas, Solar SC, Albion Hurricanes, Lonestar, Challenge SC, and hundreds more clubs.',
+    },
+    {
+      question: 'How often are Texas soccer rankings updated?',
+      answer:
+        'Texas youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover all Texas youth soccer leagues?',
+      answer:
+        'Yes. PitchRank ingests results from all major Texas leagues and tournaments. Whether your team plays in a local state league or a national platform like ECNL or MLS NEXT, their games count toward rankings.',
+    },
+    {
+      question: 'Can Texas youth soccer rankings help with college recruiting?',
+      answer:
+        "Rankings provide context for college coaches evaluating players. A team's position in their age group shows relative strength, and coaches can see how a player's team performs against top competition. However, individual highlight video, academics, and showcase attendance matter more than team rankings alone.",
+    },
+  ],
+
+  /* ─── Informational / Educational Posts ──────────────────────── */
+
+  'how-pitchrank-rankings-work': [
+    {
+      question: "How does PitchRank's rating algorithm work?",
+      answer:
+        'PitchRank uses a multi-layer rating engine that processes every game result, weighing strength of schedule, goal differential, consistency, and recency. The system runs weekly to produce updated rankings every Monday.',
+    },
+    {
+      question: 'How many games does PitchRank track?',
+      answer:
+        'PitchRank has processed over 700,000 youth soccer games across all 50 states, covering leagues, tournaments, and showcases at every competitive level.',
+    },
+    {
+      question: 'What is PowerScore?',
+      answer:
+        "PowerScore is a single number on a 0-to-1 scale that summarizes a team's overall strength. It combines game results, strength of schedule, goal differential, consistency, and recency into one rating that makes teams comparable within their age group.",
+    },
+    {
+      question: 'How often are PitchRank rankings updated?',
+      answer: 'Rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank rank teams across state lines?',
+      answer:
+        'Yes. Because teams play in interstate tournaments and national leagues, the algorithm naturally connects teams across state lines. You can view rankings filtered by state or nationally.',
+    },
+  ],
+
+  'what-is-powerscore-youth-soccer': [
+    {
+      question: 'What is PowerScore in youth soccer?',
+      answer:
+        "PowerScore is PitchRank's composite rating for youth soccer teams. It's a single number on a 0-to-1 scale that summarizes overall team strength based on real game results.",
+    },
+    {
+      question: 'How is PowerScore calculated?',
+      answer:
+        'PowerScore is calculated by a multi-layer rating engine that processes every game result. It factors in wins and losses, strength of schedule, goal differential, consistency across the season, and how recently games were played.',
+    },
+    {
+      question: 'How is PowerScore different from a win-loss record?',
+      answer:
+        'A win-loss record treats all games equally. PowerScore weighs context: beating the #1 team matters more than beating the #200 team, and recent games matter more than games from months ago. Two teams with identical records can have very different PowerScores based on who they played.',
+    },
+    {
+      question: 'Can I compare PowerScore across age groups?',
+      answer:
+        'PowerScore is most meaningful within the same age group. A 0.75 in U14 Boys and a 0.75 in U16 Boys represent similar relative strength within their respective groups, but the teams are not directly comparable across ages.',
+    },
+    {
+      question: 'How often does PowerScore change?',
+      answer:
+        'PowerScore is recalculated every Monday morning with the latest game results. Teams that play more games will see more frequent movement in their score.',
+    },
+  ],
+
+  'what-predicts-winning-beyond-goals': [
+    {
+      question: 'What predicts youth soccer team quality better than goals scored?',
+      answer:
+        'Strength of schedule is the strongest single predictor of future team performance. After analyzing 700,000+ games, PitchRank found that goals scored alone predicts only about 47% of outcomes — barely better than a coin flip. Combining strength of schedule with consistency and goal differential is far more accurate.',
+    },
+    {
+      question: 'How many games did PitchRank analyze?',
+      answer:
+        'PitchRank analyzed over 700,000 youth soccer game results across all 50 states and all age groups to identify which factors best predict team quality.',
+    },
+    {
+      question: 'Why is goal differential alone not enough to rank teams?',
+      answer:
+        'Goal differential only tells you how much a team won or lost by, not who they played. A team winning 5-0 against a weak opponent looks the same as winning 5-0 against a top-10 team. Context matters, which is why strength of schedule is critical.',
+    },
+    {
+      question: 'What is strength of schedule in youth soccer?',
+      answer:
+        "Strength of schedule measures how strong a team's opponents are on average. A team that plays mostly top-ranked opponents has a harder schedule than one that plays mostly lower-ranked teams. PitchRank's algorithm uses this to contextualize every game result.",
+    },
+    {
+      question: 'How does PitchRank use this research?',
+      answer:
+        "PitchRank's rating engine was built on these findings. It combines strength of schedule, goal differential, consistency, and recency into a single PowerScore rating that predicts future performance more accurately than any single metric alone.",
+    },
+  ],
+
+  'youth-soccer-age-group-change-2026-2027': [
+    {
+      question: 'What is the youth soccer age group change for 2026-2027?',
+      answer:
+        'Starting fall 2026, youth soccer is transitioning from birth-year age groups to school-year age groups. The new cutoff date is August 1 instead of January 1, aligning soccer age groups with the school calendar.',
+    },
+    {
+      question: 'When do the new age groups take effect?',
+      answer:
+        'The school-year age group system takes effect for the fall 2026 season. Clubs and leagues are implementing the change at different speeds, so check with your local club for their specific timeline.',
+    },
+    {
+      question: 'What is a trapped player in youth soccer?',
+      answer:
+        'A trapped player is a child born between August 1 and December 31 who may be affected by the age cutoff transition. These players could potentially shift up an age group under the new system, depending on how their club implements the change.',
+    },
+    {
+      question: 'How does the age cutoff change affect tryouts?',
+      answer:
+        'Tryouts in 2026 may use either the old or new age cutoff depending on the club. Ask your club which system they are using for tryout placement. Some clubs will offer flexibility during the transition year.',
+    },
+    {
+      question: 'Will my child move up or down an age group?',
+      answer:
+        "It depends on your child's birth month. Children born January through July keep their current age group. Children born August through December may move up one age group. Check with your club for specifics.",
+    },
+  ],
+
+  'youth-soccer-rankings-by-state': [
+    {
+      question: 'Does PitchRank cover all 50 states?',
+      answer:
+        'Yes. PitchRank tracks youth soccer teams in all 50 states with rankings updated every Monday. Coverage depth varies by state — states with more competitive leagues and tournaments have more teams in the system.',
+    },
+    {
+      question: 'Which states have the most ranked youth soccer teams?',
+      answer:
+        'California leads with 15,693+ teams, followed by Texas (9,460+), Florida (5,300+), Pennsylvania (5,357+), and New York. These five states account for a large share of all ranked teams nationally.',
+    },
+    {
+      question: 'Can I compare teams from different states?',
+      answer:
+        'Yes. Because teams play in interstate tournaments and national leagues, the algorithm naturally connects teams across state lines. Switch to the national view on any age group page to see cross-state rankings.',
+    },
+    {
+      question: "How do I find my state's youth soccer rankings?",
+      answer:
+        'Go to pitchrank.io and select your state, age group, and gender from the rankings filters. You can also search for a specific team or club name using the search bar.',
+    },
+    {
+      question: 'Are state rankings updated at the same time as national rankings?',
+      answer:
+        'Yes. State and national rankings are calculated from the same weekly run every Monday morning. There is no delay between state and national updates.',
+    },
+  ],
+
+  'youth-soccer-rankings-complete-guide': [
+    {
+      question: 'What are youth soccer rankings?',
+      answer:
+        'Youth soccer rankings are ordered lists of teams based on competitive performance. They use game results, strength of schedule, and other factors to determine which teams are strongest within an age group.',
+    },
+    {
+      question: 'Why do youth soccer rankings matter?',
+      answer:
+        'Rankings help parents evaluate clubs objectively, help coaches identify strong opponents, and provide context for college recruiters. They turn subjective reputation into measurable, data-driven comparisons.',
+    },
+    {
+      question: 'How are youth soccer teams ranked on PitchRank?',
+      answer:
+        'PitchRank uses a multi-layer rating engine that processes every verified game result. It factors in strength of schedule, goal differential, consistency, and recency to produce a PowerScore for each team, updated every Monday.',
+    },
+    {
+      question: 'Can parents use rankings to choose a club?',
+      answer:
+        'Rankings are one useful data point when evaluating clubs. A consistently high-ranked club likely has strong coaching and competitive scheduling. But parents should also consider location, cost, playing time philosophy, and player development approach.',
+    },
+    {
+      question: 'How often are youth soccer rankings updated?',
+      answer: 'PitchRank updates rankings every Monday morning with the latest game results from the previous week.',
+    },
+  ],
+
+  'youth-soccer-rankings-explained': [
+    {
+      question: 'How do youth soccer ranking systems work?',
+      answer:
+        'Most ranking systems use algorithms that process game results and calculate a strength rating for each team. The specific approach varies: some use simple win-loss records, while others (like PitchRank) factor in strength of schedule, margin of victory, and recency.',
+    },
+    {
+      question: 'What ranking systems exist for youth soccer?',
+      answer:
+        'Several systems rank youth soccer teams in the U.S., each with different methodologies and coverage. PitchRank covers all 50 states with a rating algorithm that processes 700,000+ game results weekly.',
+    },
+    {
+      question: 'Why do different ranking sites show different results?',
+      answer:
+        'Different ranking systems use different algorithms, data sources, and update frequencies. One system might weigh win-loss heavily while another emphasizes strength of schedule. No two systems will produce identical rankings.',
+    },
+    {
+      question: 'Are youth soccer rankings accurate?',
+      answer:
+        "Accuracy depends on the system's data coverage and methodology. Rankings based on actual game results from verified sources are more reliable than those based on surveys or reputation. More games in the system generally means more accurate rankings.",
+    },
+    {
+      question: "How often should I check my team's ranking?",
+      answer:
+        'Rankings update weekly on PitchRank (every Monday). Checking weekly gives you a sense of trends without overreacting to small fluctuations. Look at movement over a month for a clearer picture.',
+    },
+  ],
+
+  'youth-soccer-tryouts-2026': [
+    {
+      question: 'When are youth soccer tryouts in 2026?',
+      answer:
+        'Most club soccer tryouts happen in May and June 2026 for the fall season. Some clubs hold early evaluations in April. Check with your local club for exact dates, as timing varies by region.',
+    },
+    {
+      question: 'How do I choose the right youth soccer club?',
+      answer:
+        "Look at coaching credentials, the club's competitive track record (rankings can help here), playing time philosophy, travel expectations, and cost. Visit practices if possible and talk to current parents before committing.",
+    },
+    {
+      question: 'What should I look for during tryouts?',
+      answer:
+        'Watch how coaches communicate with players, how organized the sessions are, and whether evaluations seem fair. For your child, focus on effort and attitude — coaches notice coachability as much as raw skill.',
+    },
+    {
+      question: 'Should I switch youth soccer clubs?',
+      answer:
+        "Consider switching if your child isn't developing, isn't getting fair playing time relative to the team's philosophy, or the commute and cost aren't sustainable. Rankings can help you compare your current club to alternatives in your area.",
+    },
+    {
+      question: 'What is the difference between ECNL and MLS NEXT?',
+      answer:
+        'ECNL (Elite Clubs National League) and MLS NEXT are both top-tier national platforms. ECNL is club-operated and emphasizes player development with flexible scheduling. MLS NEXT is affiliated with Major League Soccer and follows a more structured competition calendar. Both produce nationally competitive teams.',
     },
   ],
 };
