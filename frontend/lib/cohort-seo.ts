@@ -32,7 +32,7 @@ export function computeCohortModules(
   genderDisplay: string,
   isNational: boolean,
   region: string,
-  genderSlug: string,
+  genderSlug: string
 ): CohortModuleData {
   const totalTeams = teams.length;
   const positioningHook = getPositioningHook(totalTeams);
@@ -103,6 +103,26 @@ export function computeCohortModules(
     region,
     genderSlug,
   };
+}
+
+/**
+ * States that have a pillar blog post.
+ * Returns the blog slug and display title, or null if no pillar exists.
+ */
+const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
+  az: { slug: 'arizona-youth-soccer-rankings-guide', title: 'Arizona Youth Soccer Rankings Guide' },
+  ca: { slug: 'california-youth-soccer-rankings-guide', title: 'California Youth Soccer Rankings Guide' },
+  co: { slug: 'colorado-youth-soccer-rankings-guide', title: 'Colorado Youth Soccer Rankings Guide' },
+  fl: { slug: 'florida-youth-soccer-rankings-guide', title: 'Florida Youth Soccer Rankings Guide' },
+  mi: { slug: 'michigan-youth-soccer-rankings-guide', title: 'Michigan Youth Soccer Rankings Guide' },
+  nj: { slug: 'new-jersey-youth-soccer-rankings-guide', title: 'New Jersey Youth Soccer Rankings Guide' },
+  nc: { slug: 'north-carolina-youth-soccer-rankings-guide', title: 'North Carolina Youth Soccer Rankings Guide' },
+  pa: { slug: 'pennsylvania-youth-soccer-rankings-guide', title: 'Pennsylvania Youth Soccer Rankings Guide' },
+  tx: { slug: 'texas-youth-soccer-rankings-guide', title: 'Texas Youth Soccer Rankings Guide' },
+};
+
+export function getRelatedGuide(stateCode: string): { slug: string; title: string } | null {
+  return STATE_PILLAR_SLUGS[stateCode.toLowerCase()] ?? null;
 }
 
 /**
