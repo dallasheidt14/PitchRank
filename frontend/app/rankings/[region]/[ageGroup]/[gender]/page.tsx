@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { formatPowerScore } from '@/lib/utils';
 import BreadcrumbSchema from '@/components/BreadcrumbSchema';
 import { safeJsonLd } from '@/lib/schema-utils';
-import { computeCohortModules } from '@/lib/cohort-seo';
+import { computeCohortModules, getRelatedGuide } from '@/lib/cohort-seo';
 import { CohortSEOContent, CohortFAQ } from '@/components/CohortSEOContent';
 
 // Revalidate every hour for ISR caching
@@ -179,6 +179,24 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
 
       {/* Programmatic SEO content modules — visible, unique per page */}
       {cohortData && <CohortSEOContent data={cohortData} />}
+
+      {/* Related Guide — links ranking page to matching state pillar blog */}
+      {(() => {
+        const guide = !isNational ? getRelatedGuide(region) : null;
+        return guide ? (
+          <section className="container mx-auto px-4 pb-4">
+            <p className="text-sm text-muted-foreground">
+              Read our complete guide:{' '}
+              <a
+                href={`/blog/${guide.slug}`}
+                className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+              >
+                {guide.title} &rarr;
+              </a>
+            </p>
+          </section>
+        ) : null;
+      })()}
 
       {/* Top teams in DOM for Googlebot but visually hidden — the interactive table shows the same data */}
       {topTeams.length > 0 && (

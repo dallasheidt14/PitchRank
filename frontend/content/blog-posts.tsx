@@ -1812,6 +1812,42 @@ export const blogPosts: BlogPost[] = [
           </div>
         </section>
 
+        {/* Browse Rankings by Age Group */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">Browse California Rankings by Age Group</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Find your team&apos;s age group and gender to see the latest California rankings:
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-semibold">Age Group</th>
+                  <th className="text-left py-2 pr-4 font-semibold">Boys</th>
+                  <th className="text-left py-2 font-semibold">Girls</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'] as const).map((ag) => (
+                  <tr key={ag} className="border-b border-border/40">
+                    <td className="py-2 pr-4 font-medium">{ag.toUpperCase()}</td>
+                    <td className="py-2 pr-4">
+                      <Link href={`/rankings/ca/${ag}/male`} className="text-primary underline underline-offset-2">
+                        California {ag.toUpperCase()} Boys
+                      </Link>
+                    </td>
+                    <td className="py-2">
+                      <Link href={`/rankings/ca/${ag}/female`} className="text-primary underline underline-offset-2">
+                        California {ag.toUpperCase()} Girls
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* CTA */}
         <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
           <h2 className="text-2xl font-display font-bold mb-4">Find Your California Team&apos;s Ranking</h2>
@@ -2467,6 +2503,42 @@ export const blogPosts: BlogPost[] = [
                 ensure your team gets credit.
               </p>
             </div>
+          </div>
+        </section>
+
+        {/* Browse Rankings by Age Group */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4">Browse Texas Rankings by Age Group</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            Find your team&apos;s age group and gender to see the latest Texas rankings:
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-semibold">Age Group</th>
+                  <th className="text-left py-2 pr-4 font-semibold">Boys</th>
+                  <th className="text-left py-2 font-semibold">Girls</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u19'] as const).map((ag) => (
+                  <tr key={ag} className="border-b border-border/40">
+                    <td className="py-2 pr-4 font-medium">{ag.toUpperCase()}</td>
+                    <td className="py-2 pr-4">
+                      <Link href={`/rankings/tx/${ag}/male`} className="text-primary underline underline-offset-2">
+                        Texas {ag.toUpperCase()} Boys
+                      </Link>
+                    </td>
+                    <td className="py-2">
+                      <Link href={`/rankings/tx/${ag}/female`} className="text-primary underline underline-offset-2">
+                        Texas {ag.toUpperCase()} Girls
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
 
