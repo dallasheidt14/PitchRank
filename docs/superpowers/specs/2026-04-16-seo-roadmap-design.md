@@ -1,6 +1,6 @@
 # SEO Roadmap: PitchRank April 16 – September 1, 2026
 
-**Status**: In Progress — Week 1 partially complete
+**Status**: In Progress — Week 1 mostly complete, Week 2 design work done early
 **Owner**: Dallas Heidt + Claude Code
 **Capacity**: 15 hrs/week (~3 hrs/day), solo operator
 **Tools**: GSC, PageSpeed Insights, Claude Code (no paid SEO tools)
@@ -346,6 +346,9 @@ All four SEO pillars fire sequentially to maximize compound returns:
 | 2026-04-16 | 5-module content block (upgraded from original 3-paragraph design) | Feedback: "give every rankings page a real job." Modules: summary w/ hook, top clubs, movers, FAQ, freshness. Movers = weekly-changing content that prevents staleness. |
 | 2026-04-16 | Use "group" not "cohort" in user-facing content | Dallas preference — more accessible language |
 | 2026-04-16 | Week 1+2 compressed — design + build shipped day 1 (PR #633) | Accelerated timeline means cross-linking pulls forward to Week 2 |
+| 2026-04-16 | No PowerScore tier thresholds in user-facing content | Don't define 0.70+ = top tier or show distribution stats — arbitrary and potentially deflating |
+| 2026-04-16 | Movers link to /teams/{id}, not same-page ?highlight= | Users are already on the rankings page; linking to team detail is more useful |
+| 2026-04-16 | Rankings by State/Age moved from footer into page content | Higher placement = more visible + better crawl priority |
 
 ---
 
@@ -357,13 +360,16 @@ All four SEO pillars fire sequentially to maximize compound returns:
 | 2026-04-15 | PA U10 Boys spoke post | #629 (open) |
 | 2026-04-15 | Remove Glicko-2 from PA pillar | #630 |
 | 2026-04-16 | 5-module programmatic SEO content on all 1,200+ ranking pages | #633 |
+| 2026-04-16 | Fix gender mismatch bug + mover links to /teams/{id} + FAQ below table | #635 |
+| 2026-04-16 | Card redesign: accent variant, 3-column layout (Clubs \| Rising \| Falling) | #636 |
+| 2026-04-16 | Remove share buttons below table, move state/age links from footer into page | #637 |
 
 ### Next session pickup
 
 Start with these remaining Week 1-2 items:
 1. **Merge PR #629** (PA U10 Boys spoke — still open, has Glicko removal committed)
-2. **QA spot-check** 10 ranking pages for correct module rendering (deploy from PR #633 should be live)
+2. **QA spot-check** 10 ranking pages for correct module rendering (all design PRs now merged)
 3. **Add `BlogPosting` + `FAQPage` JSON-LD** to all 10 existing blog posts
-4. **Implement `?highlight=` scroll-to-team** in RankingsTable (clickable movers)
-5. **Add "Related Guide" component** — ranking pages link to matching state pillar blog
-6. **Add ranking page links** into existing state pillar blog posts
+4. **Add "Related Guide" component** — ranking pages link to matching state pillar blog post when one exists
+5. **Add ranking page links** into existing state pillar blog posts (two-way cross-linking)
+6. **Write curated meta descriptions** for 40 remaining states (currently 10 have custom descriptions)
