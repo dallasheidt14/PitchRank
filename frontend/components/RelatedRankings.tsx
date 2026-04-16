@@ -2,6 +2,21 @@ import Link from 'next/link';
 import { US_STATES, AGE_GROUPS, formatGender } from '@/lib/constants';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 
+const PRIORITY_STATES = [
+  { code: 'ca', name: 'California' },
+  { code: 'tx', name: 'Texas' },
+  { code: 'fl', name: 'Florida' },
+  { code: 'ny', name: 'New York' },
+  { code: 'nj', name: 'New Jersey' },
+  { code: 'az', name: 'Arizona' },
+  { code: 'ga', name: 'Georgia' },
+  { code: 'pa', name: 'Pennsylvania' },
+  { code: 'il', name: 'Illinois' },
+  { code: 'nc', name: 'North Carolina' },
+  { code: 'wa', name: 'Washington' },
+  { code: 'co', name: 'Colorado' },
+];
+
 interface RelatedRankingsProps {
   currentRegion: string;
   currentAgeGroup: string;
@@ -115,25 +130,41 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
           </div>
         </div>
 
-        {/* National quick links */}
-        {!isNational && (
-          <div className="mt-5 pt-4 border-t border-border/60">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-              National Rankings
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {['u12', 'u13', 'u14', 'u15'].map((age) => (
-                <Link
-                  key={age}
-                  href={`/rankings/national/${age}/${currentGender}`}
-                  className="text-xs px-3 py-1.5 bg-muted rounded-lg hover:bg-muted/80 text-foreground font-medium"
-                >
-                  {age.toUpperCase()} {genderDisplay} National
-                </Link>
-              ))}
-            </div>
+        {/* Browse by State */}
+        <div className="mt-5 pt-4 border-t border-border/60">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            Rankings by State
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-1">
+            {PRIORITY_STATES.map((state) => (
+              <Link
+                key={state.code}
+                href={`/rankings/${state.code}`}
+                className="text-sm text-primary hover:underline py-0.5"
+              >
+                {state.name}
+              </Link>
+            ))}
           </div>
-        )}
+        </div>
+
+        {/* Browse by Age */}
+        <div className="mt-4 pt-4 border-t border-border/60">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            Rankings by Age
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {AGE_GROUPS.map((age) => (
+              <Link
+                key={age}
+                href={`/rankings/age/${age}`}
+                className="text-xs px-3 py-1.5 bg-muted rounded-lg hover:bg-muted/80 text-foreground font-medium"
+              >
+                {age.toUpperCase()}
+              </Link>
+            ))}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
