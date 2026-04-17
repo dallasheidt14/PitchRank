@@ -1,11 +1,11 @@
 # SEO Roadmap: PitchRank April 16 – September 1, 2026
 
-**Status**: In Progress — Week 1 mostly complete, Week 2 design work done early
+**Status**: In Progress — Weeks 1–2 complete, Week 3 cross-linking + curated meta done
 **Owner**: Dallas Heidt + Claude Code
 **Capacity**: 15 hrs/week (~3 hrs/day), solo operator
 **Tools**: GSC, PageSpeed Insights, Claude Code (no paid SEO tools)
 **Target**: 5,000+ organic clicks/month by September 1 (baseline: ~165 clicks/month as of April 2026)
-**Last updated**: 2026-04-16
+**Last updated**: 2026-04-17
 
 ---
 
@@ -349,6 +349,8 @@ All four SEO pillars fire sequentially to maximize compound returns:
 | 2026-04-16 | No PowerScore tier thresholds in user-facing content | Don't define 0.70+ = top tier or show distribution stats — arbitrary and potentially deflating |
 | 2026-04-16 | Movers link to /teams/{id}, not same-page ?highlight= | Users are already on the rankings page; linking to team detail is more useful |
 | 2026-04-16 | Rankings by State/Age moved from footer into page content | Higher placement = more visible + better crawl priority |
+| 2026-04-17 | Curated meta states picked by GSC impressions, not population | Population-based picks index forward demand poorly; GSC tells us where Google is already surfacing PitchRank state pages. Pulled 90-day impressions for `/rankings/{state}/*`, took top 20 not yet curated. |
+| 2026-04-17 | Top clubs per state sourced from rankings_full join | Club selection uses team count + avg PowerScore for `status='Active'` teams — data-driven, mirrors the approach used for the original 10 curated entries. |
 
 ---
 
@@ -357,19 +359,22 @@ All four SEO pillars fire sequentially to maximize compound returns:
 | Date | What shipped | PR |
 |---|---|---|
 | 2026-04-15 | PA pillar blog post (keyword research + content) | #628 |
-| 2026-04-15 | PA U10 Boys spoke post | #629 (open) |
+| 2026-04-15 | PA U10 Boys spoke post | #629 |
 | 2026-04-15 | Remove Glicko-2 from PA pillar | #630 |
 | 2026-04-16 | 5-module programmatic SEO content on all 1,200+ ranking pages | #633 |
 | 2026-04-16 | Fix gender mismatch bug + mover links to /teams/{id} + FAQ below table | #635 |
 | 2026-04-16 | Card redesign: accent variant, 3-column layout (Clubs \| Rising \| Falling) | #636 |
 | 2026-04-16 | Remove share buttons below table, move state/age links from footer into page | #637 |
+| 2026-04-16 | FAQPage JSON-LD on all 18 blog posts + PowerScore tier cleanup | #639 |
+| 2026-04-16 | Two-way cross-linking — ranking→blog guide links + blog→ranking tables | #640 |
+| 2026-04-17 | Curated meta descriptions for 20 GSC-prioritized states (va, or, la, al, mn, ar, wa, oh, ky, nc, ne, ks, ma, ct, me, ut, id, ms, ak, ok) | (this PR) |
 
 ### Next session pickup
 
-Start with these remaining Week 1-2 items:
-1. **Merge PR #629** (PA U10 Boys spoke — still open, has Glicko removal committed)
-2. **QA spot-check** 10 ranking pages for correct module rendering (all design PRs now merged)
-3. **Add `BlogPosting` + `FAQPage` JSON-LD** to all 10 existing blog posts
-4. **Add "Related Guide" component** — ranking pages link to matching state pillar blog post when one exists
-5. **Add ranking page links** into existing state pillar blog posts (two-way cross-linking)
-6. **Write curated meta descriptions** for 40 remaining states (currently 10 have custom descriptions)
+Remaining Week 3–4 items:
+1. **QA spot-check** 10 ranking pages for module rendering (informal check done; formalize if needed)
+2. **PageSpeed Insights audit** on 5 representative ranking pages — fix any CWV regressions
+3. **Write curated meta descriptions for remaining 20 states** (Week 4) — mostly low-impression states with no GSC signal yet; consider deferring until Phase 2 GSC review reveals demand
+4. **Baseline GSC snapshot** — record clicks, impressions, avg position across all ranking pages (Week 4)
+5. **GSC strike-distance report** — pages ranking position 5–20 (Week 4)
+6. **Verify XML sitemap coverage** for all 1,200+ pages in GSC index report (Week 4)
