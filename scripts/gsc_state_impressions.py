@@ -90,7 +90,10 @@ def main():
     print("\n=== TOP 20 STATES NOT YET CURATED ===")
     not_curated = [(c, t) for c, t in sorted_states if c not in ALREADY_CURATED]
     for i, (code, t) in enumerate(not_curated[:20], 1):
-        print(f"{i:>2}. {code}  impr={t['impressions']:>6}  clicks={t['clicks']:>4}  landing={t['landing_impressions']:>5}  pages={t['pages']}")
+        print(
+            f"{i:>2}. {code}  impr={t['impressions']:>6}  clicks={t['clicks']:>4}  "
+            f"landing={t['landing_impressions']:>5}  pages={t['pages']}"
+        )
 
 
 if __name__ == "__main__":
