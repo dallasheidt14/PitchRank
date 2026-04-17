@@ -289,6 +289,7 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "one_top100_thin_cap_rank": 800,
         "one_top100_thin_escalated_cap_rank": 1800,
         "mid_thin_cap_rank": 1000,
+        "weak_quality_results_cap_rank": 1500,
         "thin_schedule_cap_rank": 1500,
         "quality_result_void_cap_rank": 1500,
         "severe_cap_rank": 2000,
@@ -307,6 +308,11 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "one_top100_thin_max_top500": 3,
         "one_top100_thin_max_top500_non_loss": 2,
         "one_top100_thin_max_avg_opp_power": 0.58,
+        "weak_quality_results_max_top100_non_loss": 0,
+        "weak_quality_results_min_top500": 5,
+        "weak_quality_results_max_top500_non_loss": 1,
+        "weak_quality_results_max_top1000_non_loss": 4,
+        "weak_quality_results_max_avg_opp_power": 0.63,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
         "quality_result_void_max_top500": 3,
@@ -537,6 +543,7 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
             "same_age_game_share": 0.0,
             "same_age_unique_opponents": 0,
             "same_age_top100_opp_count": 0,
+            "same_age_top100_non_loss_opp_count": 0,
             "same_age_top500_opp_count": 0,
             "same_age_top500_non_loss_opp_count": 0,
             "same_age_top1000_non_loss_opp_count": 0,
@@ -640,6 +647,9 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
                 "same_age_game_share": float(len(same_age) / len(tg)) if len(tg) else 0.0,
                 "same_age_unique_opponents": int(len(unique_same_age_opp_ids)),
                 "same_age_top100_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 100)),
+                "same_age_top100_non_loss_opp_count": int(
+                    sum(1 for rank in non_loss_opp_ranks if rank is not None and rank <= 100)
+                ),
                 "same_age_top500_opp_count": int(sum(1 for rank in opp_ranks if rank is not None and rank <= 500)),
                 "same_age_top500_non_loss_opp_count": int(
                     sum(1 for rank in non_loss_opp_ranks if rank is not None and rank <= 500)
@@ -681,6 +691,7 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         "same_age_game_share",
         "same_age_unique_opponents",
         "same_age_top100_opp_count",
+        "same_age_top100_non_loss_opp_count",
         "same_age_top500_opp_count",
         "same_age_top500_non_loss_opp_count",
         "same_age_top1000_non_loss_opp_count",
@@ -843,6 +854,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
     top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
     top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
@@ -894,6 +906,15 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and top500_non_loss <= int(policy["one_top100_thin_max_top500_non_loss"])
         and avg_opp_power is not None
         and avg_opp_power < float(policy["one_top100_thin_max_avg_opp_power"])
+    )
+    weak_quality_results = (
+        top100 == 1
+        and top100_non_loss <= int(policy["weak_quality_results_max_top100_non_loss"])
+        and top500 >= int(policy["weak_quality_results_min_top500"])
+        and top500_non_loss <= int(policy["weak_quality_results_max_top500_non_loss"])
+        and top1000_non_loss <= int(policy["weak_quality_results_max_top1000_non_loss"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["weak_quality_results_max_avg_opp_power"])
     )
     local_loop_override = (
         top100 == 0
@@ -952,6 +973,8 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["one_top100_thin_escalated_cap_rank"])
     if one_top100_thin:
         return int(policy["one_top100_thin_cap_rank"])
+    if weak_quality_results:
+        return int(policy["weak_quality_results_cap_rank"])
     thin_top100 = (
         top100 == 1
         and avg_opp_power is not None
@@ -1951,6 +1974,7 @@ async def compute_all_cohorts(
             "same_age_game_share",
             "same_age_unique_opponents",
             "same_age_top100_opp_count",
+            "same_age_top100_non_loss_opp_count",
             "same_age_top500_opp_count",
             "same_age_top500_non_loss_opp_count",
             "same_age_top1000_non_loss_opp_count",
