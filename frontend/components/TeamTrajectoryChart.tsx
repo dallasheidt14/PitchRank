@@ -17,13 +17,46 @@ import {
 } from 'recharts';
 import { useTeamTrajectory } from '@/lib/hooks';
 import { useMemo, useEffect, useRef } from 'react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { trackChartViewed } from '@/lib/events';
 import { formatChartDate } from '@/lib/dateUtils';
 
 interface TeamTrajectoryChartProps {
   teamId: string;
+}
+
+// Minimum games needed to trust a period's goal differential — a 1–2 game period can
+// swing wildly on a single result, so we drop those from the trend calculation.
+const MIN_GAMES_PER_PERIOD = 3;
+// Minimum change in average goal differential (second half − first half) to label
+// the trend improving or declining rather than stable.
+const TREND_THRESHOLD_GD = 0.5;
+
+export type TrajectoryTrend = 'up' | 'down' | 'neutral';
+
+/**
+ * Classify a team's trajectory by comparing first-half to second-half average
+ * goal differential. Periods with too few games are dropped, and when the
+ * reliable count is odd the middle period is dropped so both halves have equal
+ * weight. Exported for direct unit testing.
+ */
+export function classifyTrajectoryTrend(
+  periods: ReadonlyArray<{ goalDifferential: number; gamesPlayed: number }>
+): TrajectoryTrend {
+  const reliable = periods.filter((d) => d.gamesPlayed >= MIN_GAMES_PER_PERIOD);
+  if (reliable.length < 2) return 'neutral';
+
+  const mid = Math.floor(reliable.length / 2);
+  const paired = reliable.length % 2 === 0 ? reliable : [...reliable.slice(0, mid), ...reliable.slice(mid + 1)];
+
+  const half = paired.length / 2;
+  const average = (arr: typeof paired) => arr.reduce((sum, d) => sum + d.goalDifferential, 0) / arr.length;
+  const diff = average(paired.slice(half)) - average(paired.slice(0, half));
+
+  if (diff > TREND_THRESHOLD_GD) return 'up';
+  if (diff < -TREND_THRESHOLD_GD) return 'down';
+  return 'neutral';
 }
 
 /**
@@ -81,23 +114,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
     });
   }, [trajectory]);
 
-  // Calculate trend: compare first half vs second half of periods
-  const trend = useMemo(() => {
-    if (chartData.length < 2) return 'neutral';
-
-    const midpoint = Math.floor(chartData.length / 2);
-    const firstHalf = chartData.slice(0, midpoint);
-    const secondHalf = chartData.slice(midpoint);
-
-    const firstAvg = firstHalf.reduce((sum, d) => sum + d.goalDifferential, 0) / firstHalf.length;
-    const secondAvg = secondHalf.reduce((sum, d) => sum + d.goalDifferential, 0) / secondHalf.length;
-
-    const diff = secondAvg - firstAvg;
-
-    if (diff > 0.3) return 'up';
-    if (diff < -0.3) return 'down';
-    return 'neutral';
-  }, [chartData]);
+  const trend = useMemo(() => classifyTrajectoryTrend(chartData), [chartData]);
 
   if (isLoading) {
     return (
@@ -179,8 +196,9 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               </div>
             )}
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
+          <InfoTooltip
+            className="max-w-xs"
+            trigger={
               <button
                 type="button"
                 className="text-xs text-muted-foreground cursor-help focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
@@ -188,18 +206,17 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               >
                 ℹ️
               </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p className="font-semibold mb-1">Goal Differential</p>
-              <p className="text-xs">Shows average goal margin (goals for - goals against) per period.</p>
-              <p className="text-xs mt-1">Positive values = winning by that margin on average.</p>
-              <p className="text-xs">Negative values = losing by that margin on average.</p>
-              <p className="text-xs mt-2 font-semibold">Trend Line</p>
-              <p className="text-xs">
-                The bold line shows a 3-period moving average to smooth out noise and reveal the underlying trend.
-              </p>
-            </TooltipContent>
-          </Tooltip>
+            }
+          >
+            <p className="font-semibold mb-1">Goal Differential</p>
+            <p className="text-xs">Shows average goal margin (goals for - goals against) per period.</p>
+            <p className="text-xs mt-1">Positive values = winning by that margin on average.</p>
+            <p className="text-xs">Negative values = losing by that margin on average.</p>
+            <p className="text-xs mt-2 font-semibold">Trend Line</p>
+            <p className="text-xs">
+              The bold line shows a 3-period moving average to smooth out noise and reveal the underlying trend.
+            </p>
+          </InfoTooltip>
         </div>
       </CardHeader>
       <CardContent>
