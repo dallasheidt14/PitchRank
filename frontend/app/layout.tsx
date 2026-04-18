@@ -11,10 +11,11 @@ import { WebVitalsReporter } from '@/components/WebVitalsReporter';
 import { BASE_URL_WWW } from '@/lib/constants';
 
 // Athletic Editorial Typography
+// Oswald: display font for headings — only 600/700 are used in the codebase
 const oswald = Oswald({
   variable: '--font-oswald',
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['600', '700'],
   fallback: ['system-ui', 'sans-serif'],
   display: 'swap',
 });
@@ -27,10 +28,11 @@ const dmSans = DM_Sans({
   display: 'swap',
 });
 
+// JetBrains Mono: used for stat numbers — 400 is not used in the codebase
 const jetbrainsMono = JetBrains_Mono({
   variable: '--font-jetbrains-mono',
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['500', '600', '700'],
   fallback: ['ui-monospace', 'monospace'],
   display: 'swap',
 });
