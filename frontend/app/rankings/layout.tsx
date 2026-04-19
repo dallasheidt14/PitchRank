@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
+import { DataProviders } from '@/app/data-providers';
 
 /**
  * Layout for rankings pages
@@ -32,5 +33,5 @@ export const metadata: Metadata = {
 };
 
 export default function RankingsLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <DataProviders>{children}</DataProviders>;
 }

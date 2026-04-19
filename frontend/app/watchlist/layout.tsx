@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { DataProviders } from '@/app/data-providers';
 
 export const metadata: Metadata = {
   title: 'Watchlist',
@@ -23,5 +24,5 @@ export const metadata: Metadata = {
 };
 
 export default function WatchlistLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <DataProviders>{children}</DataProviders>;
 }

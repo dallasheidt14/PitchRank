@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
+import { DataProviders } from '@/app/data-providers';
 
 export const metadata: Metadata = {
   title: 'Social Media Infographics',
@@ -23,5 +24,5 @@ export const metadata: Metadata = {
 };
 
 export default function InfographicsLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <DataProviders>{children}</DataProviders>;
 }

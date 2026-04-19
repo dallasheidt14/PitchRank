@@ -1,15 +1,90 @@
 'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useRankings, usePrefetchTeam } from '@/lib/hooks';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
+import { normalizeAgeGroup } from '@/lib/utils';
+import type { RankingRow } from '@/types/RankingRow';
 
 type TimeWindow = '7d' | '30d';
+
+/**
+ * Module-level cache for the national rankings used by RecentMovers.
+ *
+ * Replaces a previous react-query usage so the homepage (sitewide entry)
+ * doesn't ship @tanstack/react-query. Cache key is `${age}-${gender}`.
+ */
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes (parity with prior staleTime)
+
+type CacheKey = string;
+const cache = new Map<CacheKey, { data: RankingRow[]; fetchedAt: number }>();
+const inFlight = new Map<CacheKey, Promise<RankingRow[]>>();
+
+async function fetchNationalRankings(ageGroup: string, gender: 'M' | 'F' | 'B' | 'G'): Promise<RankingRow[]> {
+  const BATCH_SIZE = 1000;
+  const allResults: RankingRow[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  const normalizedAge = normalizeAgeGroup(ageGroup);
+
+  while (hasMore) {
+    const params = new URLSearchParams({
+      ...(normalizedAge !== null && { age: String(normalizedAge) }),
+      gender,
+      limit: String(BATCH_SIZE),
+      offset: String(offset),
+    });
+
+    const res = await fetch(`/api/rankings/national?${params.toString()}`);
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `National rankings request failed: ${res.status}`);
+    }
+
+    const data: RankingRow[] = await res.json();
+
+    if (!data || data.length === 0) {
+      hasMore = false;
+    } else {
+      allResults.push(...data);
+      if (data.length < BATCH_SIZE) {
+        hasMore = false;
+      } else {
+        offset += BATCH_SIZE;
+      }
+    }
+  }
+
+  return allResults;
+}
+
+function getOrFetchRankings(ageGroup: string, gender: 'M' | 'F' | 'B' | 'G', force: boolean): Promise<RankingRow[]> {
+  const key: CacheKey = `${ageGroup}-${gender}`;
+  const cached = cache.get(key);
+  if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    return Promise.resolve(cached.data);
+  }
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+
+  const promise = fetchNationalRankings(ageGroup, gender)
+    .then((data) => {
+      cache.set(key, { data, fetchedAt: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  inFlight.set(key, promise);
+  return promise;
+}
 
 interface RecentMoversProps {
   /** Age group to display (e.g., 'u12'). Defaults to 'u12' */
@@ -49,8 +124,57 @@ export function RecentMovers({
     return defaultTimeWindow;
   });
 
-  const { data: rankings, isLoading, isError, error, refetch } = useRankings(null, ageGroup, gender);
-  const prefetchTeam = usePrefetchTeam();
+  // Lazy initializers seed state from the module-level cache on first render.
+  // No setState happens inside the effect's synchronous body; only the async
+  // .then/.catch/.finally callbacks below ever update state.
+  const [rankings, setRankings] = useState<RankingRow[] | undefined>(() => cache.get(`${ageGroup}-${gender}`)?.data);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !cache.get(`${ageGroup}-${gender}`));
+  const [error, setError] = useState<Error | null>(null);
+
+  const runFetch = useCallback(
+    (force: boolean) => {
+      let cancelled = false;
+
+      getOrFetchRankings(ageGroup, gender, force)
+        .then((data) => {
+          if (cancelled) return;
+          setRankings(data);
+          setError(null);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError(e instanceof Error ? e : new Error(String(e)));
+        })
+        .finally(() => {
+          if (cancelled) return;
+          setIsLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    },
+    [ageGroup, gender]
+  );
+
+  useEffect(() => {
+    // Lazy initializers above already populated state from cache when fresh.
+    // Skip the fetch if we already have fresh data for this key.
+    const cached = cache.get(`${ageGroup}-${gender}`);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      return;
+    }
+    return runFetch(false);
+  }, [ageGroup, gender, runFetch]);
+
+  const refetch = useCallback(() => {
+    // Event handler — safe to setState synchronously.
+    setIsLoading(true);
+    setError(null);
+    runFetch(true);
+  }, [runFetch]);
+
+  const isError = error !== null;
 
   // Save time window preference to localStorage
   useEffect(() => {
@@ -140,7 +264,6 @@ export function RecentMovers({
                     <Link
                       key={team.team_id_master}
                       href={`/teams/${team.team_id_master}`}
-                      onMouseEnter={() => prefetchTeam(team.team_id_master)}
                       className="flex items-center justify-between p-3 rounded-md hover:bg-secondary/50 border border-transparent hover:border-border transition-all duration-300 group"
                       aria-label={`View ${team.team_name} - moved ${Math.abs(rankChange)} positions ${isImprovement ? 'up' : 'down'}`}
                       tabIndex={0}

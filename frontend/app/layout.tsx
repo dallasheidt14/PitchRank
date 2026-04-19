@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Oswald, DM_Sans, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import { Providers } from './providers';
+import { SiteProviders } from './providers';
 import { Navigation } from '@/components/Navigation';
 import { Toaster } from '@/components/ui/Toaster';
 import { StructuredData } from '@/components/StructuredData';
@@ -148,13 +148,13 @@ export default function RootLayout({
       <body
         className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased flex flex-col min-h-screen`}
       >
-        <Providers>
+        <SiteProviders>
           <WebVitalsReporter />
           <Navigation />
           <main className="flex-1 bg-background text-foreground">{children}</main>
           <Footer />
           <Toaster />
-        </Providers>
+        </SiteProviders>
       </body>
     </html>
   );
