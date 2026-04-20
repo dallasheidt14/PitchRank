@@ -1,5 +1,5 @@
 /**
- * Match Prediction Engine v3
+ * Match Prediction Engine v4
  *
  * Enhanced prediction model using multiple features with adaptive weighting:
  * - Glicko rating edge when available (falls back to published score differential)
@@ -39,6 +39,10 @@
  * - Lowered mismatch thresholds: amplification at 0.4 (was 0.5), underdog score at 0.5 (was 0.6)
  * - Increased margin boost factor: 4.0 (was 3.0) for stronger blowout predictions
  *
+ * v4 Improvements:
+ * - Post-calibrated three-way probabilities using settled prospective outcomes
+ * - Age-selective draw overrides for cohorts where modest draw calls improved holdout accuracy
+ *
  * Confidence is Glicko-aware when rating deviation is available.
  */
 
@@ -69,12 +73,26 @@ interface MarginParametersV2 {
   overall_mae: number;
 }
 
+interface OutcomeCalibrationParameters {
+  enabled?: boolean;
+  alpha: number;
+  prior: {
+    team_a: number;
+    draw: number;
+    team_b: number;
+  };
+  draw_override_max_win_gap?: number;
+  draw_override_age_thresholds?: Record<string, number>;
+}
+
 let ageGroupParams: Record<string, AgeGroupParameters> | null = null;
 let ageGroupParamsLoading: Promise<void> | null = null;
 let probabilityParams: ProbabilityParameters | null = null;
 let probabilityParamsLoading: Promise<void> | null = null;
 let marginParamsV2: MarginParametersV2 | null = null;
 let marginParamsV2Loading: Promise<void> | null = null;
+let outcomeCalibrationParams: OutcomeCalibrationParameters | null = null;
+let outcomeCalibrationParamsLoading: Promise<void> | null = null;
 
 interface RecentProfile {
   goalDiff: number;
@@ -169,6 +187,26 @@ async function loadMarginParametersV2(): Promise<MarginParametersV2 | null> {
   return marginParamsV2;
 }
 
+async function loadOutcomeCalibrationParameters(): Promise<OutcomeCalibrationParameters | null> {
+  if (outcomeCalibrationParams) {
+    return outcomeCalibrationParams;
+  }
+
+  if (outcomeCalibrationParamsLoading) {
+    await outcomeCalibrationParamsLoading;
+    return outcomeCalibrationParams;
+  }
+
+  outcomeCalibrationParamsLoading = (async () => {
+    outcomeCalibrationParams = await loadCalibrationJson<OutcomeCalibrationParameters>(
+      'heuristic_outcome_calibration.json'
+    );
+  })();
+
+  await outcomeCalibrationParamsLoading;
+  return outcomeCalibrationParams;
+}
+
 // Load parameters on module load (non-blocking)
 loadAgeGroupParameters().catch(() => {
   // Silently fail - will use defaults
@@ -179,12 +217,16 @@ loadProbabilityParameters().catch(() => {
 loadMarginParametersV2().catch(() => {
   // Silently fail - will use defaults
 });
+loadOutcomeCalibrationParameters().catch(() => {
+  // Silently fail - will use defaults
+});
 
 export async function warmMatchPredictorCalibration(): Promise<void> {
   await Promise.all([
     loadAgeGroupParameters(),
     loadProbabilityParameters(),
     loadMarginParametersV2(),
+    loadOutcomeCalibrationParameters(),
     warmConfidenceCalibration(),
   ]);
 }
@@ -813,6 +855,55 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeOutcomePrior(params: OutcomeCalibrationParameters): [number, number, number] | null {
+  const prior = [params.prior.team_a, params.prior.draw, params.prior.team_b].map((value) =>
+    Number.isFinite(value) ? Math.max(0, value) : 0
+  );
+  const total = prior[0] + prior[1] + prior[2];
+  if (total <= 0) {
+    return null;
+  }
+  return [prior[0] / total, prior[1] / total, prior[2] / total];
+}
+
+function applyOutcomeCalibration(winProbA: number, drawProb: number, winProbB: number): [number, number, number] {
+  if (!outcomeCalibrationParams || outcomeCalibrationParams.enabled === false) {
+    return [winProbA, drawProb, winProbB];
+  }
+
+  const prior = normalizeOutcomePrior(outcomeCalibrationParams);
+  if (!prior) {
+    return [winProbA, drawProb, winProbB];
+  }
+
+  const alpha = clamp(Number.isFinite(outcomeCalibrationParams.alpha) ? outcomeCalibrationParams.alpha : 1, 0, 1);
+  const calibratedA = winProbA * alpha + prior[0] * (1 - alpha);
+  const calibratedDraw = drawProb * alpha + prior[1] * (1 - alpha);
+  const calibratedB = winProbB * alpha + prior[2] * (1 - alpha);
+  const total = calibratedA + calibratedDraw + calibratedB;
+
+  if (total <= 0) {
+    return [winProbA, drawProb, winProbB];
+  }
+
+  return [calibratedA / total, calibratedDraw / total, calibratedB / total];
+}
+
+function getAgeSpecificDrawOverrideThreshold(age: number | null): number | null {
+  if (!outcomeCalibrationParams || outcomeCalibrationParams.enabled === false) {
+    return null;
+  }
+
+  const thresholds = outcomeCalibrationParams.draw_override_age_thresholds;
+  if (!thresholds) {
+    return null;
+  }
+
+  const ageKey = age ? `u${age}` : 'null';
+  const threshold = thresholds[ageKey];
+  return Number.isFinite(threshold) ? threshold : null;
+}
+
 function deriveWinRate(team: TeamWithRanking): number {
   if (team.win_percentage != null) {
     return clamp(team.win_percentage / 100, 0, 1);
@@ -1171,10 +1262,28 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
     }
   }
 
-  const predictedWinner: 'team_a' | 'team_b' | 'draw' =
-    (normalizedDrawProbability + DRAW_THRESHOLD >= Math.max(winProbA, winProbB) &&
-      Math.abs(winProbA - winProbB) < 0.12) ||
-    (closeDecisiveEdge && sparseMatchup && normalizedDrawProbability >= DEFAULT_DRAW_RATE * 0.9)
+  const rawWinProbA = winProbA;
+  const rawDrawProbability = normalizedDrawProbability;
+  const rawWinProbB = winProbB;
+  [winProbA, normalizedDrawProbability, winProbB] = applyOutcomeCalibration(
+    rawWinProbA,
+    rawDrawProbability,
+    rawWinProbB
+  );
+
+  const drawOverrideThreshold = getAgeSpecificDrawOverrideThreshold(effectiveAge);
+  const hasOutcomeCalibration = Boolean(outcomeCalibrationParams && outcomeCalibrationParams.enabled !== false);
+  const predictedWinner: 'team_a' | 'team_b' | 'draw' = hasOutcomeCalibration
+    ? drawOverrideThreshold != null &&
+      rawDrawProbability >= drawOverrideThreshold &&
+      Math.abs(rawWinProbA - rawWinProbB) < (outcomeCalibrationParams?.draw_override_max_win_gap ?? 0.1)
+      ? 'draw'
+      : winProbA >= winProbB
+        ? 'team_a'
+        : 'team_b'
+    : (normalizedDrawProbability + DRAW_THRESHOLD >= Math.max(winProbA, winProbB) &&
+          Math.abs(winProbA - winProbB) < 0.12) ||
+        (closeDecisiveEdge && sparseMatchup && normalizedDrawProbability >= DEFAULT_DRAW_RATE * 0.9)
       ? 'draw'
       : winProbA >= winProbB
         ? 'team_a'

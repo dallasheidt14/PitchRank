@@ -37,7 +37,7 @@ export interface MatchPredictionBuildResult {
   shadowContext: MatchPredictionShadowContext;
 }
 
-export const MATCH_PREDICTION_VERSION = 'heuristic_v3_shadow_ready';
+export const MATCH_PREDICTION_VERSION = 'heuristic_v4_calibrated_draw_selective';
 
 type TeamRow = {
   team_id_master: string;

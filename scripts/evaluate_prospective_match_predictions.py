@@ -115,28 +115,46 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
 
 
 def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
-    query = (
-        supabase.table("prospective_match_predictions")
-        .select(
-            "fixture_key, game_date, competition, division_name, fixture_payload, "
-            "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, "
-            "offline_prediction_status, offline_model_version, offline_prediction, "
-            "actual_home_score, actual_away_score, evaluation_status"
-        )
-        .eq("evaluation_status", "settled")
-        .order("game_date", desc=False)
+    select_fields = (
+        "fixture_key, game_date, competition, division_name, fixture_payload, "
+        "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, "
+        "offline_prediction_status, offline_model_version, offline_prediction, "
+        "actual_home_score, actual_away_score, evaluation_status"
     )
-    if limit:
-        query = query.limit(limit)
-    try:
-        response = query.execute()
-    except Exception as error:
-        if _is_missing_table(error, "prospective_match_predictions"):
-            raise RuntimeError(
-                "prospective_match_predictions table is missing. Apply the new Supabase migration before running evaluation."
-            ) from error
-        raise
-    return list(response.data or [])
+    page_size = 1000
+    rows: List[Dict[str, Any]] = []
+    start = 0
+
+    while True:
+        remaining = None if limit is None else max(limit - len(rows), 0)
+        if remaining == 0:
+            break
+        batch_size = page_size if remaining is None else min(page_size, remaining)
+        query = (
+            supabase.table("prospective_match_predictions")
+            .select(select_fields)
+            .eq("evaluation_status", "settled")
+            .order("game_date", desc=False)
+            .range(start, start + batch_size - 1)
+        )
+        try:
+            response = query.execute()
+        except Exception as error:
+            if _is_missing_table(error, "prospective_match_predictions"):
+                raise RuntimeError(
+                    "prospective_match_predictions table is missing. Apply the new Supabase migration before running evaluation."
+                ) from error
+            raise
+
+        batch = list(response.data or [])
+        if not batch:
+            break
+        rows.extend(batch)
+        if len(batch) < batch_size:
+            break
+        start += batch_size
+
+    return rows
 
 
 def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any]:

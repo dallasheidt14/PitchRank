@@ -1,0 +1,35 @@
+{
+  "enabled": true,
+  "alpha": 0.55,
+  "prior": {
+    "team_a": 0.4316143497757848,
+    "draw": 0.13340807174887892,
+    "team_b": 0.4349775784753363
+  },
+  "draw_override_max_win_gap": 0.1,
+  "draw_override_age_thresholds": {
+    "u13": 0.23,
+    "u15": 0.2
+  },
+  "candidate_notes": {
+    "selected_from": "settled prospective heuristic rows through 2026-04-20",
+    "holdout_window": "2026-04-17 to 2026-04-19",
+    "selection_goal": "Improve winner accuracy and log loss over heuristic_v3 while recovering some draw recall",
+    "selected_metrics": {
+      "all_settled": {
+        "winner_accuracy": 0.5642,
+        "draw_recall": 0.0324,
+        "draw_precision": 0.3462,
+        "predicted_draw_rate": 0.0132,
+        "log_loss": 0.9298
+      },
+      "holdout_apr17_19": {
+        "winner_accuracy": 0.5831,
+        "draw_recall": 0.044,
+        "draw_precision": 0.4375,
+        "predicted_draw_rate": 0.0149,
+        "log_loss": 0.9266
+      }
+    }
+  }
+}
