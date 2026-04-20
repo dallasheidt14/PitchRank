@@ -973,6 +973,67 @@ class TestBaseEvidenceShrink:
         scale_map = dict(zip(team_df["team_id"], scales))
         assert scale_map["A"] < 1.0
 
+    def test_stale_strong_schedule_gets_activity_shrink(self):
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-04-20")
+        team_df = pd.DataFrame(
+            [
+                {"team_id": "A", "mu": 1800.0},
+                {"team_id": "B", "mu": 1795.0},
+                {"team_id": "C", "mu": 1790.0},
+                {"team_id": "D", "mu": 1785.0},
+                {"team_id": "E", "mu": 1780.0},
+            ]
+        )
+        stale_games = pd.DataFrame(
+            [
+                {"team_id": "A", "opp_id": "B", "gf": 1, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-01-05")},
+                {"team_id": "A", "opp_id": "C", "gf": 2, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-01-06")},
+                {"team_id": "A", "opp_id": "D", "gf": 1, "ga": 0, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-01-07")},
+                {"team_id": "A", "opp_id": "E", "gf": 3, "ga": 2, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-01-08")},
+            ]
+        )
+        scales = _compute_base_evidence_scale(
+            team_df,
+            {"A": stale_games},
+            {"A": {"scf": 1.0}},
+            cfg,
+            today=today,
+        )
+        scale_map = dict(zip(team_df["team_id"], scales))
+        expected_shrink = cfg.BASE_EVIDENCE_STALE_NO_RECENT_BONUS + cfg.BASE_EVIDENCE_STALE_LOW_ACTIVITY_BONUS
+        assert scale_map["A"] == pytest.approx(1.0 - expected_shrink, abs=1e-9)
+
+    def test_recent_activity_avoids_stale_schedule_bonus(self):
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-04-20")
+        team_df = pd.DataFrame(
+            [
+                {"team_id": "A", "mu": 1800.0},
+                {"team_id": "B", "mu": 1795.0},
+                {"team_id": "C", "mu": 1790.0},
+                {"team_id": "D", "mu": 1785.0},
+                {"team_id": "E", "mu": 1780.0},
+            ]
+        )
+        recent_games = pd.DataFrame(
+            [
+                {"team_id": "A", "opp_id": "B", "gf": 1, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-03-05")},
+                {"team_id": "A", "opp_id": "C", "gf": 2, "ga": 1, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-03-10")},
+                {"team_id": "A", "opp_id": "D", "gf": 1, "ga": 0, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-03-15")},
+                {"team_id": "A", "opp_id": "E", "gf": 3, "ga": 2, "age": "U13", "gender": "M", "opp_age": "U13", "opp_gender": "M", "date": pd.Timestamp("2026-03-20")},
+            ]
+        )
+        scales = _compute_base_evidence_scale(
+            team_df,
+            {"A": recent_games},
+            {"A": {"scf": 1.0}},
+            cfg,
+            today=today,
+        )
+        scale_map = dict(zip(team_df["team_id"], scales))
+        assert scale_map["A"] == pytest.approx(1.0, abs=1e-9)
+
 
 class TestComputeRankingsV2:
     def test_returns_teams_and_games(self):
@@ -1052,6 +1113,17 @@ class TestComputeRankingsV2:
         ]
         for col in expected_columns:
             assert col in teams.columns, f"Missing column: {col}"
+
+    def test_games_last_180_days_counts_only_recent_selected_games(self):
+        rows = []
+        rows += make_game("A", "B", 2, 1, "2025-09-01")
+        rows += make_game("A", "B", 1, 1, "2026-03-01")
+        games = pd.DataFrame(rows)
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg)
+        teams = result["teams"]
+
+        assert set(teams["games_last_180_days"].tolist()) == {1}
 
     def test_ranking_order_matches_mu(self):
         """National rank should match mu ordering."""

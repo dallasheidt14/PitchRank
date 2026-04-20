@@ -953,15 +953,50 @@ def compute_scf(
     return result
 
 
+def _summarize_team_recent_activity(tg: Optional[pd.DataFrame], today: pd.Timestamp) -> Dict[str, int | None]:
+    if tg is None or tg.empty or "date" not in tg.columns:
+        return {
+            "games_last_60_days": 0,
+            "games_last_120_days": 0,
+            "games_last_180_days": 0,
+            "days_since_last": None,
+        }
+
+    dates = pd.to_datetime(tg["date"], errors="coerce")
+    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
+        dates = dates.dt.tz_localize(None)
+    valid_dates = dates.dropna()
+    if valid_dates.empty:
+        return {
+            "games_last_60_days": 0,
+            "games_last_120_days": 0,
+            "games_last_180_days": 0,
+            "days_since_last": None,
+        }
+
+    last_game = valid_dates.max()
+    return {
+        "games_last_60_days": int((valid_dates >= (today - pd.Timedelta(days=60))).sum()),
+        "games_last_120_days": int((valid_dates >= (today - pd.Timedelta(days=120))).sum()),
+        "games_last_180_days": int((valid_dates >= (today - pd.Timedelta(days=180))).sum()),
+        "days_since_last": int((today - last_game).days),
+    }
+
+
 def _compute_base_evidence_scale(
     team_df: pd.DataFrame,
     team_games: Dict[str, pd.DataFrame],
     scf_data: Optional[Dict[str, Dict]],
     cfg: GlickoConfig,
+    today: Optional[pd.Timestamp] = None,
+    recent_activity: Optional[Dict[str, Dict[str, int | None]]] = None,
 ) -> pd.Series:
     """Return multiplicative evidence scales for published base scores."""
     if team_df.empty or not cfg.BASE_EVIDENCE_SHRINK_ENABLED:
         return pd.Series(1.0, index=team_df.index if not team_df.empty else pd.Index([]), dtype=float)
+
+    if today is not None and today.tzinfo is not None:
+        today = today.tz_localize(None)
 
     ranked = team_df.sort_values(["mu", "team_id"], ascending=[False, True]).reset_index(drop=True)
     rank_lookup = {str(row.team_id): idx + 1 for idx, row in enumerate(ranked.itertuples(index=False))}
@@ -999,6 +1034,12 @@ def _compute_base_evidence_scale(
         counts = tg["opp_id"].astype(str).value_counts()
         repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
         scf = float((scf_data or {}).get(team_id, {}).get("scf", 1.0))
+        activity = (recent_activity or {}).get(team_id)
+        if activity is None and today is not None:
+            activity = _summarize_team_recent_activity(tg, today)
+        days_since_last = activity.get("days_since_last") if activity is not None else None
+        games_last_60 = int(activity.get("games_last_60_days", 0)) if activity is not None else 0
+        games_last_120 = int(activity.get("games_last_120_days", 0)) if activity is not None else 0
 
         shrink = 0.0
         if (
@@ -1032,6 +1073,18 @@ def _compute_base_evidence_scale(
             shrink += cfg.BASE_EVIDENCE_SHRINK_LOW_CONNECTIVITY_BONUS
         if repeat_share >= cfg.BASE_EVIDENCE_SHRINK_REPEAT_SHARE:
             shrink += cfg.BASE_EVIDENCE_SHRINK_REPEAT_BONUS
+        if (
+            days_since_last is not None
+            and days_since_last >= cfg.BASE_EVIDENCE_STALE_NO_RECENT_DAYS
+            and games_last_60 <= cfg.BASE_EVIDENCE_STALE_MAX_GAMES_LAST_60
+        ):
+            shrink += cfg.BASE_EVIDENCE_STALE_NO_RECENT_BONUS
+        if (
+            days_since_last is not None
+            and days_since_last >= cfg.BASE_EVIDENCE_STALE_LOW_ACTIVITY_DAYS
+            and games_last_120 <= cfg.BASE_EVIDENCE_STALE_MAX_GAMES_LAST_120
+        ):
+            shrink += cfg.BASE_EVIDENCE_STALE_LOW_ACTIVITY_BONUS
 
         shrink = min(float(cfg.BASE_EVIDENCE_SHRINK_MAX), max(0.0, shrink))
         scale_lookup[team_id] = 1.0 - shrink
@@ -1529,6 +1582,9 @@ def compute_rankings_v2(
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
         zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
     )
+    recent_activity = {
+        str(team_id): _summarize_team_recent_activity(tg, today) for team_id, tg in team_games.items()
+    }
 
     # 4. Derive offense/defense
     off_def = derive_offense_defense(games_df, team_ratings, cfg, today, team_games=team_games)
@@ -1584,12 +1640,26 @@ def compute_rankings_v2(
             1.0 + cfg.SOS_ADJ_STRONG_MAX,
         )
         mu_sos = cfg.INITIAL_MU + (team_df["mu"] - cfg.INITIAL_MU) * sos_scale
-        evidence_scale = _compute_base_evidence_scale(team_df, team_games, scf_data, cfg)
+        evidence_scale = _compute_base_evidence_scale(
+            team_df,
+            team_games,
+            scf_data,
+            cfg,
+            today=today,
+            recent_activity=recent_activity,
+        )
         mu_sos = cfg.INITIAL_MU + (mu_sos - cfg.INITIAL_MU) * evidence_scale
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_sos)
     else:
         mu_publish = team_df["mu"]
-        evidence_scale = _compute_base_evidence_scale(team_df, team_games, scf_data, cfg)
+        evidence_scale = _compute_base_evidence_scale(
+            team_df,
+            team_games,
+            scf_data,
+            cfg,
+            today=today,
+            recent_activity=recent_activity,
+        )
         mu_publish = cfg.INITIAL_MU + (mu_publish - cfg.INITIAL_MU) * evidence_scale
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_publish)
 
@@ -1693,7 +1763,13 @@ def compute_rankings_v2(
     team_df["last_calculated"] = pd.Timestamp.now("UTC")
 
     # Games in last 180 days
-    team_df["games_last_180_days"] = team_df["games_played"]  # approximation
+    team_df["games_last_180_days"] = (
+        team_df["team_id"]
+        .astype(str)
+        .map(lambda team_id: recent_activity.get(team_id, {}).get("games_last_180_days", 0))
+        .fillna(0)
+        .astype(int)
+    )
 
     # State code
     if team_state_map:

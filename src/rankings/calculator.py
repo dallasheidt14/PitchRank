@@ -290,6 +290,8 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "one_top100_thin_escalated_cap_rank": 1800,
         "mid_thin_cap_rank": 1000,
         "weak_quality_results_cap_rank": 1500,
+        "zero_top100_weak_results_cap_rank": 1500,
+        "zero_top100_weak_results_escalated_cap_rank": 1800,
         "thin_schedule_cap_rank": 1500,
         "quality_result_void_cap_rank": 1500,
         "severe_cap_rank": 2000,
@@ -313,6 +315,13 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "weak_quality_results_max_top500_non_loss": 1,
         "weak_quality_results_max_top1000_non_loss": 4,
         "weak_quality_results_max_avg_opp_power": 0.63,
+        "zero_top100_weak_results_min_unique_opponents": 12,
+        "zero_top100_weak_results_max_top500": 3,
+        "zero_top100_weak_results_severe_max_top500": 1,
+        "zero_top100_weak_results_max_top500_non_loss": 1,
+        "zero_top100_weak_results_max_top1000_non_loss": 1,
+        "zero_top100_weak_results_max_avg_opp_power": 0.54,
+        "zero_top100_weak_results_severe_max_avg_opp_power": 0.53,
         "thin_schedule_max_top500": 2,
         "thin_schedule_max_avg_opp_power": 0.50,
         "quality_result_void_max_top500": 3,
@@ -864,6 +873,9 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     connectivity_constrained = low_state or repeat_heavy
     severe_weak_avg = avg_opp_power is None or avg_opp_power < float(policy["severe_min_avg_opp_power"])
     scf = _safe_float(row.get("scf"))
+    unique_opponents = (
+        _safe_int(row.get("same_age_unique_opponents")) if row.get("same_age_unique_opponents") is not None else None
+    )
     unique_states = _safe_int(row.get("unique_opp_states")) if row.get("unique_opp_states") is not None else None
     play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
     play_up_top500_non_loss = _safe_int(row.get("play_up_top500_non_loss_opp_count"))
@@ -916,6 +928,20 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power is not None
         and avg_opp_power < float(policy["weak_quality_results_max_avg_opp_power"])
     )
+    zero_top100_weak_results = (
+        top100 == 0
+        and unique_opponents is not None
+        and unique_opponents >= int(policy["zero_top100_weak_results_min_unique_opponents"])
+        and top500 <= int(policy["zero_top100_weak_results_max_top500"])
+        and top500_non_loss <= int(policy["zero_top100_weak_results_max_top500_non_loss"])
+        and top1000_non_loss <= int(policy["zero_top100_weak_results_max_top1000_non_loss"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["zero_top100_weak_results_max_avg_opp_power"])
+    )
+    zero_top100_weak_results_severe = zero_top100_weak_results and (
+        top500 <= int(policy["zero_top100_weak_results_severe_max_top500"])
+        or avg_opp_power < float(policy["zero_top100_weak_results_severe_max_avg_opp_power"])
+    )
     local_loop_override = (
         top100 == 0
         and top500 <= int(policy["local_loop_max_top500"])
@@ -958,6 +984,10 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["quality_result_void_cap_rank"])
     if thin_schedule and isolation_override:
         return int(policy["severe_cap_rank"])
+    if zero_top100_weak_results_severe:
+        return int(policy["zero_top100_weak_results_escalated_cap_rank"])
+    if zero_top100_weak_results:
+        return int(policy["zero_top100_weak_results_cap_rank"])
     if regional_thin_low_connectivity:
         return int(policy["regional_thin_escalated_cap_rank"])
     if mid_thin_quality and not isolation_override:

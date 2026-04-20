@@ -497,6 +497,42 @@ def test_publication_cap_rank_hits_weak_quality_results_bucket():
     assert _publication_cap_rank(row) == 1500
 
 
+def test_publication_cap_rank_hits_zero_top100_weak_results_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_unique_opponents": 18,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 3,
+            "same_age_top500_non_loss_opp_count": 1,
+            "same_age_top1000_non_loss_opp_count": 1,
+            "same_age_avg_opp_power_adj": 0.539,
+            "repeat_opponent_share": 0.12,
+            "unique_opp_states": 5,
+            "scf": 0.82,
+        }
+    )
+    assert _publication_cap_rank(row) == 1500
+
+
+def test_publication_cap_rank_escalates_zero_top100_weak_results_bucket():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_unique_opponents": 16,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 1,
+            "same_age_top500_non_loss_opp_count": 1,
+            "same_age_top1000_non_loss_opp_count": 1,
+            "same_age_avg_opp_power_adj": 0.533,
+            "repeat_opponent_share": 0.19,
+            "unique_opp_states": 4,
+            "scf": 0.78,
+        }
+    )
+    assert _publication_cap_rank(row) == 1800
+
+
 def test_publication_cap_rank_skips_weak_quality_results_bucket_when_supported():
     row = pd.Series(
         {
