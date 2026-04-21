@@ -339,9 +339,6 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "full_release_min_top100": 3,
         "full_release_combo_top100": 2,
         "full_release_combo_top500": 5,
-        "full_release_min_top100_non_loss": 1,
-        "full_release_min_top500_non_loss": 3,
-        "full_release_min_avg_opp_power": 0.58,
         "thin_top100_min_top500": 5,
         "thin_top100_min_avg_opp_power": 0.60,
         "connectivity_min_unique_states": 3,
@@ -742,22 +739,11 @@ def _connectivity_flags(row: pd.Series, policy: dict[str, float | int]) -> tuple
 
 def _has_full_same_age_release(
     top100: int,
-    top100_non_loss: int,
     top500: int,
-    top500_non_loss: int,
-    avg_opp_power: float | None,
     connectivity_constrained: bool,
     policy: dict[str, float | int],
 ) -> bool:
     if connectivity_constrained:
-        return False
-    if avg_opp_power is None or avg_opp_power < float(policy["full_release_min_avg_opp_power"]):
-        return False
-    has_quality_results = (
-        top100_non_loss >= int(policy["full_release_min_top100_non_loss"])
-        or top500_non_loss >= int(policy["full_release_min_top500_non_loss"])
-    )
-    if not has_quality_results:
         return False
     if top100 >= int(policy["full_release_min_top100"]):
         return True
@@ -785,21 +771,10 @@ def _play_up_bonus(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
-    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
-    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
-    avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     connectivity_constrained = low_state or repeat_heavy
-    if _has_full_same_age_release(
-        top100,
-        top100_non_loss,
-        top500,
-        top500_non_loss,
-        avg_opp_power,
-        connectivity_constrained,
-        policy,
-    ):
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return 0.0
 
     play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
@@ -829,9 +804,7 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
-    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
-    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
     avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
@@ -852,15 +825,7 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
         if has_play_up_support:
             return float(policy["partial_ml_scale"])
         return 0.0
-    if _has_full_same_age_release(
-        top100,
-        top100_non_loss,
-        top500,
-        top500_non_loss,
-        avg_opp_power,
-        connectivity_constrained,
-        policy,
-    ):
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return 1.0
     if has_play_up_support:
         return float(policy["play_up_partial_ml_scale"])
@@ -1003,15 +968,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power < float(policy["quality_result_void_max_avg_opp_power"])
     )
 
-    if _has_full_same_age_release(
-        top100,
-        top100_non_loss,
-        top500,
-        top500_non_loss,
-        avg_opp_power,
-        connectivity_constrained,
-        policy,
-    ):
+    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
         return None
     if has_play_up_support and severe_connectivity:
         return int(policy["soft_cap_rank"])
