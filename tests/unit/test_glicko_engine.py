@@ -973,8 +973,39 @@ class TestBaseEvidenceShrink:
         scale_map = dict(zip(team_df["team_id"], scales))
         assert scale_map["A"] < 1.0
 
+    def test_diluted_quality_exposure_gets_strong_shrink(self):
+        cfg = GlickoConfig(
+            BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_AVG_OPP_STRENGTH=1.0,
+            BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_TOP500_NON_LOSS=3,
+            BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MIN_TOP100=2,
+        )
+        team_rows = [{"team_id": "A", "mu": 1700.0}]
+        for idx in range(1, 601):
+            team_rows.append({"team_id": f"W{idx}", "mu": 1600.0 - idx})
+        team_df = pd.DataFrame(team_rows)
+        diluted_games = pd.DataFrame(
+            [
+                {"team_id": "A", "opp_id": "W40", "gf": 1, "ga": 1, "age": "U15", "gender": "M", "opp_age": "U15", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W80", "gf": 0, "ga": 1, "age": "U15", "gender": "M", "opp_age": "U15", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W100", "gf": 1, "ga": 0, "age": "U15", "gender": "M", "opp_age": "U15", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W300", "gf": 2, "ga": 1, "age": "U15", "gender": "M", "opp_age": "U15", "opp_gender": "M"},
+                {"team_id": "A", "opp_id": "W450", "gf": 0, "ga": 2, "age": "U15", "gender": "M", "opp_age": "U15", "opp_gender": "M"},
+            ]
+        )
+        scales = _compute_base_evidence_scale(
+            team_df,
+            {"A": diluted_games},
+            {"A": {"scf": 1.0}},
+            cfg,
+        )
+        scale_map = dict(zip(team_df["team_id"], scales))
+        assert scale_map["A"] == pytest.approx(1.0 - cfg.BASE_EVIDENCE_SHRINK_DILUTED_STRONG, abs=1e-9)
+
     def test_stale_strong_schedule_gets_activity_shrink(self):
-        cfg = GlickoConfig()
+        cfg = GlickoConfig(
+            BASE_EVIDENCE_SHRINK_DILUTED_MAX_AVG_OPP_STRENGTH=0.0,
+            BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_AVG_OPP_STRENGTH=0.0,
+        )
         today = pd.Timestamp("2026-04-20")
         team_df = pd.DataFrame(
             [
@@ -1005,7 +1036,10 @@ class TestBaseEvidenceShrink:
         assert scale_map["A"] == pytest.approx(1.0 - expected_shrink, abs=1e-9)
 
     def test_recent_activity_avoids_stale_schedule_bonus(self):
-        cfg = GlickoConfig()
+        cfg = GlickoConfig(
+            BASE_EVIDENCE_SHRINK_DILUTED_MAX_AVG_OPP_STRENGTH=0.0,
+            BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_AVG_OPP_STRENGTH=0.0,
+        )
         today = pd.Timestamp("2026-04-20")
         team_df = pd.DataFrame(
             [

@@ -1000,6 +1000,12 @@ def _compute_base_evidence_scale(
 
     ranked = team_df.sort_values(["mu", "team_id"], ascending=[False, True]).reset_index(drop=True)
     rank_lookup = {str(row.team_id): idx + 1 for idx, row in enumerate(ranked.itertuples(index=False))}
+    mu_strength_lookup = dict(
+        zip(
+            team_df["team_id"].astype(str),
+            sigmoid_zscore_normalize(pd.to_numeric(team_df["mu"], errors="coerce").fillna(cfg.INITIAL_MU)),
+        )
+    )
     scale_lookup: Dict[str, float] = {}
 
     for row in team_df.itertuples(index=False):
@@ -1024,12 +1030,15 @@ def _compute_base_evidence_scale(
 
         opp_ranks = [rank_lookup.get(opp_id) for opp_id in unique_same_age if rank_lookup.get(opp_id) is not None]
         non_loss_ranks = [rank_lookup.get(opp_id) for opp_id in unique_non_loss if rank_lookup.get(opp_id) is not None]
+        opp_strengths = [mu_strength_lookup.get(opp_id) for opp_id in unique_same_age if opp_id in mu_strength_lookup]
 
         top100 = sum(1 for rank in opp_ranks if rank <= 100)
         top500 = sum(1 for rank in opp_ranks if rank <= 500)
         top500_non_loss = sum(1 for rank in non_loss_ranks if rank <= 500)
         top1000_non_loss = sum(1 for rank in non_loss_ranks if rank <= 1000)
         avg_rank = float(sum(opp_ranks) / len(opp_ranks)) if opp_ranks else float("inf")
+        clean_opp_strengths = [float(val) for val in opp_strengths if val is not None and not pd.isna(val)]
+        avg_opp_strength = float(sum(clean_opp_strengths) / len(clean_opp_strengths)) if clean_opp_strengths else None
 
         counts = tg["opp_id"].astype(str).value_counts()
         repeat_share = float(counts[counts >= 2].sum() / len(tg)) if len(tg) else 0.0
@@ -1068,6 +1077,22 @@ def _compute_base_evidence_scale(
             and avg_rank >= cfg.BASE_EVIDENCE_SHRINK_AVG_RANK_QUALITY
         ):
             shrink = cfg.BASE_EVIDENCE_SHRINK_QUALITY
+        elif (
+            top100 >= cfg.BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MIN_TOP100
+            and top500 >= cfg.BASE_EVIDENCE_SHRINK_DILUTED_MIN_TOP500
+            and top500_non_loss <= cfg.BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_TOP500_NON_LOSS
+            and avg_opp_strength is not None
+            and avg_opp_strength < cfg.BASE_EVIDENCE_SHRINK_DILUTED_STRONG_MAX_AVG_OPP_STRENGTH
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_DILUTED_STRONG
+        elif (
+            top100 >= cfg.BASE_EVIDENCE_SHRINK_DILUTED_MIN_TOP100
+            and top500 >= cfg.BASE_EVIDENCE_SHRINK_DILUTED_MIN_TOP500
+            and top500_non_loss <= cfg.BASE_EVIDENCE_SHRINK_DILUTED_MAX_TOP500_NON_LOSS
+            and avg_opp_strength is not None
+            and avg_opp_strength < cfg.BASE_EVIDENCE_SHRINK_DILUTED_MAX_AVG_OPP_STRENGTH
+        ):
+            shrink = cfg.BASE_EVIDENCE_SHRINK_DILUTED
 
         if scf <= cfg.BASE_EVIDENCE_SHRINK_LOW_SCF:
             shrink += cfg.BASE_EVIDENCE_SHRINK_LOW_CONNECTIVITY_BONUS

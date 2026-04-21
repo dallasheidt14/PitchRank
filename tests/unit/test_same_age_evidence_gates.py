@@ -212,14 +212,32 @@ def test_positive_ml_evidence_scale_full_release_requires_multi_top100_depth():
     row = pd.Series(
         {
             "age_num": 15,
-            "same_age_top100_opp_count": 2,
+            "same_age_top100_opp_count": 3,
+            "same_age_top100_non_loss_opp_count": 1,
             "same_age_top500_opp_count": 7,
-            "same_age_avg_opp_power_adj": 0.55,
+            "same_age_top500_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.61,
             "repeat_opponent_share": 0.13,
             "unique_opp_states": 8,
         }
     )
     assert _positive_ml_evidence_scale(row) == 1.0
+
+
+def test_positive_ml_evidence_scale_blocks_multi_top100_profile_with_weak_average_field():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_top100_opp_count": 3,
+            "same_age_top100_non_loss_opp_count": 1,
+            "same_age_top500_opp_count": 8,
+            "same_age_top500_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.50,
+            "repeat_opponent_share": 0.07,
+            "unique_opp_states": 6,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) == 0.0
 
 
 def test_positive_ml_evidence_scale_allows_supported_play_up_team():
@@ -308,6 +326,22 @@ def test_publication_cap_rank_soft_caps_connectivity_constrained_team():
         }
     )
     assert _publication_cap_rank(row) == 250
+
+
+def test_publication_cap_rank_multi_top100_weak_average_profile_loses_full_release():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_top100_opp_count": 3,
+            "same_age_top100_non_loss_opp_count": 1,
+            "same_age_top500_opp_count": 8,
+            "same_age_top500_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.50,
+            "repeat_opponent_share": 0.07,
+            "unique_opp_states": 6,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
 
 
 def test_publication_cap_rank_hits_severe_connectivity_team():
@@ -554,9 +588,11 @@ def test_publication_cap_rank_skips_multi_top100_team_with_depth():
     row = pd.Series(
         {
             "age_num": 15,
-            "same_age_top100_opp_count": 2,
+            "same_age_top100_opp_count": 3,
+            "same_age_top100_non_loss_opp_count": 1,
             "same_age_top500_opp_count": 7,
-            "same_age_avg_opp_power_adj": 0.55,
+            "same_age_top500_non_loss_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.61,
             "repeat_opponent_share": 0.13,
             "unique_opp_states": 8,
         }
