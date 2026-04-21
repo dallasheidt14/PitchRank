@@ -274,6 +274,23 @@ def _parse_age_number(value: Any) -> int | None:
         return None
 
 
+def _unit_interval(value: Any, lower: float, upper: float, *, default: float = 0.0) -> float:
+    numeric = _safe_float(value)
+    if numeric is None:
+        return float(np.clip(default, 0.0, 1.0))
+    if upper <= lower:
+        return 1.0 if numeric >= upper else 0.0
+    return float(np.clip((numeric - lower) / (upper - lower), 0.0, 1.0))
+
+
+def _effective_fetch_lookback_days(lookback_days: int, *, use_glicko: bool) -> int:
+    effective = max(int(lookback_days), 0)
+    if not use_glicko:
+        return effective
+    cfg = GlickoConfig()
+    return max(effective, int(getattr(cfg, "WINDOW_DAYS", effective))) + max(int(getattr(cfg, "WINDOW_GRACE_DAYS", 0)), 0)
+
+
 def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
     """Uniform evidence policy for ML authority and publication caps.
 
@@ -339,6 +356,8 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "full_release_min_top100": 3,
         "full_release_combo_top100": 2,
         "full_release_combo_top500": 5,
+        "full_release_authority": 0.84,
+        "soft_release_authority": 0.62,
         "thin_top100_min_top500": 5,
         "thin_top100_min_avg_opp_power": 0.60,
         "connectivity_min_unique_states": 3,
@@ -544,7 +563,7 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
 
 
 def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
-    """Build same-age evidence metrics from the engine's actual selected game windows."""
+    """Build same-age evidence metrics from a broader same-age evidence pool."""
     defaults = pd.DataFrame(
         {
             "team_id": teams_df["team_id"].astype(str),
@@ -737,19 +756,6 @@ def _connectivity_flags(row: pd.Series, policy: dict[str, float | int]) -> tuple
     return low_state, repeat_heavy, severe_connectivity
 
 
-def _has_full_same_age_release(
-    top100: int,
-    top500: int,
-    connectivity_constrained: bool,
-    policy: dict[str, float | int],
-) -> bool:
-    if connectivity_constrained:
-        return False
-    if top100 >= int(policy["full_release_min_top100"]):
-        return True
-    return top100 >= int(policy["full_release_combo_top100"]) and top500 >= int(policy["full_release_combo_top500"])
-
-
 def _has_play_up_support(
     play_up_share: float,
     play_up_top500_non_loss: int,
@@ -767,14 +773,104 @@ def _has_play_up_support(
     )
 
 
+def _same_age_authority_score(row: pd.Series, policy: dict[str, float | int]) -> float:
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
+    top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
+    top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
+    avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+    unique_states = _safe_float(row.get("unique_opp_states"))
+    low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
+    connectivity_constrained = low_state or repeat_heavy
+
+    elite_exposure = (
+        0.65 * _unit_interval(top100, 0.0, float(policy["full_release_min_top100"]))
+        + 0.35 * _unit_interval(top100_non_loss, 0.0, float(policy["full_release_combo_top100"]))
+    )
+    depth = (
+        0.55 * _unit_interval(top500, 2.0, 8.0)
+        + 0.45 * _unit_interval(top500_non_loss, 1.0, 5.0)
+    )
+    quality_results = (
+        0.45 * _unit_interval(top100_non_loss, 0.0, 2.0)
+        + 0.35 * _unit_interval(top500_non_loss, 1.0, 5.0)
+        + 0.20 * _unit_interval(top1000_non_loss, 2.0, 6.0)
+    )
+    field_strength = _unit_interval(avg_opp_power, float(policy["severe_min_avg_opp_power"]), 0.72)
+    state_breadth = _unit_interval(unique_states, 1.0, 6.0, default=0.5)
+    repeat_relief = 1.0 - _unit_interval(repeat_share, 0.20, 0.50)
+
+    authority = 0.34 * elite_exposure + 0.24 * depth + 0.24 * quality_results + 0.18 * field_strength
+    authority *= 0.85 + 0.15 * (0.55 * state_breadth + 0.45 * repeat_relief)
+
+    if (
+        not connectivity_constrained
+        and top100 >= int(policy["full_release_combo_top100"])
+        and top500 >= int(policy["full_release_combo_top500"])
+        and top500_non_loss >= 2
+    ):
+        authority = max(
+            authority,
+            0.70 + 0.20 * field_strength + 0.10 * _unit_interval(top100_non_loss, 0.0, 2.0),
+        )
+
+    if avg_opp_power is None:
+        authority *= 0.35
+    elif avg_opp_power < float(policy["min_avg_opp_power"]):
+        field_penalty = 0.45 + 0.55 * _unit_interval(
+            avg_opp_power,
+            float(policy["severe_min_avg_opp_power"]),
+            float(policy["min_avg_opp_power"]),
+        )
+        authority *= field_penalty
+
+    if top100 == 0 and top500 <= 1 and top500_non_loss == 0:
+        authority *= 0.50
+
+    if connectivity_constrained:
+        authority *= 0.70
+    if severe_connectivity:
+        authority *= 0.60
+
+    play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
+    play_up_top500_non_loss = _safe_int(row.get("play_up_top500_non_loss_opp_count"))
+    play_up_top1000_non_loss = _safe_int(row.get("play_up_top1000_non_loss_opp_count"))
+    play_up_avg_opp_power = _safe_float(row.get("play_up_avg_opp_power_adj"))
+    if _has_play_up_support(
+        play_up_share,
+        play_up_top500_non_loss,
+        play_up_top1000_non_loss,
+        play_up_avg_opp_power,
+        policy,
+    ):
+        play_up_floor = (
+            float(policy["play_up_partial_ml_scale"])
+            + 0.08
+            * _unit_interval(
+                play_up_top500_non_loss,
+                float(policy["play_up_min_top500_non_loss"]),
+                float(policy["play_up_min_top500_non_loss"]) + 2.0,
+            )
+            + 0.04
+            * _unit_interval(
+                play_up_avg_opp_power,
+                float(policy["play_up_min_avg_opp_power"]),
+                0.70,
+            )
+        )
+        authority = max(authority, min(play_up_floor, float(policy["soft_release_authority"])))
+
+    return float(np.clip(authority, 0.0, 1.0))
+
+
 def _play_up_bonus(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
-    top100 = _safe_int(row.get("same_age_top100_opp_count"))
-    top500 = _safe_int(row.get("same_age_top500_opp_count"))
-    low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
-    connectivity_constrained = low_state or repeat_heavy
-    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
+    _, _, severe_connectivity = _connectivity_flags(row, policy)
+    authority = _same_age_authority_score(row, policy)
+    if not severe_connectivity and authority >= float(policy["full_release_authority"]):
         return 0.0
 
     play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
@@ -804,9 +900,6 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
-    top500 = _safe_int(row.get("same_age_top500_opp_count"))
-    avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
-    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     connectivity_constrained = low_state or repeat_heavy
     play_up_share = _safe_float(row.get("play_up_game_share")) or 0.0
@@ -820,43 +913,19 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
         play_up_avg_opp_power,
         policy,
     )
+    authority = _same_age_authority_score(row, policy)
 
     if severe_connectivity:
         if has_play_up_support:
             return float(policy["partial_ml_scale"])
         return 0.0
-    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
-        return 1.0
-    if has_play_up_support:
+    if has_play_up_support and connectivity_constrained:
         return float(policy["play_up_partial_ml_scale"])
     if connectivity_constrained and top100 >= 1:
         return float(policy["partial_ml_scale"])
-    if top100 == 1:
-        thin_top100 = (
-            avg_opp_power is not None
-            and top500 < int(policy["thin_top100_min_top500"])
-            and avg_opp_power < float(policy["thin_top100_min_avg_opp_power"])
-        )
-        if thin_top100:
-            return 0.0
-        if (
-            avg_opp_power is not None
-            and avg_opp_power >= float(policy["thin_top100_min_avg_opp_power"])
-            and top500 >= int(policy["thin_top100_min_top500"])
-        ):
-            return float(policy["partial_ml_scale"])
-        return 0.0
-    if avg_opp_power is None:
-        return 0.0
-    if low_state:
-        return 0.0
-    if avg_opp_power < float(policy["min_avg_opp_power"]):
-        return 0.0
-    if repeat_share >= float(policy["max_repeat_share"]):
-        return 0.0
-    if top500 >= int(policy["min_top500"]):
-        return float(policy["partial_ml_scale"])
-    return 0.0
+    if has_play_up_support:
+        return max(authority, float(policy["play_up_partial_ml_scale"]))
+    return authority
 
 
 def _publication_cap_rank(row: pd.Series) -> int | None:
@@ -888,6 +957,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         play_up_avg_opp_power,
         policy,
     )
+    authority = _same_age_authority_score(row, policy)
 
     thin_schedule = (
         top100 == 0
@@ -967,9 +1037,10 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power is not None
         and avg_opp_power < float(policy["quality_result_void_max_avg_opp_power"])
     )
+    weak_avg = avg_opp_power is None or avg_opp_power < float(policy["min_avg_opp_power"])
+    weak_depth = top500 < int(policy["min_top500"])
+    repeat_heavy_for_cap = repeat_share >= float(policy["max_repeat_share"])
 
-    if _has_full_same_age_release(top100, top500, connectivity_constrained, policy):
-        return None
     if has_play_up_support and severe_connectivity:
         return int(policy["soft_cap_rank"])
     if has_play_up_support and connectivity_constrained:
@@ -990,6 +1061,12 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["zero_top100_weak_results_cap_rank"])
     if regional_thin_low_connectivity:
         return int(policy["regional_thin_escalated_cap_rank"])
+    if not severe_connectivity and authority >= float(policy["full_release_authority"]):
+        return None
+    if authority >= float(policy["soft_release_authority"]):
+        if connectivity_constrained or weak_avg or weak_depth or repeat_heavy_for_cap:
+            return int(policy["soft_cap_rank"])
+        return None
     if mid_thin_quality and not isolation_override:
         return int(policy["mid_thin_cap_rank"])
     if regional_thin_quality:
@@ -1016,11 +1093,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     if connectivity_constrained and top100 >= 1:
         return int(policy["soft_cap_rank"])
 
-    weak_avg = avg_opp_power is None or avg_opp_power < float(policy["min_avg_opp_power"])
-    weak_depth = top500 < int(policy["min_top500"])
-    repeat_heavy = repeat_share >= float(policy["max_repeat_share"])
-
-    if weak_avg or weak_depth or repeat_heavy:
+    if weak_avg or weak_depth or repeat_heavy_for_cap:
         return int(policy["cap_rank"])
     if connectivity_constrained:
         return int(policy["soft_cap_rank"])
@@ -1195,6 +1268,8 @@ async def compute_rankings_with_ml(
     snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
+    glicko_cfg = GlickoConfig() if use_glicko else None
+    fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=use_glicko)
 
     # 1) Get games data
     if games_df is None or games_df.empty:
@@ -1203,7 +1278,7 @@ async def compute_rankings_with_ml(
             with _section(timing_report, "fetch_games"):
                 games_df = await fetch_games_for_rankings(
                     supabase_client=supabase_client,
-                    lookback_days=lookback_days,
+                    lookback_days=fetch_lookback_days,
                     provider_filter=provider_filter,
                     today=today,
                 )
@@ -1257,10 +1332,10 @@ async def compute_rankings_with_ml(
         UNAFFILIATED_MULTIPLIER_MALE as _UMM,
     )
 
-    _ecfg = _GCfg() if use_glicko else v53_cfg
+    _ecfg = glicko_cfg or v53_cfg
     _ml = layer13_cfg or Layer13Config(lookback_days=_ecfg.WINDOW_DAYS if hasattr(_ecfg, "WINDOW_DAYS") else 365)
     _cfg_dict = {
-        "cache_schema": 2,
+        "cache_schema": 3,
         "engine": "glicko" if use_glicko else "v53e",
         "min_games": _ecfg.MIN_GAMES_PROVISIONAL,
         "window": getattr(_ecfg, "WINDOW_DAYS", 365),
@@ -1334,7 +1409,7 @@ async def compute_rankings_with_ml(
                 base = compute_rankings_v2(
                     games_df=games_df,
                     today=today,
-                    cfg=GlickoConfig(),
+                    cfg=glicko_cfg or GlickoConfig(),
                     global_rating_map=global_strength_map,
                     team_state_map=team_state_map,
                     pass_label=pass_label,
@@ -1625,10 +1700,11 @@ async def compute_all_cohorts(
     # Get games data if not provided
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
+            fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=use_glicko)
             with _section(timing_report, "fetch_games"):
                 games_df = await fetch_games_for_rankings(
                     supabase_client=supabase_client,
-                    lookback_days=lookback_days,
+                    lookback_days=fetch_lookback_days,
                     provider_filter=provider_filter,
                     today=today,
                     merge_resolver=merge_resolver,  # Apply merge resolution
@@ -1997,7 +2073,7 @@ async def compute_all_cohorts(
 
     # ========== Same-Age Evidence Metrics ==========
     if not teams_combined.empty:
-        evidence_df = _compute_same_age_evidence_metrics(games_used_combined, teams_combined)
+        evidence_df = _compute_same_age_evidence_metrics(games_df, teams_combined)
         teams_combined = teams_combined.merge(evidence_df, on="team_id", how="left")
 
         for col in [

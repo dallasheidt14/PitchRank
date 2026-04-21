@@ -279,6 +279,23 @@ class TestSelectGames:
         result = select_games(games, "team_a", max_games=30, window_days=365, today=today)
         assert len(result) == 2
 
+    def test_window_grace_keeps_recently_expired_games(self):
+        today = pd.Timestamp("2026-03-31")
+        games = pd.DataFrame(
+            {
+                "team_id": ["team_a"] * 3,
+                "date": [
+                    pd.Timestamp("2026-03-01"),
+                    pd.Timestamp("2025-03-26"),  # 370 days ago -> kept by 28-day grace
+                    pd.Timestamp("2025-02-20"),  # outside grace
+                ],
+                "gf": [2, 1, 3],
+                "ga": [1, 2, 0],
+            }
+        )
+        result = select_games(games, "team_a", max_games=30, window_days=365, today=today, grace_days=28)
+        assert len(result) == 2
+
     def test_most_recent_first(self):
         """Games should be sorted most recent first."""
         today = pd.Timestamp("2026-03-31")
@@ -403,6 +420,14 @@ class TestRecencyWeights:
         dates = pd.Series([pd.Timestamp("2026-03-01")])
         weights = compute_recency_weights(dates, today, lambda_=1.0)
         assert abs(weights[0] - 1.0) < 0.001
+
+    def test_grace_window_tapers_recently_expired_games(self):
+        today = pd.Timestamp("2026-03-31")
+        dates = pd.Series([pd.Timestamp("2025-04-01"), pd.Timestamp("2025-03-26")])
+        base = compute_recency_weights(dates, today, lambda_=1.0)
+        tapered = compute_recency_weights(dates, today, lambda_=1.0, window_days=365, grace_days=28)
+        assert tapered[1] < base[1]
+        assert tapered[0] > tapered[1]
 
 
 class TestRepeatOpponentWeights:
