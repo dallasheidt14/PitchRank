@@ -346,6 +346,35 @@ class TestBalancedSelection:
         assert {"S0", "S1", "S2"}.issubset(selected_opp_ids)
         assert {"B0", "B1", "B2"}.issubset(selected_opp_ids)
 
+    def test_selection_includes_soft_window_grace_day(self):
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-04-21")
+        rows = make_game("A", "B", 2, 1, pd.Timestamp("2025-04-20"))
+        games = pd.DataFrame(rows)
+        games["age"] = "U15"
+        games["gender"] = "M"
+        games["opp_age"] = "U15"
+        games["opp_gender"] = "M"
+
+        selected = select_games_balanced(games, "A", cfg, today, rating_lookup={"A": (1500.0, 200.0, 0.06)})
+
+        assert len(selected) == 1
+        assert str(selected.iloc[0]["opp_id"]) == "B"
+
+    def test_selection_uses_stable_tiebreakers_for_same_date(self):
+        today = pd.Timestamp("2026-04-21")
+        games = pd.DataFrame(
+            [
+                {"date": pd.Timestamp("2026-04-01"), "team_id": "T", "opp_id": "C", "gf": 1, "ga": 0, "game_id": "g3", "id": "g3"},
+                {"date": pd.Timestamp("2026-04-01"), "team_id": "T", "opp_id": "A", "gf": 1, "ga": 0, "game_id": "g1", "id": "g1"},
+                {"date": pd.Timestamp("2026-04-01"), "team_id": "T", "opp_id": "B", "gf": 1, "ga": 0, "game_id": "g2", "id": "g2"},
+            ]
+        )
+
+        selected = select_games(games, "T", max_games=3, window_days=365, today=today)
+
+        assert selected["opp_id"].tolist() == ["A", "B", "C"]
+
 
 class TestRecencyWeights:
     def test_most_recent_highest_weight(self):

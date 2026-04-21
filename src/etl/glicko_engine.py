@@ -307,6 +307,7 @@ def select_games(
     max_games: int,
     window_days: int,
     today: pd.Timestamp,
+    grace_days: int = 0,
 ) -> pd.DataFrame:
     """Select the most recent *max_games* games within *window_days* for a team.
 
@@ -320,12 +321,14 @@ def select_games(
     Returns:
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
-    cutoff = today - pd.Timedelta(days=window_days)
+    cutoff = today - pd.Timedelta(days=window_days + max(int(grace_days), 0))
     dates = games_df["date"]
     if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
         dates = dates.dt.tz_localize(None)
     mask = (games_df["team_id"] == team_id) & (dates >= cutoff)
-    filtered = games_df.loc[mask].sort_values("date", ascending=False)
+    sort_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in games_df.columns]
+    ascending = [False] + [True] * (len(sort_cols) - 1)
+    filtered = games_df.loc[mask].sort_values(sort_cols, ascending=ascending, kind="mergesort")
     return filtered.head(max_games)
 
 
@@ -398,7 +401,14 @@ def select_games_balanced(
     The output keeps the engine mostly recency-driven while reserving slots for
     quality same-age evidence and meaningful connectivity games.
     """
-    filtered = select_games(games_df, team_id, max_games=len(games_df), window_days=cfg.WINDOW_DAYS, today=today)
+    filtered = select_games(
+        games_df,
+        team_id,
+        max_games=len(games_df),
+        window_days=cfg.WINDOW_DAYS,
+        today=today,
+        grace_days=getattr(cfg, "WINDOW_GRACE_DAYS", 0),
+    )
     if filtered.empty:
         return filtered
     if not getattr(cfg, "BALANCED_SELECTION_ENABLED", False) or len(filtered) <= cfg.MAX_GAMES:
@@ -457,34 +467,41 @@ def select_games_balanced(
         selected_parts.append(chosen)
         selected_idx.update(chosen.index.tolist())
 
-    recent = work.sort_values("date", ascending=False)
+    recent = work.sort_values([col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns], ascending=[False, True, True, True][:len([col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns])], kind="mergesort")
     _take("recent", recent, int(cfg.BALANCED_SELECTION_RECENT_GAMES))
 
     remaining = work.loc[~work.index.isin(selected_idx)].copy()
     same_age_quality = remaining[remaining["is_same_age"]].sort_values(
-        ["is_non_loss", "opp_mu_selection", "date"],
-        ascending=[False, False, False],
+        [col for col in ["is_non_loss", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns],
+        ascending=[False, False, False, True, True, True][:len([col for col in ["is_non_loss", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns])],
+        kind="mergesort",
     )
     _take("same_age_quality", same_age_quality, int(cfg.BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES))
 
     remaining = work.loc[~work.index.isin(selected_idx)].copy()
     bridge_quality = remaining[remaining["is_bridge_game"]].sort_values(
-        ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date"],
-        ascending=[False, False, False, False, False],
+        [col for col in ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns],
+        ascending=[False, False, False, False, False, True, True, True][:len([col for col in ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns])],
+        kind="mergesort",
     )
     _take("bridge_quality", bridge_quality, int(cfg.BALANCED_SELECTION_BRIDGE_GAMES))
 
     remaining = work.loc[~work.index.isin(selected_idx)].sort_values(
-        ["date", "is_non_loss", "opp_mu_selection"],
-        ascending=[False, False, False],
+        [col for col in ["date", "is_non_loss", "opp_mu_selection", "game_id", "id", "opp_id"] if col in work.columns],
+        ascending=[False, False, False, True, True, True][:len([col for col in ["date", "is_non_loss", "opp_mu_selection", "game_id", "id", "opp_id"] if col in work.columns])],
+        kind="mergesort",
     )
     _take("recent_backfill", remaining, max(0, int(cfg.MAX_GAMES) - len(selected_idx)))
 
     if not selected_parts:
-        return work.sort_values("date", ascending=False).head(cfg.MAX_GAMES)
+        fallback_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns]
+        fallback_asc = [False] + [True] * (len(fallback_cols) - 1)
+        return work.sort_values(fallback_cols, ascending=fallback_asc, kind="mergesort").head(cfg.MAX_GAMES)
 
     selected = pd.concat(selected_parts, ignore_index=False)
-    selected = selected.sort_values("date", ascending=False)
+    selected_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in selected.columns]
+    selected_asc = [False] + [True] * (len(selected_cols) - 1)
+    selected = selected.sort_values(selected_cols, ascending=selected_asc, kind="mergesort")
     selected = selected[~selected.index.duplicated(keep="first")]
     if len(selected) > cfg.MAX_GAMES:
         selected = selected.head(cfg.MAX_GAMES)
@@ -501,10 +518,23 @@ def _get_team_games(
     """Return pre-filtered games for a team, falling back to select_games()."""
     if team_games and team_id in team_games:
         return team_games[team_id]
-    return select_games(games_df, team_id, cfg.MAX_GAMES, cfg.WINDOW_DAYS, today)
+    return select_games(
+        games_df,
+        team_id,
+        cfg.MAX_GAMES,
+        cfg.WINDOW_DAYS,
+        today,
+        grace_days=getattr(cfg, "WINDOW_GRACE_DAYS", 0),
+    )
 
 
-def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_: float = 1.0) -> np.ndarray:
+def compute_recency_weights(
+    game_dates: pd.Series,
+    today: pd.Timestamp,
+    lambda_: float = 1.0,
+    window_days: Optional[int] = None,
+    grace_days: int = 0,
+) -> np.ndarray:
     """Compute exponential-decay recency weights.
 
     Args:
@@ -523,6 +553,10 @@ def compute_recency_weights(game_dates: pd.Series, today: pd.Timestamp, lambda_:
     today_naive = today.tz_localize(None) if today.tzinfo is not None else today
     days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
+    if window_days is not None and grace_days > 0:
+        tail_days = (days_ago - int(window_days)).clip(lower=0)
+        taper = 1.0 - (tail_days / float(int(grace_days) + 1))
+        weights = weights * np.clip(taper, 0.0, 1.0)
     return weights / weights.sum()
 
 
@@ -672,7 +706,13 @@ def derive_offense_defense(
         off_residuals = tg["gf"].values.astype(float) - cohort_avg_gpg * e_team
         def_residuals = cohort_avg_gpg * (1.0 - e_team) - tg["ga"].values.astype(float)
 
-        weights = compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA)
+        weights = compute_recency_weights(
+            tg["date"],
+            today,
+            cfg.RECENCY_LAMBDA,
+            window_days=cfg.WINDOW_DAYS,
+            grace_days=getattr(cfg, "WINDOW_GRACE_DAYS", 0),
+        )
         off_raw = float(np.average(off_residuals, weights=weights))
         def_raw = float(np.average(def_residuals, weights=weights))
 
@@ -1393,7 +1433,13 @@ def run_glicko2_cohort(
             "opp_genders": opp_genders,
             "cross_age_mask": cross_age_mask,
             "weights": (
-                compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA)
+                compute_recency_weights(
+                    tg["date"],
+                    today,
+                    cfg.RECENCY_LAMBDA,
+                    window_days=cfg.WINDOW_DAYS,
+                    grace_days=getattr(cfg, "WINDOW_GRACE_DAYS", 0),
+                )
                 * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
             ).tolist(),
             "outcomes": [

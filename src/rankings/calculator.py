@@ -1264,6 +1264,7 @@ async def compute_rankings_with_ml(
         "engine": "glicko" if use_glicko else "v53e",
         "min_games": _ecfg.MIN_GAMES_PROVISIONAL,
         "window": getattr(_ecfg, "WINDOW_DAYS", 365),
+        "window_grace": getattr(_ecfg, "WINDOW_GRACE_DAYS", 0),
         "scf": getattr(_ecfg, "SCF_ENABLED", True),
         "scf_lf": getattr(_ecfg, "SCF_LEAGUE_FLOOR", None),
         "scf_lc": getattr(_ecfg, "SCF_LEAGUE_CONCENTRATION_THRESHOLD", None),

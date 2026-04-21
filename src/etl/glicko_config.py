@@ -24,6 +24,7 @@ class GlickoConfig:
     # Window
     MAX_GAMES: int = 30
     WINDOW_DAYS: int = 365
+    WINDOW_GRACE_DAYS: int = 28
     INACTIVE_DAYS: int = 180
     BALANCED_SELECTION_ENABLED: bool = True
     BALANCED_SELECTION_RECENT_GAMES: int = 20

@@ -209,6 +209,7 @@ async def fetch_games_for_rankings(
             False,  # Exclude games flagged as non-ranking (e.g., futsal)
         )
         .order("game_date", desc=False)
+        .order("id", desc=False)
     )  # Order for consistent pagination
 
     if provider_filter:
