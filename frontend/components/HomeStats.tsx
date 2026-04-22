@@ -53,21 +53,21 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
   // Show error indicator if fetch failed (still shows fallback values)
   if (error && loaded) {
     return (
-      <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
+      <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-4xl">
         <div className="text-center">
-          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+          <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">
             {formatNumber(totalGames)}
           </div>
           <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
         </div>
         <div className="text-center">
-          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+          <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">
             {formatNumber(totalTeams)}
           </div>
           <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
         </div>
         <div className="text-center">
-          <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
+          <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">50</div>
           <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
         </div>
       </div>
@@ -75,21 +75,21 @@ export function HomeStats({ fallbackGames = 16000, fallbackTeams = 2800 }: HomeS
   }
 
   return (
-    <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-2xl">
+    <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-8 max-w-4xl">
       <div className="text-center">
-        <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+        <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">
           {formatNumber(totalGames)}
         </div>
         <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Games Analyzed</div>
       </div>
       <div className="text-center">
-        <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">
+        <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">
           {formatNumber(totalTeams)}
         </div>
         <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">Teams Ranked</div>
       </div>
       <div className="text-center">
-        <div className="font-mono text-3xl sm:text-4xl md:text-5xl font-bold text-accent">50</div>
+        <div className="font-mono text-xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-accent">50</div>
         <div className="text-xs sm:text-sm uppercase tracking-wide text-primary-foreground/80">States Covered</div>
       </div>
     </div>
