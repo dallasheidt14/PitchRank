@@ -9,6 +9,7 @@ from postgrest.exceptions import APIError
 from src.etl.bulk_ops import (
     BULK_UPDATE_CHUNK_SIZE,
     BULK_UPDATE_MIN_CHUNK,
+    RPC_RESULT_LIMIT,
     bulk_update_last_scraped_at,
     call_rpc_with_fallback,
 )
@@ -24,9 +25,14 @@ class StubRpc:
         self.supabase = supabase
         self.fn_name = fn_name
         self.params = params
+        self.limit_arg: Optional[int] = None
+
+    def limit(self, n: int) -> "StubRpc":
+        self.limit_arg = n
+        return self
 
     def execute(self):
-        self.supabase.calls.append((self.fn_name, self.params))
+        self.supabase.calls.append((self.fn_name, self.params, self.limit_arg))
         reaction = self.supabase._next_reaction()
         if callable(reaction):
             return reaction(self.params)
@@ -196,3 +202,29 @@ def test_call_rpc_with_fallback_reraises_non_42883():
 def test_bulk_update_chunk_size_constant_is_2000():
     # Guards against accidental renames / tuning of the performance contract.
     assert BULK_UPDATE_CHUNK_SIZE == 2000
+
+
+def test_call_rpc_with_fallback_applies_default_row_limit():
+    # Guards against the PostgREST 1000-row silent truncation on SETOF RPCs.
+    sb = StubSupabase([SimpleNamespace(data=[1, 2, 3])])
+    call_rpc_with_fallback(sb, "get_foo", {}, fallback=lambda: pytest.fail("unused"))
+    # Recorded call is (fn_name, params, limit_arg)
+    assert sb.calls[0][2] == RPC_RESULT_LIMIT
+
+
+def test_call_rpc_with_fallback_accepts_explicit_limit():
+    sb = StubSupabase([SimpleNamespace(data=[1, 2])])
+    call_rpc_with_fallback(sb, "get_foo", {}, fallback=lambda: pytest.fail("unused"), limit=5000)
+    assert sb.calls[0][2] == 5000
+
+
+def test_call_rpc_with_fallback_omits_limit_when_none():
+    sb = StubSupabase([SimpleNamespace(data=[])])
+    call_rpc_with_fallback(sb, "get_foo", {}, fallback=lambda: pytest.fail("unused"), limit=None)
+    assert sb.calls[0][2] is None
+
+
+def test_rpc_result_limit_covers_current_alias_count():
+    # Guards against accidentally lowering RPC_RESULT_LIMIT below the largest
+    # current RPC payload (get_approved_aliases at ~136K rows for gotsport).
+    assert RPC_RESULT_LIMIT >= 150_000
