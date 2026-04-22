@@ -1,4 +1,13 @@
 name: Scrape Games
+# Run title shown in the Actions list. Cleaner than the default (latest commit subject).
+run-name: >-
+  Scrape Games · ${{
+    github.event_name == 'schedule' && '25000 (scheduled)' ||
+    (inputs.limit_teams != '' && format('{0} teams', inputs.limit_teams)) ||
+    (inputs.null_teams_only == true && 'NULL bootstrap') ||
+    (inputs.include_recent == true && 'include recent') ||
+    'incremental'
+  }}
 
 on:
   schedule:
@@ -64,6 +73,13 @@ jobs:
     outputs:
       should_shard: ${{ steps.gate.outputs.should_shard }}
       shard_count:  ${{ steps.gate.outputs.shard_count }}
+      # JSON array of shard indices to actually run. [0] for small runs, [0..4]
+      # when sharding. The scrape-and-import matrix consumes this via fromJSON(),
+      # so only the shards we want get matrix-instantiated. This replaces an
+      # earlier job-level `if: matrix.shard == 0 || ...` gate, which GitHub
+      # rejected at parse time because `matrix` context isn't available at the
+      # job level.
+      shards:       ${{ steps.gate.outputs.shards }}
     steps:
       - uses: actions/checkout@v5
 
@@ -89,16 +105,19 @@ jobs:
           LIMIT_TEAMS: ${{ inputs.limit_teams }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
-            echo "should_shard=true" >> "$GITHUB_OUTPUT"
-            echo "shard_count=5"      >> "$GITHUB_OUTPUT"
+            echo "should_shard=true"        >> "$GITHUB_OUTPUT"
+            echo "shard_count=5"            >> "$GITHUB_OUTPUT"
+            echo "shards=[0,1,2,3,4]"       >> "$GITHUB_OUTPUT"
           elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]] && [ "$LIMIT_TEAMS" -ge 5000 ]; then
-            echo "should_shard=true" >> "$GITHUB_OUTPUT"
-            echo "shard_count=5"      >> "$GITHUB_OUTPUT"
+            echo "should_shard=true"        >> "$GITHUB_OUTPUT"
+            echo "shard_count=5"            >> "$GITHUB_OUTPUT"
+            echo "shards=[0,1,2,3,4]"       >> "$GITHUB_OUTPUT"
           else
             # Small or no-arg manual run: only shard 0 executes. The RPC's hash
             # filter collapses to a no-op when p_shard_count <= 1.
-            echo "should_shard=false" >> "$GITHUB_OUTPUT"
-            echo "shard_count=1"      >> "$GITHUB_OUTPUT"
+            echo "should_shard=false"       >> "$GITHUB_OUTPUT"
+            echo "shard_count=1"            >> "$GITHUB_OUTPUT"
+            echo "shards=[0]"               >> "$GITHUB_OUTPUT"
           fi
 
       - name: Maintain GotSport direct ID aliases
@@ -126,10 +145,13 @@ jobs:
     timeout-minutes: 120  # Reduced from 360. Each shard does ~1/5 the work.
     strategy:
       fail-fast: false
+      # Dynamic matrix: the prepare job emits `shards` as a JSON array. Small
+      # runs get [0] (single-shard, hash filter no-op); scheduled / >=5000-team
+      # manual runs get [0,1,2,3,4]. The earlier approach (fixed [0..4] matrix
+      # + job-level `if: matrix.shard == 0 || ...`) is invalid GHA syntax:
+      # `matrix` context is not available at job-level `if:`.
       matrix:
-        shard: [0, 1, 2, 3, 4]
-    # Shard 0 always runs (covers the small-run case). Shards 1-4 only when sharding.
-    if: ${{ matrix.shard == 0 || needs.prepare.outputs.should_shard == 'true' }}
+        shard: ${{ fromJSON(needs.prepare.outputs.shards) }}
     # Job-level env: consistent for all steps. DO NOT put SCRAPE_SHARD_COUNT on
     # any step-level env block — step-level env overrides job-level env, which
     # would silently freeze SCRAPE_SHARD_COUNT to a stale literal.
