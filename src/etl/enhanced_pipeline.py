@@ -240,6 +240,13 @@ class EnhancedETLPipeline:
             self.matcher = AffinityWAGameMatcher(
                 self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
             )
+        elif self.provider_code.lower() == "playmetrics":
+            from src.models.playmetrics_matcher import PlayMetricsGameMatcher
+
+            logger.info("Using PlayMetricsGameMatcher (WI-scoped fuzzy + auto-create)")
+            self.matcher = PlayMetricsGameMatcher(
+                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+            )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")
             self.matcher = GameHistoryMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
@@ -592,7 +599,7 @@ class EnhancedETLPipeline:
                     if legacy_existing:
                         logger.info(
                             f"[Pipeline] Modular11: Found {len(legacy_existing)} games "
-                        f"with LEGACY UIDs in DB (these are NOT new games)"
+                            f"with LEGACY UIDs in DB (these are NOT new games)"
                         )
 
                 # For Modular11, check game_uid first (it includes age_group and division)
@@ -617,7 +624,7 @@ class EnhancedETLPipeline:
                     if existing_composite_keys:
                         logger.info(
                             f"[Pipeline] Found {len(existing_composite_keys)} duplicate games "
-                        f"by composite key (already in DB)"
+                            f"by composite key (already in DB)"
                         )
                         # Capture duplicates before filtering for backfill
                         m11_composite_dupes = [
@@ -633,7 +640,7 @@ class EnhancedETLPipeline:
                         self.metrics.duplicates_found += len(existing_composite_keys)
                         logger.info(
                             f"[Pipeline] Filtered to {len(games_with_existing_uid)} games "
-                        f"after composite key duplicate check"
+                            f"after composite key duplicate check"
                         )
                         # Backfill missing master IDs on Modular11 composite-key duplicates
                         bf = await self._backfill_duplicate_team_links(m11_composite_dupes)
@@ -799,7 +806,7 @@ class EnhancedETLPipeline:
                                 game["game_uid"] = modified_game_uid
                                 logger.info(
                                     f"[Pipeline] Modified game_uid for conflict (age only): "
-                    f"{game_uid} -> {modified_game_uid}"
+                                    f"{game_uid} -> {modified_game_uid}"
                                 )
                                 games_to_insert.append(game)
                             else:
