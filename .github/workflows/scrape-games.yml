@@ -28,7 +28,7 @@ on:
         type: string
         default: ''
       concurrency:
-        description: 'Number of concurrent scrapes'
+        description: 'Number of concurrent scrapes (manual override; default is computed adaptively per shard)'
         required: false
         type: string
         default: '30'
@@ -43,28 +43,106 @@ on:
         type: boolean
         default: false
 
-# Prevent overlapping scrape runs — the Monday 6:00 AM run must finish
-# before the 11:15 AM run starts. Without this, both runs write to the
-# same games/team_alias_map tables simultaneously, causing duplicate
-# inserts and stale alias cache reads.
+# Workflow-level concurrency: serialize SEPARATE workflow RUNS (the Mon 06:00 UTC
+# cron must finish before the Mon 11:15 UTC cron starts). Without this, the two
+# runs write to `games` and `team_alias_map` simultaneously, causing duplicate
+# inserts and stale alias-cache reads.
+#
+# DO NOT add a job-level `concurrency:` key inside `scrape-and-import` — doing so
+# would serialize the 5 matrix shards and kill the parallel-speedup the plan
+# relies on.
 concurrency:
   group: game-scraping
-  cancel-in-progress: false  # Queue the second run, don't cancel the first
+  cancel-in-progress: false  # Queue the second cron run; do not cancel the first
 
 jobs:
-  scrape-and-import:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6 hour timeout (GitHub max) for large scrapes
-
+    # Hard ceiling. Sized to accommodate the maintain step's 25-min worst case
+    # plus ~5 min of checkout/install/gate overhead.
+    timeout-minutes: 30
+    outputs:
+      should_shard: ${{ steps.gate.outputs.should_shard }}
+      shard_count:  ${{ steps.gate.outputs.shard_count }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-          cache: 'pip'  # Cache pip dependencies for faster subsequent runs
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p logs data/raw data/cache
+
+      - name: Compute shard gate
+        id: gate
+        # User-controlled workflow_dispatch inputs flow via env: vars (never
+        # interpolated directly into the shell body) so the shell, not the
+        # GitHub Actions parser, handles quoting. Regex validates the value
+        # before any numeric comparison.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LIMIT_TEAMS: ${{ inputs.limit_teams }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            echo "should_shard=true" >> "$GITHUB_OUTPUT"
+            echo "shard_count=5"      >> "$GITHUB_OUTPUT"
+          elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]] && [ "$LIMIT_TEAMS" -ge 5000 ]; then
+            echo "should_shard=true" >> "$GITHUB_OUTPUT"
+            echo "shard_count=5"      >> "$GITHUB_OUTPUT"
+          else
+            # Small or no-arg manual run: only shard 0 executes. The RPC's hash
+            # filter collapses to a no-op when p_shard_count <= 1.
+            echo "should_shard=false" >> "$GITHUB_OUTPUT"
+            echo "shard_count=1"      >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Maintain GotSport direct ID aliases
+        # Best-effort Tier 1 import-matching optimization; NOT a scraping
+        # correctness requirement. continue-on-error prevents a transient
+        # Supabase blip from cascading through `needs: prepare` and skipping
+        # all 5 scrape shards.
+        #
+        # Step-level timeout-minutes (25) prevents the whole prepare JOB from
+        # being cancelled when the per-row UPDATE loop hits its worst case
+        # (~5K aliases × ~300ms ≈ 25 min). The job-level timeout is 30 min.
+        # The checkout/install/gate steps above MUST NOT use continue-on-error
+        # — they produce outputs every downstream shard depends on.
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: python scripts/maintain_gotsport_direct_id_aliases.py
+
+  scrape-and-import:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # Reduced from 360. Each shard does ~1/5 the work.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    # Shard 0 always runs (covers the small-run case). Shards 1-4 only when sharding.
+    if: ${{ matrix.shard == 0 || needs.prepare.outputs.should_shard == 'true' }}
+    # Job-level env: consistent for all steps. DO NOT put SCRAPE_SHARD_COUNT on
+    # any step-level env block — step-level env overrides job-level env, which
+    # would silently freeze SCRAPE_SHARD_COUNT to a stale literal.
+    env:
+      SCRAPE_SHARD_INDEX: ${{ matrix.shard }}
+      SCRAPE_SHARD_COUNT: ${{ needs.prepare.outputs.shard_count }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -74,71 +152,86 @@ jobs:
 
       - name: Build scrape command
         id: build-command
+        # Reads SCRAPE_SHARD_COUNT from job env (= needs.prepare.outputs.shard_count).
+        # Computes per-shard --limit-teams and adaptive --concurrency.
+        #
+        # User-controlled workflow_dispatch inputs are passed via env: vars
+        # (never interpolated directly into the shell body) so the shell
+        # handles quoting. Numeric inputs are regex-validated before any
+        # arithmetic / comparison.
+        #
+        # Per-shard integer division may lose 1–4 teams when inputs.limit_teams
+        # is not divisible by 5 (e.g. 5001/5=1000 → total 5000). Acceptable at
+        # scraping scale.
+        env:
+          EVENT_NAME:        ${{ github.event_name }}
+          LIMIT_TEAMS:       ${{ inputs.limit_teams }}
+          NULL_TEAMS_ONLY:   ${{ inputs.null_teams_only }}
+          SINCE_DATE:        ${{ inputs.since_date }}
+          INCLUDE_RECENT:    ${{ inputs.include_recent }}
+          CONCURRENCY_INPUT: ${{ inputs.concurrency }}
         run: |
           CMD="python scripts/scrape_games.py --provider gotsport --auto-import"
 
-          # Add limit-teams if specified, or use 25000 for scheduled runs
-          if [ -n "${{ inputs.limit_teams }}" ]; then
-            CMD="$CMD --limit-teams ${{ inputs.limit_teams }}"
-            echo "Limiting to ${{ inputs.limit_teams }} teams"
-          elif [ "${{ github.event_name }}" == "schedule" ]; then
-            CMD="$CMD --limit-teams 25000"
-            echo "Scheduled run: Limiting to 25000 teams"
+          LIMIT_FLAG=""
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            # Scheduled: 25000 teams total / 5 shards = 5000 per shard
+            LIMIT_FLAG="--limit-teams 5000"
+          elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]] && [ "$LIMIT_TEAMS" -ge 5000 ]; then
+            LIMIT_FLAG="--limit-teams $(( LIMIT_TEAMS / 5 ))"
+          elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]]; then
+            # Small manual run: SCRAPE_SHARD_COUNT=1, hash filter is a no-op,
+            # shard 0 runs the full unsharded amount.
+            LIMIT_FLAG="--limit-teams $LIMIT_TEAMS"
           fi
+          # If LIMIT_FLAG is empty, the CLI omits --limit-teams and falls
+          # through to incremental mode (7-day stale filter) — matches the
+          # prior workflow's semantics for manual dispatch with no inputs.
+          CMD="$CMD $LIMIT_FLAG"
 
-          # Add null-teams-only if specified
-          if [ "${{ inputs.null_teams_only }}" == "true" ]; then
+          if [ "$NULL_TEAMS_ONLY" = "true" ]; then
             CMD="$CMD --null-teams-only"
-            echo "Scraping only NULL teams (bootstrap mode)"
           fi
 
-          # Add since-date if specified
-          if [ -n "${{ inputs.since_date }}" ]; then
-            CMD="$CMD --since-date ${{ inputs.since_date }}"
-            echo "Using since_date: ${{ inputs.since_date }}"
+          # YYYY-MM-DD only — guards against shell-meta in the date input.
+          if [[ "$SINCE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            CMD="$CMD --since-date $SINCE_DATE"
           fi
 
-          # Add include-recent if specified (override 7-day filter)
-          if [ "${{ inputs.include_recent }}" == "true" ]; then
+          if [ "$INCLUDE_RECENT" = "true" ]; then
             CMD="$CMD --include-recent"
-            echo "Including teams scraped within last 7 days"
           fi
 
-          # Add concurrency (default to 30 for scheduled runs where inputs aren't available)
-          CONCURRENCY="${{ inputs.concurrency }}"
-          if [ -z "$CONCURRENCY" ]; then
-            CONCURRENCY="30"
+          # Adaptive concurrency: 50 single-shard, 20 per shard when sharded
+          # (20 × 5 = 100 aggregate in-flight, matches gotsport.py pool_maxsize).
+          # Manual concurrency input wins if explicitly set AND we're not sharding.
+          if [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
+            CONCURRENCY=50
+          else
+            CONCURRENCY=20
+          fi
+          if [[ "$CONCURRENCY_INPUT" =~ ^[0-9]+$ ]] && [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
+            CONCURRENCY="$CONCURRENCY_INPUT"
           fi
           CMD="$CMD --concurrency $CONCURRENCY"
 
-          echo "Command: $CMD"
-          echo "command=$CMD" >> $GITHUB_OUTPUT
+          echo "Shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT}: $CMD"
+          echo "command=$CMD" >> "$GITHUB_OUTPUT"
 
-      - name: Maintain GotSport direct ID aliases
+      - name: Run scrape + auto-import
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          PYTHONPATH: ${{ github.workspace }}
-        run: |
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          python scripts/maintain_gotsport_direct_id_aliases.py
-
-      - name: Run Scrape and Import
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          PYTHONPATH: ${{ github.workspace }}
-        run: |
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          ${{ steps.build-command.outputs.command }}
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH:                ${{ github.workspace }}
+        run: ${{ steps.build-command.outputs.command }}
 
       - name: Upload scraped data
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: scraped-games-${{ github.run_number }}
+          name: scraped-games-${{ github.run_number }}-shard-${{ matrix.shard }}
           path: data/raw/scraped_games_*.jsonl
           retention-days: 7
           if-no-files-found: ignore
@@ -147,9 +240,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: scrape-logs-${{ github.run_number }}
-          path: |
-            logs/*.log
+          name: scrape-logs-${{ github.run_number }}-shard-${{ matrix.shard }}
+          path: logs/*.log
           retention-days: 30
           if-no-files-found: ignore
 
@@ -157,14 +249,14 @@ jobs:
         if: always()
         run: |
           echo "===================="
-          echo "Scrape workflow completed"
+          echo "Scrape shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT} completed"
           echo "===================="
-          if [ "${{ github.event_name }}" == "schedule" ]; then
-            echo "Teams limit: 25000 (scheduled run)"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Teams limit: 5000 per shard × 5 shards = 25000 (scheduled run)"
           else
-            echo "Teams limit: ${{ inputs.limit_teams || 'All eligible' }}"
+            echo "Teams limit input: ${{ inputs.limit_teams || 'empty (incremental mode)' }}"
           fi
           echo "Null teams only: ${{ inputs.null_teams_only }}"
           echo "Include recent (override 7-day filter): ${{ inputs.include_recent }}"
-          echo "Concurrency: ${{ inputs.concurrency }}"
+          echo "Concurrency input: ${{ inputs.concurrency }}"
           echo "Check artifacts for scraped data and logs"

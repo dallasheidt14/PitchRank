@@ -39,13 +39,30 @@ class FakeQuery:
         return SimpleNamespace(data=[])
 
 
+class FakeRpc:
+    def __init__(self, supabase, fn_name, params):
+        self.supabase = supabase
+        self.fn_name = fn_name
+        self.params = params
+
+    def execute(self):
+        self.supabase.rpc_calls.append((self.fn_name, self.params))
+        updates = self.params.get("updates") if isinstance(self.params, dict) else None
+        count = len(updates) if updates else 0
+        return SimpleNamespace(data=count)
+
+
 class FakeSupabase:
     def __init__(self):
         self.insert_calls = []
         self.update_calls = []
+        self.rpc_calls = []
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
+
+    def rpc(self, fn_name, params):
+        return FakeRpc(self, fn_name, params)
 
 
 class FakeProgress:
@@ -99,11 +116,14 @@ def test_bulk_log_team_scrapes_records_error_status_and_selective_updates():
     assert table_name == "team_scrape_log"
     assert [row["status"] for row in inserted_rows] == ["success", "error"]
 
-    assert len(supabase.update_calls) == 1
-    update_table, payload, filters = supabase.update_calls[0]
-    assert update_table == "teams"
-    assert payload.keys() == {"last_scraped_at"}
-    assert filters == [("team_id_master", "team-1")]
+    # last_scraped_at is now updated via bulk RPC; only teams with
+    # update_last_scraped_at=True should appear in the payload.
+    assert supabase.update_calls == []
+    assert len(supabase.rpc_calls) == 1
+    fn_name, params = supabase.rpc_calls[0]
+    assert fn_name == "bulk_update_last_scraped_at"
+    assert [u["team_id_master"] for u in params["updates"]] == ["team-1"]
+    assert set(params["updates"][0].keys()) == {"team_id_master", "last_scraped_at"}
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
+from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
 from supabase import create_client
 
@@ -57,59 +58,15 @@ def _is_placeholder_unknown_team(team: Dict) -> bool:
     return team_name.lower() == f"unknown_{provider_team_id}".lower()
 
 
-def _bulk_fetch_scrape_dates(supabase, provider_id: str, team_ids: List[str]) -> Dict[str, Optional[datetime]]:
-    """OPTIMIZATION: Bulk fetch all last_scraped_at dates in one query"""
-    if not team_ids:
-        return {}
-
-    # Initialize all teams to None
-    scrape_dates = {team_id: None for team_id in team_ids}
-
-    # Fetch from teams table (last_scraped_at column) - more efficient than team_scrape_log
-    # Reduced batch size to avoid URL length limits (UUIDs are ~36 chars each)
-    batch_size = 100
-
-    for i in range(0, len(team_ids), batch_size):
-        batch_ids = team_ids[i : i + batch_size]
-        try:
-            # Get last_scraped_at directly from teams table
-            result = (
-                supabase.table("teams")
-                .select("team_id_master, last_scraped_at")
-                .in_("team_id_master", batch_ids)
-                .eq("provider_id", provider_id)
-                .execute()
-            )
-
-            # Update scrape dates
-            for team in result.data or []:
-                team_id = team["team_id_master"]
-                last_scraped = team.get("last_scraped_at")
-                if last_scraped:
-                    try:
-                        scrape_dates[team_id] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
-                    except (ValueError, TypeError):
-                        scrape_dates[team_id] = None
-                else:
-                    scrape_dates[team_id] = None
-        except Exception as e:
-            logger.warning(f"Error bulk fetching scrape dates: {e}")
-            # Already initialized to None, so no action needed
-
-    return scrape_dates
-
-
 def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[str, Any]]):
     """OPTIMIZATION: Batch log team scrapes instead of individual calls"""
     if not scrape_logs:
         return
 
-    now = datetime.now()
-    now_iso = now.isoformat()
+    now_iso = datetime.now().isoformat()
 
-    # Prepare batch updates for teams table and log entries
-    log_entries = []
-    team_ids_to_update = []
+    log_entries: List[Dict[str, Any]] = []
+    update_payload: List[Dict[str, Any]] = []
 
     for scrape_log in scrape_logs:
         team_id_master = scrape_log["team_id_master"]
@@ -126,35 +83,71 @@ def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[st
             }
         )
         if scrape_log.get("update_last_scraped_at", True):
-            team_ids_to_update.append(team_id_master)
+            update_payload.append({"team_id_master": team_id_master, "last_scraped_at": now_iso})
 
-    # Batch insert scrape logs first
-    batch_size = 500  # Larger batches for inserts
+    # Batch insert scrape logs.
+    log_insert_batch_size = 500
     inserted_count = 0
-    for i in range(0, len(log_entries), batch_size):
-        batch = log_entries[i : i + batch_size]
+    for i in range(0, len(log_entries), log_insert_batch_size):
+        batch = log_entries[i : i + log_insert_batch_size]
         try:
             supabase.table("team_scrape_log").insert(batch).execute()
             inserted_count += len(batch)
         except Exception as e:
-            logger.warning(f"Error batch inserting scrape logs (batch {i // batch_size + 1}): {e}")
+            logger.warning(f"Error batch inserting scrape logs (batch {i // log_insert_batch_size + 1}): {e}")
 
-    # Batch update teams.last_scraped_at (one update per team, but batched for efficiency)
-    # Supabase doesn't support bulk UPDATE with different values easily, so we update individually but in batches
-    batch_size = 100
-    updated_count = 0
-    for i in range(0, len(team_ids_to_update), batch_size):
-        batch = team_ids_to_update[i : i + batch_size]
-        for team_id_master in batch:
-            try:
-                supabase.table("teams").update({"last_scraped_at": now_iso}).eq(
-                    "team_id_master", team_id_master
-                ).execute()
-                updated_count += 1
-            except Exception as e:
-                logger.warning(f"Error updating last_scraped_at for team {team_id_master}: {e}")
+    updated_count = bulk_update_last_scraped_at(supabase, update_payload)
 
     logger.info(f"Bulk logged {inserted_count} scrape logs and updated {updated_count} team timestamps")
+
+
+def _legacy_paginated_team_fetch(
+    supabase,
+    provider_id: str,
+    limit_teams: Optional[int],
+    null_teams_only: bool,
+    include_recent: bool,
+) -> List[Dict]:
+    """Fallback path for the `get_teams_to_scrape_limited` RPC.
+
+    Preserves the pre-RPC paginated `.range()` loop verbatim for each of the
+    three legacy branches. Only invoked when the RPC returns SQLSTATE 42883
+    ("function does not exist"), i.e. the migration has not been applied yet.
+    """
+    teams: List[Dict] = []
+    page_size = 1000
+    offset = 0
+
+    while True:
+        query = supabase.table("teams").select("*").eq("provider_id", provider_id)
+        if null_teams_only:
+            query = query.is_("last_scraped_at", "null")
+        # `include_recent` and the default `limit_teams` branch both fetch all
+        # provider teams; priority ordering is applied in Python below.
+        teams_result = query.range(offset, offset + page_size - 1).execute()
+
+        if not teams_result.data:
+            break
+
+        teams.extend(teams_result.data)
+
+        if len(teams_result.data) < page_size:
+            break
+
+        offset += page_size
+
+    if not null_teams_only and not include_recent:
+        # Steady-state / limit_teams path: sort by priority
+        #   1. NULL last_scraped_at first (never scraped)
+        #   2. Then oldest last_scraped_at ascending
+        teams.sort(
+            key=lambda t: (
+                0 if t.get("last_scraped_at") is None else 1,
+                t.get("last_scraped_at") or "",
+            )
+        )
+
+    return teams
 
 
 async def _scrape_team_concurrent(
@@ -293,111 +286,47 @@ async def scrape_games(
     scraper = GotSportScraper(supabase, provider)
     provider_id = scraper._get_provider_id()
 
-    # Get teams to scrape
+    # Get teams to scrape via get_teams_to_scrape_limited RPC (SQL-side filter,
+    # priority order, and shard-by-hash). The three legacy modes (null_teams_only,
+    # include_recent, limit_teams) collapse into a single call.
+    shard_index = int(os.getenv("SCRAPE_SHARD_INDEX", "0"))
+    shard_count = int(os.getenv("SCRAPE_SHARD_COUNT", "1"))
+    rpc_params = {
+        "p_provider_id": provider_id,
+        "p_limit": limit_teams if limit_teams else None,
+        "p_shard_index": shard_index,
+        "p_shard_count": shard_count,
+        "p_include_recent": bool(include_recent),
+        "p_null_only": bool(null_teams_only),
+    }
+
     if null_teams_only:
-        # Get teams with NULL last_scraped_at (with pagination to handle >1000 teams)
-        console.print("[cyan]Fetching teams with NULL last_scraped_at (paginated)...[/cyan]")
-        teams = []
-        page_size = 1000
-        offset = 0
-
-        while True:
-            teams_result = (
-                supabase.table("teams")
-                .select("*")
-                .eq("provider_id", provider_id)
-                .is_("last_scraped_at", "null")
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-
-            if not teams_result.data:
-                break
-
-            teams.extend(teams_result.data)
-
-            if len(teams_result.data) < page_size:
-                break
-
-            offset += page_size
-            console.print(f"  Fetched {len(teams)} teams so far...")
-
-        console.print(f"[cyan]Found {len(teams)} teams with NULL last_scraped_at[/cyan]")
+        console.print("[cyan]Fetching teams with NULL last_scraped_at (RPC)...[/cyan]")
     elif include_recent:
-        # Include ALL teams (override 7-day filter) - useful for manual re-scrapes
-        console.print("[cyan]Fetching ALL teams (including recently scraped)...[/cyan]")
-        teams = []
-        page_size = 1000
-        offset = 0
-
-        while True:
-            teams_result = (
-                supabase.table("teams")
-                .select("*")
-                .eq("provider_id", provider_id)
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-
-            if not teams_result.data:
-                break
-
-            teams.extend(teams_result.data)
-
-            if len(teams_result.data) < page_size:
-                break
-
-            offset += page_size
-            console.print(f"  Fetched {len(teams)} teams so far...")
-
-        console.print(f"[cyan]Found {len(teams)} total teams (all teams mode)[/cyan]")
-        console.print("[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
+        console.print("[cyan]Fetching ALL teams (including recently scraped) (RPC)...[/cyan]")
     elif limit_teams:
-        # User specified a team limit — fetch ALL teams sorted by priority:
-        #   1. Never scraped (NULL last_scraped_at) first
-        #   2. Then oldest last_scraped_at ascending
-        # This ensures the limit slices off the most-recently-scraped teams,
-        # giving priority to teams that need it most.
-        console.print(f"[cyan]Fetching ALL teams (sorted by scrape priority for limit={limit_teams})...[/cyan]")
-        teams = []
-        page_size = 1000
-        offset = 0
-
-        while True:
-            teams_result = (
-                supabase.table("teams")
-                .select("*")
-                .eq("provider_id", provider_id)
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-
-            if not teams_result.data:
-                break
-
-            teams.extend(teams_result.data)
-
-            if len(teams_result.data) < page_size:
-                break
-
-            offset += page_size
-            console.print(f"  Fetched {len(teams)} teams so far...")
-
-        # Sort: NULL last_scraped_at first (never scraped), then oldest first
-        teams.sort(
-            key=lambda t: (
-                0 if t.get("last_scraped_at") is None else 1,
-                t.get("last_scraped_at") or "",
-            )
-        )
-
-        null_count = sum(1 for t in teams if t.get("last_scraped_at") is None)
-        console.print(f"[cyan]Found {len(teams)} total teams ({null_count} never scraped, sorted by priority)[/cyan]")
-        console.print(f"[dim]Will scrape up to {limit_teams} teams, prioritizing never-scraped and oldest[/dim]")
+        console.print(f"[cyan]Fetching top {limit_teams} teams by scrape priority (RPC)...[/cyan]")
     else:
-        # Steady-state incremental mode: scrape teams not scraped in last 7 days
-        teams = scraper._get_teams_to_scrape()
-        console.print("[cyan]Incremental mode: Scraping teams not updated in last 7 days[/cyan]")
+        console.print("[cyan]Incremental mode: Scraping teams not updated in last 7 days (RPC)...[/cyan]")
+
+    if shard_count > 1:
+        console.print(f"[dim]Shard {shard_index} of {shard_count} (hash-partitioned by team_id_master)[/dim]")
+
+    teams = (
+        call_rpc_with_fallback(
+            supabase,
+            "get_teams_to_scrape_limited",
+            rpc_params,
+            fallback=lambda: _legacy_paginated_team_fetch(
+                supabase, provider_id, limit_teams, null_teams_only, include_recent
+            ),
+            log_msg="PERF REGRESSION: Falling back to paginated team fetch: %s",
+        )
+        or []
+    )
+
+    console.print(f"[cyan]Found {len(teams)} teams[/cyan]")
+    if not null_teams_only:
         console.print("[dim]Each team will use its cached last_scraped_at for incremental updates[/dim]")
 
     # Filter out U8/U9 and U20+ teams (PitchRank supports U10-U19)
@@ -445,8 +374,7 @@ async def scrape_games(
         console.print(f"[cyan]Limiting to {limit_teams} teams[/cyan]")
 
     console.print(
-        f"[bold cyan]Scraping games for {len(teams)} teams "
-        f"(of {total_eligible} eligible after filtering)[/bold cyan]"
+        f"[bold cyan]Scraping games for {len(teams)} teams (of {total_eligible} eligible after filtering)[/bold cyan]"
     )
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     if since_date:
@@ -456,11 +384,22 @@ async def scrape_games(
     else:
         console.print()
 
-    # OPTIMIZATION 1: Bulk fetch all scrape dates
-    console.print("[dim]Fetching scrape dates for all teams...[/dim]")
-    team_ids = [t.get("team_id_master") for t in teams if t.get("team_id_master")]
-    scrape_dates_cache = _bulk_fetch_scrape_dates(supabase, provider_id, team_ids)
-    console.print(f"[green]✓[/green] Loaded scrape dates for {len(scrape_dates_cache)} teams\n")
+    # The team fetch already returned `last_scraped_at` on every row, so the
+    # scrape-date cache is built in-memory — no extra round-trips.
+    scrape_dates_cache: Dict[str, Optional[datetime]] = {}
+    for t in teams:
+        tid = t.get("team_id_master")
+        if not tid:
+            continue
+        last_scraped = t.get("last_scraped_at")
+        if last_scraped:
+            try:
+                scrape_dates_cache[tid] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                scrape_dates_cache[tid] = None
+        else:
+            scrape_dates_cache[tid] = None
+    console.print(f"[green]✓[/green] Scrape-date cache built for {len(scrape_dates_cache)} teams\n")
 
     # Set up output file for incremental saving
     if not output_file:
