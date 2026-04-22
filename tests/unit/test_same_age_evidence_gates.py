@@ -9,6 +9,7 @@ from src.rankings.calculator import (
     _compute_same_age_evidence_metrics,
     _play_up_bonus,
     _positive_ml_evidence_scale,
+    _same_age_publish_penalty,
     _publication_cap_rank,
     _validate_publication_caps,
 )
@@ -220,6 +221,46 @@ def test_positive_ml_evidence_scale_keeps_multi_top100_weak_field_team_partial()
         }
     )
     assert _positive_ml_evidence_scale(row) < 0.20
+
+
+def test_positive_ml_evidence_scale_stale_elite_profile_is_not_full_release():
+    row = pd.Series(
+        {
+            "age_num": 13,
+            "same_age_top100_opp_count": 4,
+            "same_age_top100_non_loss_opp_count": 2,
+            "same_age_top500_opp_count": 6,
+            "same_age_top500_non_loss_opp_count": 4,
+            "same_age_top1000_non_loss_opp_count": 6,
+            "same_age_avg_opp_power_adj": 0.721,
+            "repeat_opponent_share": 0.10,
+            "unique_opp_states": 7,
+            "games_last_180_days": 4,
+            "days_since_last": 101,
+        }
+    )
+    scale = _positive_ml_evidence_scale(row)
+    assert 0.60 < scale < 0.85
+
+
+def test_positive_ml_evidence_scale_allows_recent_zero_top100_bridge_profile_partial_ml():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_games": 36,
+            "same_age_unique_opponents": 23,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.576,
+            "repeat_opponent_share": 0.50,
+            "unique_opp_states": 5,
+            "games_last_180_days": 25,
+            "days_since_last": 3,
+            "powerscore_adj": 0.749,
+            "powerscore_ml": 0.788,
+        }
+    )
+    assert 0.20 < _positive_ml_evidence_scale(row) < 0.40
 
 
 def test_positive_ml_evidence_scale_allows_supported_play_up_team():
@@ -564,6 +605,26 @@ def test_publication_cap_rank_skips_multi_top100_team_with_depth():
     assert _publication_cap_rank(row) == 400
 
 
+def test_publication_cap_rank_releases_strong_broad_low_raw_avg_profile():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_unique_opponents": 31,
+            "same_age_top100_opp_count": 4,
+            "same_age_top100_non_loss_opp_count": 2,
+            "same_age_top500_opp_count": 9,
+            "same_age_top500_non_loss_opp_count": 6,
+            "same_age_top1000_non_loss_opp_count": 8,
+            "same_age_avg_opp_power_adj": 0.572,
+            "repeat_opponent_share": 0.275,
+            "unique_opp_states": 10,
+            "games_last_180_days": 10,
+            "days_since_last": 3,
+        }
+    )
+    assert _publication_cap_rank(row) is None
+
+
 def test_publication_cap_rank_releases_strong_broad_profile():
     row = pd.Series(
         {
@@ -596,6 +657,27 @@ def test_publication_cap_rank_soft_caps_strong_but_mixed_field_profile():
         }
     )
     assert _publication_cap_rank(row) == 250
+
+
+def test_publication_cap_rank_relieves_recent_high_raw_zero_top100_bridge_profile():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_games": 36,
+            "same_age_unique_opponents": 23,
+            "same_age_top100_opp_count": 0,
+            "same_age_top500_opp_count": 3,
+            "same_age_avg_opp_power_adj": 0.576,
+            "repeat_opponent_share": 0.50,
+            "unique_opp_states": 5,
+            "games_last_180_days": 25,
+            "days_since_last": 3,
+            "powerscore_adj": 0.749,
+            "powerscore_ml": 0.788,
+            "scf": 0.82,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
 
 
 def test_publication_cap_rank_softens_for_supported_play_up_team():
@@ -633,6 +715,43 @@ def test_play_up_bonus_is_bounded_and_requires_quality():
         }
     )
     assert _play_up_bonus(row) == 0.06
+
+
+def test_same_age_publish_penalty_hits_weak_field_multi_top100_profile():
+    row = pd.Series(
+        {
+            "age_num": 15,
+            "same_age_unique_opponents": 30,
+            "same_age_top100_opp_count": 3,
+            "same_age_top500_opp_count": 5,
+            "same_age_avg_opp_power_adj": 0.496,
+            "repeat_opponent_share": 0.18,
+            "unique_opp_states": 8,
+            "games_last_180_days": 10,
+            "days_since_last": 3,
+        }
+    )
+    assert _same_age_publish_penalty(row) > 0.02
+
+
+def test_same_age_publish_penalty_hits_stale_elite_profile():
+    row = pd.Series(
+        {
+            "age_num": 13,
+            "same_age_unique_opponents": 12,
+            "same_age_top100_opp_count": 4,
+            "same_age_top100_non_loss_opp_count": 2,
+            "same_age_top500_opp_count": 6,
+            "same_age_top500_non_loss_opp_count": 4,
+            "same_age_top1000_non_loss_opp_count": 6,
+            "same_age_avg_opp_power_adj": 0.721,
+            "repeat_opponent_share": 0.10,
+            "unique_opp_states": 7,
+            "games_last_180_days": 4,
+            "days_since_last": 101,
+        }
+    )
+    assert _same_age_publish_penalty(row) > 0.015
 
 
 def test_apply_publication_cap_band_preserves_relative_order():
