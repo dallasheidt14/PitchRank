@@ -85,14 +85,17 @@ class GotSportScraper(BaseScraper):
             verify_ssl = certifi.where()
             logger.debug(f"Using certifi certificates: {verify_ssl}")
 
-        # Configure HTTPAdapter with larger connection pool and SSL improvements
+        # Configure HTTPAdapter with larger connection pool and SSL improvements.
+        # 429 is in status_forcelist so urllib3 transparently retries rate-limit
+        # responses. backoff_factor=1.0 → waits of 1s, 2s, 4s between the 3 tries.
         adapter = HTTPAdapter(
             pool_connections=100,  # number of connection pools
             pool_maxsize=100,  # total concurrent connections
             max_retries=Retry(
                 total=3,
-                backoff_factor=0.3,
-                status_forcelist=[500, 502, 503, 504],  # Retry on server errors
+                backoff_factor=1.0,
+                status_forcelist=[429, 500, 502, 503, 504],  # Retry on rate limit + server errors
+                respect_retry_after_header=True,  # Honor Retry-After from GotSport
                 # Retry on SSL errors (will be caught and retried)
                 allowed_methods=["GET", "HEAD"],
             ),
@@ -180,6 +183,19 @@ class GotSportScraper(BaseScraper):
                 else:
                     response = self.session.get(api_url, params=params, timeout=self.timeout)
 
+                # Surface transparent urllib3 retries. response.raw.retries may be
+                # None on responses that never triggered the retry machinery.
+                retries_obj = getattr(response.raw, "retries", None)
+                history = getattr(retries_obj, "history", ()) or ()
+                n429 = sum(1 for h in history if getattr(h, "status", None) == 429)
+                if n429:
+                    logger.warning(
+                        "gotsport 429 retries: team=%s count=%d url=%s",
+                        normalized_team_id,
+                        n429,
+                        api_url,
+                    )
+
                 response.raise_for_status()
                 data = response.json()
 
@@ -214,7 +230,7 @@ class GotSportScraper(BaseScraper):
                                 if since_date_obj is not None and game_date < since_date_obj:
                                     logger.debug(
                                         f"Reached date cutoff at {game_date}, "
-                        f"stopping parse for team {normalized_team_id}"
+                                        f"stopping parse for team {normalized_team_id}"
                                     )
                                     break
                             except (ValueError, TypeError):
@@ -279,6 +295,24 @@ class GotSportScraper(BaseScraper):
                     else:
                         logger.error(f"SSL error failed after {self.max_retries} attempts: {e}")
                         raise
+
+            except requests.exceptions.RetryError as e:
+                # urllib3 exhausted its per-call retry budget (total=3) on 429
+                # or 5xx. Emit the verification-grep marker here, then fall
+                # through to the outer retry loop to preserve the pre-change
+                # behavior (where the generic RequestException handler did the
+                # same thing). Must precede the RequestException handler below
+                # because RetryError is a RequestException subclass.
+                logger.error(
+                    "gotsport 429 retry-exhausted: team=%s url=%s err=%s",
+                    normalized_team_id,
+                    api_url,
+                    e,
+                )
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+                raise
 
             except requests.exceptions.RequestException as e:
                 if attempt < self.max_retries - 1:

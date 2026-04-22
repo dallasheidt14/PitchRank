@@ -1,6 +1,7 @@
 """Enhanced ETL Pipeline with metrics tracking and bulk operations"""
 
 import logging
+import os
 import random
 import sys
 import time
@@ -15,6 +16,7 @@ if _project_root not in sys.path:
     sys.path.append(_project_root)
 
 from config.settings import BUILD_ID, MATCHING_CONFIG, SUPABASE_KEY, SUPABASE_URL  # noqa: E402
+from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback  # noqa: E402
 from src.models.game_matcher import GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
@@ -156,32 +158,27 @@ class EnhancedETLPipeline:
                 f"Check credentials and network before retrying."
             ) from e
 
-        # Preload alias map cache (paginated to load ALL approved aliases)
+        # Preload alias map cache via RPC (one round-trip) with paginated fallback.
         self.alias_cache = {}
         try:
-            all_alias_data = []
-            page_size = 1000
-            offset = 0
-            while True:
-                alias_result = (
-                    self.supabase.table("team_alias_map")
-                    .select("provider_team_id, team_id_master, match_method, review_status")
-                    .eq("provider_id", self.provider_id)
-                    .eq("review_status", "approved")
-                    .range(offset, offset + page_size - 1)
-                    .execute()
+            # Stagger concurrent matrix shards so 5 parallel workflow shards don't
+            # hammer PostgREST with simultaneous ~13 MB alias-map responses.
+            shard_idx = int(os.getenv("SCRAPE_SHARD_INDEX", "0"))
+            if shard_idx > 0:
+                time.sleep(shard_idx * 2)
+
+            all_alias_data = (
+                call_rpc_with_fallback(
+                    self.supabase,
+                    "get_approved_aliases",
+                    {"p_provider_id": self.provider_id},
+                    fallback=self._paginated_alias_preload,
+                    log_msg="PERF REGRESSION: Falling back to paginated alias preload: %s",
                 )
-
-                if not alias_result.data:
-                    break
-                all_alias_data.extend(alias_result.data)
-                if len(alias_result.data) < page_size:
-                    break
-                offset += page_size
-
-            logger.info(
-                f"Fetched {len(all_alias_data)} approved aliases from database ({offset // page_size + 1} pages)"
+                or []
             )
+
+            logger.info(f"Fetched {len(all_alias_data)} approved aliases from database")
 
             for alias in all_alias_data:
                 raw_team_id = str(alias["provider_team_id"])
@@ -2210,26 +2207,19 @@ class EnhancedETLPipeline:
                 logger.debug("No valid scraped_at timestamps found in imported games")
                 return
 
-            # Update teams.last_scraped_at in batches
-            batch_size = 100
-            updated_count = 0
+            payload = [
+                {"team_id_master": team_id, "last_scraped_at": scraped_at.isoformat()}
+                for team_id, scraped_at in team_scrape_dates.items()
+            ]
 
-            team_ids = list(team_scrape_dates.keys())
-            for i in range(0, len(team_ids), batch_size):
-                batch_ids = team_ids[i : i + batch_size]
-
-                for team_id in batch_ids:
-                    scraped_at = team_scrape_dates[team_id]
-                    scraped_at_iso = scraped_at.isoformat()
-
-                    try:
-                        # Update last_scraped_at for this team
-                        self.supabase.table("teams").update({"last_scraped_at": scraped_at_iso}).eq(
-                            "team_id_master", team_id
-                        ).eq("provider_id", self.provider_id).execute()
-                        updated_count += 1
-                    except Exception as e:
-                        logger.warning(f"Error updating last_scraped_at for team {team_id}: {e}")
+            updated_count = bulk_update_last_scraped_at(
+                self.supabase,
+                payload,
+                on_missing_function=lambda: self._legacy_update_team_scrape_dates_per_team(team_scrape_dates),
+                missing_function_log=(
+                    "PERF REGRESSION: Falling back to per-team UPDATE in _update_team_scrape_dates: %s"
+                ),
+            )
 
             if updated_count > 0:
                 logger.info(f"Updated last_scraped_at for {updated_count} teams based on imported games")
@@ -2237,6 +2227,60 @@ class EnhancedETLPipeline:
         except Exception as e:
             logger.warning(f"Error updating team scrape dates: {e}")
             # Don't fail the import if this step fails
+
+    def _paginated_alias_preload(self) -> List[Dict[str, Any]]:
+        """Paginated team_alias_map fallback for `get_approved_aliases` RPC.
+
+        Triggered only on SQLSTATE 42883 during rolling deploys. Returns rows
+        with the same shape the RPC produces, so the downstream cache-population
+        loop is branch-agnostic.
+        """
+        rows: List[Dict[str, Any]] = []
+        page_size = 1000
+        offset = 0
+        while True:
+            fallback_result = (
+                self.supabase.table("team_alias_map")
+                .select("provider_team_id, team_id_master, match_method, review_status")
+                .eq("provider_id", self.provider_id)
+                .eq("review_status", "approved")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            if not fallback_result.data:
+                break
+            rows.extend(fallback_result.data)
+            if len(fallback_result.data) < page_size:
+                break
+            offset += page_size
+        return rows
+
+    def _legacy_update_team_scrape_dates_per_team(self, team_scrape_dates: Dict[str, datetime]) -> int:
+        """Paginated per-team UPDATE fallback for _update_team_scrape_dates.
+
+        Preserves the pre-RPC behavior verbatim. Invoked when
+        `bulk_update_last_scraped_at` returns SQLSTATE 42883.
+        """
+        batch_size = 100
+        updated_count = 0
+
+        team_ids = list(team_scrape_dates.keys())
+        for i in range(0, len(team_ids), batch_size):
+            batch_ids = team_ids[i : i + batch_size]
+
+            for team_id in batch_ids:
+                scraped_at = team_scrape_dates[team_id]
+                scraped_at_iso = scraped_at.isoformat()
+
+                try:
+                    self.supabase.table("teams").update({"last_scraped_at": scraped_at_iso}).eq(
+                        "team_id_master", team_id
+                    ).eq("provider_id", self.provider_id).execute()
+                    updated_count += 1
+                except Exception as e:
+                    logger.warning(f"Error updating last_scraped_at for team {team_id}: {e}")
+
+        return updated_count
 
     async def _process_team_matching_stats(self):
         """Process team matching statistics from alias map"""
