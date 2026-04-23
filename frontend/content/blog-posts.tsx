@@ -1194,9 +1194,9 @@ export const blogPosts: BlogPost[] = [
   },
   {
     slug: 'california-youth-soccer-rankings-guide',
-    title: 'California Youth Soccer Rankings 2026 — Updated Weekly | PitchRank',
+    title: 'California Youth Soccer Rankings — 15,700 Clubs 2026',
     excerpt:
-      'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC and more — rated by PowerScore from real game results. Free rankings updated every Monday.',
+      'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC and more — rated weekly by PowerScore. Free.',
     author: 'PitchRank Team',
     date: '2026-02-21',
     readingTime: '9 min read',
@@ -1870,9 +1870,9 @@ export const blogPosts: BlogPost[] = [
   },
   {
     slug: 'texas-youth-soccer-rankings-guide',
-    title: 'Texas Youth Soccer Rankings 2026 — Updated Weekly | PitchRank',
+    title: 'Texas Youth Soccer Rankings — 9,500 Clubs 2026',
     excerpt:
-      'Where does your Texas club rank? FC Dallas, Solar SC, Albion Hurricanes and 9,457 more teams rated by PowerScore from real game data. Free state and age-group rankings updated every Monday.',
+      'Find where your Texas club ranks among 9,457 teams. FC Dallas, Solar SC, and more — rated weekly by PowerScore from real game results. Free.',
     author: 'PitchRank Team',
     date: '2026-03-14',
     readingTime: '10 min read',

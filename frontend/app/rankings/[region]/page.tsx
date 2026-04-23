@@ -199,8 +199,35 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
     console.error('Error fetching state overview data:', error);
   }
 
-  // Structured data for SEO
-  const structuredData = {
+  // Visible FAQ content — schema must match rendered markup exactly
+  const stateLabel = isNational ? 'National' : stateInfo.name;
+  const faqItems = [
+    {
+      q: isNational
+        ? 'What is the top-ranked youth soccer club in the United States?'
+        : `What is the best youth soccer club in ${stateLabel}?`,
+      a: `Top-ranked clubs vary by age group and update weekly. See the Top Boys Teams and Top Girls Teams sections above to view the leading ${stateLabel} clubs by age group.`,
+    },
+    {
+      q: isNational ? 'How are youth soccer teams ranked?' : `How are ${stateLabel} youth soccer teams ranked?`,
+      a: 'Teams are ranked by PowerScore — a rating built from real game results. PowerScore weighs wins, margin of victory, strength of opponent, and game context. Rankings cover U10 through U19 for both boys and girls.',
+    },
+    {
+      q: 'How often are rankings updated?',
+      a: 'Rankings update every Monday, based on game results from the prior week. Top teams, risers, and fallers are recomputed each week.',
+    },
+    {
+      q: 'Are these rankings free?',
+      a: `Yes — all ${stateLabel} youth soccer rankings are free to browse without an account.`,
+    },
+    {
+      q: 'Which age groups are covered?',
+      a: `PitchRank ranks U10 through U19 for both boys and girls${isNational ? '' : ` in ${stateLabel}`}. Use the age group navigation above to open each age group's full rankings table.`,
+    },
+  ];
+
+  // Structured data for SEO — CollectionPage + ItemList of age/gender sub-pages + FAQPage
+  const collectionPageSchema = {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
     name: isNational ? 'National Youth Soccer Rankings' : `${stateInfo.name} Youth Soccer Rankings`,
@@ -208,11 +235,43 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
       ? 'Comprehensive national youth soccer rankings by age group and gender'
       : `Youth soccer rankings for ${stateInfo.name} across all age groups`,
     url: `${BASE_URL}/rankings/${region.toLowerCase()}`,
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: AGE_GROUPS.length * 2,
+      itemListElement: AGE_GROUPS.flatMap((age, ageIdx) => [
+        {
+          '@type': 'ListItem',
+          position: ageIdx * 2 + 1,
+          name: `${stateLabel} ${age.toUpperCase()} Boys Soccer Rankings`,
+          url: `${BASE_URL}/rankings/${region.toLowerCase()}/${age}/male`,
+        },
+        {
+          '@type': 'ListItem',
+          position: ageIdx * 2 + 2,
+          name: `${stateLabel} ${age.toUpperCase()} Girls Soccer Rankings`,
+          url: `${BASE_URL}/rankings/${region.toLowerCase()}/${age}/female`,
+        },
+      ]),
+    },
+  };
+
+  const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqItems.map((item) => ({
+      '@type': 'Question',
+      name: item.q,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.a,
+      },
+    })),
   };
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(structuredData) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(collectionPageSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema) }} />
 
       <div className="container mx-auto py-8 px-4">
         <Breadcrumbs />
@@ -391,6 +450,19 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             </div>
           </section>
         )}
+
+        {/* FAQ — mirrors FAQPage JSON-LD above. Keep copy in sync with faqItems. */}
+        <section className="border-t border-border pt-8 mt-8">
+          <h2 className="text-xl font-bold mb-4">Frequently Asked Questions</h2>
+          <dl className="divide-y divide-border/60">
+            {faqItems.map((item) => (
+              <div key={item.q} className="py-3 first:pt-0">
+                <dt className="text-sm font-medium">{item.q}</dt>
+                <dd className="text-sm text-muted-foreground mt-1 leading-relaxed">{item.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
       </div>
     </>
   );
