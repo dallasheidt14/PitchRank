@@ -968,7 +968,8 @@ def scrape_upcoming_events(
                     )
                     all_games.extend(games)
                     console.print(
-                        f"  [dim]{event_name}: {teams_count} teams, {len(games)} upcoming games ({event_elapsed:.1f}s)[/dim]"
+                        f"  [dim]{event_name}: {teams_count} teams, "
+                        f"{len(games)} upcoming games ({event_elapsed:.1f}s)[/dim]"
                     )
                     save_scraped_event(tracked_events_path, event_id)
                 else:
@@ -981,7 +982,9 @@ def scrape_upcoming_events(
                             "status": "no_games",
                         }
                     )
-                    console.print(f"  [yellow]⚠️  {event_name}: No upcoming games in window ({event_elapsed:.1f}s)[/yellow]")
+                    console.print(
+                        f"  [yellow]⚠️  {event_name}: No upcoming games in window ({event_elapsed:.1f}s)[/yellow]"
+                    )
 
             except Exception as e:
                 logger.error(f"Error scraping event {event_id}: {e}")

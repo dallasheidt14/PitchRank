@@ -1,12 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
-import {
-  GA4_PROPERTY_ID,
-  CACHE_TTL_SECONDS,
-  DEFAULT_ROW_LIMIT,
-  MAX_ROW_LIMIT,
-} from '../constants';
+import { GA4_PROPERTY_ID, CACHE_TTL_SECONDS, DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT } from '../constants';
 import type { DateRange, TileResponse } from '../types';
 import { resolveDateRange, detectFreshness, rangeDays } from '../dates';
 import { ga4RowsToObjects } from '../transforms/ga4';
@@ -35,11 +30,7 @@ async function fetchRaw(range: DateRange, limit: number) {
       requestBody: {
         dateRanges: [{ startDate: range.start, endDate: range.end }],
         dimensions: [{ name: 'pagePath' }],
-        metrics: [
-          { name: 'screenPageViews' },
-          { name: 'activeUsers' },
-          { name: 'engagementRate' },
-        ],
+        metrics: [{ name: 'screenPageViews' }, { name: 'activeUsers' }, { name: 'engagementRate' }],
         metricFilter: {
           filter: {
             fieldName: 'engagementRate',
@@ -76,7 +67,7 @@ async function runOnce(params: Ga4TopPagesParams): Promise<TileResponse<Ga4TopPa
       screenPageViews: acc.screenPageViews + r.screenPageViews,
       activeUsers: acc.activeUsers + r.activeUsers,
     }),
-    { screenPageViews: 0, activeUsers: 0 },
+    { screenPageViews: 0, activeUsers: 0 }
   );
   const fresh = detectFreshness('ga4', range, tz);
 

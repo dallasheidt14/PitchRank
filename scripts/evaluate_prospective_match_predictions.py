@@ -142,7 +142,8 @@ def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
         except Exception as error:
             if _is_missing_table(error, "prospective_match_predictions"):
                 raise RuntimeError(
-                    "prospective_match_predictions table is missing. Apply the new Supabase migration before running evaluation."
+                    "prospective_match_predictions table is missing. "
+                    "Apply the new Supabase migration before running evaluation."
                 ) from error
             raise
 
@@ -194,8 +195,16 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
 
     heuristic_frame = pd.DataFrame(heuristic_rows)
     offline_frame = pd.DataFrame(offline_rows)
-    heuristic_summary = write_evaluation_bundle(heuristic_frame, output_dir, prefix="prospective_heuristic") if not heuristic_frame.empty else compute_evaluation_summary(heuristic_frame)
-    offline_summary = write_evaluation_bundle(offline_frame, output_dir, prefix="prospective_offline") if not offline_frame.empty else compute_evaluation_summary(offline_frame)
+    heuristic_summary = (
+        write_evaluation_bundle(heuristic_frame, output_dir, prefix="prospective_heuristic")
+        if not heuristic_frame.empty
+        else compute_evaluation_summary(heuristic_frame)
+    )
+    offline_summary = (
+        write_evaluation_bundle(offline_frame, output_dir, prefix="prospective_offline")
+        if not offline_frame.empty
+        else compute_evaluation_summary(offline_frame)
+    )
 
     comparison_frame = pd.DataFrame(comparison_rows)
     if not comparison_frame.empty:

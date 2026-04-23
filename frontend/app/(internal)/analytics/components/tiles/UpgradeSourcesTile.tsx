@@ -29,19 +29,14 @@ export function UpgradeSourcesTile({ range }: { range: DateRangePreset }) {
   });
 
   let state: TileState = { status: 'loading' };
-  if (q.isError)
-    state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
+  if (q.isError) state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
   else if (q.data && q.data.row_count === 0) state = { status: 'empty' };
   else if (q.data) state = { status: 'success' };
 
   const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
   return (
-    <TileShell
-      title="Upgrade Sources"
-      description="Where upgrade views and subscriptions come from"
-      state={state}
-    >
+    <TileShell title="Upgrade Sources" description="Where upgrade views and subscriptions come from" state={state}>
       {q.data && (
         <>
           {q.data.warnings && q.data.warnings.length > 0 && (

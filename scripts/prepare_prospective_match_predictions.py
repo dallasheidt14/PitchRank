@@ -9,8 +9,8 @@ and stores the result in prospective_match_predictions.
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -34,15 +34,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backtest_predictor import (  # noqa: E402
     build_snapshot_index as build_historical_snapshot_index,
+)
+from scripts.backtest_predictor import (  # noqa: E402
     fetch_prediction_feature_snapshots,
     fetch_team_names,
 )
+from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.process_match_prediction_shadow import (  # noqa: E402
     _apply_optional_calibration,
     _build_shadow_payload,
     _derive_shadow_model_version,
 )
-from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from src.predictions.point_in_time_calibration import PointInTimeProbabilityCalibrator  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
@@ -210,7 +212,14 @@ def load_fixtures_from_jsonl(fixtures_file: Path, source_artifact_path: Optional
         fixture.fixture_key = _canonical_fixture_key(fixture)
         fixtures.append(fixture)
 
-    fixtures.sort(key=lambda fixture: (fixture.game_date, fixture.competition, fixture.home_team_name, fixture.away_team_name))
+    fixtures.sort(
+        key=lambda fixture: (
+            fixture.game_date,
+            fixture.competition,
+            fixture.home_team_name,
+            fixture.away_team_name,
+        )
+    )
     return fixtures
 
 
@@ -239,7 +248,10 @@ def _is_missing_optional_prediction_column(error: Exception) -> bool:
 
 def _is_missing_review_status_column(error: Exception) -> bool:
     message = str(error).lower()
-    return ("column" in message or "schema cache" in message or "could not find" in message) and "review_status" in message
+    return (
+        ("column" in message or "schema cache" in message or "could not find" in message)
+        and "review_status" in message
+    )
 
 
 def _is_missing_table(error: Exception, table_name: str) -> bool:
@@ -765,11 +777,14 @@ def prepare_prospective_match_predictions(
         existing_rows = _fetch_existing_rows(supabase, [fixture.fixture_key for fixture in fixtures])
     except Exception as error:
         if dry_run and _is_missing_table(error, "prospective_match_predictions"):
-            logger.warning("prospective_match_predictions table not found; continuing dry-run without existing rows")
+            logger.warning(
+                "prospective_match_predictions table not found; continuing dry-run without existing rows"
+            )
             existing_rows = {}
         else:
             raise RuntimeError(
-                "prospective_match_predictions table is missing. Apply the new Supabase migration before running this script."
+                "prospective_match_predictions table is missing. "
+                "Apply the new Supabase migration before running this script."
             ) from error
 
     provider_ids_by_code: Dict[str, Optional[str]] = {}
@@ -806,8 +821,12 @@ def prepare_prospective_match_predictions(
         {
             fixture.game_date
             for fixture in fixtures
-            if resolution_index.get((fixture.provider_code, fixture.home_provider_team_id), TeamResolution(None, None)).team_id_master
-            and resolution_index.get((fixture.provider_code, fixture.away_provider_team_id), TeamResolution(None, None)).team_id_master
+            if resolution_index.get(
+                (fixture.provider_code, fixture.home_provider_team_id), TeamResolution(None, None)
+            ).team_id_master
+            and resolution_index.get(
+                (fixture.provider_code, fixture.away_provider_team_id), TeamResolution(None, None)
+            ).team_id_master
             and fixture.game_date
         }
     )
@@ -878,8 +897,12 @@ def prepare_prospective_match_predictions(
     }
 
     for fixture in fixtures:
-        home_resolution = resolution_index.get((fixture.provider_code, fixture.home_provider_team_id), TeamResolution(None, None))
-        away_resolution = resolution_index.get((fixture.provider_code, fixture.away_provider_team_id), TeamResolution(None, None))
+        home_resolution = resolution_index.get(
+            (fixture.provider_code, fixture.home_provider_team_id), TeamResolution(None, None)
+        )
+        away_resolution = resolution_index.get(
+            (fixture.provider_code, fixture.away_provider_team_id), TeamResolution(None, None)
+        )
 
         if home_resolution.team_id_master and away_resolution.team_id_master:
             resolution_status = "resolved"
@@ -979,7 +1002,8 @@ def prepare_prospective_match_predictions(
         except Exception as error:
             if _is_missing_table(error, "prospective_match_predictions"):
                 raise RuntimeError(
-                    "prospective_match_predictions table is missing. Apply the new Supabase migration before running this script."
+                    "prospective_match_predictions table is missing. "
+                    "Apply the new Supabase migration before running this script."
                 ) from error
             raise
 
@@ -987,7 +1011,9 @@ def prepare_prospective_match_predictions(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prepare prospective match-prediction fixtures from upcoming-event JSONL")
+    parser = argparse.ArgumentParser(
+        description="Prepare prospective match-prediction fixtures from upcoming-event JSONL"
+    )
     parser.add_argument("--fixtures-file", required=True, help="Path to upcoming-event JSONL artifact")
     parser.add_argument(
         "--source-artifact-path",

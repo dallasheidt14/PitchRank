@@ -183,8 +183,10 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
 
   const scoreColor = useCallback((mlOverperformance: number | null): string => {
     if (mlOverperformance !== null && mlOverperformance !== undefined) {
-      if (mlOverperformance >= 2) return 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100 px-2 py-1 rounded font-bold';
-      if (mlOverperformance <= -2) return 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100 px-2 py-1 rounded font-bold';
+      if (mlOverperformance >= 2)
+        return 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100 px-2 py-1 rounded font-bold';
+      if (mlOverperformance <= -2)
+        return 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100 px-2 py-1 rounded font-bold';
     }
     return '';
   }, []);
@@ -430,7 +432,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                           isTooltipGame ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className={scoreColor(residual)}>{score.team}-{score.opponent}</span>
+                                <span className={scoreColor(residual)}>
+                                  {score.team}-{score.opponent}
+                                </span>
                               </TooltipTrigger>
                               <TooltipContent side="top" sideOffset={6} className="max-w-[320px] rounded-lg p-3">
                                 <div className="space-y-1.5">
@@ -443,7 +447,9 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                               </TooltipContent>
                             </Tooltip>
                           ) : (
-                            <span className={scoreColor(residual)}>{score.team}-{score.opponent}</span>
+                            <span className={scoreColor(residual)}>
+                              {score.team}-{score.opponent}
+                            </span>
                           )
                         ) : (
                           '—'

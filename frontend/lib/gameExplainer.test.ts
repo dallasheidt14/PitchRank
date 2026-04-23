@@ -32,15 +32,18 @@ function makeBreakdown(overrides: Partial<GameExplainability> = {}): GameExplain
 describe('explainGameBreakdown', () => {
   it('summarizes a standout result around the highlight rule, expectation, and actual result', () => {
     const explanation = explainGameBreakdown(makeBreakdown(), 2.4);
-    const combinedCopy = [explanation.headline, explanation.highlightReason, explanation.expectationLine, explanation.actualLine]
+    const combinedCopy = [
+      explanation.headline,
+      explanation.highlightReason,
+      explanation.expectationLine,
+      explanation.actualLine,
+    ]
       .concat(explanation.details)
       .join(' ');
 
     expect(explanation.headline).toBe('Outperformed expectation');
     expect(explanation.tone).toBe('positive');
-    expect(explanation.highlightReason).toBe(
-      'Result came in 2.4 goals better than model expectation.'
-    );
+    expect(explanation.highlightReason).toBe('Result came in 2.4 goals better than model expectation.');
     expect(explanation.expectationLine).toBe('Model expected this team to have a 1.6-goal win.');
     expect(explanation.actualLine).toBe('This team won 4-0. Margin was 4.0 goals.');
     expect(explanation.details).toContain('They scored more than PitchRank expected.');
@@ -67,9 +70,7 @@ describe('explainGameBreakdown', () => {
 
     expect(explanation.headline).toBe('Came in below expectation');
     expect(explanation.tone).toBe('negative');
-    expect(explanation.highlightReason).toBe(
-      'Result came in 2.3 goals worse than model expectation.'
-    );
+    expect(explanation.highlightReason).toBe('Result came in 2.3 goals worse than model expectation.');
     expect(explanation.expectationLine).toBe('Model expected this team to have a 1.7-goal loss.');
     expect(explanation.actualLine).toBe('This team lost 0-4. Margin was 4.0 goals.');
     expect(explanation.details).toContain('They allowed more goals than PitchRank expected.');

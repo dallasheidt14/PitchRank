@@ -116,9 +116,7 @@ function parsePrediction(row: ProspectiveSnapshotRow, kind: 'heuristic' | 'offli
 
   const payload = safeJson(kind === 'heuristic' ? row.heuristic_prediction : row.offline_prediction);
   const prediction =
-    kind === 'heuristic'
-      ? safeJson(safeJson(payload.response).prediction)
-      : safeJson(payload.prediction);
+    kind === 'heuristic' ? safeJson(safeJson(payload.response).prediction) : safeJson(payload.prediction);
 
   if (Object.keys(prediction).length === 0) return null;
 
@@ -129,7 +127,9 @@ function parsePrediction(row: ProspectiveSnapshotRow, kind: 'heuristic' | 'offli
   );
 
   const expectedScore = safeJson(prediction.expectedScore);
-  const predictedOutcome = normalizeOutcome(prediction.predictedWinner) ?? argmaxOutcome(probabilities.teamA, probabilities.draw, probabilities.teamB);
+  const predictedOutcome =
+    normalizeOutcome(prediction.predictedWinner) ??
+    argmaxOutcome(probabilities.teamA, probabilities.draw, probabilities.teamB);
 
   return {
     fixtureKey: row.fixture_key,
@@ -138,7 +138,9 @@ function parsePrediction(row: ProspectiveSnapshotRow, kind: 'heuristic' | 'offli
     actualScoreA: row.actual_home_score,
     actualScoreB: row.actual_away_score,
     actualMargin:
-      row.actual_home_score != null && row.actual_away_score != null ? row.actual_home_score - row.actual_away_score : null,
+      row.actual_home_score != null && row.actual_away_score != null
+        ? row.actual_home_score - row.actual_away_score
+        : null,
     predictedOutcome,
     probTeamAWin: probabilities.teamA,
     probDraw: probabilities.draw,
@@ -149,8 +151,12 @@ function parsePrediction(row: ProspectiveSnapshotRow, kind: 'heuristic' | 'offli
     predictedAt: kind === 'heuristic' ? row.heuristic_predicted_at : row.offline_predicted_at,
     modelVersion:
       kind === 'heuristic'
-        ? (typeof payload.modelVersion === 'string' ? payload.modelVersion : row.heuristic_model_version)
-        : (typeof payload.modelVersion === 'string' ? payload.modelVersion : row.offline_model_version),
+        ? typeof payload.modelVersion === 'string'
+          ? payload.modelVersion
+          : row.heuristic_model_version
+        : typeof payload.modelVersion === 'string'
+          ? payload.modelVersion
+          : row.offline_model_version,
   };
 }
 
@@ -211,7 +217,9 @@ function computeSummary(rows: ParsedPredictionRow[], modelVersion: string | null
       team_b: row.actualOutcome === 'team_b' ? 1 : 0,
     };
     brierTerms.push(
-      (row.probTeamAWin - actual.team_a) ** 2 + (row.probDraw - actual.draw) ** 2 + (row.probTeamBWin - actual.team_b) ** 2
+      (row.probTeamAWin - actual.team_a) ** 2 +
+        (row.probDraw - actual.draw) ** 2 +
+        (row.probTeamBWin - actual.team_b) ** 2
     );
 
     if (row.predictedMargin != null && row.actualMargin != null) {
@@ -225,7 +233,9 @@ function computeSummary(rows: ParsedPredictionRow[], modelVersion: string | null
       row.actualScoreB != null
     ) {
       exactScoreHits.push(
-        roundScore(row.predictedScoreA) === row.actualScoreA && roundScore(row.predictedScoreB) === row.actualScoreB ? 1 : 0
+        roundScore(row.predictedScoreA) === row.actualScoreA && roundScore(row.predictedScoreB) === row.actualScoreB
+          ? 1
+          : 0
       );
     }
 
@@ -266,7 +276,8 @@ function buildVersionSummaries(rows: ProspectiveSnapshotRow[], kind: 'heuristic'
 
   for (const row of rows) {
     if (row.evaluation_status !== 'settled') continue;
-    if ((kind === 'heuristic' ? row.heuristic_prediction_status : row.offline_prediction_status) !== 'completed') continue;
+    if ((kind === 'heuristic' ? row.heuristic_prediction_status : row.offline_prediction_status) !== 'completed')
+      continue;
     const parsed = parsePrediction(row, kind);
     if (!parsed?.modelVersion) continue;
     const bucket = parsedByVersion.get(parsed.modelVersion) ?? [];
@@ -287,7 +298,11 @@ function buildVersionSummaries(rows: ProspectiveSnapshotRow[], kind: 'heuristic'
     });
 }
 
-function buildHeadToHead(rows: ProspectiveSnapshotRow[], heuristicVersion: string | null, offlineVersion: string | null): {
+function buildHeadToHead(
+  rows: ProspectiveSnapshotRow[],
+  heuristicVersion: string | null,
+  offlineVersion: string | null
+): {
   sharedSettledGames: number;
   headToHead: HeadToHeadSummary;
   heuristicSummary: ModelPerformanceSummary;
@@ -352,7 +367,10 @@ function buildPipelineSummary(rows: ProspectiveSnapshotRow[]): PipelineSummary {
     totalFixtures: rows.length,
     settled: evaluationCounts.get('settled') ?? 0,
     pendingResult: evaluationCounts.get('pending_result') ?? 0,
-    pendingResolution: (resolutionCounts.get('partial') ?? 0) + (resolutionCounts.get('unresolved') ?? 0) + (resolutionCounts.get('pending') ?? 0),
+    pendingResolution:
+      (resolutionCounts.get('partial') ?? 0) +
+      (resolutionCounts.get('unresolved') ?? 0) +
+      (resolutionCounts.get('pending') ?? 0),
     resultNotFound: evaluationCounts.get('result_not_found') ?? 0,
     ambiguousResult: evaluationCounts.get('ambiguous_result') ?? 0,
     heuristicError,

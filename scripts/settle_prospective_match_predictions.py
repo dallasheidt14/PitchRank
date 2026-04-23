@@ -99,7 +99,8 @@ def _fetch_rows(supabase: Client, status: str, limit: int) -> List[Dict[str, Any
     except Exception as error:
         if _is_missing_table(error, "prospective_match_predictions"):
             raise RuntimeError(
-                "prospective_match_predictions table is missing. Apply the new Supabase migration before running settlement."
+                "prospective_match_predictions table is missing. "
+                "Apply the new Supabase migration before running settlement."
             ) from error
         raise
     return list(response.data or [])

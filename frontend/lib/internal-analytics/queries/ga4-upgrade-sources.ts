@@ -1,12 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
-import {
-  GA4_PROPERTY_ID,
-  CACHE_TTL_SECONDS,
-  DEFAULT_ROW_LIMIT,
-  MAX_ROW_LIMIT,
-} from '../constants';
+import { GA4_PROPERTY_ID, CACHE_TTL_SECONDS, DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT } from '../constants';
 import type { DateRange, TileResponse } from '../types';
 import { resolveDateRange, detectFreshness, rangeDays } from '../dates';
 import { coalesce, sortedKeys } from './_coalesce';
@@ -57,14 +52,12 @@ async function fetchRaw(range: DateRange, limit: number) {
   }
 }
 
-async function runOnce(
-  params: Ga4UpgradeSourcesParams,
-): Promise<TileResponse<Ga4UpgradeSourcesRow>> {
+async function runOnce(params: Ga4UpgradeSourcesParams): Promise<TileResponse<Ga4UpgradeSourcesRow>> {
   const tz = params.timezone ?? 'America/Phoenix';
   const range = resolveDateRange(params.dateRange, tz);
   const limit = Math.min(params.limit ?? DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT);
 
-  const raw = await fetchRaw(range, limit) as never as {
+  const raw = (await fetchRaw(range, limit)) as never as {
     rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }>;
     __dimensionNotConfigured?: boolean;
   };
@@ -143,9 +136,7 @@ async function runOnce(
   };
 }
 
-export function getGa4UpgradeSources(
-  params: Ga4UpgradeSourcesParams,
-): Promise<TileResponse<Ga4UpgradeSourcesRow>> {
+export function getGa4UpgradeSources(params: Ga4UpgradeSourcesParams): Promise<TileResponse<Ga4UpgradeSourcesRow>> {
   const cacheArgs = { ...params, forceFresh: undefined };
   const key = `ga4_upgrade_sources:${sortedKeys(cacheArgs)}`;
   const run = () => coalesce(key, () => runOnce(params));

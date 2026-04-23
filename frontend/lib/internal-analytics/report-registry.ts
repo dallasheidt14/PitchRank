@@ -5,11 +5,11 @@ import type { DateRangePreset } from './types';
 import { DATE_RANGE_PRESETS, MAX_ROW_LIMIT } from './constants';
 import { getGa4Overview } from './queries/ga4-overview';
 import { getGa4TopPages, type Ga4TopPagesParams } from './queries/ga4-top-pages';
-import { getGa4TrafficSources } from './queries/ga4-traffic-sources';
+import { getGa4TrafficSources, type Ga4TrafficSourcesParams } from './queries/ga4-traffic-sources';
 import { getGa4UpgradeViews, type Ga4UpgradeViewsParams } from './queries/ga4-upgrade-views';
-import { getGa4UpgradeFunnel } from './queries/ga4-upgrade-funnel';
-import { getGa4MostWantedTeams } from './queries/ga4-most-wanted-teams';
-import { getGa4UpgradeSources } from './queries/ga4-upgrade-sources';
+import { getGa4UpgradeFunnel, type Ga4UpgradeFunnelParams } from './queries/ga4-upgrade-funnel';
+import { getGa4MostWantedTeams, type Ga4MostWantedTeamsParams } from './queries/ga4-most-wanted-teams';
+import { getGa4UpgradeSources, type Ga4UpgradeSourcesParams } from './queries/ga4-upgrade-sources';
 import { getGscPerformance, type GscPerformanceParams } from './queries/gsc-performance';
 import { getGscTopQueries, type GscTopQueriesParams } from './queries/gsc-top-queries';
 import { getGscLandingPages, type GscLandingPagesParams } from './queries/gsc-landing-pages';
@@ -59,7 +59,12 @@ export const REPORTS = {
     source: 'ga4',
     description: 'Top traffic sources by sessions, with user counts.',
     paramsSchema: z.object({ ...Common, limit: z.number().int().min(1).max(MAX_ROW_LIMIT).optional() }),
-    handler: (p: any) => getGa4TrafficSources({ dateRange: p.date_range, limit: p.limit, forceFresh: p.forceFresh }),
+    handler: (p: WithLimit) =>
+      getGa4TrafficSources({
+        dateRange: p.date_range,
+        limit: p.limit,
+        forceFresh: p.forceFresh,
+      } as Ga4TrafficSourcesParams),
     summaryRequired: ['totals'],
   },
   ga4_upgrade_views: {
@@ -79,21 +84,35 @@ export const REPORTS = {
     source: 'ga4',
     description: 'Upgrade funnel event counts across 4 steps (viewed -> planned -> checkout -> subscribed).',
     paramsSchema: z.object({ ...Common }),
-    handler: (p: any) => getGa4UpgradeFunnel({ dateRange: p.date_range, forceFresh: p.forceFresh }),
+    handler: (p: CommonParams) =>
+      getGa4UpgradeFunnel({
+        dateRange: p.date_range,
+        forceFresh: p.forceFresh,
+      } as Ga4UpgradeFunnelParams),
     summaryRequired: ['totals', 'conversion_rate'],
   },
   ga4_most_wanted_teams: {
     source: 'ga4',
     description: 'Teams that non-premium users most frequently try to access (paywall impressions by team_id).',
     paramsSchema: z.object({ ...Common, limit: z.number().int().min(1).max(MAX_ROW_LIMIT).optional() }),
-    handler: (p: any) => getGa4MostWantedTeams({ dateRange: p.date_range, limit: p.limit, forceFresh: p.forceFresh }),
+    handler: (p: WithLimit) =>
+      getGa4MostWantedTeams({
+        dateRange: p.date_range,
+        limit: p.limit,
+        forceFresh: p.forceFresh,
+      } as Ga4MostWantedTeamsParams),
     summaryRequired: ['totals'],
   },
   ga4_upgrade_sources: {
     source: 'ga4',
     description: 'Where upgrade page views and subscriptions come from (breakdown by source event parameter).',
     paramsSchema: z.object({ ...Common, limit: z.number().int().min(1).max(MAX_ROW_LIMIT).optional() }),
-    handler: (p: any) => getGa4UpgradeSources({ dateRange: p.date_range, limit: p.limit, forceFresh: p.forceFresh }),
+    handler: (p: WithLimit) =>
+      getGa4UpgradeSources({
+        dateRange: p.date_range,
+        limit: p.limit,
+        forceFresh: p.forceFresh,
+      } as Ga4UpgradeSourcesParams),
     summaryRequired: ['totals', 'conversion_rate'],
   },
   gsc_performance: {
