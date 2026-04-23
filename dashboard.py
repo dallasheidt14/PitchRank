@@ -1164,7 +1164,7 @@ elif section == "📈 Database Import Stats":
                 lambda: db.rpc(
                     'get_scrape_eligibility_counts',
                     {'p_provider_id': selected_provider_id},
-                ).execute()
+                )
             )
             counts_row = (counts_result.data or [{}])[0]
             recent_count = int(counts_row.get('recent_count') or 0)
@@ -1207,7 +1207,7 @@ elif section == "📈 Database Import Stats":
                                 lambda p=pid: db.rpc(
                                     'get_scrape_eligibility_counts',
                                     {'p_provider_id': p},
-                                ).execute()
+                                )
                             )
                             p_row = (p_counts_res.data or [{}])[0]
                             p_recent_ct = int(p_row.get('recent_count') or 0)
@@ -4708,7 +4708,7 @@ elif section == "✏️ Manual Team Edit":
                     'Gender': t.get('gender', ''),
                     'State': t.get('state_code', ''),
                     'Deprecated': '⚠️' if t.get('is_deprecated') else '',
-                    'ID': t['team_id_master'][:8] + '...'
+                    'ID': t['team_id_master']
                 }
                 for t in st.session_state.edit_search_results
             ])
@@ -4775,7 +4775,8 @@ elif section == "✏️ Manual Team Edit":
                     else:
                         st.success("✅ ACTIVE")
                 with status_cols[1]:
-                    st.info(f"🆔 {team['team_id_master'][:12]}...")
+                    st.caption("🆔 Team ID (click copy icon)")
+                    st.code(team['team_id_master'], language=None)
                 with status_cols[2]:
                     st.info(f"📅 Age: {team.get('age_group', 'N/A').upper()}")
                 with status_cols[3]:
