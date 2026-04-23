@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { RankingsPageContent } from '@/components/RankingsPageContent';
+import { RankingsPillar, rankingsPillarFaqItems } from '@/components/RankingsPillar';
 import { BASE_URL, US_STATES } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 
@@ -42,10 +43,24 @@ const rankingsSchema = {
   url: `${BASE_URL}/rankings`,
 };
 
+const rankingsFaqSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: rankingsPillarFaqItems.map((item) => ({
+    '@type': 'Question',
+    name: item.q,
+    acceptedAnswer: {
+      '@type': 'Answer',
+      text: item.a,
+    },
+  })),
+};
+
 export default function RankingsPage() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(rankingsSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(rankingsFaqSchema) }} />
       {/* Server-rendered H1 and intro for SEO — appears before client component */}
       <section className="container mx-auto px-4 pt-8 pb-4">
         <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
@@ -57,6 +72,8 @@ export default function RankingsPage() {
           girls. Rankings update every Monday — free, data-driven, no bias.
         </p>
       </section>
+
+      <RankingsPillar />
 
       <RankingsPageContent region="national" ageGroup="u12" gender="male" />
 
