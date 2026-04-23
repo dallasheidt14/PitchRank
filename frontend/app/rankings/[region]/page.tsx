@@ -79,8 +79,8 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
   const isNational = region.toLowerCase() === 'national';
 
   const title = isNational
-    ? 'National Youth Soccer Rankings 2026 — Updated Weekly'
-    : `${stateInfo.name} Youth Soccer Rankings 2026 — Updated Weekly`;
+    ? 'National Youth Soccer Rankings 2026 — Updated Weekly | PitchRank'
+    : `${stateInfo.name} Youth Soccer Rankings 2026 — Updated Weekly | PitchRank`;
 
   const description = isNational
     ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
