@@ -99,6 +99,7 @@ def test_compute_same_age_evidence_metrics_counts_quality_non_loss_results():
     assert int(a["same_age_top100_non_loss_opp_count"]) == 2
     assert int(a["same_age_top500_non_loss_opp_count"]) == 2
     assert int(a["same_age_top1000_non_loss_opp_count"]) == 2
+    assert float(a["same_age_quality_opp_power_adj"]) > float(a["same_age_avg_opp_power_adj"])
 
 
 def test_compute_same_age_evidence_metrics_tracks_exact_one_year_play_up_results():
@@ -233,6 +234,7 @@ def test_positive_ml_evidence_scale_stale_elite_profile_is_not_full_release():
             "same_age_top500_non_loss_opp_count": 4,
             "same_age_top1000_non_loss_opp_count": 6,
             "same_age_avg_opp_power_adj": 0.721,
+            "same_age_quality_opp_power_adj": 0.724,
             "repeat_opponent_share": 0.10,
             "unique_opp_states": 7,
             "games_last_180_days": 4,
@@ -240,7 +242,7 @@ def test_positive_ml_evidence_scale_stale_elite_profile_is_not_full_release():
         }
     )
     scale = _positive_ml_evidence_scale(row)
-    assert 0.60 < scale < 0.85
+    assert 0.20 < scale < 0.40
 
 
 def test_positive_ml_evidence_scale_allows_recent_zero_top100_bridge_profile_partial_ml():
@@ -252,8 +254,10 @@ def test_positive_ml_evidence_scale_allows_recent_zero_top100_bridge_profile_par
             "same_age_top100_opp_count": 0,
             "same_age_top500_opp_count": 3,
             "same_age_avg_opp_power_adj": 0.576,
+            "same_age_quality_opp_power_adj": 0.622,
             "repeat_opponent_share": 0.50,
             "unique_opp_states": 5,
+            "scf": 0.82,
             "games_last_180_days": 25,
             "days_since_last": 3,
             "powerscore_adj": 0.749,
@@ -616,6 +620,7 @@ def test_publication_cap_rank_releases_strong_broad_low_raw_avg_profile():
             "same_age_top500_non_loss_opp_count": 6,
             "same_age_top1000_non_loss_opp_count": 8,
             "same_age_avg_opp_power_adj": 0.572,
+            "same_age_quality_opp_power_adj": 0.668,
             "repeat_opponent_share": 0.275,
             "unique_opp_states": 10,
             "games_last_180_days": 10,
@@ -652,6 +657,7 @@ def test_publication_cap_rank_soft_caps_strong_but_mixed_field_profile():
             "same_age_top500_non_loss_opp_count": 4,
             "same_age_top1000_non_loss_opp_count": 6,
             "same_age_avg_opp_power_adj": 0.635,
+            "same_age_quality_opp_power_adj": 0.650,
             "repeat_opponent_share": 0.133,
             "unique_opp_states": 6,
         }
@@ -668,6 +674,7 @@ def test_publication_cap_rank_relieves_recent_high_raw_zero_top100_bridge_profil
             "same_age_top100_opp_count": 0,
             "same_age_top500_opp_count": 3,
             "same_age_avg_opp_power_adj": 0.576,
+            "same_age_quality_opp_power_adj": 0.622,
             "repeat_opponent_share": 0.50,
             "unique_opp_states": 5,
             "games_last_180_days": 25,
@@ -675,6 +682,46 @@ def test_publication_cap_rank_relieves_recent_high_raw_zero_top100_bridge_profil
             "powerscore_adj": 0.749,
             "powerscore_ml": 0.788,
             "scf": 0.82,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
+
+
+def test_publication_cap_rank_caps_hard_recent_low_volume_profile():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_top100_opp_count": 2,
+            "same_age_top100_non_loss_opp_count": 1,
+            "same_age_top500_opp_count": 11,
+            "same_age_top500_non_loss_opp_count": 5,
+            "same_age_top1000_non_loss_opp_count": 8,
+            "same_age_avg_opp_power_adj": 0.669,
+            "same_age_quality_opp_power_adj": 0.686,
+            "repeat_opponent_share": 0.17,
+            "unique_opp_states": 6,
+            "games_last_180_days": 5,
+            "days_since_last": 4,
+        }
+    )
+    assert _publication_cap_rank(row) == 400
+
+
+def test_publication_cap_rank_caps_stale_elite_profile():
+    row = pd.Series(
+        {
+            "age_num": 13,
+            "same_age_top100_opp_count": 4,
+            "same_age_top100_non_loss_opp_count": 2,
+            "same_age_top500_opp_count": 6,
+            "same_age_top500_non_loss_opp_count": 4,
+            "same_age_top1000_non_loss_opp_count": 6,
+            "same_age_avg_opp_power_adj": 0.721,
+            "same_age_quality_opp_power_adj": 0.724,
+            "repeat_opponent_share": 0.10,
+            "unique_opp_states": 7,
+            "games_last_180_days": 4,
+            "days_since_last": 101,
         }
     )
     assert _publication_cap_rank(row) == 400
@@ -745,6 +792,7 @@ def test_same_age_publish_penalty_hits_stale_elite_profile():
             "same_age_top500_non_loss_opp_count": 4,
             "same_age_top1000_non_loss_opp_count": 6,
             "same_age_avg_opp_power_adj": 0.721,
+            "same_age_quality_opp_power_adj": 0.724,
             "repeat_opponent_share": 0.10,
             "unique_opp_states": 7,
             "games_last_180_days": 4,
@@ -752,6 +800,27 @@ def test_same_age_publish_penalty_hits_stale_elite_profile():
         }
     )
     assert _same_age_publish_penalty(row) > 0.015
+
+
+def test_same_age_publish_penalty_spares_strong_broad_quality_profile():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_unique_opponents": 31,
+            "same_age_top100_opp_count": 4,
+            "same_age_top100_non_loss_opp_count": 2,
+            "same_age_top500_opp_count": 9,
+            "same_age_top500_non_loss_opp_count": 6,
+            "same_age_top1000_non_loss_opp_count": 8,
+            "same_age_avg_opp_power_adj": 0.572,
+            "same_age_quality_opp_power_adj": 0.668,
+            "repeat_opponent_share": 0.275,
+            "unique_opp_states": 10,
+            "games_last_180_days": 10,
+            "days_since_last": 3,
+        }
+    )
+    assert _same_age_publish_penalty(row) < 0.015
 
 
 def test_apply_publication_cap_band_preserves_relative_order():
