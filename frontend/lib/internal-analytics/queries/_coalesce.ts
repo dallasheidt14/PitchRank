@@ -13,9 +13,7 @@ export function coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export function sortedKeys(obj: unknown): string {
   if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) {
-    return JSON.stringify(
-      obj.map((v) => (v === undefined ? null : JSON.parse(sortedKeys(v)))),
-    );
+    return JSON.stringify(obj.map((v) => (v === undefined ? null : JSON.parse(sortedKeys(v)))));
   }
   const sorted: Record<string, unknown> = {};
   for (const k of Object.keys(obj as object).sort()) {

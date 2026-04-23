@@ -288,7 +288,9 @@ def _effective_fetch_lookback_days(lookback_days: int, *, use_glicko: bool) -> i
     if not use_glicko:
         return effective
     cfg = GlickoConfig()
-    return max(effective, int(getattr(cfg, "WINDOW_DAYS", effective))) + max(int(getattr(cfg, "WINDOW_GRACE_DAYS", 0)), 0)
+    return max(effective, int(getattr(cfg, "WINDOW_DAYS", effective))) + max(
+        int(getattr(cfg, "WINDOW_GRACE_DAYS", 0)), 0
+    )
 
 
 def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
@@ -887,7 +889,9 @@ def _freshness_score(row: pd.Series, policy: dict[str, float | int]) -> float:
     return float(np.clip(sum(weight * value for weight, value in components) / total_weight, 0.0, 1.0))
 
 
-def _freshness_flags(row: pd.Series, policy: dict[str, float | int]) -> tuple[float, int | None, float | None, bool, bool]:
+def _freshness_flags(
+    row: pd.Series, policy: dict[str, float | int]
+) -> tuple[float, int | None, float | None, bool, bool]:
     recent_games_raw = row.get("games_last_180_days")
     recent_games = _safe_int(recent_games_raw) if recent_games_raw is not None else None
     days_since_last = _days_since_last_game(row)
@@ -1005,7 +1009,7 @@ def _same_age_authority_score(row: pd.Series, policy: dict[str, float | int]) ->
     top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
     broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
-    avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
+    _avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     unique_states = _safe_float(row.get("unique_opp_states"))
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
@@ -1028,7 +1032,9 @@ def _same_age_authority_score(row: pd.Series, policy: dict[str, float | int]) ->
         + 0.20 * _unit_interval(top1000_non_loss, 2.0, 6.0)
     )
     field_strength = _unit_interval(broad_avg_opp_power, float(policy["severe_min_avg_opp_power"]), 0.72)
-    quality_field_strength = _unit_interval(quality_avg_opp_power, float(policy["quality_bridge_min_avg_opp_power"]), 0.72)
+    quality_field_strength = _unit_interval(
+        quality_avg_opp_power, float(policy["quality_bridge_min_avg_opp_power"]), 0.72
+    )
     state_breadth = _unit_interval(unique_states, 1.0, 6.0, default=0.5)
     repeat_relief = 1.0 - _unit_interval(repeat_share, 0.20, 0.50)
 
@@ -1129,7 +1135,7 @@ def _same_age_publish_penalty(row: pd.Series) -> float:
     policy = _same_age_evidence_policy(age_num)
     authority = _same_age_authority_score(row, policy)
     quality_support = _same_age_quality_support_score(row, policy)
-    effective_avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
+    _effective_avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
     broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
     freshness, _, _, thin_recent, stale_recent = _freshness_flags(row, policy)
@@ -1219,7 +1225,8 @@ def _play_up_bonus(row: pd.Series) -> float:
 
     bonus = (
         play_up_top500_non_loss * float(policy["play_up_bonus_per_top500_non_loss"])
-        + max(0, play_up_top1000_non_loss - play_up_top500_non_loss) * float(policy["play_up_bonus_per_top1000_non_loss"])
+        + max(0, play_up_top1000_non_loss - play_up_top500_non_loss)
+        * float(policy["play_up_bonus_per_top1000_non_loss"])
     )
     bonus = min(bonus, float(policy["play_up_bonus_max"]))
     if severe_connectivity:
@@ -1281,7 +1288,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     top500 = _safe_int(row.get("same_age_top500_opp_count"))
     top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
     top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
-    broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
+    _broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
     avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
@@ -1680,7 +1687,6 @@ async def compute_rankings_with_ml(
     # Config fingerprint: serialize actual engine + ML + tier config
     import json as _json
 
-    from src.etl.glicko_config import GlickoConfig as _GCfg
     from src.rankings.constants import (
         LEAGUE_MULTIPLIER_FEMALE as _LMF,
     )
@@ -1961,7 +1967,9 @@ async def compute_rankings_with_ml(
     return {
         "teams": teams_with_ml,
         "games_used": games_used if not getattr(games_used, "empty", True) else pd.DataFrame(),
-        "game_explainability": game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame(),
+        "game_explainability": (
+            game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame()
+        ),
         "pre_sos_state": _pre_sos_state,
     }
 
@@ -2666,7 +2674,9 @@ async def compute_all_cohorts(
                 if "publication_cap_rank" in teams_age.columns:
                     teams_age["publication_cap_score"] = _compute_publication_cap_scores(teams_age, base)
                     if pd.to_numeric(teams_age["publication_cap_score"], errors="coerce").notna().any():
-                        teams_combined.loc[teams_age.index, "publication_cap_score"] = teams_age["publication_cap_score"]
+                        teams_combined.loc[teams_age.index, "publication_cap_score"] = teams_age[
+                            "publication_cap_score"
+                        ]
 
                 # Hard publication cap for weak same-age evidence.
                 if "publication_cap_score" in teams_age.columns:

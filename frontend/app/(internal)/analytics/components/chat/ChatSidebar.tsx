@@ -17,7 +17,7 @@ export function ChatSidebar({ range }: { range: DateRangePreset }) {
         api: '/api/internal/analytics/chat',
         body: { range },
       }),
-     
+
     [range]
   );
 

@@ -467,28 +467,57 @@ def select_games_balanced(
         selected_parts.append(chosen)
         selected_idx.update(chosen.index.tolist())
 
-    recent = work.sort_values([col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns], ascending=[False, True, True, True][:len([col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns])], kind="mergesort")
+    recent_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in work.columns]
+    recent = work.sort_values(
+        recent_cols,
+        ascending=[False, True, True, True][: len(recent_cols)],
+        kind="mergesort",
+    )
     _take("recent", recent, int(cfg.BALANCED_SELECTION_RECENT_GAMES))
 
     remaining = work.loc[~work.index.isin(selected_idx)].copy()
+    same_age_cols = [
+        col
+        for col in ["is_non_loss", "opp_mu_selection", "date", "game_id", "id", "opp_id"]
+        if col in remaining.columns
+    ]
     same_age_quality = remaining[remaining["is_same_age"]].sort_values(
-        [col for col in ["is_non_loss", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns],
-        ascending=[False, False, False, True, True, True][:len([col for col in ["is_non_loss", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns])],
+        same_age_cols,
+        ascending=[False, False, False, True, True, True][: len(same_age_cols)],
         kind="mergesort",
     )
     _take("same_age_quality", same_age_quality, int(cfg.BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES))
 
     remaining = work.loc[~work.index.isin(selected_idx)].copy()
+    bridge_cols = [
+        col
+        for col in [
+            "is_same_age",
+            "is_non_loss",
+            "bridge_quality",
+            "opp_mu_selection",
+            "date",
+            "game_id",
+            "id",
+            "opp_id",
+        ]
+        if col in remaining.columns
+    ]
     bridge_quality = remaining[remaining["is_bridge_game"]].sort_values(
-        [col for col in ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns],
-        ascending=[False, False, False, False, False, True, True, True][:len([col for col in ["is_same_age", "is_non_loss", "bridge_quality", "opp_mu_selection", "date", "game_id", "id", "opp_id"] if col in remaining.columns])],
+        bridge_cols,
+        ascending=[False, False, False, False, False, True, True, True][: len(bridge_cols)],
         kind="mergesort",
     )
     _take("bridge_quality", bridge_quality, int(cfg.BALANCED_SELECTION_BRIDGE_GAMES))
 
+    backfill_cols = [
+        col
+        for col in ["date", "is_non_loss", "opp_mu_selection", "game_id", "id", "opp_id"]
+        if col in work.columns
+    ]
     remaining = work.loc[~work.index.isin(selected_idx)].sort_values(
-        [col for col in ["date", "is_non_loss", "opp_mu_selection", "game_id", "id", "opp_id"] if col in work.columns],
-        ascending=[False, False, False, True, True, True][:len([col for col in ["date", "is_non_loss", "opp_mu_selection", "game_id", "id", "opp_id"] if col in work.columns])],
+        backfill_cols,
+        ascending=[False, False, False, True, True, True][: len(backfill_cols)],
         kind="mergesort",
     )
     _take("recent_backfill", remaining, max(0, int(cfg.MAX_GAMES) - len(selected_idx)))
@@ -914,8 +943,9 @@ def compute_scf(
                 bridge_weight = _selection_quality_weight(float(opp_mu), cfg)
                 is_same_age = True
                 if {"opp_age", "opp_gender", "age", "gender"}.issubset(tg.columns):
-                    is_same_age = str(tg["opp_age"].iloc[idx]) == str(team_age) and str(tg["opp_gender"].iloc[idx]) == str(
-                        team_gender
+                    is_same_age = (
+                        str(tg["opp_age"].iloc[idx]) == str(team_age)
+                        and str(tg["opp_gender"].iloc[idx]) == str(team_gender)
                     )
                 if not is_same_age:
                     bridge_weight *= float(cfg.SCF_CROSS_AGE_BRIDGE_MULT)

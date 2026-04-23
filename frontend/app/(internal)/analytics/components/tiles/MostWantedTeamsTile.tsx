@@ -27,17 +27,12 @@ export function MostWantedTeamsTile({ range }: { range: DateRangePreset }) {
   });
 
   let state: TileState = { status: 'loading' };
-  if (q.isError)
-    state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
+  if (q.isError) state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
   else if (q.data && q.data.row_count === 0) state = { status: 'empty' };
   else if (q.data) state = { status: 'success' };
 
   return (
-    <TileShell
-      title="Most Wanted Teams"
-      description="Teams non-premium users try to access most"
-      state={state}
-    >
+    <TileShell title="Most Wanted Teams" description="Teams non-premium users try to access most" state={state}>
       {q.data && (
         <>
           {q.data.warnings && q.data.warnings.length > 0 && (

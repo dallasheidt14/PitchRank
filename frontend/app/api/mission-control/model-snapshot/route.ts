@@ -42,7 +42,10 @@ type TrainingRunRow = {
 
 function isMissingTable(error: unknown, tableName: string): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return (message.includes('could not find the table') || message.includes('schema cache')) && message.includes(tableName.toLowerCase());
+  return (
+    (message.includes('could not find the table') || message.includes('schema cache')) &&
+    message.includes(tableName.toLowerCase())
+  );
 }
 
 async function fetchAllProspectiveRows(): Promise<ProspectiveSnapshotRow[]> {
@@ -69,14 +72,20 @@ async function fetchAllProspectiveRows(): Promise<ProspectiveSnapshotRow[]> {
 
 async function fetchPredictionFeatureHistoryCount(): Promise<number | null> {
   const supabase = createServiceSupabase();
-  const { count, error } = await supabase.from('prediction_feature_history').select('team_id', { count: 'exact', head: true });
+  const { count, error } = await supabase
+    .from('prediction_feature_history')
+    .select('team_id', { count: 'exact', head: true });
   if (error) throw error;
   return count ?? null;
 }
 
 async function fetchScoredGamesCount(filters?: { fromDate?: string }): Promise<number | null> {
   const supabase = createServiceSupabase();
-  let query = supabase.from('games').select('id', { count: 'exact', head: true }).not('home_score', 'is', null).not('away_score', 'is', null);
+  let query = supabase
+    .from('games')
+    .select('id', { count: 'exact', head: true })
+    .not('home_score', 'is', null)
+    .not('away_score', 'is', null);
   if (filters?.fromDate) {
     query = query.gte('game_date', filters.fromDate);
   }
@@ -89,8 +98,16 @@ async function fetchPitCoverage() {
   const supabase = createServiceSupabase();
   const [{ data: firstSnapshotRows, error: firstError }, { data: lastSnapshotRows, error: lastError }, snapshotRows] =
     await Promise.all([
-      supabase.from('prediction_feature_history').select('snapshot_date').order('snapshot_date', { ascending: true }).limit(1),
-      supabase.from('prediction_feature_history').select('snapshot_date').order('snapshot_date', { ascending: false }).limit(1),
+      supabase
+        .from('prediction_feature_history')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: true })
+        .limit(1),
+      supabase
+        .from('prediction_feature_history')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: false })
+        .limit(1),
       fetchPredictionFeatureHistoryCount(),
     ]);
 
@@ -101,13 +118,17 @@ async function fetchPitCoverage() {
   const windowEnd = lastSnapshotRows?.[0]?.snapshot_date ?? null;
 
   const now = new Date();
-  const last365 = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate())).toISOString().slice(0, 10);
+  const last365 = new Date(Date.UTC(now.getUTCFullYear() - 1, now.getUTCMonth(), now.getUTCDate()))
+    .toISOString()
+    .slice(0, 10);
 
   const [totalScoredGames, trainableScoredGames, last365ScoredGames, last365TrainableGames] = await Promise.all([
     fetchScoredGamesCount(),
     windowStart ? fetchScoredGamesCount({ fromDate: windowStart }) : Promise.resolve(null),
     fetchScoredGamesCount({ fromDate: last365 }),
-    windowStart ? fetchScoredGamesCount({ fromDate: windowStart > last365 ? windowStart : last365 }) : Promise.resolve(null),
+    windowStart
+      ? fetchScoredGamesCount({ fromDate: windowStart > last365 ? windowStart : last365 })
+      : Promise.resolve(null),
   ]);
 
   return {
@@ -177,7 +198,11 @@ export async function GET() {
   if (auth.error) return auth.error;
 
   try {
-    const [rows, pitCoverage, trainingRuns] = await Promise.all([fetchAllProspectiveRows(), fetchPitCoverage(), fetchTrainingRuns()]);
+    const [rows, pitCoverage, trainingRuns] = await Promise.all([
+      fetchAllProspectiveRows(),
+      fetchPitCoverage(),
+      fetchTrainingRuns(),
+    ]);
     const snapshot = buildMissionControlSnapshot(rows, pitCoverage, trainingRuns);
     return NextResponse.json(snapshot);
   } catch (error) {

@@ -23,8 +23,7 @@ export function TrafficSourcesTile({ range }: { range: DateRangePreset }) {
   });
 
   let state: TileState = { status: 'loading' };
-  if (q.isError)
-    state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
+  if (q.isError) state = { status: 'error', message: (q.error as Error).message, retry: () => q.refetch() };
   else if (q.data && q.data.row_count === 0) state = { status: 'empty' };
   else if (q.data) state = { status: 'success' };
 
@@ -42,10 +41,7 @@ export function TrafficSourcesTile({ range }: { range: DateRangePreset }) {
           <tbody>
             {q.data.rows.map((r, i) => (
               <tr key={`${r.source}-${r.medium}-${i}`} className="border-t">
-                <td
-                  className="py-1 truncate max-w-[180px]"
-                  title={`${r.source} / ${r.medium}`}
-                >
+                <td className="py-1 truncate max-w-[180px]" title={`${r.source} / ${r.medium}`}>
                   {r.source} / {r.medium}
                 </td>
                 <td className="text-right">{r.sessions.toLocaleString()}</td>

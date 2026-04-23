@@ -1,12 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
-import {
-  GA4_PROPERTY_ID,
-  CACHE_TTL_SECONDS,
-  DEFAULT_ROW_LIMIT,
-  MAX_ROW_LIMIT,
-} from '../constants';
+import { GA4_PROPERTY_ID, CACHE_TTL_SECONDS, DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT } from '../constants';
 import type { DateRange, TileResponse } from '../types';
 import { resolveDateRange, detectFreshness, rangeDays } from '../dates';
 import { ga4RowsToObjects } from '../transforms/ga4';
@@ -36,11 +31,7 @@ async function fetchRaw(range: DateRange, limit: number) {
       requestBody: {
         dateRanges: [{ startDate: range.start, endDate: range.end }],
         dimensions: [{ name: 'sessionSource' }, { name: 'sessionMedium' }],
-        metrics: [
-          { name: 'sessions' },
-          { name: 'activeUsers' },
-          { name: 'engagementRate' },
-        ],
+        metrics: [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'engagementRate' }],
         orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
         limit: String(limit),
       },
@@ -51,9 +42,7 @@ async function fetchRaw(range: DateRange, limit: number) {
   }
 }
 
-async function runOnce(
-  params: Ga4TrafficSourcesParams,
-): Promise<TileResponse<Ga4TrafficSourcesRow>> {
+async function runOnce(params: Ga4TrafficSourcesParams): Promise<TileResponse<Ga4TrafficSourcesRow>> {
   const tz = params.timezone ?? 'America/Phoenix';
   const range = resolveDateRange(params.dateRange, tz);
   const limit = Math.min(params.limit ?? DEFAULT_ROW_LIMIT, MAX_ROW_LIMIT);
@@ -71,7 +60,7 @@ async function runOnce(
       sessions: acc.sessions + r.sessions,
       activeUsers: acc.activeUsers + r.activeUsers,
     }),
-    { sessions: 0, activeUsers: 0 },
+    { sessions: 0, activeUsers: 0 }
   );
   const fresh = detectFreshness('ga4', range, tz);
 
@@ -101,9 +90,7 @@ async function runOnce(
   };
 }
 
-export function getGa4TrafficSources(
-  params: Ga4TrafficSourcesParams,
-): Promise<TileResponse<Ga4TrafficSourcesRow>> {
+export function getGa4TrafficSources(params: Ga4TrafficSourcesParams): Promise<TileResponse<Ga4TrafficSourcesRow>> {
   const cacheArgs = { ...params, forceFresh: undefined };
   const key = `ga4_traffic_sources:${sortedKeys(cacheArgs)}`;
   const run = () => coalesce(key, () => runOnce(params));

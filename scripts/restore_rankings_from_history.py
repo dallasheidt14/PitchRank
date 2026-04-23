@@ -246,7 +246,10 @@ def restore(snapshot_date: str | None, execute: bool) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Restore rankings tables from the last good ranking_history snapshot")
-    parser.add_argument("--snapshot-date", help="Snapshot date to restore (YYYY-MM-DD). Defaults to latest good snapshot.")
+    parser.add_argument(
+        "--snapshot-date",
+        help="Snapshot date to restore (YYYY-MM-DD). Defaults to latest good snapshot.",
+    )
     parser.add_argument("--execute", action="store_true", help="Apply the restore. Without this flag, run as dry-run.")
     args = parser.parse_args()
 

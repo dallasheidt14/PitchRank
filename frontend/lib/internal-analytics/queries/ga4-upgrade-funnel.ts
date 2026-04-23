@@ -1,10 +1,7 @@
 import 'server-only';
 import { unstable_cache } from 'next/cache';
 import { getAnalyticsDataClient } from '@/lib/google-auth';
-import {
-  GA4_PROPERTY_ID,
-  CACHE_TTL_SECONDS,
-} from '../constants';
+import { GA4_PROPERTY_ID, CACHE_TTL_SECONDS } from '../constants';
 import type { DateRange, TileResponse } from '../types';
 import { resolveDateRange, detectFreshness, rangeDays } from '../dates';
 import { coalesce, sortedKeys } from './_coalesce';
@@ -55,9 +52,7 @@ async function fetchRaw(range: DateRange) {
   }
 }
 
-async function runOnce(
-  params: Ga4UpgradeFunnelParams,
-): Promise<TileResponse<Ga4UpgradeFunnelRow>> {
+async function runOnce(params: Ga4UpgradeFunnelParams): Promise<TileResponse<Ga4UpgradeFunnelRow>> {
   const tz = params.timezone ?? 'America/Phoenix';
   const range = resolveDateRange(params.dateRange, tz);
 
@@ -116,9 +111,7 @@ async function runOnce(
   };
 }
 
-export function getGa4UpgradeFunnel(
-  params: Ga4UpgradeFunnelParams,
-): Promise<TileResponse<Ga4UpgradeFunnelRow>> {
+export function getGa4UpgradeFunnel(params: Ga4UpgradeFunnelParams): Promise<TileResponse<Ga4UpgradeFunnelRow>> {
   const cacheArgs = { ...params, forceFresh: undefined };
   const key = `ga4_upgrade_funnel:${sortedKeys(cacheArgs)}`;
   const run = () => coalesce(key, () => runOnce(params));
