@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
+from src.utils.team_utils import CURRENT_YEAR, calculate_age_group_from_birth_year
+
 # ═══════════════════════════════════════════════════════════════
 # Constants
 # ═══════════════════════════════════════════════════════════════
@@ -412,10 +414,124 @@ _VARIANT_AGE_PATTERNS = [
     r"\b[BG]?\d{4}[BG]?\b",
     r"\b[BG]\d{2}(?!\d)\b",
     r"\b\d{2}[BG](?!\d)\b",
+    r"\b\d{1,2}[Uu]\b",
 ]
 
 # Age/year regex applied to the raw name string
-AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
+AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
+
+# Pre-compiled patterns for _canonicalize_age_token — this helper runs per token
+# during fuzzy duplicate scanning (O(n²) teams-per-cohort) so pattern compilation
+# on every call is measurable. See `architecture_age_pattern_drift.md`.
+_RE_BIRTH_YEAR_4 = re.compile(r"[bgmf]?(\d{4})[bgmf]?")
+_RE_DIGIT_U = re.compile(r"(\d{1,2})u[bgmf]?")
+_RE_U_PREFIX = re.compile(r"[bgmf]?u-?(\d{1,2})[bgmf]?")
+_RE_2DIGIT_GENDER = re.compile(r"(\d{2})[bgmf]|[bgmf](\d{2})")
+_RE_SLASH_DUAL = re.compile(r"(\d{2})/(\d{2})")
+_RE_2DIGIT_BARE = re.compile(r"\d{2}")
+
+
+def _canonicalize_age_token(tok: str) -> str | None:
+    """Map any age token to a canonical cohort key like 'u14'.
+
+    Accepts (case-insensitive; caller may pass lowercased and apostrophe-stripped):
+      4-digit birth year:   '2012' -> 'u14'
+      2-digit shorthand:    '12' via birth-year rule -> 'u14' (apostrophe-strip context)
+      U-age form:           'U14', 'u-14' -> 'u14'
+      Digit-then-U form:    '14U', '14u' -> 'u14'
+      With gender suffix:   '14ub', 'u14b', '14b', 'b14', 'b2012', '2012b' -> canonical + drop gender
+      Slash dual-age:       '10/11' -> 'u15' (take LARGER 2-digit year = younger cohort)
+
+    Returns None for:
+      - Out-of-range ages (outside U6-U19 after canonicalization)
+      - Unrecognized tokens (do NOT fall back to raw — silent drift masks bugs)
+
+    U18 remap:
+      U18 is merged into the U19 cohort everywhere else in PitchRank (see AGE_GROUPS,
+      scrape_playmetrics_league.derive_team_age_group).
+
+    Slash-form rationale:
+      Dual-age divisions are "play-up gates, not cohort labels" — the team is primarily
+      the younger cohort (larger 2-digit year). So '10/11 -> 2011 -> U15. A single '10
+      resolves to 2010 -> U16, so slash teams remain distinct from single-cohort teams.
+
+    Bare 2-digit rationale:
+      In the extract_distinctions path, bare 2-digit strings arrive only from the
+      apostrophe-stripped AGE_PATTERN branch ('10, '10/11), where the semantic is
+      always birth-year shorthand. Pass-3 callers wrap their emissions with 'u' prefix
+      before calling this helper, so U-age inputs never arrive as bare digits here.
+    """
+    if not tok:
+        return None
+    t = tok.lower().strip().strip("'")
+    if not t:
+        return None
+
+    age: int | None = None
+
+    # 4-digit birth year (optionally gender-wrapped): '2012', 'b2012', '2012b'
+    m = _RE_BIRTH_YEAR_4.fullmatch(t)
+    if m:
+        birth_year = int(m.group(1))
+        if 1990 <= birth_year <= 2030:
+            ag = calculate_age_group_from_birth_year(birth_year)
+            if ag:
+                age = int(ag[1:])
+
+    # Digit-then-U form with optional gender: '14u', '14ub', '14um'
+    if age is None:
+        m = _RE_DIGIT_U.fullmatch(t)
+        if m:
+            age = int(m.group(1))
+
+    # U-prefix form with optional gender prefix/suffix: 'u14', 'u-14', 'u14b', 'bu14'
+    if age is None:
+        m = _RE_U_PREFIX.fullmatch(t)
+        if m:
+            age = int(m.group(1))
+
+    # 2-digit shorthand with gender: '14b', 'b14' → birth-year shorthand
+    if age is None:
+        m = _RE_2DIGIT_GENDER.fullmatch(t)
+        if m:
+            short = int(m.group(1) or m.group(2))
+            birth_year = 2000 + short if short < 30 else 1900 + short
+            ag = calculate_age_group_from_birth_year(birth_year)
+            if ag:
+                age = int(ag[1:])
+
+    # Slash dual-age: '10/11' → take larger 2-digit year (younger cohort)
+    if age is None:
+        m = _RE_SLASH_DUAL.fullmatch(t)
+        if m:
+            y1, y2 = int(m.group(1)), int(m.group(2))
+            short = max(y1, y2)
+            birth_year = 2000 + short if short < 30 else 1900 + short
+            ag = calculate_age_group_from_birth_year(birth_year)
+            if ag:
+                age = int(ag[1:])
+
+    # Bare 2-digit: birth-year shorthand (apostrophe-strip context)
+    if age is None:
+        m = _RE_2DIGIT_BARE.fullmatch(t)
+        if m:
+            short = int(t)
+            birth_year = 2000 + short if short < 30 else 1900 + short
+            ag = calculate_age_group_from_birth_year(birth_year)
+            if ag:
+                age = int(ag[1:])
+
+    if age is None:
+        return None
+
+    if not (6 <= age <= 19):
+        return None
+
+    if age == 18:
+        age = 19
+
+    return f"u{age}"
+
 
 # Club-suffix canonicalization (from full_club_analysis.py)
 _CLUB_SUFFIX_RE = [
@@ -613,30 +729,45 @@ def extract_distinctions(name: str) -> Dict:
             team_number = tok
             classified.add(idx)
 
-    # Pass 2: extract age tokens and secondary numbers
+    # Pass 2: extract canonical age tokens; mask age spans for secondary_nums.
+    # Same shape as scripts/find_fuzzy_duplicate_teams.py.extract_distinctions — both
+    # must canonicalize so '14U', 'U14', '2012', "'12" all collapse to the same key.
     age_tokens: list = []
+    age_spans: list = []
     for m in AGE_PATTERN.finditer(name):
-        age_tokens.append(m.group(0).lower().strip("'"))
+        canonical = _canonicalize_age_token(m.group(0).lower().strip("'"))
+        if canonical is not None:
+            age_tokens.append(canonical)
+        age_spans.append((m.start(), m.end()))
 
+    # Mask all matched age spans before scanning for secondary numbers — otherwise
+    # "14U 2012 Rush Union" would emit '2012' as a spurious secondary_num after
+    # matching the first age at position 0.
     secondary_nums: list = []
-    first_age = AGE_PATTERN.search(name)
-    if first_age:
-        after = name[first_age.end() :]
-        secondary_nums = re.findall(r"\d+", after)
+    if age_spans:
+        masked_chars = list(name)
+        for start, end in age_spans:
+            for i in range(start, min(end, len(masked_chars))):
+                masked_chars[i] = " "
+        masked = "".join(masked_chars)
+        first_end = age_spans[0][1]
+        secondary_nums = re.findall(r"\d+", masked[first_end:])
 
-    # Pass 3: classify age/gender combo indices
+    # Pass 3: classify age/gender combo indices; canonicalize emissions.
     for idx, tok in enumerate(tokens):
         if idx in classified:
             continue
         age_gender = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
         if age_gender:
-            age_num = age_gender.group(1) or age_gender.group(2) or age_gender.group(3)
-            if age_num:
-                age_tokens.append(age_num)
+            # Pass the original token — the helper distinguishes 4-digit birth year,
+            # 2-digit shorthand ('14b' -> U12), and U-forms ('u14b' -> U14).
+            canonical = _canonicalize_age_token(tok)
+            if canonical is not None:
+                age_tokens.append(canonical)
             classified.add(idx)
         elif re.fullmatch(r"20\d{2}", tok) or re.fullmatch(r"\d{2}/\d{2}", tok):
             classified.add(idx)
-        elif re.fullmatch(r"u-?\d{1,2}", tok):
+        elif re.fullmatch(r"u-?\d{1,2}|\d{1,2}u", tok) and _canonicalize_age_token(tok) is not None:
             classified.add(idx)
         elif re.fullmatch(r"\d+m?", tok):
             classified.add(idx)
@@ -800,6 +931,7 @@ _AGE_SPLIT_PATTERNS = [
     r"\b[BG]?\d{4}[BG]?\b",
     r"\b[BG]\d{2}(?!\d)\b",
     r"\b\d{2}[BG](?!\d)\b",
+    r"\b\d{1,2}[Uu]\b",
 ]
 
 _TRAILING_SUFFIXES = [
@@ -872,3 +1004,92 @@ def has_protected_division(name: str) -> bool:
     across divisions (ECNL ≠ ECNL-RL ≠ MLS NEXT)."""
     n = name.lower()
     return any(kw in n for kw in ("ecnl", "mls next", "mls-next", "ga "))
+
+
+# ═══════════════════════════════════════════════════════════════
+# Inline tests (run via `python -m src.utils.team_name_utils`)
+# ═══════════════════════════════════════════════════════════════
+
+
+if __name__ == "__main__":
+    import sys
+
+    print(f"=== _canonicalize_age_token (season CURRENT_YEAR={CURRENT_YEAR}) ===")
+    # Season-dependent assertions assume CURRENT_YEAR==2025 (2025-26 soccer season).
+    # If run off-season these expectations shift with the helper's birth-year math.
+    u14_forms = [
+        "2012",
+        "'12",
+        "12",
+        "U14",
+        "u-14",
+        "14U",
+        "14u",
+        "14ub",
+        "u14b",
+        "b2012",
+        "2012b",
+        "12b",
+        "b12",
+    ]
+    passed = failed = 0
+    for tok in u14_forms:
+        got = _canonicalize_age_token(tok)
+        ok = got == "u14"
+        status = "✅" if ok else "❌"
+        print(f"  {status} _canonicalize_age_token({tok!r:10}) → {got!r} (expected 'u14')")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
+
+    # U18 remap: U18 and 2007 birth year both merge into U19
+    for tok, expected in [("U18", "u19"), ("2007", "u19")]:
+        got = _canonicalize_age_token(tok)
+        ok = got == expected
+        status = "✅" if ok else "❌"
+        print(f"  {status} _canonicalize_age_token({tok!r:10}) → {got!r} (expected {expected!r})")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
+
+    # Slash-form: larger 2-digit year (younger cohort) wins, so '10/11 → u15
+    for tok, expected in [("10/11", "u15"), ("10", "u16")]:
+        got = _canonicalize_age_token(tok)
+        ok = got == expected
+        status = "✅" if ok else "❌"
+        print(f"  {status} _canonicalize_age_token({tok!r:10}) → {got!r} (expected {expected!r})")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
+
+    # Out of range / unrecognized → None
+    for tok in ["20U", "5U", "2003", "random", ""]:
+        got = _canonicalize_age_token(tok)
+        ok = got is None
+        status = "✅" if ok else "❌"
+        print(f"  {status} _canonicalize_age_token({tok!r:10}) → {got!r} (expected None)")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
+
+    # AGE_PATTERN recognizes both orderings
+    checks = [
+        ("Phoenix FC 14U Black", "14U"),
+        ("Phoenix FC U14 Black", "U14"),
+    ]
+    for text, expected in checks:
+        m = AGE_PATTERN.search(text)
+        got = m.group(0) if m else None
+        ok = got == expected
+        status = "✅" if ok else "❌"
+        print(f"  {status} AGE_PATTERN.search({text!r}).group(0) → {got!r} (expected {expected!r})")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
+
+    # extract_team_variant detects coach name after 14U (uses _VARIANT_AGE_PATTERNS)
+    got = extract_team_variant("FC Example 14U Riedell")
+    ok = got == "riedell"
+    status = "✅" if ok else "❌"
+    print(f"  {status} extract_team_variant('FC Example 14U Riedell') → {got!r} (expected 'riedell')")
+    passed += 1 if ok else 0
+    failed += 0 if ok else 1
+
+    print(f"\n{passed} passed, {failed} failed")
+    if failed:
+        sys.exit(1)

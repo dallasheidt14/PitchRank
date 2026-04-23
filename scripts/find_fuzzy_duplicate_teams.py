@@ -18,7 +18,10 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+# Two-level path idiom: parent lets us import sibling scripts (find_queue_matches),
+# grandparent lets us import src.utils.team_name_utils (_canonicalize_age_token).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from difflib import SequenceMatcher
 
 from find_queue_matches import (
@@ -27,6 +30,8 @@ from find_queue_matches import (
     has_protected_division,
     normalize_team_name,
 )
+
+from src.utils.team_name_utils import _canonicalize_age_token
 
 # ─────────────────────────────────────────────────────────────────────
 # STRUCTURED DISTINCTION EXTRACTION
@@ -235,7 +240,7 @@ US_STATES = frozenset(
 )
 
 # Age/year patterns
-AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
+AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
 
 
 def _tokenize(name: str) -> list[str]:
@@ -320,31 +325,46 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
             team_number = tok
             classified.add(idx)
 
-    # ── Pass 2: extract age tokens and secondary numbers ──
+    # ── Pass 2: extract canonical age tokens; mask age spans for secondary_nums ──
+    # Canonicalize every AGE_PATTERN match to a cohort key (e.g. 'u14') so '14U',
+    # 'U14', '2012' all collapse to the same token at comparison time.
     age_tokens = []
+    age_spans = []
     for m in AGE_PATTERN.finditer(name):
-        age_tokens.append(m.group(0).lower().strip("'"))
+        canonical = _canonicalize_age_token(m.group(0).lower().strip("'"))
+        if canonical is not None:
+            age_tokens.append(canonical)
+        age_spans.append((m.start(), m.end()))
 
+    # Mask all matched age spans before scanning for secondary numbers — otherwise
+    # names like "14U 2012 Rush Union" would emit '2012' as a spurious secondary_num
+    # after matching the first age at position 0.
+    masked_chars = list(name)
+    for start, end in age_spans:
+        for i in range(start, min(end, len(masked_chars))):
+            masked_chars[i] = " "
+    masked = "".join(masked_chars)
     secondary_nums = []
-    first_age = AGE_PATTERN.search(name)
-    if first_age:
-        after = name[first_age.end() :]
-        secondary_nums = re.findall(r"\d+", after)
+    if age_spans:
+        first_end = age_spans[0][1]
+        secondary_nums = re.findall(r"\d+", masked[first_end:])
 
     # ── Pass 3: classify age-token indices ──
     for idx, tok in enumerate(tokens):
         if idx in classified:
             continue
-        # Age+gender combo (15m, 16m, b06, b08, b2010, u16b) — extract age part
+        # Age+gender combo (15m, 16m, b06, b08, b2010, u16b, 14ub) — canonicalize.
+        # Pass the original token to the helper — it already distinguishes
+        # 4-digit birth years, 2-digit shorthand (14b -> U12), and U-forms (u14b -> U14).
         age_gender_match = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
         if age_gender_match:
-            age_num = age_gender_match.group(1) or age_gender_match.group(2) or age_gender_match.group(3)
-            if age_num:
-                age_tokens.append(age_num)
+            canonical = _canonicalize_age_token(tok)
+            if canonical is not None:
+                age_tokens.append(canonical)
             classified.add(idx)
         elif re.fullmatch(r"20\d{2}", tok) or re.fullmatch(r"\d{2}/\d{2}", tok):
             classified.add(idx)
-        elif re.fullmatch(r"u-?\d{1,2}", tok):
+        elif re.fullmatch(r"u-?\d{1,2}|\d{1,2}u", tok) and _canonicalize_age_token(tok) is not None:
             classified.add(idx)
         elif re.fullmatch(r"\d+m?", tok):
             classified.add(idx)
@@ -384,7 +404,8 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
         "location_codes": frozenset(location_codes),
         "state_codes": frozenset(state_codes),
         "squad_words": frozenset(squad_words),
-        "age_tokens": tuple(sorted(age_tokens)),
+        # set() dedupes — canonicalization collapses "14U 2012" to ['u14', 'u14'].
+        "age_tokens": tuple(sorted(set(age_tokens))),
         "secondary_nums": tuple(secondary_nums),
     }
 
@@ -706,5 +727,98 @@ def main():
     )
 
 
+def _run_inline_tests() -> int:
+    """Sanity-check the canonicalization path end-to-end. Returns non-zero on failure."""
+    from src.utils.team_name_utils import _canonicalize_age_token as utils_canon
+
+    passed = failed = 0
+
+    def check(desc: str, cond: bool) -> None:
+        nonlocal passed, failed
+        status = "✅" if cond else "❌"
+        print(f"  {status} {desc}")
+        if cond:
+            passed += 1
+        else:
+            failed += 1
+
+    # Cross-file equivalence (should be trivial identity since we now import the helper)
+    for tok in ["14U", "U14", "2012", "10/11", "14ub"]:
+        check(
+            f"cross-file canonical equivalence for {tok!r}",
+            _canonicalize_age_token(tok) == utils_canon(tok),
+        )
+
+    # Pass-4 leak regression — 14U must be classified, not dumped into squad_words
+    d = extract_distinctions("EBU 14U Premier 1", "EBU")
+    check("14u not in squad_words for 'EBU 14U Premier 1'", "14u" not in d["squad_words"])
+
+    # Canonicalization regression — birth year and digit-U form yield same cohort
+    d_a = extract_distinctions("EBU 2012 Premier 1", "EBU")
+    d_b = extract_distinctions("EBU 14U Premier 1", "EBU")
+    check(
+        "age_tokens match for EBU 2012 vs EBU 14U",
+        d_a["age_tokens"] == d_b["age_tokens"] == ("u14",),
+    )
+
+    # secondary_nums masking regression — "2012" AFTER "14U" must not leak as secondary
+    d = extract_distinctions("14U 2012 Rush Union WI Select", "Rush Union WI")
+    check(
+        "secondary_nums masks age matches for '14U 2012 Rush Union WI Select'",
+        d["secondary_nums"] == (),
+    )
+
+    # Full-pair match — the two failure pairs from the 2026-04-22 incident
+    check(
+        "EBU 14U Premier 1 ↔ EBU 2012 Premier 1 merges",
+        _should_skip_pair("EBU 14U Premier 1", "EBU 2012 Premier 1", club_name="EBU") is False,
+    )
+    check(
+        "14U 2012 Rush Union WI Select ↔ Rush Union WI 2012 Select merges",
+        _should_skip_pair(
+            "14U 2012 Rush Union WI Select",
+            "Rush Union WI 2012 Select",
+            club_name="Rush Union WI",
+        )
+        is False,
+    )
+
+    # Pass-3 preserves birth-year semantic for fused gender-suffix tokens —
+    # 'b2012' must canonicalize to u14, not be wrapped to 'u2012' and dropped.
+    d = extract_distinctions("Phoenix B2012 Red", "Phoenix")
+    check(
+        "Pass-3 'B2012' yields age_tokens ('u14',)",
+        d["age_tokens"] == ("u14",),
+    )
+    d = extract_distinctions("Phoenix 14B Red", "Phoenix")
+    check(
+        "Pass-3 '14B' (birth year 2014) yields age_tokens ('u12',)",
+        d["age_tokens"] == ("u12",),
+    )
+
+    # Regression guardrails
+    check(
+        "same-club different-color still skipped",
+        _should_skip_pair("Phoenix FC 2012 Red", "Phoenix FC 2012 Blue", club_name="Phoenix FC") is True,
+    )
+    check(
+        "cross-cohort still skipped",
+        _should_skip_pair("Phoenix 2012 Red", "Phoenix 2013 Red", club_name="Phoenix") is True,
+    )
+    check(
+        "U18 ↔ 2007 birth year merges (both canonicalize to u19)",
+        _should_skip_pair("Phoenix U18 Red", "Phoenix 2007 Red", club_name="Phoenix") is False,
+    )
+    check(
+        "slash-form '10/11 (u15) stays distinct from '10 (u16)",
+        _should_skip_pair("Phoenix '10/11 Red", "Phoenix '10 Red", club_name="Phoenix") is True,
+    )
+
+    print(f"\n{passed} passed, {failed} failed")
+    return 0 if failed == 0 else 1
+
+
 if __name__ == "__main__":
+    if "--test" in sys.argv:
+        sys.exit(_run_inline_tests())
     main()

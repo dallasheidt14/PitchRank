@@ -15,6 +15,7 @@ Usage:
 import argparse
 import os
 import re
+import sys
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -76,6 +77,7 @@ def normalize_team_name(name):
     n = re.sub(r"\b(b|g)\s*(\d{2,4})\b", r"\2", n)  # B2014 -> 2014
     n = re.sub(r"\b(\d{2,4})\s*(b|g)\b", r"\1", n)  # 2014B -> 2014
     n = re.sub(r"\bu\s*(\d+)\b", r"u\1", n)  # U 14 -> u14
+    n = re.sub(r"\b(\d{1,2})u\b", r"u\1", n)  # 14u -> u14 (digit-then-U form)
 
     # Remove extra whitespace
     n = " ".join(n.split())
@@ -103,13 +105,16 @@ def extract_club_from_name(provider_team_name):
 
     name = provider_team_name.strip()
 
-    # Age/year patterns to split on (from team_name_normalizer.py)
-    # Match: U14, U-14, 2014, B2014, 2014B, G2015, 15B, B15, etc.
+    # Age/year patterns to split on (from team_name_normalizer.py).
+    # Match: U14, U-14, 2014, B2014, 2014B, G2015, 15B, B15, 14U, etc.
+    # NOTE: Duplicated inside extract_team_variant and extract_program_tier below;
+    # keep in sync until consolidated into src/utils/team_name_utils.py.
     age_patterns = [
         r"\bU-?\d{1,2}\b",  # U14, U-14
         r"\b[BG]?\d{4}[BG]?\b",  # 2014, B2014, 2014B, G2015, 2015G
         r"\b[BG]\d{2}(?!\d)\b",  # B14, G15 (not followed by more digits)
         r"\b\d{2}[BG](?!\d)\b",  # 14B, 15G (not followed by more digits)
+        r"\b\d{1,2}[Uu]\b",  # 14U, 14u (digit-then-U age form)
     ]
 
     # Find the earliest age pattern match
@@ -459,11 +464,13 @@ def extract_team_variant(name):
 
     # Find age/year position in the team name — search ALL occurrences and
     # look for a candidate word on EITHER side so word-order doesn't matter.
+    # NOTE: Duplicated with extract_club_from_name (above) and extract_program_tier (below).
     age_patterns = [
         r"\bU-?\d{1,2}\b",  # U14, U-14
         r"\b[BG]?\d{4}[BG]?\b",  # 2014, B2014, 2014B, G2015, 2015G
         r"\b[BG]\d{2}(?!\d)\b",  # B14, G15
         r"\b\d{2}[BG](?!\d)\b",  # 14B, 15G
+        r"\b\d{1,2}[Uu]\b",  # 14U, 14u (digit-then-U age form)
     ]
 
     age_match = None
@@ -522,6 +529,14 @@ def extract_age_group(name, details):
 
     # Priority 1: U-age format (U13, U14, etc)
     match = re.search(r"\bu(\d+)\b", name_lower)
+    if match:
+        return normalize_filter_age_group(match.group(1))
+
+    # Priority 1b: digit-then-U form (14U, 14u) — route through the same
+    # normalizer as Priority 1 so "18U" and "U18" don't produce different cohorts.
+    # _canonicalize_age_token is not used here because it remaps U18 -> U19, which
+    # would diverge from Priority 1's normalize_filter_age_group (preserves U18).
+    match = re.search(r"\b(\d{1,2})u\b", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 
@@ -621,12 +636,14 @@ def extract_program_tier(name):
         if re.search(pattern, name_lower):
             return token
 
-    # Check for short branch tokens that appear AFTER an age/year pattern
+    # Check for short branch tokens that appear AFTER an age/year pattern.
+    # NOTE: Duplicated with extract_club_from_name and extract_team_variant above.
     age_patterns = [
         r"\bU-?\d{1,2}\b",
         r"\b[BG]?\d{4}[BG]?\b",
         r"\b[BG]\d{2}(?!\d)\b",
         r"\b\d{2}[BG](?!\d)\b",
+        r"\b\d{1,2}[Uu]\b",
     ]
     age_end = 0
     for pattern in age_patterns:
@@ -1068,5 +1085,47 @@ def main():
         print("\nTo execute, run with --execute")
 
 
+def _run_inline_tests() -> int:
+    """Exercise the 14U canonicalization path. Returns non-zero on failure."""
+    passed = failed = 0
+
+    def check(desc: str, cond: bool) -> None:
+        nonlocal passed, failed
+        status = "✅" if cond else "❌"
+        print(f"  {status} {desc}")
+        if cond:
+            passed += 1
+        else:
+            failed += 1
+
+    # normalize_team_name rewrites digit-then-U form
+    got = normalize_team_name("Team 14U Blue")
+    check(f"normalize_team_name('Team 14U Blue') == 'team u14 blue' (got {got!r})", got == "team u14 blue")
+    got = normalize_team_name("Team U14 Blue")
+    check(f"normalize_team_name('Team U14 Blue') == 'team u14 blue' (got {got!r})", got == "team u14 blue")
+
+    # extract_age_group returns same cohort for both 14U and U14 orderings
+    a = extract_age_group("FC Example 14U", {})
+    b = extract_age_group("FC Example U14", {})
+    check(f"extract_age_group '14U' == 'U14' (got {a!r} vs {b!r})", a == b and a is not None)
+
+    # Birth year and digit-U form resolve to the same cohort
+    a = extract_age_group("FC Example 2012", {})
+    b = extract_age_group("FC Example 14U", {})
+    check(f"extract_age_group '2012' == '14U' (got {a!r} vs {b!r})", a == b and a is not None)
+
+    # U18/U19 parity: Priority 1 and 1b must agree on the same cohort.
+    # Previously Priority 1b routed through _canonicalize_age_token which remaps
+    # U18 -> U19, diverging from Priority 1's normalize_filter_age_group.
+    a = extract_age_group("FC Example U18", {})
+    b = extract_age_group("FC Example 18U", {})
+    check(f"extract_age_group 'U18' == '18U' (got {a!r} vs {b!r})", a == b and a is not None)
+
+    print(f"\n{passed} passed, {failed} failed")
+    return 0 if failed == 0 else 1
+
+
 if __name__ == "__main__":
+    if "--test" in sys.argv:
+        sys.exit(_run_inline_tests())
     main()
