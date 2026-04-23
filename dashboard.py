@@ -4,7 +4,7 @@ import pandas as pd
 import os
 import sys
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 import time
 from pathlib import Path
@@ -1129,10 +1129,13 @@ elif section == "📈 Database Import Stats":
 
         # Team Scraping Status
         st.subheader("Team Scraping Status")
+        st.caption(
+            "Counts below include only **scrape-eligible** teams (U10-U19, excluding placeholder "
+            "`unknown_<id>` rows). Matches the exact filters applied by the scrape workflow, so the "
+            "\"needs scraping\" totals reflect what the workflow will actually pick up."
+        )
 
         try:
-            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
-
             # Fetch providers for per-provider breakdown
             providers_result = db.table('providers').select('id, name, code').execute()
             providers_list = providers_result.data or []
@@ -1145,31 +1148,28 @@ elif section == "📈 Database Import Stats":
                 key="scrape_status_provider"
             )
 
-            # Helper to build a filtered query
-            def _scrape_status_query(base_query):
-                if selected_provider != "All Providers":
-                    pid = next((p['id'] for p in providers_list if p['name'] == selected_provider), None)
-                    if pid:
-                        base_query = base_query.eq('provider_id', pid)
-                return base_query
+            # Resolve selected provider's UUID (None = all providers)
+            selected_provider_id = None
+            if selected_provider != "All Providers":
+                selected_provider_id = next(
+                    (p['id'] for p in providers_list if p['name'] == selected_provider),
+                    None,
+                )
 
-            # Teams scraped within last 7 days
-            recent_scraped = _scrape_status_query(
-                db.table('teams').select('id', count='exact').gte('last_scraped_at', seven_days_ago)
-            ).execute()
-            recent_count = recent_scraped.count or 0
-
-            # Teams scraped more than 7 days ago
-            stale_scraped = _scrape_status_query(
-                db.table('teams').select('id', count='exact').lt('last_scraped_at', seven_days_ago).not_.is_('last_scraped_at', 'null')
-            ).execute()
-            stale_count = stale_scraped.count or 0
-
-            # Teams never scraped
-            never_scraped = _scrape_status_query(
-                db.table('teams').select('id', count='exact').is_('last_scraped_at', 'null')
-            ).execute()
-            never_count = never_scraped.count or 0
+            # get_scrape_eligibility_counts applies the same U8/U9, birth-year,
+            # and placeholder filters as get_teams_to_scrape_limited, so counts
+            # reflect workflow-eligible teams only and use server-side
+            # `now() - interval '7 days'` (no client TZ drift).
+            counts_result = execute_with_retry(
+                lambda: db.rpc(
+                    'get_scrape_eligibility_counts',
+                    {'p_provider_id': selected_provider_id},
+                ).execute()
+            )
+            counts_row = (counts_result.data or [{}])[0]
+            recent_count = int(counts_row.get('recent_count') or 0)
+            stale_count = int(counts_row.get('stale_count') or 0)
+            never_count = int(counts_row.get('never_count') or 0)
 
             # Total teams for percentage calculation
             total_teams = recent_count + stale_count + never_count
@@ -1195,25 +1195,24 @@ elif section == "📈 Database Import Stats":
                 st.metric("Coverage", f"{up_to_date_pct:.1f}%",
                          help=f"Percentage of {provider_label} teams scraped within 7 days")
 
-            # Per-provider summary table (always shown below the metrics)
+            # Per-provider summary table (always shown below the metrics).
+            # Same eligibility RPC, once per provider.
             if selected_provider == "All Providers" and len(providers_list) > 1:
                 with st.expander("Per-Provider Breakdown", expanded=True):
                     provider_rows = []
                     for prov in providers_list:
                         try:
                             pid = prov['id']
-                            p_recent = execute_with_retry(
-                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).gte('last_scraped_at', seven_days_ago)
+                            p_counts_res = execute_with_retry(
+                                lambda p=pid: db.rpc(
+                                    'get_scrape_eligibility_counts',
+                                    {'p_provider_id': p},
+                                ).execute()
                             )
-                            p_stale = execute_with_retry(
-                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).lt('last_scraped_at', seven_days_ago).neq('last_scraped_at', 'null')
-                            )
-                            p_never = execute_with_retry(
-                                lambda p=pid: db.table('teams').select('id', count='exact').eq('provider_id', p).is_('last_scraped_at', 'null')
-                            )
-                            p_recent_ct = p_recent.count or 0
-                            p_stale_ct = p_stale.count or 0
-                            p_never_ct = p_never.count or 0
+                            p_row = (p_counts_res.data or [{}])[0]
+                            p_recent_ct = int(p_row.get('recent_count') or 0)
+                            p_stale_ct = int(p_row.get('stale_count') or 0)
+                            p_never_ct = int(p_row.get('never_count') or 0)
                             p_total = p_recent_ct + p_stale_ct + p_never_ct
                             p_coverage = (p_recent_ct / p_total * 100) if p_total > 0 else 0
                             provider_rows.append({
@@ -1236,30 +1235,50 @@ elif section == "📈 Database Import Stats":
                     if provider_rows:
                         st.dataframe(pd.DataFrame(provider_rows), use_container_width=True, hide_index=True)
 
-            # Show list of stale teams in expander
+            # Show list of stale teams in expander. Applies the same eligibility
+            # filters as the counts above so operators don't see U8/U9 or
+            # placeholder teams in a list claiming "teams needing scraping."
             if stale_count > 0 or never_count > 0:
                 with st.expander(f"View Teams Needing Scraping ({stale_count + never_count:,} teams)"):
-                    # Get stale teams sorted by last_scraped_at
+                    current_year = datetime.now().year
+                    excluded_birth_years = [current_year - y for y in (21, 20, 9, 8, 7)]
+                    # Case variants on age_group cover stored 'u8' vs 'U8'.
+                    excluded_age_groups = ['U8', 'U-8', 'U9', 'U-9', 'u8', 'u-8', 'u9', 'u-9']
+
+                    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+
                     stale_query = db.table('teams').select(
-                        'team_name, age_group, gender, state_code, last_scraped_at'
+                        'team_name, age_group, gender, state_code, last_scraped_at, birth_year, provider_team_id'
                     ).or_(
                         f'last_scraped_at.lt.{seven_days_ago},last_scraped_at.is.null'
+                    ).not_.in_(
+                        'age_group', excluded_age_groups
+                    ).not_.in_(
+                        'birth_year', excluded_birth_years
                     )
-                    if selected_provider != "All Providers":
-                        pid = next((p['id'] for p in providers_list if p['name'] == selected_provider), None)
-                        if pid:
-                            stale_query = stale_query.eq('provider_id', pid)
-                    stale_teams = stale_query.order('last_scraped_at', desc=False, nullsfirst=True).limit(100).execute()
+                    if selected_provider_id:
+                        stale_query = stale_query.eq('provider_id', selected_provider_id)
+                    # Over-fetch a bit so we can drop placeholder
+                    # `unknown_<provider_team_id>` rows in Python (the
+                    # PostgREST client can't express that cross-column predicate).
+                    stale_teams = stale_query.order('last_scraped_at', desc=False, nullsfirst=True).limit(200).execute()
 
-                    if stale_teams.data:
-                        df = pd.DataFrame(stale_teams.data)
+                    display_rows = [
+                        t for t in (stale_teams.data or [])
+                        if t.get('team_name') != f"unknown_{t.get('provider_team_id')}"
+                    ][:100]
+
+                    if display_rows:
+                        df = pd.DataFrame(display_rows)[
+                            ['team_name', 'age_group', 'gender', 'state_code', 'last_scraped_at']
+                        ]
                         df['last_scraped_at'] = df['last_scraped_at'].apply(
                             lambda x: pd.to_datetime(x).strftime('%Y-%m-%d') if x else 'Never'
                         )
                         df.columns = ['Team Name', 'Age Group', 'Gender', 'State', 'Last Scraped']
                         st.dataframe(df, use_container_width=True, hide_index=True)
-                        if len(stale_teams.data) == 100:
-                            st.caption("Showing first 100 teams. More teams may need scraping.")
+                        if len(display_rows) == 100:
+                            st.caption("Showing first 100 eligible teams. More may need scraping.")
 
         except Exception as e:
             st.error(f"Error loading scraping status: {e}")
