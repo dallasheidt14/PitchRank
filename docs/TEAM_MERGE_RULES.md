@@ -153,8 +153,18 @@ The **"U" prefix is the signal:**
 **Age group formats → `U##`:**
 - `U14B` / `U-14` / `BU14` → `U14`
 - `U14` → `U14`
+- `14U` / `14u` / `14UB` / `14uG` / `14UM` → `U14` (digit-then-U form, optionally gender-suffixed)
 
 **Key principle:** Preserve the original system (birth year vs age group), strip all gender indicators (B/G/Boys/Girls). Gender is tracked separately in `gender` field.
+
+### Canonicalization at comparison time
+
+Stored `team_name` values retain their original form — birth-year names stay birth-year
+(required by `scripts/fix_team_age_groups.py`, which derives `age_group` from the 4-digit
+year in the name). Matchers canonicalize age tokens to a shared cohort key only at
+comparison time, inside `_canonicalize_age_token` (`src/utils/team_name_utils.py`). So
+`EBU 14U Premier 1` and `EBU 2012 Premier 1` both resolve to the `u14` cohort during
+duplicate detection without either name being rewritten on disk.
 
 ---
 

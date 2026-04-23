@@ -103,7 +103,8 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
 
     NEW NORMALIZATION RULES (Jan 2026):
     - Birth year formats → 4-digit year: '12B' -> '2012', 'B2012' -> '2012'
-    - Age group formats → U##: 'U14B' -> 'U14', 'U-14' -> 'U14', 'BU14' -> 'U14'
+    - Age group formats → U##: 'U14B' -> 'U14', 'U-14' -> 'U14', 'BU14' -> 'U14',
+      '14U' -> 'U14', '14UB' -> ('U14', 'Male')
     - Gender is extracted separately, stripped from age token
 
     Examples:
@@ -114,6 +115,9 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
         'U14B' -> ('U14', 'Male')  # U14 = age group, B = Boys
         'U-14' -> ('U14', None)  # age group with hyphen
         'BU14' -> ('U14', 'Male')  # gender prefix on age group
+        '14U' -> ('U14', None)  # digit-then-U age group form
+        '14UB' -> ('U14', 'Male')  # digit-then-U with gender suffix
+        '14uG' -> ('U14', 'Female')  # lowercase u with gender suffix
         '2014' -> ('2014', None)  # birth year only
         'U14' -> ('U14', None)  # age only
     """
@@ -134,6 +138,18 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
         age_num = int(match.group(2))
         gender = normalize_gender(gender_char)
         return (f"U{age_num}", gender)
+
+    # Pattern: ##U with optional gender suffix (14U, 14UB, 14uG, 14UM) -> U-age
+    # Semantically an age-group token (not a birth-year shorthand), mirrors
+    # scrape_playmetrics_league._TEAM_U_AGE_RE which handles both U14 and 14U orderings.
+    match = re.match(r"^(\d{1,2})[Uu]([BbGgMmFf]?)$", token)
+    if match:
+        age_num = int(match.group(1))
+        # Guard U6-U19 (full youth cohort range); rejects tokens like '20U' or '5U'
+        if 6 <= age_num <= 19:
+            gender_char = match.group(2)
+            gender = normalize_gender(gender_char) if gender_char else None
+            return (f"U{age_num}", gender)
 
     # Pattern: ##B/G/M/F with optional trailing 's' (14B, 15M, b15s) -> 4-digit year
     match = re.match(r"^(\d{2})([BbGgMmFf])[Ss]?$", token)
@@ -477,11 +493,32 @@ if __name__ == "__main__":
         ("U-14", "U14"),
         ("BU14", "U14"),
         ("GU12", "U12"),
+        ("14U", "U14"),
+        ("14u", "U14"),
+        ("15U", "U15"),
+        ("10U", "U10"),
+        ("19U", "U19"),
     ]
     for token, expected in age_tests2:
         age, _ = parse_age_gender(token)
         status = "✅" if age == expected else "❌"
         print(f"  {status} {token:10} → {age} (expected: {expected})")
+
+    print("\nDigit-then-U with gender suffix → (U##, gender):")
+    digit_u_gender_tests = [
+        ("14UB", ("U14", "Male")),
+        ("14UG", ("U14", "Female")),
+        ("14UM", ("U14", "Male")),
+        ("14UF", ("U14", "Female")),
+        ("14uG", ("U14", "Female")),
+        ("20U", (None, None)),
+        ("5U", (None, None)),
+        ("14UZ", (None, None)),
+    ]
+    for token, expected in digit_u_gender_tests:
+        result = parse_age_gender(token)
+        status = "✅" if result == expected else "❌"
+        print(f"  {status} {token:10} → {result} (expected: {expected})")
 
     print("\n=== TEAM NAME PARSER TEST ===\n")
     test_cases = [

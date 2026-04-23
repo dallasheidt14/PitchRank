@@ -257,6 +257,7 @@ _AGE_PATTERNS = [
     r"\b[BG]?\d{4}[BG]?\b",  # 2014, B2014, 2014B, G2015, 2015G
     r"\b[BG]\d{2}(?!\d)\b",  # B14, G15 (not followed by more digits)
     r"\b\d{2}[BG](?!\d)\b",  # 14B, 15G (not followed by more digits)
+    r"\b\d{1,2}[Uu]\b",  # 14U, 14u (digit-then-U age form)
 ]
 
 
