@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher
 from supabase import Client
@@ -101,16 +101,57 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         supabase: Client,
         provider_id: Optional[str] = None,
         alias_cache: Optional[Dict] = None,
+        discovery_mode: bool = False,
     ):
         super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
         # Lower thresholds for more aggressive matching
         self.fuzzy_threshold = 0.75
         self.auto_approve_threshold = 0.91
         self.review_threshold = 0.70
+        # When True, suppress base-matcher review-queue inserts: the SincSports
+        # discovery flow creates a direct_id team for every sub-0.91 result
+        # anyway, so leaving the review row behind would pollute the queue with
+        # decisions the subclass is about to auto-resolve. Game-import flows
+        # keep discovery_mode=False (default) so their review queue is intact.
+        self.discovery_mode = discovery_mode
         logger.info(
             f"Initialized SincSportsGameMatcher with enhanced fuzzy matching "
             f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold}, "
-            f"review: {self.review_threshold})"
+            f"review: {self.review_threshold}, discovery_mode: {self.discovery_mode})"
+        )
+
+    def _create_review_queue_entry(
+        self,
+        provider_id: str,
+        provider_team_id: Optional[str],
+        provider_team_name: str,
+        suggested_master_team_id: Optional[str],
+        confidence_score: float,
+        match_details: Dict,
+    ):
+        """Suppress review-queue writes when discovery_mode is set.
+
+        In discovery, the base matcher would otherwise insert a review row
+        for every 0.75–0.91 fuzzy result before the subclass gets a chance
+        to auto-create a direct_id team for the same row. Suppressing here
+        keeps the queue clean; the low-confidence signal is carried forward
+        to the result dict via ``suppressed_review_method`` so the driver
+        can write a separate audit CSV.
+
+        Signature is intentionally explicit (not ``*args, **kwargs``) so that
+        if the base's contract changes, this override fails loudly at the
+        delegation site rather than silently keeping the discovery-mode
+        short-circuit working against a stale signature.
+        """
+        if self.discovery_mode:
+            return None
+        return super()._create_review_queue_entry(
+            provider_id=provider_id,
+            provider_team_id=provider_team_id,
+            provider_team_name=provider_team_name,
+            suggested_master_team_id=suggested_master_team_id,
+            confidence_score=confidence_score,
+            match_details=match_details,
         )
 
     # ------------------------------------------------------------------
@@ -286,6 +327,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         age_group: str,
         gender: str,
         club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> Optional[Dict]:
         """
         Enhanced fuzzy matching for SincSports teams.
@@ -295,6 +337,10 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         - Distinction-based hard rejection before scoring
         - Lower threshold (0.75) for more matches
         - Deterministic tie-breaking on (variant_match, club_sim)
+
+        ``state_code`` flows into the provider_team scoring dict so the base
+        score's location component sees the discovered team's state instead of
+        ``None``. Default preserves game-import callers that never knew state.
         """
         try:
             age_group_normalized = age_group.lower() if age_group else age_group
@@ -345,7 +391,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "team_name": team_name,
                 "club_name": club_name,
                 "age_group": age_group,
-                "state_code": None,
+                "state_code": state_code,
             }
 
             for team in result.data if result else []:
@@ -507,28 +553,53 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         age_group: Optional[str],
         gender: Optional[str],
         club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> Dict:
         """
         Override base _match_team to create new teams when no match found
         (same strategy as TGS).
+
+        Extends the base return dict with three discovery-oriented fields:
+
+        - ``created``: ``True`` only when this call actually inserted a new
+          ``teams`` row (pre-insert lookup / 23505 fallback return ``False``).
+        - ``suppressed_review_method``: when ``discovery_mode=True`` and the
+          base matched ``fuzzy_review``/``fuzzy_review_low``, carries the
+          original base-method name so the driver can audit sub-0.91
+          auto-creates without writing review-queue rows.
+        - ``suppressed_review_confidence``: original fuzzy score (base result's
+          ``confidence``) that triggered the suppression. ``None`` when
+          ``suppressed_review_method`` is ``None``. Separate from ``confidence``
+          because creation-path ``confidence`` is ``1.0`` (direct_id-equivalent)
+          and the audit CSV needs the pre-override score.
         """
-        # First, try base matching (direct ID, alias, fuzzy)
-        base_result = super()._match_team(provider_id, provider_team_id, team_name, age_group, gender, club_name)
+        # state_code is forwarded so the subclass's _fuzzy_match_team (reached
+        # via polymorphic dispatch in the base) sees it for location scoring.
+        base_result = super()._match_team(
+            provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
+        )
 
         if base_result.get("matched"):
-            return base_result
+            return self._wrap_result(base_result)
 
-        # No match found — create new team
+        # Capture the suppressed review signal BEFORE the create branch rewrites
+        # the method to direct_id. Only fuzzy_review / fuzzy_review_low carry a
+        # meaningful base score (other paths return None method or 0.0).
+        base_method = base_result.get("method")
+        suppressed_method = base_method if base_method in ("fuzzy_review", "fuzzy_review_low") else None
+        suppressed_conf = base_result.get("confidence") if suppressed_method else None
+
         if team_name and age_group and gender:
             logger.info(f"[SincSports] No match found for '{team_name}' ({age_group}, {gender}), creating new team")
             try:
-                new_team_id = self._create_new_sincsports_team(
+                new_team_id, was_created = self._create_new_sincsports_team(
                     team_name=team_name,
                     club_name=club_name,
                     age_group=age_group,
                     gender=gender,
                     provider_id=provider_id,
                     provider_team_id=provider_team_id,
+                    state_code=state_code,
                 )
 
                 match_method = "direct_id" if provider_team_id else "import"
@@ -552,6 +623,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                     "team_id": new_team_id,
                     "method": match_method,
                     "confidence": 1.0,
+                    "created": was_created,
+                    "suppressed_review_method": suppressed_method,
+                    "suppressed_review_confidence": suppressed_conf,
                 }
             except Exception as e:
                 logger.error(f"[SincSports] Error creating new team for {team_name}: {e}")
@@ -562,7 +636,22 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 f"gender={bool(gender)}"
             )
 
-        return base_result
+        return self._wrap_result(base_result)
+
+    @staticmethod
+    def _wrap_result(base_result: Dict) -> Dict:
+        """Add the three discovery-oriented fields to a pass-through base result.
+
+        Used on every non-creation return path (matched hit, missing-fields
+        skip, or create-branch fallback after an exception) so the driver's
+        classification logic can always read the same eight keys.
+        """
+        return {
+            **base_result,
+            "created": False,
+            "suppressed_review_method": None,
+            "suppressed_review_confidence": None,
+        }
 
     # ------------------------------------------------------------------
     # Team creation helper
@@ -575,11 +664,19 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         gender: str,
         provider_id: Optional[str],
         provider_team_id: Optional[str] = None,
-    ) -> str:
+        state_code: Optional[str] = None,
+    ) -> Tuple[str, bool]:
         """
         Create a new team in the teams table for SincSports.
 
-        Returns the team_id_master UUID.
+        Returns ``(team_id_master, was_created)`` — ``was_created`` is ``True``
+        only when a new row is actually INSERTed. Pre-insert lookups and 23505
+        fallbacks that find an existing row return ``False`` so the driver can
+        classify the bucket correctly (``created_new`` vs ``direct_alias_hit``).
+
+        ``state_code`` is persisted on the ``teams`` row when provided so
+        discovered teams land with full geography metadata without needing a
+        post-INSERT backfill pass.
         """
         try:
             # provider_team_id is REQUIRED (NOT NULL constraint)
@@ -607,7 +704,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                             f"already exists, using existing team "
                             f"{existing.data['team_id_master']}"
                         )
-                        return existing.data["team_id_master"]
+                        return existing.data["team_id_master"], False
                 except Exception:
                     pass  # No existing team found
 
@@ -630,6 +727,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "club_name": club_name or clean_team_name,
                 "age_group": age_group_normalized,
                 "gender": gender_normalized,
+                "state_code": state_code,
                 "provider_id": provider_id,
                 "provider_team_id": provider_team_id,
                 "created_at": datetime.utcnow().isoformat() + "Z",
@@ -641,7 +739,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 f"[SincSports] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})"
             )
 
-            return team_id_master
+            return team_id_master, True
 
         except Exception as e:
             # Handle duplicate key errors gracefully
@@ -664,7 +762,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                                 f"provider_team_id {provider_team_id}, "
                                 f"using {existing.data['team_id_master']}"
                             )
-                            return existing.data["team_id_master"]
+                            return existing.data["team_id_master"], False
                     except Exception as lookup_error:
                         logger.error(f"[SincSports] Error looking up existing team: {lookup_error}")
 
