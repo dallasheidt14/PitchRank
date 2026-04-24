@@ -2887,12 +2887,104 @@ class GotsportScraper(ProviderScraper):
         provider_uuid: Optional[str] = None,
         provider_code: Optional[str] = None,
     ) -> CanonicalResolution:
-        """Not yet implemented — lands alongside ``fetch_teams_by_cohort`` in Shell 01 Step 6.
+        """Classify a scraped team against ``team_alias_map`` via the
+        tournament matcher. Pure classification — no DB writes.
 
-        Until then, ``src.tournaments.alias_writer.upsert_team_alias`` +
-        ``enqueue_match_review`` are the canonical-ID write surface.
+        Sink routing (alias vs review queue) lives in
+        ``fetch_teams_by_cohort`` so multi-bracket occurrences can be
+        aggregated into a single alias_writer call per ``provider_team_id``.
+        This method supplies the ``CanonicalResolution`` the caller needs
+        to decide which sink to route to:
+
+        | resolved_status     | best_score | team_id_master | match_method |
+        |---------------------|------------|----------------|--------------|
+        | direct_provider_id  | >= 0.97    | matches[0]     | direct_id    |
+        | direct_provider_id  | <  0.97    | None (→ queue) | None         |
+        | strict_exact        | any        | matches[0]     | fuzzy_auto   |
+        | high_confidence     | any        | matches[0]     | fuzzy_auto   |
+        | review              | any (>=0.9)| None (→ queue) | None         |
+        | none                | any        | None           | None         |
+
+        ``confidence`` is returned unclamped — alias_writer applies the
+        ``fuzzy_confidence_ceiling`` clamp on insert.
+
+        ``provider_uuid`` / ``provider_code`` are accepted for the
+        ABC signature but not used here; the matcher doesn't need them.
+        They're relevant in the queue-routing step (Step 4+6 integration).
         """
-        raise NotImplementedError(
-            "resolve_canonical_team_id is scoped for Shell 01 Step 6. Use "
-            "src.tournaments.alias_writer + event_team_matcher for now."
+        from src.tournaments.event_team_matcher import (
+            EventTeamSearchQuery,
+            search_event_team_in_db,
         )
+
+        provider_id_status = _provider_id_resolution_status(team)
+
+        query = EventTeamSearchQuery(
+            event_team_name=team.team_name,
+            event_age_group=team.cohort_age_group,
+            event_gender=team.cohort_gender,
+            event_club_name=team.club_name,
+            provider_team_id=(
+                team.provider_team_id if provider_id_status == "resolved" else None
+            ),
+        )
+        result = search_event_team_in_db(self.supabase_client, query)
+
+        team_id_master, match_method = _route_resolution(result.resolved_status, result.best_score)
+
+        return CanonicalResolution(
+            team_id_master=(
+                (result.matches[0].get("team_id_master") if result.matches else None)
+                if team_id_master is not None  # signal: alias path, pick from matches
+                else None
+            ),
+            confidence=result.best_score,
+            resolved_status=result.resolved_status,
+            match_method=match_method,
+            candidates=result.matches[:3],
+            provider_id_resolution_status=provider_id_status,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Classification helpers for resolve_canonical_team_id. Kept module-level so
+# unit tests can pin the routing-table logic without instantiating the scraper.
+# ---------------------------------------------------------------------------
+
+
+def _provider_id_resolution_status(team: ScrapedTeam) -> str:
+    """Classify a ``ScrapedTeam`` against the plan's three provider-id states.
+
+    - ``"no_link"``   — scraper found no "View Rankings" link for this team
+      row; there's no canonical provider id to look up.
+    - ``"link_no_id"`` — link was present but the scraper couldn't extract
+      a numeric canonical id from it (format drift or transient fetch).
+    - ``"resolved"``   — link present AND ``provider_team_id`` populated.
+    """
+    if not team.has_view_rankings_link:
+        return "no_link"
+    if not team.provider_team_id:
+        return "link_no_id"
+    return "resolved"
+
+
+def _route_resolution(
+    resolved_status: str, best_score: Optional[float]
+) -> tuple[Optional[str], Optional[str]]:
+    """Apply the plan's routing table. Returns ``(sentinel, match_method)``.
+
+    ``sentinel`` is a truthy placeholder when the resolution routes to
+    ``team_alias_map`` (caller pulls the real ``team_id_master`` from
+    ``matches[0]``), None when it routes to the review queue or is
+    unresolved. This split keeps the match-selection logic separate from
+    the routing logic.
+    """
+    if resolved_status == "direct_provider_id":
+        if best_score is not None and best_score >= 0.97:
+            return ("alias", "direct_id")
+        return (None, None)  # routes to review queue
+    if resolved_status in ("strict_exact", "high_confidence"):
+        return ("alias", "fuzzy_auto")
+    if resolved_status == "review":
+        return (None, None)
+    return (None, None)  # "none" or unknown
