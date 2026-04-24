@@ -77,7 +77,13 @@ jobs:
       - name: Install deps
         run: |
           pip install --upgrade pip
-          pip install supabase python-dotenv requests beautifulsoup4 rich
+          # numpy + pandas are required transitively: the SincSports matcher
+          # imports config.settings, which triggers src.rankings.__init__.py
+          # and loads the calculator/glicko/data_adapter chain. Those modules
+          # need numpy/pandas at import time even though discovery itself
+          # never calls them. rapidfuzz is optional (matcher falls back to
+          # difflib) so it stays out of the minimal list.
+          pip install supabase python-dotenv requests beautifulsoup4 rich numpy pandas
 
       - name: Full-grid warning summary
         if: inputs.states == '' && inputs.ages == '' && inputs.genders == ''
