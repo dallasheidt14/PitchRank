@@ -1,12 +1,14 @@
 """GotSport Event/Tournament scraper - scrapes games from a specific event"""
 
+import json
 import logging
 import os
 import random
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 import requests
@@ -29,6 +31,124 @@ from src.scrapers.gotsport import GotSportScraper
 from src.utils.team_utils import CURRENT_YEAR
 
 logger = logging.getLogger(__name__)
+
+# Markers for gotsport's per-event reCAPTCHA v2 challenge page
+# (observed 2026-04-24 on events 45224, 40550, 40610 among others).
+# Detection is permissive: any of these patterns is enough — the three tend
+# to co-occur but gotsport has served the challenge body at the event URL
+# directly (no redirect) as well as via 302 to /verify_captchas/new.
+_CAPTCHA_URL_MARKER = re.compile(r"/verify_captchas(?:/|$|\?)", re.IGNORECASE)
+_CAPTCHA_BODY_MARKER = re.compile(r"Please verify to continue", re.IGNORECASE)
+# reCAPTCHA sitekey appears in several shapes on the challenge page:
+#   1. <div data-sitekey="KEY">                  — static form variant
+#   2. <script src=".../api.js?render=KEY">      — script-include variant (seen
+#                                                   on gotsport without JS render)
+#   3. <iframe src=".../api2/anchor?k=KEY&...>   — JS-rendered iframe
+#   4. grecaptcha.render(..., {sitekey: "KEY"})  — JS init
+# Check all four in order; each captures into its own group.
+_CAPTCHA_SITEKEY_RE = re.compile(
+    r"""(?:"""
+    r"""data-sitekey\s*=\s*['"]([^'"]+)['"]"""
+    r"""|"""
+    r"""recaptcha/api\.js\?[^'"<>\s]*\brender=([A-Za-z0-9_\-]+)"""
+    r"""|"""
+    r"""recaptcha/api2/anchor\?[^'"]*\bk=([A-Za-z0-9_\-]+)"""
+    r"""|"""
+    r"""['"]sitekey['"]\s*:\s*['"]([^'"]+)['"]"""
+    r""")""",
+    re.IGNORECASE,
+)
+# Last-ditch fallback: every Google reCAPTCHA sitekey starts with `6L` and is
+# 40 chars of URL-safe base64. If the structured regex misses all shapes,
+# grab the first bare `6L...` token in the body.
+_RECAPTCHA_SITEKEY_FALLBACK_RE = re.compile(r"\b(6L[A-Za-z0-9_\-]{38,45})\b")
+
+
+class EventCaptchaGatedError(Exception):
+    """Raised when an event URL is behind gotsport's reCAPTCHA challenge.
+
+    Carries the reCAPTCHA sitekey and the challenge URL so a future CAPTCHA
+    solver can pick up where the scraper left off. The scraper surfaces this
+    as a retryable state — callers SHOULD NOT mark the event as scraped, so
+    it is retried on the next run (gate may clear).
+    """
+
+    def __init__(
+        self,
+        *,
+        provider_event_id: str,
+        captcha_url: str,
+        sitekey: Optional[str],
+        artifact_path: Optional[Path] = None,
+    ):
+        self.provider_event_id = provider_event_id
+        self.captcha_url = captcha_url
+        self.sitekey = sitekey
+        self.artifact_path = artifact_path
+        super().__init__(
+            f"gotsport event {provider_event_id} is behind a reCAPTCHA challenge "
+            f"({captcha_url}); sitekey={sitekey or '?'}"
+        )
+
+
+def _find_sitekey(body: str) -> Optional[str]:
+    """Pull a reCAPTCHA sitekey from the challenge body.
+
+    First tries the structured regex (4 shapes); falls back to the bare
+    `6L...` token pattern if the structured forms all miss — every Google
+    reCAPTCHA sitekey starts with `6L` so this is reliable."""
+    match = _CAPTCHA_SITEKEY_RE.search(body)
+    if match:
+        for group in match.groups():
+            if group:
+                return group
+    fallback = _RECAPTCHA_SITEKEY_FALLBACK_RE.search(body)
+    return fallback.group(1) if fallback else None
+
+
+def _extract_captcha_signals(
+    response: requests.Response, fallback_target_url: str
+) -> Optional[dict]:
+    """Return {'captcha_url', 'sitekey'} if the response looks like gotsport's
+    CAPTCHA challenge, else None.
+
+    `fallback_target_url` is the gotsport URL we intended to fetch — it's used
+    when the response travelled through a proxy (ZenRows) so the `captcha_url`
+    reflects the real origin URL, not the proxy endpoint. ZenRows surfaces the
+    origin's final URL in the `Zr-Final-Url` response header; we prefer that
+    over `response.url` (which is the ZenRows API URL when routed).
+
+    Checks (in order):
+    1. Zr-Final-Url / response.url contains /verify_captchas
+    2. Any redirect history Location contains /verify_captchas
+    3. Response body contains "Please verify to continue" (server serves the
+       challenge page directly with no redirect — observed on 40550/40610)
+    """
+    body = response.text or ""
+    zr_final = response.headers.get("Zr-Final-Url") or ""
+    request_url = str(response.url or "")
+    effective_final_url = zr_final or request_url
+
+    if _CAPTCHA_URL_MARKER.search(effective_final_url):
+        return {
+            "captcha_url": effective_final_url,
+            "sitekey": _find_sitekey(body),
+        }
+    for hr in response.history or []:
+        loc = hr.headers.get("Location") or ""
+        if _CAPTCHA_URL_MARKER.search(loc):
+            return {
+                "captcha_url": loc if loc.startswith("http") else effective_final_url,
+                "sitekey": _find_sitekey(body),
+            }
+    if _CAPTCHA_BODY_MARKER.search(body):
+        # Body signal fires but no redirect was seen — server served challenge
+        # at the target URL directly. Report the target URL as challenge URL.
+        return {
+            "captcha_url": fallback_target_url,
+            "sitekey": _find_sitekey(body),
+        }
+    return None
 
 
 @dataclass
@@ -82,10 +202,22 @@ class GotSportEventScraper:
         self.timeout = int(os.getenv("GOTSPORT_TIMEOUT", "15"))
         self.retry_delay = float(os.getenv("GOTSPORT_RETRY_DELAY", "0.5"))
 
+        # ZenRows configuration (optional). Mirrors src/scrapers/gotsport.py:56.
+        # When ZENROWS_API_KEY is set, event-URL fetches route through ZenRows'
+        # residential proxy to sidestep gotsport's domain-level UA/IP detection.
+        # Does NOT solve gotsport's per-event reCAPTCHA challenges — those are
+        # detected and surfaced via EventCaptchaGatedError.
+        self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
+        self.use_zenrows = bool(self.zenrows_api_key)
+
         # Session setup
         self.session = self._init_http_session()
 
-        logger.info(f"Initialized GotSportEventScraper (skip_team_id_resolution={skip_team_id_resolution})")
+        logger.info(
+            f"Initialized GotSportEventScraper "
+            f"(skip_team_id_resolution={skip_team_id_resolution}, "
+            f"ZenRows: {'enabled' if self.use_zenrows else 'disabled'})"
+        )
 
     def _init_http_session(self) -> requests.Session:
         """Initialize HTTP session with retry logic"""
@@ -107,15 +239,105 @@ class GotSportEventScraper:
         session.mount("http://", adapter)
         session.verify = verify_ssl
 
+        # Browser-realistic header bundle for gotsport's bot detection. Phase A
+        # on event 45224 (2026-04-24) showed the prior minimal header set
+        # hitting a 403 on the root domain and a 302 → /verify_captchas/new on
+        # event URLs. Sec-Fetch-*, Sec-Ch-Ua-*, Upgrade-Insecure-Requests, and
+        # a current Chrome UA avoid the CAPTCHA challenge. Only advertise
+        # Accept-Encoding values we can actually decode (brotli installed;
+        # zstandard is not, so `zstd` is omitted).
         session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  # noqa: E501
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",  # noqa: E501
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",  # noqa: E501
                 "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Upgrade-Insecure-Requests": "1",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Sec-Ch-Ua": '"Chromium";v="133", "Not(A:Brand";v="24", "Google Chrome";v="133"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Priority": "u=0, i",
             }
         )
 
         return session
+
+    def _make_zenrows_request(self, url: str) -> requests.Response:
+        """Route a GET through ZenRows' residential proxy.
+
+        Mirrors src/scrapers/gotsport.py:333-350. `js_render=false` +
+        `premium_proxy=true` is the cheapest mode that bypasses gotsport's
+        domain-level IP/UA reputation checks. CAPTCHA'd events still come
+        back as CAPTCHA pages — detection happens in _fetch_event_page.
+        """
+        zenrows_url = "https://api.zenrows.com/v1/"
+        zenrows_params = {
+            "apikey": self.zenrows_api_key,
+            "url": url,
+            "js_render": "false",
+            "premium_proxy": "true",
+            "proxy_country": "us",
+        }
+        return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+
+    def _fetch_event_page(self, event_id: str) -> requests.Response:
+        """Fetch the top-level event URL with unified CAPTCHA detection.
+
+        Routes through ZenRows when configured, else via direct session. On
+        a CAPTCHA response, writes reports/gotsport__<id>__unknown/intake/
+        captcha_challenge.json and raises EventCaptchaGatedError so callers
+        can surface the skip cleanly without marking the event scraped.
+        """
+        event_url = f"{self.EVENT_BASE}/{event_id}"
+        if self.use_zenrows:
+            response = self._make_zenrows_request(event_url)
+        else:
+            response = self.session.get(event_url, timeout=self.timeout)
+
+        captcha = _extract_captcha_signals(response, fallback_target_url=event_url)
+        if captcha is not None:
+            artifact_path = self._write_captcha_artifact(event_id, captcha, event_url)
+            raise EventCaptchaGatedError(
+                provider_event_id=event_id,
+                captcha_url=captcha["captcha_url"],
+                sitekey=captcha["sitekey"],
+                artifact_path=artifact_path,
+            )
+        return response
+
+    def _write_captcha_artifact(
+        self, event_id: str, captcha: dict, event_url: str
+    ) -> Path:
+        """Persist a captcha_challenge.json artifact alongside intake logs.
+
+        Path matches the `reports/<event_key>/intake/` convention set by the
+        Shell 01 foundation (_derive_event_key returns
+        `gotsport__<id>__unknown` until Shell 02 owns the season suffix).
+        """
+        event_key = f"gotsport__{event_id}__unknown"
+        artifact_dir = Path("reports") / event_key / "intake"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = artifact_dir / "captcha_challenge.json"
+        payload = {
+            "provider_code": self.provider_code,
+            "provider_event_id": event_id,
+            "event_url": event_url,
+            "captcha_url": captcha["captcha_url"],
+            "captcha_provider": "recaptcha_v2",
+            "sitekey": captcha["sitekey"],
+            "detected_at": datetime.now(timezone.utc).isoformat(),
+            "via_zenrows": self.use_zenrows,
+        }
+        artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        logger.warning(
+            "[captcha_detected] event_id=%s sitekey=%s artifact=%s",
+            event_id, captcha["sitekey"], artifact_path,
+        )
+        return artifact_path
 
     def extract_event_teams(self, event_id: str) -> List[str]:
         """
@@ -1060,8 +1282,10 @@ class GotSportEventScraper:
         logger.info(f"Scraping games from schedule pages for event {event_id}")
 
         try:
-            # Get the main event page to find all schedule links
-            response = self.session.get(event_url, timeout=self.timeout)
+            # Get the main event page to find all schedule links. Routes
+            # through ZenRows when configured and detects CAPTCHA; raises
+            # EventCaptchaGatedError on a gated event.
+            response = self._fetch_event_page(event_id)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -1201,6 +1425,10 @@ class GotSportEventScraper:
                 logger.warning(
                     "Some teams used registration IDs instead of API team IDs - these may not match in the database"
                 )
+        except EventCaptchaGatedError:
+            # CAPTCHA is a retryable state — surface to caller so the event
+            # is not marked scraped and the artifact is preserved.
+            raise
         except Exception as e:
             logger.error(f"Error scraping games from schedule pages: {e}")
 
@@ -1604,11 +1832,12 @@ class GotSportEventScraper:
         """
         logger.info(f"Scraping games for event {event_id}")
 
-        # Try to get event name from page if not provided
+        # Try to get event name from page if not provided. This path also
+        # performs the earliest CAPTCHA detection — a gated event raises
+        # EventCaptchaGatedError here and bypasses the downstream scrape.
         if not event_name:
             try:
-                event_url = f"{self.EVENT_BASE}/{event_id}"
-                response = self.session.get(event_url, timeout=self.timeout)
+                response = self._fetch_event_page(event_id)
                 response.raise_for_status()
                 soup = BeautifulSoup(response.text, "html.parser")
                 # Try to find event name in page title or headers
@@ -1619,6 +1848,8 @@ class GotSportEventScraper:
                     h1 = soup.find("h1")
                     if h1:
                         event_name = h1.get_text(strip=True)
+            except EventCaptchaGatedError:
+                raise
             except Exception as e:
                 logger.debug(f"Could not extract event name: {e}")
 

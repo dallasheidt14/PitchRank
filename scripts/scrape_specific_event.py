@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from scripts.scrape_new_gotsport_events import load_scraped_events, save_scraped_event
-from src.scrapers.gotsport_event import GotSportEventScraper
+from src.scrapers.gotsport_event import EventCaptchaGatedError, GotSportEventScraper
 from supabase import create_client
 
 console = Console()
@@ -70,7 +70,10 @@ def scrape_specific_event(
 
     scraper = GotSportEventScraper(supabase, "gotsport")
 
-    # Get event name
+    # Get event name. The pre-flight fetch uses scraper.session directly
+    # (not the CAPTCHA-aware _fetch_event_page) so an archived/redirect
+    # response is distinguishable from a CAPTCHA gate. The main scrape call
+    # below triggers the real CAPTCHA detection.
     try:
         event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
         response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
@@ -162,6 +165,19 @@ def scrape_specific_event(
                 f"[dim]python scripts/import_games_enhanced.py {output_file} gotsport "
                 f"--stream --batch-size 500 --concurrency 4 --checkpoint[/dim]"
             )
+
+    except EventCaptchaGatedError as e:
+        # Event is behind gotsport's reCAPTCHA v2. The scraper has already
+        # written a captcha_challenge.json artifact with the sitekey for a
+        # later solver run. Don't mark the event scraped; exit 0 so
+        # batch/CI callers keep processing other events.
+        console.print(
+            f"[yellow]⚠️  Event {event_id} is CAPTCHA-gated — scrape skipped.[/yellow]\n"
+            f"[dim]  sitekey: {e.sitekey or '(not captured)'}\n"
+            f"  challenge URL: {e.captcha_url}\n"
+            f"  artifact: {e.artifact_path}[/dim]"
+        )
+        return
 
     except Exception as e:
         console.print(f"[red]❌ Error scraping event: {e}[/red]")
