@@ -568,3 +568,166 @@ class GotSportScraper(BaseScraper):
             return response.status_code == 200
         except Exception:
             return False
+
+
+# ---------------------------------------------------------------------------
+# ProviderScraper adapter (Shell 01 Step 3 — Commit A)
+# ---------------------------------------------------------------------------
+#
+# These imports are intentionally placed at module-bottom because
+# ``src.scrapers.gotsport_event`` imports ``GotSportScraper`` from this module
+# (line 28 there), so eagerly importing ``gotsport_event`` at the top of
+# ``gotsport.py`` would create a circular import chain that breaks on the
+# partially-loaded ``gotsport`` module. By the time we hit these lines,
+# ``GotSportScraper`` is fully defined, so ``gotsport_event`` can complete its
+# own load safely.
+#
+# Commit B of Step 3 moves the class body from ``gotsport_event`` into this
+# file and reduces the former to a back-compat shim, at which point these
+# bottom-of-file imports go away.
+import re as _re  # noqa: E402
+
+from bs4 import BeautifulSoup as _BeautifulSoup  # noqa: E402
+
+from src.scrapers.gotsport_event import (  # noqa: E402
+    EventCaptchaGatedError,
+    EventTeam,
+    GotSportEventScraper,
+)
+from src.scrapers.provider import (  # noqa: E402
+    CanonicalResolution,
+    EventMetadata,
+    ProviderScraper,
+    ScrapedTeam,
+    UnsupportedProviderError,
+)
+
+__all__ = [
+    "CERTIFI_AVAILABLE",
+    "EventCaptchaGatedError",
+    "EventTeam",
+    "GotSportScraper",
+    "GotsportScraper",
+    "TeamNotFoundError",
+]
+
+
+class GotsportScraper(GotSportEventScraper, ProviderScraper):
+    """ProviderScraper adapter over GotSportEventScraper.
+
+    Shell 01 Step 3 — Commit A. Inherits from ``GotSportEventScraper`` so every
+    existing public method and attribute (``scrape_event_games``,
+    ``scrape_games_from_schedule_pages``, ``extract_event_teams``,
+    ``extract_event_dates``, ``extract_event_teams_by_bracket``,
+    ``scrape_event_by_url``, ``list_event_teams``, ``session``,
+    ``_fetch_event_page``, etc.) is preserved verbatim via MRO. Adds the three
+    ``ProviderScraper`` ABC methods and the plan's providers-table assertion.
+
+    Commit B of Step 3 will inline the class body (removing the MRO parent)
+    and reduce ``gotsport_event.py`` to a back-compat shim; external callers
+    will see no behavior change.
+    """
+
+    def __init__(
+        self,
+        supabase_client,
+        provider_code: str = "gotsport",
+        skip_team_id_resolution: bool = False,
+    ):
+        # Delegate session / ZenRows / retry / CAPTCHA wiring to the parent.
+        super().__init__(supabase_client, provider_code, skip_team_id_resolution)
+
+        # Providers-table assertion (plan Step 3). ``.single()`` raises on 0
+        # rows, so wrap to surface a typed error with an actionable message.
+        try:
+            result = (
+                supabase_client.table("providers")
+                .select("id, code")
+                .eq("code", "gotsport")
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            raise UnsupportedProviderError(
+                f"'gotsport' not registered in providers table — run migrations. Inner: {e}"
+            ) from e
+        if not getattr(result, "data", None) or "id" not in result.data:
+            raise UnsupportedProviderError("'gotsport' provider row returned empty")
+        self._provider_uuid = result.data["id"]
+
+    # ----- ProviderScraper ABC methods ---------------------------------------
+
+    def fetch_event_metadata(self, event_url: str) -> EventMetadata:
+        """Scrape event-level metadata from the gotsport event page.
+
+        Reuses ``_fetch_event_page`` (inherited) so gated events surface
+        ``EventCaptchaGatedError`` here too, not a cryptic parse failure.
+        ``event_start_date`` stays None in Shell 01 — Shell 02 owns the
+        season-year convention and will parse the date then.
+        """
+        match = _re.search(r"/events/(\d+)", event_url)
+        if not match:
+            raise ValueError(f"Cannot extract event id from URL: {event_url}")
+        event_id = match.group(1)
+
+        response = self._fetch_event_page(event_id)
+        response.raise_for_status()
+        soup = _BeautifulSoup(response.text, "html.parser")
+
+        title = soup.find("title")
+        h1 = soup.find("h1")
+        event_name = (
+            (title.get_text(strip=True) if title else None)
+            or (h1.get_text(strip=True) if h1 else None)
+            or f"Event {event_id}"
+        )
+
+        return EventMetadata(
+            provider_code="gotsport",
+            provider_event_id=event_id,
+            event_name=event_name,
+            event_slug=f"events/{event_id}",
+            event_start_date=None,
+            scrape_ts=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def fetch_teams_by_cohort(
+        self,
+        event_url: str,
+        *,
+        force_teams: bool = False,
+        revalidate: bool = False,
+    ) -> Dict[str, List[ScrapedTeam]]:
+        """Not yet implemented — lands in Shell 01 Steps 4 + 6.
+
+        Step 4 adds the resumable ``raw_scrape.jsonl`` journal and the
+        per-team resume skip flags (``force_teams`` / ``revalidate`` plumb
+        through here). Step 6 adds the alias_writer routing. Until then,
+        ``scrape_event_games`` / ``scrape_games_from_schedule_pages`` (both
+        inherited from ``GotSportEventScraper``) are the working entry
+        points for event intake.
+        """
+        raise NotImplementedError(
+            "fetch_teams_by_cohort is scoped for Shell 01 Step 4 (resumable journal) "
+            "+ Step 6 (alias_writer routing). Use scrape_event_games or "
+            "scrape_games_from_schedule_pages for now."
+        )
+
+    def resolve_canonical_team_id(
+        self,
+        team: ScrapedTeam,
+        *,
+        provider_uuid: Optional[str] = None,
+        provider_code: Optional[str] = None,
+    ) -> CanonicalResolution:
+        """Not yet implemented — lands alongside ``fetch_teams_by_cohort`` in Shell 01 Step 6.
+
+        Until then, ``src.tournaments.alias_writer.upsert_team_alias`` +
+        ``enqueue_match_review`` are the canonical-ID write surface and are
+        invoked directly from callers that have already obtained matches via
+        ``event_team_matcher.search_event_team_in_db``.
+        """
+        raise NotImplementedError(
+            "resolve_canonical_team_id is scoped for Shell 01 Step 6. Use "
+            "src.tournaments.alias_writer + event_team_matcher for now."
+        )

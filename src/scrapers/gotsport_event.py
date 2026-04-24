@@ -27,8 +27,13 @@ except ImportError:
     certifi = None
 
 from src.base import GameData
-from src.scrapers.gotsport import GotSportScraper
 from src.utils.team_utils import CURRENT_YEAR
+
+# ``GotSportScraper`` is imported lazily inside ``__init__`` to avoid a
+# top-level circular import: ``gotsport.py`` imports names from this module
+# at end-of-file for the ``GotsportScraper`` adapter, and if this module were
+# to import from ``gotsport`` at top level, a script starting its import chain
+# at ``gotsport_event`` would race Python's partial-module loading and fail.
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +197,10 @@ class GotSportEventScraper:
         self.provider_code = provider_code
         self.skip_team_id_resolution = skip_team_id_resolution
 
-        # Use the existing team scraper for actual game scraping
+        # Use the existing team scraper for actual game scraping. Lazy import
+        # — see comment at top of file for the circular-import rationale.
+        from src.scrapers.gotsport import GotSportScraper
+
         self.team_scraper = GotSportScraper(supabase_client, provider_code)
 
         # Configuration - aggressive defaults for speed
