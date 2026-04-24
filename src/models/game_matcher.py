@@ -690,10 +690,15 @@ class GameHistoryMatcher:
         age_group: Optional[str],
         gender: Optional[str],
         club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> Dict:
         """
         Match a team using provider ID, alias map, and fuzzy matching.
         Now prioritizes DIRECT ID matching first.
+
+        ``state_code`` is forwarded to ``_fuzzy_match_team`` so location-scoring
+        tiebreakers see the provider team's state (used by SincSports discovery).
+        Defaults to ``None`` for backward compatibility with game-import callers.
 
         Returns:
             Dict with:
@@ -737,7 +742,14 @@ class GameHistoryMatcher:
 
         # Strategy 3: Fuzzy match against master teams
         if team_name and age_group and gender:
-            fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name)
+            # Only forward state_code when provided — other matcher subclasses
+            # (Affinity-WA, Playmetrics, TGS) override _fuzzy_match_team with
+            # signatures that don't accept the kwarg. SincSports discovery is
+            # the only caller that passes state_code today.
+            if state_code is not None:
+                fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name, state_code=state_code)
+            else:
+                fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name)
             if fuzzy_match:
                 confidence = fuzzy_match["confidence"]
 

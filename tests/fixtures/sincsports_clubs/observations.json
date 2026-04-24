@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "state_field_mode": "single",
+  "pagination_mode": "none",
+  "form_fields": {
+    "state": "ctl00$ContentPlaceHolder1$ddlStates",
+    "age": "ctl00$ContentPlaceHolder1$ddlAge",
+    "gender": "ctl00$ContentPlaceHolder1$ddlGender",
+    "type": "ctl00$ContentPlaceHolder1$cblType$0",
+    "rank_checkboxes": [
+      "ctl00$ContentPlaceHolder1$cblLevel$0",
+      "ctl00$ContentPlaceHolder1$cblLevel$1",
+      "ctl00$ContentPlaceHolder1$cblLevel$2",
+      "ctl00$ContentPlaceHolder1$cblLevel$3",
+      "ctl00$ContentPlaceHolder1$cblLevel$4",
+      "ctl00$ContentPlaceHolder1$cblLevel$5",
+      "ctl00$ContentPlaceHolder1$cblLevel$6"
+    ],
+    "submit_button": "eo_cb_id",
+    "submit_arg_field": "eo_cb_param",
+    "submit_trigger_value": "ctl00_ContentPlaceHolder1_CBPTeams",
+    "submit_param_value": "teams",
+    "master_file_field": "ctl00$ContentPlaceHolder1$ThisPageMasterFile",
+    "master_file_value": "/Sinc26.master"
+  },
+  "response_markers": {
+    "populated": "#masonry .cbox",
+    "empty": "div#masonry:empty, div#masonry:has(> :not(.cbox))",
+    "block": null
+  },
+  "pagination_hint": null,
+  "response_envelope": {
+    "shape": "xml-cdata",
+    "outer_regex": "<Output><!\\[CDATA\\[(.+?)\\]\\]></Output>",
+    "inner_encoding": "percent-encoded"
+  },
+  "team_link_pattern": "team/team\\.aspx\\?id=([A-Z0-9]+)",
+  "club_link_pattern": "sicClub\\.aspx\\?id=([A-Z0-9]+)",
+  "age_value_map": {
+    "u10": "10",
+    "u11": "11",
+    "u12": "12",
+    "u13": "13",
+    "u14": "14",
+    "u15": "15",
+    "u16": "16",
+    "u17": "17",
+    "u18": "18",
+    "u19": "19"
+  },
+  "gender_value_map": {
+    "Male": "M",
+    "Female": "F"
+  }
+}

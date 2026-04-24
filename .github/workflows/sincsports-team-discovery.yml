@@ -1,0 +1,118 @@
+name: SincSports Team Discovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (scrape + CSV only, no DB writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      states:
+        description: 'CSV of postal codes (blank = all 50+DC)'
+        required: false
+        default: ''
+        type: string
+      ages:
+        description: 'CSV of u10..u19 (blank = all)'
+        required: false
+        default: ''
+        type: string
+      genders:
+        description: 'CSV of male,female (blank = both)'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: sincsports-discovery
+  cancel-in-progress: false
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check for concurrent data-hygiene run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Enforcement for the enrichment-pass precondition (plan Step 6).
+          # Until match_state_from_club.py:617 is made write-time monotonic,
+          # concurrent hygiene runs risk overwriting discovery's state_code.
+          in_progress=$(gh run list \
+            --workflow=data-hygiene-weekly.yml \
+            --status=in_progress \
+            --json databaseId \
+            --jq 'length')
+          if [ "$in_progress" != "0" ]; then
+            echo "::error::data-hygiene-weekly.yml is currently running ($in_progress in-progress run(s)). Aborting to prevent state_code lost-update race. Re-run this workflow after hygiene completes, OR land the match_state_from_club.py monotonicity fix first."
+            exit 1
+          fi
+          echo "No concurrent hygiene runs detected."
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv requests beautifulsoup4 rich
+
+      - name: Full-grid warning summary
+        if: inputs.states == '' && inputs.ages == '' && inputs.genders == ''
+        run: |
+          echo "🚨 Full-grid run: up to 1,020 combos (Mode A) or 20 combos (Mode B) — ~45-60 min scrape + 10-30 min match expected." >> "$GITHUB_STEP_SUMMARY"
+          echo "Concurrency group sincsports-discovery serializes THIS workflow only; it does NOT coordinate with data-hygiene-weekly.yml. Confirm that workflow is not running concurrently." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run discovery
+        env:
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          STATES_INPUT: ${{ inputs.states }}
+          AGES_INPUT: ${{ inputs.ages }}
+          GENDERS_INPUT: ${{ inputs.genders }}
+        run: |
+          FLAGS=()
+          [ "$DRY_RUN_INPUT" = "true" ] && FLAGS+=(--dry-run)
+          [ -n "$STATES_INPUT" ] && FLAGS+=(--states "$STATES_INPUT")
+          [ -n "$AGES_INPUT" ] && FLAGS+=(--ages "$AGES_INPUT")
+          [ -n "$GENDERS_INPUT" ] && FLAGS+=(--genders "$GENDERS_INPUT")
+          # Auto-confirm full grid in non-TTY CI — the workflow already gated
+          # on human trigger via workflow_dispatch.
+          if [ -z "$STATES_INPUT" ] && [ -z "$AGES_INPUT" ] && [ -z "$GENDERS_INPUT" ]; then
+            FLAGS+=(--confirm-full-grid)
+          fi
+          mkdir -p logs data/exports
+          python scripts/discover_sincsports_teams.py "${FLAGS[@]}" 2>&1 | tee logs/discover.log
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: sincsports-discovery-${{ github.run_number }}
+          path: |
+            logs/discover.log
+            data/exports/sincsports_teams_discovery_*.csv
+            data/exports/sincsports_teams_discovery_*_manifest.json
+            data/exports/sincsports_low_confidence_*.csv
+          retention-days: 30
