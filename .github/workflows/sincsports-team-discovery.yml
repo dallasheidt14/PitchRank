@@ -1,5 +1,21 @@
 name: SincSports Team Discovery
 
+# ⚠ KNOWN LIMITATION (observed 2026-04-24): GitHub-hosted runner IPs get a
+# 29MB non-envelope response from sicclubs.aspx instead of the expected EO
+# callback CDATA. This trips `_validate_response_shape` and the scraper
+# aborts with CaptchaOrBlockError("blocked") after 3 retries. Residential
+# IPs work normally — the 29MB response is almost certainly a bot-protection
+# interstitial keyed on the ubuntu-latest runner IP range.
+#
+# WORKAROUND until this is addressed: run discovery from an operator
+# workstation via CLI, e.g.:
+#   cd <repo>
+#   python scripts/discover_sincsports_teams.py --states WI --ages u14 --genders female
+# Scope arg parity with this workflow is intentional — the CLI and the
+# workflow take the same --states/--ages/--genders CSVs.
+#
+# Potential future fixes tracked in .turbo/improvements.md.
+
 on:
   workflow_dispatch:
     inputs:
