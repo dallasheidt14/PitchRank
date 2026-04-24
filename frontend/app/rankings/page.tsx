@@ -73,8 +73,6 @@ export default function RankingsPage() {
         </p>
       </section>
 
-      <RankingsPillar />
-
       <RankingsPageContent region="national" ageGroup="u12" gender="male" />
 
       {/* Browse by State — server-rendered for Googlebot crawlability */}
@@ -98,6 +96,8 @@ export default function RankingsPage() {
           ))}
         </div>
       </section>
+
+      <RankingsPillar />
     </>
   );
 }
