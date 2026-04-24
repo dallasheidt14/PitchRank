@@ -49,7 +49,6 @@ from rich.panel import Panel  # noqa: E402
 from rich.progress import track  # noqa: E402
 from rich.table import Table  # noqa: E402
 
-from config.settings import AGE_GROUPS  # noqa: E402
 from src.models.sincsports_matcher import SincSportsGameMatcher  # noqa: E402
 from src.scrapers.sincsports_clubs import (  # noqa: E402
     CaptchaOrBlockError,
@@ -69,11 +68,14 @@ if _env_local.exists():
 else:
     load_dotenv()
 
-# Derived from the repo's canonical AGE_GROUPS (u10..u17 + u19 — u18 merges into
-# u19 per gotcha_no_u18_age_group.md). The SincSports filter exposes a separate
-# U18 option, but inserting teams with age_group="u18" would break the rest of
-# PitchRank's pipeline — scraping u19 alone is the correct fit.
-DEFAULT_AGES = sorted(AGE_GROUPS.keys())
+# Mirrors the repo's canonical AGE_GROUPS keyset (config/settings.py). U18
+# merges into U19 per gotcha_no_u18_age_group.md — the SincSports filter
+# exposes a separate U18 option, but inserting teams with age_group="u18"
+# would break the rest of PitchRank's pipeline. Kept inline so this driver
+# doesn't drag in `config.settings`, which indirectly imports the rankings
+# stack (numpy/pandas) that the GHA discovery job deliberately omits.
+VALID_AGE_GROUPS = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
+DEFAULT_AGES = sorted(VALID_AGE_GROUPS)
 DEFAULT_GENDERS = ["male", "female"]
 _GENDER_CANONICAL = {"male": "Male", "female": "Female", "m": "Male", "f": "Female"}
 
@@ -132,11 +134,11 @@ def canonicalize_ages(raw: List[str]) -> List[str]:
     out: List[str] = []
     for a in raw:
         v = a.lower().strip()
-        if v not in AGE_GROUPS:
+        if v not in VALID_AGE_GROUPS:
             # U18 merges into U19 per the repo's AGE_GROUPS; other unknown keys
             # are caught by the same membership check so the driver can't smuggle
             # a value that will later be rejected at INSERT time.
-            raise SystemExit(f"Unsupported age group: {a!r} (must be one of {sorted(AGE_GROUPS.keys())})")
+            raise SystemExit(f"Unsupported age group: {a!r} (must be one of {sorted(VALID_AGE_GROUPS)})")
         out.append(v)
     return out
 
