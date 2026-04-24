@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -34,6 +34,7 @@ except ImportError:
 
 from src.base import GameData
 from src.scrapers.base import BaseScraper
+from src.scrapers.intake_journal import DURABLE_ACTIONS, IntakeJournal, compute_skip_set
 from src.scrapers.provider import (
     CanonicalResolution,
     EventMetadata,
@@ -41,6 +42,7 @@ from src.scrapers.provider import (
     ScrapedTeam,
     UnsupportedProviderError,
 )
+from src.tournaments.alias_writer import enqueue_match_review, upsert_team_alias
 from src.utils.team_utils import CURRENT_YEAR
 
 __all__ = [
@@ -2866,19 +2868,243 @@ class GotsportScraper(ProviderScraper):
         force_teams: bool = False,
         revalidate: bool = False,
     ) -> Dict[str, List[ScrapedTeam]]:
-        """Not yet implemented — lands in Shell 01 Steps 4 + 6.
+        """Walk every cohort/bracket in the event and resolve canonical team
+        IDs with deferred alias-writer routing.
 
-        Step 4 adds the resumable ``raw_scrape.jsonl`` journal and the
-        per-team resume skip flags (``force_teams`` / ``revalidate`` plumb
-        through here). Step 6 adds the alias_writer routing. Until then,
-        ``scrape_event_games`` / ``scrape_games_from_schedule_pages`` are
-        the working entry points for event intake.
+        Shell 01 Step 4 + 6 integration. Multi-bracket teams get one
+        ``alias_writer`` call per ``provider_team_id`` (not per bracket) with
+        ``match_details.also_appears_in_brackets`` spanning all brackets the
+        team appears in. Writes are gated on ``DURABLE_ACTIONS`` so
+        ``db_error`` teams are retried on the next run.
+
+        Skip-set semantics:
+
+        - Default: skip every ``provider_team_id`` whose prior journal entry
+          has a durable ``alias_writer_action``.
+        - ``force_teams=True``: bypass the skip — every team re-resolved.
+        - ``revalidate=True``: re-resolve teams whose stored alias is
+          machine-written (``review_status != 'approved'`` OR ``match_method``
+          not in the curated allowlist ``{direct_id, manual, manual_review,
+          manual_queue, import}``). Human-curated rows remain protected.
+
+        Returns ``{bracket_name: [ScrapedTeam, ...]}`` mirroring the event
+        page structure (useful for downstream cohort-summary consumers in
+        Shell 03+).
+
+        Raises ``EventCaptchaGatedError`` (via ``_fetch_event_page``) when
+        the event URL is gated — caller should catch and surface as a
+        retryable skip, not a hard failure.
         """
-        raise NotImplementedError(
-            "fetch_teams_by_cohort is scoped for Shell 01 Step 4 (resumable journal) "
-            "+ Step 6 (alias_writer routing). Use scrape_event_games or "
-            "scrape_games_from_schedule_pages for now."
+        match = re.search(r"/events/(\d+)", event_url)
+        if not match:
+            raise ValueError(f"Cannot extract event id from URL: {event_url}")
+        event_id = match.group(1)
+        source_url = f"{self.EVENT_BASE}/{event_id}"
+        event_key = f"gotsport__{event_id}__unknown"
+
+        journal = IntakeJournal(event_key=event_key)
+        journal.startup_cleanup()
+
+        # Surface a CAPTCHA gate before doing any further parse work.
+        self._fetch_event_page(event_id)
+
+        teams_by_bracket = self.extract_event_teams_by_bracket(event_id)
+
+        # --- First pass: skip-set + classification ---------------------------
+        prior_store = journal.read()
+        skip_set = compute_skip_set(prior_store, force_teams=force_teams)
+        if revalidate and skip_set:
+            curated = self._find_curated_alias_pids(skip_set)
+            # Keep only curated pids in the skip set — the rest are
+            # re-resolved on this run.
+            skip_set = skip_set & curated
+
+        scraped_by_bracket: Dict[str, List[ScrapedTeam]] = {}
+        all_resolutions: Dict[str, tuple[ScrapedTeam, CanonicalResolution]] = {}
+        bracket_occurrences: Dict[str, List[str]] = {}
+        live_pids: Set[str] = set()
+
+        for bracket_name, event_teams in teams_by_bracket.items():
+            bracket_scraped: List[ScrapedTeam] = []
+            for event_team in event_teams:
+                scraped = _event_team_to_scraped_team(event_team, bracket_name)
+                bracket_scraped.append(scraped)
+                pid = scraped.provider_team_id
+                if not pid:
+                    # No provider_team_id → can't dedupe or resolve; keep it
+                    # in the output but don't touch alias_writer.
+                    continue
+                live_pids.add(pid)
+                bracket_occurrences.setdefault(pid, []).append(bracket_name)
+                if pid in skip_set:
+                    continue
+                if pid in all_resolutions:
+                    # Multi-bracket occurrence — resolution already computed on
+                    # first-seen ScrapedTeam; just record the bracket.
+                    continue
+                resolution = self.resolve_canonical_team_id(scraped)
+                all_resolutions[pid] = (scraped, resolution)
+            scraped_by_bracket[bracket_name] = bracket_scraped
+
+        # --- Second pass: route + journal -----------------------------------
+        run_id = datetime.now(timezone.utc).isoformat()
+        stats: Dict[str, int] = {}
+
+        journal.open_for_append()
+        try:
+            for pid, (scraped, resolution) in all_resolutions.items():
+                brackets_for_team = bracket_occurrences.get(pid, [])
+                action_dict = self._route_to_writer(
+                    scraped, resolution, brackets_for_team, event_id, source_url
+                )
+                action = action_dict.get("action", "none")
+                stats[action] = stats.get(action, 0) + 1
+                if action in DURABLE_ACTIONS:
+                    record = _build_jsonl_record(
+                        scraped=scraped,
+                        resolution=resolution,
+                        action_dict=action_dict,
+                        brackets=brackets_for_team,
+                        run_id=run_id,
+                        source_url=source_url,
+                        provider_event_id=event_id,
+                    )
+                    journal.append(record)
+                else:
+                    logger.info(
+                        "[journal_skip] provider_team_id=%s action=%s — will retry on next run",
+                        pid, action,
+                    )
+        finally:
+            journal.close()
+
+        # --- End-of-scrape: compact + removed-teams diff --------------------
+        kept, dropped = journal.compact()
+        diff = journal.compute_removed_teams(live_pids, run_id)
+        if diff.removed_provider_team_ids:
+            journal.write_removed_teams_artifact(diff)
+
+        logger.info(
+            "[fetch_teams_by_cohort] event_id=%s brackets=%d unique_teams=%d "
+            "resolved=%d skipped=%d compact_kept=%d compact_dropped=%d stats=%s",
+            event_id,
+            len(teams_by_bracket),
+            len(live_pids),
+            len(all_resolutions),
+            len(skip_set),
+            kept,
+            dropped,
+            stats,
         )
+        return scraped_by_bracket
+
+    # ----- internal routing + DB helpers -------------------------------------
+
+    def _route_to_writer(
+        self,
+        scraped: ScrapedTeam,
+        resolution: CanonicalResolution,
+        brackets: List[str],
+        event_id: str,
+        source_url: str,
+    ) -> dict[str, Any]:
+        """Dispatch one resolved team to ``alias_writer`` per plan routing table.
+
+        Returns the action dict the writer produced (or ``{"action":"none"}``
+        for the unresolved case). Callers use the dict's ``action`` field to
+        gate JSONL writes and to build ``canonical.scraper_state`` in the
+        record.
+        """
+        confidence = resolution.confidence or 0.0
+
+        if resolution.match_method in ("direct_id", "fuzzy_auto") and resolution.team_id_master:
+            return upsert_team_alias(
+                self.supabase_client,
+                provider_uuid=self._provider_uuid,
+                provider_code=self.provider_code,
+                provider_team_id=scraped.provider_team_id,
+                team_id_master=resolution.team_id_master,
+                provider_team_name=scraped.team_name,
+                confidence=confidence,
+                match_method=resolution.match_method,
+                priority_score=confidence,
+            )
+
+        if resolution.resolved_status in ("direct_provider_id", "review"):
+            suggested_master = (
+                resolution.candidates[0].get("team_id_master")
+                if resolution.candidates
+                else None
+            )
+            match_details = {
+                "age_group": scraped.cohort_age_group,
+                "gender": scraped.cohort_gender,
+                "division": scraped.division,
+                "provider_event_id": event_id,
+                "source_url": source_url,
+                "true_confidence": confidence,
+                "candidates": resolution.candidates,
+                "also_appears_in_brackets": brackets,
+            }
+            if resolution.resolved_status == "direct_provider_id":
+                match_details["reason"] = "provider_id_match_with_low_name_similarity"
+            return enqueue_match_review(
+                self.supabase_client,
+                provider_uuid=self._provider_uuid,
+                provider_code=self.provider_code,
+                provider_team_id=scraped.provider_team_id,
+                provider_team_name=scraped.team_name,
+                suggested_master_team_id=suggested_master,
+                confidence=confidence,
+                priority_score=confidence,
+                match_details=match_details,
+            )
+
+        # resolved_status == "none" (or anything else we can't route)
+        logger.warning(
+            "[unresolved] provider_team_id=%s team_name=%r cohort=%s/%s",
+            scraped.provider_team_id,
+            scraped.team_name,
+            scraped.cohort_age_group,
+            scraped.cohort_gender,
+        )
+        return {"action": "none"}
+
+    def _find_curated_alias_pids(self, provider_team_ids: Set[str]) -> Set[str]:
+        """Query ``team_alias_map`` for pids whose stored alias is curated.
+
+        "Curated" = ``review_status='approved'`` AND ``match_method`` in
+        ``{direct_id, manual, manual_review, manual_queue, import}``. These
+        rows are protected from ``--revalidate`` (machine-written rows like
+        ``fuzzy_auto`` are NOT protected and will be re-resolved).
+
+        Returns the subset of ``provider_team_ids`` that ARE curated — the
+        caller uses this to narrow the skip set.
+        """
+        if not provider_team_ids:
+            return set()
+        curated_methods = {"direct_id", "manual", "manual_review", "manual_queue", "import"}
+        try:
+            result = (
+                self.supabase_client.table("team_alias_map")
+                .select("provider_team_id, review_status, match_method")
+                .eq("provider_id", self._provider_uuid)
+                .in_("provider_team_id", list(provider_team_ids))
+                .execute()
+            )
+        except Exception as e:
+            logger.warning(
+                "[revalidate_query_failed] falling back to full revalidation: %s", e
+            )
+            return set()
+        curated: Set[str] = set()
+        for row in getattr(result, "data", None) or []:
+            if (
+                row.get("review_status") == "approved"
+                and row.get("match_method") in curated_methods
+            ):
+                curated.add(row["provider_team_id"])
+        return curated
 
     def resolve_canonical_team_id(
         self,
@@ -2988,3 +3214,113 @@ def _route_resolution(
     if resolved_status == "review":
         return (None, None)
     return (None, None)  # "none" or unknown
+
+
+def _event_team_to_scraped_team(event_team: "EventTeam", bracket_name: str) -> ScrapedTeam:
+    """Convert the legacy ``EventTeam`` row to the ``ProviderScraper``-shaped
+    ``ScrapedTeam``.
+
+    The legacy scraper doesn't populate ``club_name`` or carry
+    ``has_view_rankings_link`` as a field — both are derived:
+
+    - ``has_view_rankings_link`` — evidence for the link is a non-empty
+      ``team_id`` on the ``EventTeam`` row (the scraper only assigns
+      ``team_id`` when it successfully extracts a canonical id from the
+      event page's rankings link).
+    - ``club_name`` — left as None; downstream extraction in
+      ``resolve_canonical_team_id`` is handled by the matcher's
+      ``extract_club_from_name`` fallback.
+    """
+    pid = (event_team.team_id or "").strip()
+    return ScrapedTeam(
+        provider_team_id=pid,
+        team_name=event_team.team_name,
+        club_name=None,
+        cohort_age_group=event_team.age_group or "",
+        cohort_gender=event_team.gender or "",
+        division=event_team.division,
+        bracket_name=event_team.bracket_name or bracket_name,
+        playing_up=event_team.playing_up,
+        has_view_rankings_link=bool(pid),
+    )
+
+
+# Mapping from ``alias_writer`` action to ``canonical.scraper_state`` per the
+# plan's Step 4 write protocol (item 4). Keep in sync with
+# ``IntakeJournal.DURABLE_ACTIONS``.
+_SCRAPER_STATE_BY_ACTION = {
+    "created": "alias_written",
+    "updated": "alias_written",
+    "skipped_weaker_metadata": "alias_written",
+    "queued": "review_queued",
+    "deduped_pending": "review_queued",
+    "conflict": "review_queued",
+    "skipped_rejected": "review_queued",
+    "skipped_already_approved": "review_queued",
+    "conflict_skipped_rejected": "review_queued",
+    "conflict_loop_detected": "review_queued",
+    "none": "unresolved",
+}
+
+
+def _scraper_state_from_action(action: str) -> str:
+    """Map an alias-writer action to the JSONL ``canonical.scraper_state`` field."""
+    return _SCRAPER_STATE_BY_ACTION.get(action, "unresolved")
+
+
+def _build_jsonl_record(
+    *,
+    scraped: ScrapedTeam,
+    resolution: CanonicalResolution,
+    action_dict: dict,
+    brackets: List[str],
+    run_id: str,
+    source_url: str,
+    provider_event_id: str,
+) -> dict:
+    """Produce the plan-shaped JSONL record for one resolved team.
+
+    ``canonical.match_method`` reflects the DB-visible method — when the
+    team was queued (not aliased), match_method is ``None``. When aliased,
+    it's the method the writer actually stored (read from the action dict
+    if present, else fall back to the resolution's classifier hint).
+    """
+    action = action_dict.get("action", "none")
+    scraper_state = _scraper_state_from_action(action)
+
+    if scraper_state == "alias_written":
+        canonical_match_method = (
+            action_dict.get("match_method") or resolution.match_method
+        )
+        canonical_team_id_master = (
+            action_dict.get("team_id_master") or resolution.team_id_master
+        )
+    else:
+        canonical_match_method = None
+        canonical_team_id_master = None
+
+    return {
+        "run_id": run_id,
+        "provider_team_id": scraped.provider_team_id,
+        "team_name": scraped.team_name,
+        "club_name": scraped.club_name,
+        "cohort_age_group": scraped.cohort_age_group,
+        "cohort_gender": scraped.cohort_gender,
+        "division": scraped.division,
+        "bracket_name": scraped.bracket_name,
+        "playing_up": scraped.playing_up,
+        "has_view_rankings_link": scraped.has_view_rankings_link,
+        "provider_id_resolution_status": resolution.provider_id_resolution_status,
+        "also_appears_in_brackets": brackets,
+        "canonical": {
+            "team_id_master": canonical_team_id_master,
+            "confidence": resolution.confidence,
+            "resolved_status": resolution.resolved_status,
+            "match_method": canonical_match_method,
+            "scraper_state": scraper_state,
+        },
+        "alias_writer_action": action,
+        "scrape_ts": run_id,
+        "source_url": source_url,
+        "provider_event_id": provider_event_id,
+    }
