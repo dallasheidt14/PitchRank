@@ -6,6 +6,7 @@ Use this when you know an event ID that was missed by the automatic scraper.
 """
 
 import argparse
+import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,7 +32,14 @@ if env_local.exists():
     load_dotenv(env_local, override=True)
 
 
-def scrape_specific_event(event_id: str, lookback_days: int = 30, auto_import: bool = True, force: bool = False):
+def scrape_specific_event(
+    event_id: str,
+    lookback_days: int = 30,
+    auto_import: bool = True,
+    force: bool = False,
+    force_teams: bool = False,
+    revalidate: bool = False,
+):
     """Scrape a specific event by ID"""
     console.print(
         Panel.fit(
@@ -193,12 +201,43 @@ Examples:
         action="store_true",
         help="Force scraping even if event was already scraped (useful for CI/GitHub Actions)",
     )
+    parser.add_argument(
+        "--force-teams",
+        action="store_true",
+        help="Bypass the team-level resume skip and re-resolve every team in the event",
+    )
+    parser.add_argument(
+        "--revalidate",
+        action="store_true",
+        help=(
+            "Re-resolve canonical IDs for teams whose stored alias is machine-written "
+            "(review_status != 'approved' OR match_method != 'direct_id')"
+        ),
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable DEBUG-level logging (silences noisy httpx / httpcore loggers)",
+    )
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # Default to True if --no-auto-import was not specified
     auto_import = getattr(args, "auto_import", True)
 
     scrape_specific_event(
-        event_id=args.event_id, lookback_days=args.lookback_days, auto_import=auto_import, force=args.force
+        event_id=args.event_id,
+        lookback_days=args.lookback_days,
+        auto_import=auto_import,
+        force=args.force,
+        force_teams=args.force_teams,
+        revalidate=args.revalidate,
     )
