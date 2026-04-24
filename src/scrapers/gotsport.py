@@ -827,6 +827,14 @@ class GotsportScraper(ProviderScraper):
             raise UnsupportedProviderError("'gotsport' provider row returned empty")
         self._provider_uuid = result.data["id"]
 
+        # Matcher candidate cache — populated during fetch_teams_by_cohort so
+        # every team's search_event_team_in_db call reuses the per-cohort
+        # candidate list. Cold calls take ~5s (scan of age×gender partition);
+        # warm calls take ~700ms. Live smoke 2026-04-24 on 42434 showed this
+        # drops total run time from ~27 min to ~5 min. Reset per scrape so
+        # stale candidates from a prior run don't leak.
+        self._matcher_cache: dict[tuple, list[dict[str, Any]]] = {}
+
         logger.info(
             f"Initialized GotsportScraper "
             f"(skip_team_id_resolution={skip_team_id_resolution}, "
@@ -2905,6 +2913,10 @@ class GotsportScraper(ProviderScraper):
         journal = IntakeJournal(event_key=event_key)
         journal.startup_cleanup()
 
+        # Reset the matcher candidate cache for this scrape so stale entries
+        # from a prior event don't leak into this one.
+        self._matcher_cache = {}
+
         # Surface a CAPTCHA gate before doing any further parse work.
         self._fetch_event_page(event_id)
 
@@ -3154,7 +3166,9 @@ class GotsportScraper(ProviderScraper):
                 team.provider_team_id if provider_id_status == "resolved" else None
             ),
         )
-        result = search_event_team_in_db(self.supabase_client, query)
+        result = search_event_team_in_db(
+            self.supabase_client, query, cache=self._matcher_cache
+        )
 
         team_id_master, match_method = _route_resolution(result.resolved_status, result.best_score)
 

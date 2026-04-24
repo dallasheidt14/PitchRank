@@ -39,6 +39,7 @@ def scrape_specific_event(
     force: bool = False,
     force_teams: bool = False,
     revalidate: bool = False,
+    skip_intake: bool = False,
 ):
     """Scrape a specific event by ID"""
     console.print(
@@ -90,6 +91,43 @@ def scrape_specific_event(
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not get event name: {e}[/yellow]")
         event_name = f"Event {event_id}"
+
+    # Cohort intake pass (plan Step 4 + 6). Writes team_alias_map and
+    # team_match_review_queue rows. Runs BEFORE scrape_event_games so the
+    # alias rows are in place when games are imported. --skip-intake skips
+    # this step for transitional workflows that only want the legacy
+    # games scrape.
+    if not skip_intake:
+        console.print(f"[cyan]Running cohort intake for event {event_id}...[/cyan]")
+        try:
+            cohort_teams = scraper.fetch_teams_by_cohort(
+                event_url,
+                force_teams=force_teams,
+                revalidate=revalidate,
+            )
+            total_teams = sum(len(teams) for teams in cohort_teams.values())
+            console.print(
+                f"[green]✅ Intake: {len(cohort_teams)} brackets, "
+                f"{total_teams} teams classified[/green]\n"
+            )
+        except EventCaptchaGatedError as e:
+            console.print(
+                f"[yellow]⚠️  Event {event_id} is CAPTCHA-gated — scrape skipped.[/yellow]\n"
+                f"[dim]  sitekey: {e.sitekey or '(not captured)'}\n"
+                f"  challenge URL: {e.captcha_url}\n"
+                f"  artifact: {e.artifact_path}[/dim]"
+            )
+            return
+        except Exception as e:
+            console.print(
+                f"[red]❌ Cohort intake failed for event {event_id}: {e}[/red]\n"
+                f"[dim]Proceeding to games scrape; aliases will be retried on next run.[/dim]"
+            )
+    else:
+        console.print(
+            f"[dim]Skipping cohort intake (--skip-intake). "
+            f"Aliases will NOT be written for event {event_id}.[/dim]\n"
+        )
 
     # Scrape games
     console.print(f"[cyan]Scraping games from event {event_id}...[/cyan]")
@@ -231,6 +269,15 @@ Examples:
         ),
     )
     parser.add_argument(
+        "--skip-intake",
+        action="store_true",
+        help=(
+            "Skip the cohort-intake pass (no writes to team_alias_map / "
+            "team_match_review_queue). Use for transitional workflows that "
+            "only want the legacy games scrape."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -256,4 +303,5 @@ Examples:
         force=args.force,
         force_teams=args.force_teams,
         revalidate=args.revalidate,
+        skip_intake=args.skip_intake,
     )
