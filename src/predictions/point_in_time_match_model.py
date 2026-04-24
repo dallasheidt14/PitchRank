@@ -124,6 +124,12 @@ DRAW_MODEL_SHRINK_FACTOR = 0.3
 BLOWOUT_CLASS_WEIGHT_CAP = 5.0
 DEFAULT_PROBABILITY_STRATEGY = "auto"
 AUTO_PROBABILITY_STRATEGY = "auto"
+DEFAULT_SELECTION_OBJECTIVE = "balanced"
+COMPETITIVE_MATCH_SELECTION_OBJECTIVE = "competitive_match_quality"
+SELECTION_OBJECTIVES = {
+    DEFAULT_SELECTION_OBJECTIVE,
+    COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
+}
 POISSON_DRAW_GATE_PROBABILITY_MIN = 0.25
 POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
 POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
@@ -148,26 +154,78 @@ DRAW_POLICY_OVERSHOOT_PENALTY = 0.9
 DRAW_POLICY_UNDERSHOOT_PENALTY = 0.4
 DRAW_POLICY_RATE_GAP_PENALTY = 0.35
 COHORT_POSTPROCESSING_MIN_SAMPLES = 750
-DEFAULT_AUTO_STRATEGY_CONSTRAINTS = {
-    "min_draw_recall": 0.08,
-    "max_draw_rate_gap": 0.08,
-    "winner_accuracy_tolerance": 0.015,
-    "log_loss_tolerance": 0.003,
-}
-AUTO_STRATEGY_RANK_WEIGHTS = {
-    "winner_accuracy": 3.0,
-    "log_loss": 4.0,
-    "brier_score": 3.0,
-    "draw_recall": 2.5,
-    "draw_rate_gap": 1.75,
-    "exact_score_accuracy": 1.5,
-    "score_within_one_goal_rate": 1.5,
-    "total_goals_mae": 1.5,
-    "blowout_3plus_brier": 1.0,
-    "blowout_5plus_brier": 1.0,
-}
 PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
 TRAINING_PROBABILITY_STRATEGIES = PROBABILITY_STRATEGIES | {AUTO_PROBABILITY_STRATEGY}
+SELECTION_OBJECTIVE_PROFILES = {
+    DEFAULT_SELECTION_OBJECTIVE: {
+        "constraints": {
+            "min_draw_recall": 0.08,
+            "max_draw_rate_gap": 0.08,
+            "winner_accuracy_tolerance": 0.015,
+            "log_loss_tolerance": 0.003,
+        },
+        "rank_specs": [
+            ("winner_accuracy", True),
+            ("log_loss", False),
+            ("brier_score", False),
+            ("draw_recall", True),
+            ("draw_rate_gap", False),
+            ("exact_score_accuracy", True),
+            ("score_within_one_goal_rate", True),
+            ("total_goals_mae", False),
+            ("blowout_3plus_brier", False),
+            ("blowout_5plus_brier", False),
+        ],
+        "rank_weights": {
+            "winner_accuracy": 3.0,
+            "log_loss": 4.0,
+            "brier_score": 3.0,
+            "draw_recall": 2.5,
+            "draw_rate_gap": 1.75,
+            "exact_score_accuracy": 1.5,
+            "score_within_one_goal_rate": 1.5,
+            "total_goals_mae": 1.5,
+            "blowout_3plus_brier": 1.0,
+            "blowout_5plus_brier": 1.0,
+        },
+    },
+    COMPETITIVE_MATCH_SELECTION_OBJECTIVE: {
+        "constraints": {
+            "min_draw_recall": 0.06,
+            "max_draw_rate_gap": 0.10,
+            "winner_accuracy_tolerance": 0.03,
+            "log_loss_tolerance": 0.02,
+        },
+        "rank_specs": [
+            ("margin_mae", False),
+            ("score_within_one_goal_rate", True),
+            ("competitive_game_recall", True),
+            ("competitive_game_precision", True),
+            ("blowout_3plus_brier", False),
+            ("blowout_5plus_brier", False),
+            ("total_goals_mae", False),
+            ("exact_score_accuracy", True),
+            ("draw_recall", True),
+            ("log_loss", False),
+            ("winner_accuracy", True),
+        ],
+        "rank_weights": {
+            "margin_mae": 4.0,
+            "score_within_one_goal_rate": 3.5,
+            "competitive_game_recall": 3.0,
+            "competitive_game_precision": 3.0,
+            "blowout_3plus_brier": 2.25,
+            "blowout_5plus_brier": 2.25,
+            "total_goals_mae": 2.0,
+            "exact_score_accuracy": 1.5,
+            "draw_recall": 1.25,
+            "log_loss": 1.25,
+            "winner_accuracy": 1.0,
+        },
+    },
+}
+DEFAULT_AUTO_STRATEGY_CONSTRAINTS = dict(SELECTION_OBJECTIVE_PROFILES[DEFAULT_SELECTION_OBJECTIVE]["constraints"])
+AUTO_STRATEGY_RANK_WEIGHTS = dict(SELECTION_OBJECTIVE_PROFILES[DEFAULT_SELECTION_OBJECTIVE]["rank_weights"])
 
 
 @dataclass
@@ -1123,6 +1181,7 @@ class PointInTimeMatchModel:
         self.draw_rate_prior = 0.0
         self.requested_probability_strategy = DEFAULT_PROBABILITY_STRATEGY
         self.probability_strategy = DEFAULT_PROBABILITY_STRATEGY
+        self.selection_objective = DEFAULT_SELECTION_OBJECTIVE
         self.auto_strategy_selection: Dict[str, object] = {}
         self.strategy_constraints = dict(DEFAULT_AUTO_STRATEGY_CONSTRAINTS)
         self.draw_decision_policy: Dict[str, object] = {
@@ -1738,14 +1797,29 @@ class PointInTimeMatchModel:
             ranked.setdefault(strategy_name, fallback_rank)
         return ranked
 
+    def _selection_objective_profile(self, selection_objective: Optional[str] = None) -> Dict[str, object]:
+        objective_name = selection_objective or self.selection_objective
+        if objective_name not in SELECTION_OBJECTIVES:
+            raise ValueError(
+                f"Unsupported selection objective '{objective_name}'. "
+                f"Expected one of {sorted(SELECTION_OBJECTIVES)}"
+            )
+        profile = SELECTION_OBJECTIVE_PROFILES[objective_name]
+        return {
+            "constraints": dict(profile["constraints"]),
+            "rank_specs": list(profile["rank_specs"]),
+            "rank_weights": dict(profile["rank_weights"]),
+        }
+
     def _select_probability_strategy(
         self,
         strategy_metrics: Dict[str, Dict[str, object]],
         actual_draw_rate: float,
         constraints: Optional[Dict[str, float]] = None,
     ) -> Tuple[str, Dict[str, object]]:
+        objective_profile = self._selection_objective_profile()
         merged_constraints = {
-            **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+            **objective_profile["constraints"],
             **(constraints or {}),
         }
         viable_strategies: List[str] = []
@@ -1794,18 +1868,8 @@ class PointInTimeMatchModel:
         candidate_strategies = sorted(viable_strategies or strategy_metrics.keys())
 
         strategy_scores: Dict[str, float] = {strategy_name: 0.0 for strategy_name in candidate_strategies}
-        rank_specs = [
-            ("winner_accuracy", True),
-            ("log_loss", False),
-            ("brier_score", False),
-            ("draw_recall", True),
-            ("draw_rate_gap", False),
-            ("exact_score_accuracy", True),
-            ("score_within_one_goal_rate", True),
-            ("total_goals_mae", False),
-            ("blowout_3plus_brier", False),
-            ("blowout_5plus_brier", False),
-        ]
+        rank_specs = objective_profile["rank_specs"]
+        rank_weights = objective_profile["rank_weights"]
 
         for metric_key, higher_is_better in rank_specs:
             metric_ranks = self._rank_strategy_metric(
@@ -1814,7 +1878,7 @@ class PointInTimeMatchModel:
                 metric_key=metric_key,
                 higher_is_better=higher_is_better,
             )
-            weight = AUTO_STRATEGY_RANK_WEIGHTS[metric_key]
+            weight = rank_weights[metric_key]
             for strategy_name in candidate_strategies:
                 strategy_scores[strategy_name] += metric_ranks[strategy_name] * weight
 
@@ -1823,6 +1887,7 @@ class PointInTimeMatchModel:
             key=lambda strategy_name: (strategy_scores[strategy_name], strategy_name),
         )
         return selected_strategy, {
+            "selection_objective": self.selection_objective,
             "actual_draw_rate": actual_draw_rate,
             "candidate_strategies": candidate_strategies,
             "viable_strategies": sorted(viable_strategies),
@@ -2317,6 +2382,7 @@ class PointInTimeMatchModel:
         random_state: int = 42,
         min_examples: int = 100,
         probability_strategy: str = DEFAULT_PROBABILITY_STRATEGY,
+        selection_objective: str = DEFAULT_SELECTION_OBJECTIVE,
         strategy_constraints: Optional[Dict[str, float]] = None,
     ) -> Dict[str, object]:
         if dataset_df.empty:
@@ -2330,13 +2396,20 @@ class PointInTimeMatchModel:
                 f"Unsupported probability strategy '{probability_strategy}'. "
                 f"Expected one of {sorted(TRAINING_PROBABILITY_STRATEGIES)}"
             )
+        if selection_objective not in SELECTION_OBJECTIVES:
+            raise ValueError(
+                f"Unsupported selection objective '{selection_objective}'. "
+                f"Expected one of {sorted(SELECTION_OBJECTIVES)}"
+            )
 
         train_df, test_df = self._chronological_split(dataset_df, test_ratio=test_ratio)
         self.feature_names = self._feature_columns(train_df)
         requested_probability_strategy = probability_strategy
         self.requested_probability_strategy = requested_probability_strategy
+        self.selection_objective = selection_objective
+        objective_profile = self._selection_objective_profile(selection_objective)
         self.strategy_constraints = {
-            **DEFAULT_AUTO_STRATEGY_CONSTRAINTS,
+            **objective_profile["constraints"],
             **(strategy_constraints or {}),
         }
         self.probability_strategy = (
@@ -2549,6 +2622,7 @@ class PointInTimeMatchModel:
             "test_examples": int(len(test_df)),
             "requested_probability_strategy": requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
+            "selection_objective": self.selection_objective,
             "class_labels": [OUTCOME_LABELS[label] for label in self.class_labels],
             "feature_count": int(len(self.feature_names)),
             "training_class_balance": class_balance,
@@ -2591,6 +2665,7 @@ class PointInTimeMatchModel:
             "class_labels": self.class_labels,
             "requested_probability_strategy": self.requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
+            "selection_objective": self.selection_objective,
             "strategy_constraints": self.strategy_constraints,
             "auto_strategy_selection": self.auto_strategy_selection,
         }
@@ -2617,6 +2692,7 @@ class PointInTimeMatchModel:
             DEFAULT_PROBABILITY_STRATEGY,
         )
         model.probability_strategy = payload.get("probability_strategy", DEFAULT_PROBABILITY_STRATEGY)
+        model.selection_objective = payload.get("selection_objective", DEFAULT_SELECTION_OBJECTIVE)
         model.strategy_constraints = payload.get(
             "strategy_constraints",
             dict(DEFAULT_AUTO_STRATEGY_CONSTRAINTS),
@@ -2746,6 +2822,7 @@ class PointInTimeMatchModel:
             "draw_rate_prior": self.draw_rate_prior,
             "requested_probability_strategy": self.requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
+            "selection_objective": self.selection_objective,
             "strategy_constraints": self.strategy_constraints,
             "auto_strategy_selection": self.auto_strategy_selection,
             "blowout_probability_thresholds": self.blowout_probability_thresholds,
