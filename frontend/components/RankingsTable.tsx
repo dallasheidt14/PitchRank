@@ -423,7 +423,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 </div>
 
                 {/* Virtualized Table Body */}
-                <div ref={parentRef} className="rankings-body overflow-auto h-[400px] sm:h-[500px] md:h-[600px]">
+                <div ref={parentRef} className="rankings-body overflow-auto h-[660px] sm:h-[780px] md:h-[900px]">
                   <div
                     style={{
                       height: `${totalHeight}px`,

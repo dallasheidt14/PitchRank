@@ -17,7 +17,7 @@ export function RankingsTableSkeleton({ rows = 10 }: { rows?: number }) {
     () => false
   );
 
-  if (!isClient) return <div className="min-h-[480px]" />;
+  if (!isClient) return <div className="min-h-[660px]" />;
 
   return <TableSkeleton rows={rows} />;
 }
