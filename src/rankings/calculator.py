@@ -1531,7 +1531,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
     top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
     _broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
-    quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
+    _quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
     avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)

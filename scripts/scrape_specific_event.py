@@ -6,6 +6,7 @@ Use this when you know an event ID that was missed by the automatic scraper.
 """
 
 import argparse
+import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,7 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from scripts.scrape_new_gotsport_events import load_scraped_events, save_scraped_event
-from src.scrapers.gotsport_event import GotSportEventScraper
+from src.scrapers.gotsport_event import EventCaptchaGatedError, GotSportEventScraper
 from supabase import create_client
 
 console = Console()
@@ -31,7 +32,15 @@ if env_local.exists():
     load_dotenv(env_local, override=True)
 
 
-def scrape_specific_event(event_id: str, lookback_days: int = 30, auto_import: bool = True, force: bool = False):
+def scrape_specific_event(
+    event_id: str,
+    lookback_days: int = 30,
+    auto_import: bool = True,
+    force: bool = False,
+    force_teams: bool = False,
+    revalidate: bool = False,
+    skip_intake: bool = False,
+):
     """Scrape a specific event by ID"""
     console.print(
         Panel.fit(
@@ -62,7 +71,10 @@ def scrape_specific_event(event_id: str, lookback_days: int = 30, auto_import: b
 
     scraper = GotSportEventScraper(supabase, "gotsport")
 
-    # Get event name
+    # Get event name. The pre-flight fetch uses scraper.session directly
+    # (not the CAPTCHA-aware _fetch_event_page) so an archived/redirect
+    # response is distinguishable from a CAPTCHA gate. The main scrape call
+    # below triggers the real CAPTCHA detection.
     try:
         event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
         response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
@@ -79,6 +91,43 @@ def scrape_specific_event(event_id: str, lookback_days: int = 30, auto_import: b
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not get event name: {e}[/yellow]")
         event_name = f"Event {event_id}"
+
+    # Cohort intake pass (plan Step 4 + 6). Writes team_alias_map and
+    # team_match_review_queue rows. Runs BEFORE scrape_event_games so the
+    # alias rows are in place when games are imported. --skip-intake skips
+    # this step for transitional workflows that only want the legacy
+    # games scrape.
+    if not skip_intake:
+        console.print(f"[cyan]Running cohort intake for event {event_id}...[/cyan]")
+        try:
+            cohort_teams = scraper.fetch_teams_by_cohort(
+                event_url,
+                force_teams=force_teams,
+                revalidate=revalidate,
+            )
+            total_teams = sum(len(teams) for teams in cohort_teams.values())
+            console.print(
+                f"[green]✅ Intake: {len(cohort_teams)} brackets, "
+                f"{total_teams} teams classified[/green]\n"
+            )
+        except EventCaptchaGatedError as e:
+            console.print(
+                f"[yellow]⚠️  Event {event_id} is CAPTCHA-gated — scrape skipped.[/yellow]\n"
+                f"[dim]  sitekey: {e.sitekey or '(not captured)'}\n"
+                f"  challenge URL: {e.captcha_url}\n"
+                f"  artifact: {e.artifact_path}[/dim]"
+            )
+            return
+        except Exception as e:
+            console.print(
+                f"[red]❌ Cohort intake failed for event {event_id}: {e}[/red]\n"
+                f"[dim]Proceeding to games scrape; aliases will be retried on next run.[/dim]"
+            )
+    else:
+        console.print(
+            f"[dim]Skipping cohort intake (--skip-intake). "
+            f"Aliases will NOT be written for event {event_id}.[/dim]\n"
+        )
 
     # Scrape games
     console.print(f"[cyan]Scraping games from event {event_id}...[/cyan]")
@@ -155,6 +204,19 @@ def scrape_specific_event(event_id: str, lookback_days: int = 30, auto_import: b
                 f"--stream --batch-size 500 --concurrency 4 --checkpoint[/dim]"
             )
 
+    except EventCaptchaGatedError as e:
+        # Event is behind gotsport's reCAPTCHA v2. The scraper has already
+        # written a captcha_challenge.json artifact with the sitekey for a
+        # later solver run. Don't mark the event scraped; exit 0 so
+        # batch/CI callers keep processing other events.
+        console.print(
+            f"[yellow]⚠️  Event {event_id} is CAPTCHA-gated — scrape skipped.[/yellow]\n"
+            f"[dim]  sitekey: {e.sitekey or '(not captured)'}\n"
+            f"  challenge URL: {e.captcha_url}\n"
+            f"  artifact: {e.artifact_path}[/dim]"
+        )
+        return
+
     except Exception as e:
         console.print(f"[red]❌ Error scraping event: {e}[/red]")
         import traceback
@@ -193,12 +255,53 @@ Examples:
         action="store_true",
         help="Force scraping even if event was already scraped (useful for CI/GitHub Actions)",
     )
+    parser.add_argument(
+        "--force-teams",
+        action="store_true",
+        help="Bypass the team-level resume skip and re-resolve every team in the event",
+    )
+    parser.add_argument(
+        "--revalidate",
+        action="store_true",
+        help=(
+            "Re-resolve canonical IDs for teams whose stored alias is machine-written "
+            "(review_status != 'approved' OR match_method != 'direct_id')"
+        ),
+    )
+    parser.add_argument(
+        "--skip-intake",
+        action="store_true",
+        help=(
+            "Skip the cohort-intake pass (no writes to team_alias_map / "
+            "team_match_review_queue). Use for transitional workflows that "
+            "only want the legacy games scrape."
+        ),
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable DEBUG-level logging (silences noisy httpx / httpcore loggers)",
+    )
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     # Default to True if --no-auto-import was not specified
     auto_import = getattr(args, "auto_import", True)
 
     scrape_specific_event(
-        event_id=args.event_id, lookback_days=args.lookback_days, auto_import=auto_import, force=args.force
+        event_id=args.event_id,
+        lookback_days=args.lookback_days,
+        auto_import=auto_import,
+        force=args.force,
+        force_teams=args.force_teams,
+        revalidate=args.revalidate,
+        skip_intake=args.skip_intake,
     )

@@ -33,6 +33,9 @@ from scripts.backtest_predictor import (  # noqa: E402
     fetch_prediction_feature_snapshots,
 )
 from src.predictions.point_in_time_match_model import (  # noqa: E402
+    COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
+    DEFAULT_SELECTION_OBJECTIVE,
+    SELECTION_OBJECTIVES,
     DatasetBuildResult,
     PointInTimeMatchModel,
     build_point_in_time_dataset,
@@ -52,6 +55,16 @@ async def main():
     parser = argparse.ArgumentParser(description="Train point-in-time match model from predictor snapshots")
     parser.add_argument("--lookback-days", type=int, default=365, help="Historical game window to fetch")
     parser.add_argument(
+        "--min-game-date",
+        help="Optional explicit lower bound for training games in YYYY-MM-DD format. Overrides --lookback-days.",
+    )
+    parser.add_argument(
+        "--snapshot-buffer-days",
+        type=int,
+        default=30,
+        help="How far before the first game date to start loading point-in-time snapshots",
+    )
+    parser.add_argument(
         "--limit",
         type=lambda value: None if str(value).lower() == "none" else int(value),
         default=None,
@@ -70,6 +83,15 @@ async def main():
         default="auto",
         choices=["auto", "hybrid", "poisson_primary", "poisson_draw_gate"],
         help="Outcome probability engine to use after fitting the offline model",
+    )
+    parser.add_argument(
+        "--selection-objective",
+        default=DEFAULT_SELECTION_OBJECTIVE,
+        choices=sorted(SELECTION_OBJECTIVES),
+        help=(
+            "How to choose the best probability strategy on holdout data. "
+            f"Use '{COMPETITIVE_MATCH_SELECTION_OBJECTIVE}' for tournament-seeding experiments."
+        ),
     )
     parser.add_argument(
         "--min-draw-recall",
@@ -127,6 +149,7 @@ async def main():
         lookback_days=args.lookback_days,
         limit=args.limit,
         test_slice=test_slice,
+        min_game_date=args.min_game_date,
     )
     if games_df.empty:
         logger.error("No historical games found")
@@ -137,7 +160,9 @@ async def main():
             set(games_df["away_team_master_id"].dropna().astype(str))
         )
     )
-    snapshot_start = (pd.Timestamp(games_df["game_date"].min()) - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
+    snapshot_start = (
+        pd.Timestamp(games_df["game_date"].min()) - pd.Timedelta(days=max(0, args.snapshot_buffer_days))
+    ).strftime("%Y-%m-%d")
     snapshot_end = pd.Timestamp(games_df["game_date"].max()).strftime("%Y-%m-%d")
     snapshots_df = await fetch_prediction_feature_snapshots(supabase, team_ids, snapshot_start, snapshot_end)
     if snapshots_df.empty:
@@ -203,6 +228,7 @@ async def main():
         test_ratio=args.test_ratio,
         min_examples=args.min_examples,
         probability_strategy=args.probability_strategy,
+        selection_objective=args.selection_objective,
         strategy_constraints={
             "min_draw_recall": args.min_draw_recall,
             "max_draw_rate_gap": args.max_draw_rate_gap,

@@ -1,0 +1,10 @@
+{
+  "provider_code": "gotsport",
+  "provider_event_id": "45224",
+  "event_url": "https://system.gotsport.com/org_event/events/45224",
+  "captcha_url": "https://system.gotsport.com/org_event/events/45224/verify_captchas/new",
+  "captcha_provider": "recaptcha_v2",
+  "sitekey": "6Lf7TGogAAAAANuN0mBzLOY4T96kSfIB8DHGPsXF",
+  "detected_at": "2026-04-24T19:51:13.589756+00:00",
+  "via_zenrows": true
+}

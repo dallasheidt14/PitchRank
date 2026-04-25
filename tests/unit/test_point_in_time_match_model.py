@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.predictions.point_in_time_match_model import (
+    COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
     PointInTimeMatchModel,
     _dixon_coles_rho,
     _poisson_draw_gate_mask,
@@ -473,3 +474,78 @@ def test_auto_probability_strategy_prefers_viable_draw_aware_candidate():
     assert selected_strategy == "poisson_draw_gate"
     assert "poisson_primary" not in selection_details["candidate_strategies"]
     assert "poisson_primary" in selection_details["rejected_strategies"]
+
+
+def test_selection_objective_can_prioritize_competitive_match_quality():
+    permissive_constraints = {
+        "min_draw_recall": 0.0,
+        "max_draw_rate_gap": 1.0,
+        "winner_accuracy_tolerance": 1.0,
+        "log_loss_tolerance": 1.0,
+    }
+    strategy_metrics = {
+        "hybrid": {
+            "winner_accuracy": 0.61,
+            "log_loss": 0.90,
+            "brier_score": 0.18,
+            "draw_recall": 0.10,
+            "predicted_draw_rate": 0.11,
+            "exact_score_accuracy": 0.06,
+            "score_within_one_goal_rate": 0.43,
+            "total_goals_mae": 1.35,
+            "margin_mae": 1.18,
+            "competitive_game_recall": 0.29,
+            "competitive_game_precision": 0.31,
+            "blowout_3plus_brier": 0.13,
+            "blowout_5plus_brier": 0.06,
+        },
+        "poisson_primary": {
+            "winner_accuracy": 0.58,
+            "log_loss": 0.93,
+            "brier_score": 0.20,
+            "draw_recall": 0.11,
+            "predicted_draw_rate": 0.11,
+            "exact_score_accuracy": 0.08,
+            "score_within_one_goal_rate": 0.60,
+            "total_goals_mae": 1.04,
+            "margin_mae": 0.81,
+            "competitive_game_recall": 0.63,
+            "competitive_game_precision": 0.58,
+            "blowout_3plus_brier": 0.08,
+            "blowout_5plus_brier": 0.03,
+        },
+        "poisson_draw_gate": {
+            "winner_accuracy": 0.59,
+            "log_loss": 0.92,
+            "brier_score": 0.19,
+            "draw_recall": 0.18,
+            "predicted_draw_rate": 0.17,
+            "exact_score_accuracy": 0.07,
+            "score_within_one_goal_rate": 0.52,
+            "total_goals_mae": 1.16,
+            "margin_mae": 0.93,
+            "competitive_game_recall": 0.51,
+            "competitive_game_precision": 0.49,
+            "blowout_3plus_brier": 0.10,
+            "blowout_5plus_brier": 0.05,
+        },
+    }
+
+    balanced_model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    balanced_choice, _ = balanced_model._select_probability_strategy(
+        strategy_metrics={name: dict(values) for name, values in strategy_metrics.items()},
+        actual_draw_rate=0.12,
+        constraints=permissive_constraints,
+    )
+
+    competitive_model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    competitive_model.selection_objective = COMPETITIVE_MATCH_SELECTION_OBJECTIVE
+    competitive_choice, details = competitive_model._select_probability_strategy(
+        strategy_metrics={name: dict(values) for name, values in strategy_metrics.items()},
+        actual_draw_rate=0.12,
+        constraints=permissive_constraints,
+    )
+
+    assert balanced_choice == "hybrid"
+    assert competitive_choice == "poisson_primary"
+    assert details["selection_objective"] == COMPETITIVE_MATCH_SELECTION_OBJECTIVE

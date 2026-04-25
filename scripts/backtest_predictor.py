@@ -62,6 +62,12 @@ REST_SNAPSHOT_CONCURRENCY = 8
 REST_PAGE_SIZE = 1000
 
 
+def _resolve_game_start_date(*, lookback_days: int, min_game_date: Optional[str] = None) -> str:
+    if min_game_date:
+        return pd.Timestamp(min_game_date).strftime("%Y-%m-%d")
+    return (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+
 def _database_url() -> Optional[str]:
     return os.getenv("DATABASE_URL")
 
@@ -81,8 +87,9 @@ def _fetch_historical_games_via_db(
     lookback_days: int,
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
+    min_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
     logger.info("Fetching historical games from %s via direct Postgres...", cutoff_date)
 
     params: List[object] = [cutoff_date]
@@ -319,6 +326,7 @@ async def fetch_historical_games(
     lookback_days: int = 365,
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
+    min_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Fetch historical games from database
@@ -328,6 +336,7 @@ async def fetch_historical_games(
         lookback_days: Number of days to look back
         limit: Maximum number of games to fetch (None = all)
         test_slice: Optional tuple (state, age_group) for testing (e.g., ('AZ', 'u12'))
+        min_game_date: Optional explicit floor in YYYY-MM-DD. Overrides lookback_days when provided.
     """
     if _can_use_direct_db():
         try:
@@ -335,11 +344,12 @@ async def fetch_historical_games(
                 lookback_days=lookback_days,
                 limit=limit,
                 test_slice=test_slice,
+                min_game_date=min_game_date,
             )
         except Exception as error:
             logger.warning("Direct Postgres historical-game fetch failed, falling back to Supabase REST: %s", error)
 
-    cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
 
     logger.info(f"Fetching historical games from {cutoff_date}...")
 
@@ -1141,6 +1151,10 @@ async def main():
     parser = argparse.ArgumentParser(description="Backtest match predictor on historical games")
     parser.add_argument("--lookback-days", type=int, default=365, help="Number of days to look back (default: 365)")
     parser.add_argument(
+        "--min-game-date",
+        help="Optional explicit lower bound for historical games in YYYY-MM-DD format. Overrides --lookback-days.",
+    )
+    parser.add_argument(
         "--limit",
         type=lambda x: None if x.lower() == "none" else int(x),
         default=None,
@@ -1189,7 +1203,11 @@ async def main():
     # Fetch data
     test_slice = tuple(args.test_slice) if args.test_slice else None
     games_df = await fetch_historical_games(
-        supabase, lookback_days=args.lookback_days, limit=args.limit, test_slice=test_slice
+        supabase,
+        lookback_days=args.lookback_days,
+        limit=args.limit,
+        test_slice=test_slice,
+        min_game_date=args.min_game_date,
     )
 
     if games_df.empty:
