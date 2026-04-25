@@ -17,20 +17,21 @@ That lets us replay:
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import csv
-from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
 import json
 import math
 import os
 import sys
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 import pandas as pd
+from dotenv import load_dotenv
+
 from supabase import create_client
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -62,7 +63,6 @@ from src.tournaments.seeding_optimizer import (  # noqa: E402
     normalize_gender_label,
     optimize_tournament_format,
 )
-
 
 TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id,provider_id,is_deprecated"
 RANKING_COLS = ",".join(
@@ -665,9 +665,9 @@ def _build_point_in_time_prediction_and_cost_functions(
         team_a_snapshot = resolved_snapshots_by_source_id.get(team_a_source_id)
         team_b_snapshot = resolved_snapshots_by_source_id.get(team_b_source_id)
         if team_a_snapshot is None:
-            raise ValueError(f"Missing point-in-time snapshot for {team_a_row['event_team_name']} as of {prediction_date}")
+            raise ValueError(f"Missing point-in-time snapshot for {team_a_row['event_team_name']} as of {prediction_date}")  # noqa: E501
         if team_b_snapshot is None:
-            raise ValueError(f"Missing point-in-time snapshot for {team_b_row['event_team_name']} as of {prediction_date}")
+            raise ValueError(f"Missing point-in-time snapshot for {team_b_row['event_team_name']} as of {prediction_date}")  # noqa: E501
 
         matchup_frame = pd.DataFrame(
             [
@@ -744,7 +744,7 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
     return {
         "actual_game_count": len(margins),
         "average_goal_differential": float(sum(margins) / len(margins)),
-        "median_goal_differential": float(sorted(margins)[len(margins) // 2] if len(margins) % 2 else (sorted(margins)[len(margins) // 2 - 1] + sorted(margins)[len(margins) // 2]) / 2),
+        "median_goal_differential": float(sorted(margins)[len(margins) // 2] if len(margins) % 2 else (sorted(margins)[len(margins) // 2 - 1] + sorted(margins)[len(margins) // 2]) / 2),  # noqa: E501
         "close_game_rate": float(sum(1 for margin in margins if margin <= 1) / len(margins)),
         "blowout_3plus_rate": float(sum(1 for margin in margins if margin >= 3) / len(margins)),
         "blowout_5plus_rate": float(sum(1 for margin in margins if margin >= 5) / len(margins)),
@@ -797,12 +797,12 @@ def _build_division_recommendations(
             }
         )
 
-    recommendations.sort(key=lambda row: (row["move"] == "stay", row["recommended_division"], -(row["power_score"] or 0.0)))
+    recommendations.sort(key=lambda row: (row["move"] == "stay", row["recommended_division"], -(row["power_score"] or 0.0)))  # noqa: E501
     return recommendations
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Backtest one completed tournament cohort against an optimized reseeding")
+    parser = argparse.ArgumentParser(description="Backtest one completed tournament cohort against an optimized reseeding")  # noqa: E501
     parser.add_argument("--input", required=True, help="Path to cohort backtest request JSON")
     parser.add_argument(
         "--output-dir",
@@ -902,7 +902,7 @@ def main() -> int:
                 age_group=entrant_row["age_group"],
                 gender=entrant_row["gender"],
                 power_score=entrant_row["power_score"],
-                rank_in_cohort=float(entrant_row["rank_in_cohort"]) if entrant_row["rank_in_cohort"] is not None else None,
+                rank_in_cohort=float(entrant_row["rank_in_cohort"]) if entrant_row["rank_in_cohort"] is not None else None,  # noqa: E501
                 club_name=entrant_row["club_name"],
                 state_code=entrant_row["state_code"],
                 games_played=entrant_row["games_played"],
@@ -923,7 +923,7 @@ def main() -> int:
             client.table("games")
             .select("id,division_name,game_date,home_team_master_id,away_team_master_id,home_score,away_score")
             .eq("event_name", event_name)
-            .in_("division_name", [str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]])
+            .in_("division_name", [str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]])  # noqa: E501
             .eq("is_excluded", False)
             .not_.is_("home_score", "null")
             .not_.is_("away_score", "null")
@@ -989,7 +989,7 @@ def main() -> int:
         )
         if snapshots_df.empty:
             raise ValueError(
-                f"No point-in-time snapshots found for predictor date {prediction_date} and {len(related_team_ids)} teams"
+                f"No point-in-time snapshots found for predictor date {prediction_date} and {len(related_team_ids)} teams"  # noqa: E501
             )
         snapshot_index = build_snapshot_index(snapshots_df)
         resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
@@ -1057,7 +1057,7 @@ def main() -> int:
             division_name=division_spec.name,
             actual_division_name=str(division_payload.get("actual_division_name") or division_spec.name),
             pool_sizes=division_spec.pool_sizes,
-            actual_game_count=actual_game_counts.get(str(division_payload.get("actual_division_name") or division_spec.name)),
+            actual_game_count=actual_game_counts.get(str(division_payload.get("actual_division_name") or division_spec.name)),  # noqa: E501
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }

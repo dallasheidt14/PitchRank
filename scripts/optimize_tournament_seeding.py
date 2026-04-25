@@ -10,19 +10,20 @@ structure to reduce likely lopsided games.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta
 import difflib
-from itertools import combinations
 import json
 import math
 import os
-from statistics import median
 import sys
+from datetime import datetime, timedelta
+from itertools import combinations
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 import pandas as pd
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -135,7 +136,7 @@ def _fetch_active_cohort_rows(client, age_group: str, gender: str) -> list[dict[
     merged["team_id"] = merged["team_id"].astype(str)
     merged["search_name"] = merged["team_name"].fillna("").astype(str)
     merged["display_name"] = (
-        merged["club_name"].fillna("").astype(str).str.strip() + " " + merged["team_name"].fillna("").astype(str).str.strip()
+        merged["club_name"].fillna("").astype(str).str.strip() + " " + merged["team_name"].fillna("").astype(str).str.strip()  # noqa: E501
     ).str.strip()
     merged["normalized_names"] = merged.apply(
         lambda row: {
@@ -189,7 +190,7 @@ def _resolve_team_request(team_request: str | dict[str, Any], candidates: list[d
         return exact_matches[0]
 
     if len(exact_matches) > 1:
-        match_labels = ", ".join(str(candidate.get("display_name") or candidate.get("search_name")) for candidate in exact_matches[:5])
+        match_labels = ", ".join(str(candidate.get("display_name") or candidate.get("search_name")) for candidate in exact_matches[:5])  # noqa: E501
         raise ValueError(
             f"Ambiguous team match for '{requested_label}'. "
             f"Multiple active teams matched this request: {match_labels}"
@@ -462,7 +463,7 @@ def _build_projection_vs_actual_comparison(
     return {
         "average_goal_differential_improvement": float(actual_average - projected_average),
         "median_goal_differential_improvement": float(actual_median - projected_median),
-        "close_game_rate_delta": float(projected_summary["close_game_probability"]) - float(actual_summary["close_game_rate"]),
+        "close_game_rate_delta": float(projected_summary["close_game_probability"]) - float(actual_summary["close_game_rate"]),  # noqa: E501
         "blowout_3plus_rate_improvement": float(actual_summary["blowout_3plus_rate"])
         - float(projected_summary["blowout_3plus_probability"]),
         "blowout_5plus_rate_improvement": float(actual_summary["blowout_5plus_rate"])
@@ -615,7 +616,7 @@ def main() -> int:
         actual_summary = None
         comparison = None
         if actual_event_name:
-            actual_games = _fetch_actual_event_games(client, actual_event_name, [team.team_id for team in seedable_teams])
+            actual_games = _fetch_actual_event_games(client, actual_event_name, [team.team_id for team in seedable_teams])  # noqa: E501
             actual_summary = {
                 "event_name": actual_event_name,
                 **_summarize_actual_games(actual_games),

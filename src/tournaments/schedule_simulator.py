@@ -16,13 +16,12 @@ the beta fixtures:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from statistics import median
 from typing import Any, Callable, Sequence
 
 from src.tournaments.seeding_optimizer import DivisionAssignment, SeedableTeam
-
 
 PredictionFn = Callable[[SeedableTeam, SeedableTeam], Any]
 

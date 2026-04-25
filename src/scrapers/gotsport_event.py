@@ -10,6 +10,8 @@ directly.
 from src.scrapers.gotsport import (
     EventCaptchaGatedError,
     EventTeam,
+)
+from src.scrapers.gotsport import (
     GotsportScraper as GotSportEventScraper,
 )
 

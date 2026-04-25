@@ -29,7 +29,6 @@ from scripts.backtest_tournament_cohort import _fetch_rows_by_ids, _get_supabase
 from src.tournaments.event_team_matcher import EventTeamSearchQuery, search_event_team_in_db  # noqa: E402
 from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label  # noqa: E402
 
-
 MIN_SUPPORTED_AGE = 10
 MAX_SUPPORTED_AGE = 19
 
@@ -401,7 +400,7 @@ def _build_request_payload(
                     "event_team_name": event_team_name,
                     "event_age_group": age_group,
                     "event_gender": gender,
-                    "actual_division_name": actual_division_name.removeprefix(f"BU{age_group.removeprefix('u')} ").strip()
+                    "actual_division_name": actual_division_name.removeprefix(f"BU{age_group.removeprefix('u')} ").strip()  # noqa: E501
                     if actual_division_name.startswith("BU")
                     else actual_division_name,
                 }
@@ -523,7 +522,7 @@ def main() -> int:
             expected_team_ids_by_division[division_name].update(team_ids)
         for division_name, team_ids in registry_team_ids_by_division.items():
             expected_team_ids_by_division[division_name].update(team_ids)
-        all_expected_team_ids = sorted({team_id for team_ids in expected_team_ids_by_division.values() for team_id in team_ids})
+        all_expected_team_ids = sorted({team_id for team_ids in expected_team_ids_by_division.values() for team_id in team_ids})  # noqa: E501
         event_dates = sorted({str(row["game_date"]) for row in event_games if row.get("game_date")})
         if all_expected_team_ids and event_dates:
             orphaned_games = _fetch_orphaned_games_for_team_ids(
@@ -643,7 +642,7 @@ def main() -> int:
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             result_payload["actual_average_goal_differential"] = summary["actual_results"]["average_goal_differential"]
-            result_payload["optimized_average_goal_differential"] = summary["optimized_projection"]["simulated_schedule"][
+            result_payload["optimized_average_goal_differential"] = summary["optimized_projection"]["simulated_schedule"][  # noqa: E501
                 "average_goal_differential"
             ]
             result_payload["close_game_rate_delta"] = summary["comparison_to_actual"]["close_game_rate_delta"]

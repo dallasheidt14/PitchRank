@@ -18,7 +18,6 @@ from scripts.find_queue_matches import (
 )
 from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label
 
-
 TEAM_SELECT_COLS = "team_id_master,team_name,club_name,state_code,age_group,gender,provider_team_id,is_deprecated"
 
 
@@ -187,7 +186,7 @@ def _club_similarity(left: str | None, right: str | None) -> float:
 
 def _same_club(event_club_name: str | None, candidate_club_name: str | None) -> tuple[bool, float, bool]:
     similarity = _club_similarity(event_club_name, candidate_club_name)
-    exact = bool(_normalize_club_name(event_club_name) and _normalize_club_name(event_club_name) == _normalize_club_name(candidate_club_name))
+    exact = bool(_normalize_club_name(event_club_name) and _normalize_club_name(event_club_name) == _normalize_club_name(candidate_club_name))  # noqa: E501
     return exact or similarity >= 0.80, similarity, exact
 
 
@@ -234,7 +233,7 @@ def rank_db_candidates(
                 continue
 
         same_club, club_similarity, club_exact = _same_club(event_club_name, candidate.get("club_name"))
-        if club_exact and score < 0.99 and _should_skip_pair(event_team_name, candidate_name, club_name=event_club_name or ""):
+        if club_exact and score < 0.99 and _should_skip_pair(event_team_name, candidate_name, club_name=event_club_name or ""):  # noqa: E501
             continue
 
         normalized_candidate_name = _normalize_free_text(candidate_name)

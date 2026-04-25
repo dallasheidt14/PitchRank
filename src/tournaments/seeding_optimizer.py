@@ -7,9 +7,9 @@ model can later be swapped to a calibrated point-in-time competitive model.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from itertools import combinations
-import math
 from typing import Any, Callable, Iterable, Sequence
 
 

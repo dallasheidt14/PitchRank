@@ -1899,7 +1899,6 @@ class GotsportScraper(ProviderScraper):
             List of GameData objects from schedule pages
         """
         games: List[GameData] = []
-        event_url = f"{self.EVENT_BASE}/{event_id}"
 
         logger.info(f"Scraping games from schedule pages for event {event_id}")
 

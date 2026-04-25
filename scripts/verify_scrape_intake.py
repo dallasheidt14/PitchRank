@@ -31,7 +31,6 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.scrapers.intake_journal import IntakeJournal, JournalCorruptionError
 
-
 PROVIDER_ID_RESOLUTION_THRESHOLD = 0.95
 MASTER_TEAM_MATCH_THRESHOLD = 0.80
 

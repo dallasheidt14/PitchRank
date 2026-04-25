@@ -35,9 +35,9 @@ from scripts.backtest_predictor import (  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
     DEFAULT_SELECTION_OBJECTIVE,
+    SELECTION_OBJECTIVES,
     DatasetBuildResult,
     PointInTimeMatchModel,
-    SELECTION_OBJECTIVES,
     build_point_in_time_dataset,
 )
 from supabase import create_client  # noqa: E402

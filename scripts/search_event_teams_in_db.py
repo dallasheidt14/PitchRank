@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+
 from supabase import create_client
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -109,7 +110,7 @@ def _batch_search(args: argparse.Namespace) -> int:
 
     rows = _read_csv(input_csv)
     if args.only_unresolved:
-        rows_to_search = [row for row in rows if str(row.get("canonical_resolution_status") or "").strip() in {"", "none", "review"}]
+        rows_to_search = [row for row in rows if str(row.get("canonical_resolution_status") or "").strip() in {"", "none", "review"}]  # noqa: E501
     else:
         rows_to_search = rows
 
