@@ -698,9 +698,9 @@ class EnhancedETLPipeline:
                     game_records = [
                         g for g in game_records if self._make_composite_key(g) not in existing_composite_keys
                     ]
-                    batch_metrics.duplicates_found = len(
-                        existing_composite_keys
-                    )  # Set (not +=) because this is the authoritative count
+                    batch_metrics.duplicates_found = (
+                        getattr(batch_metrics, "duplicates_found", 0) + len(existing_composite_keys)
+                    )
                     self.metrics.duplicates_found += len(existing_composite_keys)
                     logger.info(
                         f"[Pipeline] Filtered to {len(game_records)} new games after composite key duplicate check"

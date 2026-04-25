@@ -633,6 +633,12 @@ async def main():
             "duplicates_skipped": aggregated_metrics.duplicates_skipped,
             "duplicates_found": aggregated_metrics.duplicates_found,
             "games_quarantined": aggregated_metrics.games_quarantined,
+            "failed_games_count": aggregated_metrics.failed_games_count,
+            "duplicate_key_violations": aggregated_metrics.duplicate_key_violations,
+            "skipped_empty_provider_ids": aggregated_metrics.skipped_empty_provider_ids,
+            "skipped_empty_game_date": aggregated_metrics.skipped_empty_game_date,
+            "skipped_empty_scores": aggregated_metrics.skipped_empty_scores,
+            "duplicate_links_backfilled": aggregated_metrics.duplicate_links_backfilled,
         })
         print(f"IMPORT_RESULT:{_summary}")
 

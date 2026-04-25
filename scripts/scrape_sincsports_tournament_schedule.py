@@ -86,7 +86,7 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
         result = "D"
 
     return {
-        "provider_id": "sincsports",
+        "provider": "sincsports",
         "team_id": team_id,
         "opponent_id": opp_id,
         "team_name": team_name,
@@ -167,9 +167,8 @@ def main() -> int:
     out = RAW_DIR / f"sincsports_games_tournament_{args.tid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl"
     with open(out, "w", encoding="utf-8") as f:
         for g in keep:
-            for perspective in ("H", "A"):
-                f.write(json.dumps(perspective_record(g, perspective=perspective)) + "\n")
-    console.print(f"[green]Wrote {len(keep) * 2} per-team records -> {out}[/green]")
+            f.write(json.dumps(perspective_record(g, perspective="H")) + "\n")
+    console.print(f"[green]Wrote {len(keep)} per-team records -> {out}[/green]")
 
     if not args.auto_import:
         console.print(f"\nTo import:  python scripts/import_games_enhanced.py {out} sincsports")
