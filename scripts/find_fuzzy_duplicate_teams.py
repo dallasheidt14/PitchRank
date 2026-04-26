@@ -479,15 +479,17 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
 
     norm_a = normalize_team_name(name_a)
     norm_b = normalize_team_name(name_b)
-    var_a = extract_team_variant(name_a)
-    var_b = extract_team_variant(name_b)
+    club_a = (team_a.get("club_name") or "").strip().lower()
+    club_b = (team_b.get("club_name") or "").strip().lower()
+    # Pass club name so club words (e.g. 'Union' in 'Rush Union Wisconsin')
+    # aren't returned as a phantom variant when the duplicate omits the club.
+    var_a = extract_team_variant(name_a, club_a)
+    var_b = extract_team_variant(name_b, club_b)
     if var_a != var_b:
         return None
 
     score = SequenceMatcher(None, norm_a, norm_b).ratio()
 
-    club_a = (team_a.get("club_name") or "").strip().lower()
-    club_b = (team_b.get("club_name") or "").strip().lower()
     if club_a and club_b and club_a == club_b:
         score = min(1.0, score + 0.15)
         # When clubs match, also score with club words stripped —
@@ -812,6 +814,20 @@ def _run_inline_tests() -> int:
     check(
         "slash-form '10/11 (u15) stays distinct from '10 (u16)",
         _should_skip_pair("Phoenix '10/11 Red", "Phoenix '10 Red", club_name="Phoenix") is True,
+    )
+
+    # Variant-gate regression — club words like 'Union' must not leak as a
+    # phantom variant when the duplicate side omits the club prefix.
+    rush_a = {"team_id_master": "A", "team_name": "2012 Premier", "club_name": "Rush Union Wisconsin"}
+    rush_b = {
+        "team_id_master": "B",
+        "team_name": "Rush Union Wisconsin 2012 Premier",
+        "club_name": "Rush Union Wisconsin",
+    }
+    rush_score = score_team_pair(rush_a, rush_b)
+    check(
+        "Rush Union 2012 Premier (no-club ↔ with-club) scores instead of None",
+        rush_score is not None and rush_score >= 0.90,
     )
 
     print(f"\n{passed} passed, {failed} failed")
