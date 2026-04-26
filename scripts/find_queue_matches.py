@@ -197,12 +197,16 @@ TEAM_COLORS = {
 TEAM_DIRECTIONS = {"north", "south", "east", "west", "central"}
 
 
-def extract_team_variant(name):
+def extract_team_variant(name, club_name: str = ""):
     """Extract team variant (color, direction, coach name, roman numeral) from team name.
 
     Teams like 'FC Dallas 2014 Blue' and 'FC Dallas 2014 Gold' are DIFFERENT teams.
     Also 'Select North' and 'Select South' are DIFFERENT teams.
     Coach names like 'Atletico Dallas 15G Riedell' and 'Atletico Dallas 15G Davis' are DIFFERENT teams.
+
+    When ``club_name`` is provided, its words are added to the skip set so that
+    club tokens (e.g. 'Union' in 'Rush Union Wisconsin') don't get returned as
+    a phantom coach/squad variant when the duplicate side omits the club prefix.
     """
     if not name:
         return None
@@ -445,6 +449,12 @@ def extract_team_variant(name):
 
     # All non-variant words (union of all exclusion sets)
     _skip_words = common_words | region_codes | program_names | TEAM_COLORS | TEAM_DIRECTIONS
+
+    # Club tokens are never variants — strip them so duplicates whose stored
+    # name omits the club prefix don't produce a phantom variant from a club word.
+    if club_name:
+        club_tokens = {w.strip("-()[].,").lower() for w in club_name.replace("-", " ").split()}
+        _skip_words = _skip_words | (club_tokens - {""})
 
     def _extract_candidate(text):
         """Find the first unknown word in *text* that looks like a coach/squad name."""
