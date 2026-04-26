@@ -22,7 +22,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Install core dependencies
-          pip install supabase python-dotenv pandas requests rich certifi numpy
+          pip install supabase python-dotenv pandas requests rich certifi numpy beautifulsoup4
       
       - name: Process missing games
         env:
