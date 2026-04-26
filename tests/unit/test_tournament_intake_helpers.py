@@ -1,0 +1,168 @@
+"""Unit tests for ``tournament_intake`` pure helpers.
+
+Pins the disabled-mode constant + coercion helper, the canonical/display
+gender swap, the cohort grouping/sort/toggle-key contract, and the tint
+threshold that drives the green/amber/red strip. Pure helpers — no
+Streamlit runtime is required.
+"""
+
+from __future__ import annotations
+
+from tournament_intake import (
+    _DISABLED_MODES,
+    _cohort_sort_key,
+    _cohort_toggle_key,
+    _display_gender,
+    _group_cohorts,
+    _resolve_intake_mode,
+    _scrape_state_counts,
+    _scraper_tint,
+)
+
+# -------- _DISABLED_MODES + _resolve_intake_mode --------------------------
+
+
+def test_disabled_modes_is_seeding_only():
+    assert _DISABLED_MODES == ("seeding",)
+
+
+def test_resolve_intake_mode_maps_seeding_to_backtest():
+    assert _resolve_intake_mode("seeding") == "backtest"
+
+
+def test_resolve_intake_mode_passes_backtest_through():
+    assert _resolve_intake_mode("backtest") == "backtest"
+
+
+# -------- _display_gender -------------------------------------------------
+
+
+def test_display_gender_translates_male_to_boys():
+    assert _display_gender("Male") == "Boys"
+
+
+def test_display_gender_translates_female_to_girls():
+    assert _display_gender("Female") == "Girls"
+
+
+def test_display_gender_passes_unknown_through():
+    assert _display_gender("Coed") == "Coed"
+    assert _display_gender("") == ""
+
+
+# -------- _scrape_state_counts -------------------------------------------
+
+
+def _record(state: str | None) -> dict:
+    return {"canonical": {"scraper_state": state} if state is not None else {}}
+
+
+def test_scrape_state_counts_empty_records():
+    assert _scrape_state_counts([]) == {
+        "alias_written": 0,
+        "review_queued": 0,
+        "unresolved": 0,
+    }
+
+
+def test_scrape_state_counts_tallies_known_states():
+    records = [
+        _record("alias_written"),
+        _record("alias_written"),
+        _record("review_queued"),
+        _record("unresolved"),
+    ]
+    counts = _scrape_state_counts(records)
+    assert counts["alias_written"] == 2
+    assert counts["review_queued"] == 1
+    assert counts["unresolved"] == 1
+
+
+def test_scrape_state_counts_treats_missing_canonical_as_unresolved():
+    records = [{}, {"canonical": None}, _record(None)]
+    counts = _scrape_state_counts(records)
+    assert counts["unresolved"] == 3
+
+
+# -------- _scraper_tint --------------------------------------------------
+
+
+def test_scraper_tint_all_alias_written_is_green_ready():
+    records = [_record("alias_written")] * 3
+    assert _scraper_tint(records) == ("green", "ready")
+
+
+def test_scraper_tint_any_review_queued_is_amber():
+    records = [
+        _record("alias_written"),
+        _record("alias_written"),
+        _record("review_queued"),
+    ]
+    assert _scraper_tint(records) == ("amber", "1 review")
+
+
+def test_scraper_tint_minority_unresolved_is_red_with_count():
+    records = [_record("alias_written")] * 4 + [_record("unresolved")]
+    assert _scraper_tint(records) == ("red", "1 ext")
+
+
+def test_scraper_tint_majority_unresolved_is_mostly_ext():
+    records = [_record("unresolved")] * 3 + [_record("alias_written")] * 2
+    assert _scraper_tint(records) == ("red", "mostly ext")
+
+
+# -------- _group_cohorts -------------------------------------------------
+
+
+def test_group_cohorts_empty_records():
+    assert _group_cohorts([]) == {}
+
+
+def test_group_cohorts_normalizes_age_and_gender():
+    records = [
+        {"cohort_age_group": "U14", "cohort_gender": "Boys"},
+        {"cohort_age_group": "u14", "cohort_gender": "Male"},
+        {"cohort_age_group": "U15", "cohort_gender": "Girls"},
+    ]
+    grouped = _group_cohorts(records)
+    assert set(grouped) == {("u14", "Male"), ("u15", "Female")}
+    assert len(grouped[("u14", "Male")]) == 2
+    assert len(grouped[("u15", "Female")]) == 1
+
+
+def test_group_cohorts_drops_unparseable_age():
+    records = [
+        {"cohort_age_group": "U14", "cohort_gender": "Boys"},
+        {"cohort_age_group": "", "cohort_gender": "Boys"},
+        {"cohort_age_group": "varsity", "cohort_gender": "Boys"},
+    ]
+    grouped = _group_cohorts(records)
+    assert set(grouped) == {("u14", "Male")}
+
+
+# -------- _cohort_sort_key -----------------------------------------------
+
+
+def test_cohort_sort_key_oldest_to_youngest():
+    cohorts = [("u12", "Male"), ("u15", "Male"), ("u14", "Male")]
+    assert sorted(cohorts, key=_cohort_sort_key) == [
+        ("u15", "Male"),
+        ("u14", "Male"),
+        ("u12", "Male"),
+    ]
+
+
+def test_cohort_sort_key_female_before_male_within_age():
+    cohorts = [("u14", "Male"), ("u14", "Female")]
+    assert sorted(cohorts, key=_cohort_sort_key) == [
+        ("u14", "Female"),
+        ("u14", "Male"),
+    ]
+
+
+# -------- _cohort_toggle_key ---------------------------------------------
+
+
+def test_cohort_toggle_key_format_is_stable():
+    assert _cohort_toggle_key("u14", "Male") == "_cohort_expanded_u14_Male"
+    assert _cohort_toggle_key("u19", "Female") == "_cohort_expanded_u19_Female"

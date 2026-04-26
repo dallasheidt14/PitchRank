@@ -38,6 +38,7 @@ st.set_page_config(
 # Title and version
 st.title(f"⚽ {PROJECT_NAME} Settings Dashboard")
 st.caption(f"Version {VERSION} | Comprehensive Parameter Viewer")
+st.sidebar.markdown("[⚽ MatchBalance Backtest Intake](./tournament_intake)")
 
 # Database connection helper
 @st.cache_resource
