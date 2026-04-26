@@ -4,14 +4,15 @@ Shell-01 foundations for the MatchBalance backtest intake pipeline. Defines:
 
 - ``ProviderScraper`` ABC — the cohort/team/canonical-ID surface every provider
   implements.
-- Dataclasses ``EventMetadata``, ``ScrapedTeam``, ``CanonicalResolution`` —
-  the wire format between scraper and downstream persistence.
+- Dataclasses ``ScrapedTeam``, ``CanonicalResolution`` — the wire format
+  between scraper and downstream persistence. ``EventMetadata`` lives in
+  ``src.tournaments.storage.event_metadata`` and is re-exported here.
 - ``UnsupportedProviderError`` — raised when a provider row is missing or a
   URL does not route to a known provider.
 - ``get_provider_scraper`` — URL-pattern factory.
-- Path helpers ``_derive_event_key`` / ``_intake_path`` — wire-compatible with
-  Shell 02's directory re-keying (``__unknown__`` placeholder until that
-  shell lands the season_year convention).
+- Path helpers ``_derive_event_key`` / ``_intake_path`` — thin shims over
+  ``src.tournaments.storage`` that fall back to the ``__unknown`` season
+  segment for Shell 01 callers that don't populate ``season_year``.
 
 ``RateLimitedError`` lives in ``src.scrapers._http`` and is re-exported here
 for caller convenience.
@@ -26,6 +27,9 @@ from pathlib import Path
 from typing import Any
 
 from src.scrapers._http import RateLimitedError
+from src.tournaments.storage.event_key import event_key as _storage_event_key
+from src.tournaments.storage.event_key import intake_dir as _storage_intake_dir
+from src.tournaments.storage.event_metadata import EventMetadata
 
 __all__ = [
     "CanonicalResolution",
@@ -40,19 +44,6 @@ __all__ = [
 
 class UnsupportedProviderError(Exception):
     """Raised when a provider URL or code has no scraper registered."""
-
-
-@dataclass(frozen=True)
-class EventMetadata:
-    """Event-level metadata scraped from the provider landing page."""
-
-    provider_code: str
-    provider_event_id: str
-    event_name: str
-    event_slug: str
-    event_start_date: str | None
-    scrape_ts: str
-    series_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -126,16 +117,18 @@ class ProviderScraper(ABC):
 def _derive_event_key(meta: EventMetadata) -> str:
     """Return the storage key for an event.
 
-    Shell 01 uses ``__unknown__`` as the season-year placeholder; Shell 02
-    owns the season-year convention + migration. Keep the three-segment
-    ``provider__eventid__season`` shape so Shell 02 only needs to re-key.
+    Thin shim over ``storage.event_key.event_key``. When ``meta.season_year``
+    is ``None`` (Shell 01 callers that don't populate it), the legacy
+    ``__unknown`` segment is used; the rekey migration in
+    ``storage.event_key.rekey_unknown_directories`` is the sanctioned path
+    for upgrading those keys once a season_year becomes derivable.
     """
-    return f"{meta.provider_code}__{meta.provider_event_id}__unknown"
+    return _storage_event_key(meta.provider_code, meta.provider_event_id, meta.season_year)
 
 
 def _intake_path(event_key: str) -> Path:
     """Resolve the on-disk ``raw_scrape.jsonl`` location for an event key."""
-    return Path("reports") / event_key / "intake" / "raw_scrape.jsonl"
+    return _storage_intake_dir(event_key) / "raw_scrape.jsonl"
 
 
 _GOTSPORT_EVENT_URL = re.compile(
