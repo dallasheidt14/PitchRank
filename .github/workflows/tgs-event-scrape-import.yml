@@ -249,6 +249,26 @@ jobs:
           echo "Importing games from: $CSV_FILE (concurrency=$IMPORT_CONCURRENCY)"
           python scripts/import_games_enhanced.py "$CSV_FILE" tgs --stream --concurrency "$IMPORT_CONCURRENCY" --checkpoint
 
+      - name: Drop import marker
+        # Marker artifact signals to the finalize job that THIS shard imported
+        # at least one game. The matrix can't expose per-shard outputs cleanly
+        # (last-writer-wins), so we use the artifact API as a fan-in signal.
+        # Gate matches the Import Games step exactly: same has_games + skip_import
+        # conditions, so the marker exists iff `import_games_enhanced.py` ran.
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' }}
+        run: |
+          mkdir -p import-marker
+          echo "shard=${TGS_SHARD_INDEX} games=${{ steps.find_csv.outputs.game_count }}" > "import-marker/shard-${TGS_SHARD_INDEX}.txt"
+
+      - name: Upload import marker
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: tgs-import-marker-${{ github.run_number }}-shard-${{ matrix.shard }}
+          path: import-marker/shard-${{ matrix.shard }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Upload scraped data
         if: always()
         uses: actions/upload-artifact@v5
@@ -304,12 +324,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download import markers
+        # Each shard that actually ran the import step uploaded a tiny marker
+        # artifact. Pull all of them; if zero markers exist, no shard imported
+        # any games, and alias maintenance has nothing to do — preserves the
+        # pre-redesign behavior gated by `has_games == 'true'`.
+        id: download_markers
+        uses: actions/download-artifact@v5
+        with:
+          pattern: tgs-import-marker-${{ github.run_number }}-shard-*
+          path: import-markers
+          merge-multiple: true
+
+      - name: Check for any imported shard
+        id: check_imports
+        run: |
+          if compgen -G "import-markers/shard-*.txt" > /dev/null; then
+            COUNT=$(ls import-markers/shard-*.txt 2>/dev/null | wc -l)
+            echo "Found $COUNT shard(s) that imported games"
+            echo "any_imported=true" >> "$GITHUB_OUTPUT"
+            echo "imported_shard_count=$COUNT" >> "$GITHUB_OUTPUT"
+          else
+            echo "No shards imported games — skipping alias maintenance"
+            echo "any_imported=false" >> "$GITHUB_OUTPUT"
+            echo "imported_shard_count=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Maintain TGS Direct ID Aliases
-        # Skip if no shard actually imported, or if user requested skip_import.
-        # `needs.scrape-and-import.result` is 'success' only when every matrix
-        # shard succeeded; we still run alias maintenance on partial success so
-        # the games that did land get their aliases registered.
-        if: ${{ needs.prepare.outputs.skip_import != 'true' && needs.scrape-and-import.result != 'cancelled' && needs.scrape-and-import.result != 'skipped' }}
+        # Skip when no shard imported (empty/eventless ranges, all-future games,
+        # or every import step skipped via has_games=false). Also skip when
+        # user requested skip_import. Still runs on partial-shard success so
+        # whatever did land gets its aliases registered.
+        if: ${{ needs.prepare.outputs.skip_import != 'true' && steps.check_imports.outputs.any_imported == 'true' && needs.scrape-and-import.result != 'cancelled' && needs.scrape-and-import.result != 'skipped' }}
         env:
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -323,19 +369,22 @@ jobs:
       - name: Report results
         if: always()
         env:
-          START_EVENT:    ${{ needs.prepare.outputs.start_event }}
-          END_EVENT:      ${{ needs.prepare.outputs.end_event }}
-          TOTAL_EVENTS:   ${{ needs.prepare.outputs.total_events }}
-          SHARD_COUNT:    ${{ needs.prepare.outputs.shard_count }}
-          SHARDS_RESULT:  ${{ needs.scrape-and-import.result }}
-          SKIP_IMPORT:    ${{ needs.prepare.outputs.skip_import }}
+          START_EVENT:        ${{ needs.prepare.outputs.start_event }}
+          END_EVENT:          ${{ needs.prepare.outputs.end_event }}
+          TOTAL_EVENTS:       ${{ needs.prepare.outputs.total_events }}
+          SHARD_COUNT:        ${{ needs.prepare.outputs.shard_count }}
+          SHARDS_RESULT:      ${{ needs.scrape-and-import.result }}
+          SKIP_IMPORT:        ${{ needs.prepare.outputs.skip_import }}
+          ANY_IMPORTED:       ${{ steps.check_imports.outputs.any_imported }}
+          IMPORTED_SHARDS:    ${{ steps.check_imports.outputs.imported_shard_count }}
         run: |
           echo "===================="
           echo "TGS event scrape and import workflow completed"
           echo "===================="
-          echo "Trigger:      ${{ github.event_name }}"
-          echo "Range:        ${START_EVENT} - ${END_EVENT} (${TOTAL_EVENTS} events)"
-          echo "Shard count:  ${SHARD_COUNT}"
-          echo "Shards:       ${SHARDS_RESULT}"
-          echo "Skip import:  ${SKIP_IMPORT}"
+          echo "Trigger:           ${{ github.event_name }}"
+          echo "Range:             ${START_EVENT} - ${END_EVENT} (${TOTAL_EVENTS} events)"
+          echo "Shard count:       ${SHARD_COUNT}"
+          echo "Shards result:     ${SHARDS_RESULT}"
+          echo "Skip import:       ${SKIP_IMPORT}"
+          echo "Any shard imported: ${ANY_IMPORTED:-false} (${IMPORTED_SHARDS:-0}/${SHARD_COUNT})"
           echo "Check the per-shard artifacts above for scraped data and logs."
