@@ -890,6 +890,50 @@ class TestSCF:
         assert result["A"]["bridge_games"] < 2.0
         assert result["A"]["bridge_games"] > 0.0
 
+    def test_zero_bridge_team_uses_lower_zero_bridge_floor(self):
+        """Pure same-state bubbles should damp below the general SCF floor."""
+        cfg = GlickoConfig()
+        games = self._make_games("A", ["B", "C", "D"])
+        state_map = {"A": "ID", "B": "ID", "C": "ID", "D": "ID"}
+        ratings = {
+            "A": (1500.0, 200.0, 0.06),
+            "B": (1500.0, 200.0, 0.06),
+            "C": (1500.0, 200.0, 0.06),
+            "D": (1500.0, 200.0, 0.06),
+        }
+        result = compute_scf(games, state_map, ratings, cfg)
+        assert result["A"]["bridge_games"] == 0.0
+        assert result["A"]["scf"] == pytest.approx(cfg.SCF_ZERO_BRIDGE_FLOOR)
+
+    def test_high_bridge_volume_keeps_general_floor_even_with_one_state(self):
+        """Partially connected teams keep the legacy floor once bridge volume is proven."""
+        cfg = GlickoConfig()
+        games = pd.DataFrame(
+            [
+                {
+                    "team_id": "A",
+                    "opp_id": "B",
+                    "gf": 2,
+                    "ga": 1,
+                    "date": pd.Timestamp("2026-03-01") + pd.Timedelta(days=day),
+                    "age": "U15",
+                    "gender": "M",
+                    "opp_age": "U15",
+                    "opp_gender": "M",
+                }
+                for day in range(5)
+            ]
+        )
+        state_map = {"A": "AZ", "B": "CA"}
+        ratings = {
+            "A": (1500.0, 200.0, 0.06),
+            "B": (1500.0, 200.0, 0.06),
+        }
+        result = compute_scf(games, state_map, ratings, cfg)
+        assert result["A"]["bridge_games"] > cfg.MIN_BRIDGE_GAMES
+        assert result["A"]["unique_states"] < cfg.SCF_MIN_UNIQUE_STATES
+        assert result["A"]["scf"] == pytest.approx(cfg.SCF_FLOOR)
+
     def test_scf_dampens_sos(self):
         """Isolated team (low scf) has SOS dampened closer to 1500 than connected team."""
         cfg = GlickoConfig()

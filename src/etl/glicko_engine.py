@@ -953,9 +953,18 @@ def compute_scf(
                 state_best_weight[opp_state] = max(state_best_weight.get(opp_state, 0.0), bridge_weight)
             weighted_unique_states = float(sum(state_best_weight.values()))
 
-        # SCF score: diversity of opponent states, quality-weighted when enabled
+        # SCF score: diversity of opponent states, quality-weighted when enabled.
+        # True zero-bridge bubbles should dampen harder than partially bridged
+        # schedules, so ramp the floor up only as bridge volume approaches the
+        # minimum evidence threshold.
         scf_raw = min(weighted_unique_states / cfg.SCF_DIVERSITY_DIVISOR, 1.0)
-        scf = max(cfg.SCF_FLOOR, scf_raw)
+        scf_floor = cfg.SCF_FLOOR
+        if cfg.MIN_BRIDGE_GAMES > 0 and weighted_bridge_games < cfg.MIN_BRIDGE_GAMES:
+            bridge_progress = max(0.0, float(weighted_bridge_games) / float(cfg.MIN_BRIDGE_GAMES))
+            scf_floor = cfg.SCF_ZERO_BRIDGE_FLOOR + (
+                (cfg.SCF_FLOOR - cfg.SCF_ZERO_BRIDGE_FLOOR) * bridge_progress
+            )
+        scf = max(scf_floor, scf_raw)
 
         is_isolated = (
             weighted_bridge_games < cfg.MIN_BRIDGE_GAMES or weighted_unique_states < cfg.SCF_MIN_UNIQUE_STATES

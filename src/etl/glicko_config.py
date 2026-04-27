@@ -87,6 +87,7 @@ class GlickoConfig:
     SCF_MIN_UNIQUE_STATES: int = 2
     SCF_DIVERSITY_DIVISOR: float = 4.0
     SCF_FLOOR: float = 0.4
+    SCF_ZERO_BRIDGE_FLOOR: float = 0.1
     MIN_BRIDGE_GAMES: int = 3
     ISOLATION_SOS_CAP: float = 0.60
     SCF_QUALITY_WEIGHT_ENABLED: bool = True
