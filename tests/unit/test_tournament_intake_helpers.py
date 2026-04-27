@@ -8,11 +8,14 @@ Streamlit runtime is required.
 
 from __future__ import annotations
 
+from datetime import date
+
 from src.tournaments.triage import ProjectedTeamState
 from tournament_intake import (
     _DISABLED_MODES,
     _cohort_sort_key,
     _cohort_toggle_key,
+    _default_snapshot,
     _display_gender,
     _group_cohorts,
     _resolve_intake_mode,
@@ -230,3 +233,18 @@ def test_state_tint_level_blockers_default_red():
     assert _state_tint_level("placeholder") == "red"
     assert _state_tint_level("unknown") == "red"
     assert _state_tint_level("not-a-state") == "red"
+
+
+# -------- _default_snapshot ---------------------------------------------
+
+
+def test_default_snapshot_uses_day_before_event_start():
+    assert _default_snapshot("2026-04-15") == date(2026, 4, 14)
+
+
+def test_default_snapshot_falls_back_to_today_when_date_missing():
+    assert _default_snapshot(None) == date.today()
+
+
+def test_default_snapshot_falls_back_to_today_on_unparseable_date():
+    assert _default_snapshot("not-a-date") == date.today()
