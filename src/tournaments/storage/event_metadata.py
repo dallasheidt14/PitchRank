@@ -43,6 +43,7 @@ class EventMetadata:
     scrape_ts: str
     season_year: int | None = None
     series_id: str | None = None
+    extras: dict[str, Any] | None = None
     schema_version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +68,7 @@ class EventMetadata:
             scrape_ts=payload["scrape_ts"],
             season_year=payload.get("season_year"),
             series_id=payload.get("series_id"),
+            extras=payload.get("extras"),
             schema_version=int(payload.get("schema_version", 1)),
         )
 

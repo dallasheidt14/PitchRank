@@ -14,6 +14,8 @@ import os
 import sys
 import uuid
 from collections.abc import Callable, Iterator
+from dataclasses import replace
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,7 @@ from config.settings import (
     SUPABASE_URL,
     VERSION,
 )
+from scripts.backtest_tournament_event import _derive_pool_sizes
 from src.scrapers.gotsport import EventCaptchaGatedError
 from src.scrapers.provider import (
     UnsupportedProviderError,
@@ -40,6 +43,10 @@ from src.tournaments.seeding_optimizer import (
     normalize_gender_label,
 )
 from src.tournaments.storage import (
+    CohortConstraints,
+    CohortStructure,
+    DivisionStructure,
+    EventMetadata,
     ScenarioLockError,
     SchemaVersionError,
     acquire_scenario_lock,
@@ -53,14 +60,17 @@ from src.tournaments.storage import (
     load_overrides,
     load_raw_scrape,
     parse_event_key,
+    read_constraints,
     read_event_metadata,
     read_frozen_medians,
     read_registry,
     read_structure,
     rekey_unknown_directories,
     reports_dir,
+    write_constraints,
     write_event_metadata,
     write_frozen_medians,
+    write_structure,
 )
 from src.tournaments.storage._io import utc_now_iso
 from src.tournaments.triage import (
@@ -359,6 +369,85 @@ def _group_cohorts(
 
 
 # ---------------------------------------------------------------------------
+# Structure-input validation (Shell 05)
+# ---------------------------------------------------------------------------
+
+
+_V1_KNOCKOUT_TEMPLATES: tuple[str, ...] = ("ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P")
+_V2_KNOCKOUT_TEMPLATES: tuple[str, ...] = ("QF_SF_F", "QF_SF_F_3P", "CROSSOVER_F", "CUSTOM")
+_ALL_KNOCKOUT_TEMPLATES: tuple[str, ...] = _V1_KNOCKOUT_TEMPLATES + _V2_KNOCKOUT_TEMPLATES
+
+# (extra_games_after_round_robin, allowed_pool_counts) — list of allowed
+# pairs per template. ``F_ONLY`` accepts BOTH ``pool_winners_final`` (2
+# pools, 1 extra) AND ``one_pool_final`` (1 pool, 1 extra).
+# ``ROUND_ROBIN`` accepts any pool count with zero extras (``allowed_pool_counts``
+# of ``None`` means "any pool count").
+_KNOCKOUT_VALIDATION: dict[str, list[tuple[int, frozenset[int] | None]]] = {
+    "ROUND_ROBIN": [(0, None)],
+    "F_ONLY": [(1, frozenset({2})), (1, frozenset({1}))],
+    "SF_F": [(3, frozenset({2}))],
+    "SF_F_3P": [(4, frozenset({2}))],
+}
+
+_KNOCKOUT_LABELS: dict[str, str] = {
+    "ROUND_ROBIN": "Round robin only",
+    "F_ONLY": "Final only",
+    "SF_F": "SF → F",
+    "SF_F_3P": "SF → F + 3rd place",
+    "QF_SF_F": "QF → SF → F",
+    "QF_SF_F_3P": "QF → SF → F + 3rd place",
+    "CROSSOVER_F": "Crossover → Final",
+    "CUSTOM": "Custom",
+}
+
+_REMATCH_SCOPES: tuple[str, ...] = ("same_event", "same_season", "prior_weekend")
+
+
+def _knockout_format_label(template: str) -> str:
+    """Streamlit ``format_func`` label — appends a v2 marker for unbuilt templates."""
+    base = _KNOCKOUT_LABELS.get(template, template)
+    if template in _V2_KNOCKOUT_TEMPLATES:
+        return f"{base} — coming in v2"
+    return base
+
+
+def _validate_knockout_format(template: str, pool_sizes: tuple[int, ...]) -> str | None:
+    """Return ``None`` when the template fits the pool structure, else an error string.
+
+    v2 templates always fail with a "coming in v2" message. For v1 templates,
+    the ``_KNOCKOUT_VALIDATION`` table lists allowed ``(extra_games,
+    allowed_pool_counts)`` pairs; the function returns ``None`` as soon as the
+    operator's ``pool_count`` matches one. Run the simulator-parity test
+    (``tests/unit/test_structure_validation.py``) to keep this table aligned
+    with ``infer_division_schedule_template``.
+    """
+    if template in _V2_KNOCKOUT_TEMPLATES:
+        return f"'{template}' is a v2 template; pick a v1 template or wait for v2."
+    rules = _KNOCKOUT_VALIDATION.get(template)
+    if rules is None:
+        return f"'{template}' is not a recognized knockout template."
+    pool_count = len(pool_sizes)
+    allowed_counts: set[int] = set()
+    for _extras, allowed_pools in rules:
+        if allowed_pools is None:
+            return None
+        if pool_count in allowed_pools:
+            return None
+        allowed_counts.update(allowed_pools)
+    return f"'{template}' requires pool count in {sorted(allowed_counts)}; got {pool_count} pools."
+
+
+def _default_snapshot(event_start_date: str | None) -> date:
+    """Default ``ranking_snapshot_date`` is the day before kickoff (or today)."""
+    if event_start_date:
+        try:
+            return date.fromisoformat(event_start_date) - timedelta(days=1)
+        except ValueError:
+            pass
+    return date.today()
+
+
+# ---------------------------------------------------------------------------
 # Render flow
 # ---------------------------------------------------------------------------
 
@@ -506,7 +595,13 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
     st.rerun()
 
 
-def _render_event_banner(meta: Any, records: list[dict[str, Any]]) -> None:
+def _render_event_banner(
+    meta: Any,
+    records: list[dict[str, Any]],
+    *,
+    event_key: str,
+    scenario: str,
+) -> None:
     """Render the event banner + counts for the loaded event."""
     st.markdown(f"### {meta.event_name}")
     st.caption(
@@ -527,7 +622,7 @@ def _render_event_banner(meta: Any, records: list[dict[str, Any]]) -> None:
     col3.metric("Unresolved", counts["unresolved"])
 
     with st.expander("⚙ run details", expanded=False):
-        st.caption("(snapshot/model metadata — coming soon)")
+        _render_advanced_settings(meta, event_key=event_key, scenario=scenario)
 
     st.divider()
 
@@ -672,6 +767,77 @@ def _rankings_full_age_form(age: str, _supabase: Any) -> str:
     for casing in casings:
         counts[casing] = counts.get(casing, 0) + 1
     return max(counts, key=counts.get)
+
+
+@st.cache_data(ttl=60)
+def _cohort_rankings_score_map(age: str, gender: str, _supabase: Any) -> dict[str, float]:
+    """Cache the ``(age, gender) → {team_id_master: powerscore_ml}`` map.
+
+    Reused by Shell 04's right pane and Shell 05's pool preview so we hit
+    Supabase once per cohort per minute. Operators can short-circuit the
+    TTL with the ``↻ refresh ranking scores`` button (renders next to the
+    right pane).
+    """
+    if _supabase is None:
+        return {}
+    probed_age = _rankings_full_age_form(age, _supabase)
+    try:
+        rows = (
+            _supabase.table("rankings_full")
+            .select("team_id, powerscore_ml")
+            .eq("age_group", probed_age)
+            .eq("gender", normalize_gender_label(gender))
+            .execute()
+            .data
+            or []
+        )
+    except Exception:  # noqa: BLE001 — Supabase failure surfaces in caller
+        return {}
+    out: dict[str, float] = {}
+    for row in rows:
+        team_id = row.get("team_id")
+        score = _safe_float(row.get("powerscore_ml"))
+        if team_id and score is not None:
+            out[str(team_id)] = score
+    return out
+
+
+@st.cache_data(ttl=10)
+def _load_cohort_inputs(
+    event_key: str,
+    scenario: str,
+    age: str,
+    gender: str,
+) -> tuple[CohortStructure | None, CohortConstraints]:
+    """Read the per-cohort ``CohortStructure`` + ``CohortConstraints`` once.
+
+    Wraps both ``read_structure`` and ``read_constraints`` in
+    ``try/except FileNotFoundError`` so a fresh scenario without
+    ``group_structure_summary.csv`` / ``constraints.json`` renders the
+    bootstrap path without crashing. Cache invalidated explicitly via
+    ``_load_cohort_inputs.clear()`` before every ``st.rerun()`` after a
+    persist.
+    """
+    try:
+        cohorts = read_structure(event_key, scenario)
+    except FileNotFoundError:
+        cohorts = []
+    structure_for_cohort = next(
+        (c for c in cohorts if c.age_group == age and c.gender == gender),
+        None,
+    )
+
+    try:
+        existing_constraints = read_constraints(event_key, scenario)
+    except FileNotFoundError:
+        existing_constraints = []
+    constraints_for_cohort = next(
+        (c for c in existing_constraints if c.cohort_age_group == age and c.cohort_gender == gender),
+        None,
+    )
+    if constraints_for_cohort is None:
+        constraints_for_cohort = CohortConstraints(cohort_age_group=age, cohort_gender=gender)
+    return structure_for_cohort, constraints_for_cohort
 
 
 def _query_from_registry_row(row: dict[str, Any]) -> EventTeamSearchQuery | None:
@@ -830,11 +996,7 @@ def _render_triage(
     overrides = load_overrides(event_key, scenario)
     team_state, _cohort_state = project_overrides(overrides)
 
-    structure_list = read_structure(event_key, scenario)
-    structure_for_cohort = next(
-        (c for c in structure_list if c.age_group == age and c.gender == gender),
-        None,
-    )
+    structure_for_cohort, current_constraints = _load_cohort_inputs(event_key, scenario, age, gender)
 
     registry_by_pid = {_registry_provider_id(row): row for row in registry_rows if _registry_provider_id(row)}
     cohort_provider_ids = {
@@ -868,6 +1030,7 @@ def _render_triage(
             team_state=team_state,
             resolved_team_by_id=resolved_team_by_id,
             division_groups=division_groups,
+            structure_for_cohort=structure_for_cohort,
             age=age,
             gender=gender,
             event_key=event_key,
@@ -886,6 +1049,14 @@ def _render_triage(
             scenario=scenario,
             supabase_client=supabase_client,
         )
+
+    _render_constraints_panel(
+        age=age,
+        gender=gender,
+        event_key=event_key,
+        scenario=scenario,
+        current_constraints=current_constraints,
+    )
 
 
 def _render_games_coverage(
@@ -936,26 +1107,54 @@ def _render_triage_left_pane(
     team_state: Any,
     resolved_team_by_id: dict[str, dict[str, Any]],
     division_groups: dict[str, list[str]],
+    structure_for_cohort: CohortStructure | None,
     age: str,
     gender: str,
     event_key: str,
     scenario: str,
     supabase_client: Any,
 ) -> None:
-    """Render the left pane: per-team rows grouped by division."""
+    """Render the left pane: division editor + per-team rows grouped by division."""
     record_by_pid = {
         str(r.get("provider_team_id") or "").strip(): r for r in cohort_records if r.get("provider_team_id")
     }
     render_matcher_cache: dict[tuple[tuple[str, ...], str, bool], list[dict[str, Any]]] = {}
-    division_names = list(division_groups.keys())
 
-    fallback_rendered = False
-    for division_name, pids in division_groups.items():
+    _render_add_division_form(
+        age=age,
+        gender=gender,
+        event_key=event_key,
+        scenario=scenario,
+        structure_for_cohort=structure_for_cohort,
+        cohort_records=cohort_records,
+    )
 
-        def body(pids=pids, division_name=division_name) -> None:
+    if structure_for_cohort is None or not structure_for_cohort.divisions:
+        st.caption("No divisions yet for this cohort. Click + Add division to start.")
+        return
+
+    division_names = [division.name for division in structure_for_cohort.divisions]
+    try:
+        medians_by_division = read_frozen_medians(event_key, scenario).medians_by_division
+    except FileNotFoundError:
+        medians_by_division = {}
+
+    for division in structure_for_cohort.divisions:
+        pids = division_groups.get(division.name, [])
+        assigned_team_count = len(pids)
+
+        def body(division=division, pids=pids, assigned_team_count=assigned_team_count) -> None:
+            _render_division_editor(
+                division,
+                age=age,
+                gender=gender,
+                event_key=event_key,
+                scenario=scenario,
+                assigned_team_count=assigned_team_count,
+            )
             _render_division_body(
                 pids=pids,
-                division_name=division_name,
+                division_name=division.name,
                 division_names=division_names,
                 record_by_pid=record_by_pid,
                 registry_by_pid=registry_by_pid,
@@ -969,16 +1168,18 @@ def _render_triage_left_pane(
                 supabase_client=supabase_client,
             )
 
-        try:
-            render_division_container(division_name, body)
-        except NotImplementedError:
-            if not fallback_rendered:
-                st.info("Enter division structure first to triage teams")
-                fallback_rendered = True
-            # Render the body inline so the operator can still triage.
-            with st.container(border=True):
-                st.markdown(f"**{division_name}**")
-                body()
+        render_division_container(division.name, body)
+        _render_pool_preview(
+            division,
+            age=age,
+            gender=gender,
+            pids=pids,
+            cohort_records=cohort_records,
+            team_state=team_state,
+            registry_by_pid=registry_by_pid,
+            medians_by_division=medians_by_division,
+            supabase_client=supabase_client,
+        )
 
 
 def _render_division_body(
@@ -1619,6 +1820,72 @@ def _recompute_medians_inner(
         st.error("Medians recomputed but audit log write failed; rerun Recompute to land the ledger entry.")
 
 
+def _persist_structure(
+    event_key: str,
+    scenario: str,
+    cohorts: list[CohortStructure],
+) -> bool:
+    """Write structure under a scenario lock; surface contention as ``st.error``.
+
+    Returns ``True`` on a successful write. Callers branch on the boolean to
+    decide whether to ``st.success`` + ``st.rerun`` (writes-succeeded path) or
+    skip those side effects (lock contended).
+    """
+    try:
+        with acquire_scenario_lock(event_key, scenario, timeout=2.0):
+            write_structure(event_key, scenario, cohorts)
+        return True
+    except ScenarioLockError:
+        st.error("Another tab is editing this scenario; try again shortly.")
+        return False
+
+
+def _persist_constraint(
+    event_key: str,
+    scenario: str,
+    age: str,
+    gender: str,
+    field: str,
+    widget_key: str,
+) -> None:
+    """``on_change`` callback: read ``st.session_state[widget_key]`` and persist.
+
+    Mirrors the dashboard's per-widget callback pattern (cf. Update Team State
+    form). Untouched cohort entries pass through verbatim — never re-emitted
+    with synthesized defaults — so editing one cohort can't silently rewrite
+    another's constraints. Lock contention surfaces inline; the post-callback
+    rerun renders the error.
+    """
+    new_value = st.session_state.get(widget_key)
+    try:
+        with acquire_scenario_lock(event_key, scenario, timeout=2.0):
+            try:
+                existing = read_constraints(event_key, scenario)
+            except FileNotFoundError:
+                existing = []
+            updated: list[CohortConstraints] = []
+            replaced = False
+            for entry in existing:
+                if entry.cohort_age_group == age and entry.cohort_gender == gender:
+                    updated.append(replace(entry, **{field: new_value}))
+                    replaced = True
+                else:
+                    updated.append(entry)
+            if not replaced:
+                updated.append(
+                    CohortConstraints(
+                        cohort_age_group=age,
+                        cohort_gender=gender,
+                        **{field: new_value},
+                    )
+                )
+            write_constraints(event_key, scenario, updated)
+    except ScenarioLockError:
+        st.error("Another tab is editing this scenario; try again shortly.")
+        return
+    _load_cohort_inputs.clear()
+
+
 def _render_manual_add_form(
     *,
     division_name: str,
@@ -1749,7 +2016,17 @@ def _render_triage_right_pane(
     supabase_client: Any,
 ) -> None:
     """Render the right pane: power ranking with Grouped/Flat toggle."""
-    st.markdown("**Ranked by power_score**")
+    header_left, header_right = st.columns([4, 1])
+    with header_left:
+        st.markdown("**Ranked by power_score**")
+    with header_right:
+        if st.button(
+            "↻ refresh ranking scores",
+            key=f"_refresh_rank_{age}_{gender}",
+            help="Cache TTL is 60 seconds; click to refetch immediately.",
+        ):
+            _cohort_rankings_score_map.clear()
+            st.rerun()
     view_key = f"_rank_view_{age}_{gender}"
     view = st.radio(
         "View",
@@ -1825,26 +2102,8 @@ def _build_rank_rows(
 
     rankings_score_by_team_id: dict[str, float] = {}
     if resolved_team_ids and supabase_client is not None:
-        probed_age = _rankings_full_age_form(age, supabase_client)
-        try:
-            rankings_rows = (
-                supabase_client.table("rankings_full")
-                .select("team_id, powerscore_ml")
-                .eq("age_group", probed_age)
-                .in_("team_id", sorted(resolved_team_ids))
-                .execute()
-                .data
-                or []
-            )
-        except Exception as exc:  # noqa: BLE001
-            st.warning(f"rankings_full lookup failed: {exc}")
-            rankings_rows = []
-        for row in rankings_rows:
-            team_id = str(row.get("team_id") or "")
-            score = _safe_float(row.get("powerscore_ml"))
-            if team_id and score is not None:
-                rankings_score_by_team_id[team_id] = score
-        if not rankings_rows and resolved_team_ids:
+        rankings_score_by_team_id = _cohort_rankings_score_map(age, gender, supabase_client)
+        if not rankings_score_by_team_id:
             st.warning(f"rankings_full returned zero rows for {age}/{gender} — verify age_group casing.")
 
     # Hoist frozen-medians read above the per-team loop. Each external
@@ -1907,6 +2166,585 @@ def _render_rank_row(index: int, row: dict[str, Any]) -> None:
             st.caption(f"{score:.2f}")
     with cols[3]:
         st.caption(row.get("marker") or "")
+
+
+# ---------------------------------------------------------------------------
+# Shell 05 — division structure inputs (editor + preview + add/remove)
+# ---------------------------------------------------------------------------
+
+
+def _read_all_cohorts(event_key: str, scenario: str) -> list[CohortStructure]:
+    """Wrap ``read_structure`` so a missing CSV reads as an empty list."""
+    try:
+        return read_structure(event_key, scenario)
+    except FileNotFoundError:
+        return []
+
+
+def _replace_division(
+    divisions: tuple[DivisionStructure, ...],
+    updated: DivisionStructure,
+) -> tuple[DivisionStructure, ...]:
+    """Swap the matching-name division in a tuple, leaving siblings verbatim."""
+    return tuple(updated if d.name == updated.name else d for d in divisions)
+
+
+def _update_cohort_divisions(
+    cohorts: list[CohortStructure],
+    age: str,
+    gender: str,
+    transform: Callable[[tuple[DivisionStructure, ...]], tuple[DivisionStructure, ...]],
+) -> list[CohortStructure]:
+    """Apply ``transform`` to one cohort's divisions tuple (immutable swap).
+
+    Untouched cohorts pass through verbatim. If ``transform`` returns an
+    empty tuple, the cohort is dropped entirely (no empty-cohort rows on
+    disk). If the cohort doesn't exist yet, ``transform`` is invoked with
+    an empty tuple and the result becomes the new cohort.
+    """
+    out: list[CohortStructure] = []
+    matched = False
+    for cohort in cohorts:
+        if cohort.age_group == age and cohort.gender == gender:
+            new_divisions = transform(cohort.divisions)
+            if new_divisions:
+                out.append(CohortStructure(age_group=age, gender=gender, divisions=new_divisions))
+            matched = True
+        else:
+            out.append(cohort)
+    if not matched:
+        new_divisions = transform(())
+        if new_divisions:
+            out.append(CohortStructure(age_group=age, gender=gender, divisions=new_divisions))
+    return out
+
+
+def _validate_division(
+    *,
+    team_count: int,
+    pool_sizes: tuple[int, ...],
+    knockout: str,
+    assigned_team_count: int,
+) -> list[str]:
+    """Run the spec §7 blocker rules + the knockout-template check.
+
+    Returns a list of inline error messages (empty when the form passes).
+    """
+    errors: list[str] = []
+    if team_count < assigned_team_count:
+        errors.append(f"Reassign excess teams first ({assigned_team_count} assigned).")
+    if pool_sizes and sum(pool_sizes) != team_count:
+        errors.append(f"Pool sizes sum {sum(pool_sizes)} ≠ team count {team_count}.")
+    knockout_error = _validate_knockout_format(knockout, pool_sizes)
+    if knockout_error:
+        errors.append(knockout_error)
+    return errors
+
+
+def _serpentine_assign(
+    seeds: list[tuple[str, float | None]],
+    pool_count: int,
+) -> list[list[tuple[str, float | None]]]:
+    """Distribute ``seeds`` across ``pool_count`` pools using a naive serpentine.
+
+    NOT the optimizer's actual seeding — this is the v1 first-look heuristic
+    callers warn about in the preview caption.
+    """
+    pools: list[list[tuple[str, float | None]]] = [[] for _ in range(pool_count)]
+    if pool_count <= 0 or not seeds:
+        return pools
+    forward = True
+    seed_idx = 0
+    while seed_idx < len(seeds):
+        order = range(pool_count) if forward else range(pool_count - 1, -1, -1)
+        for pool_idx in order:
+            if seed_idx >= len(seeds):
+                break
+            pools[pool_idx].append(seeds[seed_idx])
+            seed_idx += 1
+        forward = not forward
+    return pools
+
+
+def _build_pool_preview_seeds(
+    *,
+    division: DivisionStructure,
+    pids: list[str],
+    cohort_records: list[dict[str, Any]],
+    team_state: Any,
+    registry_by_pid: dict[str, dict[str, Any]],
+    rankings_score_map: dict[str, float],
+    medians_by_division: dict[str, float],
+) -> list[tuple[str, float | None]]:
+    """Build the (team_name, score) seed list for one division's preview.
+
+    Exclude-mode externals are dropped. Manual-mode externals use the
+    operator-entered ``manual_power_score``. Median-mode externals fall
+    back to ``frozen_medians`` keyed by ``manual_seed_group`` (default to
+    this division's name when the override is silent).
+    """
+    record_by_pid = {
+        str(record.get("provider_team_id") or "").strip(): record
+        for record in cohort_records
+        if record.get("provider_team_id")
+    }
+    seeds: list[tuple[str, float | None]] = []
+    for pid in pids:
+        record = record_by_pid.get(pid, {})
+        registry_row = registry_by_pid.get(pid, {})
+        projected = team_state.get(pid)
+        team_name = registry_row.get("event_team_name") or record.get("team_name") or pid
+        score: float | None = None
+        if projected and projected.state == "external":
+            if projected.strength_mode == "exclude":
+                continue
+            if projected.strength_mode == "manual":
+                score = projected.manual_power_score
+            else:
+                seed_group = projected.manual_seed_group or division.name
+                score = medians_by_division.get(seed_group)
+        else:
+            team_id_master = _resolve_team_id_master(projected, registry_row)
+            if team_id_master:
+                score = rankings_score_map.get(team_id_master)
+        seeds.append((str(team_name), score))
+    seeds.sort(key=lambda item: -(item[1] if item[1] is not None else -1e9))
+    return seeds
+
+
+def _render_division_editor(
+    division: DivisionStructure,
+    *,
+    age: str,
+    gender: str,
+    event_key: str,
+    scenario: str,
+    assigned_team_count: int,
+) -> None:
+    """Render the per-division editor card + Apply / ✕ Remove submit buttons.
+
+    Mirrors the dashboard's "Update Team State" form pattern: widget grid
+    inside ``st.form``, validation in the submit branch, persist via the
+    lock-wrapped writer, and ``st.rerun`` only on a successful write.
+    """
+    base = f"{age}_{gender}_{division.name}"
+    form_key = f"_div_form_{base}"
+
+    persisted_pool_count = max(1, len(division.pool_sizes))
+    teams_min = max(1, assigned_team_count)
+    teams_value = max(division.team_count, teams_min)
+    pools_value = min(persisted_pool_count, max(1, teams_value))
+    min_pool_size = min(division.pool_sizes) if division.pool_sizes else max(1, teams_value // max(1, pools_value))
+    default_pool_play = max(0, max(1, min_pool_size) - 1)
+
+    knockout_default = division.advancement or "ROUND_ROBIN"
+    if knockout_default not in _ALL_KNOCKOUT_TEMPLATES:
+        knockout_default = "ROUND_ROBIN"
+    knockout_index = list(_ALL_KNOCKOUT_TEMPLATES).index(knockout_default)
+
+    # ✕ Remove sits outside the form so Enter inside any input always
+    # triggers Apply (Streamlit's Enter binding follows form_submit_button
+    # registration order). Plain ``st.button`` only fires on click, so the
+    # plan's "Streamlit doesn't fire it on field-edit" property still holds.
+    header_left, header_right = st.columns([6, 0.5])
+    with header_right:
+        remove_clicked = st.button(
+            "✕",
+            key=f"_div_remove_{base}",
+            help="Remove this division",
+        )
+
+    with st.form(form_key, clear_on_submit=False):
+        c_name, c_teams, c_pools, c_pgames, c_ko = st.columns([3, 1, 1, 1, 2])
+        with c_name:
+            st.text_input(
+                "Name",
+                value=division.name,
+                disabled=True,
+                help="Rename is deferred to a later shell",
+                key=f"_div_name_{base}",
+            )
+        with c_teams:
+            team_count_input = st.number_input(
+                "Teams",
+                min_value=teams_min,
+                value=teams_value,
+                step=1,
+                key=f"_div_team_count_{base}",
+            )
+        with c_pools:
+            pool_count_input = st.number_input(
+                "Pools",
+                min_value=1,
+                max_value=max(1, int(team_count_input)),
+                value=pools_value,
+                step=1,
+                key=f"_div_pool_count_{base}",
+            )
+        with c_pgames:
+            pool_play_max = max(0, max(1, min_pool_size) - 1)
+            st.number_input(
+                "Pool games",
+                min_value=0,
+                max_value=max(0, pool_play_max),
+                value=min(default_pool_play, max(0, pool_play_max)),
+                step=1,
+                help="Data-model only in v1; v2 wires the simulator.",
+                key=f"_div_pool_games_{base}",
+            )
+        with c_ko:
+            knockout_input = st.selectbox(
+                "Knockout",
+                options=_ALL_KNOCKOUT_TEMPLATES,
+                index=knockout_index,
+                format_func=_knockout_format_label,
+                key=f"_div_knockout_{base}",
+            )
+        apply_clicked = st.form_submit_button(
+            "Apply",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if apply_clicked:
+        new_team_count = int(team_count_input)
+        new_pool_count = int(pool_count_input)
+        new_pool_sizes = tuple(_derive_pool_sizes(new_team_count, new_pool_count))
+        errors = _validate_division(
+            team_count=new_team_count,
+            pool_sizes=new_pool_sizes,
+            knockout=knockout_input,
+            assigned_team_count=assigned_team_count,
+        )
+        if errors:
+            for msg in errors:
+                st.error(msg)
+        else:
+            updated_division = DivisionStructure(
+                name=division.name,
+                team_count=new_team_count,
+                pool_sizes=new_pool_sizes,
+                advancement=knockout_input,
+            )
+            updated_cohorts = _update_cohort_divisions(
+                _read_all_cohorts(event_key, scenario),
+                age,
+                gender,
+                lambda divs, _new=updated_division: _replace_division(divs, _new),
+            )
+            if _persist_structure(event_key, scenario, updated_cohorts):
+                _load_cohort_inputs.clear()
+                st.success("Saved.")
+                st.rerun()
+
+    if remove_clicked:
+        if assigned_team_count > 0:
+            st.error("Reassign teams in this division before removing it.")
+        else:
+            updated_cohorts = _update_cohort_divisions(
+                _read_all_cohorts(event_key, scenario),
+                age,
+                gender,
+                lambda divs, _name=division.name: tuple(d for d in divs if d.name != _name),
+            )
+            if _persist_structure(event_key, scenario, updated_cohorts):
+                _load_cohort_inputs.clear()
+                st.rerun()
+
+    pool_sizes_chip = " / ".join(str(size) for size in division.pool_sizes) if division.pool_sizes else "—"
+    st.caption(f"Pool sizes: {pool_sizes_chip}")
+
+    pool_sizes_form_key = f"_pool_sizes_form_{base}"
+    with st.form(pool_sizes_form_key, clear_on_submit=False):
+        cols_pool = st.columns([4, 1])
+        with cols_pool[0]:
+            pool_sizes_text = st.text_input(
+                "Pool sizes (comma-separated)",
+                value=", ".join(str(size) for size in division.pool_sizes),
+                key=f"_div_pool_sizes_{base}",
+                placeholder="e.g. 4, 4, 3",
+                help="Override the auto-derived split.",
+            )
+        with cols_pool[1]:
+            pool_sizes_clicked = st.form_submit_button("Apply pool sizes")
+    if pool_sizes_clicked:
+        try:
+            parsed = tuple(int(token.strip()) for token in pool_sizes_text.split(",") if token.strip())
+        except ValueError:
+            st.error("Pool sizes must be comma-separated integers.")
+            return
+        if not parsed:
+            st.error("Pool sizes cannot be empty.")
+            return
+        if sum(parsed) != division.team_count:
+            st.error(f"Pool sizes sum {sum(parsed)} ≠ team count {division.team_count}.")
+            return
+        if division.pool_sizes and len(parsed) != len(division.pool_sizes):
+            st.error(
+                f"Pool count {len(parsed)} doesn't match the form's pool count "
+                f"{len(division.pool_sizes)}; update Pools field via Apply first."
+            )
+            return
+        updated_division = DivisionStructure(
+            name=division.name,
+            team_count=division.team_count,
+            pool_sizes=parsed,
+            advancement=division.advancement,
+        )
+        updated_cohorts = _update_cohort_divisions(
+            _read_all_cohorts(event_key, scenario),
+            age,
+            gender,
+            lambda divs, _new=updated_division: _replace_division(divs, _new),
+        )
+        if _persist_structure(event_key, scenario, updated_cohorts):
+            _load_cohort_inputs.clear()
+            st.success("Saved.")
+            st.rerun()
+
+
+def _render_pool_preview(
+    division: DivisionStructure,
+    *,
+    age: str,
+    gender: str,
+    pids: list[str],
+    cohort_records: list[dict[str, Any]],
+    team_state: Any,
+    registry_by_pid: dict[str, dict[str, Any]],
+    medians_by_division: dict[str, float],
+    supabase_client: Any,
+) -> None:
+    """Render the collapsed serpentine-seed preview below the division card.
+
+    Pool count is read from the persisted ``DivisionStructure`` — operators
+    must Apply the editor form for the preview to reflect a new pool count
+    (Streamlit forms hold widget edits internal to the form until submit).
+    """
+    pool_count = max(1, len(division.pool_sizes))
+
+    with st.expander(f"Preview pools — {division.name}", expanded=False):
+        rankings_score_map = _cohort_rankings_score_map(age, gender, supabase_client)
+        seeds = _build_pool_preview_seeds(
+            division=division,
+            pids=pids,
+            cohort_records=cohort_records,
+            team_state=team_state,
+            registry_by_pid=registry_by_pid,
+            rankings_score_map=rankings_score_map,
+            medians_by_division=medians_by_division,
+        )
+        if not seeds:
+            st.info("No teams to preview yet.")
+            return
+        st.caption("Preview shows naive serpentine seed; optimizer's final placement may differ.")
+        pools = _serpentine_assign(seeds, pool_count)
+        for idx, pool in enumerate(pools):
+            st.markdown(f"**Pool {idx + 1}** ({len(pool)} teams)")
+            for name, score in pool:
+                score_str = f"{score:.2f}" if score is not None else "—"
+                st.caption(f"• {name} ({score_str})")
+
+
+def _render_add_division_form(
+    *,
+    age: str,
+    gender: str,
+    event_key: str,
+    scenario: str,
+    structure_for_cohort: CohortStructure | None,
+    cohort_records: list[dict[str, Any]],
+) -> None:
+    """Render the inline ``+ Add division`` form above a cohort's division list."""
+    base = f"{age}_{gender}"
+    existing = structure_for_cohort.divisions if structure_for_cohort else ()
+    bootstrap = not existing
+    default_name = "Premier" if bootstrap else f"Division {len(existing) + 1}"
+
+    with st.form(f"_add_div_form_{base}", clear_on_submit=True):
+        cols = st.columns([4, 1])
+        with cols[0]:
+            new_name = st.text_input(
+                "New division name",
+                value=default_name,
+                key=f"_add_div_name_{base}",
+                placeholder="New division name",
+                label_visibility="collapsed",
+            )
+        with cols[1]:
+            submitted = st.form_submit_button("+ Add division")
+    if not submitted:
+        return
+    name = (new_name or "").strip()
+    if not name:
+        st.error("Name is required.")
+        return
+    if name in {d.name for d in existing}:
+        st.error("Division name already exists in this cohort.")
+        return
+    if bootstrap and name == "Premier":
+        team_count = len(cohort_records)
+        pool_sizes: tuple[int, ...] = (team_count,) if team_count > 0 else (0,)
+    else:
+        team_count = 0
+        pool_sizes = (0,)
+    new_division = DivisionStructure(
+        name=name,
+        team_count=team_count,
+        pool_sizes=pool_sizes,
+        advancement=None,
+    )
+    updated_cohorts = _update_cohort_divisions(
+        _read_all_cohorts(event_key, scenario),
+        age,
+        gender,
+        lambda divs, _new=new_division: divs + (_new,),
+    )
+    if _persist_structure(event_key, scenario, updated_cohorts):
+        _load_cohort_inputs.clear()
+        st.rerun()
+
+
+def _render_constraints_panel(
+    *,
+    age: str,
+    gender: str,
+    event_key: str,
+    scenario: str,
+    current_constraints: CohortConstraints,
+) -> None:
+    """Render the per-cohort seeding-preferences panel.
+
+    Each widget uses an ``on_change`` callback so a one-toggle change
+    persists immediately — operators can't forget to click Apply on a
+    single-checkbox flip. The callback wraps the write in
+    ``acquire_scenario_lock`` (see ``_persist_constraint``).
+    """
+    base = f"{age}_{gender}"
+    k_club = f"_constraint_club_{base}"
+    k_coach = f"_constraint_coach_{base}"
+    k_state = f"_constraint_state_{base}"
+    k_scope = f"_constraint_scope_{base}"
+    with st.expander("Seeding preferences", expanded=False):
+        st.info("Constraints persist for Report Card metrics; v2 wires the optimizer.")
+        st.checkbox(
+            "Avoid same-club matchups in pool play + first KO",
+            value=current_constraints.avoid_same_club_early,
+            key=k_club,
+            on_change=_persist_constraint,
+            args=(event_key, scenario, age, gender, "avoid_same_club_early", k_club),
+        )
+        st.caption("(data-model only — v2 wires optimizer)")
+        st.checkbox(
+            "Avoid same-coach matchups (null-safe)",
+            value=current_constraints.avoid_same_coach_early,
+            key=k_coach,
+            on_change=_persist_constraint,
+            args=(event_key, scenario, age, gender, "avoid_same_coach_early", k_coach),
+        )
+        st.caption("(data-model only — v2 wires optimizer)")
+        st.checkbox(
+            "Avoid same-state in same pool",
+            value=current_constraints.avoid_same_state_pool,
+            key=k_state,
+            on_change=_persist_constraint,
+            args=(event_key, scenario, age, gender, "avoid_same_state_pool", k_state),
+        )
+        st.caption("(data-model only — v2 wires optimizer)")
+        scope_index = (
+            _REMATCH_SCOPES.index(current_constraints.rematch_avoidance_scope)
+            if current_constraints.rematch_avoidance_scope in _REMATCH_SCOPES
+            else 0
+        )
+        st.selectbox(
+            "Rematch avoidance scope",
+            options=_REMATCH_SCOPES,
+            index=scope_index,
+            key=k_scope,
+            on_change=_persist_constraint,
+            args=(event_key, scenario, age, gender, "rematch_avoidance_scope", k_scope),
+        )
+        st.caption("(data-model only — v2 wires optimizer)")
+
+
+def _render_advanced_settings(
+    meta: EventMetadata,
+    *,
+    event_key: str,
+    scenario: str,
+) -> None:
+    """Render the event-level advanced-settings form inside the ⚙ banner expander.
+
+    No scenario lock — ``event_metadata.json`` is per-event (not per-scenario),
+    so ``acquire_scenario_lock`` would be the wrong scope. The single-file
+    write is atomic via ``_io.write_json``'s ``.tmp`` + ``os.replace`` pattern;
+    last-write-wins between two concurrent operators is acceptable for v1.
+    """
+    extras = meta.extras or {}
+    prior_snapshot = extras.get("ranking_snapshot_date")
+    snapshot_default: date
+    if isinstance(prior_snapshot, str):
+        try:
+            snapshot_default = date.fromisoformat(prior_snapshot)
+        except ValueError:
+            snapshot_default = _default_snapshot(meta.event_start_date)
+    else:
+        snapshot_default = _default_snapshot(meta.event_start_date)
+
+    with st.form(f"_advanced_settings_form_{event_key}", clear_on_submit=False):
+        st.caption(f"Scenario: {scenario}")
+        model_version_pin = st.text_input(
+            "Model version pin",
+            value=str(extras.get("model_version_pin") or "poisson_draw_gate_v1"),
+            help="Frozen ranking-engine version for this run.",
+        )
+        ranking_snapshot_date = st.date_input(
+            "Ranking snapshot date",
+            value=snapshot_default,
+            help="Defaults to the day before kickoff.",
+        )
+        st.number_input(
+            "Simulation runs",
+            value=1,
+            disabled=True,
+            help="Monte Carlo deferred to v2",
+        )
+        capped_gd_limit = st.number_input(
+            "Capped GD limit",
+            min_value=1,
+            value=int(extras.get("capped_gd_limit", 3) or 3),
+            step=1,
+        )
+        series_id_default = meta.series_id or meta.event_slug or ""
+        series_id = st.text_input(
+            "Series ID",
+            value=str(series_id_default),
+            help=(
+                "Auto-populates from event_slug on first event in a series; user-set on subsequent events to link them."
+            ),
+        )
+        preset_id = st.selectbox(
+            "Balance score preset",
+            options=("default",),
+            index=0,
+            help="Additional presets in v2.",
+        )
+        submitted = st.form_submit_button("Apply", type="primary")
+    if not submitted:
+        return
+    if ranking_snapshot_date is None:
+        st.error("Ranking snapshot date is required.")
+        return
+    new_extras = dict(extras)
+    new_extras["model_version_pin"] = model_version_pin
+    new_extras["ranking_snapshot_date"] = ranking_snapshot_date.isoformat()
+    new_extras["capped_gd_limit"] = int(capped_gd_limit)
+    new_extras["balance_score_weights"] = {"preset_id": preset_id}
+    new_extras.pop("series_id", None)  # canonical home is meta.series_id
+    new_meta = replace(meta, series_id=series_id or None, extras=new_extras)
+    write_event_metadata(event_key, new_meta)
+    st.success("Saved.")
+    st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1977,7 +2815,12 @@ def main() -> None:
         return
 
     records = load_raw_scrape(key)
-    _render_event_banner(meta, records)
+    _render_event_banner(
+        meta,
+        records,
+        event_key=key,
+        scenario=st.session_state.scenario_name,
+    )
     if not records:
         st.warning("No teams in this event's raw_scrape.jsonl yet.")
         return
