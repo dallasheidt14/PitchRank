@@ -57,6 +57,7 @@ __all__ = [
     "build_override_record",
     "is_ready",
     "project_overrides",
+    "registry_provider_id",
 ]
 
 
@@ -400,7 +401,7 @@ def _fetch_resolved_teams(
     return {str(row["team_id_master"]): row for row in rows if row.get("team_id_master")}
 
 
-def _registry_provider_id(entry: Any) -> str:
+def registry_provider_id(entry: Any) -> str:
     """Resolve the per-row provider key.
 
     Prefers ``resolved_gotsport_provider_team_id`` (post-resolution); falls
@@ -456,7 +457,7 @@ def is_ready(
 
     team_ids_for_placeholder: set[str] = set()
     for entry in registry:
-        pid = _registry_provider_id(entry)
+        pid = registry_provider_id(entry)
         projected = team_state.get(pid)
         if projected and projected.team_id_master:
             team_ids_for_placeholder.add(projected.team_id_master)
@@ -467,11 +468,11 @@ def is_ready(
     blockers: list[str] = []
     cohorts_seen: set[tuple[str, str]] = set()
     cohort_team_ids: dict[tuple[str, str], set[str]] = {}
-    registry_pids = {_registry_provider_id(entry) for entry in registry}
+    registry_pids = {registry_provider_id(entry) for entry in registry}
     registry_pids.discard("")
 
     for entry in registry:
-        pid = _registry_provider_id(entry)
+        pid = registry_provider_id(entry)
         if not pid:
             continue
         cohort = (entry.event_age_group, entry.event_gender)

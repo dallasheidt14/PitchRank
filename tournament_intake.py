@@ -38,6 +38,11 @@ from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
     search_event_team_in_db,
 )
+from src.tournaments.run_orchestrator import (
+    ProgressEvent,
+    execute_run,
+    preflight,
+)
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
@@ -47,6 +52,7 @@ from src.tournaments.storage import (
     CohortStructure,
     DivisionStructure,
     EventMetadata,
+    RunStateError,
     ScenarioLockError,
     SchemaVersionError,
     acquire_scenario_lock,
@@ -462,6 +468,8 @@ def _init_session_state() -> None:
         st.session_state.intake_mode = "backtest"
     if "_scrape_in_progress" not in st.session_state:
         st.session_state._scrape_in_progress = False
+    if "current_run_id_by_cohort" not in st.session_state:
+        st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
 
 
@@ -2752,6 +2760,83 @@ def _render_advanced_settings(
 # ---------------------------------------------------------------------------
 
 
+def _render_cohort_run_control(
+    *,
+    event_key: str,
+    scenario: str,
+    age: str,
+    gender: str,
+    supabase_client: Any,
+) -> None:
+    """Render the per-cohort Run-backtest control + warnings + status block.
+
+    Three branches:
+
+    - A run is already loaded for this cohort → caption only; Shell 08's
+      "Re-run" control clears the entry.
+    - Preflight has blockers → disabled button with the blocker list as
+      hover help.
+    - Preflight is clean → enabled button + warning chips + scenario-lock
+      notice. On click, runs synchronously via :func:`execute_run`,
+      streaming PHASE/PROGRESS markers into ``st.status``.
+    """
+    button_key = f"run_btn_{age}_{gender}"
+    cohort_run_id = st.session_state.current_run_id_by_cohort.get((age, gender))
+    if cohort_run_id is not None:
+        st.caption(f"Run loaded: {cohort_run_id}")
+        return
+
+    result = preflight(event_key, scenario, age, gender, supabase_client=supabase_client)
+    if result.blockers:
+        st.button(
+            "Run backtest",
+            disabled=True,
+            help="\n".join(result.blockers),
+            key=button_key,
+        )
+        return
+
+    clicked = st.button("Run backtest", type="primary", key=button_key)
+    for warning in result.warnings:
+        st.caption(f"⚠ {warning}")
+    st.caption("Run holds a per-scenario lock for the duration; other tabs cannot save while it runs.")
+    if not clicked:
+        return
+
+    with st.status(f"Running {gender} {age} backtest", expanded=True, state="running") as status_box:
+
+        def on_event(ev: ProgressEvent) -> None:
+            # The orchestrator emits PHASE/PROGRESS events with phase set
+            # (drives the status label) and buffered plain-text events with
+            # phase=None (rendered as a log block).
+            if ev.phase is not None:
+                pct_suffix = f" · {ev.percent}%" if ev.percent is not None else ""
+                status_box.update(label=f"{ev.phase}{pct_suffix}")
+            elif ev.raw_line:
+                st.code(ev.raw_line, language="text")
+
+        try:
+            outcome = execute_run(
+                event_key,
+                scenario,
+                age,
+                gender,
+                on_event=on_event,
+            )
+        except ScenarioLockError as exc:
+            status_box.update(label=f"Scenario locked: {exc}", state="error")
+            return
+        except RunStateError as exc:
+            status_box.update(label=f"Cannot stage run: {exc}", state="error")
+            return
+        if outcome.state == "completed":
+            st.session_state.current_run_id_by_cohort[(age, gender)] = outcome.run_dir.name
+            status_box.update(label="Completed", state="complete")
+            st.rerun()
+        else:
+            status_box.update(label=f"Failed: {outcome.error or 'unknown'}", state="error")
+
+
 def _render_cohort_containers(
     cohorts: dict[tuple[str, str], list[dict[str, Any]]],
     sorted_keys: list[tuple[str, str]],
@@ -2788,11 +2873,12 @@ def _render_cohort_containers(
                     event_name=event_name,
                     supabase_client=supabase_client,
                 )
-                st.button(
-                    "Run backtest",
-                    disabled=True,
-                    help="Run wiring lands in Shell 06.",
-                    key=f"run_btn_{age}_{gender}",
+                _render_cohort_run_control(
+                    event_key=event_key,
+                    scenario=scenario,
+                    age=age,
+                    gender=gender,
+                    supabase_client=supabase_client,
                 )
 
 
