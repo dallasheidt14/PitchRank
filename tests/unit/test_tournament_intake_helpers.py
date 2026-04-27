@@ -8,6 +8,7 @@ Streamlit runtime is required.
 
 from __future__ import annotations
 
+from src.tournaments.triage import ProjectedTeamState
 from tournament_intake import (
     _DISABLED_MODES,
     _cohort_sort_key,
@@ -15,8 +16,11 @@ from tournament_intake import (
     _display_gender,
     _group_cohorts,
     _resolve_intake_mode,
+    _resolve_team_id_master,
+    _safe_float,
     _scrape_state_counts,
     _scraper_tint,
+    _state_tint_level,
 )
 
 # -------- _DISABLED_MODES + _resolve_intake_mode --------------------------
@@ -166,3 +170,63 @@ def test_cohort_sort_key_female_before_male_within_age():
 def test_cohort_toggle_key_format_is_stable():
     assert _cohort_toggle_key("u14", "Male") == "_cohort_expanded_u14_Male"
     assert _cohort_toggle_key("u19", "Female") == "_cohort_expanded_u19_Female"
+
+
+# -------- _resolve_team_id_master ----------------------------------------
+
+
+def test_resolve_team_id_master_prefers_projection():
+    projected = ProjectedTeamState(state="resolved", team_id_master="proj_abc")
+    registry_row = {"resolved_team_id_master": "reg_xyz"}
+    assert _resolve_team_id_master(projected, registry_row) == "proj_abc"
+
+
+def test_resolve_team_id_master_falls_back_to_registry():
+    projected = None
+    registry_row = {"resolved_team_id_master": "reg_xyz"}
+    assert _resolve_team_id_master(projected, registry_row) == "reg_xyz"
+
+
+def test_resolve_team_id_master_handles_empty_projection():
+    projected = ProjectedTeamState(state="external", team_id_master=None)
+    registry_row = {"resolved_team_id_master": "reg_xyz"}
+    assert _resolve_team_id_master(projected, registry_row) == "reg_xyz"
+
+
+def test_resolve_team_id_master_returns_none_when_both_empty():
+    assert _resolve_team_id_master(None, {}) is None
+    assert _resolve_team_id_master(None, None) is None
+
+
+# -------- _safe_float ----------------------------------------------------
+
+
+def test_safe_float_handles_normal_inputs():
+    assert _safe_float(1.5) == 1.5
+    assert _safe_float("2.0") == 2.0
+    assert _safe_float(3) == 3.0
+
+
+def test_safe_float_returns_none_for_empty_or_unparseable():
+    assert _safe_float(None) is None
+    assert _safe_float("") is None
+    assert _safe_float("not a number") is None
+    assert _safe_float([1, 2]) is None
+
+
+# -------- _state_tint_level ----------------------------------------------
+
+
+def test_state_tint_level_resolved_is_green():
+    assert _state_tint_level("resolved") == "green"
+
+
+def test_state_tint_level_external_is_amber():
+    assert _state_tint_level("external") == "amber"
+
+
+def test_state_tint_level_blockers_default_red():
+    assert _state_tint_level("candidates") == "red"
+    assert _state_tint_level("placeholder") == "red"
+    assert _state_tint_level("unknown") == "red"
+    assert _state_tint_level("not-a-state") == "red"
