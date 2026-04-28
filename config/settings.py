@@ -8,7 +8,10 @@ from dotenv import load_dotenv
 
 from src.rankings.constants import AGE_TO_ANCHOR
 
-# Load environment variables
+# Load environment variables. ``.env.local`` takes precedence (Vercel /
+# Next.js convention; this worktree carries Supabase creds there), then
+# fall back to ``.env`` for anything not overridden.
+load_dotenv(".env.local")
 load_dotenv()
 
 # Project Info
