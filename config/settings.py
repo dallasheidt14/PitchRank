@@ -8,8 +8,13 @@ from dotenv import load_dotenv
 
 from src.rankings.constants import AGE_TO_ANCHOR
 
-# Load environment variables
-load_dotenv()
+# Load environment variables. ``.env.local`` takes precedence (Vercel /
+# Next.js convention; this worktree carries Supabase creds there), then
+# fall back to ``.env`` for anything not overridden. Anchor both paths to
+# the repo root so resolution is deterministic regardless of CWD.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_REPO_ROOT / ".env.local")
+load_dotenv(_REPO_ROOT / ".env")
 
 # Project Info
 PROJECT_NAME = "PitchRank"
