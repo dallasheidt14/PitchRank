@@ -29,15 +29,16 @@ The orchestrator owns:
 - orphan ``.tmp/`` cleanup at preflight time so a parent crash mid-run
   doesn't leave the runs dir corrupted forever
 
-KNOWN RISK — division-routing heuristic (matches Shell 04's `_recompute_medians_inner`):
-  `_build_cohort_request_payload` infers each registry team's division via
-  `event_team_name.startswith(division_name)`, falling back to the first
-  division on no match. Real GotSport team names (e.g. "Phoenix Rising 2012
-  Boys") rarely start with a structure division name (e.g. "BU14 Premier"),
-  so the fallback fires and every team in the cohort lands in division #1.
-  Until a follow-up shell adds explicit per-team division assignment to the
-  registry (Shell 04/05 follow-up), every fallback is logged to the run's
-  ``parser_warnings.jsonl`` so production usage will surface this loudly.
+KNOWN RISK — division-routing heuristic (now resolver-driven):
+  ``_build_cohort_request_payload`` calls ``resolve_division_assignment``
+  per team. Resolver-returned ``source='none'`` means both the operator's
+  ``assigned_division_name`` override AND the prefix heuristic missed for
+  this team. ``source='stale'`` means the operator assigned a division
+  that has since been removed. Shell 09 + the one-shot
+  ``scripts/backfill_division_assignments.py`` make ``source='none'``
+  rare on backfilled events; greenfield events still surface it until an
+  operator confirms assignments. Both kinds emit distinct
+  ``parser_warnings.jsonl`` records for cleanup.
 """
 
 from __future__ import annotations
@@ -77,10 +78,14 @@ from src.tournaments.storage._io import (
     write_json,
 )
 from src.tournaments.triage import (
+    SOURCE_EXPLICIT,
+    SOURCE_PREFIX,
+    SOURCE_STALE,
     ReadinessResult,
     is_ready,
     project_overrides,
     registry_provider_id,
+    resolve_division_assignment,
 )
 
 logger = logging.getLogger(__name__)
@@ -411,14 +416,16 @@ def _build_cohort_request_payload(
     *,
     base_dir: Path | str,
     extras: dict[str, Any],
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], list[str]]:
     """Build the cohort CLI's request payload (entrants + divisions).
 
-    Returns ``(payload, division_routing_fallbacks)``. ``fallbacks`` is the
-    list of team names that hit the heuristic division routing fallback
-    (see module docstring's KNOWN RISK). ``execute_run`` writes them to
-    ``parser_warnings.jsonl`` so production usage exposes how often the
-    routing heuristic is failing.
+    Returns ``(payload, division_routing_fallbacks, division_routing_stale_assignments)``.
+    ``fallbacks`` is the list of team names whose resolver returned
+    ``source="none"`` (no assignment AND no prefix match);
+    ``stale_assignments`` is the list whose resolver returned
+    ``source="stale"`` (operator-assigned division has since been removed).
+    ``execute_run`` emits two distinct ``parser_warnings.jsonl`` kinds so
+    operators can grep them independently.
 
     Mirrors ``scripts.backtest_tournament_event._build_request_payload``
     (event:380-440) — inlined rather than imported because the script-side
@@ -448,6 +455,7 @@ def _build_cohort_request_payload(
     division_names = [d.name for d in cohort_structure.divisions]
     teams_by_division: dict[str, list[dict[str, Any]]] = {name: [] for name in division_names}
     division_routing_fallbacks: list[str] = []
+    division_routing_stale_assignments: list[str] = []
 
     for entry in registry:
         if entry.event_age_group != age or entry.event_gender != gender:
@@ -462,16 +470,16 @@ def _build_cohort_request_payload(
         if not team_id_master:
             continue
         team_name = entry.event_team_name or pid
-        bracket = (entry.event_team_name or "").strip()
-        chosen_division = next(
-            (name for name in division_names if name and bracket.startswith(name)),
-            None,
-        )
-        if chosen_division is None:
-            # KNOWN RISK: heuristic fallback (see module docstring). Surface
-            # via parser_warnings.jsonl in execute_run so production usage
-            # exposes how often it bites — Shell 04/05 follow-up will replace
-            # this with explicit per-team division assignment.
+        resolution = resolve_division_assignment(projected, team_name, division_names=division_names)
+        if resolution.source in (SOURCE_EXPLICIT, SOURCE_PREFIX):
+            chosen_division = resolution.name or ""
+        elif resolution.source == SOURCE_STALE:
+            # Stale assignment: use the prefix-resolved fallback name when
+            # available, else first division. Track separately so the
+            # parser_warning splits "stale" from "never assigned".
+            chosen_division = resolution.name or (division_names[0] if division_names else "")
+            division_routing_stale_assignments.append(team_name)
+        else:  # SOURCE_NONE
             chosen_division = division_names[0] if division_names else ""
             division_routing_fallbacks.append(team_name)
         if chosen_division not in teams_by_division:
@@ -528,7 +536,7 @@ def _build_cohort_request_payload(
     snapshot_date = extras.get("ranking_snapshot_date")
     if snapshot_date:
         payload["prediction_date"] = snapshot_date
-    return payload, sorted(division_routing_fallbacks)
+    return payload, sorted(division_routing_fallbacks), sorted(division_routing_stale_assignments)
 
 
 def _build_cli_args(staging_dir: Path, *, extras: dict[str, Any]) -> tuple[list[str], Path]:
@@ -883,7 +891,11 @@ def execute_run(
         # _finalize_failure call so the failure shows up as a normal failed
         # run rather than a silent orphan that needs the 24h cleanup sweep.
         try:
-            payload, division_routing_fallbacks = _build_cohort_request_payload(
+            (
+                payload,
+                division_routing_fallbacks,
+                division_routing_stale_assignments,
+            ) = _build_cohort_request_payload(
                 event_key,
                 scenario,
                 age,
@@ -916,11 +928,26 @@ def execute_run(
                     stamp_schema_version(
                         {
                             "kind": "division_routing_fallback",
-                            "fallback_division": payload["divisions"][0]["actual_division_name"]
-                            if payload["divisions"]
-                            else "",
+                            "fallback_division": (
+                                payload["divisions"][0]["actual_division_name"] if payload["divisions"] else ""
+                            ),
                             "team_count": len(division_routing_fallbacks),
                             "team_names": division_routing_fallbacks,
+                        }
+                    ),
+                )
+            if division_routing_stale_assignments:
+                # Stale-assignment teams may route to several different
+                # divisions (each prefix-resolved individually), so a single
+                # ``fallback_division`` field would be misleading here —
+                # omit it and rely on ``team_names`` for cleanup triage.
+                append_jsonl(
+                    staging_dir / "parser_warnings.jsonl",
+                    stamp_schema_version(
+                        {
+                            "kind": "division_routing_stale_assignment",
+                            "team_count": len(division_routing_stale_assignments),
+                            "team_names": division_routing_stale_assignments,
                         }
                     ),
                 )

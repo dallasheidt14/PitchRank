@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import contextlib
 import html
+import logging
 import os
 import sys
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
@@ -36,6 +37,7 @@ from src.scrapers.provider import (
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
+    enrich_registry_rows_with_matcher,
     search_event_team_in_db,
 )
 from src.tournaments.run_orchestrator import (
@@ -52,20 +54,25 @@ from src.tournaments.storage import (
     CohortStructure,
     DivisionStructure,
     EventMetadata,
+    RegistryPersistResult,
     RunStateError,
     ScenarioLockError,
     SchemaVersionError,
+    TeamRegistryEntry,
     acquire_scenario_lock,
     append_override,
+    build_registry_entries,
     check_games_import_status,
     compute_frozen_medians,
     ensure_scenario,
     event_key,
     intake_dir,
     list_runs,
+    list_scenarios,
     load_overrides,
     load_raw_scrape,
     parse_event_key,
+    persist_registry_for_scenario,
     read_constraints,
     read_event_metadata,
     read_frozen_medians,
@@ -81,14 +88,20 @@ from src.tournaments.storage import (
 from src.tournaments.storage._io import utc_now_iso
 from src.tournaments.triage import (
     _STRENGTH_MODES,
+    SOURCE_EXPLICIT,
+    SOURCE_PREFIX,
+    SOURCE_STALE,
     ProjectedTeamState,
     _classify_team_state,
     _is_placeholder_team,
     _is_play_up,
     build_override_record,
     project_overrides,
+    resolve_division_assignment,
 )
 from supabase import create_client
+
+logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
@@ -105,6 +118,11 @@ st.caption(f"Version {VERSION} | Powered by {PROJECT_NAME}")
 
 # Disabled-mode contract — pinned by tests against silent re-enablement.
 _DISABLED_MODES: tuple[str, ...] = ("seeding",)
+
+# Sentinel option for the per-row Assign division selectbox: forces the
+# operator to pick a real division when the resolver has no signal
+# (``source="none"``) before any override is written.
+_DIV_ASSIGN_SENTINEL = "— pick to confirm —"
 
 
 # Database connection helper
@@ -564,6 +582,120 @@ def _show_captcha_error(exc: EventCaptchaGatedError) -> None:
     )
 
 
+def _persist_registry_after_scrape(
+    event_key_value: str,
+    scenario_active: str,
+    supabase_client: Any,
+    *,
+    base_dir: Path | str = "reports",
+) -> list[RegistryPersistResult]:
+    """Translate the just-written ``intake/raw_scrape.jsonl`` into per-scenario
+    ``event_team_registry.csv`` files.
+
+    Sourcing the registry from the journal (rather than from the scraper's
+    return value) keeps the ``ProviderScraper`` ABC scenario-blind. The
+    journal is fully compacted by the time this runs — ``journal.compact()``
+    fires synchronously inside ``fetch_teams_by_cohort`` and inside the
+    event-tier ``_acquire_scrape_lock``, before this helper is invoked.
+
+    The matcher cache lives in this single ``enrich_registry_rows_with_matcher``
+    call; the per-scenario fan-out below operates on already-enriched
+    entries. Threading the cache into the per-scenario loop would re-run the
+    matcher per scenario for no benefit (per memory
+    ``gotcha_matcher_cache_load_bearing.md``).
+
+    Returns one ``RegistryPersistResult`` per scenario; the caller (the
+    Streamlit ``_run_scrape``) renders them via
+    ``_render_registry_persist_results`` after ``st.rerun()``.
+    """
+    journal_records = load_raw_scrape(event_key_value, base_dir=base_dir)
+    fresh_entries = build_registry_entries(journal_records)
+
+    if supabase_client is None:
+        logger.warning(
+            "supabase_client is None; persisting registry without matcher enrichment "
+            "(every matcher_* column will be '')"
+        )
+        enriched_entries: list[TeamRegistryEntry] = fresh_entries
+    else:
+        matcher_cache: dict[tuple[tuple[str, ...], str, bool], list[dict[str, Any]]] = {}
+        enriched_rows, _status_counts = enrich_registry_rows_with_matcher(
+            supabase_client,
+            [e.to_row() for e in fresh_entries],
+            cache=matcher_cache,
+        )
+        enriched_entries = [TeamRegistryEntry.from_row(r) for r in enriched_rows]
+
+    scenarios = list_scenarios(event_key_value, base_dir=base_dir)
+    if not scenarios:
+        raise RuntimeError(
+            f"ensure_scenario must precede _persist_registry_after_scrape; "
+            f"got empty scenario list for event_key={event_key_value!r} "
+            f"(active={scenario_active!r})"
+        )
+
+    results: list[RegistryPersistResult] = []
+    for scenario in scenarios:
+        try:
+            with acquire_scenario_lock(event_key_value, scenario, base_dir=base_dir, timeout=2.0):
+                results.append(
+                    persist_registry_for_scenario(event_key_value, scenario, enriched_entries, base_dir=base_dir)
+                )
+        except ScenarioLockError:
+            results.append(
+                RegistryPersistResult(
+                    scenario=scenario,
+                    written=False,
+                    row_count=0,
+                    dropped_pids=[],
+                    lock_contention=True,
+                    error="locked by another tab",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — partial-success contract
+            logger.exception("persist_registry_for_scenario failed for scenario=%s", scenario)
+            results.append(
+                RegistryPersistResult(
+                    scenario=scenario,
+                    written=False,
+                    row_count=0,
+                    dropped_pids=[],
+                    lock_contention=False,
+                    error=str(exc),
+                )
+            )
+    return results
+
+
+def _render_registry_persist_results() -> None:
+    """Surface per-scenario registry-persistence outcomes after ``st.rerun()``.
+
+    ``_run_scrape`` stashes the result list on ``st.session_state`` BEFORE
+    calling ``st.rerun()`` because Streamlit discards transient widgets
+    (``st.error`` / ``st.warning`` / ``st.info``) on the next script run.
+    The renderer dispatches on ``lock_contention: bool`` (NOT on the ``error``
+    string contents) — the dataclass discriminator is the contract.
+
+    Clears the session-state slot after rendering so messages don't re-render
+    on every subsequent rerun.
+    """
+    results: list[RegistryPersistResult] = st.session_state.get("_last_registry_persist_results", [])
+    if not results:
+        return
+    for r in results:
+        if r.written:
+            suffix = f" (dropped {len(r.dropped_pids)} orphan pid(s))" if r.dropped_pids else ""
+            st.info(f"Registry written for scenario '{r.scenario}': {r.row_count} rows{suffix}")
+        elif r.lock_contention:
+            st.warning(f"Scenario '{r.scenario}' was locked by another tab — registry not refreshed for that scenario.")
+        else:
+            st.error(
+                f"Scenario '{r.scenario}' failed to persist registry: {r.error}. "
+                f"Click Scrape to retry — the registry is regenerable."
+            )
+    st.session_state.pop("_last_registry_persist_results", None)
+
+
 def _run_scrape(url: str, supabase_client: Any) -> None:
     """Wire the Scrape button to ``get_provider_scraper(...)`` in-process."""
     try:
@@ -589,6 +721,11 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
             try:
                 with st.spinner("Scraping cohorts (this may take 1-3 min)..."):
                     scraper.fetch_teams_by_cohort(url)
+                with st.spinner("Persisting team registry..."):
+                    persist_results = _persist_registry_after_scrape(
+                        key, st.session_state.scenario_name, supabase_client
+                    )
+                    st.session_state._last_registry_persist_results = persist_results
             finally:
                 st.session_state._scrape_in_progress = False
     except _ScrapeLockContended:
@@ -879,12 +1016,18 @@ def _registry_provider_id(entry_row: dict[str, Any]) -> str:
 def _build_division_groups(
     cohort_records: list[dict[str, Any]],
     structure_for_cohort: Any,
+    team_state: Mapping[str, ProjectedTeamState] | None = None,
 ) -> dict[str, list[str]]:
     """Group provider ids by division name within a cohort.
 
     Falls back to a single virtual ``"_unstructured"`` division when no
     ``CohortStructure`` exists yet — matches the plan's "ship before
     Shell 05" path.
+
+    ``team_state`` must be the projection of the same overrides ledger
+    that the surrounding render is reading; passing ``None`` (or an empty
+    mapping) reverts to prefix-only routing — kept as a safe default for
+    tests / callers that don't exercise the override path.
     """
     if structure_for_cohort is None:
         ids = [
@@ -894,19 +1037,18 @@ def _build_division_groups(
         ]
         return {"_unstructured": ids}
     division_names = [division.name for division in structure_for_cohort.divisions]
-    # Sort by length descending so a longer name like "Premier Elite" wins
-    # over a shorter prefix like "Premier" when both could match a bracket.
-    sorted_division_names = sorted(division_names, key=len, reverse=True)
     groups: dict[str, list[str]] = {name: [] for name in division_names}
+    state = team_state or {}
     for record in cohort_records:
         bracket = str(record.get("bracket_name") or record.get("division") or "").strip()
         pid = str(record.get("provider_team_id") or "").strip()
         if not pid:
             continue
-        chosen = next(
-            (name for name in sorted_division_names if bracket and bracket.startswith(name)),
-            division_names[0] if division_names else "_unstructured",
-        )
+        resolution = resolve_division_assignment(state.get(pid), bracket, division_names=division_names)
+        if resolution.source in (SOURCE_EXPLICIT, SOURCE_PREFIX, SOURCE_STALE) and resolution.name:
+            chosen = resolution.name
+        else:
+            chosen = division_names[0] if division_names else "_unstructured"
         groups.setdefault(chosen, []).append(pid)
     return groups
 
@@ -1019,7 +1161,7 @@ def _render_triage(
             team_id_masters.add(team_id)
     resolved_team_by_id = _batch_load_resolved_teams(supabase_client, team_id_masters)
 
-    division_groups = _build_division_groups(cohort_records, structure_for_cohort)
+    division_groups = _build_division_groups(cohort_records, structure_for_cohort, team_state)
 
     _render_games_coverage(
         cohort_records=cohort_records,
@@ -1282,6 +1424,19 @@ def _render_division_body(
             )
         elif state == "unknown":
             st.info(f"Team {team_name}: state unknown — re-scrape or accept manually.")
+
+        # ``candidates`` / ``placeholder`` / ``unknown`` rows must be
+        # triaged via the existing review/fix flows before assignment is
+        # meaningful.
+        if state in ("resolved", "external") and len(division_names) > 1:
+            _render_assign_division_form(
+                pid=pid,
+                team_name=team_name,
+                projected=projected,
+                division_names=division_names,
+                event_key=event_key,
+                scenario=scenario,
+            )
 
 
 def _render_team_row(
@@ -1696,6 +1851,84 @@ def _external_before(projected: ProjectedTeamState | None) -> dict[str, Any]:
     }
 
 
+def _render_assign_division_form(
+    *,
+    pid: str,
+    team_name: str,
+    projected: ProjectedTeamState | None,
+    division_names: list[str],
+    event_key: str,
+    scenario: str,
+) -> None:
+    """Form-wrapped per-team Assign division selectbox.
+
+    Renders only when the cohort has multiple divisions and the team is
+    in a state where assignment is meaningful (``resolved`` or
+    ``external``). Default selection follows ``resolution.source``: a
+    sentinel for ``"none"`` (and for ``"stale"`` with no prefix-resolved
+    name — the operator must reconfirm), the resolved/explicit name
+    otherwise.
+    """
+    reviewer_email = st.session_state.get("_reviewer_email", "")
+    write_disabled = not reviewer_email
+    resolution = resolve_division_assignment(projected, team_name, division_names=division_names)
+    if resolution.name is None:
+        # ``source`` is either SOURCE_NONE (no signal) or SOURCE_STALE with
+        # no prefix-resolved fallback — both cases require operator pick.
+        options = [_DIV_ASSIGN_SENTINEL, *division_names]
+        index = 0
+    else:
+        options = list(division_names)
+        index = options.index(resolution.name) if resolution.name in options else 0
+
+    with st.expander(f"Assign division for {team_name}", expanded=False):
+        if resolution.source == SOURCE_STALE:
+            st.warning(
+                f"Prior assignment '{projected.assigned_division_name if projected else ''}' is no longer "
+                "in this cohort's structure — re-confirm or pick a different division."
+            )
+        with st.form(f"_div_assign_form_{pid}", clear_on_submit=False):
+            selected = st.selectbox(
+                "Division",
+                options=options,
+                index=index,
+                key=f"_div_assign_{pid}",
+                help="Operator-confirmed division; overrides the prefix heuristic.",
+            )
+            submitted = st.form_submit_button("Save assignment", disabled=write_disabled)
+        if not submitted:
+            return
+        if selected == _DIV_ASSIGN_SENTINEL:
+            return  # operator clicked Save without picking; no-op
+        # Re-read overrides at submit time so a Streamlit rerun between
+        # render and submit doesn't put a stale ``before`` snapshot in
+        # the audit ledger (matches ``_render_external_drawer``).
+        fresh_team_state, _ = project_overrides(load_overrides(event_key, scenario))
+        fresh_projected = fresh_team_state.get(pid)
+        prior_assigned = fresh_projected.assigned_division_name if fresh_projected else None
+        if selected == prior_assigned:
+            return  # already-explicit re-pick of same value; avoid redundant audit records
+        append_override(
+            event_key,
+            scenario,
+            build_override_record(
+                ts=utc_now_iso(),
+                actor=reviewer_email,
+                scope="team",
+                type="assign_division",
+                team_ref=pid,
+                before={"assigned_division_name": prior_assigned},
+                after={"assigned_division_name": selected},
+                reason="",
+            ),
+        )
+        # Drop widget key — sentinel is removed from options after the flip,
+        # which would crash Streamlit if session_state still held it.
+        st.session_state.pop(f"_div_assign_{pid}", None)
+        _load_registry_cached.clear()
+        st.rerun()
+
+
 def _trigger_recompute(
     *,
     event_key: str,
@@ -1760,20 +1993,39 @@ def _recompute_medians_inner(
         row for row in registry_rows if row.get("event_age_group") == age and row.get("event_gender") == gender
     ]
     division_by_team_id: dict[str, str] = {}
+    stale_team_names: list[str] = []
     for row in cohort_rows:
         pid = _registry_provider_id(row)
         team_id_master = _resolve_team_id_master(team_state.get(pid), row)
         if not team_id_master:
             continue
         bracket = str(row.get("event_team_name") or "").strip()
-        chosen = next(
-            (name for name in division_names if name and bracket.startswith(name)),
-            division_names[0] if division_names else "_unstructured",
-        )
-        division_by_team_id[team_id_master] = chosen
+        if not division_names:
+            # No structure for this cohort — bucket every team under the
+            # virtual ``_unstructured`` division (mirrors the prior fallback
+            # behavior at this site).
+            division_by_team_id[team_id_master] = "_unstructured"
+            continue
+        resolution = resolve_division_assignment(team_state.get(pid), bracket, division_names=division_names)
+        if resolution.source in (SOURCE_EXPLICIT, SOURCE_PREFIX):
+            division_by_team_id[team_id_master] = resolution.name or division_names[0]
+        elif resolution.source == SOURCE_STALE:
+            # Skip stale-assigned teams from the medians: bucketing into
+            # the prefix-resolved division would contaminate medians with
+            # values the operator explicitly de-assigned. Surface via UI
+            # warning so the operator re-assigns before re-running.
+            stale_team_names.append(bracket or pid)
+        else:  # SOURCE_NONE
+            division_by_team_id[team_id_master] = division_names[0]
 
     if not division_by_team_id:
         raise RuntimeError("No resolved teams in cohort — nothing to recompute.")
+
+    if stale_team_names:
+        st.warning(
+            f"Medians recomputed without {len(stale_team_names)} stale-assigned team(s) — "
+            "re-confirm assignments before treating new medians as authoritative: " + ", ".join(stale_team_names)
+        )
 
     probed_age = _rankings_full_age_form(age, supabase_client)
     rows = (
@@ -1823,6 +2075,7 @@ def _recompute_medians_inner(
                 after={"medians_by_division": dict(medians.medians_by_division)},
                 reason="operator recompute",
             ),
+            _already_locked=True,
         )
     except Exception:  # noqa: BLE001
         st.error("Medians recomputed but audit log write failed; rerun Recompute to land the ledger entry.")
@@ -2888,6 +3141,7 @@ def main() -> None:
     supabase_client = get_database()
     _render_rekey_banner()
     _render_intake_section(supabase_client)
+    _render_registry_persist_results()
 
     key = st.session_state.event_key
     if not key:

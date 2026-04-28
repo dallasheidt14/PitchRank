@@ -10,6 +10,10 @@ headless = true
 port = 8501
 enableCORS = false
 enableXsrfProtection = true
+# Use the polling watcher: the default watchdog-based watcher crashes on
+# Windows when site-packages and the repo live on different drives
+# (os.path.commonpath raises ValueError, killing the watcher thread).
+fileWatcherType = "poll"
 
 [browser]
 gatherUsageStats = false

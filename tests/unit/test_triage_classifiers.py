@@ -30,6 +30,7 @@ def test_override_types_constant_is_pinned():
         "edit_external",
         "manual_add",
         "recompute_medians",
+        "assign_division",
     )
 
 
@@ -253,6 +254,7 @@ def test_build_override_record_copies_before_and_after():
         ),
         ("manual_add", {"state", "team_id_master", "manual_seed_group"}),
         ("recompute_medians", {"medians_by_division"}),
+        ("assign_division", {"assigned_division_name"}),
     ],
 )
 def test_per_type_after_payload_keys_round_trip(type_, after_keys):

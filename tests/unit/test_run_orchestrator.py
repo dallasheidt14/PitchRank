@@ -246,7 +246,7 @@ def test_build_cli_args_raises_on_unknown_model_pin(tmp_path: Path):
 
 def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(tmp_path: Path):
     _bootstrap_event(tmp_path, extras={"ranking_snapshot_date": "2026-04-30"})
-    payload, fallbacks = _build_cohort_request_payload(
+    payload, fallbacks, stale = _build_cohort_request_payload(
         EVENT_KEY,
         SCENARIO,
         "u14",
@@ -259,13 +259,14 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
     assert payload["gender"] == "boys"
     assert len(payload["entrants"]) == 2
     # Fixture team names "A Alpha" / "A Bravo" both start with division "A"
-    # so the routing heuristic resolves cleanly with no fallbacks.
+    # so the resolver returns ``source="prefix"`` with no fallbacks.
     assert fallbacks == []
+    assert stale == []
 
 
 def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
     _bootstrap_event(tmp_path)
-    payload, _fallbacks = _build_cohort_request_payload(
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
         EVENT_KEY,
         SCENARIO,
         "u14",
@@ -274,6 +275,184 @@ def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path
         extras={},
     )
     assert "prediction_date" not in payload
+
+
+def _bootstrap_event_metadata_only(base: Path) -> None:
+    """Write only event metadata + ``ensure_scenario``. Each test then
+    writes its own ``write_structure`` so the structure shape (one or
+    two divisions) lives next to the test that depends on it."""
+    ensure_scenario(EVENT_KEY, SCENARIO, base_dir=base)
+    write_event_metadata(
+        EVENT_KEY,
+        EventMetadata(
+            provider_code="gotsport",
+            provider_event_id="45224",
+            event_name="Phoenix Cup 2026",
+            event_slug="phoenix-cup-2026",
+            event_start_date="2026-05-01",
+            scrape_ts="2026-04-15T00:00:00+00:00",
+            season_year=2026,
+            series_id="phoenix-cup-2026",
+        ),
+        base_dir=base,
+    )
+
+
+def _two_division_structure() -> CohortStructure:
+    return CohortStructure(
+        age_group="u14",
+        gender="Boys",
+        divisions=(
+            DivisionStructure(name="BU14 Premier", team_count=1, pool_sizes=(1,)),
+            DivisionStructure(name="BU14 Champions", team_count=1, pool_sizes=(1,)),
+        ),
+    )
+
+
+def _single_premier_division_structure() -> CohortStructure:
+    return CohortStructure(
+        age_group="u14",
+        gender="Boys",
+        divisions=(DivisionStructure(name="BU14 Premier", team_count=2, pool_sizes=(2,)),),
+    )
+
+
+def test_build_cohort_request_payload_explicit_assignment_wins_over_prefix(tmp_path: Path):
+    _bootstrap_event_metadata_only(tmp_path)
+    write_structure(EVENT_KEY, SCENARIO, [_two_division_structure()], base_dir=tmp_path)
+    write_registry(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            TeamRegistryEntry(
+                event_registration_id="reg-1",
+                event_team_name="BU14 Premier Phoenix Rising",
+                event_age_group="u14",
+                event_gender="Boys",
+                resolved_gotsport_provider_team_id="pid-1",
+                resolved_team_id_master="tim-1",
+            ),
+        ],
+        base_dir=tmp_path,
+    )
+    append_override(
+        EVENT_KEY,
+        SCENARIO,
+        {
+            "ts": "2026-04-20T00:00:00+00:00",
+            "actor": "ops@example.com",
+            "scope": "team",
+            "type": "assign_division",
+            "team_ref": "pid-1",
+            "before": {},
+            "after": {"assigned_division_name": "BU14 Champions"},
+            "reason": "operator override",
+        },
+        base_dir=tmp_path,
+    )
+    payload, fallbacks, stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+    assert fallbacks == []
+    assert stale == []
+    # Lookup the entrant's actual_division_name (the BU14-stripped form).
+    assert len(payload["entrants"]) == 1
+    assert payload["entrants"][0]["actual_division_name"] == "Champions"
+
+
+def test_build_cohort_request_payload_no_override_no_prefix_match_collects_fallbacks(tmp_path: Path):
+    _bootstrap_event_metadata_only(tmp_path)
+    write_structure(EVENT_KEY, SCENARIO, [_single_premier_division_structure()], base_dir=tmp_path)
+    write_registry(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            TeamRegistryEntry(
+                event_registration_id="reg-1",
+                event_team_name="Phoenix Rising",
+                event_age_group="u14",
+                event_gender="Boys",
+                resolved_gotsport_provider_team_id="pid-1",
+                resolved_team_id_master="tim-1",
+            ),
+            TeamRegistryEntry(
+                event_registration_id="reg-2",
+                event_team_name="Real Madrid",
+                event_age_group="u14",
+                event_gender="Boys",
+                resolved_gotsport_provider_team_id="pid-2",
+                resolved_team_id_master="tim-2",
+            ),
+        ],
+        base_dir=tmp_path,
+    )
+    payload, fallbacks, stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+    assert fallbacks == ["Phoenix Rising", "Real Madrid"]
+    assert stale == []
+    # Both teams still land in the only division (legacy fallback).
+    assert len(payload["entrants"]) == 2
+
+
+def test_build_cohort_request_payload_stale_assignment_falls_through_to_prefix(tmp_path: Path):
+    _bootstrap_event_metadata_only(tmp_path)
+    # Single-division structure: assignment to "BU14 Removed" is stale.
+    write_structure(EVENT_KEY, SCENARIO, [_single_premier_division_structure()], base_dir=tmp_path)
+    write_registry(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            TeamRegistryEntry(
+                event_registration_id="reg-1",
+                event_team_name="BU14 Premier Phoenix Rising",
+                event_age_group="u14",
+                event_gender="Boys",
+                resolved_gotsport_provider_team_id="pid-1",
+                resolved_team_id_master="tim-1",
+            ),
+        ],
+        base_dir=tmp_path,
+    )
+    append_override(
+        EVENT_KEY,
+        SCENARIO,
+        {
+            "ts": "2026-04-20T00:00:00+00:00",
+            "actor": "ops@example.com",
+            "scope": "team",
+            "type": "assign_division",
+            "team_ref": "pid-1",
+            "before": {},
+            "after": {"assigned_division_name": "BU14 Removed"},
+            "reason": "stale after rename",
+        },
+        base_dir=tmp_path,
+    )
+    payload, fallbacks, stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+    assert fallbacks == []
+    assert stale == ["BU14 Premier Phoenix Rising"]
+    # Team still routed via prefix-resolved name; the entrant's actual_division_name
+    # is the BU14-stripped "Premier".
+    assert len(payload["entrants"]) == 1
+    assert payload["entrants"][0]["actual_division_name"] == "Premier"
 
 
 # ---------------------------------------------------------------------------

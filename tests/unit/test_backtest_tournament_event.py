@@ -164,9 +164,15 @@ def test_enrich_registry_rows_with_matcher_promotes_high_confidence_match(monkey
             }
         ]
 
-    monkeypatch.setattr(event_backtest, "search_event_team_in_db", lambda *args, **kwargs: FakeResult())
+    # Shell 10 lifted enrich_registry_rows_with_matcher into the matcher module —
+    # patch the symbol where the function actually looks it up.
+    from src.tournaments import event_team_matcher
 
-    enriched_rows, status_counts = event_backtest._enrich_registry_rows_with_matcher(client=None, registry_rows=registry_rows)
+    monkeypatch.setattr(event_team_matcher, "search_event_team_in_db", lambda *args, **kwargs: FakeResult())
+
+    enriched_rows, status_counts = event_team_matcher.enrich_registry_rows_with_matcher(
+        client=None, registry_rows=registry_rows
+    )
 
     assert status_counts == {"high_confidence": 1}
     assert enriched_rows[0]["matcher_status"] == "high_confidence"

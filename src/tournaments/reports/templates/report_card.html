@@ -1,0 +1,166 @@
+{#-
+  Report Card v1 template — block order matches Section 9 of the spec
+  and the brainstorm mockup at .superpowers/brainstorm/11406-1776984436/content/report-card.html.
+
+  Fields are auto-escaped (Environment created with autoescape=True) so
+  no manual `| e` is required. Inline CSS only, no external assets, no
+  JS — ships as a self-contained standalone HTML or as an embedded
+  fragment.
+-#}
+{%- macro fmt_metric(value, unit) -%}
+{%- if value is none -%}
+n/a
+{%- elif unit == 'rate' -%}
+{{ '%.0f%%' | format(value * 100) }}
+{%- elif unit == 'gd' -%}
+{{ '%.2f' | format(value) }}
+{%- else -%}
+{{ value | int }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro fmt_delta(metric) -%}
+{%- if metric.delta is none -%}
+n/a
+{%- elif metric.unit == 'rate' -%}
+{{ '%+.0f pp' | format(metric.delta * 100) }}
+{%- elif metric.unit == 'gd' -%}
+{{ '%+.2f' | format(metric.delta) }}
+{%- else -%}
+{{ '%+d' | format(metric.delta | int) }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro delta_class(metric) -%}
+{%- if metric.delta is none -%}
+delta-na
+{%- elif metric.delta > 0 -%}
+delta-up
+{%- elif metric.delta < 0 -%}
+delta-down
+{%- else -%}
+delta-flat
+{%- endif -%}
+{%- endmacro -%}
+
+<section class="report-card">
+  <header class="rc-header">
+    <div class="rc-eyebrow">MatchBalance Report Card</div>
+    <h1 class="rc-title">{{ report_card.event_name }} · {{ report_card.gender }} {{ report_card.age_group }}</h1>
+    <div class="rc-meta">
+      Run <code>{{ report_card.run_id }}</code> · scenario <code>{{ report_card.scenario }}</code> · computed {{ report_card.computed_at }}
+    </div>
+  </header>
+
+  <section class="rc-hero">
+    <div class="rc-card rc-actual">
+      <div class="rc-eyebrow rc-eyebrow-muted">Actual tournament</div>
+      {% if report_card.balance_score.actual is none %}
+        <div class="rc-na">n/a &mdash; actual per-match data not available in v1</div>
+      {% else %}
+        <div class="rc-score">{{ '%.0f' | format(report_card.balance_score.actual) }}</div>
+        <div class="rc-meta">/ 100 Balance Score</div>
+      {% endif %}
+    </div>
+    <div class="rc-card rc-optimized">
+      <div class="rc-eyebrow rc-eyebrow-good">MatchBalance</div>
+      <div class="rc-score rc-score-good">{{ '%.0f' | format(report_card.balance_score.optimized) }}</div>
+      <div class="rc-meta rc-meta-good">/ 100 Balance Score &middot; preset <code>{{ report_card.balance_score.preset_id }}</code></div>
+      {% if report_card.balance_score.delta is not none %}
+        <div class="rc-badge {{ 'rc-badge-good' if report_card.balance_score.delta > 0 else 'rc-badge-bad' }}">
+          {{ '%+.0f' | format(report_card.balance_score.delta) }}
+        </div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="rc-section">
+    <div class="rc-eyebrow">Why MatchBalance beats the status quo</div>
+    {% if report_card.top_reasons %}
+      <ul class="rc-list">
+        {% for reason in report_card.top_reasons %}
+          <li>{{ reason.text }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="rc-na">No measurable improvement over the actual schedule.</div>
+    {% endif %}
+  </section>
+
+  <section class="rc-section">
+    <div class="rc-eyebrow">Side-by-side metrics</div>
+    <table class="rc-table">
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th class="rc-num">Actual</th>
+          <th class="rc-num">MatchBalance</th>
+          <th class="rc-num">&Delta;</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for metric in report_card.metrics %}
+          <tr>
+            <td>{{ metric.label }}</td>
+            <td class="rc-num">{{ fmt_metric(metric.actual, metric.unit) }}</td>
+            <td class="rc-num rc-bold">{{ fmt_metric(metric.optimized, metric.unit) }}</td>
+            <td class="rc-num {{ delta_class(metric) }}">{{ fmt_delta(metric) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% if report_card.risk_flags %}
+    <section class="rc-section rc-risks">
+      <div class="rc-eyebrow rc-eyebrow-amber">Risk flags &middot; {{ report_card.risk_flags | length }} items</div>
+      <ul class="rc-list">
+        {% for flag in report_card.risk_flags %}
+          <li>
+            <span class="rc-severity rc-severity-{{ flag.severity }}">{{ flag.severity }}</span>
+            <span class="rc-category">{{ flag.category }}</span>
+            &mdash; {{ flag.message }}
+            {% if flag.affected_teams %}
+              <span class="rc-affected">({{ flag.affected_teams | join(', ') }})</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if report_card.team_movements %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Team movements &middot; {{ report_card.team_movements | length }} changes</div>
+      <ul class="rc-list rc-mono">
+        {% for movement in report_card.team_movements %}
+          <li>
+            {{ movement.team_name }} &middot;
+            <span class="rc-from">{{ movement.from_division }}</span>
+            &rarr;
+            <span class="rc-to">{{ movement.to_division }}</span>
+            <span class="rc-move-{{ movement.move }}">({{ movement.move }})</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if report_card.override_audit %}
+    <details class="rc-section rc-audit">
+      <summary class="rc-eyebrow">Override audit log &middot; {{ report_card.override_audit | length }} records</summary>
+      <ul class="rc-list rc-mono">
+        {% for entry in report_card.override_audit %}
+          {% set rec = entry.record %}
+          <li>
+            <code>{{ rec.get('ts', '') }}</code>
+            &middot; {{ rec.get('actor', '') }}
+            &middot; <strong>{{ rec.get('type', '') }}</strong>
+            &middot; team_ref={{ rec.get('team_ref', '') }}
+            {% if rec.get('reason') %} &middot; <em>{{ rec.get('reason') }}</em>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </details>
+  {% endif %}
+</section>

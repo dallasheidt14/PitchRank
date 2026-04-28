@@ -78,7 +78,7 @@ def _bootstrap(base: Path) -> None:
 
 def test_payload_carries_prediction_date_from_extras(tmp_path: Path):
     _bootstrap(tmp_path)
-    payload, _fallbacks = _build_cohort_request_payload(
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
         EVENT_KEY,
         SCENARIO,
         "u14",

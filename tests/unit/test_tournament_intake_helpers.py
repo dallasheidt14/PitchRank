@@ -13,6 +13,7 @@ from datetime import date
 from src.tournaments.triage import ProjectedTeamState
 from tournament_intake import (
     _DISABLED_MODES,
+    _build_division_groups,
     _cohort_sort_key,
     _cohort_toggle_key,
     _default_snapshot,
@@ -248,3 +249,63 @@ def test_default_snapshot_falls_back_to_today_when_date_missing():
 
 def test_default_snapshot_falls_back_to_today_on_unparseable_date():
     assert _default_snapshot("not-a-date") == date.today()
+
+
+# -------- _build_division_groups (resolver wiring) ----------------------
+
+
+class _StubDivision:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _StubStructure:
+    def __init__(self, names: list[str]) -> None:
+        self.divisions = [_StubDivision(n) for n in names]
+
+
+def test_build_division_groups_explicit_assignment_wins_over_prefix():
+    """Operator override-projected ``assigned_division_name`` must beat
+    the prefix heuristic when both could match."""
+    structure = _StubStructure(["BU14 Premier", "BU14 Champions"])
+    records = [
+        {"provider_team_id": "pid-1", "bracket_name": "BU14 Premier Phoenix Rising"},
+    ]
+    team_state = {
+        "pid-1": ProjectedTeamState(state="resolved", assigned_division_name="BU14 Champions"),
+    }
+    groups = _build_division_groups(records, structure, team_state)
+    assert groups["BU14 Champions"] == ["pid-1"]
+    assert groups["BU14 Premier"] == []
+
+
+def test_build_division_groups_default_empty_team_state_is_prefix_only():
+    """Calls without ``team_state`` (or with an empty mapping) must
+    behave identically to the prior prefix-only path — keeps existing
+    test/render callers safe even though the resolver is wired in."""
+    structure = _StubStructure(["BU14 Premier", "BU14 Champions"])
+    records = [
+        {"provider_team_id": "pid-1", "bracket_name": "BU14 Premier Phoenix Rising"},
+    ]
+    groups = _build_division_groups(records, structure)
+    assert groups["BU14 Premier"] == ["pid-1"]
+    assert groups["BU14 Champions"] == []
+
+
+def test_build_division_groups_unknown_bracket_falls_back_to_first_division():
+    """When neither override nor prefix resolves, the team lands in the
+    first division — preserves the prior fallback behavior at this site."""
+    structure = _StubStructure(["BU14 Premier", "BU14 Champions"])
+    records = [
+        {"provider_team_id": "pid-1", "bracket_name": "Unrelated Bracket"},
+    ]
+    groups = _build_division_groups(records, structure)
+    assert groups["BU14 Premier"] == ["pid-1"]
+
+
+def test_build_division_groups_unstructured_when_no_structure():
+    """``structure_for_cohort=None`` short-circuits to a single virtual
+    ``_unstructured`` bucket — preserves the "ship before Shell 05" path."""
+    records = [{"provider_team_id": "pid-1", "bracket_name": "anything"}]
+    groups = _build_division_groups(records, None)
+    assert groups == {"_unstructured": ["pid-1"]}
