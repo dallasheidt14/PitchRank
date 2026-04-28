@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import html
+import logging
 import os
 import sys
 import uuid
@@ -36,6 +37,7 @@ from src.scrapers.provider import (
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
+    enrich_registry_rows_with_matcher,
     search_event_team_in_db,
 )
 from src.tournaments.run_orchestrator import (
@@ -52,20 +54,25 @@ from src.tournaments.storage import (
     CohortStructure,
     DivisionStructure,
     EventMetadata,
+    RegistryPersistResult,
     RunStateError,
     ScenarioLockError,
     SchemaVersionError,
+    TeamRegistryEntry,
     acquire_scenario_lock,
     append_override,
+    build_registry_entries,
     check_games_import_status,
     compute_frozen_medians,
     ensure_scenario,
     event_key,
     intake_dir,
     list_runs,
+    list_scenarios,
     load_overrides,
     load_raw_scrape,
     parse_event_key,
+    persist_registry_for_scenario,
     read_constraints,
     read_event_metadata,
     read_frozen_medians,
@@ -93,6 +100,8 @@ from src.tournaments.triage import (
     resolve_division_assignment,
 )
 from supabase import create_client
+
+logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
@@ -573,6 +582,120 @@ def _show_captcha_error(exc: EventCaptchaGatedError) -> None:
     )
 
 
+def _persist_registry_after_scrape(
+    event_key_value: str,
+    scenario_active: str,
+    supabase_client: Any,
+    *,
+    base_dir: Path | str = "reports",
+) -> list[RegistryPersistResult]:
+    """Translate the just-written ``intake/raw_scrape.jsonl`` into per-scenario
+    ``event_team_registry.csv`` files.
+
+    Sourcing the registry from the journal (rather than from the scraper's
+    return value) keeps the ``ProviderScraper`` ABC scenario-blind. The
+    journal is fully compacted by the time this runs — ``journal.compact()``
+    fires synchronously inside ``fetch_teams_by_cohort`` and inside the
+    event-tier ``_acquire_scrape_lock``, before this helper is invoked.
+
+    The matcher cache lives in this single ``enrich_registry_rows_with_matcher``
+    call; the per-scenario fan-out below operates on already-enriched
+    entries. Threading the cache into the per-scenario loop would re-run the
+    matcher per scenario for no benefit (per memory
+    ``gotcha_matcher_cache_load_bearing.md``).
+
+    Returns one ``RegistryPersistResult`` per scenario; the caller (the
+    Streamlit ``_run_scrape``) renders them via
+    ``_render_registry_persist_results`` after ``st.rerun()``.
+    """
+    journal_records = load_raw_scrape(event_key_value, base_dir=base_dir)
+    fresh_entries = build_registry_entries(journal_records)
+
+    if supabase_client is None:
+        logger.warning(
+            "supabase_client is None; persisting registry without matcher enrichment "
+            "(every matcher_* column will be '')"
+        )
+        enriched_entries: list[TeamRegistryEntry] = fresh_entries
+    else:
+        matcher_cache: dict[tuple[tuple[str, ...], str, bool], list[dict[str, Any]]] = {}
+        enriched_rows, _status_counts = enrich_registry_rows_with_matcher(
+            supabase_client,
+            [e.to_row() for e in fresh_entries],
+            cache=matcher_cache,
+        )
+        enriched_entries = [TeamRegistryEntry.from_row(r) for r in enriched_rows]
+
+    scenarios = list_scenarios(event_key_value, base_dir=base_dir)
+    if not scenarios:
+        raise RuntimeError(
+            f"ensure_scenario must precede _persist_registry_after_scrape; "
+            f"got empty scenario list for event_key={event_key_value!r} "
+            f"(active={scenario_active!r})"
+        )
+
+    results: list[RegistryPersistResult] = []
+    for scenario in scenarios:
+        try:
+            with acquire_scenario_lock(event_key_value, scenario, base_dir=base_dir, timeout=2.0):
+                results.append(
+                    persist_registry_for_scenario(event_key_value, scenario, enriched_entries, base_dir=base_dir)
+                )
+        except ScenarioLockError:
+            results.append(
+                RegistryPersistResult(
+                    scenario=scenario,
+                    written=False,
+                    row_count=0,
+                    dropped_pids=[],
+                    lock_contention=True,
+                    error="locked by another tab",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — partial-success contract
+            logger.exception("persist_registry_for_scenario failed for scenario=%s", scenario)
+            results.append(
+                RegistryPersistResult(
+                    scenario=scenario,
+                    written=False,
+                    row_count=0,
+                    dropped_pids=[],
+                    lock_contention=False,
+                    error=str(exc),
+                )
+            )
+    return results
+
+
+def _render_registry_persist_results() -> None:
+    """Surface per-scenario registry-persistence outcomes after ``st.rerun()``.
+
+    ``_run_scrape`` stashes the result list on ``st.session_state`` BEFORE
+    calling ``st.rerun()`` because Streamlit discards transient widgets
+    (``st.error`` / ``st.warning`` / ``st.info``) on the next script run.
+    The renderer dispatches on ``lock_contention: bool`` (NOT on the ``error``
+    string contents) — the dataclass discriminator is the contract.
+
+    Clears the session-state slot after rendering so messages don't re-render
+    on every subsequent rerun.
+    """
+    results: list[RegistryPersistResult] = st.session_state.get("_last_registry_persist_results", [])
+    if not results:
+        return
+    for r in results:
+        if r.written:
+            suffix = f" (dropped {len(r.dropped_pids)} orphan pid(s))" if r.dropped_pids else ""
+            st.info(f"Registry written for scenario '{r.scenario}': {r.row_count} rows{suffix}")
+        elif r.lock_contention:
+            st.warning(f"Scenario '{r.scenario}' was locked by another tab — registry not refreshed for that scenario.")
+        else:
+            st.error(
+                f"Scenario '{r.scenario}' failed to persist registry: {r.error}. "
+                f"Click Scrape to retry — the registry is regenerable."
+            )
+    st.session_state.pop("_last_registry_persist_results", None)
+
+
 def _run_scrape(url: str, supabase_client: Any) -> None:
     """Wire the Scrape button to ``get_provider_scraper(...)`` in-process."""
     try:
@@ -598,6 +721,11 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
             try:
                 with st.spinner("Scraping cohorts (this may take 1-3 min)..."):
                     scraper.fetch_teams_by_cohort(url)
+                with st.spinner("Persisting team registry..."):
+                    persist_results = _persist_registry_after_scrape(
+                        key, st.session_state.scenario_name, supabase_client
+                    )
+                    st.session_state._last_registry_persist_results = persist_results
             finally:
                 st.session_state._scrape_in_progress = False
     except _ScrapeLockContended:
@@ -3013,6 +3141,7 @@ def main() -> None:
     supabase_client = get_database()
     _render_rekey_banner()
     _render_intake_section(supabase_client)
+    _render_registry_persist_results()
 
     key = st.session_state.event_key
     if not key:
