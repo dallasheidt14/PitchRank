@@ -124,6 +124,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'maryland-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Maryland youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Maryland teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,572+ Maryland teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Maryland?',
+      answer:
+        'Major Maryland youth soccer clubs include Bethesda SC, Coppermine Soccer Club, SAC/BA, Maryland United FC, Potomac Soccer Association, Pipeline SC, Baltimore Celtic, and Baltimore Union. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Maryland soccer rankings updated?',
+      answer:
+        'Maryland youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover ECNL and MLS NEXT results in Maryland?',
+      answer:
+        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, and state-level competitions through MSYSA. All verified game results count toward rankings regardless of the league.',
+    },
+    {
+      question: 'How do Bethesda and Baltimore area clubs compare in rankings?',
+      answer:
+        "Both regions produce nationally competitive clubs. Bethesda SC, Potomac, and Montgomery-area programs anchor the D.C.-corridor scene, while Coppermine, Pipeline, Baltimore Celtic, and Baltimore Union lead the Baltimore metro. Use PitchRank's state filter to compare clubs across regions.",
+    },
+  ],
+
   'michigan-youth-soccer-rankings-guide': [
     {
       question: 'How are Michigan youth soccer teams ranked?',
@@ -177,6 +205,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'Can New Jersey team rankings help with college recruiting?',
       answer:
         "Rankings provide context for college coaches evaluating players. A team's position in their age group shows relative strength, and coaches can see how a player's team performs against top competition. However, individual highlight video, academics, and showcase attendance matter more than team rankings alone.",
+    },
+  ],
+
+  'new-york-youth-soccer-rankings-guide': [
+    {
+      question: 'How are New York youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks New York teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 3,697+ New York teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in New York?',
+      answer:
+        'Major New York youth soccer clubs include Manhattan SC, SUSA FC, Western New York Flash, Atlantic United, Long Island SC, East Coast Surf, East Meadow, World Class FC, and Brooklyn United Academy. Rankings vary by age group.',
+    },
+    {
+      question: 'How often are New York soccer rankings updated?',
+      answer:
+        'New York youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover LIJSL and EDP results in New York?',
+      answer:
+        "Yes. PitchRank ingests results from LIJSL premier divisions, EDP, ECNL, MLS NEXT, and major tournaments. All verified game results count toward a team's ranking regardless of the league or event.",
+    },
+    {
+      question: 'How do Long Island and NYC metro clubs compare in rankings?',
+      answer:
+        "Long Island has the deepest team density in the state, with SUSA FC, Long Island SC, East Coast Surf, and East Meadow leading. NYC and Westchester clubs like Manhattan SC, World Class FC, and Atlantic United compete more heavily on national platforms (ECNL, MLS NEXT) earlier in the development pyramid. Use PitchRank's state filter to compare clubs across regions.",
     },
   ],
 
@@ -289,6 +345,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'Can Texas youth soccer rankings help with college recruiting?',
       answer:
         "Rankings provide context for college coaches evaluating players. A team's position in their age group shows relative strength, and coaches can see how a player's team performs against top competition. However, individual highlight video, academics, and showcase attendance matter more than team rankings alone.",
+    },
+  ],
+
+  'virginia-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Virginia youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Virginia teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,511+ Virginia teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Virginia?',
+      answer:
+        'Major Virginia youth soccer clubs include Beach FC, Richmond United, Arlington Soccer, Springfield SYC, Prince William Soccer, VA Rush, Braddock Road Youth Club, Virginia Soccer Association, and Loudoun Soccer Club. Rankings vary by age group.',
+    },
+    {
+      question: 'How often are Virginia soccer rankings updated?',
+      answer:
+        'Virginia youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'Does PitchRank cover ECNL and MLS NEXT results in Virginia?',
+      answer:
+        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, ECNL Regional, NPL, and state-level competitions through VYSA. All verified game results count toward rankings regardless of the league.',
+    },
+    {
+      question: 'How do Northern Virginia and Hampton Roads clubs compare?',
+      answer:
+        "Northern Virginia has the deepest competitive density, anchored by Arlington Soccer, Springfield SYC, Loudoun, McLean, and Alexandria SA — plus tight integration with the D.C. metro youth soccer market. Hampton Roads' Beach FC is the largest single club in the state and competes heavily within Tidewater plus showcases in NoVA and Richmond. Use PitchRank's state filter to compare clubs across regions.",
     },
   ],
 
