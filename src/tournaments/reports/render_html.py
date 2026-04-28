@@ -17,6 +17,7 @@ at the package's ``templates/`` subdirectory (mirrors how
 
 from __future__ import annotations
 
+import html
 import os
 from pathlib import Path
 from typing import Literal
@@ -43,7 +44,11 @@ _env: Environment = Environment(
 
 _STANDALONE_CSS: str = """\
 :root { color-scheme: light; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 960px; margin: 24px auto; padding: 0 16px; line-height: 1.55; font-size: 14px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #111; max-width: 960px; margin: 24px auto; padding: 0 16px;
+  line-height: 1.55; font-size: 14px;
+}
 .report-card { background: #fff; }
 .rc-header { padding-bottom: 14px; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px; }
 .rc-title { margin: 4px 0; font-size: 22px; }
@@ -54,15 +59,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .rc-meta { font-size: 11px; color: #6b7280; }
 .rc-meta-good { color: #166534; }
 .rc-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-.rc-card { padding: 18px 20px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fafafa; position: relative; }
+.rc-card {
+  padding: 18px 20px; border: 1px solid #e5e7eb; border-radius: 10px;
+  background: #fafafa; position: relative;
+}
 .rc-optimized { border-color: #16a34a; background: #f0fdf4; }
 .rc-score { font-size: 42px; font-weight: 700; line-height: 1; color: #111; }
 .rc-score-good { color: #166534; }
 .rc-na { color: #6b7280; font-style: italic; padding: 6px 0; }
-.rc-badge { position: absolute; top: 18px; right: 20px; font-weight: 600; padding: 4px 10px; border-radius: 999px; font-size: 14px; }
+.rc-badge {
+  position: absolute; top: 18px; right: 20px; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px; font-size: 14px;
+}
 .rc-badge-good { color: #166534; background: #dcfce7; }
 .rc-badge-bad { color: #991b1b; background: #fee2e2; }
-.rc-section { padding: 14px 18px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; margin-bottom: 16px; }
+.rc-section {
+  padding: 14px 18px; border: 1px solid #e5e7eb; border-radius: 10px;
+  background: #fff; margin-bottom: 16px;
+}
 .rc-risks { border-color: #fde68a; background: #fffbeb; }
 .rc-list { margin: 8px 0 0; padding-left: 20px; }
 .rc-mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
@@ -75,7 +89,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .delta-down { color: #991b1b; }
 .delta-flat { color: #6b7280; }
 .delta-na { color: #9ca3af; font-style: italic; }
-.rc-severity { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; margin-right: 4px; }
+.rc-severity {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; margin-right: 4px;
+}
 .rc-severity-info { background: #e0e7ff; color: #3730a3; }
 .rc-severity-warning { background: #fef3c7; color: #92400e; }
 .rc-severity-blocker { background: #fee2e2; color: #991b1b; }
@@ -102,13 +119,21 @@ def render_html(
     fragment = template.render(report_card=report_card)
     if mode == "embedded":
         return fragment
+    # ``event_name`` / ``gender`` / ``age_group`` come from provider scrape
+    # output and the registry CSV, so they're untrusted from this module's
+    # perspective. The title is built outside Jinja's autoescape, so we
+    # escape explicitly to defend against ``</title><script>...`` style
+    # injection. The CSS is a static module constant — no escape needed.
+    safe_event_name = html.escape(report_card.event_name)
+    safe_gender = html.escape(report_card.gender)
+    safe_age_group = html.escape(report_card.age_group)
     return (
         "<!DOCTYPE html>\n"
-        "<html lang=\"en\">\n"
+        '<html lang="en">\n'
         "<head>\n"
-        "<meta charset=\"utf-8\">\n"
-        f"<title>Report Card &middot; {report_card.event_name} &middot; "
-        f"{report_card.gender} {report_card.age_group}</title>\n"
+        '<meta charset="utf-8">\n'
+        f"<title>Report Card &middot; {safe_event_name} &middot; "
+        f"{safe_gender} {safe_age_group}</title>\n"
         f"<style>\n{_STANDALONE_CSS}</style>\n"
         "</head>\n"
         "<body>\n"

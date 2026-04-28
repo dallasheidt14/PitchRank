@@ -107,6 +107,87 @@ def test_render_team_movements_csv_columns(tmp_path: Path):
     assert rows[0]["move"] == "move_down"
 
 
+def test_csv_formula_injection_prefixes_defanged(tmp_path: Path):
+    """Cells starting with ``=``, ``+``, ``-``, ``@`` must be prefixed with
+    ``'`` so spreadsheet apps render them as text instead of executing
+    formulas (OWASP CSV-injection mitigation)."""
+    rc = ReportCard(
+        event_key="gotsport__45224__2026",
+        scenario="default",
+        run_id="u14_boys_test",
+        age_group="u14",
+        gender="Boys",
+        event_name="Phoenix Cup 2026",
+        computed_at="2026-04-30T12:00:00+00:00",
+        balance_score=BalanceScore(actual=None, optimized=78.0, delta=None, preset_id="default"),
+        metrics=(),
+        risk_flags=(
+            RiskFlag(
+                severity="warning",
+                category="=cmd|attack",  # leading ``=``
+                message="+1+1 evil formula",  # leading ``+``
+                affected_teams=('=HYPERLINK("http://evil")',),  # leading ``=``
+            ),
+        ),
+        top_reasons=(),
+        team_movements=(
+            TeamMovement(
+                canonical_team_id="-12345",  # leading ``-``
+                team_name="@team",  # leading ``@``
+                from_division="Super Elite",
+                to_division="Super Pro",
+                move="move_down",
+            ),
+        ),
+    )
+    flags_path = render_risk_flags_csv(rc, tmp_path)
+    _, flag_rows = _read_csv(flags_path)
+    assert flag_rows[0]["category"].startswith("'=")
+    assert flag_rows[0]["message"].startswith("'+")
+    assert flag_rows[0]["affected_teams"].startswith("'=")
+
+    movements_path = render_team_movements_csv(rc, tmp_path)
+    _, movement_rows = _read_csv(movements_path)
+    assert movement_rows[0]["canonical_team_id"].startswith("'-")
+    assert movement_rows[0]["team_name"].startswith("'@")
+
+
+def test_csv_whitespace_prefixes_defanged(tmp_path: Path):
+    """OWASP CSV-injection guidance flags leading ``\\t``, ``\\r``, ``\\n``
+    too — Excel skips leading whitespace before formula detection in some
+    import paths, so ``"\\t=cmd|...!A1"`` parses as a live formula without
+    the prefix in ``_FORMULA_INJECTION_PREFIXES``."""
+    rc = ReportCard(
+        event_key="gotsport__45224__2026",
+        scenario="default",
+        run_id="u14_boys_test",
+        age_group="u14",
+        gender="Boys",
+        event_name="Phoenix Cup 2026",
+        computed_at="2026-04-30T12:00:00+00:00",
+        balance_score=BalanceScore(actual=None, optimized=78.0, delta=None, preset_id="default"),
+        metrics=(),
+        risk_flags=(
+            RiskFlag(
+                severity="warning",
+                category="\t=cmd|attack",  # leading TAB then formula
+                message="\r-evil",  # leading CR then formula
+                affected_teams=("\n=HYPERLINK",),  # leading LF then formula
+            ),
+        ),
+        top_reasons=(),
+        team_movements=(),
+    )
+    flags_path = render_risk_flags_csv(rc, tmp_path)
+    raw = flags_path.read_bytes().decode("utf-8")
+    # Each of the three whitespace-prefixed cells must be defanged with
+    # a leading single quote BEFORE the whitespace — the spreadsheet sees
+    # ``'\t=cmd|attack`` and renders it as text.
+    assert "'\t=cmd|attack" in raw
+    assert "'\r-evil" in raw or "'-evil" in raw  # CR may be normalized by csv module
+    assert "'\n=HYPERLINK" in raw or "'=HYPERLINK" in raw
+
+
 def test_render_all_csv_writes_three_files(tmp_path: Path):
     rc = _hand_built_report()
     metrics_path, flags_path, movements_path = render_all_csv(rc, tmp_path)

@@ -69,6 +69,7 @@ from src.tournaments.triage import (
     ProjectedTeamState,
     _is_placeholder_team,
     project_overrides,
+    registry_provider_id,
 )
 
 __all__ = [
@@ -219,9 +220,7 @@ def _read_run_metadata(run_dir_path: Path) -> dict[str, Any]:
     """
     path = run_dir_path / "run_metadata.json"
     if not path.exists():
-        raise ReportCardError(
-            f"run_metadata.json missing at {path}; cannot determine cohort identity"
-        )
+        raise ReportCardError(f"run_metadata.json missing at {path}; cannot determine cohort identity")
     payload = read_json(path)
     try:
         assert_supported_version(payload, source=str(path))
@@ -336,10 +335,7 @@ def _compute_balance_score(
     weights_dict = extras.get("balance_score_weights") or {}
     preset_id = str(weights_dict.get("preset_id") or "default")
     if preset_id != "default":
-        raise ValueError(
-            f"Unsupported balance_score_weights preset_id: {preset_id!r} "
-            "(v1 only supports 'default')"
-        )
+        raise ValueError(f"Unsupported balance_score_weights preset_id: {preset_id!r} (v1 only supports 'default')")
 
     flags: list[RiskFlag] = []
     matches = list(_iter_optimized_matches(optimized_proj))
@@ -355,10 +351,7 @@ def _compute_balance_score(
             RiskFlag(
                 severity="info",
                 category="no_early_meetings",
-                message=(
-                    "Cohort has no pool/semi early-meeting matches; "
-                    "same-club and rematch rates forced to 0."
-                ),
+                message=("Cohort has no pool/semi early-meeting matches; same-club and rematch rates forced to 0."),
             )
         )
     else:
@@ -366,10 +359,7 @@ def _compute_balance_score(
         rematch_rate = rematch_count / total_early
 
     optimized_score = (
-        50 * one_goal_rate
-        + 30 * (1 - blowout_5plus_rate)
-        + 10 * (1 - same_club_early_rate)
-        + 10 * (1 - rematch_rate)
+        50 * one_goal_rate + 30 * (1 - blowout_5plus_rate) + 10 * (1 - same_club_early_rate) + 10 * (1 - rematch_rate)
     )
     return (
         BalanceScore(
@@ -396,15 +386,21 @@ def _build_top_reasons(
     template_order = list(TOP_REASON_TEMPLATES.keys())
     candidates: list[tuple[str, float, str]] = []  # (key, magnitude, text)
 
+    # Each template asserts a directional improvement ("Reduced", "Raised",
+    # "Tightened"), so we filter to genuine wins only — emitting "Reduced
+    # 5+ goal mismatches" when blowouts went UP would mislead the
+    # Report Card reader. Direction per metric:
+    #   blowout_5plus / avg_gd: lower-is-better (opt < actual)
+    #   one_goal_rate: higher-is-better (opt > actual)
     actual_5plus = actual_results.get("blowout_5plus_rate")
     opt_5plus = optimized_proj.get("blowout_5plus_rate")
-    if actual_5plus is not None and opt_5plus is not None:
+    if actual_5plus is not None and opt_5plus is not None and float(opt_5plus) < float(actual_5plus):
+        # Directional gate (opt < actual on a non-negative rate) guarantees
+        # actual_5plus > 0, so the divide is safe and the prior
+        # ``if actual_5plus == 0`` zero-guard is unreachable here.
         actual_count = int(round(float(actual_5plus) * int(actual_results.get("actual_game_count", 0) or 0)))
         opt_count = int(round(float(opt_5plus) * int(optimized_proj.get("match_count", 0) or 0)))
-        if actual_5plus == 0:
-            pct_change = 0.0 if opt_5plus == 0 else float(opt_5plus)
-        else:
-            pct_change = (float(opt_5plus) - float(actual_5plus)) / float(actual_5plus)
+        pct_change = (float(opt_5plus) - float(actual_5plus)) / float(actual_5plus)
         text = TOP_REASON_TEMPLATES["blowout_5plus"].format(
             actual_count=actual_count,
             optimized_count=opt_count,
@@ -414,7 +410,7 @@ def _build_top_reasons(
 
     actual_one = actual_results.get("close_game_rate")
     opt_one = optimized_proj.get("close_game_rate")
-    if actual_one is not None and opt_one is not None:
+    if actual_one is not None and opt_one is not None and float(opt_one) > float(actual_one):
         text = TOP_REASON_TEMPLATES["one_goal_rate"].format(
             actual_pct=float(actual_one),
             optimized_pct=float(opt_one),
@@ -423,7 +419,7 @@ def _build_top_reasons(
 
     actual_avg = actual_results.get("average_goal_differential")
     opt_avg = optimized_proj.get("average_goal_differential")
-    if actual_avg is not None and opt_avg is not None:
+    if actual_avg is not None and opt_avg is not None and float(opt_avg) < float(actual_avg):
         text = TOP_REASON_TEMPLATES["avg_gd"].format(
             actual_avg=float(actual_avg),
             optimized_avg=float(opt_avg),
@@ -499,10 +495,7 @@ def _build_risk_flags(
             RiskFlag(
                 severity="info",
                 category="snapshot_freshness_unknown",
-                message=(
-                    "Snapshot date or event start date not recorded; "
-                    "freshness cannot be computed."
-                ),
+                message=("Snapshot date or event start date not recorded; freshness cannot be computed."),
             )
         )
     else:
@@ -550,10 +543,7 @@ def _build_risk_flags(
                     RiskFlag(
                         severity="info",
                         category="external_with_assumed_median",
-                        message=(
-                            f"{team_name}: external team using cohort-recomputed "
-                            "median power score."
-                        ),
+                        message=(f"{team_name}: external team using cohort-recomputed median power score."),
                         affected_teams=(team_name,),
                     )
                 )
@@ -562,10 +552,7 @@ def _build_risk_flags(
                     RiskFlag(
                         severity="info",
                         category="external_no_override",
-                        message=(
-                            f"{team_name}: external team without a "
-                            "recompute_medians cohort override."
-                        ),
+                        message=(f"{team_name}: external team without a recompute_medians cohort override."),
                         affected_teams=(team_name,),
                     )
                 )
@@ -575,8 +562,7 @@ def _build_risk_flags(
                     severity="warning",
                     category="placeholder_match",
                     message=(
-                        f"{team_name}: matched to ``unknown_<provider_id>`` "
-                        "placeholder; resolve before publishing."
+                        f"{team_name}: matched to ``unknown_<provider_id>`` placeholder; resolve before publishing."
                     ),
                     affected_teams=(team_name,),
                 )
@@ -591,10 +577,7 @@ def _build_risk_flags(
                 RiskFlag(
                     severity="info",
                     category="low_games",
-                    message=(
-                        f"{team_name}: only {games} games this season "
-                        f"(threshold: < {LOW_GAMES_THRESHOLD})."
-                    ),
+                    message=(f"{team_name}: only {games} games this season (threshold: < {LOW_GAMES_THRESHOLD})."),
                     affected_teams=(team_name,) if team_name else (),
                 )
             )
@@ -634,9 +617,7 @@ def _build_risk_flags(
         RiskFlag(
             severity="info",
             category="coach_data_unavailable",
-            message=(
-                "Coach data not yet collected; same-coach metric reserved for v2."
-            ),
+            message=("Coach data not yet collected; same-coach metric reserved for v2."),
         )
     )
 
@@ -703,11 +684,11 @@ def compute_report_card(
     overrides = load_overrides(event_key, scenario, base_dir=base_dir)
     team_state, cohort_state = project_overrides(overrides)
     registry = read_registry(event_key, scenario, base_dir=base_dir)
-    registry_pids = {
-        entry.resolved_gotsport_provider_team_id
-        for entry in registry
-        if entry.resolved_gotsport_provider_team_id
-    }
+    # Use ``registry_provider_id`` so overrides keyed by the
+    # ``event_registration_id`` fallback (unresolved registry rows, manual-adds)
+    # are not falsely flagged as ``rescrape_orphan_override``. This mirrors how
+    # ``triage.is_ready`` derives the per-row identity.
+    registry_pids = {pid for entry in registry if (pid := registry_provider_id(entry))}
 
     matches = list(_iter_optimized_matches(optimized_proj))
     same_club_early_count = _count_same_club_early(matches, entrants_by_id)

@@ -25,7 +25,6 @@ from tests.unit.test_reports_compute import (
     _write_summary,
 )
 
-
 _ARTIFACTS: tuple[str, ...] = (
     "comparison.json",
     "comparison_metrics.csv",

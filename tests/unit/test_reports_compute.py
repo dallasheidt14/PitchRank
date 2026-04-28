@@ -18,7 +18,6 @@ import pytest
 
 from src.tournaments.reports.compute import (
     LOW_GAMES_THRESHOLD,
-    STALE_SNAPSHOT_DAYS,
     ReportCardError,
     compute_report_card,
 )
@@ -737,6 +736,78 @@ def test_top_reasons_ordered_by_magnitude(tmp_path: Path):
     assert "Tightened average goal differential" in rc.top_reasons[0].text
     assert "5+ goal mismatches" in rc.top_reasons[1].text
     assert "one-goal games" in rc.top_reasons[2].text
+
+
+def test_top_reasons_skip_regressed_metrics(tmp_path: Path):
+    """A metric that got worse must not appear in top reasons — the
+    templates assert directional improvement ("Reduced", "Raised",
+    "Tightened") and emitting them when the optimized side is worse
+    misleads the Report Card reader."""
+    run_path = _bootstrap(tmp_path)
+    # Optimized blowouts WORSE than actual; one_goal lower; avg_gd higher.
+    matches = [
+        {"stage": "Pool", "home_team_id": "e1", "away_team_id": "e2", "goal_differential": 6},
+        {"stage": "Pool", "home_team_id": "e3", "away_team_id": "e4", "goal_differential": 5},
+    ]
+    actual_overrides = {
+        "actual_game_count": 2,
+        "average_goal_differential": 1.0,
+        "close_game_rate": 0.9,
+        "blowout_3plus_rate": 0.1,
+        "blowout_5plus_rate": 0.0,
+    }
+    _write_summary(run_path, matches=matches, actual_overrides=actual_overrides)
+    _write_division_recommendations(run_path)
+
+    rc = compute_report_card(EVENT_KEY, SCENARIO, RUN_ID, base_dir=tmp_path)
+    # No reason should be emitted because every direction is a regression.
+    for reason in rc.top_reasons:
+        assert "Reduced" not in reason.text
+        assert "Raised" not in reason.text
+        assert "Tightened" not in reason.text
+
+
+def test_orphan_detection_uses_event_registration_fallback(tmp_path: Path):
+    """Registry rows with empty ``resolved_gotsport_provider_team_id`` fall
+    back to ``event_registration_id`` for the orphan check, mirroring how
+    ``triage.is_ready`` derives per-row identity."""
+    # Add a registry row with no resolved provider id but an event registration id.
+    fallback_row = TeamRegistryEntry(
+        event_registration_id="reg-fallback-1",
+        event_team_name="Fallback Team",
+        event_age_group="u14",
+        event_gender="Boys",
+        resolved_gotsport_provider_team_id="",  # falls back to reg-fallback-1
+        resolved_team_id_master="",
+        in_scope_u10_u19="True",
+        event_club_name="Fallback Club",
+    )
+    run_path = _bootstrap(tmp_path, extra_registry_rows=[fallback_row])
+    _write_summary(run_path)
+    _write_division_recommendations(run_path)
+    # Override targets the fallback id — used to be flagged as orphan.
+    append_override(
+        EVENT_KEY,
+        SCENARIO,
+        build_override_record(
+            ts="2026-04-29T10:00:00+00:00",
+            actor="dallas@pitchrank.io",
+            scope="team",
+            type="mark_external",
+            team_ref="reg-fallback-1",
+            before={},
+            after={"event_team_name": "Fallback Team"},
+            reason="external",
+        ),
+        base_dir=tmp_path,
+    )
+
+    rc = compute_report_card(EVENT_KEY, SCENARIO, RUN_ID, base_dir=tmp_path)
+    orphan_flags = [f for f in rc.risk_flags if f.category == "rescrape_orphan_override"]
+    assert orphan_flags == [], (
+        "Override keyed by event_registration_id fallback was falsely flagged as orphan; "
+        "registry_pids must use registry_provider_id() to honor the fallback."
+    )
 
 
 def test_team_movements_filtered_to_non_stay(tmp_path: Path):

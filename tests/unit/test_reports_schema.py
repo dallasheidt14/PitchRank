@@ -45,9 +45,7 @@ def _sample_report_card() -> ReportCard:
             RiskFlag(severity="info", category="low_games", message="Foo: only 4 games", affected_teams=("Foo",)),
             RiskFlag(severity="warning", category="stale_ranking_snapshot", message="Snapshot is 9 days old"),
         ),
-        top_reasons=(
-            TopReason(text="Reduced 5+ goal mismatches from 4 to 1 (-75%)."),
-        ),
+        top_reasons=(TopReason(text="Reduced 5+ goal mismatches from 4 to 1 (-75%)."),),
         team_movements=(
             TeamMovement(
                 canonical_team_id="tim-1",
