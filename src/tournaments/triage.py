@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -45,9 +45,15 @@ _ACTOR_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "DivisionResolution",
+    "DivisionSource",
     "ProjectedCohortState",
     "ProjectedTeamState",
     "ReadinessResult",
+    "SOURCE_EXPLICIT",
+    "SOURCE_NONE",
+    "SOURCE_PREFIX",
+    "SOURCE_STALE",
     "TeamState",
     "_OVERRIDE_TYPES",
     "_STRENGTH_MODES",
@@ -58,6 +64,7 @@ __all__ = [
     "is_ready",
     "project_overrides",
     "registry_provider_id",
+    "resolve_division_assignment",
 ]
 
 
@@ -68,6 +75,7 @@ _OVERRIDE_TYPES: tuple[str, ...] = (
     "edit_external",
     "manual_add",
     "recompute_medians",
+    "assign_division",
 )
 """Closed set of override ``type`` values. Pinned by tests so a future
 refactor can't quietly add a new one without updating the projection
@@ -81,7 +89,7 @@ value.
 """
 
 _TEAM_SCOPED_TYPES: frozenset[str] = frozenset(
-    {"accept_match", "fix_match", "mark_external", "edit_external", "manual_add"}
+    {"accept_match", "fix_match", "mark_external", "edit_external", "manual_add", "assign_division"}
 )
 _COHORT_SCOPED_TYPES: frozenset[str] = frozenset({"recompute_medians"})
 
@@ -101,6 +109,7 @@ class ProjectedTeamState:
     state: TeamState
     team_id_master: str | None = None
     manual_seed_group: str | None = None
+    assigned_division_name: str | None = None
     strength_mode: str | None = None
     manual_power_score: float | None = None
     note: str | None = None
@@ -268,14 +277,27 @@ def _apply_team_override(
     Per-type rules pinned in the plan's Override Record Contract §6.
     """
     after = after or {}
+    carried_division = prior.assigned_division_name if prior is not None else None
+    if type_ == "assign_division":
+        carry = prior or ProjectedTeamState(state="unknown")
+        return replace(
+            carry,
+            assigned_division_name=str(after.get("assigned_division_name") or "") or None,
+            last_override_ts=ts,
+        )
     if type_ in ("accept_match", "fix_match"):
         return ProjectedTeamState(
             state="resolved",
             team_id_master=str(after.get("team_id_master") or "") or None,
+            assigned_division_name=carried_division,
             last_override_ts=ts,
         )
     if type_ == "mark_external":
-        return ProjectedTeamState(state="external", last_override_ts=ts)
+        return ProjectedTeamState(
+            state="external",
+            assigned_division_name=carried_division,
+            last_override_ts=ts,
+        )
     if type_ == "edit_external":
         strength_mode = str(after.get("strength_mode") or "") or None
         manual_power_score = after.get("manual_power_score")
@@ -286,6 +308,7 @@ def _apply_team_override(
             state="external",
             team_id_master=carried_team_id,
             manual_seed_group=str(after.get("manual_seed_group") or "") or None,
+            assigned_division_name=carried_division,
             strength_mode=strength_mode,
             manual_power_score=(float(manual_power_score) if manual_power_score is not None else None),
             note=str(after.get("note") or "") or None,
@@ -300,6 +323,7 @@ def _apply_team_override(
                 state="resolved",
                 team_id_master=str(after.get("team_id_master") or "") or None,
                 manual_seed_group=str(after.get("manual_seed_group") or "") or None,
+                assigned_division_name=carried_division,
                 last_override_ts=ts,
                 cohort_age_group=cohort_age,
                 cohort_gender=cohort_gender,
@@ -313,6 +337,7 @@ def _apply_team_override(
         return ProjectedTeamState(
             state="external",
             manual_seed_group=str(after.get("manual_seed_group") or "") or None,
+            assigned_division_name=carried_division,
             strength_mode=strength_mode,
             manual_power_score=(float(manual_power_score) if manual_power_score is not None else None),
             note=str(after.get("note") or "") or None,
@@ -321,6 +346,84 @@ def _apply_team_override(
             cohort_gender=cohort_gender,
         )
     raise ValueError(f"unhandled team-scoped override type: {type_!r}")
+
+
+DivisionSource = Literal["explicit", "prefix", "stale", "none"]
+"""Pinned vocabulary for ``DivisionResolution.source``. Re-exported so
+callers can branch on the constants below instead of bare string literals
+(typo-safe — a misspelled ``"None"`` would silently miscategorize)."""
+
+SOURCE_EXPLICIT: DivisionSource = "explicit"
+SOURCE_PREFIX: DivisionSource = "prefix"
+SOURCE_STALE: DivisionSource = "stale"
+SOURCE_NONE: DivisionSource = "none"
+
+
+@dataclass(frozen=True)
+class DivisionResolution:
+    """Result of ``resolve_division_assignment``.
+
+    ``source`` distinguishes never-assigned (``SOURCE_NONE``), operator-confirmed
+    (``SOURCE_EXPLICIT``), heuristic-resolved (``SOURCE_PREFIX``), and
+    assigned-to-deleted-division (``SOURCE_STALE``). Callers act on ``name`` for
+    routing and on ``source`` for telemetry / fallback decisions.
+
+    Approved consumer policies for ``SOURCE_STALE`` (intentionally diverge
+    by use case):
+
+    - ``run_orchestrator._build_cohort_request_payload`` — route the team
+      to the prefix-resolved fallback name and emit a
+      ``division_routing_stale_assignment`` parser_warning so cleanup is
+      observable.
+    - ``tournament_intake._build_division_groups`` — silently group with
+      explicit/prefix matches. The Shell 04 left pane is purely a render
+      surface; stale teams are surfaced separately by the per-row form.
+    - ``tournament_intake._recompute_medians_inner`` — skip the team
+      entirely (do NOT contaminate medians) and emit an ``st.warning``.
+    """
+
+    name: str | None
+    source: DivisionSource
+
+
+def resolve_division_assignment(
+    projected: ProjectedTeamState | None,
+    event_team_name: str | None,
+    *,
+    division_names: list[str],
+) -> DivisionResolution:
+    """Pick the authoritative division for a team in this cohort.
+
+    Precedence: explicit override-projected assignment → longest-prefix
+    match on ``event_team_name`` → none. The ``stale`` source surfaces
+    removed-division cleanup needs distinctly from genuine "never
+    assigned" teams.
+    """
+    if projected and projected.assigned_division_name:
+        if projected.assigned_division_name in division_names:
+            return DivisionResolution(name=projected.assigned_division_name, source=SOURCE_EXPLICIT)
+        # Stale: division was renamed/removed in structure form.
+        # Fall through to prefix; caller emits a parser_warning.
+        return DivisionResolution(name=_longest_prefix(event_team_name, division_names), source=SOURCE_STALE)
+    matched = _longest_prefix(event_team_name, division_names)
+    if matched is None:
+        return DivisionResolution(name=None, source=SOURCE_NONE)
+    return DivisionResolution(name=matched, source=SOURCE_PREFIX)
+
+
+def _longest_prefix(event_team_name: str | None, division_names: list[str]) -> str | None:
+    """Return the longest division name that prefixes ``event_team_name``.
+
+    Single source of truth for the bracket-prefix heuristic — reused by
+    the resolver's prefix + stale paths.
+    """
+    bracket = (event_team_name or "").strip()
+    if not bracket or not division_names:
+        return None
+    for name in sorted(division_names, key=len, reverse=True):
+        if name and bracket.startswith(name):
+            return name
+    return None
 
 
 def project_overrides(
