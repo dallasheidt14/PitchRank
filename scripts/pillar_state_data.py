@@ -6,11 +6,17 @@ and active leagues. Output is human-readable for drop-in use in MDX pillar draft
 
 import os
 import sys
+from pathlib import Path
 
 import psycopg2
 from dotenv import load_dotenv
 
-load_dotenv("C:/PitchRank/.env.local")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+env_local = REPO_ROOT / ".env.local"
+if env_local.exists():
+    load_dotenv(env_local, override=True)
+else:
+    load_dotenv(REPO_ROOT / ".env")
 
 TARGET_STATES = ["NY", "VA", "MD"]
 
