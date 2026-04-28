@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Callable, TypeVar
+
+import httpx
 
 from scripts.find_fuzzy_duplicate_teams import _should_skip_pair, score_team_pair
 from scripts.find_queue_matches import (
@@ -18,7 +22,47 @@ from scripts.find_queue_matches import (
 )
 from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label
 
+logger = logging.getLogger(__name__)
+
 TEAM_SELECT_COLS = "team_id_master,team_name,club_name,state_code,age_group,gender,provider_team_id,is_deprecated"
+
+_T = TypeVar("_T")
+
+_TRANSIENT_HTTPX_ERRORS: tuple[type[BaseException], ...] = (
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.RemoteProtocolError,
+    httpx.ReadTimeout,
+    httpx.WriteError,
+    httpx.PoolTimeout,
+)
+
+
+def _execute_with_retry(
+    op: Callable[[], _T],
+    *,
+    description: str,
+    max_attempts: int = 3,
+    initial_backoff: float = 0.5,
+) -> _T:
+    backoff = initial_backoff
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return op()
+        except _TRANSIENT_HTTPX_ERRORS as exc:
+            if attempt >= max_attempts:
+                raise
+            logger.warning(
+                "Transient httpx error on %s (attempt %d/%d): %s. Retrying in %.1fs.",
+                description,
+                attempt,
+                max_attempts,
+                type(exc).__name__,
+                backoff,
+            )
+            time.sleep(backoff)
+            backoff *= 2
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 @dataclass(frozen=True)
@@ -162,7 +206,11 @@ def fetch_db_candidates(
         query_builder = client.table("teams").select(TEAM_SELECT_COLS).ilike("gender", gender).or_(age_clause)
         if not include_deprecated:
             query_builder = query_builder.eq("is_deprecated", False)
-        response = query_builder.range(offset, offset + page_size - 1).execute()
+        paginated = query_builder.range(offset, offset + page_size - 1)
+        response = _execute_with_retry(
+            paginated.execute,
+            description=f"teams page offset={offset} gender={gender}",
+        )
         batch = response.data or []
         if not batch:
             break

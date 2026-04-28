@@ -1,7 +1,13 @@
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
 from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
     build_candidate_age_groups,
     classify_match_result,
+    fetch_db_candidates,
     rank_db_candidates,
 )
 
@@ -128,3 +134,107 @@ def test_classify_match_result_uses_margin_for_high_confidence():
     assert best_score is not None
     assert second_score is not None
     assert score_gap is not None and score_gap >= 0
+
+
+class _FakeQueryBuilder:
+    def __init__(self, pages, transient_failures=0, fatal_after=None):
+        self._pages = pages
+        self._transient_remaining = transient_failures
+        self._fatal_after = fatal_after
+        self._calls = 0
+        self._offset = 0
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def ilike(self, *_args, **_kwargs):
+        return self
+
+    def or_(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def range(self, start, _end):
+        self._offset = start
+        return self
+
+    def execute(self):
+        self._calls += 1
+        if self._transient_remaining > 0:
+            self._transient_remaining -= 1
+            raise httpx.ConnectError("UNEXPECTED_EOF_WHILE_READING")
+        if self._fatal_after is not None and self._calls > self._fatal_after:
+            raise RuntimeError("should not be called past fatal_after")
+        page_index = self._offset // 1000
+        data = self._pages[page_index] if page_index < len(self._pages) else []
+        return SimpleNamespace(data=data)
+
+
+class _FakeClient:
+    def __init__(self, builder):
+        self._builder = builder
+
+    def table(self, _name):
+        return self._builder
+
+
+def _query():
+    return EventTeamSearchQuery(
+        event_team_name="Test Team",
+        event_age_group="u12",
+        event_gender="Male",
+        event_club_name="Test Club",
+    )
+
+
+def test_fetch_db_candidates_retries_transient_connect_error(monkeypatch):
+    monkeypatch.setattr("src.tournaments.event_team_matcher.time.sleep", lambda _s: None)
+    builder = _FakeQueryBuilder(pages=[[{"team_id_master": "ok"}], []], transient_failures=2)
+    client = _FakeClient(builder)
+
+    rows = fetch_db_candidates(client, _query())
+
+    assert rows == [{"team_id_master": "ok"}]
+    # 2 transient failures + 1 success; loop exits because batch < page_size.
+    assert builder._calls == 3
+
+
+def test_fetch_db_candidates_raises_after_max_attempts(monkeypatch):
+    monkeypatch.setattr("src.tournaments.event_team_matcher.time.sleep", lambda _s: None)
+    builder = _FakeQueryBuilder(pages=[[]], transient_failures=99)
+    client = _FakeClient(builder)
+
+    with pytest.raises(httpx.ConnectError):
+        fetch_db_candidates(client, _query())
+
+    assert builder._calls == 3
+
+
+def test_fetch_db_candidates_does_not_retry_unrelated_errors(monkeypatch):
+    monkeypatch.setattr("src.tournaments.event_team_matcher.time.sleep", lambda _s: None)
+
+    class _Boom:
+        def select(self, *_a, **_k):
+            return self
+
+        def ilike(self, *_a, **_k):
+            return self
+
+        def or_(self, *_a, **_k):
+            return self
+
+        def eq(self, *_a, **_k):
+            return self
+
+        def range(self, *_a, **_k):
+            return self
+
+        def execute(self):
+            raise ValueError("not transient")
+
+    client = _FakeClient(_Boom())
+
+    with pytest.raises(ValueError):
+        fetch_db_candidates(client, _query())
