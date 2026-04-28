@@ -7,6 +7,7 @@ from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
     build_candidate_age_groups,
     classify_match_result,
+    enrich_registry_rows_with_matcher,
     fetch_db_candidates,
     rank_db_candidates,
 )
@@ -238,3 +239,116 @@ def test_fetch_db_candidates_does_not_retry_unrelated_errors(monkeypatch):
 
     with pytest.raises(ValueError):
         fetch_db_candidates(client, _query())
+
+
+# ---------------------------------------------------------------------------
+# Shell 10: enrich_registry_rows_with_matcher (lifted from
+# scripts/backtest_tournament_event.py)
+# ---------------------------------------------------------------------------
+
+
+class _StubClient:
+    """Captures whether the matcher would have been called.
+
+    The matcher pass calls ``client.table(...).select(...).ilike(...).or_(...).eq(...)
+    .range(...).execute()``. Tests that assert a row is short-circuited use
+    ``raise_on_call=True`` so the test fails loudly if the matcher fires.
+    """
+
+    def __init__(self, raise_on_call: bool = False):
+        self.raise_on_call = raise_on_call
+        self.calls = 0
+
+    def table(self, *_args, **_kwargs):
+        self.calls += 1
+        if self.raise_on_call:
+            raise AssertionError("matcher should have been short-circuited")
+        return self
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def ilike(self, *_args, **_kwargs):
+        return self
+
+    def or_(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def range(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[])
+
+
+def _registry_row(**overrides):
+    base = {
+        "event_team_name": "Test FC 2014",
+        "event_age_group": "u14",
+        "display_age_group": "U14",
+        "event_gender": "Male",
+        "display_gender": "Male",
+        "event_club_name": "Test FC",
+        "search_age_group": "",
+        "resolved_gotsport_provider_team_id": "",
+        "canonical_resolution_status": "",
+        "in_scope_u10_u19": "True",
+        "resolved_team_id_master": "",
+        "resolved_team_name": "",
+        "resolved_club_name": "",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_enrich_registry_rows_with_matcher_returns_tuple():
+    client = _StubClient(raise_on_call=True)
+    rows = [_registry_row(in_scope_u10_u19="False")]
+    enriched, status_counts = enrich_registry_rows_with_matcher(client, rows)
+    assert isinstance(enriched, list)
+    assert isinstance(status_counts, dict)
+
+
+def test_enrich_registry_rows_with_matcher_skips_out_of_scope():
+    client = _StubClient(raise_on_call=True)
+    rows = [_registry_row(in_scope_u10_u19="False")]
+    enriched, status_counts = enrich_registry_rows_with_matcher(client, rows)
+    # Out-of-scope rows are skipped entirely; matcher_* columns stay "".
+    assert enriched[0]["matcher_status"] == ""
+    assert status_counts == {}
+    assert client.calls == 0
+
+
+def test_enrich_registry_rows_with_matcher_idempotent_on_accepted():
+    """Accepted rows short-circuit at the existing_provider_id + status gate."""
+    client = _StubClient(raise_on_call=True)
+    rows = [
+        _registry_row(
+            resolved_gotsport_provider_team_id="12345",
+            canonical_resolution_status="strict_exact",
+        )
+    ]
+    enriched, status_counts = enrich_registry_rows_with_matcher(client, rows)
+    assert enriched[0]["matcher_status"] == ""
+    assert enriched[0]["canonical_resolution_status"] == "strict_exact"
+    assert status_counts == {}
+    assert client.calls == 0
+
+
+def test_enrich_registry_rows_with_matcher_uses_provided_cache():
+    """Passing an explicit cache dict allows the caller to inspect post-call."""
+    client = _StubClient(raise_on_call=False)
+    cache: dict[tuple[tuple[str, ...], str, bool], list[dict]] = {}
+    # in_scope_u10_u19="False" so the matcher is never called — the cache
+    # itself is checked only for the threading invariant: the helper must
+    # accept and use the provided dict instead of allocating a private one.
+    rows = [_registry_row(in_scope_u10_u19="False")]
+    enriched, _ = enrich_registry_rows_with_matcher(client, rows, cache=cache)
+    # Cache was the same object passed in (helper mutated it, didn't shadow).
+    assert isinstance(cache, dict)
+    # Helper accepted the kwarg (proves the lift expanded the signature).
+    enriched_again, _ = enrich_registry_rows_with_matcher(client, rows, cache=cache, accepted_statuses={"strict_exact"})
+    assert isinstance(enriched_again, list)

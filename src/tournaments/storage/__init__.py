@@ -69,7 +69,12 @@ from src.tournaments.storage.raw_scrape import (
     load_raw_scrape,
 )
 from src.tournaments.storage.registry import (
+    RegistryPersistResult,
     TeamRegistryEntry,
+    build_registry_entries,
+    build_registry_entry,
+    compute_dropped_pids,
+    persist_registry_for_scenario,
     read_registry,
     write_registry,
 )
@@ -120,6 +125,7 @@ __all__ = [
     # dataclasses
     "EventMetadata",
     "TeamRegistryEntry",
+    "RegistryPersistResult",
     "DivisionStructure",
     "CohortStructure",
     "CohortConstraints",
@@ -136,6 +142,10 @@ __all__ = [
     "write_event_metadata",
     "read_registry",
     "write_registry",
+    "build_registry_entry",
+    "build_registry_entries",
+    "compute_dropped_pids",
+    "persist_registry_for_scenario",
     "read_structure",
     "write_structure",
     "read_constraints",
