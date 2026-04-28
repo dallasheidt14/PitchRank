@@ -96,7 +96,7 @@ def main():
             print(f"  {count:>3}t  avg={avg_p:>5.2f}  top={top_p:>5.2f}  {club}")
 
         ages = ages_by_state.get(state, [])
-        print(f"\nAge group breakdown:")
+        print("\nAge group breakdown:")
         for age, count in ages:
             print(f"  {age:<6} {count:>5}")
 
