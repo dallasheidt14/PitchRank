@@ -17,6 +17,7 @@ from typing import Any
 
 from src.tournaments.storage._io import append_jsonl, read_jsonl
 from src.tournaments.storage.event_key import scenario_dir
+from src.tournaments.storage.scenario import acquire_scenario_lock
 from src.tournaments.storage.schema_version import (
     assert_supported_version,
     stamp_schema_version,
@@ -38,10 +39,28 @@ def append_override(
     override: dict[str, Any],
     *,
     base_dir: Path | str = "reports",
+    _already_locked: bool = False,
+    timeout: float = 2.0,
 ) -> None:
-    """Append one override record. Stamps ``schema_version: 1`` automatically."""
+    """Append one override record. Stamps ``schema_version: 1`` automatically.
+
+    When ``_already_locked=True``, the caller MUST already hold
+    ``acquire_scenario_lock(event_key, scenario, base_dir=base_dir)``. This
+    escape hatch exists so callers nested inside an existing scenario lock
+    (e.g., ``_recompute_medians_inner``) don't self-deadlock on the
+    non-reentrant advisory lock.
+
+    ``timeout`` is the per-call lock-acquire timeout. Default ``2.0``s
+    matches existing UI write paths; the backfill script passes ``10.0``s
+    to absorb contention with operator UI writes.
+    """
     path = _overrides_path(scenario_dir(event_key, scenario, base_dir=base_dir))
-    append_jsonl(path, stamp_schema_version(override))
+    record = stamp_schema_version(override)
+    if _already_locked:
+        append_jsonl(path, record)
+        return
+    with acquire_scenario_lock(event_key, scenario, base_dir=base_dir, timeout=timeout):
+        append_jsonl(path, record)
 
 
 def load_overrides(
