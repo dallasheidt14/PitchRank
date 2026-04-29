@@ -772,6 +772,11 @@ function calibrateProbability(rawProb: number): number {
 // ~16% of games end in draws, so this captures close matchups
 const DRAW_THRESHOLD = 0.03; // |winProb - 0.5| < 3% → predict draw
 
+// Tolerance for treating two teams' raw win probabilities as equal. Symmetric
+// inputs produce equal raw probabilities; this guards against the asymmetric
+// outcome calibration prior tipping the predicted winner deterministically.
+const SYMMETRY_EPSILON = 1e-9;
+
 /**
  * Get age-adjusted league average goals per team
  * Uses calibrated parameters from age_group_parameters.json if available,
@@ -1265,29 +1270,40 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const rawWinProbA = winProbA;
   const rawDrawProbability = normalizedDrawProbability;
   const rawWinProbB = winProbB;
-  [winProbA, normalizedDrawProbability, winProbB] = applyOutcomeCalibration(
-    rawWinProbA,
-    rawDrawProbability,
-    rawWinProbB
-  );
+  // Symmetric inputs (identical features for both teams) produce equal raw win
+  // probabilities. Skip the asymmetric prior blend in applyOutcomeCalibration so
+  // a tiny prior gap doesn't tip the predicted winner toward whichever side has
+  // the slightly higher prior in the calibration JSON.
+  const rawWinGap = Math.abs(rawWinProbA - rawWinProbB);
+  const symmetricRawWinProbs = rawWinGap < SYMMETRY_EPSILON;
+  if (!symmetricRawWinProbs) {
+    [winProbA, normalizedDrawProbability, winProbB] = applyOutcomeCalibration(
+      rawWinProbA,
+      rawDrawProbability,
+      rawWinProbB
+    );
+  }
 
   const drawOverrideThreshold = getAgeSpecificDrawOverrideThreshold(effectiveAge);
   const hasOutcomeCalibration = Boolean(outcomeCalibrationParams && outcomeCalibrationParams.enabled !== false);
-  const predictedWinner: 'team_a' | 'team_b' | 'draw' = hasOutcomeCalibration
-    ? drawOverrideThreshold != null &&
+  const decisiveWinner: 'team_a' | 'team_b' = winProbA >= winProbB ? 'team_a' : 'team_b';
+
+  let predictedWinner: 'team_a' | 'team_b' | 'draw';
+  if (symmetricRawWinProbs) {
+    predictedWinner = 'draw';
+  } else if (hasOutcomeCalibration) {
+    const calibratedDrawOverride =
+      drawOverrideThreshold != null &&
       rawDrawProbability >= drawOverrideThreshold &&
-      Math.abs(rawWinProbA - rawWinProbB) < (outcomeCalibrationParams?.draw_override_max_win_gap ?? 0.1)
-      ? 'draw'
-      : winProbA >= winProbB
-        ? 'team_a'
-        : 'team_b'
-    : (normalizedDrawProbability + DRAW_THRESHOLD >= Math.max(winProbA, winProbB) &&
-          Math.abs(winProbA - winProbB) < 0.12) ||
-        (closeDecisiveEdge && sparseMatchup && normalizedDrawProbability >= DEFAULT_DRAW_RATE * 0.9)
-      ? 'draw'
-      : winProbA >= winProbB
-        ? 'team_a'
-        : 'team_b';
+      rawWinGap < (outcomeCalibrationParams?.draw_override_max_win_gap ?? 0.1);
+    predictedWinner = calibratedDrawOverride ? 'draw' : decisiveWinner;
+  } else {
+    const heuristicDraw =
+      (normalizedDrawProbability + DRAW_THRESHOLD >= Math.max(winProbA, winProbB) &&
+        Math.abs(winProbA - winProbB) < 0.12) ||
+      (closeDecisiveEdge && sparseMatchup && normalizedDrawProbability >= DEFAULT_DRAW_RATE * 0.9);
+    predictedWinner = heuristicDraw ? 'draw' : decisiveWinner;
+  }
 
   const expectedScore =
     predictedWinner === 'draw'

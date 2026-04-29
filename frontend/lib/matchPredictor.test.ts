@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { calculateCommonOpponentSignal, predictMatch } from './matchPredictor';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { calculateCommonOpponentSignal, predictMatch, warmMatchPredictorCalibration } from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
+
+beforeAll(async () => {
+  // Calibration JSON loads fire-and-forget at module init; awaiting here makes
+  // every test deterministic regardless of how fast the load resolves.
+  await warmMatchPredictorCalibration();
+});
 
 function makeTeam(overrides: Partial<TeamWithRanking> = {}): TeamWithRanking {
   return {
@@ -153,6 +159,42 @@ describe('predictMatch', () => {
     expect(prediction.winProbabilityA).toBeLessThan(1);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
     expect(prediction.expectedScore.teamB).toBeGreaterThanOrEqual(0);
+  });
+
+  it('predicts draw for symmetric inputs even with non-sparse history', () => {
+    // Non-sparse symmetric inputs: heuristic-draw conditions DO NOT trigger
+    // (sparseMatchup=false because games_played=22), so the symmetric-inputs
+    // short-circuit is the only path that returns 'draw'. Without it, the
+    // asymmetric outcome-calibration prior would tip the predicted winner to
+    // whichever side has the slightly higher prior.
+    const teamA = makeTeam({
+      team_id_master: 'team-a',
+      team_name: 'Twin A 14B',
+      games_played: 22,
+      wins: 11,
+      losses: 7,
+      draws: 4,
+      win_percentage: 50,
+      power_score_final: 0.6,
+      glicko_rating: 1600,
+      glicko_rd: 60,
+      sos_norm: 0.55,
+      offense_norm: 0.6,
+      defense_norm: 0.55,
+    });
+    const teamB = makeTeam({
+      ...teamA,
+      team_id_master: 'team-b',
+      team_name: 'Twin B 14B',
+    });
+
+    const prediction = predictMatch(teamA, teamB, []);
+
+    expect(prediction.predictedWinner).toBe('draw');
+    expect(prediction.winProbabilityA).toBeCloseTo(prediction.winProbabilityB, 9);
+    expect(
+      (prediction.winProbabilityA + prediction.winProbabilityB + (prediction.drawProbability ?? 0)).toFixed(6)
+    ).toBe('1.000000');
   });
 
   it('shrinks overconfident edges when same-age evidence is weak', () => {
