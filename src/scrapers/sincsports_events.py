@@ -59,18 +59,14 @@ _DIV_HEADING_RE = re.compile(
 CANONICAL_AGE_GROUPS: FrozenSet[str] = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
 
 
-def _normalize_age(age_int: int) -> Optional[str]:
-    """Map an age integer to a canonical key, applying the u18 → u19 merge.
+from src.scrapers._age_normalization import normalize_age as _normalize_age
 
-    Returns ``None`` for ages outside the ``u8..u19`` band; the caller's
-    ``include_ages`` filter still controls which of ``u8``/``u9`` vs the
-    canonical band get through.
-    """
-    if age_int == 18:
-        return "u19"
-    if 8 <= age_int <= 19:
-        return f"u{age_int}"
-    return None
+# Re-export shim — the shared helper now lives in ``_age_normalization`` so the
+# Gotsport tier parser can consume it without dragging the SincSports import
+# chain. SincSports' ``parse_teamlist`` still filters via ``effective_ages``
+# (``CANONICAL_AGE_GROUPS`` by default), so the helper's widened ``[6, 19]``
+# band is invisible here — ``u6``/``u7`` produced by the helper get filtered
+# out at line 157.
 
 
 class SincSportsEventsScraper:

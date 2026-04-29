@@ -673,49 +673,457 @@ def _find_sitekey(body: str) -> Optional[str]:
     return fallback.group(1) if fallback else None
 
 
-def _extract_captcha_signals(
-    response: requests.Response, fallback_target_url: str
+def _extract_captcha_signals_from_parts(
+    *,
+    html: str,
+    final_url: str,
+    zr_final_url: Optional[str],
+    redirect_locations: list[str],
+    fallback_target_url: str,
 ) -> Optional[dict]:
-    """Return {'captcha_url', 'sitekey'} if the response looks like gotsport's
-    CAPTCHA challenge, else None.
+    """Pure detection variant of ``_extract_captcha_signals``.
 
-    `fallback_target_url` is the gotsport URL we intended to fetch — it's used
-    when the response travelled through a proxy (ZenRows) so the `captcha_url`
+    Takes primitive types instead of a ``requests.Response`` so callers that
+    don't hold a ``Response`` (e.g., the ``gotsport_tier_parser`` orchestrator
+    fetching via an injected callable that returns a ``FetchedSubpage``) can
+    run the same detection without faking the response shape.
+
+    `fallback_target_url` is the gotsport URL we intended to fetch — used when
+    the response travelled through a proxy (ZenRows) so the `captcha_url`
     reflects the real origin URL, not the proxy endpoint. ZenRows surfaces the
     origin's final URL in the `Zr-Final-Url` response header; we prefer that
-    over `response.url` (which is the ZenRows API URL when routed).
+    over `final_url` (which is the ZenRows API URL when routed).
 
     Checks (in order):
-    1. Zr-Final-Url / response.url contains /verify_captchas
-    2. Any redirect history Location contains /verify_captchas
-    3. Response body contains "Please verify to continue" (server serves the
-       challenge page directly with no redirect — observed on 40550/40610)
+    1. Zr-Final-Url / final_url contains /verify_captchas
+    2. Any redirect Location contains /verify_captchas
+    3. Body contains "Please verify to continue" (server serves the challenge
+       page directly with no redirect — observed on 40550/40610)
     """
-    body = response.text or ""
-    zr_final = response.headers.get("Zr-Final-Url") or ""
-    request_url = str(response.url or "")
-    effective_final_url = zr_final or request_url
+    effective_final_url = zr_final_url or final_url
 
     if _CAPTCHA_URL_MARKER.search(effective_final_url):
         return {
             "captcha_url": effective_final_url,
-            "sitekey": _find_sitekey(body),
+            "sitekey": _find_sitekey(html),
         }
-    for hr in response.history or []:
-        loc = hr.headers.get("Location") or ""
+    for loc in redirect_locations:
         if _CAPTCHA_URL_MARKER.search(loc):
             return {
                 "captcha_url": loc if loc.startswith("http") else effective_final_url,
-                "sitekey": _find_sitekey(body),
+                "sitekey": _find_sitekey(html),
             }
-    if _CAPTCHA_BODY_MARKER.search(body):
+    if _CAPTCHA_BODY_MARKER.search(html):
         # Body signal fires but no redirect was seen — server served challenge
         # at the target URL directly. Report the target URL as challenge URL.
         return {
             "captcha_url": fallback_target_url,
-            "sitekey": _find_sitekey(body),
+            "sitekey": _find_sitekey(html),
         }
     return None
+
+
+def _extract_captcha_signals(
+    response: requests.Response, fallback_target_url: str
+) -> Optional[dict]:
+    """Thin wrapper around ``_extract_captcha_signals_from_parts``.
+
+    Pulls the four parts out of a ``requests.Response`` and delegates. Keeps
+    the existing call sites at ``_fetch_event_page`` unchanged.
+    """
+    return _extract_captcha_signals_from_parts(
+        html=response.text or "",
+        final_url=str(response.url or ""),
+        zr_final_url=response.headers.get("Zr-Final-Url"),
+        redirect_locations=[hr.headers.get("Location") or "" for hr in response.history or []],
+        fallback_target_url=fallback_target_url,
+    )
+
+
+def extract_event_teams_by_bracket_from_soup(
+    soup: BeautifulSoup, event_id: str
+) -> Dict[str, List[EventTeam]]:
+    """Pure-parse counterpart to ``GotsportScraper.extract_event_teams_by_bracket``.
+
+    Takes the parsed BeautifulSoup snapshot directly so the new
+    ``gotsport_tier_parser`` orchestrator and other in-process consumers can
+    parse the same landing page without re-fetching it. The wrapper method
+    on ``GotsportScraper`` retains the retry / HTTP / rate-limit scaffolding
+    and delegates to this helper for the parse.
+
+    Returns ``{bracket_name: [EventTeam, ...]}`` exactly as the wrapper does.
+    Empty dict means no team rows surfaced from any of the three pure-parse
+    branches (JSON path + Method-1 header-walk fallback + post-call soup-walk).
+    """
+    brackets: Dict[str, List[EventTeam]] = {}
+
+    # Look for bracket/division sections
+    # GotSport typically organizes by age group and division (e.g., "SUPER PRO - U9B")
+
+    # Method 1: Look for schedule/division headers
+    # Common patterns: h3, h4, h5 with bracket names,
+    # or divs with class containing "bracket", "division", "group"
+    soup.find_all(
+        ["h2", "h3", "h4", "h5", "h6"],
+        string=re.compile(
+            r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP|DIVISION|GROUP|BRACKET)",
+            re.IGNORECASE,
+        ),
+    )
+
+    # Method 2: Look for age group headers (U7, U8, U9, etc.)
+    soup.find_all(["h2", "h3", "h4"], string=re.compile(r"U\d+\s+(Schedule|Boys|Girls|B|G)", re.IGNORECASE))
+
+    # Method 3: Look for division/bracket containers
+    # Common class names: bracket, division, group, pool, flight
+    soup.find_all(class_=re.compile(r"(bracket|division|group|pool|flight|schedule)", re.I))
+
+    # Method 4: Parse the structure - look for sections that contain team lists
+    # GotSport often has structure like:
+    # <div class="schedule-section">
+    #   <h3>SUPER PRO - U9B</h3>
+    #   <div>...teams...</div>
+    # </div>
+
+    # Primary method: Extract from jsonTeamRegs and organize by bracket
+    # Look for jsonTeamRegs JSON data
+    scripts = soup.find_all("script")
+    teams_data = []
+
+    for script in scripts:
+        if script.string:
+            # Look for jsonTeamRegs = [...] pattern
+            # Use proper bracket matching to handle large/nested JSON arrays
+            json_match = re.search(r"jsonTeamRegs\s*=\s*(\[)", script.string, re.DOTALL)
+            if json_match:
+                try:
+                    # Find the start position
+                    start_pos = json_match.start(1)
+                    # Find the matching closing bracket
+                    bracket_count = 0
+                    in_string = False
+                    escape_next = False
+                    end_pos = start_pos
+
+                    for i in range(start_pos, len(script.string)):
+                        char = script.string[i]
+
+                        if escape_next:
+                            escape_next = False
+                            continue
+
+                        if char == "\\":
+                            escape_next = True
+                            continue
+
+                        if char == '"' and not escape_next:
+                            in_string = not in_string
+                            continue
+
+                        if not in_string:
+                            if char == "[":
+                                bracket_count += 1
+                            elif char == "]":
+                                bracket_count -= 1
+                                if bracket_count == 0:
+                                    end_pos = i + 1
+                                    break
+
+                    # Extract the full JSON array
+                    json_str = script.string[start_pos:end_pos]
+                    teams_json = json.loads(json_str)
+                    teams_data = teams_json
+                    logger.debug(f"Found {len(teams_json)} teams in jsonTeamRegs")
+                    break
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.warning(f"Failed to parse jsonTeamRegs: {e}")
+
+    # If we found teams in jsonTeamRegs, organize them
+    if teams_data:
+        # Look for bracket/division information in the HTML structure
+        # GotSport typically shows brackets like "SUPER PRO - U9B" in headers
+        all_headers = soup.find_all(["h2", "h3", "h4", "h5", "h6", "b", "strong"])
+        bracket_map = {}  # Map team IDs to bracket names
+
+        # Try to find bracket names and associate with teams
+        # Look for headers that contain bracket information
+        for header in all_headers:
+            header_text = header.get_text(strip=True)
+            # Look for bracket patterns like "SUPER PRO - U9B", "GOLD - U8B", etc.
+            if re.search(
+                r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP)", header_text, re.I
+            ):
+                # This looks like a bracket header
+                # Look for team links or data near this header
+                parent = header.find_parent()
+                if parent:
+                    # Look for team IDs in nearby elements (within the same section)
+                    # Check siblings and children
+                    team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
+                    for link in team_links:
+                        href = link.get("href", "")
+                        match = re.search(r"/teams?/(\d+)", href)
+                        if match:
+                            bracket_map[match.group(1)] = header_text
+
+                    # Also check in the same container for any team references
+                    # Look for data attributes or IDs that might reference teams
+                    team_refs = parent.find_all(attrs={"data-team-id": True})
+                    for ref in team_refs:
+                        team_id = ref.get("data-team-id")
+                        if team_id and team_id.isdigit():
+                            bracket_map[team_id] = header_text
+
+        # Also look for bracket names in button text or schedule links
+        # GotSport often uses buttons for bracket selection
+        bracket_buttons = soup.find_all(
+            ["button", "a"], string=re.compile(r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE).*U\d+", re.I)
+        )
+        for button in bracket_buttons:
+            bracket_text = button.get_text(strip=True)
+            if bracket_text:
+                # Find teams associated with this bracket button
+                # Look in the same section or following content
+                parent = button.find_parent()
+                if parent:
+                    team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
+                    for link in team_links:
+                        href = link.get("href", "")
+                        match = re.search(r"/teams?/(\d+)", href)
+                        if match:
+                            if match.group(1) not in bracket_map:
+                                bracket_map[match.group(1)] = bracket_text
+
+        # Organize teams by bracket
+        for team in teams_data:
+            team_id = str(team.get("id", ""))
+            if not team_id or not team_id.isdigit():
+                continue
+
+            # Try to find bracket name
+            bracket_name = bracket_map.get(team_id)
+            if not bracket_name:
+                # Try to infer from team data
+                age_group = team.get("display_age_group", "")
+                gender = team.get("display_gender", "")
+                if age_group and gender:
+                    # Try to find matching bracket
+                    for header_text in bracket_map.values():
+                        if age_group in header_text and (
+                            gender[0].upper() in header_text or "B" in header_text or "G" in header_text
+                        ):
+                            bracket_name = header_text
+                            break
+
+            if not bracket_name:
+                # Create bracket name from team data
+                age_group = team.get("display_age_group", "Unknown")
+                gender_code = (
+                    "B"
+                    if "Male" in team.get("display_gender", "") or team.get("gender", "").lower() == "m"
+                    else "G"
+                )
+                bracket_name = f"{age_group}{gender_code}"
+
+            if bracket_name not in brackets:
+                brackets[bracket_name] = []
+
+            # Extract team info
+            team_name = team.get("full_name", f"Team {team_id}")
+            gender_display = team.get("display_gender", "")
+            gender_code = "M" if "Male" in gender_display or team.get("gender", "").lower() == "m" else "F"
+
+            # Determine ACTUAL age group (not bracket age)
+            # Method 1: Try to infer from team name (look for birth year)
+            actual_age_group = None
+            birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
+            if birth_year_match:
+                birth_year = int(birth_year_match.group(1))
+                # Calculate age group: U11 = 2015, U12 = 2014, etc.
+                # Age group is the year they turn that age, not current age
+                current_year = CURRENT_YEAR
+                # For 2025: U11 = 2015 birth year, U12 = 2014 birth year
+                # Formula: age_group = current_year - birth_year + 1
+                age_group_number = current_year - birth_year + 1
+                if 7 <= age_group_number <= 19:  # Valid age range
+                    actual_age_group = f"U{age_group_number}"
+
+            # Method 2: Use display_age_group if it seems reasonable
+            # But be careful - it might be the bracket age, not actual age
+            if not actual_age_group:
+                display_age = team.get("display_age_group", "")
+                # Only trust it if team name doesn't contradict it
+                if display_age and not birth_year_match:
+                    actual_age_group = display_age
+
+            # Method 3: Use numeric age field if available (might be actual age)
+            if not actual_age_group:
+                numeric_age = team.get("age")
+                if numeric_age and isinstance(numeric_age, int) and 7 <= numeric_age <= 19:
+                    actual_age_group = f"U{numeric_age}"
+
+            # Fallback: Use bracket age (not ideal, but better than nothing)
+            if not actual_age_group:
+                bracket_age_match = re.search(r"U(\d+)", bracket_name, re.I)
+                if bracket_age_match:
+                    actual_age_group = f"U{bracket_age_match.group(1)}"
+                else:
+                    actual_age_group = "Unknown"
+
+            # Determine if team is playing up
+            playing_up = False
+            if actual_age_group and bracket_name:
+                # Extract age number from bracket name (e.g., "U12B" -> 12)
+                bracket_age_match = re.search(r"U(\d+)", bracket_name, re.I)
+                actual_age_match = re.search(r"U(\d+)", actual_age_group, re.I)
+
+                if bracket_age_match and actual_age_match:
+                    bracket_age = int(bracket_age_match.group(1))
+                    actual_age = int(actual_age_match.group(1))
+                    # Playing up if bracket age > actual age
+                    playing_up = bracket_age > actual_age
+
+            brackets[bracket_name].append(
+                EventTeam(
+                    team_id=team_id,
+                    team_name=team_name,
+                    bracket_name=bracket_name,
+                    age_group=actual_age_group,  # Use actual age group, not bracket age
+                    gender=gender_code,
+                    division=bracket_name,
+                    playing_up=playing_up,
+                )
+            )
+
+    # Fallback: Try to find bracket structure by looking for headers followed by team lists
+    if not brackets:
+        current_bracket = None
+        all_headers = soup.find_all(["h2", "h3", "h4", "h5", "h6"])
+        for header in all_headers:
+            header_text = header.get_text(strip=True)
+
+            # Check if this looks like a bracket/division name
+            if re.search(r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|U\d+)", header_text, re.I):
+                current_bracket = header_text
+                if current_bracket not in brackets:
+                    brackets[current_bracket] = []
+
+                # Look for teams in the following siblings or parent container
+                parent = header.find_parent()
+                if parent:
+                    # Look for team links in this section
+                    team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
+                    for link in team_links:
+                        href = link.get("href", "")
+                        match = re.search(r"/teams?/(\d+)", href)
+                        if match:
+                            team_id = match.group(1)
+                            team_name = (
+                                link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
+                            )
+
+                            # Extract age_group - prioritize birth year in team name
+                            age_group = None
+                            gender = None
+
+                            # Method 1: Extract birth year from team name (priority)
+                            birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
+                            if birth_year_match:
+                                birth_year = int(birth_year_match.group(1))
+                                current_year = CURRENT_YEAR
+                                age_group_number = current_year - birth_year + 1
+                                if 7 <= age_group_number <= 19:
+                                    age_group = f"U{age_group_number}"
+
+                            # Method 2: Fall back to bracket/header age
+                            if not age_group and re.search(r"U(\d+)", header_text, re.I):
+                                age_match = re.search(r"U(\d+)", header_text, re.I)
+                                age_group = f"U{age_match.group(1)}"
+
+                            if re.search(r"\b(B|Boys|M|Male)\b", header_text, re.I):
+                                gender = "M"
+                            elif re.search(r"\b(G|Girls|F|Female)\b", header_text, re.I):
+                                gender = "F"
+
+                            brackets[current_bracket].append(
+                                EventTeam(
+                                    team_id=team_id,
+                                    team_name=team_name,
+                                    bracket_name=current_bracket,
+                                    age_group=age_group,
+                                    gender=gender,
+                                    division=current_bracket,
+                                )
+                            )
+
+    # If we didn't find organized brackets, try a simpler approach:
+    # Walk every team link and attach the nearest header text as the bracket.
+    # NOTE: in the original method this branch ran AFTER ``self.extract_event_teams(event_id)``
+    # discarded its result. The post-call call was a side-effect-only HTTP fetch on a separate
+    # endpoint and could not mutate this soup; the wrapper around this helper retains it for
+    # review and runs it conditionally on empty return — this lifted block is provably reachable
+    # against the same `soup` either way.
+    if not brackets:
+        logger.debug("No bracket structure found, walking team links against the same soup...")
+
+        # Try to find any bracket/division context for teams
+        # Look for team links and their surrounding context
+        team_links = soup.find_all("a", href=re.compile(r"/teams?/\d+"))
+        for link in team_links:
+            href = link.get("href", "")
+            match = re.search(r"/teams?/(\d+)", href)
+            if match:
+                team_id = match.group(1)
+                team_name = link.get_text(strip=True) or f"Team {team_id}"
+
+                # Try to find the nearest bracket/division header
+                bracket_name = "Unknown Bracket"
+                parent = link.find_parent()
+                if parent:
+                    # Look for headers in parent chain
+                    for ancestor in parent.parents:
+                        header = ancestor.find(["h2", "h3", "h4", "h5", "h6"])
+                        if header:
+                            header_text = header.get_text(strip=True)
+                            if header_text and len(header_text) < 100:  # Reasonable header length
+                                bracket_name = header_text
+                                break
+
+                if bracket_name not in brackets:
+                    brackets[bracket_name] = []
+
+                # Extract age_group from team name's birth year (priority)
+                age_group = None
+                gender = None
+                birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
+                if birth_year_match:
+                    birth_year = int(birth_year_match.group(1))
+                    current_year = CURRENT_YEAR
+                    age_group_number = current_year - birth_year + 1
+                    if 7 <= age_group_number <= 19:
+                        age_group = f"U{age_group_number}"
+
+                # Fall back to bracket name for age/gender
+                if not age_group and re.search(r"U(\d+)", bracket_name, re.I):
+                    age_match = re.search(r"U(\d+)", bracket_name, re.I)
+                    age_group = f"U{age_match.group(1)}"
+                if re.search(r"\b(B|Boys|M|Male)\b", bracket_name, re.I):
+                    gender = "M"
+                elif re.search(r"\b(G|Girls|F|Female)\b", bracket_name, re.I):
+                    gender = "F"
+
+                brackets[bracket_name].append(
+                    EventTeam(
+                        team_id=team_id,
+                        team_name=team_name,
+                        bracket_name=bracket_name,
+                        age_group=age_group,
+                        gender=gender,
+                        division=bracket_name,
+                    )
+                )
+
+    return brackets
 
 
 class GotsportScraper(ProviderScraper):
@@ -1112,6 +1520,13 @@ class GotsportScraper(ProviderScraper):
         Returns:
             Dictionary mapping bracket/group names to lists of EventTeam objects
             Format: { "SUPER PRO - U9B": [EventTeam(...), ...], ... }
+
+        The pure parse logic lives in
+        ``extract_event_teams_by_bracket_from_soup`` so other in-process
+        consumers (e.g., the ``gotsport_tier_parser`` orchestrator) can run
+        the same parse against an already-fetched soup. This method retains
+        the retry / HTTP / rate-limit scaffolding and delegates to the
+        helper for the parse.
         """
         event_url = f"{self.EVENT_BASE}/{event_id}"
         brackets: Dict[str, List[EventTeam]] = {}
@@ -1124,370 +1539,19 @@ class GotsportScraper(ProviderScraper):
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
+                brackets = extract_event_teams_by_bracket_from_soup(soup, event_id)
 
-                # Look for bracket/division sections
-                # GotSport typically organizes by age group and division (e.g., "SUPER PRO - U9B")
-
-                # Method 1: Look for schedule/division headers
-                # Common patterns: h3, h4, h5 with bracket names,
-                # or divs with class containing "bracket", "division", "group"
-                soup.find_all(
-                    ["h2", "h3", "h4", "h5", "h6"],
-                    string=re.compile(
-                        r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP|DIVISION|GROUP|BRACKET)",
-                        re.IGNORECASE,
-                    ),
-                )
-
-                # Method 2: Look for age group headers (U7, U8, U9, etc.)
-                soup.find_all(["h2", "h3", "h4"], string=re.compile(r"U\d+\s+(Schedule|Boys|Girls|B|G)", re.IGNORECASE))
-
-                # Method 3: Look for division/bracket containers
-                # Common class names: bracket, division, group, pool, flight
-                soup.find_all(class_=re.compile(r"(bracket|division|group|pool|flight|schedule)", re.I))
-
-                # Method 4: Parse the structure - look for sections that contain team lists
-                # GotSport often has structure like:
-                # <div class="schedule-section">
-                #   <h3>SUPER PRO - U9B</h3>
-                #   <div>...teams...</div>
-                # </div>
-
-                # Primary method: Extract from jsonTeamRegs and organize by bracket
-                # Look for jsonTeamRegs JSON data
-                scripts = soup.find_all("script")
-                teams_data = []
-
-                for script in scripts:
-                    if script.string:
-                        # Look for jsonTeamRegs = [...] pattern
-                        # Use proper bracket matching to handle large/nested JSON arrays
-                        json_match = re.search(r"jsonTeamRegs\s*=\s*(\[)", script.string, re.DOTALL)
-                        if json_match:
-                            try:
-                                import json
-
-                                # Find the start position
-                                start_pos = json_match.start(1)
-                                # Find the matching closing bracket
-                                bracket_count = 0
-                                in_string = False
-                                escape_next = False
-                                end_pos = start_pos
-
-                                for i in range(start_pos, len(script.string)):
-                                    char = script.string[i]
-
-                                    if escape_next:
-                                        escape_next = False
-                                        continue
-
-                                    if char == "\\":
-                                        escape_next = True
-                                        continue
-
-                                    if char == '"' and not escape_next:
-                                        in_string = not in_string
-                                        continue
-
-                                    if not in_string:
-                                        if char == "[":
-                                            bracket_count += 1
-                                        elif char == "]":
-                                            bracket_count -= 1
-                                            if bracket_count == 0:
-                                                end_pos = i + 1
-                                                break
-
-                                # Extract the full JSON array
-                                json_str = script.string[start_pos:end_pos]
-                                teams_json = json.loads(json_str)
-                                teams_data = teams_json
-                                logger.debug(f"Found {len(teams_json)} teams in jsonTeamRegs")
-                                break
-                            except (json.JSONDecodeError, Exception) as e:
-                                logger.warning(f"Failed to parse jsonTeamRegs: {e}")
-
-                # If we found teams in jsonTeamRegs, organize them
-                if teams_data:
-                    # Look for bracket/division information in the HTML structure
-                    # GotSport typically shows brackets like "SUPER PRO - U9B" in headers
-                    all_headers = soup.find_all(["h2", "h3", "h4", "h5", "h6", "b", "strong"])
-                    bracket_map = {}  # Map team IDs to bracket names
-
-                    # Try to find bracket names and associate with teams
-                    # Look for headers that contain bracket information
-                    for header in all_headers:
-                        header_text = header.get_text(strip=True)
-                        # Look for bracket patterns like "SUPER PRO - U9B", "GOLD - U8B", etc.
-                        if re.search(
-                            r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP)", header_text, re.I
-                        ):
-                            # This looks like a bracket header
-                            # Look for team links or data near this header
-                            parent = header.find_parent()
-                            if parent:
-                                # Look for team IDs in nearby elements (within the same section)
-                                # Check siblings and children
-                                team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
-                                for link in team_links:
-                                    href = link.get("href", "")
-                                    match = re.search(r"/teams?/(\d+)", href)
-                                    if match:
-                                        bracket_map[match.group(1)] = header_text
-
-                                # Also check in the same container for any team references
-                                # Look for data attributes or IDs that might reference teams
-                                team_refs = parent.find_all(attrs={"data-team-id": True})
-                                for ref in team_refs:
-                                    team_id = ref.get("data-team-id")
-                                    if team_id and team_id.isdigit():
-                                        bracket_map[team_id] = header_text
-
-                    # Also look for bracket names in button text or schedule links
-                    # GotSport often uses buttons for bracket selection
-                    bracket_buttons = soup.find_all(
-                        ["button", "a"], string=re.compile(r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE).*U\d+", re.I)
-                    )
-                    for button in bracket_buttons:
-                        bracket_text = button.get_text(strip=True)
-                        if bracket_text:
-                            # Find teams associated with this bracket button
-                            # Look in the same section or following content
-                            parent = button.find_parent()
-                            if parent:
-                                team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
-                                for link in team_links:
-                                    href = link.get("href", "")
-                                    match = re.search(r"/teams?/(\d+)", href)
-                                    if match:
-                                        if match.group(1) not in bracket_map:
-                                            bracket_map[match.group(1)] = bracket_text
-
-                    # Organize teams by bracket
-                    for team in teams_data:
-                        team_id = str(team.get("id", ""))
-                        if not team_id or not team_id.isdigit():
-                            continue
-
-                        # Try to find bracket name
-                        bracket_name = bracket_map.get(team_id)
-                        if not bracket_name:
-                            # Try to infer from team data
-                            age_group = team.get("display_age_group", "")
-                            gender = team.get("display_gender", "")
-                            if age_group and gender:
-                                # Try to find matching bracket
-                                for header_text in bracket_map.values():
-                                    if age_group in header_text and (
-                                        gender[0].upper() in header_text or "B" in header_text or "G" in header_text
-                                    ):
-                                        bracket_name = header_text
-                                        break
-
-                        if not bracket_name:
-                            # Create bracket name from team data
-                            age_group = team.get("display_age_group", "Unknown")
-                            gender_code = (
-                                "B"
-                                if "Male" in team.get("display_gender", "") or team.get("gender", "").lower() == "m"
-                                else "G"
-                            )
-                            bracket_name = f"{age_group}{gender_code}"
-
-                        if bracket_name not in brackets:
-                            brackets[bracket_name] = []
-
-                        # Extract team info
-                        team_name = team.get("full_name", f"Team {team_id}")
-                        gender_display = team.get("display_gender", "")
-                        gender_code = "M" if "Male" in gender_display or team.get("gender", "").lower() == "m" else "F"
-
-                        # Determine ACTUAL age group (not bracket age)
-                        # Method 1: Try to infer from team name (look for birth year)
-                        actual_age_group = None
-                        birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-                        if birth_year_match:
-                            birth_year = int(birth_year_match.group(1))
-                            # Calculate age group: U11 = 2015, U12 = 2014, etc.
-                            # Age group is the year they turn that age, not current age
-                            current_year = CURRENT_YEAR
-                            # For 2025: U11 = 2015 birth year, U12 = 2014 birth year
-                            # Formula: age_group = current_year - birth_year + 1
-                            age_group_number = current_year - birth_year + 1
-                            if 7 <= age_group_number <= 19:  # Valid age range
-                                actual_age_group = f"U{age_group_number}"
-
-                        # Method 2: Use display_age_group if it seems reasonable
-                        # But be careful - it might be the bracket age, not actual age
-                        if not actual_age_group:
-                            display_age = team.get("display_age_group", "")
-                            # Only trust it if team name doesn't contradict it
-                            if display_age and not birth_year_match:
-                                actual_age_group = display_age
-
-                        # Method 3: Use numeric age field if available (might be actual age)
-                        if not actual_age_group:
-                            numeric_age = team.get("age")
-                            if numeric_age and isinstance(numeric_age, int) and 7 <= numeric_age <= 19:
-                                actual_age_group = f"U{numeric_age}"
-
-                        # Fallback: Use bracket age (not ideal, but better than nothing)
-                        if not actual_age_group:
-                            bracket_age_match = re.search(r"U(\d+)", bracket_name, re.I)
-                            if bracket_age_match:
-                                actual_age_group = f"U{bracket_age_match.group(1)}"
-                            else:
-                                actual_age_group = "Unknown"
-
-                        # Determine if team is playing up
-                        playing_up = False
-                        if actual_age_group and bracket_name:
-                            # Extract age number from bracket name (e.g., "U12B" -> 12)
-                            bracket_age_match = re.search(r"U(\d+)", bracket_name, re.I)
-                            actual_age_match = re.search(r"U(\d+)", actual_age_group, re.I)
-
-                            if bracket_age_match and actual_age_match:
-                                bracket_age = int(bracket_age_match.group(1))
-                                actual_age = int(actual_age_match.group(1))
-                                # Playing up if bracket age > actual age
-                                playing_up = bracket_age > actual_age
-
-                        brackets[bracket_name].append(
-                            EventTeam(
-                                team_id=team_id,
-                                team_name=team_name,
-                                bracket_name=bracket_name,
-                                age_group=actual_age_group,  # Use actual age group, not bracket age
-                                gender=gender_code,
-                                division=bracket_name,
-                                playing_up=playing_up,
-                            )
-                        )
-
-                # Fallback: Try to find bracket structure by looking for headers followed by team lists
                 if not brackets:
-                    current_bracket = None
-                    all_headers = soup.find_all(["h2", "h3", "h4", "h5", "h6"])
-                    for header in all_headers:
-                        header_text = header.get_text(strip=True)
-
-                        # Check if this looks like a bracket/division name
-                        if re.search(r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|U\d+)", header_text, re.I):
-                            current_bracket = header_text
-                            if current_bracket not in brackets:
-                                brackets[current_bracket] = []
-
-                            # Look for teams in the following siblings or parent container
-                            parent = header.find_parent()
-                            if parent:
-                                # Look for team links in this section
-                                team_links = parent.find_all("a", href=re.compile(r"/teams?/\d+"))
-                                for link in team_links:
-                                    href = link.get("href", "")
-                                    match = re.search(r"/teams?/(\d+)", href)
-                                    if match:
-                                        team_id = match.group(1)
-                                        team_name = (
-                                            link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
-                                        )
-
-                                        # Extract age_group - prioritize birth year in team name
-                                        age_group = None
-                                        gender = None
-
-                                        # Method 1: Extract birth year from team name (priority)
-                                        birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-                                        if birth_year_match:
-                                            birth_year = int(birth_year_match.group(1))
-                                            current_year = CURRENT_YEAR
-                                            age_group_number = current_year - birth_year + 1
-                                            if 7 <= age_group_number <= 19:
-                                                age_group = f"U{age_group_number}"
-
-                                        # Method 2: Fall back to bracket/header age
-                                        if not age_group and re.search(r"U(\d+)", header_text, re.I):
-                                            age_match = re.search(r"U(\d+)", header_text, re.I)
-                                            age_group = f"U{age_match.group(1)}"
-
-                                        if re.search(r"\b(B|Boys|M|Male)\b", header_text, re.I):
-                                            gender = "M"
-                                        elif re.search(r"\b(G|Girls|F|Female)\b", header_text, re.I):
-                                            gender = "F"
-
-                                        brackets[current_bracket].append(
-                                            EventTeam(
-                                                team_id=team_id,
-                                                team_name=team_name,
-                                                bracket_name=current_bracket,
-                                                age_group=age_group,
-                                                gender=gender,
-                                                division=current_bracket,
-                                            )
-                                        )
-
-                # If we didn't find organized brackets, try a simpler approach:
-                # Extract all teams and try to infer brackets from the page structure
-                if not brackets:
-                    logger.debug("No bracket structure found, extracting all teams...")
+                    # DEAD CODE post-refactor: in the original method this side-effect
+                    # call set up state the post-call soup-walk consumed. The walk has
+                    # been lifted into ``_from_soup`` and runs against the same ``soup``
+                    # before this point — so this call's only effect is its independent
+                    # HTTP fetch on a separate endpoint, whose return value was already
+                    # discarded. Kept here for refactor reviewability; remove in a
+                    # follow-up commit after the smoke check empirically confirms parity.
+                    logger.debug("No bracket structure found (legacy side-effect call retained for review)...")
                     self.extract_event_teams(event_id)
 
-                    # Try to find any bracket/division context for teams
-                    # Look for team links and their surrounding context
-                    team_links = soup.find_all("a", href=re.compile(r"/teams?/\d+"))
-                    for link in team_links:
-                        href = link.get("href", "")
-                        match = re.search(r"/teams?/(\d+)", href)
-                        if match:
-                            team_id = match.group(1)
-                            team_name = link.get_text(strip=True) or f"Team {team_id}"
-
-                            # Try to find the nearest bracket/division header
-                            bracket_name = "Unknown Bracket"
-                            parent = link.find_parent()
-                            if parent:
-                                # Look for headers in parent chain
-                                for ancestor in parent.parents:
-                                    header = ancestor.find(["h2", "h3", "h4", "h5", "h6"])
-                                    if header:
-                                        header_text = header.get_text(strip=True)
-                                        if header_text and len(header_text) < 100:  # Reasonable header length
-                                            bracket_name = header_text
-                                            break
-
-                            if bracket_name not in brackets:
-                                brackets[bracket_name] = []
-
-                            # Extract age_group from team name's birth year (priority)
-                            age_group = None
-                            gender = None
-                            birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-                            if birth_year_match:
-                                birth_year = int(birth_year_match.group(1))
-                                current_year = CURRENT_YEAR
-                                age_group_number = current_year - birth_year + 1
-                                if 7 <= age_group_number <= 19:
-                                    age_group = f"U{age_group_number}"
-
-                            # Fall back to bracket name for age/gender
-                            if not age_group and re.search(r"U(\d+)", bracket_name, re.I):
-                                age_match = re.search(r"U(\d+)", bracket_name, re.I)
-                                age_group = f"U{age_match.group(1)}"
-                            if re.search(r"\b(B|Boys|M|Male)\b", bracket_name, re.I):
-                                gender = "M"
-                            elif re.search(r"\b(G|Girls|F|Female)\b", bracket_name, re.I):
-                                gender = "F"
-
-                            brackets[bracket_name].append(
-                                EventTeam(
-                                    team_id=team_id,
-                                    team_name=team_name,
-                                    bracket_name=bracket_name,
-                                    age_group=age_group,
-                                    gender=gender,
-                                    division=bracket_name,
-                                )
-                            )
 
                 if brackets:
                     total_teams = sum(len(teams) for teams in brackets.values())
