@@ -95,6 +95,7 @@ __all__ = [
     "RunOutcome",
     "execute_run",
     "generate_run_id",
+    "override_in_cohort",
     "preflight",
 ]
 
@@ -636,7 +637,7 @@ def _assert_summary_present(staging_dir: Path) -> None:
         raise RuntimeError(f"cohort CLI did not produce summary.json at {staging_dir}")
 
 
-def _override_in_cohort(
+def override_in_cohort(
     record: dict[str, Any],
     age: str,
     gender: str,
@@ -693,7 +694,7 @@ def _write_run_overrides_audit(
 
     audit_path = staging_dir / "run_overrides_audit.jsonl"
     for record in overrides:
-        if not _override_in_cohort(record, age, gender, registry_by_pid):
+        if not override_in_cohort(record, age, gender, registry_by_pid):
             continue
         audit_entry = {
             **record,

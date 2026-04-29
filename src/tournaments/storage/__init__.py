@@ -80,7 +80,9 @@ from src.tournaments.storage.registry import (
 )
 from src.tournaments.storage.rescrape import RescrapeReport, merge_rescrape
 from src.tournaments.storage.run_layout import (
+    RunLockError,
     RunStateError,
+    acquire_run_lock,
     cancel_run,
     create_staging_run,
     fail_run,
@@ -169,6 +171,8 @@ __all__ = [
     "fail_run",
     "cancel_run",
     "list_runs",
+    "acquire_run_lock",
+    "RunLockError",
     "RunStateError",
     "check_games_import_status",
     # raw-scrape re-exports

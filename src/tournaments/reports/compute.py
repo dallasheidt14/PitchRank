@@ -16,7 +16,7 @@ artifacts.
 identity from ``summary.json["cohort"]`` but Shell 06 normalizes
 ``gender`` to ``"Male"/"Female"`` (cf.
 ``scripts/backtest_tournament_cohort.py:864`` ``normalize_gender_label``).
-The registry CSV, override ledger, and ``run_orchestrator._override_in_cohort``
+The registry CSV, override ledger, and ``run_orchestrator.override_in_cohort``
 all use ``"Boys"/"Girls"``. This module reads ``run_metadata.json``
 (orchestrator-emitted at ``run_orchestrator.py:594``) so ``cohort_gender``
 matches the rest of the storage layer — required for the

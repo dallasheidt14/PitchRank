@@ -14,7 +14,9 @@ import pytest
 
 from src.tournaments.storage.event_key import scenario_dir
 from src.tournaments.storage.run_layout import (
+    RunLockError,
     RunStateError,
+    acquire_run_lock,
     cancel_run,
     create_staging_run,
     fail_run,
@@ -135,3 +137,53 @@ def test_list_runs_completed_only_filters(tmp_path: Path):
 def test_list_runs_empty_when_no_runs_dir(tmp_path: Path):
     ensure_scenario(EVENT_KEY, SCENARIO, base_dir=tmp_path)
     assert list_runs(EVENT_KEY, SCENARIO, base_dir=tmp_path) == []
+
+
+# ---------------------------------------------------------------------------
+# acquire_run_lock — mirrors the per-scenario lock contract at the per-run path
+# ---------------------------------------------------------------------------
+
+
+def _promote_run(tmp_path: Path, run_id: str) -> Path:
+    """Stage + promote a run so its directory exists for lock acquisition."""
+    ensure_scenario(EVENT_KEY, SCENARIO, base_dir=tmp_path)
+    create_staging_run(EVENT_KEY, SCENARIO, run_id, base_dir=tmp_path)
+    return promote_run(EVENT_KEY, SCENARIO, run_id, base_dir=tmp_path)
+
+
+def test_acquire_run_lock_holds_within_context(tmp_path: Path):
+    run_path = _promote_run(tmp_path, "run_lock_001")
+    with acquire_run_lock(EVENT_KEY, SCENARIO, "run_lock_001", base_dir=tmp_path):
+        assert (run_path / ".report.lock").exists()
+
+
+def test_acquire_run_lock_raises_immediately_with_zero_timeout(tmp_path: Path):
+    """``timeout=0.0`` is once-and-raise — mirrors scenario-lock contract."""
+    _promote_run(tmp_path, "run_lock_002")
+    with acquire_run_lock(EVENT_KEY, SCENARIO, "run_lock_002", base_dir=tmp_path):
+        with pytest.raises(RunLockError):
+            with acquire_run_lock(
+                EVENT_KEY,
+                SCENARIO,
+                "run_lock_002",
+                base_dir=tmp_path,
+                timeout=0.0,
+            ):
+                pytest.fail("inner acquire should have raised")
+
+
+def test_acquire_run_lock_lockfile_persists_after_release(tmp_path: Path):
+    """Lockfile is presence/lock primitive — not deleted on context exit."""
+    run_path = _promote_run(tmp_path, "run_lock_003")
+    with acquire_run_lock(EVENT_KEY, SCENARIO, "run_lock_003", base_dir=tmp_path):
+        pass
+    assert (run_path / ".report.lock").exists()
+
+
+def test_acquire_run_lock_raises_filenotfound_when_run_dir_missing(tmp_path: Path):
+    """Calling acquire_run_lock for a run that never existed surfaces a
+    plain ``FileNotFoundError`` (caller-ordering bug, not a lock bug)."""
+    ensure_scenario(EVENT_KEY, SCENARIO, base_dir=tmp_path)
+    with pytest.raises(FileNotFoundError):
+        with acquire_run_lock(EVENT_KEY, SCENARIO, "run_never_promoted", base_dir=tmp_path):
+            pytest.fail("acquire should have raised before yielding")

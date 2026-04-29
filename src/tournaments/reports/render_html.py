@@ -110,13 +110,21 @@ def render_html(
     report_card: ReportCard,
     *,
     mode: Literal["embedded", "standalone"] = "standalone",
+    show_override_audit: bool = True,
 ) -> str:
     """Render the ReportCard. ``mode`` controls whether the output is a
     self-contained HTML document (``standalone``) or a body fragment
     (``embedded``) for Streamlit's ``st.html`` embed.
+
+    ``show_override_audit`` defaults to True so legacy callers (the
+    persisted ``comparison.html`` written by ``compute_and_persist_report_card``,
+    Export-HTML downloads) keep the in-template audit details block.
+    Shell 08's inline embed passes ``False`` because an outside expander
+    surfaces the same data with richer formatting and additionally shows
+    scenario-level overrides the embedded template does not.
     """
     template = _env.get_template("report_card.html")
-    fragment = template.render(report_card=report_card)
+    fragment = template.render(report_card=report_card, show_override_audit=show_override_audit)
     if mode == "embedded":
         return fragment
     # ``event_name`` / ``gender`` / ``age_group`` come from provider scrape
@@ -148,14 +156,19 @@ def write_html(
     path: Path,
     *,
     mode: Literal["embedded", "standalone"] = "standalone",
+    show_override_audit: bool = True,
 ) -> Path:
     """Atomically write the rendered HTML to ``path``.
 
     Mirrors ``_io.write_json``'s ``.tmp`` + ``os.replace`` + fsync
     pattern at ``storage/_io.py:40``. HTML isn't JSON, so we use
     ``Path.write_bytes`` against the ``.tmp`` path then ``os.replace``.
+
+    ``show_override_audit`` is forwarded to ``render_html`` so the persisted
+    ``comparison.html`` (written by ``compute_and_persist_report_card``)
+    retains its audit ``<details>`` block by default.
     """
-    rendered = render_html(report_card, mode=mode)
+    rendered = render_html(report_card, mode=mode, show_override_audit=show_override_audit)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
