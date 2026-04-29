@@ -19,17 +19,177 @@ Disallow: /mission-control
 Disallow: /api/
 Disallow: /test
 
-# AI Search Crawlers — block completely
+# AI Search Crawlers — allow public pages, mirror auth/internal disallows
 User-agent: GPTBot
-Disallow: /
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
 
 User-agent: ClaudeBot
-Disallow: /
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: anthropic-ai
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: Claude-User
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
 
 User-agent: PerplexityBot
-Disallow: /
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
 
-# Block known scraping bots that ignore polite rules
+User-agent: Perplexity-User
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: cohere-ai
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+User-agent: meta-externalagent
+Allow: /
+Disallow: /teams/
+Disallow: /watchlist
+Disallow: /compare
+Disallow: /login
+Disallow: /signup
+Disallow: /upgrade
+Disallow: /auth/
+Disallow: /mission-control
+Disallow: /api/
+Disallow: /test
+
+# Aggressive scrapers that ignore polite rules — keep blocked
 User-agent: Bytespider
 Disallow: /
 
