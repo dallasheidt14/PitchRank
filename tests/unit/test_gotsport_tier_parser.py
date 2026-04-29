@@ -269,7 +269,7 @@ class TestRawTierLabel:
             tier_residue="Red",
             parse_outcome="matched",
         )
-        with pytest.raises((AttributeError, Exception)):
+        with pytest.raises(AttributeError):
             label.tier_residue = "Blue"  # type: ignore[misc]
 
     def test_load_synthetic_inverse_collision_landing(self):

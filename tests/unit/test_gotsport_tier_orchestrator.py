@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Callable
 
 import pytest
@@ -460,8 +461,6 @@ class TestConcurrencyDeterminism:
     def test_inverse_collision_resolves_to_first_catalog_gid_under_concurrency(self, tmp_path):
         # Use the synthetic_inverse_collision landing fixture (gid 1001 first in
         # document order; gid 1002 second; team 12345 in both).
-        from pathlib import Path
-
         landing = Path("tests/fixtures/gotsport/event_synthetic_inverse_collision.html")
         sub_1001 = Path("tests/fixtures/gotsport/event_synthetic_inverse_collision__group_1001.html")
         sub_1002 = Path("tests/fixtures/gotsport/event_synthetic_inverse_collision__group_1002.html")
@@ -515,5 +514,5 @@ class TestEnrichmentResultShape:
         )
         for result in out.values():
             assert isinstance(result, EnrichmentResult)
-            with pytest.raises((AttributeError, Exception)):
+            with pytest.raises(AttributeError):
                 result.group_id = 99  # type: ignore[misc]

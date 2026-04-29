@@ -23,7 +23,7 @@ from src.scrapers.gotsport_tier_parser import (
     EventTeamMembershipCollisionError,
     FetchedSubpage,
     enrich_teams_with_tiers,
-    extract_tier_catalog,
+    extract_tier_catalog,  # noqa: F401  (used in TestEvent47021CaptchaLanding only — keep flat import)
 )
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "gotsport"
@@ -167,11 +167,6 @@ def test_sampled_event_subfetches_resolve_residues(event_id, gids, expected_resi
         (FIXTURES / f"event_{event_id}.html").read_text(encoding="utf-8"),
         "html.parser",
     )
-    catalog = extract_tier_catalog(soup, event_id=event_id)
-    # Slice the catalog down to just our sampled gids so the orchestrator
-    # only fetches the ones we have on disk. Build a soup containing only
-    # those anchors. Easier: monkey-build a custom orchestrator scope by
-    # making the fetcher raise for any gid we don't have a fixture for.
     fetcher = _fetcher_from_disk(event_id)
 
     # We need to limit which gids actually run subfetches. The orchestrator
@@ -210,10 +205,6 @@ def test_sampled_event_subfetches_resolve_residues(event_id, gids, expected_resi
             f"event {event_id}: expected residue {residue!r} not found; "
             f"got {sorted(seen_residues)}"
         )
-
-    # Reference unused-but-load-bearing variable so pyflakes doesn't complain
-    # about ``catalog`` (we used it for documentation, not assertion).
-    assert isinstance(catalog, dict)
 
 
 # ---------------------------------------------------------------------------

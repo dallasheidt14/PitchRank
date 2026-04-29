@@ -17,7 +17,7 @@ two formats:
    residue, with provenance).
 2. **Membership** — ``enrich_teams_with_tiers`` (the impure orchestrator)
    subfetches each in-scope tier's ``?team=`` anchors and joins them back
-   to ``EventTeam`` rows, returning ``Dict[provider_team_id, EnrichmentResult]``.
+   to ``EventTeam`` rows, returning ``dict[provider_team_id, EnrichmentResult]``.
 
 The pure helpers (``strip_cohort_prefix``, ``parse_cohort_identity``,
 ``extract_tier_catalog``, ``parse_team_ids_from_subpage``) take primitive
@@ -44,12 +44,13 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Set, Tuple
+from typing import Callable, Literal, Optional
 
 from bs4 import BeautifulSoup
 
 from src.scrapers._age_normalization import normalize_age
 from src.scrapers.event_team import EventTeam  # noqa: F401  (re-export for callers)
+from src.tournaments.storage.event_key import intake_dir
 from src.utils import team_utils
 
 # Captcha-detection + EventCaptchaGatedError are lazy-imported inside the
@@ -281,7 +282,7 @@ _TEAM_ANCHOR_HREF_RE = re.compile(r"\bteam=(\d+)")  # mirrors gotsport.py:2575
 # ---------------------------------------------------------------------------
 
 
-def strip_cohort_prefix(text: str) -> Tuple[str, str, TierParseOutcome]:
+def strip_cohort_prefix(text: str) -> tuple[str, str, TierParseOutcome]:
     """Match the first cohort form in ``_COHORT_PREFIX_FORMS`` against ``text``.
 
     Returns ``(prefix_span, residue, outcome)``:
@@ -308,7 +309,7 @@ def strip_cohort_prefix(text: str) -> Tuple[str, str, TierParseOutcome]:
     return ("", text, OUTCOME_UNKNOWN_PREFIX)
 
 
-def parse_cohort_identity(prefix_span: str) -> Optional[Tuple[str, Optional[str]]]:
+def parse_cohort_identity(prefix_span: str) -> Optional[tuple[str, Optional[str]]]:
     """Extract ``(age_lowercase, gender)`` from a recognized prefix span.
 
     Returns ``None`` when the prefix is HS (Form 10) or when ``normalize_age``
@@ -368,7 +369,7 @@ def _resolve_cohort(
     *,
     gender_letter: Optional[str] = None,
     gender_word: Optional[str] = None,
-) -> Optional[Tuple[str, Optional[str]]]:
+) -> Optional[tuple[str, Optional[str]]]:
     """Build the ``(age, gender)`` tuple. Returns ``None`` if age is out of band."""
     age_key = normalize_age(age_int)
     if age_key is None:
@@ -385,7 +386,7 @@ def _resolve_cohort(
 
 def extract_tier_catalog(
     soup: BeautifulSoup, *, event_id: str
-) -> Dict[int, RawTierLabel]:
+) -> dict[int, RawTierLabel]:
     """Walk the landing page's ``?group=<id>`` anchors and build a per-gid catalog.
 
     Inline forward-collision detection (per spec): if two anchors carry the
@@ -397,7 +398,7 @@ def extract_tier_catalog(
     Anchors carrying obvious noise labels (``"Schedule"`` / ``"Results"``) or
     no usable sibling-``<b>`` are silently skipped.
     """
-    catalog: Dict[int, RawTierLabel] = {}
+    catalog: dict[int, RawTierLabel] = {}
     anchors = soup.find_all("a", href=_GROUP_ANCHOR_HREF_RE)
     for anchor in anchors:
         href = anchor.get("href", "")
@@ -453,14 +454,14 @@ def extract_tier_catalog(
     return catalog
 
 
-def parse_team_ids_from_subpage(html: str) -> Set[str]:
+def parse_team_ids_from_subpage(html: str) -> set[str]:
     """Extract every ``?team=<digits>`` anchor on a per-tier subpage.
 
     Returns a deduped set of decimal strings (matches the upstream
     ``team_id`` shape used in ``EventTeam.team_id``).
     """
     soup = BeautifulSoup(html, "html.parser")
-    out: Set[str] = set()
+    out: set[str] = set()
     for anchor in soup.find_all("a", href=_TEAM_ANCHOR_HREF_RE):
         href = anchor.get("href", "") or ""
         m = _TEAM_ANCHOR_HREF_RE.search(href)
@@ -477,6 +478,27 @@ def parse_team_ids_from_subpage(html: str) -> Set[str]:
 # ---------------------------------------------------------------------------
 
 
+def _write_intake_artifact(
+    event_key: str,
+    *,
+    filename: str,
+    payload: dict,
+    log_msg: str,
+    base_dir: Path | str = "reports",
+) -> Path:
+    """Shared write path for ``tier_parse_metrics.json`` + abort artifacts.
+
+    Routes through ``intake_dir`` so the ``event_key`` is validated as a
+    single path segment (``_validate_segment`` rejects ``"../etc"``-style
+    payloads), preventing path-traversal escapes from the reports root.
+    """
+    path = intake_dir(event_key, base_dir=base_dir) / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    logger.info(log_msg, path)
+    return path
+
+
 def _write_metric_artifact(
     event_key: str,
     *,
@@ -486,19 +508,20 @@ def _write_metric_artifact(
     gated: bool,
     base_dir: Path | str = "reports",
 ) -> Path:
-    path = Path(base_dir) / event_key / "intake" / "tier_parse_metrics.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "event_key": event_key,
-        "total_candidates": total_candidates,
-        "unknown_prefix_count": unknown_prefix_count,
-        "unknown_prefix_labels": unknown_prefix_labels,
-        "gated_at_threshold": gated,
-        "threshold": UNKNOWN_PREFIX_GATE_THRESHOLD,
-    }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    logger.info("[tier_parse_metrics] wrote %s (gated=%s)", path, gated)
-    return path
+    return _write_intake_artifact(
+        event_key,
+        filename="tier_parse_metrics.json",
+        payload={
+            "event_key": event_key,
+            "total_candidates": total_candidates,
+            "unknown_prefix_count": unknown_prefix_count,
+            "unknown_prefix_labels": unknown_prefix_labels,
+            "gated_at_threshold": gated,
+            "threshold": UNKNOWN_PREFIX_GATE_THRESHOLD,
+        },
+        log_msg=f"[tier_parse_metrics] wrote %s (gated={gated})",
+        base_dir=base_dir,
+    )
 
 
 _AbortKind = Literal[
@@ -522,24 +545,20 @@ def _write_abort_artifact(
     details: str,
     base_dir: Path | str = "reports",
 ) -> Path:
-    filename = f"tier_orchestrator_abort__{run_id}.json"
-    path = Path(base_dir) / event_key / "intake" / filename
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "event_key": event_key,
-        "run_id": run_id,
-        "attempted_group_ids": attempted_group_ids,
-        "completed_group_ids": completed_group_ids,
-        "failed_group_id": failed_group_id,
-        "failure_kind": failure_kind,
-        "details": details,
-    }
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    logger.warning(
-        "[tier_orchestrator_abort] wrote %s (kind=%s, failed_gid=%s)",
-        path,
-        failure_kind,
-        failed_group_id,
+    path = _write_intake_artifact(
+        event_key,
+        filename=f"tier_orchestrator_abort__{run_id}.json",
+        payload={
+            "event_key": event_key,
+            "run_id": run_id,
+            "attempted_group_ids": attempted_group_ids,
+            "completed_group_ids": completed_group_ids,
+            "failed_group_id": failed_group_id,
+            "failure_kind": failure_kind,
+            "details": details,
+        },
+        log_msg=f"[tier_orchestrator_abort] wrote %s (kind={failure_kind}, failed_gid={failed_group_id})",
+        base_dir=base_dir,
     )
     return path
 
@@ -553,7 +572,7 @@ def _write_abort_artifact(
 
 def enrich_teams_with_tiers(
     soup: BeautifulSoup,
-    teams_by_bracket: Dict[str, List[EventTeam]],  # noqa: ARG001 — Shell 02 will consume this
+    teams_by_bracket: dict[str, list[EventTeam]],  # noqa: ARG001 — Shell 02 will consume this
     *,
     event_id: str,
     event_key: str,
@@ -561,13 +580,13 @@ def enrich_teams_with_tiers(
     subpage_fetcher: Callable[[int], FetchedSubpage],
     max_concurrent_subfetches: int = 1,
     base_dir: Path | str = "reports",
-) -> Dict[str, EnrichmentResult]:
+) -> dict[str, EnrichmentResult]:
     """Two-stage tier-enrichment pipeline.
 
     Stage 1 (discovery) walks the landing soup to build a catalog of
     ``?group=<id> → RawTierLabel`` entries. Stage 2 (membership) calls
     ``subpage_fetcher`` for each in-scope ``group_id`` and joins the
-    returned ``?team=<id>`` sets back into ``Dict[team_id, EnrichmentResult]``.
+    returned ``?team=<id>`` sets back into ``dict[team_id, EnrichmentResult]``.
 
     On any abort path (forward collision, captcha, http error, parse
     error, malformed html, strict-mode inverse collision), writes an
@@ -609,25 +628,20 @@ def enrich_teams_with_tiers(
         )
         raise
 
-    # 2. In-scope filter + unknown-prefix metric.
-    in_scope_catalog: Dict[int, RawTierLabel] = {}
-    for label in catalog.values():
-        if label.cohort_age_group in IN_SCOPE_AGES:
-            in_scope_catalog[label.group_id] = label
-        elif label.cohort_age_group in MICRO_OUT_OF_SCOPE_AGES:
-            # Skip — saves subfetches; doesn't pollute metrics.
-            continue
-        else:
-            # cohort_age_group is None — HS / unknown-prefix; subfetch anyway
-            # per spec line 278.
-            in_scope_catalog[label.group_id] = label
+    # 2. In-scope filter + unknown-prefix metric. The two non-skip branches
+    # (in-scope U10..U19, unknown/HS-fall-through) BOTH subfetch — only the
+    # known-out-of-scope micro cohorts (u6..u9) get dropped. Single predicate
+    # captures that semantics directly.
+    in_scope_catalog: dict[int, RawTierLabel] = {
+        label.group_id: label
+        for label in catalog.values()
+        if label.cohort_age_group not in MICRO_OUT_OF_SCOPE_AGES
+    }
 
-    unknown_prefix_count = sum(
-        1 for lbl in in_scope_catalog.values() if lbl.parse_outcome == OUTCOME_UNKNOWN_PREFIX
-    )
     unknown_prefix_labels = [
         lbl.raw_label for lbl in in_scope_catalog.values() if lbl.parse_outcome == OUTCOME_UNKNOWN_PREFIX
     ]
+    unknown_prefix_count = len(unknown_prefix_labels)
     total_candidates = len(in_scope_catalog)
     gated = (
         (unknown_prefix_count / total_candidates) > UNKNOWN_PREFIX_GATE_THRESHOLD
@@ -651,21 +665,20 @@ def enrich_teams_with_tiers(
     # 4. Membership pass.
     attempted_group_ids = list(in_scope_catalog.keys())
     completed_group_ids: list[int] = []
-    results_by_gid: Dict[int, Set[str]] = {}
+    results_by_gid: dict[int, set[str]] = {}
 
-    def _process_one(gid: int) -> Tuple[int, Set[str]]:
+    def _process_one(gid: int) -> tuple[int, set[str]]:
         subpage_url = f"https://system.gotsport.com/org_event/events/{event_id}/schedules?group={gid}"
         try:
             fetched = subpage_fetcher(gid)
         except Exception as exc:
-            kind: Literal["http_error", "parse_error"] = "http_error"
             _write_abort_artifact(
                 event_key,
                 run_id=run_id,
                 attempted_group_ids=attempted_group_ids,
                 completed_group_ids=list(completed_group_ids),
                 failed_group_id=gid,
-                failure_kind=kind,
+                failure_kind="http_error",
                 details=f"{type(exc).__name__}: {exc}",
                 base_dir=base_dir,
             )
@@ -673,7 +686,7 @@ def enrich_teams_with_tiers(
                 event_id=event_id,
                 group_id=gid,
                 subpage_url=subpage_url,
-                underlying_kind=kind,
+                underlying_kind="http_error",
                 details=f"{type(exc).__name__}: {exc}",
             ) from exc
 
@@ -775,7 +788,7 @@ def enrich_teams_with_tiers(
     # 5. Inverse-collision check. Iterate in CATALOG insertion order so
     # under concurrency the "FIRST gid wins" tie-break is deterministic
     # against document order, not future-completion order.
-    team_to_gids: Dict[str, list[int]] = {}
+    team_to_gids: dict[str, list[int]] = {}
     for gid in attempted_group_ids:
         for team_id in results_by_gid.get(gid, ()):
             team_to_gids.setdefault(team_id, []).append(gid)
@@ -803,13 +816,14 @@ def enrich_teams_with_tiers(
                     conflicting_group_ids=tuple(gids),
                 )
 
-    # 6. Build enrichment dict (first-write-wins to honor catalog order).
-    enrichment: Dict[str, EnrichmentResult] = {}
-    assigned_team_ids: set[str] = set()
+    # 6. Build enrichment dict (first-write-wins on dict keys to honor
+    # catalog order — iterating attempted_group_ids in catalog insertion
+    # order means the FIRST gid that contains a team_id sticks).
+    enrichment: dict[str, EnrichmentResult] = {}
     for gid in attempted_group_ids:
         label = in_scope_catalog[gid]
         for team_id in results_by_gid.get(gid, ()):
-            if team_id in assigned_team_ids:
+            if team_id in enrichment:
                 continue
             membership = (
                 MEMBERSHIP_AMBIGUOUS if team_id in inverse_collision_teams else MEMBERSHIP_SUBPAGE
@@ -821,6 +835,5 @@ def enrich_teams_with_tiers(
                 tier_membership_source=membership,
                 tier_parse_outcome=label.parse_outcome,
             )
-            assigned_team_ids.add(team_id)
 
     return enrichment
