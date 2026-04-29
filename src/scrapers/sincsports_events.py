@@ -59,14 +59,13 @@ _DIV_HEADING_RE = re.compile(
 CANONICAL_AGE_GROUPS: FrozenSet[str] = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
 
 
-from src.scrapers._age_normalization import normalize_age as _normalize_age
-
 # Re-export shim — the shared helper now lives in ``_age_normalization`` so the
 # Gotsport tier parser can consume it without dragging the SincSports import
 # chain. SincSports' ``parse_teamlist`` still filters via ``effective_ages``
 # (``CANONICAL_AGE_GROUPS`` by default), so the helper's widened ``[6, 19]``
 # band is invisible here — ``u6``/``u7`` produced by the helper get filtered
 # out at line 157.
+from src.scrapers._age_normalization import normalize_age as _normalize_age  # noqa: E402
 
 
 class SincSportsEventsScraper:

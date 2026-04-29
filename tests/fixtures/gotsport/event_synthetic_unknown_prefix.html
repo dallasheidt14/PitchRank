@@ -8,10 +8,13 @@ var jsonTeamRegs = [
   {"id": 12345, "full_name": "Adult Hammer Team", "display_age_group": "Adult", "display_gender": "Male"}
 ];
 </script>
-<!-- One ?group= link with cohort form NOT in the 10-form table; sibling ?team= link exercises positional join. -->
-<div class="section">
-  <a href="/org_event/events/99999/schedules?group=42">Adult Co-Ed Hammer</a>
-  <a href="/teams/12345">Adult Hammer Team</a>
+<!-- One ?group= anchor with cohort label NOT in the recognized form table.
+     Uses the sibling-<b> + row structure the orchestrator's discovery walk
+     requires (anchor.find_parent().find_parent().find('b')). -->
+<div class='row'>
+  <div class='col-md-6'><b>Adult Co-Ed Hammer</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/results?group=42">Results</a></div>
 </div>
 </body>
 </html>

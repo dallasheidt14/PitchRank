@@ -9,14 +9,15 @@ var jsonTeamRegs = [
   {"id": 9002, "full_name": "Silver Team", "display_age_group": "U13", "display_gender": "Male"}
 ];
 </script>
-<!-- Two ?group=42 links pointing at distinct tier residues — must raise TierIDCollisionError. -->
-<div class="gold-section">
-  <a href="/org_event/events/99999/schedules?group=42">U13 Boys Gold</a>
-  <a href="/teams/9001">Gold Team</a>
+<!-- Two ?group=42 anchors with DIFFERENT sibling-<b> labels — must raise
+     EventTeamMembershipCollisionError(mode='forward') during the catalog walk. -->
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Gold</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
 </div>
-<div class="silver-section">
-  <a href="/org_event/events/99999/schedules?group=42">U13 Boys Silver</a>
-  <a href="/teams/9002">Silver Team</a>
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Silver</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
 </div>
 </body>
 </html>
