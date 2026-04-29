@@ -12,7 +12,6 @@ import os
 import random
 import re
 import time
-from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -34,6 +33,7 @@ except ImportError:
 
 from src.base import GameData
 from src.scrapers.base import BaseScraper
+from src.scrapers.event_team import EventTeam
 from src.scrapers.intake_journal import DURABLE_ACTIONS, IntakeJournal, compute_skip_set
 from src.scrapers.provider import (
     CanonicalResolution,
@@ -716,20 +716,6 @@ def _extract_captcha_signals(
             "sitekey": _find_sitekey(body),
         }
     return None
-
-
-@dataclass
-class EventTeam:
-    """Team information within an event bracket/group"""
-
-    team_id: str
-    team_name: str
-    bracket_name: str
-    group_name: Optional[str] = None  # Group name (e.g., "Group A", "Pool A")
-    age_group: Optional[str] = None  # Team's ACTUAL age group (e.g., "U11")
-    gender: Optional[str] = None
-    division: Optional[str] = None
-    playing_up: bool = False  # True if team is playing in a bracket above their age group
 
 
 class GotsportScraper(ProviderScraper):

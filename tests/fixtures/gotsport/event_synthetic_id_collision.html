@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic ID-collision event</title></head>
+<body>
+<h1>Synthetic ID-Collision Event</h1>
+<script>
+var jsonTeamRegs = [
+  {"id": 9001, "full_name": "Gold Team", "display_age_group": "U13", "display_gender": "Male"},
+  {"id": 9002, "full_name": "Silver Team", "display_age_group": "U13", "display_gender": "Male"}
+];
+</script>
+<!-- Two ?group=42 links pointing at distinct tier residues — must raise TierIDCollisionError. -->
+<div class="gold-section">
+  <a href="/org_event/events/99999/schedules?group=42">U13 Boys Gold</a>
+  <a href="/teams/9001">Gold Team</a>
+</div>
+<div class="silver-section">
+  <a href="/org_event/events/99999/schedules?group=42">U13 Boys Silver</a>
+  <a href="/teams/9002">Silver Team</a>
+</div>
+</body>
+</html>

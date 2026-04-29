@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic unknown-prefix event</title></head>
+<body>
+<h1>Synthetic Unknown-Prefix Event</h1>
+<script>
+var jsonTeamRegs = [
+  {"id": 12345, "full_name": "Adult Hammer Team", "display_age_group": "Adult", "display_gender": "Male"}
+];
+</script>
+<!-- One ?group= link with cohort form NOT in the 10-form table; sibling ?team= link exercises positional join. -->
+<div class="section">
+  <a href="/org_event/events/99999/schedules?group=42">Adult Co-Ed Hammer</a>
+  <a href="/teams/12345">Adult Hammer Team</a>
+</div>
+</body>
+</html>
