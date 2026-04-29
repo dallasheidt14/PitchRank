@@ -124,6 +124,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'georgia-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Georgia?',
+      answer:
+        'PitchRank tracks game-by-game results across 789 Georgia teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Georgia?',
+      answer:
+        'By team count: Concorde Fire (129 teams), United Futbol Academy (97), NASA Tophat (82), Southern Soccer Academy (69), Gwinnett Soccer Academy (59), Inter Atlanta FC Blues (48), Atlanta Fire United (33), and AFC Lightning (26).',
+    },
+    {
+      question: 'How often do Georgia soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Georgia?',
+      answer:
+        'Georgia teams compete in ECNL, MLS NEXT (anchored by the Atlanta United Academy pipeline), Girls Academy (GA), NPL, ECNL Regional League, and National League — plus state competition through Georgia Soccer (GSSA) premier divisions and the Georgia State Cup.',
+    },
+    {
+      question: 'How does the Atlanta metro compare to the rest of Georgia?',
+      answer:
+        "The Atlanta metro produces the bulk of Georgia's top-ranked teams across age groups, with Concorde Fire, NASA Tophat, UFA, Gwinnett SA, and Inter Atlanta FC Blues consistently among the strongest. Savannah United, Steamers FC, and other regional clubs anchor competitive scenes outside metro Atlanta but typically travel north for showcase events.",
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Georgia rankings help with college recruiting?',
+      answer:
+        'Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Georgia is home to UGA, Georgia Tech, Georgia State, Mercer, Kennesaw State, and many D2/D3 programs.',
+    },
+    {
+      question: 'Can clubs game the Georgia rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker Georgia Soccer flight opponents repeatedly will not inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
+    },
+  ],
+
   'maryland-youth-soccer-rankings-guide': [
     {
       question: 'How are Maryland youth soccer teams ranked?',
@@ -569,6 +612,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: "How often should I check my team's ranking?",
       answer:
         'Rankings update weekly on PitchRank (every Monday). Checking weekly gives you a sense of trends without overreacting to small fluctuations. Look at movement over a month for a clearer picture.',
+    },
+  ],
+
+  'youth-soccer-levels-explained': [
+    {
+      question: 'What are the levels of youth soccer in the US?',
+      answer:
+        'From top to bottom: national platforms (ECNL, MLS NEXT, Girls Academy), regional development leagues (ECNL Regional, NPL, EDP, DPL), the US Youth Soccer National League and state premier divisions, then local travel and recreational. The US has two parallel sanctioning structures — US Club Soccer and US Youth Soccer — which is why the picture looks confusing.',
+    },
+    {
+      question: 'Is ECNL or MLS NEXT higher level?',
+      answer:
+        'For boys, MLS NEXT and ECNL are both top-tier and largely separate ecosystems — most top boys clubs play one or the other. For girls, ECNL is the dominant top tier alongside Girls Academy. "Higher" depends on the club, the age group, and your region.',
+    },
+    {
+      question: 'What is the difference between ECNL and ECNL Regional League?',
+      answer:
+        'ECNL is the national platform with showcase events drawing top college coaches. ECNL Regional League (often called ECNL-RL or ECRL) is the development tier directly below it, played mostly within a region. Many clubs run both, and rosters move between them.',
+    },
+    {
+      question: 'What is NPL in soccer?',
+      answer:
+        "NPL stands for National Premier Leagues — US Club Soccer's competitive league below ECNL. It's strong, well-attended at showcases, and a common alternative for clubs without an ECNL bid in a given age group.",
+    },
+    {
+      question: 'Is travel soccer the same as club soccer?',
+      answer:
+        'Roughly yes — most "club soccer" is travel soccer, meaning teams travel to play league games and tournaments. Recreational soccer typically stays within one local league. The line gets blurry at the lower travel tiers, where some town travel teams do not belong to a full club organization.',
+    },
+    {
+      question: "How do I know what league my kid's team plays in?",
+      answer:
+        "Check the team's published schedule and the club's website. Each league publishes its own standings. Your team will play most weekend games against the same set of clubs — that pool tells you the level.",
+    },
+    {
+      question: 'Does playing higher-level soccer help with college recruiting?',
+      answer:
+        'Visibility helps, especially at the top tiers (ECNL, MLS NEXT, GA) where college coaches attend showcases. But individual highlight video, academic eligibility, and direct contact with coaches matter more than the team’s league. A strong NPL player who emails coaches will out-recruit a national-platform player who does nothing.',
+    },
+    {
+      question: 'Can a team move between levels season to season?',
+      answer:
+        "Yes. Clubs apply for league bids each year. Teams get promoted, relegated, or move between platforms as rosters and results change. It's normal for a club's U14 ECNL team to drop to ECNL-RL the following year, or for a strong state premier team to earn an NPL bid.",
     },
   ],
 
