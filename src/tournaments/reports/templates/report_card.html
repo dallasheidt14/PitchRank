@@ -146,7 +146,7 @@ delta-flat
     </section>
   {% endif %}
 
-  {% if report_card.override_audit %}
+  {% if show_override_audit and report_card.override_audit %}
     <details class="rc-section rc-audit">
       <summary class="rc-eyebrow">Override audit log &middot; {{ report_card.override_audit | length }} records</summary>
       <ul class="rc-list rc-mono">

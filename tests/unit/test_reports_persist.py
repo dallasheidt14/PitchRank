@@ -16,6 +16,8 @@ from src.tournaments.reports.compute import (
     compute_and_persist_report_card,
     read_comparison_json,
 )
+from src.tournaments.storage._io import append_jsonl
+from src.tournaments.storage.schema_version import stamp_schema_version
 from tests.unit.test_reports_compute import (
     EVENT_KEY,
     RUN_ID,
@@ -24,6 +26,29 @@ from tests.unit.test_reports_compute import (
     _write_division_recommendations,
     _write_summary,
 )
+
+
+def _seed_run_overrides_audit(run_path: Path) -> None:
+    """Seed ``run_overrides_audit.jsonl`` with one schema-stamped row.
+
+    Mirrors what ``run_orchestrator._write_run_overrides_audit`` produces:
+    the source override dict spread plus ``run_id`` / ``applied_at`` /
+    ``delta_balance_score=None``, schema-stamped before append.
+    """
+    record = {
+        "ts": "2026-04-30T11:00:00+00:00",
+        "actor": "ops@pitchrank.io",
+        "type": "accept_match",
+        "team_ref": "pid-1",
+        "reason": "manual review",
+        "before": {},
+        "after": {},
+        "run_id": RUN_ID,
+        "applied_at": "2026-04-30T12:00:00+00:00",
+        "delta_balance_score": None,
+    }
+    append_jsonl(run_path / "run_overrides_audit.jsonl", stamp_schema_version(record))
+
 
 _ARTIFACTS: tuple[str, ...] = (
     "comparison.json",
@@ -108,3 +133,23 @@ def test_compute_report_card_pure_does_not_write(tmp_path: Path):
 
     for name in _ARTIFACTS:
         assert not (run_path / name).exists(), f"compute_report_card leaked artifact: {name}"
+
+
+def test_comparison_html_retains_audit_details_block(tmp_path: Path):
+    """``compute_and_persist_report_card → write_html → render_html →
+    template`` chain must preserve the override-audit ``<details>`` block
+    when ``card.override_audit`` is non-empty.
+
+    Guards against accidental kwarg drops (Step 1b's ``show_override_audit``
+    would silently suppress the block on a regression because Jinja's
+    default Undefined is falsy)."""
+    run_path = _bootstrap(tmp_path)
+    _write_summary(run_path)
+    _write_division_recommendations(run_path)
+    _seed_run_overrides_audit(run_path)
+
+    rc = compute_and_persist_report_card(EVENT_KEY, SCENARIO, RUN_ID, base_dir=tmp_path)
+    assert len(rc.override_audit) >= 1
+
+    text = (run_path / "comparison.html").read_text(encoding="utf-8")
+    assert text.count("rc-audit") >= 1

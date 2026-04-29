@@ -1011,7 +1011,7 @@ def test_orphan_tmp_cleanup_removes_old_dirs(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# _override_in_cohort — manual_add and recompute_medians branches
+# override_in_cohort — manual_add and recompute_medians branches
 # ---------------------------------------------------------------------------
 
 

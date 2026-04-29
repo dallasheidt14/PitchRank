@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import html
+import json
 import logging
 import os
 import sys
@@ -20,7 +21,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from config.settings import (
     PROJECT_NAME,
@@ -40,9 +43,23 @@ from src.tournaments.event_team_matcher import (
     enrich_registry_rows_with_matcher,
     search_event_team_in_db,
 )
+from src.tournaments.reports import (
+    ReportCardError,
+    render_html,
+)
+from src.tournaments.reports.ui import (
+    derive_export_filenames,
+    ensure_report_card,
+    format_run_label,
+    format_run_timestamp,
+    project_audit_row,
+    safe_read_comparison_json,
+    zip_run_csvs,
+)
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
     execute_run,
+    override_in_cohort,
     preflight,
 )
 from src.tournaments.seeding_optimizer import (
@@ -55,6 +72,7 @@ from src.tournaments.storage import (
     DivisionStructure,
     EventMetadata,
     RegistryPersistResult,
+    RunLockError,
     RunStateError,
     ScenarioLockError,
     SchemaVersionError,
@@ -85,7 +103,10 @@ from src.tournaments.storage import (
     write_frozen_medians,
     write_structure,
 )
-from src.tournaments.storage._io import utc_now_iso
+from src.tournaments.storage import (
+    run_dir as _run_dir,
+)
+from src.tournaments.storage._io import read_json, utc_now_iso
 from src.tournaments.triage import (
     _STRENGTH_MODES,
     SOURCE_EXPLICIT,
@@ -97,6 +118,7 @@ from src.tournaments.triage import (
     _is_play_up,
     build_override_record,
     project_overrides,
+    registry_provider_id,
     resolve_division_assignment,
 )
 from supabase import create_client
@@ -3013,6 +3035,250 @@ def _render_advanced_settings(
 # ---------------------------------------------------------------------------
 
 
+@st.cache_data(ttl=60)
+def _build_registry_by_pid(event_key: str, scenario: str) -> dict[str, Any]:
+    """Cache the registry as ``provider_id → TeamRegistryEntry``.
+
+    Cache key is ``(event_key, scenario)`` — the registry CSV is read at
+    most once per scenario per minute. Intake-time changes to the registry
+    surface in the audit panel within 60s; acceptable v1 staleness.
+
+    The dict is consumed by ``override_in_cohort`` (Step 6) to filter
+    scenario-level overrides down to the active cohort. Without it, every
+    override of types ``assign``, ``external``, ``merge``, etc. is
+    silently filtered out (the predicate returns False whenever the
+    registry lookup misses).
+    """
+    registry = read_registry(event_key, scenario)
+    return {pid: entry for entry in registry if (pid := registry_provider_id(entry))}
+
+
+_METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
+    FileNotFoundError,
+    json.JSONDecodeError,
+    OSError,
+    AttributeError,
+    KeyError,
+    TypeError,
+    ValueError,
+)
+"""Exceptions the dropdown-filter loop tolerates when probing run-dir
+metadata. Covers I/O (``FileNotFoundError`` / ``OSError``), JSON
+(``json.JSONDecodeError`` / ``ValueError``), AND structural-shape errors
+(``AttributeError`` / ``KeyError`` / ``TypeError``) — a JSON-valid but
+shape-invalid ``run_metadata.json`` (legacy/manually-edited) would
+otherwise crash the entire previous-runs dropdown render.
+"""
+
+
+def _read_ended_at(event_key: str, scenario: str, run_id_: str) -> str | None:
+    """Return ``run_metadata.json["ended_at"]`` or ``None`` if absent.
+
+    Not cached — local file read (single ``read_json`` per call,
+    sub-millisecond) and any TTL window introduces a stale-label window
+    when a new run completes. Raises ``_METADATA_READ_ERRORS`` on missing
+    / corrupt / shape-invalid metadata; the dropdown filter catches those
+    to exclude unreadable runs.
+    """
+    payload = read_json(_run_dir(event_key, scenario, run_id_) / "run_metadata.json")
+    return payload.get("ended_at")
+
+
+def _read_optimized_score(event_key: str, scenario: str, run_id_: str) -> float | None:
+    """Return ``balance_score.optimized`` from a persisted Report Card.
+
+    Returns ``None`` when ``report_card.done`` is absent (no Report Card
+    has been computed yet) or when the ``comparison.json`` is corrupt,
+    schema-mismatched, or shape-invalid. The defensive read via
+    ``safe_read_comparison_json`` is REQUIRED because the dropdown's
+    ``format_func`` lambda calls this for EVERY visible run on every
+    render — a single corrupt ``comparison.json`` in the run history
+    would otherwise explode the entire dropdown.
+    """
+    run_dir_path = _run_dir(event_key, scenario, run_id_)
+    if not (run_dir_path / "report_card.done").exists():
+        return None
+    card = safe_read_comparison_json(run_dir_path / "comparison.json")
+    return card.balance_score.optimized if card is not None else None
+
+
+def _render_cohort_completed_run(
+    *,
+    event_key: str,
+    scenario: str,
+    age: str,
+    gender: str,
+    run_id: str,
+) -> None:
+    """Render the Shell 08 completed-run surface for one cohort.
+
+    Body order: previous-runs dropdown → lazy-load Report Card → header
+    line → action row (Export HTML / CSV / JSON + Re-run) → inline iframe
+    embed → collapsed override-audit panel.
+    """
+    # --- Previous-runs dropdown ------------------------------------------
+    # Build the cohort-scoped run list and prefetch the per-run label inputs
+    # in a single pass. The selectbox ``format_func`` lambda fires for every
+    # visible run on every Streamlit rerun; doing dict lookups against this
+    # cache keeps the dropdown render O(N) file reads instead of O(N) per
+    # rerun. Skip ``_read_ended_at``-unreadable runs (corrupt/legacy) so the
+    # widget never offers an option that would crash on selection.
+    cohort_prefix = f"{age}_{gender.lower()}_"
+    all_runs = [r for r in list_runs(event_key, scenario, completed_only=True) if r.startswith(cohort_prefix)]
+    runs: list[str] = []
+    label_inputs: dict[str, tuple[str | None, float | None]] = {}
+    for r in reversed(all_runs):
+        try:
+            ended_at_value = _read_ended_at(event_key, scenario, r)
+        except _METADATA_READ_ERRORS:
+            continue
+        label_inputs[r] = (ended_at_value, _read_optimized_score(event_key, scenario, r))
+        runs.append(r)
+
+    # Reconcile stale ``run_id`` BEFORE selectbox renders. Streamlit raises
+    # ``StreamlitAPIException`` when the keyed widget's session-state value
+    # is not in ``options`` — pop and rerun rather than crash.
+    if not runs:
+        st.session_state.current_run_id_by_cohort.pop((age, gender), None)
+        st.session_state.pop(f"prev_run_select_{age}_{gender}", None)
+        st.warning("No readable runs for this cohort. Click Run backtest to start fresh.")
+        st.rerun()
+    if run_id not in runs:
+        st.session_state.current_run_id_by_cohort[(age, gender)] = runs[0]
+        st.session_state.pop(f"prev_run_select_{age}_{gender}", None)
+        st.rerun()
+
+    if len(runs) > 1:
+        select_key = f"prev_run_select_{age}_{gender}"
+        # Synchronize the keyed widget's session-state value to the loaded
+        # ``run_id`` BEFORE the widget renders — once the widget exists, its
+        # session-state value takes precedence over any ``index=`` argument,
+        # so the explicit pre-write is the source of truth.
+        if st.session_state.get(select_key) != run_id:
+            st.session_state[select_key] = run_id
+        selected = st.selectbox(
+            label=f"Run for {gender} {age}",
+            options=runs,
+            format_func=lambda r: format_run_label(r, *label_inputs[r]),
+            key=select_key,
+        )
+        if selected != run_id:
+            st.session_state.current_run_id_by_cohort[(age, gender)] = selected
+            st.rerun()
+
+    # --- Lazy compute / load ---------------------------------------------
+    try:
+        with st.spinner("Generating Report Card..."):
+            card = ensure_report_card(event_key, scenario, run_id)
+    except RunLockError:
+        st.warning("Another tab is generating this run's Report Card. Reload in 30s.")
+        return
+    except ReportCardError as exc:
+        st.error(f"Cannot load Report Card: {exc}")
+        return
+
+    # --- Header line -----------------------------------------------------
+    run_dir_path = _run_dir(event_key, scenario, run_id)
+    ended_at, _ = label_inputs.get(run_id, (None, None))
+    if ended_at is None:
+        try:
+            done_payload = read_json(run_dir_path / "done.json")
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            done_payload = {}
+        ended_at = done_payload.get("promoted_at")
+    ended_at_display = format_run_timestamp(ended_at)
+    if card.balance_score.actual is not None:
+        bs_summary = f"{card.balance_score.actual:.0f} → {card.balance_score.optimized:.0f}"
+    else:
+        bs_summary = f"{card.balance_score.optimized:.0f} (actual n/a)"
+    st.caption(f"Last run · ended {ended_at_display} · Balance Score {bs_summary}")
+
+    # --- Action row ------------------------------------------------------
+    filenames = derive_export_filenames(card)
+    html_path = run_dir_path / "comparison.html"
+    if html_path.exists():
+        html_data: bytes = html_path.read_bytes()
+    else:
+        html_data = render_html(card, mode="standalone").encode("utf-8")
+
+    c1, c2, c3, c4, _ = st.columns([1, 1, 1, 1, 2])
+    with c1:
+        st.download_button(
+            "Export HTML",
+            data=html_data,
+            file_name=filenames["html"],
+            mime="text/html",
+            key=f"export_html_{age}_{gender}",
+        )
+    with c2:
+        try:
+            zip_data = zip_run_csvs(run_dir_path)
+        except FileNotFoundError as exc:
+            st.error(f"CSV export unavailable: {exc}")
+        else:
+            st.download_button(
+                "Export CSV",
+                data=zip_data,
+                file_name=filenames["zip"],
+                mime="application/zip",
+                key=f"export_csv_{age}_{gender}",
+            )
+    with c3:
+        st.download_button(
+            "Export JSON",
+            data=(run_dir_path / "comparison.json").read_bytes(),
+            file_name=filenames["json"],
+            mime="application/json",
+            key=f"export_json_{age}_{gender}",
+        )
+    with c4:
+        if st.button(
+            "Re-run",
+            key=f"rerun_{age}_{gender}",
+            help="Clear this cohort's loaded run and show the Run button again.",
+        ):
+            st.session_state.current_run_id_by_cohort.pop((age, gender), None)
+            st.session_state.pop(f"prev_run_select_{age}_{gender}", None)
+            st.rerun()
+
+    # --- Inline iframe embed ---------------------------------------------
+    # ``mode="standalone"`` is required so the inline ``<style>`` block ships
+    # inside the iframe; ``mode="embedded"`` returns a CSS-less fragment.
+    # ``show_override_audit=False`` suppresses the in-iframe ``<details>``
+    # because the outside expander below is the single source of truth.
+    components.html(
+        render_html(card, mode="standalone", show_override_audit=False),
+        height=900,
+        scrolling=True,
+    )
+
+    # --- Override audit panel --------------------------------------------
+    per_run_rows = [project_audit_row(entry.record) for entry in card.override_audit]
+    scenario_records = load_overrides(event_key, scenario)
+    registry_by_pid = _build_registry_by_pid(event_key, scenario)
+    scenario_rows = [
+        project_audit_row(record)
+        for record in scenario_records
+        if override_in_cohort(record, age, gender, registry_by_pid)
+    ]
+    with st.expander(
+        f"Override log · {len(per_run_rows)} per-run · {len(scenario_rows)} scenario",
+        expanded=False,
+    ):
+        st.markdown("**Per-run overrides**")
+        if per_run_rows:
+            st.dataframe(pd.DataFrame(per_run_rows), width="stretch")
+            st.caption("ⓘ Per-override delta_balance_score is deferred to v2.")
+        else:
+            st.caption("No per-run overrides applied for this cohort.")
+
+        st.markdown("**Scenario-level overrides**")
+        if scenario_rows:
+            st.dataframe(pd.DataFrame(scenario_rows), width="stretch")
+        else:
+            st.caption("No scenario-level overrides for this cohort.")
+
+
 def _render_cohort_run_control(
     *,
     event_key: str,
@@ -3036,7 +3302,13 @@ def _render_cohort_run_control(
     button_key = f"run_btn_{age}_{gender}"
     cohort_run_id = st.session_state.current_run_id_by_cohort.get((age, gender))
     if cohort_run_id is not None:
-        st.caption(f"Run loaded: {cohort_run_id}")
+        _render_cohort_completed_run(
+            event_key=event_key,
+            scenario=scenario,
+            age=age,
+            gender=gender,
+            run_id=cohort_run_id,
+        )
         return
 
     result = preflight(event_key, scenario, age, gender, supabase_client=supabase_client)

@@ -6,8 +6,8 @@ without copying ``intake/`` (the scrape genuinely is shared).
 
 Spec §9 line 320 mandates a per-scenario file lock at
 ``scenarios/<name>/.run.lock`` so two run subprocesses can't race the same
-scenario. ``acquire_scenario_lock`` implements it as an OS advisory lock —
-``fcntl.flock`` on POSIX, ``msvcrt.locking`` on Windows.
+scenario. ``acquire_scenario_lock`` implements it as an OS advisory lock
+via the platform-abstracted ``_acquire_file_lock`` helper.
 
 **No-IO contract on the lockfile:** the helper opens the fd and immediately
 acquires the lock without any intervening reads or writes. Callers MUST NOT
@@ -20,13 +20,11 @@ presence/lock primitive.
 from __future__ import annotations
 
 import contextlib
-import os
 import shutil
-import sys
-import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
+from src.tournaments.storage._file_lock import FileLockError, _acquire_file_lock
 from src.tournaments.storage.event_key import scenario_dir, scenarios_dir
 
 __all__ = [
@@ -90,35 +88,6 @@ def list_scenarios(event_key: str, *, base_dir: Path | str = "reports") -> list[
     return sorted(entry.name for entry in root.iterdir() if entry.is_dir())
 
 
-def _build_platform_lock_pair() -> tuple[Callable[[int], None], Callable[[int], None]]:
-    """Build ``(lock_fn, unlock_fn)`` for the current platform.
-
-    Resolved once at module load — the platform branch and module imports
-    don't need to re-run on every ``acquire_scenario_lock`` call.
-    """
-    if sys.platform == "win32":
-        import msvcrt
-
-        def lock_fn(fd: int) -> None:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-
-        def unlock_fn(fd: int) -> None:
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        def lock_fn(fd: int) -> None:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-        def unlock_fn(fd: int) -> None:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-
-    return lock_fn, unlock_fn
-
-
-_LOCK_FN, _UNLOCK_FN = _build_platform_lock_pair()
-
-
 @contextlib.contextmanager
 def acquire_scenario_lock(
     event_key: str,
@@ -144,25 +113,8 @@ def acquire_scenario_lock(
     NOT deleted — it persists for the next acquirer.
     """
     lock_path = scenario_dir(event_key, scenario, base_dir=base_dir) / ".run.lock"
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
-    locked = False
     try:
-        deadline = time.monotonic() + timeout if timeout > 0 else None
-        while True:
-            try:
-                _LOCK_FN(fd)
-                locked = True
-                break
-            except (BlockingIOError, OSError):
-                if deadline is None or time.monotonic() >= deadline:
-                    raise ScenarioLockError(f"scenario {scenario!r} is locked by another process")
-                time.sleep(0.05)
-        yield
-    finally:
-        if locked:
-            try:
-                _UNLOCK_FN(fd)
-            finally:
-                os.close(fd)
-        else:
-            os.close(fd)
+        with _acquire_file_lock(lock_path, timeout=timeout):
+            yield
+    except FileLockError as exc:
+        raise ScenarioLockError(f"scenario {scenario!r} is locked by another process") from exc

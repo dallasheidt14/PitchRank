@@ -126,6 +126,39 @@ def test_override_audit_collapsed_in_details():
     assert "accept_match" in rendered
 
 
+def test_render_html_show_override_audit_false_suppresses_details():
+    """Shell 08's inline embed passes ``show_override_audit=False`` so the
+    outside expander is the single source of truth — the in-iframe
+    ``<details>`` block must NOT render."""
+    rendered = render_html(_hand_built_report(), show_override_audit=False)
+    assert 'class="rc-section rc-audit"' not in rendered
+    # Sanity: the rest of the report still renders.
+    assert "Phoenix Cup 2026" in rendered
+
+
+def test_render_html_show_override_audit_true_default_renders_details():
+    """Default-True keeps legacy callers (Export-HTML, persisted
+    ``comparison.html``) showing the audit details block."""
+    rendered = render_html(_hand_built_report(), show_override_audit=True)
+    assert 'class="rc-section rc-audit"' in rendered
+
+
+def test_write_html_default_preserves_audit_details(tmp_path: Path):
+    """``write_html(...)`` without the kwarg must persist the audit block.
+
+    Guards against a future refactor that drops the kwarg forwarding from
+    ``write_html`` to ``render_html`` — would silently strip the audit
+    from the on-disk ``comparison.html`` (Jinja's default Undefined is
+    falsy, so ``{% if show_override_audit and ... %}`` would suppress
+    without raising)."""
+    rc = _hand_built_report()
+    out = tmp_path / "comparison.html"
+    write_html(rc, out)
+    text = out.read_text(encoding="utf-8")
+    assert 'class="rc-section rc-audit"' in text
+    assert "accept_match" in text
+
+
 def test_metric_value_rendering_formats():
     rendered = render_html(_hand_built_report())
     # rate=0.22 should render as 22%; rate=0.41 as 41%

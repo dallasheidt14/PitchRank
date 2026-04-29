@@ -23,6 +23,7 @@ from src.tournaments.storage._io import write_csv
 
 __all__ = [
     "METRICS_FIELDNAMES",
+    "REPORT_CARD_CSV_NAMES",
     "RISK_FLAG_FIELDNAMES",
     "TEAM_MOVEMENT_FIELDNAMES",
     "render_all_csv",
@@ -30,6 +31,19 @@ __all__ = [
     "render_risk_flags_csv",
     "render_team_movements_csv",
 ]
+
+
+REPORT_CARD_CSV_NAMES: tuple[str, ...] = (
+    "comparison_metrics.csv",
+    "comparison_risk_flags.csv",
+    "comparison_team_movements.csv",
+)
+"""On-disk filenames written by ``render_all_csv`` (insertion order =
+metrics → risk flags → team movements). Single source of truth for any
+helper that bundles or enumerates the Report Card CSVs (e.g.
+``ui.zip_run_csvs``); keeps the export bundle in sync if a fourth CSV
+ever lands.
+"""
 
 
 _FORMULA_INJECTION_PREFIXES: frozenset[str] = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})

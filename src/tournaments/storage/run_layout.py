@@ -33,15 +33,20 @@ they are caller-owned.
 
 from __future__ import annotations
 
+import contextlib
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
+from src.tournaments.storage._file_lock import FileLockError, _acquire_file_lock
 from src.tournaments.storage._io import utc_now_iso, write_json
-from src.tournaments.storage.event_key import scenario_dir
+from src.tournaments.storage.event_key import run_dir, scenario_dir
 from src.tournaments.storage.schema_version import stamp_schema_version
 
 __all__ = [
+    "RunLockError",
     "RunStateError",
+    "acquire_run_lock",
     "cancel_run",
     "create_staging_run",
     "fail_run",
@@ -52,6 +57,10 @@ __all__ = [
 
 class RunStateError(RuntimeError):
     """Raised when a run-state transition cannot complete safely."""
+
+
+class RunLockError(RuntimeError):
+    """Raised when ``acquire_run_lock`` cannot acquire within ``timeout``."""
 
 
 def _runs_root(event_key: str, scenario: str, base_dir: Path | str) -> Path:
@@ -189,3 +198,43 @@ def list_runs(
                 continue
         names.append(entry.name)
     return names
+
+
+@contextlib.contextmanager
+def acquire_run_lock(
+    event_key: str,
+    scenario: str,
+    run_id: str,
+    *,
+    base_dir: Path | str = "reports",
+    timeout: float = 0.0,
+) -> Iterator[None]:
+    """Acquire the per-run advisory lock at ``runs/<run_id>/.report.lock``.
+
+    Mirrors ``acquire_scenario_lock`` (same timeout semantics, same no-IO
+    contract on the lockfile) but scopes contention to a single run rather
+    than the whole scenario. Used by Shell 08's lazy-trigger
+    ``ensure_report_card`` so concurrent first-views of the same run
+    serialize without blocking other cohorts' run-button or save paths.
+
+    Timeout semantics:
+
+    - ``timeout == 0.0`` (default) — attempt acquire exactly once. Raise
+      ``RunLockError`` immediately on contention.
+    - ``timeout > 0`` — retry with brief sleeps until elapsed time exceeds
+      ``timeout``, then raise.
+
+    The run directory must already exist (i.e. the run has been promoted
+    from ``<run_id>.tmp/`` to ``<run_id>/``). Opening the lockfile in a
+    missing directory raises ``FileNotFoundError`` — that's a caller-
+    ordering bug, not a lock bug.
+
+    The lock is released and the fd closed on exit. The lockfile itself is
+    NOT deleted — it persists for the next acquirer.
+    """
+    lock_path = run_dir(event_key, scenario, run_id, base_dir=base_dir) / ".report.lock"
+    try:
+        with _acquire_file_lock(lock_path, timeout=timeout):
+            yield
+    except FileLockError as exc:
+        raise RunLockError(f"run {run_id!r} is locked by another process") from exc
