@@ -1041,6 +1041,20 @@ _RANK_COLS = (
 )
 _TEAM_LOOKUP_COLS = "team_id_master, team_name, club_name, age_group, gender, state_code, provider_team_id"
 
+def _is_backtest_mode() -> bool:
+    """``True`` when the page is showing a previously-played event for
+    backtest validation (the structure is gotsport's, not operator-authored).
+
+    Backtest mode hides every surface that would mutate ``CohortStructure``
+    — Add division, Apply, ✕ Remove, Apply pool sizes — because the
+    structure is recovered from ``raw_scrape.jsonl`` via
+    ``derive_structure_from_raw_scrape`` and editing it would create a
+    divergence between the scraped reality and the run's payload. Seeding
+    mode (operator authoring a fresh tournament) keeps the editor.
+    """
+    return st.session_state.get("intake_mode", "backtest") == "backtest"
+
+
 def _flash_link_success(team_name: str, master_team_name: str | None) -> None:
     """Queue an ``st.success`` banner to render on the next page run.
 
@@ -1527,17 +1541,24 @@ def _render_triage_left_pane(
     }
     render_matcher_cache: dict[tuple[tuple[str, ...], str, bool], list[dict[str, Any]]] = {}
 
-    _render_add_division_form(
-        age=age,
-        gender=gender,
-        event_key=event_key,
-        scenario=scenario,
-        structure_for_cohort=structure_for_cohort,
-        cohort_records=cohort_records,
-    )
+    if not _is_backtest_mode():
+        _render_add_division_form(
+            age=age,
+            gender=gender,
+            event_key=event_key,
+            scenario=scenario,
+            structure_for_cohort=structure_for_cohort,
+            cohort_records=cohort_records,
+        )
 
     if structure_for_cohort is None or not structure_for_cohort.divisions:
-        st.caption("No divisions yet for this cohort. Click + Add division to start.")
+        if _is_backtest_mode():
+            st.caption(
+                "No divisions parsed from raw_scrape for this cohort. "
+                "Re-scrape the event to repopulate."
+            )
+        else:
+            st.caption("No divisions yet for this cohort. Click + Add division to start.")
         return
 
     division_names = [division.name for division in structure_for_cohort.divisions]
@@ -3071,10 +3092,19 @@ def _render_division_editor(
 ) -> None:
     """Render the per-division editor card + Apply / ✕ Remove submit buttons.
 
-    Mirrors the dashboard's "Update Team State" form pattern: widget grid
-    inside ``st.form``, validation in the submit branch, persist via the
-    lock-wrapped writer, and ``st.rerun`` only on a successful write.
+    In **backtest mode** the structure is gotsport-authoritative, so the
+    editor degrades to a read-only summary line — operators link/assign
+    teams without touching division shape. Seeding mode keeps the full
+    form (pool counts, knockout template, ✕ Remove, Apply pool sizes).
     """
+    if _is_backtest_mode():
+        pool_sizes_chip = " / ".join(str(size) for size in division.pool_sizes) if division.pool_sizes else "—"
+        knockout_chip = division.advancement or "—"
+        st.caption(
+            f"**{division.name}** · {division.team_count} teams · pools {pool_sizes_chip} · {knockout_chip}"
+        )
+        return
+
     base = f"{age}_{gender}_{division.name}"
     form_key = f"_div_form_{base}"
 
