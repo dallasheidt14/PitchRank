@@ -1670,6 +1670,68 @@ def _render_review_expander(
                     _load_registry_cached.clear()
                     st.session_state[f"_triage_open_{pid}"] = False
                     st.rerun()
+        st.markdown("---")
+        st.markdown("**Not the right team? Search the master DB:**")
+        with st.form(f"_review_search_{pid}"):
+            search_cols = st.columns([2, 1, 1, 1])
+            with search_cols[0]:
+                name_query = st.text_input("Team name", key=f"_review_name_{pid}")
+            with search_cols[1]:
+                club_query = st.text_input("Club", key=f"_review_club_{pid}")
+            with search_cols[2]:
+                provider_id_query = st.text_input("Provider id", key=f"_review_pid_{pid}")
+            with search_cols[3]:
+                team_id_master_query = st.text_input("team_id_master", key=f"_review_tim_{pid}")
+            search_submitted = st.form_submit_button("Search master DB")
+        if search_submitted and supabase_client is not None:
+            search_results = _search_master_teams(
+                supabase_client,
+                name_query=name_query,
+                club_query=club_query,
+                provider_id_query=provider_id_query,
+                team_id_master_query=team_id_master_query,
+            )
+            if not search_results:
+                st.info("No matches.")
+            for hit in search_results:
+                hit_cols = st.columns([4, 1])
+                with hit_cols[0]:
+                    st.markdown(f"**{hit.get('team_name')}** · {hit.get('club_name') or '—'}")
+                    st.caption(
+                        f"{hit.get('age_group', '')} / {hit.get('gender', '')} · "
+                        f"team_id_master={hit.get('team_id_master')}"
+                    )
+                with hit_cols[1]:
+                    if st.button(
+                        "Use this team",
+                        key=f"_review_use_{pid}_{hit.get('team_id_master')}",
+                        disabled=write_disabled,
+                    ):
+                        append_override(
+                            event_key,
+                            scenario,
+                            build_override_record(
+                                ts=utc_now_iso(),
+                                actor=reviewer_email,
+                                scope="team",
+                                type="accept_match",
+                                team_ref=pid,
+                                before={
+                                    "state": "candidates",
+                                    "best_score": result.best_score,
+                                    "second_score": result.second_score,
+                                },
+                                after={
+                                    "state": "resolved",
+                                    "team_id_master": hit.get("team_id_master"),
+                                    "match_rank": "manual_search",
+                                },
+                                reason="operator-picked DB team via manual search",
+                            ),
+                        )
+                        _load_registry_cached.clear()
+                        st.session_state[f"_triage_open_{pid}"] = False
+                        st.rerun()
         if st.button(
             "Mark external (reject all)",
             key=f"_mark_ext_{pid}",
