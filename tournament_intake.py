@@ -56,6 +56,12 @@ from src.tournaments.reports.ui import (
     safe_read_comparison_json,
     zip_run_csvs,
 )
+from src.tournaments.bracket_report import (
+    KnockoutMatch,
+    PoolTable,
+    TierReport,
+    build_tier_reports,
+)
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
     execute_run,
@@ -3435,6 +3441,100 @@ def _render_cohort_run_control(
             status_box.update(label=f"Failed: {outcome.error or 'unknown'}", state="error")
 
 
+def _render_bracket_report(records: list[dict[str, Any]], *, event_key: str) -> None:
+    """Render gotsport-style per-bracket standings + knockout for one cohort.
+
+    Mirrors gotsport's per-tier standings page (the GG.docx layout): one
+    blue-banner section per tier (group_id) carrying the division label,
+    pool standings tables per bracket (Bracket A / Bracket B / ...), and
+    a Knockout / Showcase block listing cross-pool matches with a starred
+    winner score. Driven by ``intake/pool_assignments.json`` +
+    ``intake/standings.jsonl`` + ``intake/game_results.jsonl``; silently
+    no-ops when those artifacts are absent (e.g. partial scrapes) so the
+    cohort UI never breaks on missing optional data.
+    """
+    group_ids = sorted({str(r["group_id"]) for r in records if r.get("group_id") is not None})
+    if not group_ids:
+        return
+    try:
+        tiers = build_tier_reports(event_key, group_ids)
+    except (FileNotFoundError, SchemaVersionError):
+        return
+    for tier in tiers:
+        _render_tier(tier)
+
+
+def _render_tier(tier: TierReport) -> None:
+    title = tier.title or f"Group {tier.group_id}"
+    st.markdown(
+        f"<div style='background:#2563eb;color:white;padding:6px 12px;"
+        f"border-radius:4px 4px 0 0;font-weight:600;margin-top:12px'>{html.escape(title)}</div>",
+        unsafe_allow_html=True,
+    )
+    for pool in tier.pool_play:
+        _render_pool_table(pool)
+    if tier.knockout:
+        _render_knockout(tier.knockout)
+
+
+def _render_pool_table(pool: PoolTable) -> None:
+    st.markdown(
+        f"<div style='background:#3b82f6;color:white;padding:4px 10px;"
+        f"font-weight:600;font-size:0.9em'>Bracket {html.escape(pool.bracket_label)}</div>",
+        unsafe_allow_html=True,
+    )
+    if not pool.rows:
+        st.caption("No standings reported yet.")
+        return
+    df = pd.DataFrame(
+        [
+            {
+                "Rank": s.rank,
+                "Team": s.team_name,
+                "MP": s.matches_played,
+                "W": s.wins,
+                "L": s.losses,
+                "D": s.draws,
+                "GF": s.goals_for,
+                "GA": s.goals_against,
+                "GD": s.goal_diff,
+                "PTS": s.points,
+            }
+            for s in pool.rows
+        ]
+    )
+    st.dataframe(df, width="stretch", hide_index=True)
+
+
+def _render_knockout(matches: tuple[KnockoutMatch, ...]) -> None:
+    st.markdown(
+        f"<div style='background:#3b82f6;color:white;padding:4px 10px;"
+        f"font-weight:600;font-size:0.9em'>Knockout / Showcase · {len(matches)} matches</div>",
+        unsafe_allow_html=True,
+    )
+    for match in matches:
+        _render_knockout_match(match)
+
+
+def _render_knockout_match(match: KnockoutMatch) -> None:
+    home_star = "★ " if match.winner == "home" else ""
+    away_star = "★ " if match.winner == "away" else ""
+    score_text = f"{match.home_score}–{match.away_score}" if match.winner != "tbd" else "vs"
+    location = match.location or "TBD"
+    when = " ".join(part for part in (match.date_text, match.time_text) if part) or "TBD"
+    st.markdown(
+        f"<div style='border:1px solid #e5e7eb;padding:8px 12px;margin:0 0 6px 0;font-size:0.9em'>"
+        f"<div style='color:#6b7280;font-size:0.85em'>"
+        f"Match #{html.escape(match.match_id)} · {html.escape(location)} · {html.escape(when)}"
+        f"</div>"
+        f"<div>{home_star}{html.escape(match.home_team_name)} "
+        f"<strong>{html.escape(score_text)}</strong> "
+        f"{away_star}{html.escape(match.away_team_name)}</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_cohort_containers(
     cohorts: dict[tuple[str, str], list[dict[str, Any]]],
     sorted_keys: list[tuple[str, str]],
@@ -3475,6 +3575,7 @@ def _render_cohort_containers(
                     event_name=event_name,
                     supabase_client=supabase_client,
                 )
+                _render_bracket_report(records, event_key=event_key)
                 _render_cohort_run_control(
                     event_key=event_key,
                     scenario=scenario,

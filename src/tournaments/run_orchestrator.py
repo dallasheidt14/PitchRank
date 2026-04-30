@@ -54,7 +54,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -66,6 +66,7 @@ from src.tournaments.storage import (
     load_overrides,
     promote_run,
     read_event_metadata,
+    read_game_results,
     read_registry,
     read_structure,
     scenario_dir,
@@ -498,6 +499,11 @@ def _build_cohort_request_payload(
 
     entrants: list[dict[str, Any]] = []
     divisions_payload: list[dict[str, Any]] = []
+    # provider_team_id → (team_id_master, actual_division_name) — used by the
+    # local game_results override so each row's ``division_name`` matches
+    # ``divisions_payload[i].actual_division_name`` (the field
+    # ``_normalize_actual_games_override`` filters on).
+    provider_to_division: dict[str, tuple[str, str]] = {}
     for division in cohort_structure.divisions:
         actual_division_name = division.name
         # ``BU<n> `` strip mirrors event:403/414 for parity with the event CLI.
@@ -518,6 +524,7 @@ def _build_cohort_request_payload(
                     "actual_division_name": normalized_name,
                 }
             )
+            provider_to_division[team["provider_team_id"]] = (team["team_id_master"], actual_division_name)
         divisions_payload.append(
             {
                 "name": normalized_name,
@@ -537,7 +544,75 @@ def _build_cohort_request_payload(
     snapshot_date = extras.get("ranking_snapshot_date")
     if snapshot_date:
         payload["prediction_date"] = snapshot_date
+    override_rows = _build_actual_games_override(event_key, provider_to_division, base_dir=base_dir)
+    if override_rows:
+        payload["actual_games_override"] = override_rows
     return payload, sorted(division_routing_fallbacks), sorted(division_routing_stale_assignments)
+
+
+def _build_actual_games_override(
+    event_key: str,
+    provider_to_division: dict[str, tuple[str, str]],
+    *,
+    base_dir: Path | str,
+) -> list[dict[str, Any]]:
+    """Translate ``intake/game_results.jsonl`` rows into the cohort CLI's
+    ``actual_games_override`` payload format.
+
+    The cohort CLI's ``_normalize_actual_games_override`` consumes the same
+    column shape as the legacy Supabase ``games`` table read it replaces
+    (``id / division_name / game_date / home_team_master_id /
+    away_team_master_id / home_score / away_score``). Each game is filtered
+    to the cohort by membership in ``provider_to_division`` (BOTH home and
+    away must map) and unplayed rows (either score ``None``) are dropped.
+    The home team's division is the source of truth for ``division_name``
+    so cross-pool / knockout games still route to a single division.
+    Returns ``[]`` when the local artifact is absent or empty — the cohort
+    CLI then falls back to its existing Supabase fetch path.
+    """
+    games = read_game_results(event_key, base_dir=base_dir)
+    if not games:
+        return []
+    rows: list[dict[str, Any]] = []
+    for game in games:
+        if game.home_score is None or game.away_score is None:
+            continue
+        home = provider_to_division.get(game.home_provider_team_id)
+        away = provider_to_division.get(game.away_provider_team_id)
+        if home is None or away is None:
+            continue
+        home_master_id, division_name = home
+        away_master_id, _ = away
+        rows.append(
+            {
+                "id": game.match_id,
+                "division_name": division_name,
+                "game_date": _parse_gotsport_date(game.date_text),
+                "home_team_master_id": home_master_id,
+                "away_team_master_id": away_master_id,
+                "home_score": game.home_score,
+                "away_score": game.away_score,
+            }
+        )
+    return rows
+
+
+def _parse_gotsport_date(date_text: str) -> str:
+    """``"Feb 13, 2026"`` → ``"2026-02-13"``; empty string on parse failure.
+
+    Gotsport renders schedule dates as ``"%b %d, %Y"``. The cohort CLI's
+    ``prediction_date`` derivation falls back to the minimum ``game_date``
+    (cohort:952), so a non-ISO string would corrupt that calculation —
+    parse aggressively, fall back to empty so the caller can still drop
+    the row downstream if needed.
+    """
+    text = (date_text or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.strptime(text, "%b %d, %Y").date().isoformat()
+    except ValueError:
+        return ""
 
 
 def _build_cli_args(staging_dir: Path, *, extras: dict[str, Any]) -> tuple[list[str], Path]:

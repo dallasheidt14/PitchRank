@@ -923,7 +923,9 @@ def main() -> int:
         payload.get("actual_games_override"),
         {str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]},
     )
-    if not actual_games:
+    if actual_games:
+        print(f"PHASE: actual-games-source source=override count={len(actual_games)}", flush=True)
+    else:
         actual_games = (
             client.table("games")
             .select("id,division_name,game_date,home_team_master_id,away_team_master_id,home_score,away_score")
@@ -940,6 +942,7 @@ def main() -> int:
             .data
             or []
         )
+        print(f"PHASE: actual-games-source source=supabase count={len(actual_games)}", flush=True)
     if not actual_games and not payload.get("prediction_date"):
         raise ValueError("No completed games found for the requested cohort, and no prediction_date was provided")
 

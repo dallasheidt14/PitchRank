@@ -21,14 +21,17 @@ from typing import Any
 
 import pytest
 
+from src.scrapers.gotsport_results_parser import GameResult
 from src.tournaments import run_orchestrator
 from src.tournaments.run_orchestrator import (
     _MODEL_VERSION_ARTIFACT_MAP,
     ProgressEvent,
+    _build_actual_games_override,
     _build_cli_args,
     _build_cohort_request_payload,
     _cleanup_orphan_staging_dirs,
     _collect_run_metadata,
+    _parse_gotsport_date,
     _parse_progress_line,
     _write_fallbacks_jsonl,
     _write_run_overrides_audit,
@@ -42,6 +45,7 @@ from src.tournaments.storage import (
     append_override,
     ensure_scenario,
     write_event_metadata,
+    write_game_results,
     write_registry,
     write_structure,
 )
@@ -453,6 +457,164 @@ def test_build_cohort_request_payload_stale_assignment_falls_through_to_prefix(t
     # is the BU14-stripped "Premier".
     assert len(payload["entrants"]) == 1
     assert payload["entrants"][0]["actual_division_name"] == "Premier"
+
+
+# ---------------------------------------------------------------------------
+# _build_actual_games_override + _parse_gotsport_date
+# ---------------------------------------------------------------------------
+
+
+def _game(
+    match_id: str,
+    home_pid: str,
+    away_pid: str,
+    *,
+    home_score: int | None = 1,
+    away_score: int | None = 0,
+    division_label: str | None = "U14 Boys A",
+    date_text: str = "Feb 14, 2026",
+) -> GameResult:
+    return GameResult(
+        match_id=match_id,
+        home_provider_team_id=home_pid,
+        home_team_name=f"Home {home_pid}",
+        away_provider_team_id=away_pid,
+        away_team_name=f"Away {away_pid}",
+        home_score=home_score,
+        away_score=away_score,
+        date_text=date_text,
+        time_text="9:00AM MST",
+        location="Reach 11",
+        division_label=division_label,
+    )
+
+
+def test_parse_gotsport_date_handles_known_format():
+    assert _parse_gotsport_date("Feb 14, 2026") == "2026-02-14"
+    assert _parse_gotsport_date("  Dec 1, 2025 ") == "2025-12-01"
+
+
+def test_parse_gotsport_date_returns_empty_on_unparseable_or_blank():
+    assert _parse_gotsport_date("") == ""
+    assert _parse_gotsport_date("not a date") == ""
+    assert _parse_gotsport_date("2026-02-14") == ""  # ISO is not the schedule format
+
+
+def test_build_actual_games_override_emits_one_row_per_played_in_cohort_game(tmp_path: Path):
+    write_game_results(
+        EVENT_KEY,
+        [
+            _game("m1", "pid-1", "pid-2"),
+            _game("m2", "pid-2", "pid-1", home_score=3, away_score=2),
+        ],
+        base_dir=tmp_path,
+    )
+    rows = _build_actual_games_override(
+        EVENT_KEY,
+        {"pid-1": ("tim-1", "BU14 Premier"), "pid-2": ("tim-2", "BU14 Premier")},
+        base_dir=tmp_path,
+    )
+    assert rows == [
+        {
+            "id": "m1",
+            "division_name": "BU14 Premier",
+            "game_date": "2026-02-14",
+            "home_team_master_id": "tim-1",
+            "away_team_master_id": "tim-2",
+            "home_score": 1,
+            "away_score": 0,
+        },
+        {
+            "id": "m2",
+            "division_name": "BU14 Premier",
+            "game_date": "2026-02-14",
+            "home_team_master_id": "tim-2",
+            "away_team_master_id": "tim-1",
+            "home_score": 3,
+            "away_score": 2,
+        },
+    ]
+
+
+def test_build_actual_games_override_skips_unplayed_and_out_of_cohort_games(tmp_path: Path):
+    write_game_results(
+        EVENT_KEY,
+        [
+            _game("m1", "pid-1", "pid-2"),
+            _game("m2", "pid-1", "pid-2", home_score=None, away_score=None),  # unplayed
+            _game("m3", "pid-1", "pid-99"),  # away team not in cohort map
+            _game("m4", "pid-99", "pid-1"),  # home team not in cohort map
+        ],
+        base_dir=tmp_path,
+    )
+    rows = _build_actual_games_override(
+        EVENT_KEY,
+        {"pid-1": ("tim-1", "Red"), "pid-2": ("tim-2", "Red")},
+        base_dir=tmp_path,
+    )
+    assert [row["id"] for row in rows] == ["m1"]
+
+
+def test_build_actual_games_override_returns_empty_when_artifact_missing(tmp_path: Path):
+    rows = _build_actual_games_override(
+        EVENT_KEY,
+        {"pid-1": ("tim-1", "Red")},
+        base_dir=tmp_path,
+    )
+    assert rows == []
+
+
+def test_build_actual_games_override_routes_division_via_home_team(tmp_path: Path):
+    """Cross-pool knockout games inherit the home team's division — the
+    cohort CLI groups results by ``division_name`` so a single home-side
+    routing keeps the summary consistent."""
+    write_game_results(
+        EVENT_KEY,
+        [_game("m1", "pid-1", "pid-2")],
+        base_dir=tmp_path,
+    )
+    rows = _build_actual_games_override(
+        EVENT_KEY,
+        {"pid-1": ("tim-1", "Red"), "pid-2": ("tim-2", "White")},
+        base_dir=tmp_path,
+    )
+    assert rows[0]["division_name"] == "Red"
+
+
+def test_build_cohort_request_payload_populates_actual_games_override_when_artifact_present(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_game_results(
+        EVENT_KEY,
+        [_game("m1", "pid-1", "pid-2", division_label="U14 Boys A")],
+        base_dir=tmp_path,
+    )
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+    override = payload.get("actual_games_override")
+    assert override is not None
+    assert len(override) == 1
+    assert override[0]["division_name"] == "A"  # mirrors DivisionStructure.name in _bootstrap_event
+    assert override[0]["home_team_master_id"] == "tim-1"
+    assert override[0]["away_team_master_id"] == "tim-2"
+
+
+def test_build_cohort_request_payload_omits_actual_games_override_when_artifact_absent(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+    assert "actual_games_override" not in payload
 
 
 # ---------------------------------------------------------------------------
