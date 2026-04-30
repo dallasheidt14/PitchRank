@@ -74,6 +74,7 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
+from src.utils.team_name_utils import US_STATES
 from src.tournaments.storage import (
     CohortConstraints,
     CohortStructure,
@@ -1040,6 +1041,22 @@ _RANK_COLS = (
 )
 _TEAM_LOOKUP_COLS = "team_id_master, team_name, club_name, age_group, gender, state_code, provider_team_id"
 
+_AGE_GROUP_OPTIONS: tuple[str, ...] = ("Any", "u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19")
+_GENDER_OPTIONS: tuple[str, ...] = ("Any", "Male", "Female")
+_US_STATE_OPTIONS: tuple[str, ...] = ("Any",) + tuple(sorted(s.upper() for s in US_STATES))
+
+
+def _filter_value(selected: str) -> str | None:
+    """Translate ``"Any"`` → ``None`` for a selectbox-derived filter."""
+    return None if selected == "Any" else selected
+
+
+def _default_index(options: tuple[str, ...], value: str | None) -> int:
+    """Locate ``value`` in ``options`` for a selectbox default; ``0`` (Any) on miss."""
+    if value and value in options:
+        return options.index(value)
+    return 0
+
 
 def _render_reviewer_email_input() -> None:
     """Render the page-level reviewer-email gate.
@@ -1583,6 +1600,8 @@ def _render_division_body(
             _render_review_expander(
                 pid=pid,
                 registry_row=registry_row,
+                age=age,
+                gender=gender,
                 event_key=event_key,
                 scenario=scenario,
                 render_matcher_cache=render_matcher_cache,
@@ -1680,6 +1699,8 @@ def _render_review_expander(
     *,
     pid: str,
     registry_row: dict[str, Any],
+    age: str,
+    gender: str,
     event_key: str,
     scenario: str,
     render_matcher_cache: dict[tuple[tuple[str, ...], str, bool], list[dict[str, Any]]],
@@ -1757,6 +1778,8 @@ def _render_review_expander(
                     st.rerun()
         st.markdown("---")
         st.markdown("**Not the right team? Search the master DB:**")
+        cohort_age_default = age if age in _AGE_GROUP_OPTIONS else None
+        cohort_gender_default = normalize_gender_label(gender)
         with st.form(f"_review_search_{pid}"):
             search_cols = st.columns([2, 1, 1, 1])
             with search_cols[0]:
@@ -1767,6 +1790,28 @@ def _render_review_expander(
                 provider_id_query = st.text_input("Provider id", key=f"_review_pid_{pid}")
             with search_cols[3]:
                 team_id_master_query = st.text_input("team_id_master", key=f"_review_tim_{pid}")
+            filter_cols = st.columns([1, 1, 1, 1])
+            with filter_cols[0]:
+                age_choice = st.selectbox(
+                    "Age",
+                    options=_AGE_GROUP_OPTIONS,
+                    index=_default_index(_AGE_GROUP_OPTIONS, cohort_age_default),
+                    key=f"_review_age_{pid}",
+                )
+            with filter_cols[1]:
+                gender_choice = st.selectbox(
+                    "Gender",
+                    options=_GENDER_OPTIONS,
+                    index=_default_index(_GENDER_OPTIONS, cohort_gender_default),
+                    key=f"_review_gender_{pid}",
+                )
+            with filter_cols[2]:
+                state_choice = st.selectbox(
+                    "State",
+                    options=_US_STATE_OPTIONS,
+                    index=0,
+                    key=f"_review_state_{pid}",
+                )
             search_submitted = st.form_submit_button("Search master DB")
         if search_submitted and supabase_client is not None:
             search_results = _search_master_teams(
@@ -1775,6 +1820,9 @@ def _render_review_expander(
                 club_query=club_query,
                 provider_id_query=provider_id_query,
                 team_id_master_query=team_id_master_query,
+                age_group_filter=_filter_value(age_choice),
+                gender_filter=_filter_value(gender_choice),
+                state_code_filter=_filter_value(state_choice),
             )
             if not search_results:
                 st.info("No matches.")
@@ -1945,22 +1993,47 @@ def _search_master_teams(
     club_query: str,
     provider_id_query: str,
     team_id_master_query: str,
+    age_group_filter: str | None = None,
+    gender_filter: str | None = None,
+    state_code_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """Look up master teams matching any of the supplied fields.
 
     Mirrors ``dashboard.py:4596-4615``'s search structure. Filters
     placeholder rows in Python — the cross-column predicate doesn't fit
-    PostgREST.
+    PostgREST. The optional ``age_group_filter`` / ``gender_filter`` /
+    ``state_code_filter`` AND together with whichever primary search
+    column is active; supplying only filters (no name/club/id) returns
+    the first 20 teams matching the filter set.
     """
     name_query = (name_query or "").strip()
     club_query = (club_query or "").strip()
     provider_id_query = (provider_id_query or "").strip()
     team_id_master_query = (team_id_master_query or "").strip()
-    if not any([name_query, club_query, provider_id_query, team_id_master_query]):
+    age_group_filter = (age_group_filter or "").strip() or None
+    gender_filter = (gender_filter or "").strip() or None
+    state_code_filter = (state_code_filter or "").strip() or None
+    if not any(
+        [
+            name_query,
+            club_query,
+            provider_id_query,
+            team_id_master_query,
+            age_group_filter,
+            gender_filter,
+            state_code_filter,
+        ]
+    ):
         return []
     rows: list[dict[str, Any]] = []
     try:
         builder = supabase_client.table("teams").select(_TEAM_LOOKUP_COLS)
+        if age_group_filter:
+            builder = builder.eq("age_group", age_group_filter)
+        if gender_filter:
+            builder = builder.eq("gender", gender_filter)
+        if state_code_filter:
+            builder = builder.eq("state_code", state_code_filter)
         if provider_id_query:
             rows = builder.eq("provider_team_id", provider_id_query).limit(20).execute().data or []
         elif team_id_master_query:
@@ -1969,6 +2042,8 @@ def _search_master_teams(
             rows = builder.ilike("team_name", f"%{name_query}%").limit(20).execute().data or []
         elif club_query:
             rows = builder.ilike("club_name", f"%{club_query}%").limit(20).execute().data or []
+        else:
+            rows = builder.limit(20).execute().data or []
     except Exception as exc:  # noqa: BLE001
         st.error(f"Search failed: {exc}")
         return []
@@ -2069,6 +2144,8 @@ def _render_external_drawer(
             st.rerun()
         st.divider()
         st.markdown("**Actually in our DB? Search and re-link:**")
+        cohort_age_default = age if age in _AGE_GROUP_OPTIONS else None
+        cohort_gender_default = normalize_gender_label(gender)
         with st.form(f"_external_relink_{pid}"):
             relink_cols = st.columns([2, 1, 1, 1])
             with relink_cols[0]:
@@ -2079,6 +2156,28 @@ def _render_external_drawer(
                 relink_pid = st.text_input("Provider id", key=f"_ext_relink_pid_{pid}")
             with relink_cols[3]:
                 relink_tim = st.text_input("team_id_master", key=f"_ext_relink_tim_{pid}")
+            relink_filter_cols = st.columns([1, 1, 1, 1])
+            with relink_filter_cols[0]:
+                relink_age = st.selectbox(
+                    "Age",
+                    options=_AGE_GROUP_OPTIONS,
+                    index=_default_index(_AGE_GROUP_OPTIONS, cohort_age_default),
+                    key=f"_ext_relink_age_{pid}",
+                )
+            with relink_filter_cols[1]:
+                relink_gender = st.selectbox(
+                    "Gender",
+                    options=_GENDER_OPTIONS,
+                    index=_default_index(_GENDER_OPTIONS, cohort_gender_default),
+                    key=f"_ext_relink_gender_{pid}",
+                )
+            with relink_filter_cols[2]:
+                relink_state = st.selectbox(
+                    "State",
+                    options=_US_STATE_OPTIONS,
+                    index=0,
+                    key=f"_ext_relink_state_{pid}",
+                )
             relink_submitted = st.form_submit_button("Search master DB")
         if relink_submitted and supabase_client is not None:
             relink_results = _search_master_teams(
@@ -2087,6 +2186,9 @@ def _render_external_drawer(
                 club_query=relink_club,
                 provider_id_query=relink_pid,
                 team_id_master_query=relink_tim,
+                age_group_filter=_filter_value(relink_age),
+                gender_filter=_filter_value(relink_gender),
+                state_code_filter=_filter_value(relink_state),
             )
             if not relink_results:
                 st.info("No matches.")
