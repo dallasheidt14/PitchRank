@@ -1,0 +1,12 @@
+{
+  "provider_code": "gotsport",
+  "provider_event_id": "42433",
+  "event_name": "SC Del Sol Presidents Day Tournament",
+  "event_slug": "events/42433",
+  "event_start_date": null,
+  "scrape_ts": "2026-04-30T17:55:09.957222+00:00",
+  "season_year": null,
+  "series_id": null,
+  "extras": null,
+  "schema_version": 1
+}

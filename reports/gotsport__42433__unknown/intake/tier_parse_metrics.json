@@ -1,0 +1,8 @@
+{
+  "event_key": "gotsport__42433__unknown",
+  "total_candidates": 50,
+  "unknown_prefix_count": 0,
+  "unknown_prefix_labels": [],
+  "gated_at_threshold": false,
+  "threshold": 0.1
+}
