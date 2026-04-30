@@ -22,11 +22,19 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# Sub-U10 division codes (e.g. U08M01, U09F02). PitchRank rankings are u10+
+# (config/settings.py:_BIRTH_YEARS), so sub-u10 records would only inflate the
+# scraper output and the importer's failed-match counter without ever
+# contributing to a ranking. Filtered before JSONL emit by default;
+# --include-sub-u10 opts in for future use.
+_SUB_U10_CODE_RE = re.compile(r"^U0[89]", re.IGNORECASE)
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -87,6 +95,7 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
 
     return {
         "provider": "sincsports",
+        "source": "sincsports_tournament_schedule",
         "team_id": team_id,
         "opponent_id": opp_id,
         "team_name": team_name,
@@ -127,6 +136,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include Scheduled-but-not-yet-played games in the JSONL output (default: skip)",
     )
+    p.add_argument(
+        "--include-sub-u10",
+        action="store_true",
+        help="Include U08/U09 division games (default: skip; PitchRank ranks u10+)",
+    )
     p.add_argument("--auto-import", action="store_true", help="Run import_games_enhanced.py after scraping")
     p.add_argument("--dry-run", action="store_true", help="Print summary only; no JSONL or import")
     return p.parse_args()
@@ -159,6 +173,16 @@ def main() -> int:
     ]
     keep = [g for g in keep if g.date]  # drop unscheduled rows lacking a date
     console.print(f"[cyan]After status/date filter: {len(keep)} games to emit[/cyan]")
+
+    if not args.include_sub_u10:
+        before = len(keep)
+        keep = [g for g in keep if not _SUB_U10_CODE_RE.match(g.division_code or "")]
+        dropped = before - len(keep)
+        if dropped:
+            console.print(
+                f"[cyan]Filtered {dropped} sub-U10 games "
+                f"(use --include-sub-u10 to keep them)[/cyan]"
+            )
 
     if args.dry_run:
         return 0

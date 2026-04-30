@@ -755,13 +755,24 @@ class EnhancedETLPipeline:
                     )
 
                     if master_ids_match:
-                        # Same teams, different scores - update existing game
-                        games_to_update.append(game)
-                        logger.info(
-                            f"[Pipeline] Will UPDATE game {game_uid}: scores differ "
-                            f"(home={game.get('home_provider_id')}, away={game.get('away_provider_id')}, "
-                            f"new scores={game.get('home_score')}-{game.get('away_score')})"
-                        )
+                        # Provenance-gated: SincSports tournament-schedule re-ingest must NOT
+                        # clobber scores from prior per-team imports. The schedule.aspx route
+                        # is run alongside per-team scrapes and we treat the existing row as
+                        # authoritative when scores differ. Other providers keep the
+                        # UPDATE-on-score-diff behavior unchanged.
+                        if game.get("source") == "sincsports_tournament_schedule":
+                            logger.info(
+                                f"[Pipeline] Skipping score UPDATE for tournament re-ingest: {game_uid} "
+                                f"(existing per-team scrape scores are authoritative)"
+                            )
+                        else:
+                            # Same teams, different scores - update existing game
+                            games_to_update.append(game)
+                            logger.info(
+                                f"[Pipeline] Will UPDATE game {game_uid}: scores differ "
+                                f"(home={game.get('home_provider_id')}, away={game.get('away_provider_id')}, "
+                                f"new scores={game.get('home_score')}-{game.get('away_score')})"
+                            )
                     else:
                         # Different teams (e.g., U13 vs U14, or HD vs AD) - this is a different game
                         # This should be rare now since game_uid includes age_group and division

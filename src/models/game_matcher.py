@@ -676,6 +676,10 @@ class GameHistoryMatcher:
             "provider_id": provider_id,
             "source_url": game_data.get("source_url"),
             "scraped_at": game_data.get("scraped_at"),
+            # Provenance tag from the scraper (e.g., "sincsports_tournament_schedule").
+            # Read by enhanced_pipeline._bulk_insert_games to gate score-UPDATE behavior
+            # for tournament re-ingest paths.
+            "source": game_data.get("source"),
             "match_status": match_status,  # Keep for tracking
             "raw_data": game_data,  # Store original for debugging
         }
