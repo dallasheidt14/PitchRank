@@ -2081,6 +2081,53 @@ class GotsportScraper(ProviderScraper):
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue
 
+            # Per-team schedule walk: /schedules?group=X only lists upcoming
+            # fixtures for season-long bracket events, so played-game history
+            # is invisible there. /schedules?team={reg_id} (registration ID,
+            # NOT API team ID) renders the team's full event schedule with
+            # one <table> per match — past + future. Validator dedup
+            # (provider:date:sorted_team_ids) collapses the home/away
+            # duplicates that arise from walking both teams' pages.
+            # Disable with GOTSPORT_SKIP_PER_TEAM_WALK=1.
+            if os.getenv("GOTSPORT_SKIP_PER_TEAM_WALK") != "1":
+                # Reg_ids accumulate in api_team_id_cache during the per-group
+                # walk (any reg_id observed on a /schedules?group=X page is
+                # added as a key). Fall back to scanning the event page if
+                # the cache is empty (e.g. all groups failed).
+                team_reg_ids = set(api_team_id_cache.keys())
+                if not team_reg_ids:
+                    team_reg_ids = set(re.findall(r"[?&]team=(\d+)", response.text))
+                max_team_pages = int(os.getenv("GOTSPORT_MAX_TEAM_PAGES", "200"))
+                if len(team_reg_ids) > max_team_pages:
+                    logger.warning(
+                        f"Event has {len(team_reg_ids)} team pages, limiting to {max_team_pages}"
+                    )
+                    team_reg_ids = set(list(team_reg_ids)[:max_team_pages])
+                logger.info(f"Walking {len(team_reg_ids)} per-team schedule pages")
+                pre_team_walk_count = len(games)
+                for idx, reg_id in enumerate(team_reg_ids):
+                    team_url = f"{self.EVENT_BASE}/{event_id}/schedules?team={reg_id}"
+                    try:
+                        team_games = self._parse_games_from_schedule_page(
+                            team_url,
+                            event_id,
+                            event_name,
+                            since_date,
+                            teams_by_name,
+                            api_team_id_cache,
+                            registration_to_api,
+                        )
+                        games.extend(team_games)
+                        if page_delay > 0:
+                            time.sleep(page_delay)
+                    except Exception as e:
+                        logger.warning(f"Error parsing per-team schedule {team_url}: {e}")
+                        continue
+                logger.info(
+                    f"Per-team walk added {len(games) - pre_team_walk_count} game records "
+                    f"(pre-dedup) from {len(team_reg_ids)} team pages"
+                )
+
             # Log resolution summary
             resolved_count = sum(1 for v in api_team_id_cache.values() if v is not None)
             unresolved_count = sum(1 for v in api_team_id_cache.values() if v is None)
