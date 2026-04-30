@@ -1961,8 +1961,9 @@ def _render_review_expander(
                     key=f"_review_state_{pid}",
                 )
             search_submitted = st.form_submit_button("Search master DB")
+        results_key = f"_review_search_results_{pid}"
         if search_submitted and supabase_client is not None:
-            search_results = _search_master_teams(
+            st.session_state[results_key] = _search_master_teams(
                 supabase_client,
                 name_query=name_query,
                 club_query=club_query,
@@ -1972,6 +1973,13 @@ def _render_review_expander(
                 gender_filter=_filter_value(gender_choice),
                 state_code_filter=_filter_value(state_choice),
             )
+        # Render results out of session_state so the per-hit buttons survive
+        # the rerun caused by clicking them. ``st.form_submit_button`` only
+        # returns True on the run it was clicked; without persistence, the
+        # next rerun would drop the results block and the per-hit click
+        # would never reach its handler.
+        search_results = st.session_state.get(results_key)
+        if search_results is not None:
             if not search_results:
                 st.info("No matches.")
             for hit in search_results:
@@ -2011,6 +2019,7 @@ def _render_review_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        st.session_state.pop(results_key, None)
                         _flash_link_success(
                             name,
                             hit.get("team_name"),
@@ -2064,14 +2073,17 @@ def _render_fix_expander(
             provider_id_query = st.text_input("Provider team id", key=f"_fix_pid_{pid}")
             team_id_master_query = st.text_input("team_id_master", key=f"_fix_tim_{pid}")
             submitted = st.form_submit_button("Search")
+        results_key = f"_fix_search_results_{pid}"
         if submitted and supabase_client is not None:
-            results = _search_master_teams(
+            st.session_state[results_key] = _search_master_teams(
                 supabase_client,
                 name_query=name_query,
                 club_query=club_query,
                 provider_id_query=provider_id_query,
                 team_id_master_query=team_id_master_query,
             )
+        results = st.session_state.get(results_key)
+        if results is not None:
             if not results:
                 st.info("No matches.")
             for hit in results:
@@ -2109,6 +2121,7 @@ def _render_fix_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        st.session_state.pop(results_key, None)
                         _flash_link_success(
                             name,
                             hit.get("team_name"),
@@ -2343,8 +2356,9 @@ def _render_external_drawer(
                     key=f"_ext_relink_state_{pid}",
                 )
             relink_submitted = st.form_submit_button("Search master DB")
+        relink_results_key = f"_ext_relink_results_{pid}"
         if relink_submitted and supabase_client is not None:
-            relink_results = _search_master_teams(
+            st.session_state[relink_results_key] = _search_master_teams(
                 supabase_client,
                 name_query=relink_name,
                 club_query=relink_club,
@@ -2354,6 +2368,8 @@ def _render_external_drawer(
                 gender_filter=_filter_value(relink_gender),
                 state_code_filter=_filter_value(relink_state),
             )
+        relink_results = st.session_state.get(relink_results_key)
+        if relink_results is not None:
             if not relink_results:
                 st.info("No matches.")
             for hit in relink_results:
@@ -2393,6 +2409,7 @@ def _render_external_drawer(
                             ),
                         )
                         _load_registry_cached.clear()
+                        st.session_state.pop(relink_results_key, None)
                         _flash_link_success(
                             name,
                             hit.get("team_name"),
