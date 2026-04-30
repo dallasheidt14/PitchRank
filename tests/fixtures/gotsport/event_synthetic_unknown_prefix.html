@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic unknown-prefix event</title></head>
+<body>
+<h1>Synthetic Unknown-Prefix Event</h1>
+<script>
+var jsonTeamRegs = [
+  {"id": 12345, "full_name": "Adult Hammer Team", "display_age_group": "Adult", "display_gender": "Male"}
+];
+</script>
+<!-- One ?group= anchor with cohort label NOT in the recognized form table.
+     Uses the sibling-<b> + row structure the orchestrator's discovery walk
+     requires (anchor.find_parent().find_parent().find('b')). -->
+<div class='row'>
+  <div class='col-md-6'><b>Adult Co-Ed Hammer</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/results?group=42">Results</a></div>
+</div>
+</body>
+</html>

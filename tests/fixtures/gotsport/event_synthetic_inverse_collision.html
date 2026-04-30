@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic inverse-collision event</title></head>
+<body>
+<h1>Synthetic Inverse-Collision Event</h1>
+<script>
+var jsonTeamRegs = [
+  {"id": 12345, "full_name": "Cross-Tier Team", "display_age_group": "U13", "display_gender": "Male"},
+  {"id": 99001, "full_name": "Gold-Only Team", "display_age_group": "U13", "display_gender": "Male"},
+  {"id": 99002, "full_name": "Silver-Only Team", "display_age_group": "U13", "display_gender": "Male"}
+];
+</script>
+<!-- Two distinct ?group= ids in document order: 1001 (Gold) before 1002 (Silver).
+     Team 12345 will appear in both subpages — the orchestrator must resolve it
+     to gid 1001 (catalog insertion order, NOT future-completion order under
+     concurrency). -->
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Gold</b></div>
+  <div class='col-md-3'><a href="/org_event/events/inverse/schedules?group=1001">Schedule</a></div>
+  <div class='col-md-3'><a href="/org_event/events/inverse/results?group=1001">Results</a></div>
+</div>
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Silver</b></div>
+  <div class='col-md-3'><a href="/org_event/events/inverse/schedules?group=1002">Schedule</a></div>
+  <div class='col-md-3'><a href="/org_event/events/inverse/results?group=1002">Results</a></div>
+</div>
+</body>
+</html>

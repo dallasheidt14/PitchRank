@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>Synthetic ID-collision event</title></head>
+<body>
+<h1>Synthetic ID-Collision Event</h1>
+<script>
+var jsonTeamRegs = [
+  {"id": 9001, "full_name": "Gold Team", "display_age_group": "U13", "display_gender": "Male"},
+  {"id": 9002, "full_name": "Silver Team", "display_age_group": "U13", "display_gender": "Male"}
+];
+</script>
+<!-- Two ?group=42 anchors with DIFFERENT sibling-<b> labels — must raise
+     EventTeamMembershipCollisionError(mode='forward') during the catalog walk. -->
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Gold</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
+</div>
+<div class='row'>
+  <div class='col-md-6'><b>U13 Boys Silver</b></div>
+  <div class='col-md-3'><a href="/org_event/events/99999/schedules?group=42">Schedule</a></div>
+</div>
+</body>
+</html>

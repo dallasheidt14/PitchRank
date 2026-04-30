@@ -34,12 +34,14 @@ class TestNormalizeAge:
     def test_u18_merges_into_u19(self):
         assert _normalize_age(18) == "u19"
 
-    @pytest.mark.parametrize("age_int, expected", [(8, "u8"), (9, "u9")])
-    def test_u8_u9_returned_so_caller_can_filter(self, age_int, expected):
-        # Parser returns them; the caller's `include_ages` filter controls acceptance.
+    @pytest.mark.parametrize("age_int, expected", [(6, "u6"), (7, "u7"), (8, "u8"), (9, "u9")])
+    def test_micro_band_returned_so_caller_can_filter(self, age_int, expected):
+        # Helper widened to ``[6, 19]`` for the Gotsport tier parser; the
+        # SincSports caller's ``include_ages`` filter still excludes these
+        # by default via ``CANONICAL_AGE_GROUPS``.
         assert _normalize_age(age_int) == expected
 
-    @pytest.mark.parametrize("age_int", [0, 7, 20, 25, 99, -1])
+    @pytest.mark.parametrize("age_int", [0, 5, 20, 25, 99, -1])
     def test_out_of_band_returns_none(self, age_int):
         assert _normalize_age(age_int) is None
 
