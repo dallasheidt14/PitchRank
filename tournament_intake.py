@@ -3110,7 +3110,15 @@ def _build_rank_rows(
                 score = projected.manual_power_score
                 marker = "★"
             else:  # median or None
-                seed_group = projected.manual_seed_group
+                # ``manual_seed_group`` is only set when the operator
+                # opens the External drawer and Saves; teams marked
+                # external via the Review expander's "Mark external
+                # (reject all)" button skip the drawer entirely and have
+                # ``manual_seed_group is None``. Fall back to the team's
+                # actual scraped/assigned division so the medians lookup
+                # still resolves — same intent as the External drawer's
+                # default selectbox value.
+                seed_group = projected.manual_seed_group or division
                 score = medians_by_division.get(seed_group) if seed_group else None
                 marker = "★"
         else:
