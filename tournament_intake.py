@@ -13,6 +13,7 @@ import html
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping
@@ -62,6 +63,7 @@ from src.tournaments.bracket_report import (
     TierReport,
     build_tier_reports,
 )
+from src.tournaments.storage.game_results import read_game_results
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
     execute_run,
@@ -829,6 +831,89 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
     st.session_state.event_key = key
     _resume_options.clear()
     st.rerun()
+
+
+_COHORT_LABEL_RE = re.compile(r"^U(\d+)\s+(Boys|Girls)\b", re.IGNORECASE)
+
+
+def _summarize_played_games(games: list[Any]) -> dict[str, int | float | None]:
+    """Aggregate played games into ``games / goals / avg_margin`` totals.
+
+    Skips games with either score ``None`` (unplayed). Returns ``None``
+    for ``avg_margin`` when the played-games count is zero so the caller
+    can render a placeholder.
+    """
+    played = [g for g in games if g.home_score is not None and g.away_score is not None]
+    if not played:
+        return {"games": 0, "goals": 0, "avg_margin": None}
+    goals = sum((g.home_score or 0) + (g.away_score or 0) for g in played)
+    margin = sum(abs((g.home_score or 0) - (g.away_score or 0)) for g in played)
+    return {"games": len(played), "goals": goals, "avg_margin": margin / len(played)}
+
+
+def _games_by_cohort(games: list[Any]) -> dict[tuple[str, str], list[Any]]:
+    """Bucket played games by ``(age, gender)`` parsed from ``division_label``.
+
+    Labels gotsport doesn't render in the canonical ``"U<n> <Boys|Girls> ..."``
+    form fall into ``("Other", "Other")`` so the totals still account for them.
+    """
+    bucketed: dict[tuple[str, str], list[Any]] = {}
+    for game in games:
+        match = _COHORT_LABEL_RE.match(game.division_label or "")
+        if match:
+            key = (f"U{match.group(1)}", match.group(2).capitalize())
+        else:
+            key = ("Other", "Other")
+        bucketed.setdefault(key, []).append(game)
+    return bucketed
+
+
+def _render_event_goal_summary(event_key: str) -> None:
+    """Tournament-wide and per-cohort goal totals from ``game_results.jsonl``.
+
+    No-ops when the local artifact is absent (e.g. partial scrapes or
+    pre-enricher events) so the page header stays clean.
+    """
+    try:
+        games = read_game_results(event_key)
+    except (FileNotFoundError, SchemaVersionError):
+        return
+    if not games:
+        return
+    totals = _summarize_played_games(games)
+    if not totals["games"]:
+        return
+    st.markdown("**Tournament goal totals**")
+    cols = st.columns(3)
+    cols[0].metric("Games played", totals["games"])
+    cols[1].metric("Total goals", totals["goals"])
+    cols[2].metric(
+        "Avg margin",
+        f"{totals['avg_margin']:.2f}" if totals["avg_margin"] is not None else "—",
+    )
+    by_cohort = _games_by_cohort(games)
+    if not by_cohort:
+        return
+    rows: list[dict[str, Any]] = []
+    for (age, gender), cohort_games in sorted(
+        by_cohort.items(),
+        key=lambda kv: (-(int(kv[0][0][1:]) if kv[0][0].startswith("U") else -1), kv[0][1]),
+    ):
+        cohort_totals = _summarize_played_games(cohort_games)
+        rows.append(
+            {
+                "Cohort": f"{gender} {age}",
+                "Games": cohort_totals["games"],
+                "Goals": cohort_totals["goals"],
+                "Avg margin": (
+                    f"{cohort_totals['avg_margin']:.2f}"
+                    if cohort_totals["avg_margin"] is not None
+                    else "—"
+                ),
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.divider()
 
 
 def _render_event_banner(
@@ -3735,6 +3820,7 @@ def main() -> None:
         event_key=key,
         scenario=st.session_state.scenario_name,
     )
+    _render_event_goal_summary(key)
     if not records:
         st.warning("No teams in this event's raw_scrape.jsonl yet.")
         return
