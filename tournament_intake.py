@@ -1041,6 +1041,25 @@ _RANK_COLS = (
 )
 _TEAM_LOOKUP_COLS = "team_id_master, team_name, club_name, age_group, gender, state_code, provider_team_id"
 
+def _flash_link_success(team_name: str, master_team_name: str | None) -> None:
+    """Queue an ``st.success`` banner to render on the next page run.
+
+    ``st.rerun()`` discards anything emitted in the current frame, so we
+    stash the message in session_state and let ``_render_pending_flashes``
+    surface it at the top of ``main()`` after the rerun.
+    """
+    pending = st.session_state.setdefault("_link_flash_messages", [])
+    target = master_team_name or "master DB"
+    pending.append(f"✓ Linked **{html.escape(str(team_name))}** → {html.escape(str(target))}")
+
+
+def _render_pending_flashes() -> None:
+    """Drain queued link-success messages once per page render."""
+    pending = st.session_state.pop("_link_flash_messages", [])
+    for msg in pending:
+        st.success(msg)
+
+
 _AGE_GROUP_OPTIONS: tuple[str, ...] = ("Any", "u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19")
 _GENDER_OPTIONS: tuple[str, ...] = ("Any", "Male", "Female")
 _US_STATE_OPTIONS: tuple[str, ...] = ("Any",) + tuple(sorted(s.upper() for s in US_STATES))
@@ -1669,11 +1688,13 @@ def _render_division_body(
         # triaged via the existing review/fix flows before assignment is
         # meaningful.
         if state in ("resolved", "external") and len(division_names) > 1:
+            scraped_group_name = (record_by_pid.get(pid, {}) or {}).get("group_name")
             _render_assign_division_form(
                 pid=pid,
                 team_name=team_name,
                 projected=projected,
                 division_names=division_names,
+                scraped_group_name=str(scraped_group_name) if scraped_group_name else None,
                 event_key=event_key,
                 scenario=scenario,
             )
@@ -1808,6 +1829,7 @@ def _render_review_expander(
                         ),
                     )
                     _load_registry_cached.clear()
+                    _flash_link_success(name, match.get("team_name"))
                     st.session_state[f"_triage_open_{pid}"] = False
                     st.rerun()
         st.markdown("---")
@@ -1897,6 +1919,7 @@ def _render_review_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _flash_link_success(name, hit.get("team_name"))
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         if st.button(
@@ -1988,6 +2011,7 @@ def _render_fix_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _flash_link_success(name, hit.get("team_name"))
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         if st.button(
@@ -2267,6 +2291,7 @@ def _render_external_drawer(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _flash_link_success(name, hit.get("team_name"))
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         st.divider()
@@ -2308,6 +2333,7 @@ def _render_assign_division_form(
     team_name: str,
     projected: ProjectedTeamState | None,
     division_names: list[str],
+    scraped_group_name: str | None = None,
     event_key: str,
     scenario: str,
 ) -> None:
@@ -2315,19 +2341,29 @@ def _render_assign_division_form(
 
     Renders only when the cohort has multiple divisions and the team is
     in a state where assignment is meaningful (``resolved`` or
-    ``external``). Default selection follows ``resolution.source``: a
-    sentinel for ``"none"`` (and for ``"stale"`` with no prefix-resolved
-    name — the operator must reconfirm), the resolved/explicit name
-    otherwise.
+    ``external``). Default selection priority:
+
+    1. ``resolve_division_assignment`` when it returns explicit / prefix /
+       stale-with-fallback (operator-confirmed or prefix-derived).
+    2. ``scraped_group_name`` (the gotsport tier the team actually played
+       in, from ``raw_scrape.jsonl``) when the resolver returns no signal
+       AND the scraped tier is one of the cohort's divisions. Skips the
+       SENTINEL "pick one" prompt for the common case where the right
+       answer is sitting in raw_scrape already.
+    3. The SENTINEL when neither (1) nor (2) yields a usable name.
     """
     reviewer_email = st.session_state.get("_reviewer_email", "")
     write_disabled = not reviewer_email
     resolution = resolve_division_assignment(projected, team_name, division_names=division_names)
     if resolution.name is None:
-        # ``source`` is either SOURCE_NONE (no signal) or SOURCE_STALE with
-        # no prefix-resolved fallback — both cases require operator pick.
-        options = [_DIV_ASSIGN_SENTINEL, *division_names]
-        index = 0
+        if scraped_group_name and scraped_group_name in division_names:
+            options = list(division_names)
+            index = options.index(scraped_group_name)
+        else:
+            # ``source`` is either SOURCE_NONE (no signal) or SOURCE_STALE with
+            # no prefix-resolved fallback — both cases require operator pick.
+            options = [_DIV_ASSIGN_SENTINEL, *division_names]
+            index = 0
     else:
         options = list(division_names)
         index = options.index(resolution.name) if resolution.name in options else 0
@@ -3937,6 +3973,7 @@ def _render_cohort_containers(
 def main() -> None:
     """Top-level render flow."""
     _init_session_state()
+    _render_pending_flashes()
     supabase_client = get_database()
     _render_rekey_banner()
     _render_intake_section(supabase_client)
