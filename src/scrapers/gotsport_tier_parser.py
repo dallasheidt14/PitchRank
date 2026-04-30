@@ -123,9 +123,7 @@ OUTCOME_UNENRICHED: TierParseOutcome = "unenriched"
 # fires when too many landing labels fail to parse — surfaces drift).
 # ---------------------------------------------------------------------------
 
-IN_SCOPE_AGES: frozenset[str] = frozenset(
-    {"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"}
-)
+IN_SCOPE_AGES: frozenset[str] = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
 MICRO_OUT_OF_SCOPE_AGES: frozenset[str] = frozenset({"u6", "u7", "u8", "u9"})
 UNKNOWN_PREFIX_GATE_THRESHOLD: float = 0.10
 INVERSE_COLLISION_STRICT_MODE: bool = False
@@ -240,8 +238,7 @@ class TierSubfetchError(Exception):
         self.underlying_kind = underlying_kind
         self.details = details
         super().__init__(
-            f"event {event_id} group {group_id} subfetch failed ({underlying_kind}): "
-            f"{subpage_url} — {details}"
+            f"event {event_id} group {group_id} subfetch failed ({underlying_kind}): {subpage_url} — {details}"
         )
 
 
@@ -299,7 +296,7 @@ def strip_cohort_prefix(text: str) -> tuple[str, str, TierParseOutcome]:
         if not m:
             continue
         prefix_span = m.group(0)
-        rest = text[m.end():]
+        rest = text[m.end() :]
         rest = _FORMAT_TOKEN_RE.sub("", rest)
         rest = rest.strip()
         if not rest:
@@ -384,9 +381,7 @@ def _resolve_cohort(
     return (age_key, gender)
 
 
-def extract_tier_catalog(
-    soup: BeautifulSoup, *, event_id: str
-) -> dict[int, RawTierLabel]:
+def extract_tier_catalog(soup: BeautifulSoup, *, event_id: str) -> dict[int, RawTierLabel]:
     """Walk the landing page's ``?group=<id>`` anchors and build a per-gid catalog.
 
     Inline forward-collision detection (per spec): if two anchors carry the
@@ -534,6 +529,20 @@ _AbortKind = Literal[
 ]
 
 
+_FILENAME_RESERVED_RE = re.compile(r'[<>:"/\\|?*]')
+
+
+def _safe_filename_token(run_id: str) -> str:
+    """Sanitize a string for use as a filename component on every supported OS.
+
+    Windows rejects ``<>:"/\\|?*`` (and a few NTFS-reserved names that are
+    out of scope here); macOS rejects ``:``; Linux tolerates everything.
+    All reserved chars collapse to ``-``, and ``+`` is rewritten to ``_``
+    so ISO-8601 timezone offsets like ``+00:00`` round-trip distinguishably.
+    """
+    return _FILENAME_RESERVED_RE.sub("-", run_id).replace("+", "_")
+
+
 def _write_abort_artifact(
     event_key: str,
     *,
@@ -547,7 +556,7 @@ def _write_abort_artifact(
 ) -> Path:
     path = _write_intake_artifact(
         event_key,
-        filename=f"tier_orchestrator_abort__{run_id}.json",
+        filename=f"tier_orchestrator_abort__{_safe_filename_token(run_id)}.json",
         payload={
             "event_key": event_key,
             "run_id": run_id,
@@ -633,9 +642,7 @@ def enrich_teams_with_tiers(
     # known-out-of-scope micro cohorts (u6..u9) get dropped. Single predicate
     # captures that semantics directly.
     in_scope_catalog: dict[int, RawTierLabel] = {
-        label.group_id: label
-        for label in catalog.values()
-        if label.cohort_age_group not in MICRO_OUT_OF_SCOPE_AGES
+        label.group_id: label for label in catalog.values() if label.cohort_age_group not in MICRO_OUT_OF_SCOPE_AGES
     }
 
     unknown_prefix_labels = [
@@ -643,11 +650,7 @@ def enrich_teams_with_tiers(
     ]
     unknown_prefix_count = len(unknown_prefix_labels)
     total_candidates = len(in_scope_catalog)
-    gated = (
-        (unknown_prefix_count / total_candidates) > UNKNOWN_PREFIX_GATE_THRESHOLD
-        if total_candidates > 0
-        else False
-    )
+    gated = (unknown_prefix_count / total_candidates) > UNKNOWN_PREFIX_GATE_THRESHOLD if total_candidates > 0 else False
 
     # 3. Write metrics artifact IMMEDIATELY — before any subfetch.
     _write_metric_artifact(
@@ -701,7 +704,7 @@ def enrich_teams_with_tiers(
             fallback_target_url=subpage_url,
         )
         if signals is not None:
-            _write_abort_artifact(
+            abort_path = _write_abort_artifact(
                 event_key,
                 run_id=run_id,
                 attempted_group_ids=attempted_group_ids,
@@ -719,6 +722,7 @@ def enrich_teams_with_tiers(
                 provider_event_id=event_id,
                 captcha_url=signals.get("captcha_url", subpage_url),
                 sitekey=signals.get("sitekey"),
+                artifact_path=abort_path,
             )
 
         try:
@@ -825,9 +829,7 @@ def enrich_teams_with_tiers(
         for team_id in results_by_gid.get(gid, ()):
             if team_id in enrichment:
                 continue
-            membership = (
-                MEMBERSHIP_AMBIGUOUS if team_id in inverse_collision_teams else MEMBERSHIP_SUBPAGE
-            )
+            membership = MEMBERSHIP_AMBIGUOUS if team_id in inverse_collision_teams else MEMBERSHIP_SUBPAGE
             enrichment[team_id] = EnrichmentResult(
                 group_name=label.tier_residue,
                 group_id=label.group_id,

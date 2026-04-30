@@ -19,6 +19,7 @@ All tests use mocks for ``supabase``, ``extract_event_teams_by_bracket``,
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,6 +34,7 @@ from src.scrapers.gotsport import (
     _scraper_state_from_action,
 )
 from src.scrapers.provider import CanonicalResolution, ScrapedTeam
+from tests.conftest import FakeResponse
 
 
 EVENT_URL = "https://system.gotsport.com/org_event/events/42434"
@@ -99,8 +101,17 @@ def scraper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> GotsportScraper:
         return real_journal(event_key=event_key, base_dir=tmp_path)
 
     monkeypatch.setattr(gs, "IntakeJournal", _journal_in_tmp)
+    # Redirect tier-orchestrator artifact writes to tmp_path too — without
+    # this, ``enrich_teams_with_tiers`` writes ``tier_parse_metrics.json``
+    # under the live ``reports/`` directory on every test run.
+    real_enrich = gs.enrich_teams_with_tiers
+    monkeypatch.setattr(
+        gs,
+        "enrich_teams_with_tiers",
+        functools.partial(real_enrich, base_dir=tmp_path),
+    )
     # Also stub _fetch_event_page so no network hit.
-    monkeypatch.setattr(s, "_fetch_event_page", lambda event_id: MagicMock())
+    monkeypatch.setattr(s, "_fetch_event_page", lambda event_id: FakeResponse())
     return s
 
 
@@ -176,9 +187,15 @@ def test_build_jsonl_record_alias_written():
 
 def test_build_jsonl_record_queued_clears_match_method():
     scraped = ScrapedTeam(
-        provider_team_id="t1", team_name="T1", club_name=None,
-        cohort_age_group="u13", cohort_gender="M", division=None,
-        bracket_name="U13B", playing_up=False, has_view_rankings_link=True,
+        provider_team_id="t1",
+        team_name="T1",
+        club_name=None,
+        cohort_age_group="u13",
+        cohort_gender="M",
+        division=None,
+        bracket_name="U13B",
+        playing_up=False,
+        has_view_rankings_link=True,
     )
     res = _resolution(
         resolved_status="review",
@@ -188,9 +205,13 @@ def test_build_jsonl_record_queued_clears_match_method():
         candidates=[{"team_id_master": "candidate-1"}],
     )
     record = _build_jsonl_record(
-        scraped=scraped, resolution=res,
-        action_dict={"action": "queued"}, brackets=["U13B"],
-        run_id="r", source_url=EVENT_URL, provider_event_id="42434",
+        scraped=scraped,
+        resolution=res,
+        action_dict={"action": "queued"},
+        brackets=["U13B"],
+        run_id="r",
+        source_url=EVENT_URL,
+        provider_event_id="42434",
     )
     assert record["canonical"]["scraper_state"] == "review_queued"
     assert record["canonical"]["match_method"] is None
@@ -205,9 +226,7 @@ def test_build_jsonl_record_queued_clears_match_method():
 @patch("src.scrapers.gotsport.enqueue_match_review")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_direct_id_at_threshold_routes_to_upsert(
-    mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper
-):
+def test_direct_id_at_threshold_routes_to_upsert(mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper):
     mock_extract.return_value = {"U13B Elite": [_event_team("t1")]}
     mock_resolve.return_value = _resolution(
         resolved_status="direct_provider_id",
@@ -259,9 +278,7 @@ def test_direct_id_below_threshold_routes_to_queue_with_reason(
 @patch("src.scrapers.gotsport.enqueue_match_review")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_strict_exact_routes_to_upsert_fuzzy_auto(
-    mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper
-):
+def test_strict_exact_routes_to_upsert_fuzzy_auto(mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper):
     mock_extract.return_value = {"B1": [_event_team("t1")]}
     mock_resolve.return_value = _resolution(
         resolved_status="strict_exact",
@@ -281,9 +298,7 @@ def test_strict_exact_routes_to_upsert_fuzzy_auto(
 @patch("src.scrapers.gotsport.enqueue_match_review")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_review_routes_to_queue_no_reason(
-    mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper
-):
+def test_review_routes_to_queue_no_reason(mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper):
     mock_extract.return_value = {"B1": [_event_team("t1")]}
     mock_resolve.return_value = _resolution(
         resolved_status="review",
@@ -332,9 +347,7 @@ def test_none_status_neither_writes_nor_journals(
 @patch("src.scrapers.gotsport.enqueue_match_review")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_multi_bracket_team_gets_single_writer_call(
-    mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper
-):
+def test_multi_bracket_team_gets_single_writer_call(mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper):
     """One provider_team_id in 2 brackets → ONE upsert call, with
     ``match_details.also_appears_in_brackets`` listing both."""
     et = _event_team("t1")
@@ -387,9 +400,7 @@ def test_multi_bracket_review_carries_all_brackets_in_match_details(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_default_skip_set_skips_already_resolved(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_default_skip_set_skips_already_resolved(mock_extract, mock_resolve, mock_upsert, scraper):
     # Pre-seed the journal with a durable record for t1.
     from src.scrapers.intake_journal import IntakeJournal
     from src.scrapers import gotsport as gs
@@ -397,11 +408,13 @@ def test_default_skip_set_skips_already_resolved(
     # Use the same monkeypatched IntakeJournal to pre-seed.
     journal = gs.IntakeJournal("gotsport__42434__unknown")
     with journal:
-        journal.append({
-            "run_id": "2026-04-24T10:00:00+00:00",
-            "provider_team_id": "t1",
-            "alias_writer_action": "created",
-        })
+        journal.append(
+            {
+                "run_id": "2026-04-24T10:00:00+00:00",
+                "provider_team_id": "t1",
+                "alias_writer_action": "created",
+            }
+        )
 
     mock_extract.return_value = {"B1": [_event_team("t1"), _event_team("t2")]}
     mock_resolve.return_value = _resolution(
@@ -423,18 +436,18 @@ def test_default_skip_set_skips_already_resolved(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_force_teams_bypasses_skip_set(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_force_teams_bypasses_skip_set(mock_extract, mock_resolve, mock_upsert, scraper):
     from src.scrapers import gotsport as gs
 
     journal = gs.IntakeJournal("gotsport__42434__unknown")
     with journal:
-        journal.append({
-            "run_id": "2026-04-24T10:00:00+00:00",
-            "provider_team_id": "t1",
-            "alias_writer_action": "created",
-        })
+        journal.append(
+            {
+                "run_id": "2026-04-24T10:00:00+00:00",
+                "provider_team_id": "t1",
+                "alias_writer_action": "created",
+            }
+        )
 
     mock_extract.return_value = {"B1": [_event_team("t1"), _event_team("t2")]}
     mock_resolve.return_value = _resolution(
@@ -453,9 +466,7 @@ def test_force_teams_bypasses_skip_set(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_revalidate_reprocesses_non_curated_rows(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_revalidate_reprocesses_non_curated_rows(mock_extract, mock_resolve, mock_upsert, scraper):
     """Plan: --revalidate re-resolves non-curated rows. Curated = review_status
     ='approved' AND match_method in {direct_id, manual, manual_review,
     manual_queue, import}. Machine-written fuzzy_auto rows are NOT curated."""
@@ -463,16 +474,20 @@ def test_revalidate_reprocesses_non_curated_rows(
 
     journal = gs.IntakeJournal("gotsport__42434__unknown")
     with journal:
-        journal.append({
-            "run_id": "2026-04-24T10:00:00+00:00",
-            "provider_team_id": "t1",
-            "alias_writer_action": "created",
-        })
-        journal.append({
-            "run_id": "2026-04-24T10:00:00+00:00",
-            "provider_team_id": "t2",
-            "alias_writer_action": "created",
-        })
+        journal.append(
+            {
+                "run_id": "2026-04-24T10:00:00+00:00",
+                "provider_team_id": "t1",
+                "alias_writer_action": "created",
+            }
+        )
+        journal.append(
+            {
+                "run_id": "2026-04-24T10:00:00+00:00",
+                "provider_team_id": "t2",
+                "alias_writer_action": "created",
+            }
+        )
 
     # DB: t1 is curated (direct_id + approved); t2 is machine (fuzzy_auto).
     scraper.supabase_client.table.return_value.select.return_value.eq.return_value.in_.return_value.execute.return_value.data = [
@@ -503,9 +518,7 @@ def test_revalidate_reprocesses_non_curated_rows(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_db_error_action_not_written_to_journal(
-    mock_extract, mock_resolve, mock_upsert, scraper, tmp_path
-):
+def test_db_error_action_not_written_to_journal(mock_extract, mock_resolve, mock_upsert, scraper, tmp_path):
     """Per plan Step 4: db_error is non-durable — skip JSONL, log, retry next run."""
     from src.scrapers import gotsport as gs
 
@@ -529,9 +542,7 @@ def test_db_error_action_not_written_to_journal(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_durable_action_is_written_to_journal(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_durable_action_is_written_to_journal(mock_extract, mock_resolve, mock_upsert, scraper):
     from src.scrapers import gotsport as gs
 
     mock_extract.return_value = {"B1": [_event_team("t1")]}
@@ -558,9 +569,7 @@ def test_durable_action_is_written_to_journal(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_compaction_runs_at_end(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_compaction_runs_at_end(mock_extract, mock_resolve, mock_upsert, scraper):
     from src.scrapers import gotsport as gs
 
     mock_extract.return_value = {"B1": [_event_team("t1"), _event_team("t2")]}
@@ -581,9 +590,7 @@ def test_compaction_runs_at_end(
 @patch("src.scrapers.gotsport.upsert_team_alias")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_removed_teams_artifact_on_pid_drop(
-    mock_extract, mock_resolve, mock_upsert, scraper
-):
+def test_removed_teams_artifact_on_pid_drop(mock_extract, mock_resolve, mock_upsert, scraper):
     """A team present in the journal but absent from this run's live set
     becomes a 'removed_provider_team_id' in the artifact."""
     import json as _json
@@ -593,12 +600,14 @@ def test_removed_teams_artifact_on_pid_drop(
     journal = gs.IntakeJournal("gotsport__42434__unknown")
     with journal:
         for pid in ("t1", "t2"):
-            journal.append({
-                "run_id": "2026-04-24T10:00:00+00:00",
-                "provider_team_id": pid,
-                "alias_writer_action": "created",
-                "canonical": {"scraper_state": "alias_written"},
-            })
+            journal.append(
+                {
+                    "run_id": "2026-04-24T10:00:00+00:00",
+                    "provider_team_id": pid,
+                    "alias_writer_action": "created",
+                    "canonical": {"scraper_state": "alias_written"},
+                }
+            )
 
     # Live scrape includes only t1 (t2 dropped).
     mock_extract.return_value = {"B1": [_event_team("t1")]}
