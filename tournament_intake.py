@@ -1470,6 +1470,7 @@ def _render_triage(
         team_state=team_state,
         cohort_registry_by_pid=cohort_registry_by_pid,
         structure_for_cohort=structure_for_cohort,
+        event_key=event_key,
         event_name=event_name,
         supabase_client=supabase_client,
     )
@@ -1517,16 +1518,49 @@ def _render_games_coverage(
     team_state: Any,
     cohort_registry_by_pid: dict[str, dict[str, Any]],
     structure_for_cohort: Any,
+    event_key: str,
     event_name: str,
     supabase_client: Any,
 ) -> None:
-    """Render the per-cohort games-coverage gauge above the triage split."""
+    """Render the per-cohort games-coverage gauge above the triage split.
+
+    Backtest mode reads ``intake/game_results.jsonl`` via the 60s-cached
+    ``_cached_local_coverage`` — zero Supabase round-trips. Seeding mode
+    falls back to ``_check_games_import_cached`` (legacy ``games`` table
+    query) since seeding events haven't been played yet and there's no
+    local artifact to read.
+    """
     if structure_for_cohort is None:
         st.metric("Games coverage", "pending structure")
         return
     expected = sum(
         getattr(division, "expected_game_count", division.team_count) for division in structure_for_cohort.divisions
     )
+    if _is_backtest_mode():
+        provider_team_ids = {
+            str(rec.get("provider_team_id") or "").strip()
+            for rec in cohort_records
+            if rec.get("provider_team_id")
+        }
+        provider_team_ids.discard("")
+        if not provider_team_ids:
+            st.metric("Games coverage", f"unknown — 0 / {expected}")
+            return
+        try:
+            status = _cached_local_coverage(event_key, tuple(sorted(provider_team_ids)))
+        except Exception as exc:  # noqa: BLE001
+            st.metric("Games coverage", f"check failed ({exc})")
+            return
+        st.metric("Games coverage", f"{status} — {len(provider_team_ids)} / {expected}")
+        if status == "not_imported":
+            st.warning(
+                "No game results on disk yet — re-scrape the event to populate "
+                "``intake/game_results.jsonl``."
+            )
+        elif status == "partial":
+            st.info("Games-coverage partial; some teams have no rows in the local artifact.")
+        return
+
     team_ids: set[str] = set()
     for record in cohort_records:
         pid = str(record.get("provider_team_id") or "").strip()
