@@ -1055,23 +1055,54 @@ def _is_backtest_mode() -> bool:
     return st.session_state.get("intake_mode", "backtest") == "backtest"
 
 
-def _flash_link_success(team_name: str, master_team_name: str | None) -> None:
-    """Queue an ``st.success`` banner to render on the next page run.
+def _flash_link_success(team_name: str, master_team_name: str | None, *, scroll_anchor: str | None = None) -> None:
+    """Queue a toast notification to render on the next page run.
 
     ``st.rerun()`` discards anything emitted in the current frame, so we
     stash the message in session_state and let ``_render_pending_flashes``
-    surface it at the top of ``main()`` after the rerun.
+    surface it after the rerun. Uses ``st.toast`` rather than a top-of-page
+    banner so confirmation is visible regardless of scroll position — the
+    operator is usually scrolled deep into a cohort when they click
+    Use this team / Accept and never sees a top banner.
+
+    ``scroll_anchor`` (optional) is the DOM id the post-rerun page should
+    auto-scroll to — typically the operator's cohort container header,
+    so the page lands roughly where they were instead of jumping to the
+    bottom (which Streamlit does when the per-team expander collapses
+    and shortens the page).
     """
     pending = st.session_state.setdefault("_link_flash_messages", [])
     target = master_team_name or "master DB"
-    pending.append(f"✓ Linked **{html.escape(str(team_name))}** → {html.escape(str(target))}")
+    pending.append(f"Linked {team_name} → {target}")
+    if scroll_anchor:
+        st.session_state["_scroll_to_anchor"] = scroll_anchor
 
 
 def _render_pending_flashes() -> None:
-    """Drain queued link-success messages once per page render."""
+    """Drain queued link-success messages and scroll cue once per page render."""
     pending = st.session_state.pop("_link_flash_messages", [])
     for msg in pending:
-        st.success(msg)
+        st.toast(msg, icon="✅")
+    anchor = st.session_state.pop("_scroll_to_anchor", None)
+    if anchor:
+        # Streamlit components run in a sandboxed iframe; ``window.parent``
+        # is the actual app document where the anchor lives. ``height=0``
+        # keeps the script invisible — pure side-effect injection.
+        components.html(
+            f"""
+            <script>
+            (function() {{
+                const target = window.parent.document.getElementById({anchor!r});
+                if (target) target.scrollIntoView({{behavior: 'auto', block: 'start'}});
+            }})();
+            </script>
+            """,
+            height=0,
+        )
+
+
+def _cohort_anchor_id(age: str, gender: str) -> str:
+    return f"cohort-anchor-{age}-{gender}".replace(" ", "-")
 
 
 _AGE_GROUP_OPTIONS: tuple[str, ...] = ("Any", "u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19")
@@ -1686,6 +1717,8 @@ def _render_division_body(
                 pid=pid,
                 registry_row=registry_row,
                 team_id_master=team_id_master,
+                age=age,
+                gender=gender,
                 event_key=event_key,
                 scenario=scenario,
                 supabase_client=supabase_client,
@@ -1850,7 +1883,11 @@ def _render_review_expander(
                         ),
                     )
                     _load_registry_cached.clear()
-                    _flash_link_success(name, match.get("team_name"))
+                    _flash_link_success(
+                        name,
+                        match.get("team_name"),
+                        scroll_anchor=_cohort_anchor_id(age, gender),
+                    )
                     st.session_state[f"_triage_open_{pid}"] = False
                     st.rerun()
         st.markdown("---")
@@ -1940,7 +1977,11 @@ def _render_review_expander(
                             ),
                         )
                         _load_registry_cached.clear()
-                        _flash_link_success(name, hit.get("team_name"))
+                        _flash_link_success(
+                            name,
+                            hit.get("team_name"),
+                            scroll_anchor=_cohort_anchor_id(age, gender),
+                        )
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         if st.button(
@@ -1972,6 +2013,8 @@ def _render_fix_expander(
     pid: str,
     registry_row: dict[str, Any],
     team_id_master: str | None,
+    age: str,
+    gender: str,
     event_key: str,
     scenario: str,
     supabase_client: Any,
@@ -2032,7 +2075,11 @@ def _render_fix_expander(
                             ),
                         )
                         _load_registry_cached.clear()
-                        _flash_link_success(name, hit.get("team_name"))
+                        _flash_link_success(
+                            name,
+                            hit.get("team_name"),
+                            scroll_anchor=_cohort_anchor_id(age, gender),
+                        )
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         if st.button(
@@ -2312,7 +2359,11 @@ def _render_external_drawer(
                             ),
                         )
                         _load_registry_cached.clear()
-                        _flash_link_success(name, hit.get("team_name"))
+                        _flash_link_success(
+                            name,
+                            hit.get("team_name"),
+                            scroll_anchor=_cohort_anchor_id(age, gender),
+                        )
                         st.session_state[f"_triage_open_{pid}"] = False
                         st.rerun()
         st.divider()
@@ -3980,6 +4031,15 @@ def _render_cohort_containers(
         st.session_state.setdefault(toggle_key, False)
         st.toggle(toggle_label, key=toggle_key)
         if st.session_state[toggle_key]:
+            # DOM anchor for post-link auto-scroll: when the operator clicks
+            # Use this team / Accept deep inside this cohort, the rerun
+            # otherwise lands them at the bottom of the page (the per-team
+            # expander collapsed, shortening the page). The flash drainer
+            # scrolls back to this anchor.
+            st.markdown(
+                f"<div id='{_cohort_anchor_id(age, gender)}'></div>",
+                unsafe_allow_html=True,
+            )
             with st.container(border=True):
                 _render_triage(
                     records,
