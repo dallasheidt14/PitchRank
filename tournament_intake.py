@@ -1041,6 +1041,17 @@ _RANK_COLS = (
 )
 _TEAM_LOOKUP_COLS = "team_id_master, team_name, club_name, age_group, gender, state_code, provider_team_id"
 
+def _invalidate_auto_recompute(age: str, gender: str) -> None:
+    """Clear the auto-recompute flag for one cohort so the next render re-fires.
+
+    Each link click adds a new resolved team to the cohort; the existing
+    medians are now slightly stale. Re-fires happen lazily next time the
+    cohort expander is rendered, not synchronously, so the click handler
+    stays cheap.
+    """
+    st.session_state.pop(f"_auto_recomputed_{age}_{gender}", None)
+
+
 def _is_backtest_mode() -> bool:
     """``True`` when the page is showing a previously-played event for
     backtest validation (the structure is gotsport's, not operator-authored).
@@ -1475,6 +1486,13 @@ def _render_triage(
     supabase_client: Any,
 ) -> None:
     """Top-level triage orchestrator for one expanded cohort."""
+    _auto_recompute_if_needed(
+        event_key=event_key,
+        scenario=scenario,
+        age=age,
+        gender=gender,
+        supabase_client=supabase_client,
+    )
     try:
         registry_rows = _load_registry_cached(event_key, scenario)
     except FileNotFoundError:
@@ -1951,6 +1969,7 @@ def _render_review_expander(
                         ),
                     )
                     _load_registry_cached.clear()
+                    _invalidate_auto_recompute(age, gender)
                     _flash_link_success(
                         name,
                         match.get("team_name"),
@@ -2053,6 +2072,7 @@ def _render_review_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _invalidate_auto_recompute(age, gender)
                         st.session_state.pop(results_key, None)
                         _flash_link_success(
                             name,
@@ -2155,6 +2175,7 @@ def _render_fix_expander(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _invalidate_auto_recompute(age, gender)
                         st.session_state.pop(results_key, None)
                         _flash_link_success(
                             name,
@@ -2443,6 +2464,7 @@ def _render_external_drawer(
                             ),
                         )
                         _load_registry_cached.clear()
+                        _invalidate_auto_recompute(age, gender)
                         st.session_state.pop(relink_results_key, None)
                         _flash_link_success(
                             name,
@@ -2571,6 +2593,61 @@ def _render_assign_division_form(
         st.session_state.pop(f"_div_assign_{pid}", None)
         _load_registry_cached.clear()
         st.rerun()
+
+
+def _auto_recompute_if_needed(
+    *,
+    event_key: str,
+    scenario: str,
+    age: str,
+    gender: str,
+    supabase_client: Any,
+) -> None:
+    """Quietly fire ``_recompute_medians_inner`` on first cohort expansion.
+
+    The right-pane "median pending — click Recompute" annotation is a
+    friction point for operators: external teams in the cohort have no
+    score until medians have been computed, but the operator has to find
+    the button buried in an external-team drawer and click it once per
+    cohort. We auto-fire it on first cohort open per session, gated on:
+
+    - ``reviewer_email`` set (the audit override needs a non-empty actor)
+    - Not already auto-fired this session for this cohort
+    - No staging run in progress (mirrors the manual ``_trigger_recompute``
+      precondition; recompute under an active run could race)
+
+    Any expected failure (no resolved teams, lock contention, audit-write
+    failure) is swallowed — the operator can still click Recompute manually
+    if they want to retry. Side effects: writes ``frozen_medians.json`` +
+    appends a ``recompute_medians`` audit override.
+    """
+    reviewer_email = st.session_state.get("_reviewer_email", "")
+    if not reviewer_email or supabase_client is None:
+        return
+    flag_key = f"_auto_recomputed_{age}_{gender}"
+    if st.session_state.get(flag_key):
+        return
+    try:
+        with acquire_scenario_lock(event_key, scenario, timeout=2.0):
+            staging = [
+                name for name in list_runs(event_key, scenario, completed_only=False) if name.endswith(".tmp")
+            ]
+            if staging:
+                return
+            _recompute_medians_inner(
+                event_key=event_key,
+                scenario=scenario,
+                age=age,
+                gender=gender,
+                supabase_client=supabase_client,
+                reviewer_email=reviewer_email,
+            )
+    except (ScenarioLockError, RuntimeError):
+        # Lock contention or "No resolved teams in cohort" — both are
+        # benign at auto-fire time. The manual button still surfaces the
+        # error if the operator triggers it explicitly.
+        return
+    st.session_state[flag_key] = True
 
 
 def _trigger_recompute(
