@@ -1079,26 +1079,60 @@ def _flash_link_success(team_name: str, master_team_name: str | None, *, scroll_
 
 
 def _render_pending_flashes() -> None:
-    """Drain queued link-success messages and scroll cue once per page render."""
+    """Drain queued link-success messages, then restore scroll state.
+
+    Streamlit reruns reset the page to whatever the rendered document
+    height happens to be, which lands the operator at the bottom when
+    an expander above their viewport collapses (per-team triage drawers
+    do this on every link click). To fix it we attach a one-shot listener
+    on the parent window that saves ``scrollY`` to sessionStorage as the
+    operator scrolls, then restore it on every render — unless a link
+    click queued an anchor target, in which case we scroll there instead.
+    """
     pending = st.session_state.pop("_link_flash_messages", [])
     for msg in pending:
         st.toast(msg, icon="✅")
     anchor = st.session_state.pop("_scroll_to_anchor", None)
-    if anchor:
-        # Streamlit components run in a sandboxed iframe; ``window.parent``
-        # is the actual app document where the anchor lives. ``height=0``
-        # keeps the script invisible — pure side-effect injection.
-        components.html(
-            f"""
-            <script>
-            (function() {{
-                const target = window.parent.document.getElementById({anchor!r});
-                if (target) target.scrollIntoView({{behavior: 'auto', block: 'start'}});
-            }})();
-            </script>
-            """,
-            height=0,
-        )
+    anchor_js = repr(anchor) if anchor else "null"
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            const KEY = 'pitchrank_scroll_y';
+            const win = window.parent;
+            const doc = win.document;
+            // One-shot listener: save scroll position (debounced) so a
+            // future rerun can restore it. Guard prevents stacking
+            // listeners across iframe re-mounts.
+            if (!win.__pitchrank_scroll_handler__) {{
+                win.__pitchrank_scroll_handler__ = function() {{
+                    clearTimeout(win.__pitchrank_save_timer__);
+                    win.__pitchrank_save_timer__ = setTimeout(function() {{
+                        try {{ sessionStorage.setItem(KEY, win.scrollY); }} catch (e) {{}}
+                    }}, 80);
+                }};
+                win.addEventListener('scroll', win.__pitchrank_scroll_handler__, {{ passive: true }});
+            }}
+            // Restore — anchor target wins, fall back to saved offset.
+            setTimeout(function() {{
+                const anchorId = {anchor_js};
+                if (anchorId) {{
+                    const target = doc.getElementById(anchorId);
+                    if (target) {{
+                        target.scrollIntoView({{ behavior: 'auto', block: 'start' }});
+                        return;
+                    }}
+                }}
+                try {{
+                    const saved = sessionStorage.getItem(KEY);
+                    if (saved !== null) win.scrollTo(0, parseInt(saved, 10));
+                }} catch (e) {{}}
+            }}, 60);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _cohort_anchor_id(age: str, gender: str) -> str:
