@@ -81,7 +81,9 @@ from src.tournaments.storage import (
     append_override,
     build_registry_entries,
     check_games_import_status,
+    check_local_results_coverage,
     compute_frozen_medians,
+    derive_structure_from_raw_scrape,
     ensure_scenario,
     event_key,
     intake_dir,
@@ -345,8 +347,13 @@ def _cohort_tint(
     *,
     event_name: str,
     supabase_client: Any,
+    event_key_value: str | None = None,
 ) -> tuple[str, str]:
-    """Combine the ``scraper_state`` tint with the games-import override.
+    """Combine the ``scraper_state`` tint with the games-coverage override.
+
+    Backtest mode reads ``intake/game_results.jsonl`` (scraped directly
+    from gotsport schedule pages by ``enrich_event_with_schedule``), so
+    coverage status is a local file check — no Supabase round-trip.
 
     Override rules:
     - ``not_imported`` → red "games gap".
@@ -354,17 +361,18 @@ def _cohort_tint(
     - ``complete`` → keep the scraper_state-derived tint.
     """
     base_level, base_note = _scraper_tint(records)
-    team_ids = frozenset(
-        str(canon["team_id_master"])
+    if event_key_value is None:
+        return base_level, base_note
+    provider_team_ids = frozenset(
+        str(rec.get("provider_team_id") or "")
         for rec in records
-        for canon in (rec.get("canonical") or {},)
-        if canon.get("scraper_state") == "alias_written" and canon.get("team_id_master")
+        if rec.get("provider_team_id")
     )
-    if not team_ids or supabase_client is None:
+    if not provider_team_ids:
         return base_level, base_note
     try:
-        games_state = _check_games_import_cached(event_name, team_ids, supabase_client)
-    except Exception:  # noqa: BLE001 — Supabase failure shouldn't crash the page
+        games_state = check_local_results_coverage(event_key_value, provider_team_ids)
+    except Exception:  # noqa: BLE001 — file-read failure shouldn't crash the page
         return base_level, base_note
     if games_state == "not_imported":
         return "red", "games gap"
@@ -632,6 +640,19 @@ def _persist_registry_after_scrape(
     """
     journal_records = load_raw_scrape(event_key_value, base_dir=base_dir)
     fresh_entries = build_registry_entries(journal_records)
+    # Backtest mode: the past tournament's bracket layout is recoverable
+    # from the journal itself, so the operator should not have to author
+    # group_structure_summary.csv by hand. We derive it once (with pool
+    # sizes if pool_assignments.json was written by the enricher) and
+    # write per-scenario inside the existing lock — but only when the
+    # file is absent, to preserve operator edits in forward-looking
+    # scenarios.
+    from src.tournaments.storage.pool_assignments import read_pool_assignments
+
+    pools_by_group = read_pool_assignments(event_key_value, base_dir=base_dir)
+    derived_structure = derive_structure_from_raw_scrape(
+        journal_records, pools_by_group_id=pools_by_group
+    )
 
     if supabase_client is None:
         logger.warning(
@@ -663,6 +684,15 @@ def _persist_registry_after_scrape(
                 results.append(
                     persist_registry_for_scenario(event_key_value, scenario, enriched_entries, base_dir=base_dir)
                 )
+                structure_csv = (
+                    Path(base_dir)
+                    / event_key_value
+                    / "scenarios"
+                    / scenario
+                    / "group_structure_summary.csv"
+                )
+                if not structure_csv.exists() and derived_structure:
+                    write_structure(event_key_value, scenario, derived_structure, base_dir=base_dir)
         except ScenarioLockError:
             results.append(
                 RegistryPersistResult(
@@ -735,6 +765,20 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
 
     key = event_key(meta.provider_code, meta.provider_event_id, meta.season_year)
     ensure_scenario(key, st.session_state.scenario_name)
+    # Preserve an existing operator-set / non-fallback event_name across
+    # rescrapes. Gotsport's org_event landing page doesn't expose the real
+    # tournament name in <title> or <h1>, so fetch_event_metadata falls back
+    # to "Event {id}". Without this guard, every rescrape would silently
+    # rewrite "SC Del Sol Presidents Day Tournament" → "Event 42433" and
+    # break the games-import-status lookup that joins on event_name.
+    fallback_name = f"Event {meta.provider_event_id}"
+    if meta.event_name == fallback_name:
+        try:
+            existing = read_event_metadata(key)
+            if existing.event_name and existing.event_name != fallback_name:
+                meta = replace(meta, event_name=existing.event_name)
+        except (FileNotFoundError, SchemaVersionError):
+            pass
     write_event_metadata(key, meta)
 
     try:
@@ -743,6 +787,25 @@ def _run_scrape(url: str, supabase_client: Any) -> None:
             try:
                 with st.spinner("Scraping cohorts (this may take 1-3 min)..."):
                     scraper.fetch_teams_by_cohort(url)
+                with st.spinner("Capturing schedule (pools + games + standings)..."):
+                    # Best-effort schedule enrichment — runs BEFORE registry
+                    # persistence so derive_structure_from_raw_scrape can
+                    # populate pool_sizes on the first write. Single fetch
+                    # pass per tier produces three artifacts:
+                    # pool_assignments.json, game_results.jsonl,
+                    # standings.jsonl. Failure here logs but does not
+                    # block: backtest still works at bracket level even
+                    # with empty pool_sizes / game_results.
+                    try:
+                        from src.scrapers.gotsport_pool_enricher import enrich_event_with_schedule
+
+                        enrich_event_with_schedule(
+                            key,
+                            load_raw_scrape(key),
+                            fetcher=lambda gid: scraper.fetch_schedule_html(meta.provider_event_id, gid),
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("schedule enrichment failed; backtest will lack pool/game data")
                 with st.spinner("Persisting team registry..."):
                     persist_results = _persist_registry_after_scrape(
                         key, st.session_state.scenario_name, supabase_client
@@ -800,6 +863,7 @@ def _render_cohort_summary(
     *,
     event_name: str,
     supabase_client: Any,
+    event_key_value: str | None = None,
 ) -> dict[tuple[str, str], tuple[str, str]]:
     """Render the cohort summary strip + totals row.
 
@@ -811,6 +875,7 @@ def _render_cohort_summary(
             cohorts[cohort],
             event_name=event_name,
             supabase_client=supabase_client,
+            event_key_value=event_key_value,
         )
         for cohort in sorted_keys
     }
@@ -1062,10 +1127,19 @@ def _build_division_groups(
     groups: dict[str, list[str]] = {name: [] for name in division_names}
     state = team_state or {}
     for record in cohort_records:
-        bracket = str(record.get("bracket_name") or record.get("division") or "").strip()
         pid = str(record.get("provider_team_id") or "").strip()
         if not pid:
             continue
+        # Gotsport's ``group_name`` IS the division name (verbatim:
+        # "Red", "White", "Capelli Sport+ Southwest"), so it's the
+        # authoritative source when available. Fall back to the
+        # name-prefix heuristic on bracket_name / division only when
+        # group_name is absent (legacy / non-gotsport records).
+        group_name = str(record.get("group_name") or "").strip()
+        if group_name and group_name in division_names:
+            groups[group_name].append(pid)
+            continue
+        bracket = str(record.get("bracket_name") or record.get("division") or "").strip()
         resolution = resolve_division_assignment(state.get(pid), bracket, division_names=division_names)
         if resolution.source in (SOURCE_EXPLICIT, SOURCE_PREFIX, SOURCE_STALE) and resolution.name:
             chosen = resolution.name
@@ -3053,6 +3127,12 @@ def _build_registry_by_pid(event_key: str, scenario: str) -> dict[str, Any]:
     return {pid: entry for entry in registry if (pid := registry_provider_id(entry))}
 
 
+# Exceptions the dropdown-filter loop tolerates when probing run-dir
+# metadata. A bare triple-quoted string here would be auto-rendered by
+# Streamlit magic at the top of the page on every rerun — keep this as a
+# `#` comment so it stays out of the UI. Covers I/O, JSON, and
+# structural-shape errors so a corrupt/legacy run_metadata.json can't
+# crash the previous-runs dropdown render.
 _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     FileNotFoundError,
     json.JSONDecodeError,
@@ -3062,13 +3142,6 @@ _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     TypeError,
     ValueError,
 )
-"""Exceptions the dropdown-filter loop tolerates when probing run-dir
-metadata. Covers I/O (``FileNotFoundError`` / ``OSError``), JSON
-(``json.JSONDecodeError`` / ``ValueError``), AND structural-shape errors
-(``AttributeError`` / ``KeyError`` / ``TypeError``) — a JSON-valid but
-shape-invalid ``run_metadata.json`` (legacy/manually-edited) would
-otherwise crash the entire previous-runs dropdown render.
-"""
 
 
 def _read_ended_at(event_key: str, scenario: str, run_id_: str) -> str | None:
@@ -3378,7 +3451,11 @@ def _render_cohort_containers(
         records = cohorts[cohort]
         level, note = tints[cohort]
         team_count = len(records)
-        division_count = len({r.get("bracket_name") or "" for r in records if r.get("bracket_name")})
+        # Count distinct gotsport ``group_name`` values — the actual division
+        # tier the team played in (Red/White/Blue/Washington/etc.). Counting
+        # ``bracket_name`` instead conflates a U13 play-up's U14B bracket
+        # with their natural cohort's U13B bracket and double-counts.
+        division_count = len({r.get("group_name") or "" for r in records if r.get("group_name")})
         dot = _TINT_DOT[level]
         display_label = f"{_display_gender(gender)} {age.upper()}"
         toggle_label = (
@@ -3445,6 +3522,7 @@ def main() -> None:
         sorted_keys,
         event_name=meta.event_name,
         supabase_client=supabase_client,
+        event_key_value=key,
     )
     _render_cohort_containers(
         cohorts,

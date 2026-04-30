@@ -103,9 +103,17 @@ from src.tournaments.storage.schema_version import (
     assert_supported_version,
     stamp_schema_version,
 )
+from src.tournaments.storage.game_results import (
+    check_local_results_coverage,
+    read_game_results,
+    read_standings,
+    write_game_results,
+    write_standings,
+)
 from src.tournaments.storage.structure import (
     CohortStructure,
     DivisionStructure,
+    derive_structure_from_raw_scrape,
     read_structure,
     write_structure,
 )
@@ -150,6 +158,12 @@ __all__ = [
     "persist_registry_for_scenario",
     "read_structure",
     "write_structure",
+    "derive_structure_from_raw_scrape",
+    "read_game_results",
+    "write_game_results",
+    "read_standings",
+    "write_standings",
+    "check_local_results_coverage",
     "read_constraints",
     "write_constraints",
     "read_frozen_medians",

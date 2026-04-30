@@ -75,26 +75,58 @@ def scrape_specific_event(
 
     scraper = GotSportEventScraper(supabase, "gotsport")
 
-    # Get event name. The pre-flight fetch uses scraper.session directly
-    # (not the CAPTCHA-aware _fetch_event_page) so an archived/redirect
-    # response is distinguishable from a CAPTCHA gate. The main scrape call
-    # below triggers the real CAPTCHA detection.
+    # Get event name. Priority order:
+    #   1. operator-set / previously-scraped value in
+    #      ``reports/<event_key>/intake/event_metadata.json`` (preserves
+    #      manual fixes for events whose gotsport <title> is just
+    #      "GotSport" — see fetch_event_metadata in src/scrapers/gotsport.py)
+    #   2. <h1> on the event page (the real tournament name on gotsport)
+    #   3. <title> if non-junk (rejecting bare "GotSport" / login-page titles)
+    #   4. ``Event {id}`` fallback
+    # The pre-flight fetch uses scraper.session directly (not the
+    # CAPTCHA-aware _fetch_event_page) so an archived/redirect response
+    # is distinguishable from a CAPTCHA gate. The main scrape call below
+    # triggers the real CAPTCHA detection.
+    event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
+    event_name = f"Event {event_id}"
+
+    # Prefer on-disk metadata (operator's source of truth).
     try:
-        event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
-        response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
-        if "org_event/events" not in response.url or response.url == "https://home.gotsport.com/":
-            console.print(f"[red]❌ Event {event_id} not accessible (may be archived or invalid)[/red]")
-            return
+        from src.tournaments.storage.event_key import event_key as _make_event_key
+        from src.tournaments.storage.event_metadata import read_event_metadata
 
-        from bs4 import BeautifulSoup
+        meta_key = _make_event_key("gotsport", event_id, None)  # __unknown season
+        existing = read_event_metadata(meta_key)
+        fallback = f"Event {event_id}"
+        if existing.event_name and existing.event_name != fallback:
+            event_name = existing.event_name
+            console.print(f"[cyan]Event: {event_name} (from event_metadata.json)[/cyan]\n")
+    except Exception:
+        pass
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        title = soup.find("title")
-        event_name = title.get_text(strip=True) if title else f"Event {event_id}"
-        console.print(f"[cyan]Event: {event_name}[/cyan]\n")
-    except Exception as e:
-        console.print(f"[yellow]⚠️  Could not get event name: {e}[/yellow]")
-        event_name = f"Event {event_id}"
+    # If still on the bare fallback, scrape the page and prefer <h1>.
+    if event_name == f"Event {event_id}":
+        try:
+            response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
+            if "org_event/events" not in response.url or response.url == "https://home.gotsport.com/":
+                console.print(f"[red]❌ Event {event_id} not accessible (may be archived or invalid)[/red]")
+                return
+
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(response.text, "html.parser")
+            h1 = soup.find("h1")
+            title = soup.find("title")
+            h1_text = h1.get_text(strip=True) if h1 else None
+            title_text = title.get_text(strip=True) if title else None
+            if title_text == "GotSport" or (
+                title_text and "Sign in to your GotSport Account" in title_text
+            ):
+                title_text = None
+            event_name = h1_text or title_text or f"Event {event_id}"
+            console.print(f"[cyan]Event: {event_name}[/cyan]\n")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Could not get event name: {e}[/yellow]")
 
     # Cohort intake pass (plan Step 4 + 6). Writes team_alias_map and
     # team_match_review_queue rows. Runs BEFORE scrape_event_games so the
