@@ -25,6 +25,7 @@ from src.scrapers.gotsport_tier_parser import (
     enrich_teams_with_tiers,
     extract_tier_catalog,  # noqa: F401  (used in TestEvent47021CaptchaLanding only — keep flat import)
 )
+from tests.conftest import trim_landing_to_gids
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "gotsport"
 
@@ -68,9 +69,24 @@ class TestEvent49371Comprehensive:
     # All in-scope U10+ gids per the captured corpus (excludes 485437 U-8,
     # 485438 U-7, 485443 U-9 GIRLS — those are micro-cohort skips).
     IN_SCOPE_GIDS = [
-        485294, 485295, 485296, 485297, 485298, 485299, 485300, 485301,
-        485425, 485434, 485435, 485436, 485439, 485440, 485441, 485442,
-        485444, 485513,
+        485294,
+        485295,
+        485296,
+        485297,
+        485298,
+        485299,
+        485300,
+        485301,
+        485425,
+        485434,
+        485435,
+        485436,
+        485439,
+        485440,
+        485441,
+        485442,
+        485444,
+        485513,
     ]
 
     @pytest.fixture
@@ -163,33 +179,12 @@ SAMPLED_EVENTS = [
 def test_sampled_event_subfetches_resolve_residues(event_id, gids, expected_residues, tmp_path):
     if not _has_subpages_for(event_id, gids):
         pytest.skip(f"event {event_id} subpages not fully captured")
-    soup = BeautifulSoup(
-        (FIXTURES / f"event_{event_id}.html").read_text(encoding="utf-8"),
-        "html.parser",
-    )
+    landing_html = (FIXTURES / f"event_{event_id}.html").read_text(encoding="utf-8")
+    # Trim the landing to the sampled gids so the orchestrator only attempts
+    # subfetches we have fixtures for. Helper lives in tests/conftest.py.
+    soup = BeautifulSoup(trim_landing_to_gids(landing_html, list(gids)), "html.parser")
     fetcher = _fetcher_from_disk(event_id)
 
-    # We need to limit which gids actually run subfetches. The orchestrator
-    # walks the full landing catalog by default. Trim the soup by removing
-    # rows for any ``?group=`` anchor whose gid isn't in our sampled set.
-    # IMPORTANT: collect rows-to-drop FIRST, then decompose — calling
-    # ``row.decompose()`` mid-iteration leaves stale Tag objects in the
-    # remaining list (with ``attrs == None``) and ``a.get(...)`` crashes.
-    rows_to_drop = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "schedules?group=" not in href:
-            continue
-        if any(f"group={g}" in href for g in gids):
-            continue
-        parent = a.find_parent()
-        row = parent.find_parent() if parent else None
-        if row is not None:
-            rows_to_drop.append(row)
-    for row in rows_to_drop:
-        row.decompose()
-
-    # Now run with a fetcher that only knows our sampled gids.
     out = enrich_teams_with_tiers(
         soup,
         teams_by_bracket={},
@@ -202,8 +197,7 @@ def test_sampled_event_subfetches_resolve_residues(event_id, gids, expected_resi
     seen_residues = {r.group_name for r in out.values() if r.group_name}
     for residue in expected_residues:
         assert residue in seen_residues, (
-            f"event {event_id}: expected residue {residue!r} not found; "
-            f"got {sorted(seen_residues)}"
+            f"event {event_id}: expected residue {residue!r} not found; got {sorted(seen_residues)}"
         )
 
 

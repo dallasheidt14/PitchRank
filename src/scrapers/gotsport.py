@@ -32,8 +32,15 @@ except ImportError:
     certifi = None
 
 from src.base import GameData
+from src.scrapers._age_normalization import normalize_age
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
+from src.scrapers.gotsport_tier_parser import (
+    MICRO_OUT_OF_SCOPE_AGES,
+    EnrichmentResult,
+    FetchedSubpage,
+    enrich_teams_with_tiers,
+)
 from src.scrapers.intake_journal import DURABLE_ACTIONS, IntakeJournal, compute_skip_set
 from src.scrapers.provider import (
     CanonicalResolution,
@@ -599,6 +606,12 @@ class GotSportScraper(BaseScraper):
             return False
 
 
+# Leading ``U<digits>`` token on ``EventTeam.age_group``. The caller-side
+# filter in ``fetch_teams_by_cohort`` decides micro-cohort membership via
+# ``MICRO_OUT_OF_SCOPE_AGES`` against the digits captured here — the regex
+# itself is age-agnostic, so loose values like ``"Unknown"`` fall through.
+_LEADING_U_AGE_RE = re.compile(r"^[Uu](\d{1,2})", re.IGNORECASE)
+
 # Markers for gotsport's per-event reCAPTCHA v2 challenge page
 # (observed 2026-04-24 on events 45224, 40550, 40610 among others).
 # Detection is permissive: any of these patterns is enough — the three tend
@@ -723,9 +736,7 @@ def _extract_captcha_signals_from_parts(
     return None
 
 
-def _extract_captcha_signals(
-    response: requests.Response, fallback_target_url: str
-) -> Optional[dict]:
+def _extract_captcha_signals(response: requests.Response, fallback_target_url: str) -> Optional[dict]:
     """Thin wrapper around ``_extract_captcha_signals_from_parts``.
 
     Pulls the four parts out of a ``requests.Response`` and delegates. Keeps
@@ -740,9 +751,7 @@ def _extract_captcha_signals(
     )
 
 
-def extract_event_teams_by_bracket_from_soup(
-    soup: BeautifulSoup, event_id: str
-) -> Dict[str, List[EventTeam]]:
+def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str) -> Dict[str, List[EventTeam]]:
     """Pure-parse counterpart to ``GotsportScraper.extract_event_teams_by_bracket``.
 
     Takes the parsed BeautifulSoup snapshot directly so the new
@@ -850,9 +859,7 @@ def extract_event_teams_by_bracket_from_soup(
         for header in all_headers:
             header_text = header.get_text(strip=True)
             # Look for bracket patterns like "SUPER PRO - U9B", "GOLD - U8B", etc.
-            if re.search(
-                r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP)", header_text, re.I
-            ):
+            if re.search(r"(SUPER|ELITE|PRO|BLACK|GOLD|SILVER|BRONZE|PREMIER|CHAMPIONSHIP)", header_text, re.I):
                 # This looks like a bracket header
                 # Look for team links or data near this header
                 parent = header.find_parent()
@@ -919,9 +926,7 @@ def extract_event_teams_by_bracket_from_soup(
                 # Create bracket name from team data
                 age_group = team.get("display_age_group", "Unknown")
                 gender_code = (
-                    "B"
-                    if "Male" in team.get("display_gender", "") or team.get("gender", "").lower() == "m"
-                    else "G"
+                    "B" if "Male" in team.get("display_gender", "") or team.get("gender", "").lower() == "m" else "G"
                 )
                 bracket_name = f"{age_group}{gender_code}"
 
@@ -1018,9 +1023,7 @@ def extract_event_teams_by_bracket_from_soup(
                         match = re.search(r"/teams?/(\d+)", href)
                         if match:
                             team_id = match.group(1)
-                            team_name = (
-                                link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
-                            )
+                            team_name = link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
 
                             # Extract age_group - prioritize birth year in team name
                             age_group = None
@@ -1206,13 +1209,7 @@ class GotsportScraper(ProviderScraper):
         # on 0 rows; wrap to surface a typed error with an actionable
         # message instead of a raw postgrest APIError.
         try:
-            result = (
-                supabase_client.table("providers")
-                .select("id, code")
-                .eq("code", "gotsport")
-                .single()
-                .execute()
-            )
+            result = supabase_client.table("providers").select("id, code").eq("code", "gotsport").single().execute()
         except Exception as e:
             raise UnsupportedProviderError(
                 f"'gotsport' not registered in providers table — run migrations. Inner: {e}"
@@ -1325,9 +1322,7 @@ class GotsportScraper(ProviderScraper):
             )
         return response
 
-    def _write_captcha_artifact(
-        self, event_id: str, captcha: dict, event_url: str
-    ) -> Path:
+    def _write_captcha_artifact(self, event_id: str, captcha: dict, event_url: str) -> Path:
         """Persist a captcha_challenge.json artifact alongside intake logs.
 
         Path matches the `reports/<event_key>/intake/` convention set by the
@@ -1351,7 +1346,9 @@ class GotsportScraper(ProviderScraper):
         artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         logger.warning(
             "[captcha_detected] event_id=%s sitekey=%s artifact=%s",
-            event_id, captcha["sitekey"], artifact_path,
+            event_id,
+            captcha["sitekey"],
+            artifact_path,
         )
         return artifact_path
 
@@ -1551,7 +1548,6 @@ class GotsportScraper(ProviderScraper):
                     # follow-up commit after the smoke check empirically confirms parity.
                     logger.debug("No bracket structure found (legacy side-effect call retained for review)...")
                     self.extract_event_teams(event_id)
-
 
                 if brackets:
                     total_teams = sum(len(teams) for teams in brackets.values())
@@ -2961,15 +2957,53 @@ class GotsportScraper(ProviderScraper):
 
         journal = IntakeJournal(event_key=event_key)
         journal.startup_cleanup()
+        run_id = datetime.now(timezone.utc).isoformat()
 
         # Reset the matcher candidate cache for this scrape so stale entries
         # from a prior event don't leak into this one.
         self._matcher_cache = {}
 
-        # Surface a CAPTCHA gate before doing any further parse work.
-        self._fetch_event_page(event_id)
+        # Surface a CAPTCHA gate before doing any further parse work; capture
+        # the response so the orchestrator can reuse the soup without a 3rd fetch.
+        landing_response = self._fetch_event_page(event_id)
+        landing_soup = BeautifulSoup(landing_response.text, "html.parser")
 
+        # DELIBERATE DUAL FETCH: ``landing_soup`` above feeds the tier orchestrator;
+        # the call below independently re-fetches inside its retry/404/SSL loop. Do
+        # NOT consolidate by passing ``landing_soup`` to ``extract_event_teams_by_bracket_from_soup``
+        # without first lifting that retry scaffolding to the soup-only path —
+        # consolidating today would silently drop the production retry coverage.
         teams_by_bracket = self.extract_event_teams_by_bracket(event_id)
+
+        # --- Tier-section enrichment ----------------------------------------
+        # The closure mirrors ``_make_zenrows_request`` for routing and
+        # ``_fetch_event_page`` for the deliberate omission of
+        # ``raise_for_status`` — gotsport/ZenRows may serve a captcha
+        # challenge body with a non-2xx status, and the orchestrator's
+        # captcha detection must run BEFORE any HTTP-error short-circuit.
+        def _subpage_fetcher(group_id: int) -> FetchedSubpage:
+            url = f"{self.EVENT_BASE}/{event_id}/schedules?group={group_id}"
+            if self.use_zenrows:
+                resp = self._make_zenrows_request(url)
+            else:
+                resp = self.session.get(url, timeout=self.timeout)
+            if self.delay_min > 0 or self.delay_max > 0:
+                time.sleep(random.uniform(self.delay_min, self.delay_max))
+            return FetchedSubpage(
+                html=resp.text or "",
+                final_url=str(resp.url or ""),
+                zr_final_url=resp.headers.get("Zr-Final-Url"),
+                redirect_locations=[hr.headers.get("Location") or "" for hr in resp.history or []],
+            )
+
+        enrichment_by_team_id = enrich_teams_with_tiers(
+            landing_soup,
+            teams_by_bracket,
+            event_id=event_id,
+            event_key=event_key,
+            run_id=run_id,
+            subpage_fetcher=_subpage_fetcher,
+        )
 
         # --- First pass: skip-set + classification ---------------------------
         prior_store = journal.read()
@@ -2984,11 +3018,24 @@ class GotsportScraper(ProviderScraper):
         all_resolutions: Dict[str, tuple[ScrapedTeam, CanonicalResolution]] = {}
         bracket_occurrences: Dict[str, List[str]] = {}
         live_pids: Set[str] = set()
+        dropped_out_of_scope_count = 0
 
         for bracket_name, event_teams in teams_by_bracket.items():
             bracket_scraped: List[ScrapedTeam] = []
             for event_team in event_teams:
-                scraped = _event_team_to_scraped_team(event_team, bracket_name)
+                age_raw = (event_team.age_group or "").strip()
+                m = _LEADING_U_AGE_RE.match(age_raw)
+                if m:
+                    age_lc = normalize_age(int(m.group(1)))
+                    if age_lc in MICRO_OUT_OF_SCOPE_AGES:
+                        dropped_out_of_scope_count += 1
+                        continue
+
+                scraped = _event_team_to_scraped_team(
+                    event_team,
+                    bracket_name,
+                    enrichment=enrichment_by_team_id.get(event_team.team_id),
+                )
                 bracket_scraped.append(scraped)
                 pid = scraped.provider_team_id
                 if not pid:
@@ -3008,16 +3055,13 @@ class GotsportScraper(ProviderScraper):
             scraped_by_bracket[bracket_name] = bracket_scraped
 
         # --- Second pass: route + journal -----------------------------------
-        run_id = datetime.now(timezone.utc).isoformat()
         stats: Dict[str, int] = {}
 
         journal.open_for_append()
         try:
             for pid, (scraped, resolution) in all_resolutions.items():
                 brackets_for_team = bracket_occurrences.get(pid, [])
-                action_dict = self._route_to_writer(
-                    scraped, resolution, brackets_for_team, event_id, source_url
-                )
+                action_dict = self._route_to_writer(scraped, resolution, brackets_for_team, event_id, source_url)
                 action = action_dict.get("action", "none")
                 stats[action] = stats.get(action, 0) + 1
                 if action in DURABLE_ACTIONS:
@@ -3034,7 +3078,8 @@ class GotsportScraper(ProviderScraper):
                 else:
                     logger.info(
                         "[journal_skip] provider_team_id=%s action=%s — will retry on next run",
-                        pid, action,
+                        pid,
+                        action,
                     )
         finally:
             journal.close()
@@ -3047,12 +3092,14 @@ class GotsportScraper(ProviderScraper):
 
         logger.info(
             "[fetch_teams_by_cohort] event_id=%s brackets=%d unique_teams=%d "
-            "resolved=%d skipped=%d compact_kept=%d compact_dropped=%d stats=%s",
+            "resolved=%d skipped=%d dropped_out_of_scope_teams=%d "
+            "compact_kept=%d compact_dropped=%d stats=%s",
             event_id,
             len(teams_by_bracket),
             len(live_pids),
             len(all_resolutions),
             len(skip_set),
+            dropped_out_of_scope_count,
             kept,
             dropped,
             stats,
@@ -3092,11 +3139,7 @@ class GotsportScraper(ProviderScraper):
             )
 
         if resolution.resolved_status in ("direct_provider_id", "review"):
-            suggested_master = (
-                resolution.candidates[0].get("team_id_master")
-                if resolution.candidates
-                else None
-            )
+            suggested_master = resolution.candidates[0].get("team_id_master") if resolution.candidates else None
             match_details = {
                 "age_group": scraped.cohort_age_group,
                 "gender": scraped.cohort_gender,
@@ -3154,16 +3197,11 @@ class GotsportScraper(ProviderScraper):
                 .execute()
             )
         except Exception as e:
-            logger.warning(
-                "[revalidate_query_failed] falling back to full revalidation: %s", e
-            )
+            logger.warning("[revalidate_query_failed] falling back to full revalidation: %s", e)
             return set()
         curated: Set[str] = set()
         for row in getattr(result, "data", None) or []:
-            if (
-                row.get("review_status") == "approved"
-                and row.get("match_method") in curated_methods
-            ):
+            if row.get("review_status") == "approved" and row.get("match_method") in curated_methods:
                 curated.add(row["provider_team_id"])
         return curated
 
@@ -3211,13 +3249,9 @@ class GotsportScraper(ProviderScraper):
             event_age_group=team.cohort_age_group,
             event_gender=team.cohort_gender,
             event_club_name=team.club_name,
-            provider_team_id=(
-                team.provider_team_id if provider_id_status == "resolved" else None
-            ),
+            provider_team_id=(team.provider_team_id if provider_id_status == "resolved" else None),
         )
-        result = search_event_team_in_db(
-            self.supabase_client, query, cache=self._matcher_cache
-        )
+        result = search_event_team_in_db(self.supabase_client, query, cache=self._matcher_cache)
 
         team_id_master, match_method = _route_resolution(result.resolved_status, result.best_score)
 
@@ -3257,9 +3291,7 @@ def _provider_id_resolution_status(team: ScrapedTeam) -> str:
     return "resolved"
 
 
-def _route_resolution(
-    resolved_status: str, best_score: Optional[float]
-) -> tuple[Optional[str], Optional[str]]:
+def _route_resolution(resolved_status: str, best_score: Optional[float]) -> tuple[Optional[str], Optional[str]]:
     """Apply the plan's routing table. Returns ``(sentinel, match_method)``.
 
     ``sentinel`` is a truthy placeholder when the resolution routes to
@@ -3279,7 +3311,11 @@ def _route_resolution(
     return (None, None)  # "none" or unknown
 
 
-def _event_team_to_scraped_team(event_team: "EventTeam", bracket_name: str) -> ScrapedTeam:
+def _event_team_to_scraped_team(
+    event_team: "EventTeam",
+    bracket_name: str,
+    enrichment: Optional["EnrichmentResult"] = None,
+) -> ScrapedTeam:
     """Convert the legacy ``EventTeam`` row to the ``ProviderScraper``-shaped
     ``ScrapedTeam``.
 
@@ -3293,6 +3329,10 @@ def _event_team_to_scraped_team(event_team: "EventTeam", bracket_name: str) -> S
     - ``club_name`` — left as None; downstream extraction in
       ``resolve_canonical_team_id`` is handled by the matcher's
       ``extract_club_from_name`` fallback.
+
+    ``enrichment`` carries the Shell-02 tier-section fields. When ``None``
+    (no orchestrator hit for this ``team_id``) the dataclass-default
+    sentinels apply (``"none"`` / ``"unenriched"``).
     """
     pid = (event_team.team_id or "").strip()
     return ScrapedTeam(
@@ -3305,6 +3345,11 @@ def _event_team_to_scraped_team(event_team: "EventTeam", bracket_name: str) -> S
         bracket_name=event_team.bracket_name or bracket_name,
         playing_up=event_team.playing_up,
         has_view_rankings_link=bool(pid),
+        group_name=enrichment.group_name if enrichment else None,
+        group_id=enrichment.group_id if enrichment else None,
+        tier_discovery_source=enrichment.tier_discovery_source if enrichment else "none",
+        tier_membership_source=enrichment.tier_membership_source if enrichment else "none",
+        tier_parse_outcome=enrichment.tier_parse_outcome if enrichment else "unenriched",
     )
 
 
@@ -3352,12 +3397,8 @@ def _build_jsonl_record(
     scraper_state = _scraper_state_from_action(action)
 
     if scraper_state == "alias_written":
-        canonical_match_method = (
-            action_dict.get("match_method") or resolution.match_method
-        )
-        canonical_team_id_master = (
-            action_dict.get("team_id_master") or resolution.team_id_master
-        )
+        canonical_match_method = action_dict.get("match_method") or resolution.match_method
+        canonical_team_id_master = action_dict.get("team_id_master") or resolution.team_id_master
     else:
         canonical_match_method = None
         canonical_team_id_master = None
@@ -3373,6 +3414,11 @@ def _build_jsonl_record(
         "bracket_name": scraped.bracket_name,
         "playing_up": scraped.playing_up,
         "has_view_rankings_link": scraped.has_view_rankings_link,
+        "group_name": scraped.group_name,
+        "group_id": scraped.group_id,
+        "tier_discovery_source": scraped.tier_discovery_source,
+        "tier_membership_source": scraped.tier_membership_source,
+        "tier_parse_outcome": scraped.tier_parse_outcome,
         "provider_id_resolution_status": resolution.provider_id_resolution_status,
         "also_appears_in_brackets": brackets,
         "canonical": {

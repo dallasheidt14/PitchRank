@@ -21,6 +21,10 @@ from rich.panel import Panel
 
 from scripts.scrape_new_gotsport_events import load_scraped_events, save_scraped_event
 from src.scrapers.gotsport_event import EventCaptchaGatedError, GotSportEventScraper
+from src.scrapers.gotsport_tier_parser import (
+    EventTeamMembershipCollisionError,
+    TierSubfetchError,
+)
 from supabase import create_client
 
 console = Console()
@@ -106,10 +110,7 @@ def scrape_specific_event(
                 revalidate=revalidate,
             )
             total_teams = sum(len(teams) for teams in cohort_teams.values())
-            console.print(
-                f"[green]✅ Intake: {len(cohort_teams)} brackets, "
-                f"{total_teams} teams classified[/green]\n"
-            )
+            console.print(f"[green]✅ Intake: {len(cohort_teams)} brackets, {total_teams} teams classified[/green]\n")
         except EventCaptchaGatedError as e:
             console.print(
                 f"[yellow]⚠️  Event {event_id} is CAPTCHA-gated — scrape skipped.[/yellow]\n"
@@ -118,6 +119,16 @@ def scrape_specific_event(
                 f"  artifact: {e.artifact_path}[/dim]"
             )
             return
+        except TierSubfetchError as e:
+            console.print(
+                f"[red]❌ Tier subfetch failed: event={e.event_id} "
+                f"group={e.group_id} kind={e.underlying_kind}[/red]\n"
+                f"[dim]  details: {e.details}[/dim]"
+            )
+            return
+        except EventTeamMembershipCollisionError as e:
+            console.print(f"[red]❌ Tier collision: event={e.event_id} mode={e.mode}[/red]\n[dim]  details: {e}[/dim]")
+            return
         except Exception as e:
             console.print(
                 f"[red]❌ Cohort intake failed for event {event_id}: {e}[/red]\n"
@@ -125,8 +136,7 @@ def scrape_specific_event(
             )
     else:
         console.print(
-            f"[dim]Skipping cohort intake (--skip-intake). "
-            f"Aliases will NOT be written for event {event_id}.[/dim]\n"
+            f"[dim]Skipping cohort intake (--skip-intake). Aliases will NOT be written for event {event_id}.[/dim]\n"
         )
 
     # Scrape games

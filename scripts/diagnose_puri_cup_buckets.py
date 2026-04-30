@@ -52,7 +52,9 @@ print(f"sincsports provider_id (UUID): {sincsports_provider_id}\n")
 # 2. Pull recent build_logs rows for sincsports game_import stage
 rows = (
     sb.table("build_logs")
-    .select("build_id, started_at, completed_at, records_processed, records_succeeded, records_failed, metrics, parameters")
+    .select(
+        "build_id, started_at, completed_at, records_processed, records_succeeded, records_failed, metrics, parameters"
+    )
     .eq("stage", "game_import")
     .eq("provider_id", sincsports_provider_id)
     .gte("started_at", "2026-04-20")
@@ -105,8 +107,17 @@ for r in rows.data:
 
     print(f"--- {started}  build_id={build_id}")
     print(f"    parameters={json.dumps(params)}")
-    print(f"    processed={processed:>5} | accepted={accepted:>5} | quarantined={quarantined:>4} | dup_found={dup_found:>4} | dup_skipped={dup_skipped:>4}")
-    print(f"    failed_match={failed_match:>4} | empty_pid={empty_pid:>3} | empty_date={empty_date:>3} | empty_scores={empty_scores:>3} | dup_key_viol={dup_key_viol:>3}")
-    print(f"    teams_matched={teams_matched:>4} | teams_created={teams_created:>3} | matched_games={matched_count:>4} | partial_games={partial_count:>3}")
+    print(
+        f"    processed={processed:>5} | accepted={accepted:>5} | quarantined={quarantined:>4} "
+        f"| dup_found={dup_found:>4} | dup_skipped={dup_skipped:>4}"
+    )
+    print(
+        f"    failed_match={failed_match:>4} | empty_pid={empty_pid:>3} | empty_date={empty_date:>3} "
+        f"| empty_scores={empty_scores:>3} | dup_key_viol={dup_key_viol:>3}"
+    )
+    print(
+        f"    teams_matched={teams_matched:>4} | teams_created={teams_created:>3} "
+        f"| matched_games={matched_count:>4} | partial_games={partial_count:>3}"
+    )
     print(f"    BUCKET SUM = {bucket_sum} (drift from processed = {drift})")
     print()
