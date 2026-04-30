@@ -513,6 +513,14 @@ async def main():
                             aggregated_metrics.fuzzy_matches_auto += result.fuzzy_matches_auto
                             aggregated_metrics.fuzzy_matches_manual += result.fuzzy_matches_manual
                             aggregated_metrics.fuzzy_matches_rejected += result.fuzzy_matches_rejected
+                            aggregated_metrics.failed_games_count += result.failed_games_count
+                            aggregated_metrics.skipped_empty_provider_ids += result.skipped_empty_provider_ids
+                            aggregated_metrics.skipped_empty_game_date += result.skipped_empty_game_date
+                            aggregated_metrics.skipped_empty_scores += result.skipped_empty_scores
+                            aggregated_metrics.duplicate_key_violations += result.duplicate_key_violations
+                            aggregated_metrics.duplicate_links_backfilled += result.duplicate_links_backfilled
+                            aggregated_metrics.matched_games_count += result.matched_games_count
+                            aggregated_metrics.partial_games_count += result.partial_games_count
                             aggregated_metrics.errors.extend(result.errors)
                             completed_batches += 1
 
@@ -544,6 +552,14 @@ async def main():
                         aggregated_metrics.fuzzy_matches_auto += result.fuzzy_matches_auto
                         aggregated_metrics.fuzzy_matches_manual += result.fuzzy_matches_manual
                         aggregated_metrics.fuzzy_matches_rejected += result.fuzzy_matches_rejected
+                        aggregated_metrics.failed_games_count += result.failed_games_count
+                        aggregated_metrics.skipped_empty_provider_ids += result.skipped_empty_provider_ids
+                        aggregated_metrics.skipped_empty_game_date += result.skipped_empty_game_date
+                        aggregated_metrics.skipped_empty_scores += result.skipped_empty_scores
+                        aggregated_metrics.duplicate_key_violations += result.duplicate_key_violations
+                        aggregated_metrics.duplicate_links_backfilled += result.duplicate_links_backfilled
+                        aggregated_metrics.matched_games_count += result.matched_games_count
+                        aggregated_metrics.partial_games_count += result.partial_games_count
                         aggregated_metrics.errors.extend(result.errors)
                         completed_batches += 1
 
@@ -590,6 +606,31 @@ async def main():
         console.print(f"  [green]Auto-matched: {aggregated_metrics.fuzzy_matches_auto:,}[/green]")
         console.print(f"  [yellow]Queued for review: {aggregated_metrics.fuzzy_matches_manual:,}[/yellow]")
         console.print(f"  [red]Rejected: {aggregated_metrics.fuzzy_matches_rejected:,}[/red]")
+
+        # Surface previously-hidden counters so operators can see why records didn't land.
+        # Without this, runs where every game was unplayed (skipped_empty_scores) or unmatched
+        # (failed_games_count) look identical to "everything vanished" in the rich console.
+        if aggregated_metrics.failed_games_count > 0:
+            console.print(
+                f"  [yellow]Failed match (no team resolution): {aggregated_metrics.failed_games_count:,}[/yellow]"
+            )
+        if aggregated_metrics.skipped_empty_scores > 0:
+            console.print(
+                f"  [yellow]Skipped (empty scores — unplayed?): {aggregated_metrics.skipped_empty_scores:,}[/yellow]"
+            )
+        if aggregated_metrics.skipped_empty_provider_ids > 0:
+            console.print(
+                f"  [yellow]Skipped (empty provider IDs): {aggregated_metrics.skipped_empty_provider_ids:,}[/yellow]"
+            )
+        if aggregated_metrics.skipped_empty_game_date > 0:
+            console.print(
+                f"  [yellow]Skipped (empty game_date): {aggregated_metrics.skipped_empty_game_date:,}[/yellow]"
+            )
+        if aggregated_metrics.duplicate_key_violations > 0:
+            console.print(
+                f"  [yellow]Duplicate-key violations: {aggregated_metrics.duplicate_key_violations:,}[/yellow]"
+            )
+
         console.print(f"  Processing time: {aggregated_metrics.processing_time_seconds:.2f}s")
 
         # Partial failure reporting
