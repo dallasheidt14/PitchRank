@@ -380,7 +380,7 @@ def _cohort_tint(
     if not provider_team_ids:
         return base_level, base_note
     try:
-        games_state = check_local_results_coverage(event_key_value, provider_team_ids)
+        games_state = _cached_local_coverage(event_key_value, tuple(sorted(provider_team_ids)))
     except Exception:  # noqa: BLE001 — file-read failure shouldn't crash the page
         return base_level, base_note
     if games_state == "not_imported":
@@ -876,7 +876,7 @@ def _render_event_goal_summary(event_key: str) -> None:
     pre-enricher events) so the page header stays clean.
     """
     try:
-        games = read_game_results(event_key)
+        games = _cached_game_results(event_key)
     except (FileNotFoundError, SchemaVersionError):
         return
     if not games:
@@ -1107,6 +1107,40 @@ def _rankings_full_age_form(age: str, _supabase: Any) -> str:
     for casing in casings:
         counts[casing] = counts.get(casing, 0) + 1
     return max(counts, key=counts.get)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_game_results(event_key: str) -> list[Any]:
+    """60s-cached wrapper around ``read_game_results``.
+
+    Disk-bound on miss (parses ~700-line JSONL for a typical event); the
+    streamlit reruns hammered this every interaction. Goal-summary,
+    bracket-render, and cohort-tint coverage check all share the same
+    cached list now. Stays in lock-step with the on-disk artifact via the
+    short TTL — re-scrapes show up within 60s without an explicit clear.
+    """
+    return read_game_results(event_key)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_local_coverage(event_key: str, provider_team_ids_key: tuple[str, ...]) -> str:
+    """60s-cached wrapper around ``check_local_results_coverage``.
+
+    The team-id key is a sorted tuple so the cache slot is stable across
+    reruns — a frozenset hashes by identity in some Streamlit versions.
+    """
+    return check_local_results_coverage(event_key, list(provider_team_ids_key))
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_tier_reports(event_key: str, group_ids_key: tuple[str, ...]) -> list[TierReport]:
+    """60s-cached wrapper around ``build_tier_reports``.
+
+    Each cohort calls with a stable sorted tuple of ``group_id`` strings;
+    the same tier set hits cache across reruns until a re-scrape rolls
+    in or 60s passes.
+    """
+    return build_tier_reports(event_key, list(group_ids_key))
 
 
 @st.cache_data(ttl=60)
@@ -2027,7 +2061,11 @@ def _search_master_teams(
         return []
     rows: list[dict[str, Any]] = []
     try:
-        builder = supabase_client.table("teams").select(_TEAM_LOOKUP_COLS)
+        # ``is_deprecated=False`` is the canonical predicate for "active
+        # team" everywhere else in the codebase (calculator.py:2570,
+        # data_adapter.py:312); search must honor it so deprecated /
+        # merged-away rows never resurface as Accept candidates.
+        builder = supabase_client.table("teams").select(_TEAM_LOOKUP_COLS).eq("is_deprecated", False)
         if age_group_filter:
             builder = builder.eq("age_group", age_group_filter)
         if gender_filter:
@@ -3768,7 +3806,7 @@ def _render_bracket_report(records: list[dict[str, Any]], *, event_key: str) -> 
     if not group_ids:
         return
     try:
-        tiers = build_tier_reports(event_key, group_ids)
+        tiers = _cached_tier_reports(event_key, tuple(group_ids))
     except (FileNotFoundError, SchemaVersionError):
         return
     for tier in tiers:
