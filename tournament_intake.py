@@ -1983,6 +1983,68 @@ def _render_external_drawer(
             st.session_state[f"_triage_open_{pid}"] = False
             st.rerun()
         st.divider()
+        st.markdown("**Actually in our DB? Search and re-link:**")
+        with st.form(f"_external_relink_{pid}"):
+            relink_cols = st.columns([2, 1, 1, 1])
+            with relink_cols[0]:
+                relink_name = st.text_input("Team name", key=f"_ext_relink_name_{pid}")
+            with relink_cols[1]:
+                relink_club = st.text_input("Club", key=f"_ext_relink_club_{pid}")
+            with relink_cols[2]:
+                relink_pid = st.text_input("Provider id", key=f"_ext_relink_pid_{pid}")
+            with relink_cols[3]:
+                relink_tim = st.text_input("team_id_master", key=f"_ext_relink_tim_{pid}")
+            relink_submitted = st.form_submit_button("Search master DB")
+        if relink_submitted and supabase_client is not None:
+            relink_results = _search_master_teams(
+                supabase_client,
+                name_query=relink_name,
+                club_query=relink_club,
+                provider_id_query=relink_pid,
+                team_id_master_query=relink_tim,
+            )
+            if not relink_results:
+                st.info("No matches.")
+            for hit in relink_results:
+                hit_cols = st.columns([4, 1])
+                with hit_cols[0]:
+                    st.markdown(f"**{hit.get('team_name')}** · {hit.get('club_name') or '—'}")
+                    st.caption(
+                        f"{hit.get('age_group', '')} / {hit.get('gender', '')} · "
+                        f"team_id_master={hit.get('team_id_master')}"
+                    )
+                with hit_cols[1]:
+                    if st.button(
+                        "Use this team",
+                        key=f"_ext_relink_use_{pid}_{hit.get('team_id_master')}",
+                        disabled=write_disabled,
+                    ):
+                        # Append-only ledger: writing accept_match after mark_external
+                        # flips the projection back to resolved (latest wins per
+                        # team_ref). Capture the prior external state in ``before``
+                        # so audit retains the round-trip.
+                        append_override(
+                            event_key,
+                            scenario,
+                            build_override_record(
+                                ts=utc_now_iso(),
+                                actor=reviewer_email,
+                                scope="team",
+                                type="accept_match",
+                                team_ref=pid,
+                                before=_external_before(projected),
+                                after={
+                                    "state": "resolved",
+                                    "team_id_master": hit.get("team_id_master"),
+                                    "match_rank": "manual_search",
+                                },
+                                reason="operator re-linked external team to DB via manual search",
+                            ),
+                        )
+                        _load_registry_cached.clear()
+                        st.session_state[f"_triage_open_{pid}"] = False
+                        st.rerun()
+        st.divider()
         if st.button(
             "Recompute medians",
             key=f"_recompute_{pid}",
