@@ -167,6 +167,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'illinois-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Illinois?',
+      answer:
+        'PitchRank tracks game-by-game results across 1,284 Illinois teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Illinois?',
+      answer:
+        'By team count: Metro Alliance FC (54 teams), Sockers FC Chicago (39), Central Illinois United (39), Chicago Inter (37), St. Louis Scott Gallagher (28), Gateway Rush Soccer Club (28), Roadrunners SC (27), Bloomingdale Lightning FC (26), Glen-Ed SC (26), and Chicago Fire Youth SC (24).',
+    },
+    {
+      question: 'How often do Illinois soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Illinois?',
+      answer:
+        'Illinois teams compete in ECNL, MLS NEXT (anchored by the Chicago Fire pipeline), Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through IYSA premier divisions and the IYSA State Cup.',
+    },
+    {
+      question: 'How does Chicago Metro compare to downstate and Metro East?',
+      answer:
+        "Chicago Metro produces the bulk of Illinois's top-ranked teams, with Sockers FC, Chicago Inter, Eclipse Select, and the Chicago Fire pipeline driving national-level competition. Metro East clubs (St. Louis Scott Gallagher, Gateway Rush, Glen-Ed) function within the St. Louis soccer ecosystem and travel west for showcases rather than east to Chicago. Downstate clubs in Bloomington-Normal, Peoria, and Rockford serve large areas well but top players often travel to Chicago clubs for national-level exposure.",
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Illinois rankings help with college recruiting?',
+      answer:
+        'Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Illinois is home to UIUC, Northwestern, DePaul, Illinois State, Loyola Chicago, SIU Edwardsville, Bradley, and Western Illinois.',
+    },
+    {
+      question: 'Can clubs game the Illinois rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker IYSA flight opponents repeatedly will not inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
+    },
+  ],
+
   'maryland-youth-soccer-rankings-guide': [
     {
       question: 'How are Maryland youth soccer teams ranked?',
@@ -304,6 +347,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How do Charlotte and Raleigh area clubs compare in rankings?',
       answer:
         "Both metro areas produce nationally competitive clubs. Charlotte SA and Charlotte Independence anchor the Charlotte scene, while NCFC Youth and Wake FC lead in the Triangle. Use PitchRank's state filter to compare clubs across regions.",
+    },
+  ],
+
+  'ohio-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Ohio?',
+      answer:
+        'PitchRank tracks game-by-game results across 2,650 Ohio teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Ohio?',
+      answer:
+        'By team count: Cincinnati United Premier Soccer Club (135 teams), Club Ohio (110), Columbus Force SC (94), Ohio Premier (64), Cleveland Force SC (62), North FC (59), Ohio Galaxies FC (54), Kings Hammer Soccer Club (54), Cincy SC (52), and Gtfc Impact (52).',
+    },
+    {
+      question: 'How often do Ohio soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Ohio?',
+      answer:
+        'Ohio teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through OSA premier divisions and the Ohio State Cup.',
+    },
+    {
+      question: 'How does the three-city dynamic work in Ohio soccer?',
+      answer:
+        'Cincinnati, Columbus, and Cleveland each anchor distinct soccer ecosystems with limited cross-region play during the regular season. Cincinnati clubs also compete regularly in Northern Kentucky. Columbus is the largest metro by team count and home to the Columbus Crew MLS NEXT pipeline. Cleveland clubs lean into the broader Midwest and Great Lakes competitive calendar. All three ecosystems converge at the Ohio State Cup — the annual event where rankings across city lines get truly tested.',
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Ohio rankings help with college recruiting?',
+      answer:
+        'Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Ohio is home to Ohio State, Cincinnati, Akron, Bowling Green, Cleveland State, Dayton, Xavier, Miami (Ohio), Wright State, and Toledo.',
+    },
+    {
+      question: 'Can clubs game the Ohio rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker OSA flight opponents repeatedly will not inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
     },
   ],
 
