@@ -2897,13 +2897,20 @@ class GotsportScraper(ProviderScraper):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
-        title = soup.find("title")
+        # Prefer <h1> over <title> — on gotsport event pages <title> is the
+        # bare brand "GotSport" (and on auth-redirected URLs it's the login
+        # page title). The real tournament name lives in <h1>. Brand-only
+        # and login-page titles are rejected so they fall through to the
+        # Event-{id} fallback rather than masquerading as the event name.
         h1 = soup.find("h1")
-        event_name = (
-            (title.get_text(strip=True) if title else None)
-            or (h1.get_text(strip=True) if h1 else None)
-            or f"Event {event_id}"
-        )
+        title = soup.find("title")
+        h1_text = h1.get_text(strip=True) if h1 else None
+        title_text = title.get_text(strip=True) if title else None
+        if title_text == "GotSport" or (
+            title_text and "Sign in to your GotSport Account" in title_text
+        ):
+            title_text = None
+        event_name = h1_text or title_text or f"Event {event_id}"
 
         return EventMetadata(
             provider_code="gotsport",
@@ -2913,6 +2920,26 @@ class GotsportScraper(ProviderScraper):
             event_start_date=None,
             scrape_ts=datetime.now(timezone.utc).isoformat(),
         )
+
+    def fetch_schedule_html(self, event_id: str, group_id: int) -> str:
+        """Return raw HTML for one tier's ``/schedules?group=<id>`` page.
+
+        Mirrors the ``_subpage_fetcher`` closure in
+        ``fetch_teams_by_cohort`` for routing (ZenRows when configured,
+        plain session otherwise) and rate limiting. Deliberately omits
+        ``raise_for_status`` — gotsport / ZenRows can serve a captcha
+        body with a non-2xx status, and downstream parsers may want the
+        body to detect the gate themselves. Callers that don't tolerate
+        non-2xx should check ``status_code`` themselves.
+        """
+        url = f"{self.EVENT_BASE}/{event_id}/schedules?group={group_id}"
+        if self.use_zenrows:
+            resp = self._make_zenrows_request(url)
+        else:
+            resp = self.session.get(url, timeout=self.timeout)
+        if self.delay_min > 0 or self.delay_max > 0:
+            time.sleep(random.uniform(self.delay_min, self.delay_max))
+        return resp.text or ""
 
     def fetch_teams_by_cohort(
         self,

@@ -16,10 +16,12 @@ per-row dataclass field.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.tournaments.storage._io import read_csv, read_json, write_csv, write_json
 from src.tournaments.storage.event_key import scenario_dir
@@ -37,9 +39,23 @@ __all__ = [
     "CohortStructure",
     "DivisionStructure",
     "FIELDNAMES",
+    "derive_structure_from_raw_scrape",
     "read_structure",
     "write_structure",
 ]
+
+
+# Cohort keys round-trip through ``normalize_age_group`` /
+# ``normalize_gender_label`` so the structure CSV's keys match the
+# Streamlit UI's iteration order — ``_group_cohorts`` keys cohorts by
+# the same normalized (age, gender) tuple. Division names ARE preserved
+# verbatim (gotsport's ``group_name``: ``Red``, ``White``,
+# ``Capelli Sport+ Southwest``, etc.) — only the cohort header is
+# normalized for UI compatibility.
+def _age_sort_key(age: str) -> int:
+    """Stabilize cohort order: ``u9 < u10 < u13`` rather than lex-sorting."""
+    match = re.search(r"\d+", age)
+    return int(match.group(0)) if match else 999
 
 
 FIELDNAMES: tuple[str, ...] = (
@@ -167,6 +183,100 @@ def read_structure(
             divisions=tuple(grouped[cohort_key]),
         )
         for cohort_key in cohort_order
+    ]
+
+
+def derive_structure_from_raw_scrape(
+    records: Iterable[dict[str, Any]],
+    *,
+    pools_by_group_id: dict[str, Any] | None = None,
+) -> list[CohortStructure]:
+    """Reconstruct ``CohortStructure`` list from ``raw_scrape.jsonl`` records.
+
+    Backtest mode: the past tournament's structure is a fact captured in
+    the scrape. Each record's ``cohort_age_group`` /
+    ``cohort_gender`` (normalized via ``normalize_age_group`` /
+    ``normalize_gender_label`` so the keys match the Streamlit UI's
+    cohort iteration) is the cohort header; ``group_name`` (e.g.,
+    ``"Red"``, ``"Washington"``, ``"Capelli Sport+ Southwest"``) is
+    the division name — preserved verbatim, never renamed.
+    ``team_count`` is the count of records sharing that
+    ``(natural_cohort, group_name)`` pair.
+
+    Records with no parseable ``cohort_age_group`` are dropped (no cohort
+    identity); records with no ``group_name`` are dropped (no division
+    identity). ``advancement`` stays empty — that's a schedule-page
+    detail not yet captured.
+
+    When ``pools_by_group_id`` is provided (from
+    ``intake/pool_assignments.json`` written by the pool enricher),
+    ``DivisionStructure.pool_sizes`` is populated as the tuple of pool
+    team counts in pool-label sort order. The map is keyed by the
+    gotsport tier ``group_id``; the join is ``group_id`` carried on each
+    raw_scrape record. Tiers with no captured pool data leave
+    ``pool_sizes`` empty.
+    """
+    # Lazy import to avoid pulling the seeding optimizer's heavy deps
+    # (itertools / math / match machinery) into every storage caller.
+    from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label
+
+    counts: dict[tuple[str, str, str], int] = defaultdict(int)
+    cohorts_seen: set[tuple[str, str]] = set()
+    divisions_by_cohort: dict[tuple[str, str], set[str]] = defaultdict(set)
+    group_id_by_division: dict[tuple[str, str, str], str] = {}
+
+    for rec in records:
+        try:
+            age = normalize_age_group(str(rec.get("cohort_age_group") or ""))
+        except ValueError:
+            continue
+        gender = normalize_gender_label(str(rec.get("cohort_gender") or ""))
+        division = str(rec.get("group_name") or "").strip()
+        if not division:
+            continue
+        cohort_key = (age, gender)
+        cohorts_seen.add(cohort_key)
+        divisions_by_cohort[cohort_key].add(division)
+        counts[(age, gender, division)] += 1
+        group_id = rec.get("group_id")
+        if group_id is not None and (age, gender, division) not in group_id_by_division:
+            group_id_by_division[(age, gender, division)] = str(group_id)
+
+    pools_lookup = pools_by_group_id or {}
+
+    def _pool_sizes_for(age: str, gender: str, division: str) -> tuple[int, ...]:
+        gid = group_id_by_division.get((age, gender, division))
+        if gid is None:
+            return ()
+        pools = pools_lookup.get(gid) or pools_lookup.get(str(gid))
+        if not pools:
+            return ()
+        # Tolerate both PoolAssignment dataclass instances and plain dicts
+        # (the storage layer round-trips dataclasses; tests can pass dicts).
+        return tuple(
+            getattr(p, "team_count", None)
+            if hasattr(p, "team_count")
+            else len(p.get("provider_team_ids") or ())
+            for p in sorted(
+                pools,
+                key=lambda p: getattr(p, "label", None) or p.get("label") or "",
+            )
+        )
+
+    return [
+        CohortStructure(
+            age_group=age,
+            gender=gender,
+            divisions=tuple(
+                DivisionStructure(
+                    name=div,
+                    team_count=counts[(age, gender, div)],
+                    pool_sizes=_pool_sizes_for(age, gender, div),
+                )
+                for div in sorted(divisions_by_cohort[(age, gender)])
+            ),
+        )
+        for age, gender in sorted(cohorts_seen, key=lambda c: (_age_sort_key(c[0]), c[1]))
     ]
 
 
