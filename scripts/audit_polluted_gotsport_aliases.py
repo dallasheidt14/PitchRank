@@ -19,7 +19,7 @@ GotSport JSON API at `/api/v1/teams/{id}/matches?past=true`:
     - 404 → `registration_id` (quarantine candidate).
     - 5xx / network error / non-list JSON → `unknown_<reason>` (skip).
 
-Quarantine action sets `review_status='needs_review'`. Rows are not deleted —
+Quarantine action sets `review_status='pending'`. Rows are not deleted —
 the audit trail and the master team mapping are preserved so a future operator
 can either re-approve or merge.
 
@@ -263,12 +263,12 @@ def main(args: argparse.Namespace) -> None:
         print("\nNothing to quarantine.")
         return
 
-    print(f"\nUpdating {len(quarantine_candidates)} aliases to review_status='needs_review'...")
+    print(f"\nUpdating {len(quarantine_candidates)} aliases to review_status='pending'...")
     updated_count = 0
     error_count = 0
     for row in quarantine_candidates:
         try:
-            supabase.table("team_alias_map").update({"review_status": "needs_review"}).eq("id", row["id"]).execute()
+            supabase.table("team_alias_map").update({"review_status": "pending"}).eq("id", row["id"]).execute()
             updated_count += 1
             if updated_count % 100 == 0:
                 print(f"  Updated {updated_count}/{len(quarantine_candidates)}...")
@@ -290,10 +290,10 @@ def main(args: argparse.Namespace) -> None:
             supabase.table("team_alias_map").select("id,review_status").in_("id", batch).execute()
         )
         for record in verify_result.data or []:
-            if record.get("review_status") == "needs_review":
+            if record.get("review_status") == "pending":
                 verified_review += 1
 
-    print(f"Verified {verified_review}/{len(quarantine_candidates)} now have review_status='needs_review'")
+    print(f"Verified {verified_review}/{len(quarantine_candidates)} now have review_status='pending'")
 
 
 def _default_output_path() -> str:
