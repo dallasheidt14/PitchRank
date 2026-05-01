@@ -6,7 +6,7 @@
 
 ## Goal
 
-A clean internal dashboard at `/mission-control` that gives the admin a real-time view of the subscription business. Optimized for daily decision-making, not user display.
+A clean internal dashboard at `/mission-control/subscriptions` (sibling to the existing model-accuracy `/mission-control` page) that gives the admin a real-time view of the subscription business. Optimized for daily decision-making, not user display.
 
 ## Daily questions the dashboard must answer
 
@@ -39,7 +39,7 @@ A clean internal dashboard at `/mission-control` that gives the admin a real-tim
 
 ### Route
 
-`frontend/app/mission-control/page.tsx` — React Server Component, `export const dynamic = 'force-dynamic'`. Auth is already enforced by `frontend/middleware.ts` which gates `/mission-control` to `plan = 'admin'`.
+`frontend/app/mission-control/subscriptions/page.tsx` — React Server Component, `export const dynamic = 'force-dynamic'`. Auth is already enforced by `frontend/middleware.ts` which gates anything under `/mission-control` to `plan = 'admin'` via `pathname.startsWith('/mission-control')`.
 
 ### Data layer
 
@@ -165,10 +165,10 @@ Tailwind v4 classes mirroring existing app patterns (`bg-muted/30`, `text-muted-
 **New:**
 
 1. `frontend/lib/admin/subscription-metrics.ts` — data fetcher and math.
-2. `frontend/app/mission-control/page.tsx` — Server Component renderer.
+2. `frontend/app/mission-control/subscriptions/page.tsx` — Server Component renderer.
 3. `frontend/lib/admin/__tests__/subscription-metrics.test.ts` — unit tests.
 
-**Modified:** none. Middleware already gates the route.
+**Modified:** `frontend/app/mission-control/page.tsx` — adds a "Subscriptions →" link to the new page. Middleware already gates the route.
 
 ## Testing
 
@@ -183,7 +183,7 @@ Unit tests in `frontend/lib/admin/__tests__/subscription-metrics.test.ts` with m
 - Conversion: Y/Z math on a fixed cohort.
 - Section error fallback returns zero values + error string.
 
-Manual verification: load `/mission-control` as the admin account, eyeball numbers against Stripe dashboard.
+Manual verification: load `/mission-control/subscriptions` as the admin account, eyeball numbers against Stripe dashboard.
 
 ## Risks
 

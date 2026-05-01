@@ -40,11 +40,18 @@ export default function MissionControlPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white">
       <div className="container mx-auto space-y-6 p-6">
-        <div className="space-y-2">
-          <h1 className="font-display text-3xl font-bold tracking-tight">Mission Control</h1>
-          <p className="max-w-3xl text-sm text-gray-400">
-            Live snapshot of model accuracy, prospective evaluation coverage, and point-in-time training readiness.
-          </p>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-2">
+            <h1 className="font-display text-3xl font-bold tracking-tight">Mission Control</h1>
+            <p className="max-w-3xl text-sm text-gray-400">
+              Live snapshot of model accuracy, prospective evaluation coverage, and point-in-time training readiness.
+            </p>
+          </div>
+          <Link href="/mission-control/subscriptions">
+            <Button variant="outline" size="sm">
+              Subscriptions →
+            </Button>
+          </Link>
         </div>
 
         <ModelSnapshotDashboard />
