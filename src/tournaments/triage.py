@@ -31,6 +31,7 @@ from typing import Any, Literal
 from src.tournaments.storage import (
     SchemaVersionError,
     check_games_import_status,
+    check_local_results_coverage,
     load_overrides,
     load_raw_scrape,
     read_event_metadata,
@@ -538,7 +539,16 @@ def is_ready(
     """
     registry = read_registry(event_key, scenario, base_dir=base_dir)
     overrides = load_overrides(event_key, scenario, base_dir=base_dir)
-    structure = read_structure(event_key, scenario, base_dir=base_dir)
+    try:
+        structure = read_structure(event_key, scenario, base_dir=base_dir)
+    except (FileNotFoundError, SchemaVersionError) as exc:
+        # Rescrape can produce event_team_registry.csv before
+        # group_structure_summary.csv exists; surface a typed blocker
+        # rather than crashing the whole cohort render.
+        return ReadinessResult(
+            ready=False,
+            blockers=(f"group structure missing or unreadable: {exc}",),
+        )
     try:
         meta = read_event_metadata(event_key, base_dir=base_dir)
     except (FileNotFoundError, SchemaVersionError) as exc:
@@ -571,6 +581,7 @@ def is_ready(
     blockers: list[str] = []
     cohorts_seen: set[tuple[str, str]] = set()
     cohort_team_ids: dict[tuple[str, str], set[str]] = {}
+    cohort_provider_ids: dict[tuple[str, str], set[str]] = {}
     registry_pids = {registry_provider_id(entry) for entry in registry}
     registry_pids.discard("")
 
@@ -611,6 +622,11 @@ def is_ready(
 
         if state in ("resolved", "placeholder") and team_id_master:
             cohort_team_ids.setdefault(cohort, set()).add(team_id_master)
+        # Local-coverage path uses provider_team_ids (gotsport's IDs in
+        # the local artifact); collect those for ALL non-external states
+        # so the local check sees the same population as the structure does.
+        if state != "external":
+            cohort_provider_ids.setdefault(cohort, set()).add(pid)
 
     # Second pass: manual-add teams. They live only in ``team_state`` (never
     # in the registry CSV) and carry their cohort attribution in
@@ -645,10 +661,33 @@ def is_ready(
         # Any other state on a manual_add row is a misconfigured writer.
         blockers.append(f"{cohort_label}: manual-add {team_label} state {projected.state!r}")
 
+    # Prefer the local artifact (``intake/game_results.jsonl``) when it
+    # exists — backtest mode reads game results straight from gotsport's
+    # schedule pages and shouldn't depend on the Supabase ``games`` table
+    # being populated. Falls back to the Supabase coverage check (and its
+    # ``games`` round-trip) only when no local artifact is present, which
+    # is the seeding-mode signature.
+    intake_dir_path = Path(base_dir) / event_key / "intake"
+    local_results_path = intake_dir_path / "game_results.jsonl"
+    use_local_coverage = local_results_path.exists()
+
     for cohort in sorted(cohorts_seen):
         cohort_label = f"{cohort[1]} {cohort[0]}"
         if cohort not in structure_by_cohort:
             blockers.append(f"{cohort_label}: structure not entered")
+            continue
+        if use_local_coverage:
+            provider_ids = cohort_provider_ids.get(cohort, set())
+            if not provider_ids:
+                blockers.append(f"{cohort_label}: no resolved teams in local coverage check")
+                continue
+            try:
+                status = check_local_results_coverage(event_key, sorted(provider_ids), base_dir=base_dir)
+            except Exception as exc:  # noqa: BLE001 — local file errors surface as blocker
+                blockers.append(f"{cohort_label}: local games coverage check failed ({exc})")
+                continue
+            if status != "complete":
+                blockers.append(f"{cohort_label}: local games coverage {status}")
             continue
         if supabase_client is None:
             continue
