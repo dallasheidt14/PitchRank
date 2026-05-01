@@ -56,6 +56,177 @@ def calculate_age_group_from_birth_year(birth_year: int) -> str:
     return f"u{age}"
 
 
+# Full state name → 2-letter code. CSV's `state` column may carry either form.
+STATE_NAME_TO_CODE = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
+    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+}
+VALID_STATE_CODES = frozenset(STATE_NAME_TO_CODE.values())
+NO_CLUB_VALUES = frozenset({
+    "", "n/a", "na", "none", "null", "no club", "no club listed",
+    "no club selection", "no club assigned", "no club selected",
+    "not selected", "not applicable", "unassigned",
+    "select club", "select a club", "choose club",
+})
+
+
+def _resolve_state_code(state_field: str, state_code_field: str) -> str | None:
+    """CSV may put a 2-letter code in either column. Return canonical 2-letter or None."""
+    for v in (state_code_field, state_field):
+        if not v:
+            continue
+        v = v.strip()
+        if v.upper() in VALID_STATE_CODES:
+            return v.upper()
+        code = STATE_NAME_TO_CODE.get(v.lower())
+        if code:
+            return code
+    return None
+
+
+def _is_meaningful_club(club_name: str) -> bool:
+    return bool(club_name) and club_name.strip().lower() not in NO_CLUB_VALUES
+
+
+def backfill_existing_team_facts(
+    supabase, provider_id: str, teams: dict, existing_aliases: set, dry_run: bool = False
+) -> dict:
+    """For TGS teams already in alias map, fill missing club_name / state_code on the
+    `teams` row using the CSV facts. Never overwrite an existing non-empty value.
+
+    Returns stats: {existing_seen, club_filled, state_filled, both_filled, no_change}.
+    """
+    stats = {
+        "existing_seen": 0, "club_filled": 0, "state_filled": 0,
+        "both_filled": 0, "no_change": 0, "errors": 0,
+    }
+    # Build provider_team_id → CSV facts map (best/last value wins)
+    facts_by_pid: dict[str, dict] = {}
+    for t in teams.values():
+        pid = str(t.get("provider_team_id") or "").strip()
+        if not pid or pid not in existing_aliases:
+            continue
+        existing = facts_by_pid.get(pid, {})
+        club = (t.get("club_name") or "").strip()
+        if _is_meaningful_club(club):
+            existing["club_name"] = club
+        sc = _resolve_state_code(t.get("state", ""), t.get("state_code", ""))
+        if sc:
+            existing["state_code"] = sc
+        if existing:
+            facts_by_pid[pid] = existing
+
+    if not facts_by_pid:
+        console.print("[dim]No existing-team CSV facts to backfill.[/dim]")
+        return stats
+
+    stats["existing_seen"] = len(facts_by_pid)
+    console.print(f"\n[bold]Backfilling missing club/state for {len(facts_by_pid)} existing teams...[/bold]")
+
+    # Map provider_team_id → team_id_master via team_alias_map (approved only)
+    pid_to_master: dict[str, str] = {}
+    pids = list(facts_by_pid.keys())
+    for i in range(0, len(pids), 200):
+        batch = pids[i:i+200]
+        try:
+            rows = (
+                supabase.table("team_alias_map")
+                .select("provider_team_id, team_id_master")
+                .eq("provider_id", provider_id)
+                .eq("review_status", "approved")
+                .in_("provider_team_id", batch)
+                .execute().data or []
+            )
+            for r in rows:
+                pid_to_master[str(r["provider_team_id"])] = r["team_id_master"]
+        except Exception as e:
+            logger.warning(f"Error mapping aliases (batch {i // 200 + 1}): {e}")
+
+    # Pull current teams data so we only fill missing fields
+    masters = list(pid_to_master.values())
+    current_by_master: dict[str, dict] = {}
+    for i in range(0, len(masters), 200):
+        batch = masters[i:i+200]
+        try:
+            rows = (
+                supabase.table("teams")
+                .select("team_id_master, club_name, state_code, state, is_deprecated")
+                .in_("team_id_master", batch)
+                .execute().data or []
+            )
+            for r in rows:
+                current_by_master[r["team_id_master"]] = r
+        except Exception as e:
+            logger.warning(f"Error fetching teams (batch {i // 200 + 1}): {e}")
+
+    # Build per-team update payloads
+    updates = []  # list of (team_id_master, payload, club_filled, state_filled)
+    for pid, facts in facts_by_pid.items():
+        master = pid_to_master.get(pid)
+        if not master:
+            continue
+        cur = current_by_master.get(master)
+        if not cur or cur.get("is_deprecated"):
+            continue
+        payload: dict = {}
+        cur_club = (cur.get("club_name") or "").strip()
+        cur_state = (cur.get("state_code") or "").strip()
+        new_club = facts.get("club_name")
+        new_state = facts.get("state_code")
+        if new_club and not _is_meaningful_club(cur_club):
+            payload["club_name"] = new_club
+        if new_state and not cur_state:
+            payload["state_code"] = new_state
+            payload["state"] = next(
+                (n for n, c in STATE_NAME_TO_CODE.items() if c == new_state), None
+            )
+            if payload["state"]:
+                payload["state"] = payload["state"].title()
+        if not payload:
+            stats["no_change"] += 1
+            continue
+        club_filled = "club_name" in payload
+        state_filled = "state_code" in payload
+        if club_filled and state_filled:
+            stats["both_filled"] += 1
+        elif club_filled:
+            stats["club_filled"] += 1
+        elif state_filled:
+            stats["state_filled"] += 1
+        updates.append((master, payload, club_filled, state_filled))
+
+    if dry_run:
+        console.print(
+            f"[yellow]DRY RUN — would update {len(updates)} teams "
+            f"({stats['club_filled']} club only, {stats['state_filled']} state only, "
+            f"{stats['both_filled']} both, {stats['no_change']} skipped no-op)[/yellow]"
+        )
+        for sample in updates[:10]:
+            mid, payload, _, _ = sample
+            console.print(f"  {mid[:8]}…: {payload}")
+        return stats
+
+    # Apply updates one-by-one (update is per-row anyway, batching not helpful)
+    for mid, payload, _, _ in track(updates, description="Backfilling teams"):
+        try:
+            supabase.table("teams").update(payload).eq("team_id_master", mid).execute()
+        except Exception as e:
+            stats["errors"] += 1
+            logger.warning(f"Error updating {mid}: {e}")
+    return stats
+
+
 def normalize_gender(gender: str) -> str:
     """
     Normalize gender to DB format.
@@ -161,7 +332,15 @@ def batch_create_teams_and_aliases(
             logger.warning(f"Error checking existing aliases (batch {i // 100 + 1}): {e}")
 
     if existing_aliases:
-        console.print(f"[yellow]  Found {len(existing_aliases)} teams already in alias map — will skip these[/yellow]")
+        console.print(
+            f"[yellow]  Found {len(existing_aliases)} teams already in alias map "
+            "— skipping creation; will backfill missing club/state on existing rows[/yellow]"
+        )
+        backfill_stats = backfill_existing_team_facts(
+            supabase, provider_id, teams, existing_aliases, dry_run=dry_run
+        )
+        stats["existing_backfilled_club"] = backfill_stats["club_filled"] + backfill_stats["both_filled"]
+        stats["existing_backfilled_state"] = backfill_stats["state_filled"] + backfill_stats["both_filled"]
 
     # Filter to only new teams
     new_teams = [t for t in teams_list if t["provider_team_id"] not in existing_aliases]
