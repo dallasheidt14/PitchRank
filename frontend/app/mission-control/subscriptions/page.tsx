@@ -172,13 +172,14 @@ export default async function SubscriptionsDashboardPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="font-display text-xl font-semibold">Conversion · 30-day rolling</h2>
+          <h2 className="font-display text-xl font-semibold">Conversion · last {metrics.conversion.windowDays} days</h2>
           <Card variant="flat">
             <CardContent className="py-6">
               {metrics.conversion.percent === null ? (
                 <p className="text-sm text-muted-foreground">
-                  Not enough data yet. {metrics.conversion.sample} trial
-                  {metrics.conversion.sample === 1 ? '' : 's'} completed in the cohort window (need ≥5 to compute).
+                  Not enough data yet. {metrics.conversion.sample} completed trial
+                  {metrics.conversion.sample === 1 ? '' : 's'} in the last {metrics.conversion.windowDays} days (need ≥5
+                  to compute).
                   {metrics.conversion.excluded > 0 &&
                     ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                 </p>
@@ -186,8 +187,9 @@ export default async function SubscriptionsDashboardPage() {
                 <div className="space-y-1">
                   <div className="font-display text-4xl font-bold">{metrics.conversion.percent}%</div>
                   <p className="text-sm text-muted-foreground">
-                    {metrics.conversion.converted} of {metrics.conversion.sample} trials started 31–60 days ago paid at
-                    least once (active or past_due). Trials still in flight are excluded.
+                    {metrics.conversion.converted} of {metrics.conversion.sample} completed trials in the last{' '}
+                    {metrics.conversion.windowDays} days are now paying (active or past_due). Trials still in flight are
+                    excluded.
                     {metrics.conversion.excluded > 0 &&
                       ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                   </p>

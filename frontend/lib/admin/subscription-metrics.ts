@@ -35,7 +35,7 @@ export type SubscriptionMetrics = {
     list: PastDueEntry[];
   };
   conversion: {
-    window: '30d';
+    windowDays: number; // size of the lookback window
     sample: number;
     converted: number;
     percent: number | null;
@@ -46,8 +46,7 @@ export type SubscriptionMetrics = {
 };
 
 const SECONDS_PER_DAY = 86_400;
-const COHORT_LOOKBACK_DAYS = 60;
-const COHORT_TRIAL_END_THRESHOLD_DAYS = 30;
+const COHORT_LOOKBACK_DAYS = 90;
 const MIN_COHORT_SAMPLE = 5;
 
 /**
@@ -173,18 +172,23 @@ export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[
 }
 
 /**
- * 30-day rolling conversion: of trials whose `trial_start` was 31–60 days ago
- * AND whose `trial_end` has passed, what % paid at least once?
+ * Trial conversion: of trials that have ENDED in the lookback window, what
+ * percentage are now paying customers?
  *
- * "Paid at least once" = current status is `active` OR `past_due`. past_due
+ * Cohort (denominator): every subscription with a `trial_end` in the past.
+ * The list is bounded by what the caller fetched from Stripe (typically the
+ * last 90 days of subscription creations), which is reflected in
+ * `windowDays`.
+ *
+ * Converted (numerator): current status is `active` OR `past_due`. past_due
  * means the first invoice was paid and a subsequent renewal failed — they
- * still converted, they're just in dunning now. Excluding them would
- * understate the true conversion rate.
+ * still converted, they're just in dunning now.
  *
- * Trials still in flight (trial_end >= now) are excluded — including them
- * would penalize conversion for users who haven't had a chance to convert
- * yet. The trial_start cutoff at 30d ago guarantees this is impossible
- * for typical trial lengths, but we keep the explicit filter for safety.
+ * Trials still in flight (`trial_end >= now`) are excluded so they don't
+ * penalize the percentage before they've had a chance to convert.
+ *
+ * Internal/test emails are excluded from both numerator and denominator and
+ * counted separately.
  *
  * Returns null percent when sample < MIN_COHORT_SAMPLE so the UI can show
  * "not enough data yet".
@@ -192,19 +196,15 @@ export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[
 export function computeConversion(
   subs: Stripe.Subscription[],
   now: number,
-  excludedEmails: Set<string> = getExcludedEmails()
-): { window: '30d'; sample: number; converted: number; percent: number | null; excluded: number } {
-  const lookbackStart = now - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY;
-  const trialEndCutoff = now - COHORT_TRIAL_END_THRESHOLD_DAYS * SECONDS_PER_DAY;
-
+  excludedEmails: Set<string> = getExcludedEmails(),
+  windowDays: number = COHORT_LOOKBACK_DAYS
+): { windowDays: number; sample: number; converted: number; percent: number | null; excluded: number } {
   let sample = 0;
   let converted = 0;
   let excluded = 0;
   for (const sub of subs) {
-    if (!sub.trial_start || !sub.trial_end) continue;
-    if (sub.trial_start < lookbackStart) continue;
-    if (sub.trial_start >= trialEndCutoff) continue;
-    if (sub.trial_end >= now) continue;
+    if (!sub.trial_end) continue; // never had a trial → not part of "did the trial convert?"
+    if (sub.trial_end >= now) continue; // trial still in flight
     if (excludedEmails.has(getCustomerEmail(sub).toLowerCase())) {
       excluded += 1;
       continue;
@@ -214,7 +214,7 @@ export function computeConversion(
   }
 
   const percent = sample >= MIN_COHORT_SAMPLE ? Math.round((converted / sample) * 100) : null;
-  return { window: '30d', sample, converted, percent, excluded };
+  return { windowDays, sample, converted, percent, excluded };
 }
 
 async function listAll(params: Stripe.SubscriptionListParams): Promise<Stripe.Subscription[]> {
