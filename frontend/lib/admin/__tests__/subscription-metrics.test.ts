@@ -196,41 +196,44 @@ describe('computeConversion', () => {
 
   it('returns null percent when sample < 5', () => {
     const subs = [
-      makeSub({ status: 'active', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      makeSub({ status: 'canceled', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
+      makeSub({ status: 'active', trialEnd: now - 7 * day }),
+      makeSub({ status: 'canceled', trialEnd: now - 7 * day }),
     ];
     const result = computeConversion(subs, now);
     expect(result.sample).toBe(2);
     expect(result.percent).toBeNull();
   });
 
-  it('counts active and past_due as converted; excludes still-in-flight and out-of-window', () => {
+  it('counts active and past_due as converted; trial-end-in-future is excluded', () => {
     const subs = [
-      // In window, completed, active → converted
-      makeSub({ status: 'active', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      makeSub({ status: 'active', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
-      makeSub({ status: 'active', trialStart: now - 55 * day, trialEnd: now - 48 * day }),
-      // In window, completed, past_due → converted (paid at least once, now in dunning)
-      makeSub({ status: 'past_due', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      // In window, completed, canceled → in sample, not converted
-      makeSub({ status: 'canceled', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      makeSub({ status: 'canceled', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
-      // Trial too recent (started < 30d ago) → excluded
-      makeSub({ status: 'trialing', trialStart: now - 5 * day, trialEnd: now + 2 * day }),
-      // Trial older than 60d → excluded
-      makeSub({ status: 'active', trialStart: now - 80 * day, trialEnd: now - 73 * day }),
-      // Trial still in flight (trial_end > now) → excluded — does not penalize conversion
-      makeSub({ status: 'trialing', trialStart: now - 35 * day, trialEnd: now + 1 * day }),
+      // Recent conversions (trial just ended) — these were the bug: previously excluded
+      makeSub({ status: 'active', trialEnd: now - 1 * day }),
+      makeSub({ status: 'active', trialEnd: now - 3 * day }),
+      makeSub({ status: 'active', trialEnd: now - 10 * day }),
+      // past_due — paid at least once, currently in dunning → converted
+      makeSub({ status: 'past_due', trialEnd: now - 5 * day }),
+      // canceled after trial — counts in sample, not converted
+      makeSub({ status: 'canceled', trialEnd: now - 5 * day }),
+      makeSub({ status: 'canceled', trialEnd: now - 20 * day }),
+      // Trial still in flight — excluded so it doesn't penalize conversion
+      makeSub({ status: 'trialing', trialEnd: now + 2 * day }),
+      // No trial at all — excluded (can't measure trial conversion on a non-trial sub)
+      makeSub({ status: 'active', trialEnd: null }),
     ];
     const result = computeConversion(subs, now);
     expect(result.sample).toBe(6);
     expect(result.converted).toBe(4);
-    expect(result.percent).toBe(67); // 4/6 = 66.67% → rounds to 67
+    expect(result.percent).toBe(67); // 4/6 = 66.67% → 67
+  });
+
+  it('reports the windowDays passed by caller', () => {
+    const result = computeConversion([], now, undefined, 90);
+    expect(result.windowDays).toBe(90);
   });
 
   it('handles zero sample', () => {
     expect(computeConversion([], now)).toEqual({
-      window: '30d',
+      windowDays: expect.any(Number),
       sample: 0,
       converted: 0,
       percent: null,
@@ -247,24 +250,14 @@ describe('computeConversion', () => {
     ]);
     const subs = [
       // Real cohort: 5 users, 4 converted → 80%
-      makeSub({ status: 'active', email: 'a@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      makeSub({ status: 'active', email: 'b@example.com', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
-      makeSub({ status: 'active', email: 'c@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      makeSub({ status: 'active', email: 'd@example.com', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
-      makeSub({ status: 'canceled', email: 'e@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
-      // Test users in the same cohort window — must NOT be in sample
-      makeSub({
-        status: 'canceled',
-        email: 'cartermheidt@gmail.com',
-        trialStart: now - 45 * day,
-        trialEnd: now - 38 * day,
-      }),
-      makeSub({
-        status: 'canceled',
-        email: 'dallasheidt@gmail.com',
-        trialStart: now - 50 * day,
-        trialEnd: now - 43 * day,
-      }),
+      makeSub({ status: 'active', email: 'a@example.com', trialEnd: now - 5 * day }),
+      makeSub({ status: 'active', email: 'b@example.com', trialEnd: now - 5 * day }),
+      makeSub({ status: 'active', email: 'c@example.com', trialEnd: now - 5 * day }),
+      makeSub({ status: 'active', email: 'd@example.com', trialEnd: now - 5 * day }),
+      makeSub({ status: 'canceled', email: 'e@example.com', trialEnd: now - 5 * day }),
+      // Test users — must NOT be in sample
+      makeSub({ status: 'canceled', email: 'cartermheidt@gmail.com', trialEnd: now - 5 * day }),
+      makeSub({ status: 'canceled', email: 'dallasheidt@gmail.com', trialEnd: now - 5 * day }),
     ];
     const result = computeConversion(subs, now, excluded);
     expect(result.sample).toBe(5);
@@ -275,16 +268,21 @@ describe('computeConversion', () => {
 
   it('email match is case-insensitive', () => {
     const excluded = new Set(['dallasheidt@gmail.com']);
-    const subs = [
-      makeSub({
-        status: 'canceled',
-        email: 'DallasHeidt@Gmail.com',
-        trialStart: now - 45 * day,
-        trialEnd: now - 38 * day,
-      }),
-    ];
+    const subs = [makeSub({ status: 'canceled', email: 'DallasHeidt@Gmail.com', trialEnd: now - 5 * day })];
     const result = computeConversion(subs, now, excluded);
     expect(result.sample).toBe(0);
     expect(result.excluded).toBe(1);
+  });
+
+  it('regression: a 7-day trial that started 10 days ago and converted IS counted', () => {
+    // This was the reported bug: the old logic required trial_start to be 31-60d ago,
+    // so a recently-converted trial (typical case for a young business) was dropped.
+    const subs = Array.from({ length: 9 }, (_, i) =>
+      makeSub({ status: 'active', email: `user${i}@example.com`, trialEnd: now - 3 * day })
+    );
+    const result = computeConversion(subs, now);
+    expect(result.sample).toBe(9);
+    expect(result.converted).toBe(9);
+    expect(result.percent).toBe(100);
   });
 });
