@@ -9,7 +9,12 @@ export const dynamic = 'force-dynamic';
 export const metadata = { robots: { index: false, follow: false } };
 
 function formatDollars(n: number): string {
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return n.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function formatDate(iso: string): string {
@@ -76,7 +81,13 @@ export default async function SubscriptionsDashboardPage() {
           <KpiCard
             label="Active Trials"
             value={metrics.trials.total.toString()}
-            sub={metrics.trials.total === 0 ? 'no trials in flight' : 'in flight now'}
+            sub={
+              metrics.trials.canceledPending > 0
+                ? `+${metrics.trials.canceledPending} canceled (won't renew)`
+                : metrics.trials.total === 0
+                  ? 'no trials in flight'
+                  : 'in flight now'
+            }
           />
           <KpiCard
             label="Trials Ending ≤7d"
@@ -123,7 +134,10 @@ export default async function SubscriptionsDashboardPage() {
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
             <h2 className="font-display text-xl font-semibold">Trial Pipeline</h2>
-            <span className="text-sm text-muted-foreground">sorted by soonest end</span>
+            <span className="text-sm text-muted-foreground">
+              sorted by soonest end · canceled trials hidden
+              {metrics.trials.canceledPending > 0 && ` (${metrics.trials.canceledPending} not shown)`}
+            </span>
           </div>
           <Card variant="flat">
             <CardContent className="p-0">
@@ -170,8 +184,8 @@ export default async function SubscriptionsDashboardPage() {
                 <div className="space-y-1">
                   <div className="font-display text-4xl font-bold">{metrics.conversion.percent}%</div>
                   <p className="text-sm text-muted-foreground">
-                    {metrics.conversion.converted} of {metrics.conversion.sample} trials started 31–60 days ago are now
-                    active.
+                    {metrics.conversion.converted} of {metrics.conversion.sample} trials started 31–60 days ago paid at
+                    least once (active or past_due). Trials still in flight are excluded.
                   </p>
                 </div>
               )}

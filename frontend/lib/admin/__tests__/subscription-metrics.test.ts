@@ -22,6 +22,7 @@ function makeSub(overrides: {
   trialStart?: number | null;
   trialEnd?: number | null;
   email?: string;
+  cancelAtPeriodEnd?: boolean;
 }): Stripe.Subscription {
   const {
     id = `sub_${Math.random().toString(36).slice(2)}`,
@@ -32,12 +33,14 @@ function makeSub(overrides: {
     trialStart = null,
     trialEnd = null,
     email = 'test@example.com',
+    cancelAtPeriodEnd = false,
   } = overrides;
   return {
     id,
     status,
     trial_start: trialStart,
     trial_end: trialEnd,
+    cancel_at_period_end: cancelAtPeriodEnd,
     customer: { id: 'cus_x', email, deleted: false } as unknown as Stripe.Customer,
     items: {
       data: [
@@ -55,33 +58,41 @@ function makeSub(overrides: {
 }
 
 describe('computeMrr', () => {
-  it('sums monthly subs at face value', () => {
+  it('sums monthly subs preserving cents', () => {
     const subs = [makeSub({ interval: 'month', unitAmount: 699 }), makeSub({ interval: 'month', unitAmount: 1299 })];
-    expect(computeMrr(subs)).toBe(20); // (699 + 1299) / 100 = 19.98 → rounds to 20
+    expect(computeMrr(subs)).toBe(19.98); // 699 + 1299 = 1998 cents → 19.98 dollars
   });
 
-  it('normalizes annual subs to monthly equivalent', () => {
+  it('normalizes annual subs to monthly equivalent with cents', () => {
     const subs = [makeSub({ interval: 'year', unitAmount: 6999 })];
-    // 6999 / 12 = 583.25 cents → 5.83 dollars → rounds to 6
-    expect(computeMrr(subs)).toBe(6);
+    // 6999 / 12 = 583.25 cents → rounds to nearest cent → 5.83 dollars
+    expect(computeMrr(subs)).toBe(5.83);
   });
 
   it('mixes monthly and annual correctly', () => {
     const subs = [
-      makeSub({ interval: 'month', unitAmount: 699 }), // 6.99
-      makeSub({ interval: 'year', unitAmount: 6999 }), // 5.83
+      makeSub({ interval: 'month', unitAmount: 699 }), // 699 cents
+      makeSub({ interval: 'year', unitAmount: 6999 }), // 583.25 cents
     ];
-    // 699 + (6999/12) = 699 + 583.25 = 1282.25 cents → 12.82 dollars → rounds to 13
-    expect(computeMrr(subs)).toBe(13);
+    // 699 + 583.25 = 1282.25 cents → rounds to 1282 cents → 12.82 dollars
+    expect(computeMrr(subs)).toBe(12.82);
   });
 
   it('respects quantity', () => {
     const subs = [makeSub({ interval: 'month', unitAmount: 699, quantity: 3 })];
-    expect(computeMrr(subs)).toBe(21); // 6.99 * 3 = 20.97 → rounds to 21
+    expect(computeMrr(subs)).toBe(20.97); // 6.99 * 3
   });
 
   it('returns 0 for an empty list', () => {
     expect(computeMrr([])).toBe(0);
+  });
+
+  it('rounds half-cent up', () => {
+    // 6999 / 12 = 583.25 cents → rounds to 583 cents (banker would round, but Math.round half-up)
+    // Pick a value that lands exactly on .5 cents to verify behavior
+    const subs = [makeSub({ interval: 'year', unitAmount: 12 * 199 + 6 })]; // 12*199 + 6 = 2394 → /12 = 199.5 cents
+    // 199.5 → Math.round → 200 cents → 2.00 dollars
+    expect(computeMrr(subs)).toBe(2);
   });
 });
 
@@ -107,6 +118,7 @@ describe('buildTrialPipeline', () => {
     ];
     const result = buildTrialPipeline(subs, now);
     expect(result.list.map((e) => e.id)).toEqual(['sub_soon', 'sub_mid', 'sub_late']);
+    expect(result.activeTotal).toBe(3);
   });
 
   it('endingIn3Days is a subset of endingIn7Days', () => {
@@ -131,6 +143,33 @@ describe('buildTrialPipeline', () => {
   it('uses customer email', () => {
     const subs = [makeSub({ email: 'jane@example.com', trialEnd: now + SECONDS_PER_DAY })];
     expect(buildTrialPipeline(subs, now).list[0].email).toBe('jane@example.com');
+  });
+
+  it('hides trials marked cancel_at_period_end and counts them separately', () => {
+    const subs = [
+      // active trial — included
+      makeSub({ id: 'sub_active', trialEnd: now + 2 * SECONDS_PER_DAY }),
+      // canceled trial — hidden but counted
+      makeSub({
+        id: 'sub_canceled_a',
+        trialEnd: now + 1 * SECONDS_PER_DAY,
+        cancelAtPeriodEnd: true,
+        email: 'colvillem@gmail.com',
+      }),
+      makeSub({
+        id: 'sub_canceled_b',
+        trialEnd: now + 3 * SECONDS_PER_DAY,
+        cancelAtPeriodEnd: true,
+        email: 'ronald.warzoha@gmail.com',
+      }),
+    ];
+    const result = buildTrialPipeline(subs, now);
+    expect(result.activeTotal).toBe(1);
+    expect(result.canceledPending).toBe(2);
+    expect(result.list.map((e) => e.id)).toEqual(['sub_active']);
+    // canceled trials must not affect ending buckets
+    expect(result.endingIn3Days).toBe(1);
+    expect(result.endingIn7Days).toBe(1);
   });
 });
 
@@ -165,26 +204,28 @@ describe('computeConversion', () => {
     expect(result.percent).toBeNull();
   });
 
-  it('counts only completed trials in cohort window', () => {
+  it('counts active and past_due as converted; excludes still-in-flight and out-of-window', () => {
     const subs = [
-      // In window, completed, active → counts as converted
+      // In window, completed, active → converted
       makeSub({ status: 'active', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
       makeSub({ status: 'active', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
       makeSub({ status: 'active', trialStart: now - 55 * day, trialEnd: now - 48 * day }),
-      // In window, completed, canceled → counts in sample, not converted
+      // In window, completed, past_due → converted (paid at least once, now in dunning)
+      makeSub({ status: 'past_due', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
+      // In window, completed, canceled → in sample, not converted
       makeSub({ status: 'canceled', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
       makeSub({ status: 'canceled', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
       // Trial too recent (started < 30d ago) → excluded
       makeSub({ status: 'trialing', trialStart: now - 5 * day, trialEnd: now + 2 * day }),
       // Trial older than 60d → excluded
       makeSub({ status: 'active', trialStart: now - 80 * day, trialEnd: now - 73 * day }),
-      // Trial still in flight (trial_end > now) → excluded
+      // Trial still in flight (trial_end > now) → excluded — does not penalize conversion
       makeSub({ status: 'trialing', trialStart: now - 35 * day, trialEnd: now + 1 * day }),
     ];
     const result = computeConversion(subs, now);
-    expect(result.sample).toBe(5);
-    expect(result.converted).toBe(3);
-    expect(result.percent).toBe(60); // 3/5 = 60%
+    expect(result.sample).toBe(6);
+    expect(result.converted).toBe(4);
+    expect(result.percent).toBe(67); // 4/6 = 66.67% → rounds to 67
   });
 
   it('handles zero sample', () => {

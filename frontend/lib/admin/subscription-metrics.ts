@@ -17,14 +17,15 @@ export type PastDueEntry = {
 };
 
 export type SubscriptionMetrics = {
-  mrr: number;
+  mrr: number; // dollars with cents preserved (e.g. 61.25)
   activePaid: {
     total: number;
     monthly: number;
     annual: number;
   };
   trials: {
-    total: number;
+    total: number; // active trials only — excludes those marked cancel_at_period_end
+    canceledPending: number; // trialing + cancel_at_period_end (won't renew)
     endingIn3Days: number;
     endingIn7Days: number;
     list: TrialPipelineEntry[];
@@ -64,7 +65,7 @@ function getCustomerEmail(sub: Stripe.Subscription): string {
 
 /**
  * Sum of monthly-equivalent revenue across a list of subscriptions.
- * Returns whole dollars (Stripe amounts are cents).
+ * Returns dollars with cents preserved (e.g. 61.25), rounded to the nearest cent.
  */
 export function computeMrr(subs: Stripe.Subscription[]): number {
   let cents = 0;
@@ -78,7 +79,7 @@ export function computeMrr(subs: Stripe.Subscription[]): number {
       cents += itemMonthly;
     }
   }
-  return Math.round(cents / 100);
+  return Math.round(cents) / 100;
 }
 
 export function bucketActivePaid(subs: Stripe.Subscription[]): { total: number; monthly: number; annual: number } {
@@ -92,13 +93,32 @@ export function bucketActivePaid(subs: Stripe.Subscription[]): { total: number; 
   return { total: monthly + annual, monthly, annual };
 }
 
+/**
+ * Build the trial pipeline view. Excludes trials the user has already
+ * canceled (cancel_at_period_end=true on a trialing sub) — those won't
+ * convert and shouldn't show up as actionable in the dashboard.
+ *
+ * Returns both the actionable count (`activeTotal`) and the canceled-pending
+ * count for transparency.
+ */
 export function buildTrialPipeline(
   subs: Stripe.Subscription[],
   now: number
-): { list: TrialPipelineEntry[]; endingIn3Days: number; endingIn7Days: number } {
+): {
+  list: TrialPipelineEntry[];
+  activeTotal: number;
+  canceledPending: number;
+  endingIn3Days: number;
+  endingIn7Days: number;
+} {
   const list: TrialPipelineEntry[] = [];
+  let canceledPending = 0;
   for (const sub of subs) {
     if (!sub.trial_end) continue;
+    if (sub.cancel_at_period_end) {
+      canceledPending += 1;
+      continue;
+    }
     const interval = getInterval(sub);
     if (!interval) continue;
     const daysRemaining = Math.ceil((sub.trial_end - now) / SECONDS_PER_DAY);
@@ -113,7 +133,7 @@ export function buildTrialPipeline(
   list.sort((a, b) => new Date(a.trialEnd).getTime() - new Date(b.trialEnd).getTime());
   const endingIn3Days = list.filter((e) => e.daysRemaining <= 3).length;
   const endingIn7Days = list.filter((e) => e.daysRemaining <= 7).length;
-  return { list, endingIn3Days, endingIn7Days };
+  return { list, activeTotal: list.length, canceledPending, endingIn3Days, endingIn7Days };
 }
 
 export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[]; total: number } {
@@ -132,7 +152,17 @@ export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[
 
 /**
  * 30-day rolling conversion: of trials whose `trial_start` was 31–60 days ago
- * AND whose `trial_end` has passed, what % are now `active`?
+ * AND whose `trial_end` has passed, what % paid at least once?
+ *
+ * "Paid at least once" = current status is `active` OR `past_due`. past_due
+ * means the first invoice was paid and a subsequent renewal failed — they
+ * still converted, they're just in dunning now. Excluding them would
+ * understate the true conversion rate.
+ *
+ * Trials still in flight (trial_end >= now) are excluded — including them
+ * would penalize conversion for users who haven't had a chance to convert
+ * yet. The trial_start cutoff at 30d ago guarantees this is impossible
+ * for typical trial lengths, but we keep the explicit filter for safety.
  *
  * Returns null percent when sample < MIN_COHORT_SAMPLE so the UI can show
  * "not enough data yet".
@@ -152,7 +182,7 @@ export function computeConversion(
     if (sub.trial_start >= trialEndCutoff) continue;
     if (sub.trial_end >= now) continue;
     sample += 1;
-    if (sub.status === 'active') converted += 1;
+    if (sub.status === 'active' || sub.status === 'past_due') converted += 1;
   }
 
   const percent = sample >= MIN_COHORT_SAMPLE ? Math.round((converted / sample) * 100) : null;
@@ -206,7 +236,8 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     mrr,
     activePaid,
     trials: {
-      total: trialing.length,
+      total: trialBuckets.activeTotal,
+      canceledPending: trialBuckets.canceledPending,
       endingIn3Days: trialBuckets.endingIn3Days,
       endingIn7Days: trialBuckets.endingIn7Days,
       list: trialBuckets.list,
