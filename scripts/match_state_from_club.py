@@ -87,6 +87,17 @@ STATE_CODE_TO_NAME = {
     "DC": "District of Columbia",
 }
 VALID_STATE_CODES = frozenset(STATE_CODE_TO_NAME.keys())
+STATE_NAME_TO_CODE = {name.lower(): code for code, name in STATE_CODE_TO_NAME.items()}
+
+# Tunables for safer fuzzy matching
+FUZZY_MIN_SCORE = 0.90
+FUZZY_MIN_SCORE_SHORT = 0.95  # for normalized names with <3 tokens
+FUZZY_GENERIC_FIRST_WORDS = frozenset({"fc", "sc", "ac", "sa", "cf", "cd", "afc"})
+
+# Dominance match: when a normalized club spans multiple states, accept the
+# dominant one if it owns >=90% of anchors and we have >=5 anchors total.
+DOMINANCE_RATIO = 0.90
+DOMINANCE_MIN_ANCHORS = 5
 
 # Load environment variables
 env_local = Path(".env.local")
@@ -189,10 +200,43 @@ def main(dry_run=False, auto_yes=False):
     print(f"Found {len(teams_no_state)} teams without state_code")
     print()
 
-    # Step 2: Build a lookup of club_name -> state_code from teams that HAVE state_code
-    print("Step 2: Building club name to state_code lookup...")
-    club_state_lookup = defaultdict(set)  # club_name -> set of state_codes
-    club_state_full = defaultdict(dict)  # club_name -> {state_code: count}
+    # Step 1.5: Free coverage — fill state_code from existing `state` (full name)
+    # column when present and unambiguous. Zero risk: it's the same record.
+    print("Step 1.5: Filling state_code from existing `state` column...")
+    matches = []
+    remaining_teams = []
+    for team in teams_no_state:
+        raw_state = (team.get("state") or "").strip()
+        if not raw_state:
+            remaining_teams.append(team)
+            continue
+        # Accept either a 2-letter code or a full state name
+        upper = raw_state.upper()
+        if upper in VALID_STATE_CODES:
+            code = upper
+        else:
+            code = STATE_NAME_TO_CODE.get(raw_state.lower())
+        if not code:
+            remaining_teams.append(team)
+            continue
+        matches.append(
+            {
+                "team_id_master": team["team_id_master"],
+                "team_name": team["team_name"],
+                "club_name": team.get("club_name") or "",
+                "matched_state_code": code,
+                "all_state_codes": [code],
+                "confidence": "from_state_full_name",
+            }
+        )
+    print(f"  Filled {len(matches)} teams from `state` column; {len(remaining_teams)} still need lookup")
+    print()
+
+    # Step 2: Single-pass scan to build all club lookups simultaneously
+    print("Step 2: Building club name to state_code lookups (single pass)...")
+    club_state_lookup = defaultdict(set)  # normalized_club -> {state_codes}
+    club_state_full = defaultdict(lambda: defaultdict(int))  # normalized_club -> {state: count}
+    exact_club_states = defaultdict(set)  # raw club_name -> {state_codes}
 
     offset = 0
     while True:
@@ -213,13 +257,15 @@ def main(dry_run=False, auto_yes=False):
         for team in result.data:
             club_name = team.get("club_name")
             state_code = team.get("state_code")
-            if club_name and state_code and (club_name or "").strip().lower() not in NO_CLUB_VALUES:
-                normalized = normalize_club_name(club_name)
-                if normalized:
-                    club_state_lookup[normalized].add(state_code)
-                    if normalized not in club_state_full:
-                        club_state_full[normalized] = defaultdict(int)
-                    club_state_full[normalized][state_code] += 1
+            if not (club_name and state_code):
+                continue
+            if (club_name or "").strip().lower() in NO_CLUB_VALUES:
+                continue
+            exact_club_states[club_name].add(state_code)
+            normalized = normalize_club_name(club_name)
+            if normalized:
+                club_state_lookup[normalized].add(state_code)
+                club_state_full[normalized][state_code] += 1
 
         offset += page_size
 
@@ -228,55 +274,32 @@ def main(dry_run=False, auto_yes=False):
 
     print(f"Found {len(club_state_lookup)} unique clubs with state codes")
 
-    # Build first-word index for fuzzy matching (single-state clubs only)
-    # Aligns with find_fuzzy_duplicate_teams.py SequenceMatcher approach
-    FUZZY_MIN_SCORE = 0.90
+    # Build first-word index for fuzzy matching (single-state clubs only).
+    # Skip generic suffix-prefixes ('fc','sc',...) — those buckets are huge and
+    # dominated by name collisions across states (e.g. 'fc stars' (IL) vs random
+    # 'FC Stars' team with no state).
     single_state_clubs = [(norm, list(states)[0]) for norm, states in club_state_lookup.items() if len(states) == 1]
     first_word_index = defaultdict(list)  # first_word -> [(norm, state_code), ...]
+    skipped_generic = 0
     for norm, state_code in single_state_clubs:
         first = (norm.split()[0] if norm else "") or ""
-        if first:
-            first_word_index[first].append((norm, state_code))
+        if not first:
+            continue
+        if first in FUZZY_GENERIC_FIRST_WORDS:
+            skipped_generic += 1
+            continue
+        first_word_index[first].append((norm, state_code))
+    print(f"  Fuzzy index: {sum(len(v) for v in first_word_index.values())} candidates ({skipped_generic} generic-prefix anchors excluded)")
 
     print()
 
-    # Step 3: Match teams without state_code to clubs
-    print("Step 3: Matching teams to clubs...")
-    matches = []
+    # Step 3: Match remaining teams without state_code to clubs
+    print("Step 3: Matching teams to clubs via club_name...")
     no_club_name = []
     no_match = []
     multiple_states = []
 
-    # Also build a lookup by exact club_name (not normalized) to catch multi-state clubs
-    exact_club_states = defaultdict(set)
-    offset = 0
-    while True:
-        result = (
-            supabase.table("teams")
-            .select("club_name, state_code")
-            .not_.is_("state_code", "null")
-            .neq("state_code", "")
-            .not_.is_("club_name", "null")
-            .eq("is_deprecated", False)
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-
-        if not result.data:
-            break
-
-        for team in result.data:
-            club_name = team.get("club_name")
-            state_code = team.get("state_code")
-            if club_name and state_code and (club_name or "").strip().lower() not in NO_CLUB_VALUES:
-                exact_club_states[club_name].add(state_code)
-
-        offset += page_size
-
-        if len(result.data) < page_size:
-            break
-
-    for team in teams_no_state:
+    for team in remaining_teams:
         team_id = team["team_id_master"]
         team_name = team["team_name"]
         club_name = team.get("club_name")
@@ -290,8 +313,10 @@ def main(dry_run=False, auto_yes=False):
             no_club_name.append(team)
             continue
 
-        # Special handling: Check if team name contains "Ventura" - this is Ventura County, CA
-        # We need to handle this before normalization because "VC Fusion" might match "KC Fusion"
+        # Special handling: Ventura County, CA teams whose club_name lookup
+        # would otherwise miss. We try a positive ilike() against CA "Ventura
+        # County" + "Fusion" clubs only. We do NOT force CA for any KS hit
+        # downstream — the tightened fuzzy threshold handles VC↔KC collisions.
         is_ventura_county = "ventura" in team_name.lower()
 
         normalized_club = normalize_club_name(club_name)
@@ -299,9 +324,7 @@ def main(dry_run=False, auto_yes=False):
             no_club_name.append(team)
             continue
 
-        # Special case: If team name has "Ventura", try to find Ventura County Fusion club with CA
         if is_ventura_county:
-            # Look for clubs with "ventura" and "fusion" that have CA state code
             ventura_fusion_result = (
                 supabase.table("teams")
                 .select("club_name, state_code")
@@ -311,9 +334,7 @@ def main(dry_run=False, auto_yes=False):
                 .limit(1)
                 .execute()
             )
-
             if ventura_fusion_result.data:
-                # Found Ventura County Fusion with CA - use that
                 matches.append(
                     {
                         "team_id_master": team_id,
@@ -344,13 +365,27 @@ def main(dry_run=False, auto_yes=False):
                 )
                 continue
 
-            # Fallback 2: fuzzy match (aligned with find_fuzzy_duplicate_teams.py)
-            first_word = normalized_club.split()[0] if normalized_club else ""
-            candidates = first_word_index.get(first_word, []) if first_word else []
+            # Fallback 2: fuzzy match — tightened to avoid cross-state leaks.
+            #   - Skip generic suffix-prefix buckets ('fc','sc',...).
+            #   - Require ≥0.95 for normalized names with <3 tokens (short names
+            #     like "fc stars" hit 0.94 against "fc stars (il)" too easily).
+            #   - Require ≥2 shared tokens between input and candidate.
+            input_tokens = normalized_club.split()
+            first_word = input_tokens[0] if input_tokens else ""
+            min_score = FUZZY_MIN_SCORE_SHORT if len(input_tokens) < 3 else FUZZY_MIN_SCORE
+            candidates = (
+                first_word_index.get(first_word, [])
+                if first_word and first_word not in FUZZY_GENERIC_FIRST_WORDS
+                else []
+            )
+            input_token_set = set(input_tokens)
             best_score, best_state = 0.0, None
             for cand_norm, cand_state in candidates:
+                cand_tokens = set(cand_norm.split())
+                if len(input_token_set & cand_tokens) < 2:
+                    continue
                 score = SequenceMatcher(None, normalized_club, cand_norm).ratio()
-                if score >= FUZZY_MIN_SCORE and score > best_score:
+                if score >= min_score and score > best_score:
                     best_score, best_state = score, cand_state
             if best_state:
                 matches.append(
@@ -367,29 +402,44 @@ def main(dry_run=False, auto_yes=False):
                 no_match.append(team)
             continue
 
-        # Also check exact club_name for multiple states (more accurate)
+        # Exact normalized hit. Combine normalized states + states seen for the
+        # raw club_name (catches multi-state collisions that survived normalize).
         exact_club_name = club_name.strip()
         exact_states = exact_club_states.get(exact_club_name, set())
-
-        # Get the state codes for this club (normalized)
         state_codes = club_state_lookup[normalized_club]
-
-        # If club has multiple state codes (either normalized or exact), exclude it
         all_states = state_codes | exact_states
+
         if len(all_states) > 1:
+            # Try dominance fallback before giving up. Use the per-state counts
+            # we collected during the single-pass scan; require one state to
+            # own >=90% of >=5 anchors.
+            state_counts = club_state_full.get(normalized_club, {})
+            total = sum(state_counts.values())
+            dominant_state, dominant_count = (
+                max(state_counts.items(), key=lambda kv: kv[1]) if state_counts else (None, 0)
+            )
+            if (
+                dominant_state
+                and total >= DOMINANCE_MIN_ANCHORS
+                and dominant_count / total >= DOMINANCE_RATIO
+            ):
+                matches.append(
+                    {
+                        "team_id_master": team_id,
+                        "team_name": team_name,
+                        "club_name": club_name,
+                        "matched_state_code": dominant_state,
+                        "all_state_codes": sorted(all_states),
+                        "confidence": "dominant_state",
+                    }
+                )
+                continue
             multiple_states.append({"team": team, "state_codes": list(all_states), "selected": None})
-            no_match.append(team)  # Exclude from matches
+            no_match.append(team)
             continue
 
-        # Single state_code - high confidence match
+        # Single state_code — high confidence match
         state_code = list(state_codes)[0]
-
-        # Additional safety check: If team name contains "Ventura" but matched to KS, force CA
-        if is_ventura_county and state_code == "KS":
-            # This is Ventura County, CA - force CA
-            state_code = "CA"
-            print(f"  Fixed: {team_name} → CA (was incorrectly matched to KS)")
-
         matches.append(
             {
                 "team_id_master": team_id,
@@ -401,16 +451,18 @@ def main(dry_run=False, auto_yes=False):
             }
         )
 
-    print(f"  Matched (single state only): {len(matches)} teams")
+    print(f"  Matched (any tier): {len(matches)} teams")
     print(f"  No club name: {len(no_club_name)} teams")
     print(f"  No match found: {len(no_match)} teams")
-    print(f"  Excluded (multiple states): {len(multiple_states)} teams")
+    print(f"  Excluded (multiple states, no dominance): {len(multiple_states)} teams")
     by_confidence = defaultdict(int)
     for m in matches:
         by_confidence[m["confidence"]] += 1
     if by_confidence:
         print(
-            f"  By confidence: exact={by_confidence.get('single_state', 0)}, "
+            f"  By confidence: state_col={by_confidence.get('from_state_full_name', 0)}, "
+            f"exact={by_confidence.get('single_state', 0)}, "
+            f"dominant={by_confidence.get('dominant_state', 0)}, "
             f"(XX)={by_confidence.get('from_club_name', 0)}, "
             f"fuzzy={by_confidence.get('fuzzy_match', 0)}"
         )
@@ -426,10 +478,9 @@ def main(dry_run=False, auto_yes=False):
     print(f"  ✗ Club not found in database: {len(no_match)}")
     print()
 
-    # All matches are now single-state only (high confidence)
-    print("Match confidence:")
-    print(f"  High (single state): {len(matches)}")
-    print(f"  Excluded (multiple states): {len(multiple_states)}")
+    print("Match confidence (totals):")
+    print(f"  Matched: {len(matches)}")
+    print(f"  Excluded (multi-state, no dominant): {len(multiple_states)}")
     print()
 
     # Show sample matches
