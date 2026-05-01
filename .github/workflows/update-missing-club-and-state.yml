@@ -38,9 +38,12 @@ on:
 #   Step 3: full_club_analysis.py --execute    — Standardize all club_names (incl. NULL-state pass)
 #   Step 4: match_state_from_club.py --yes     — Fill state_code from now-canonical club_names
 #   Step 5: backfill_missing_state_codes.py    — GotSport API → state_code (residual)
+#   Step 6: backfill_state_from_opponents.py   — Infer state_code from opponents' states (catch-all)
 #
 # Step 4 is the biggest beneficiary: it sees the new club_names from Steps 1-2
-# in their canonical form (Step 3) before doing the lookup.
+# in their canonical form (Step 3) before doing the lookup. Step 6 catches the
+# residual via the dominance pattern applied to game opponents instead of
+# clubmates (>=5 unique opponents, >=90% in one state).
 # ─────────────────────────────────────────────────────────────
 
 env:
@@ -219,6 +222,31 @@ jobs:
           UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step5_backfill_state.log | tr -d ',' || echo "0")
           echo "state_backfilled=${UPDATED:-0}" >> $GITHUB_OUTPUT
 
+      # ── Step 6: state_code via opponent dominance (residual) ───
+      - name: 'Step 6: Infer state_code from opponents'
+        id: step6
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',6,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 6: INFER STATE_CODE FROM OPPONENT DOMINANCE"
+          echo "═══════════════════════════════════════════════════"
+
+          STATE_FLAGS="--yes"
+          if [ "$INPUT_DRY_RUN" = "true" ]; then STATE_FLAGS="--dry-run"; fi
+
+          python scripts/backfill_state_from_opponents.py $STATE_FLAGS 2>&1 | tee logs/step6_opponent_state.log
+
+          MATCHED=$(grep -oP 'Matched \(opponent dominance\): \K\d+' logs/step6_opponent_state.log | tail -1 || echo "0")
+          NO_GAMES=$(grep -oP 'Skipped - no games:\s+\K\d+' logs/step6_opponent_state.log | tail -1 || echo "0")
+          TOO_FEW=$(grep -oP 'Skipped - too few opponents:\s+\K\d+' logs/step6_opponent_state.log | tail -1 || echo "0")
+          NO_DOM=$(grep -oP 'Skipped - no dominance:\s+\K\d+' logs/step6_opponent_state.log | tail -1 || echo "0")
+          echo "opp_matched=$MATCHED" >> $GITHUB_OUTPUT
+          echo "opp_no_games=$NO_GAMES" >> $GITHUB_OUTPUT
+          echo "opp_too_few=$TOO_FEW" >> $GITHUB_OUTPUT
+          echo "opp_no_dominance=$NO_DOM" >> $GITHUB_OUTPUT
+
       # ── Artifacts ─────────────────────────────────────────
       - name: Upload logs
         if: always()
@@ -248,6 +276,15 @@ jobs:
           echo "| 3 | Standardize club_name | ${{ steps.step3.outputs.naming_fixes || 'skipped' }} fixes |" >> $GITHUB_STEP_SUMMARY
           echo "| 4 | Match state_code via club | ${{ steps.step4.outputs.teams_matched || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
           echo "| 5 | Backfill state_code from GotSport | ${{ steps.step5.outputs.state_backfilled || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6 | Infer state_code from opponents | ${{ steps.step6.outputs.opp_matched || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Step 6 opponent-inference breakdown" >> $GITHUB_STEP_SUMMARY
+          echo "| Outcome | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| matched (≥5 opponents, ≥90% one state) | ${{ steps.step6.outputs.opp_matched || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| skipped — no games | ${{ steps.step6.outputs.opp_no_games || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| skipped — too few opponents | ${{ steps.step6.outputs.opp_too_few || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| skipped — no state dominance | ${{ steps.step6.outputs.opp_no_dominance || '0' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Step 4 confidence breakdown" >> $GITHUB_STEP_SUMMARY
           echo "| Tier | Count |" >> $GITHUB_STEP_SUMMARY
