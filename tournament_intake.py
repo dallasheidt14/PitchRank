@@ -351,38 +351,110 @@ def _scraper_tint(records: list[dict[str, Any]]) -> tuple[str, str]:
     return "green", "ready"
 
 
+def _override_aware_tint(
+    records: list[dict[str, Any]],
+    team_state: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    """Override-aware version of ``_scraper_tint``.
+
+    ``_scraper_tint`` reads ``canonical.scraper_state`` literally — so a
+    team the operator just linked via ``Use this team`` (writes an
+    ``accept_match`` override) still counts as ``unresolved`` until the
+    raw_scrape is rewritten, which never happens. The cohort summary
+    strip would forever show ``"13 ext"`` even after every team is
+    resolved. This variant projects each team via the operator's override
+    state first, falling back to scraper_state only when there's no
+    override. ``team_state`` is the output of ``project_overrides`` —
+    pass ``None`` to skip override-awareness (legacy callers).
+    """
+    if team_state is None:
+        return _scraper_tint(records)
+    n_external = 0
+    n_review = 0
+    n_unknown = 0
+    n_resolved = 0
+    for rec in records:
+        pid = str(rec.get("provider_team_id") or "")
+        projected = team_state.get(pid) if pid else None
+        if projected is not None and projected.state == "external":
+            n_external += 1
+            continue
+        if projected is not None and projected.state == "resolved":
+            n_resolved += 1
+            continue
+        scraper_state = (rec.get("canonical") or {}).get("scraper_state")
+        if scraper_state == "review_queued":
+            n_review += 1
+        elif scraper_state == "alias_written":
+            n_resolved += 1
+        elif scraper_state == "unresolved":
+            n_external += 1
+        else:
+            n_unknown += 1
+    n_blocking = n_external + n_unknown
+    total = n_resolved + n_review + n_external + n_unknown
+    if total == 0:
+        return "green", "ready"
+    if n_blocking >= max(1, total // 2):
+        return "red", "mostly ext"
+    if n_blocking:
+        return "red", f"{n_blocking} ext"
+    if n_review:
+        return "amber", f"{n_review} review"
+    return "green", "ready"
+
+
 def _cohort_tint(
     records: list[dict[str, Any]],
     *,
     event_name: str,
     supabase_client: Any,
     event_key_value: str | None = None,
+    team_state: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
-    """Combine the ``scraper_state`` tint with the games-coverage override.
+    """Combine the override-aware tint with the games-coverage override.
 
     Backtest mode reads ``intake/game_results.jsonl`` (scraped directly
     from gotsport schedule pages by ``enrich_event_with_schedule``), so
     coverage status is a local file check — no Supabase round-trip.
 
+    ``team_state`` (output of ``project_overrides``) makes the tint reflect
+    operator overrides — a team the operator linked via "Use this team"
+    counts as resolved even though raw_scrape still says ``unresolved``.
+    Pass ``None`` for the legacy scraper-only behavior.
+
     Override rules:
     - ``not_imported`` → red "games gap".
     - ``partial`` → amber "games gap" (downgrade green; preserve red note).
-    - ``complete`` → keep the scraper_state-derived tint.
+    - ``complete`` → keep the override-aware tint.
     """
-    base_level, base_note = _scraper_tint(records)
+    base_level, base_note = _override_aware_tint(records, team_state)
     if event_key_value is None:
         return base_level, base_note
-    provider_team_ids = frozenset(
-        str(rec.get("provider_team_id") or "")
-        for rec in records
-        if rec.get("provider_team_id")
-    )
+    # Mirror ``is_ready``'s local-coverage check: external (operator-marked
+    # or scraper-unresolved) teams don't need games rows. Counting them
+    # would mark a fully-played cohort as "partial" purely because some
+    # externals didn't appear in the scrape. Filter them out so the strip
+    # agrees with the preflight gate.
+    provider_team_ids: set[str] = set()
+    for rec in records:
+        pid = str(rec.get("provider_team_id") or "")
+        if not pid:
+            continue
+        projected = team_state.get(pid) if team_state else None
+        if projected is not None and projected.state == "external":
+            continue
+        scraper_state = (rec.get("canonical") or {}).get("scraper_state")
+        if projected is None and scraper_state == "unresolved":
+            continue
+        provider_team_ids.add(pid)
     if not provider_team_ids:
         return base_level, base_note
     try:
         games_state = _cached_local_coverage(event_key_value, tuple(sorted(provider_team_ids)))
     except Exception:  # noqa: BLE001 — file-read failure shouldn't crash the page
         return base_level, base_note
+    del provider_team_ids  # release the per-cohort working set
     if games_state == "not_imported":
         return "red", "games gap"
     if games_state == "partial":
@@ -966,11 +1038,14 @@ def _render_cohort_summary(
     event_name: str,
     supabase_client: Any,
     event_key_value: str | None = None,
+    team_state: Mapping[str, Any] | None = None,
 ) -> dict[tuple[str, str], tuple[str, str]]:
     """Render the cohort summary strip + totals row.
 
     Returns the per-cohort tint map so the cohort container headers can
-    reuse it without recomputing.
+    reuse it without recomputing. Pass ``team_state`` (output of
+    ``project_overrides``) so the tint reflects operator-applied
+    overrides instead of stale scraper_state.
     """
     tints: dict[tuple[str, str], tuple[str, str]] = {
         cohort: _cohort_tint(
@@ -978,6 +1053,7 @@ def _render_cohort_summary(
             event_name=event_name,
             supabase_client=supabase_client,
             event_key_value=event_key_value,
+            team_state=team_state,
         )
         for cohort in sorted_keys
     }
@@ -4390,12 +4466,18 @@ def main() -> None:
     cohorts = _group_cohorts(records)
     sorted_keys = sorted(cohorts.keys(), key=_cohort_sort_key)
     _render_reviewer_email_input()
+    # Project overrides ONCE per page render so the tint, the run-all
+    # gate, and downstream cohort iteration all see the same state.
+    # Loading is cheap (small JSONL); projection is in-memory.
+    overrides = load_overrides(key, st.session_state.scenario_name)
+    page_team_state, _ = project_overrides(overrides)
     tints = _render_cohort_summary(
         cohorts,
         sorted_keys,
         event_name=meta.event_name,
         supabase_client=supabase_client,
         event_key_value=key,
+        team_state=page_team_state,
     )
     _render_run_all_button(
         sorted_keys,

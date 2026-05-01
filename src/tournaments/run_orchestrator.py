@@ -443,24 +443,36 @@ def _build_cohort_request_payload(
     Mirrors ``scripts.backtest_tournament_event._build_request_payload``
     (event:380-440) — inlined rather than imported because the script-side
     ``sys.path`` setup is brittle for a package import. ``age`` is in
-    ``u14`` form; ``gender`` is ``"Boys"`` or ``"Girls"`` (matches
-    ``read_structure`` output, which already normalizes both).
+    ``u14`` form; ``gender`` is normalized via ``normalize_gender_label``
+    so callers can pass either UI display form (``"Boys"`` / ``"Girls"``)
+    or storage-canonical (``"Male"`` / ``"Female"``) — the cohort UI's
+    ``_group_cohorts`` keys cohorts on the canonical form, so per-cohort
+    runs land here with ``"Male"``/``"Female"``, while older test
+    fixtures and the event-level CLI pass the display form.
+    ``read_structure`` stores canonical form, so we normalize before the
+    cohort lookup.
     """
     if not age.startswith("u"):
         raise ValueError(f"age must be normalized (e.g. 'u14'); got {age!r}")
-    if gender not in ("Boys", "Girls"):
-        raise ValueError(f"gender must be 'Boys' or 'Girls'; got {gender!r}")
+    # ``normalize_gender_label`` is idempotent and accepts every input
+    # form: "Boys"/"Girls" (cohort UI display + event-CLI tests),
+    # "Male"/"Female" (registry / cohort-key canonical), and the loose
+    # forms ("F"/"girl"/etc.). Normalize ALL gender comparisons so a
+    # cohort whose structure was written by ``derive_structure_from_raw_scrape``
+    # ("Male"/"Female") matches a caller passing the display form, and
+    # vice versa.
+    gender_canonical = normalize_gender_label(gender)
 
     meta = read_event_metadata(event_key, base_dir=base_dir)
     registry = read_registry(event_key, scenario, base_dir=base_dir)
     structure = read_structure(event_key, scenario, base_dir=base_dir)
 
     cohort_structure = next(
-        (c for c in structure if c.age_group == age and c.gender == gender),
+        (c for c in structure if c.age_group == age and normalize_gender_label(c.gender) == gender_canonical),
         None,
     )
     if cohort_structure is None:
-        raise ValueError(f"structure for cohort {age}/{gender} not found")
+        raise ValueError(f"structure for cohort {age}/{gender_canonical} not found")
 
     overrides = load_overrides(event_key, scenario, base_dir=base_dir)
     team_state, _ = project_overrides(overrides)
@@ -471,7 +483,10 @@ def _build_cohort_request_payload(
     division_routing_stale_assignments: list[str] = []
 
     for entry in registry:
-        if entry.event_age_group != age or entry.event_gender != gender:
+        if (
+            entry.event_age_group != age
+            or normalize_gender_label(entry.event_gender) != gender_canonical
+        ):
             continue
         pid = registry_provider_id(entry)
         projected = team_state.get(pid)
