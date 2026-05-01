@@ -293,12 +293,23 @@ def main() -> None:
     log(f"Workers: {workers}")
     log("")
 
+    # One resolver per worker thread — preserves connection pool + cache
+    # across calls. Previously instantiated per-call which made the cache
+    # useless and forced a new requests.Session for every team.
+    thread_local = threading.local()
+
+    def _thread_resolver() -> GotSportResolver:
+        r = getattr(thread_local, "resolver", None)
+        if r is None:
+            r = GotSportResolver(delay_seconds=delay)
+            thread_local.resolver = r
+        return r
+
     def process_one(team: Dict) -> Tuple[str, Optional[str], Optional[str]]:
         """Returns (team_id, club_if_valid, error_msg)."""
         team_id = team["team_id_master"]
         provider_team_id = gotsport_id_map[team_id]
-        resolver = GotSportResolver(delay_seconds=delay)
-        result = resolver.resolve(provider_team_id)
+        result = _thread_resolver().resolve(provider_team_id)
         if "_error" in result:
             return (team_id, None, result["_error"])
         club = result.get("club_name", "")

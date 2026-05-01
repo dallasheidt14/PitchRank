@@ -728,6 +728,81 @@ def _matches_override(club: str, match_type: str, pattern: str) -> bool:
     return False
 
 
+def fetch_no_state_teams(client):
+    """Fetch active teams that have NULL or empty state_code (both genders)."""
+    all_teams = []
+    page_size = 1000
+    for is_null in (True, False):
+        offset = 0
+        while True:
+            q = (
+                client.table("teams")
+                .select("team_id_master, team_name, club_name, gender")
+                .eq("is_deprecated", False)
+            )
+            q = q.is_("state_code", "null") if is_null else q.eq("state_code", "")
+            result = q.range(offset, offset + page_size - 1).execute()
+            if not result.data:
+                break
+            all_teams.extend(result.data)
+            if len(result.data) < page_size:
+                break
+            offset += page_size
+    return all_teams
+
+
+def analyze_no_state_teams(client):
+    """Apply CANONICAL overrides to teams with NULL state_code.
+
+    Only applies overrides whose (match_type, pattern) is unique across all
+    states — e.g. "FC Stars" appears in IL canonical AND could match a Texas
+    team named "FC Stars", so we skip it. This is the safe subset that lets
+    Step 2 (match_state_from_club) hit canonical keys for no-state teams.
+    """
+    teams = fetch_no_state_teams(client)
+    if not teams:
+        return []
+
+    # Group overrides by (match_type, pattern.lower()) to detect cross-state collisions
+    pattern_index = defaultdict(list)
+    for state, mtype, pattern, canonical in CLUB_CANONICAL_OVERRIDES:
+        pattern_index[(mtype, pattern.lower())].append((state, canonical))
+
+    # Safe overrides: pattern resolves to exactly one canonical name across all states
+    safe_overrides = []
+    for state, mtype, pattern, canonical in CLUB_CANONICAL_OVERRIDES:
+        siblings = pattern_index[(mtype, pattern.lower())]
+        canonicals = {c for _, c in siblings}
+        if len(canonicals) == 1:
+            safe_overrides.append((mtype, pattern, canonical))
+
+    club_counts = defaultdict(int)
+    for team in teams:
+        club = team.get("club_name")
+        if club:
+            club_counts[club] += 1
+
+    fixes = []
+    processed = set()
+    for mtype, pattern, canonical in safe_overrides:
+        for club in list(club_counts.keys()):
+            if club in processed:
+                continue
+            if _matches_override(club, mtype, pattern):
+                if club != canonical:
+                    fixes.append(
+                        {
+                            "from": club,
+                            "to": canonical,
+                            "count": club_counts[club],
+                            "type": "CANONICAL_NO_STATE",
+                            "state": None,  # no state filter on update
+                        }
+                    )
+                    processed.add(club)
+    return fixes
+
+
 def analyze_state(client, state_code):
     """Analyze club names in a state, return fixes needed."""
     teams = fetch_all_teams(client, state_code)
@@ -833,19 +908,26 @@ def generate_sql(all_fixes):
 
     by_state = defaultdict(list)
     for fix in all_fixes:
-        by_state[fix["state"]].append(fix)
+        by_state[fix["state"] or "__NO_STATE__"].append(fix)
 
     for state in sorted(by_state.keys()):
         state_fixes = by_state[state]
-        lines.append(f"-- ========== {state} ==========")
+        label = "NO_STATE" if state == "__NO_STATE__" else state
+        lines.append(f"-- ========== {label} ==========")
 
         for fix in sorted(state_fixes, key=lambda x: (-x["count"], x["from"])):
             from_esc = fix["from"].replace("'", "''")
             to_esc = fix["to"].replace("'", "''")
             lines.append(f'-- [{fix["type"]}] "{fix["from"]}" → "{fix["to"]}" ({fix["count"]} teams)')
-            lines.append(
-                f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' AND state_code = '{state}';"
-            )
+            if state == "__NO_STATE__":
+                lines.append(
+                    f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' "
+                    "AND (state_code IS NULL OR state_code = '');"
+                )
+            else:
+                lines.append(
+                    f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' AND state_code = '{state}';"
+                )
             lines.append("")
         lines.append("")
 
@@ -873,18 +955,26 @@ def execute_fixes(client, all_fixes, dry_run=True):
 
     for fix in all_fixes:
         try:
-            (
+            q = (
                 client.table("teams")
                 .update({"club_name": fix["to"]})
                 .eq("club_name", fix["from"])
-                .eq("state_code", fix["state"])
-                .execute()
             )
+            if fix["state"] is None:
+                # No-state-code teams: apply globally for this exact club_name
+                # but ONLY where state_code is NULL/empty so we don't touch
+                # teams the per-state pass already handled.
+                q = q.or_("state_code.is.null,state_code.eq.")
+            else:
+                q = q.eq("state_code", fix["state"])
+            q.execute()
             applied += 1
-            print(f'  ✅ {fix["state"]}: "{fix["from"]}" → "{fix["to"]}"')
+            label = fix["state"] or "NO_STATE"
+            print(f'  ✅ {label}: "{fix["from"]}" → "{fix["to"]}"')
         except Exception as e:
             failed += 1
-            print(f'  ❌ {fix["state"]}: "{fix["from"]}" → error: {e}')
+            label = fix["state"] or "NO_STATE"
+            print(f'  ❌ {label}: "{fix["from"]}" → error: {e}')
 
     print(f"\nApplied: {applied}, Failed: {failed}")
     return applied, failed
@@ -933,6 +1023,24 @@ def main():
     all_fixes = []
     summary = {}
 
+    # No-state pass: apply collision-safe canonical overrides to teams without
+    # a state_code so Step 2 (match_state_from_club) can hit canonical keys.
+    print("Analyzing teams with no state_code...", end=" ")
+    no_state_fixes = analyze_no_state_teams(client)
+    if no_state_fixes:
+        affected = sum(f["count"] for f in no_state_fixes)
+        all_fixes.extend(no_state_fixes)
+        summary["__no_state__"] = {
+            "canonical": len(no_state_fixes),
+            "caps": 0,
+            "naming": 0,
+            "affected": affected,
+            "total": affected,
+        }
+        print(f"{len(no_state_fixes)} canonical ({affected} teams)")
+    else:
+        print("clean")
+
     for state in states:
         print(f"Analyzing {state}...", end=" ")
         fixes, total = analyze_state(client, state)
@@ -966,7 +1074,7 @@ def main():
 
     total_fixes = len(all_fixes)
     total_affected = sum(f["count"] for f in all_fixes)
-    total_canonical = sum(1 for f in all_fixes if f["type"] == "CANONICAL")
+    total_canonical = sum(1 for f in all_fixes if f["type"] in ("CANONICAL", "CANONICAL_NO_STATE"))
     total_caps = sum(1 for f in all_fixes if f["type"] == "CAPS")
     total_naming = sum(1 for f in all_fixes if f["type"] == "NAMING")
 

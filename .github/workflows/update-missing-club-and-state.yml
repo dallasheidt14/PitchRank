@@ -1,0 +1,260 @@
+name: Update Missing Club Names & State Codes
+
+on:
+  schedule:
+    # Weekly on Monday at 10am Pacific (17:00 UTC PDT / 18:00 UTC PST).
+    - cron: '0 17 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (scan only, no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      limit:
+        description: 'Max teams to process per backfill step (blank = all)'
+        required: false
+        default: ''
+        type: string
+      skip_steps:
+        description: 'Comma-separated step numbers to skip (e.g., 1,5)'
+        required: false
+        default: ''
+        type: string
+
+# ─────────────────────────────────────────────────────────────
+# Combined pipeline (replaces three former workflows):
+#   - update-missing-club-names.yml
+#   - match-state-from-club.yml
+#   - update-missing-state-codes.yml
+#
+# Runs in strict dependency order so each step benefits from the prior:
+#
+#   Step 1: backfill_missing_club_names.py     — GotSport API → club_name
+#   Step 2: extract_missing_club_names.py      — team_name heuristics → club_name (in-state safe-only)
+#   Step 3: full_club_analysis.py --execute    — Standardize all club_names (incl. NULL-state pass)
+#   Step 4: match_state_from_club.py --yes     — Fill state_code from now-canonical club_names
+#   Step 5: backfill_missing_state_codes.py    — GotSport API → state_code (residual)
+#
+# Step 4 is the biggest beneficiary: it sees the new club_names from Steps 1-2
+# in their canonical form (Step 3) before doing the lookup.
+# ─────────────────────────────────────────────────────────────
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  PYTHONUNBUFFERED: '1'
+
+# Don't let an on-demand workflow_dispatch race a scheduled run.
+concurrency:
+  group: update-missing-club-and-state
+  cancel-in-progress: false
+
+jobs:
+  update-missing-club-and-state:
+    name: Update Missing Club Names & State Codes
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      # ── Setup ─────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv requests
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+          INPUT_SKIP_STEPS: ${{ github.event.inputs.skip_steps }}
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. Add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+          echo "Mode: ${INPUT_DRY_RUN:-false} | Limit: ${INPUT_LIMIT:-all} | Skip: ${INPUT_SKIP_STEPS:-none}"
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      # ── Step 1: GotSport club_name backfill ───────────────
+      - name: 'Step 1: Backfill club_name from GotSport API'
+        id: step1
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',1,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 1: BACKFILL CLUB_NAME FROM GOTSPORT"
+          echo "═══════════════════════════════════════════════════"
+
+          DRY_FLAG=""
+          if [ "$INPUT_DRY_RUN" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          LIMIT_FLAG=""
+          if [ -n "$INPUT_LIMIT" ]; then LIMIT_FLAG="--limit $INPUT_LIMIT"; fi
+
+          python scripts/backfill_missing_club_names.py --workers 10 $DRY_FLAG $LIMIT_FLAG 2>&1 | tee logs/step1_backfill_club.log
+
+          UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step1_backfill_club.log | tr -d ',' || echo "0")
+          echo "club_backfilled=${UPDATED:-0}" >> $GITHUB_OUTPUT
+
+      # ── Step 2: team_name extraction → club_name ──────────
+      - name: 'Step 2: Extract club_name from team_name'
+        id: step2
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 2: EXTRACT CLUB_NAME FROM TEAM_NAME"
+          echo "═══════════════════════════════════════════════════"
+
+          DRY_FLAG=""
+          if [ "$INPUT_DRY_RUN" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          LIMIT_FLAG=""
+          if [ -n "$INPUT_LIMIT" ]; then LIMIT_FLAG="--limit $INPUT_LIMIT"; fi
+
+          python scripts/extract_missing_club_names.py $DRY_FLAG $LIMIT_FLAG 2>&1 | tee logs/step2_extract_club.log
+
+          UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step2_extract_club.log | tr -d ',' || echo "0")
+          echo "club_extracted=${UPDATED:-0}" >> $GITHUB_OUTPUT
+
+      # ── Step 3: Club Name Standardization ─────────────────
+      - name: 'Step 3: Standardize club_name (canonical/caps/naming)'
+        id: step3
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 3: STANDARDIZE CLUB NAMES"
+          echo "═══════════════════════════════════════════════════"
+
+          EXEC_FLAG="--execute"
+          if [ "$INPUT_DRY_RUN" = "true" ]; then EXEC_FLAG="--dry-run"; fi
+
+          python scripts/full_club_analysis.py $EXEC_FLAG 2>&1 | tee logs/step3_standardize.log
+
+          TOTAL_FIXES=$(grep -oP 'TOTAL: \K\d+' logs/step3_standardize.log || echo "0")
+          TEAMS_AFFECTED=$(grep -oP '\s+(\d+) teams will' logs/step3_standardize.log | grep -oP '\d+' || echo "0")
+          echo "naming_fixes=$TOTAL_FIXES" >> $GITHUB_OUTPUT
+          echo "teams_standardized=$TEAMS_AFFECTED" >> $GITHUB_OUTPUT
+
+      # ── Step 4: state_code via club_name lookup ───────────
+      - name: 'Step 4: Match state_code via club_name'
+        id: step4
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 4: MATCH STATE CODE VIA CLUB NAME"
+          echo "═══════════════════════════════════════════════════"
+
+          STATE_FLAGS="--yes"
+          if [ "$INPUT_DRY_RUN" = "true" ]; then STATE_FLAGS="--dry-run"; fi
+
+          python scripts/match_state_from_club.py $STATE_FLAGS 2>&1 | tee logs/step4_match_state.log
+
+          MATCHED=$(grep -oP 'Can be matched via club name: \K\d+' logs/step4_match_state.log || echo "0")
+          echo "teams_matched=$MATCHED" >> $GITHUB_OUTPUT
+
+          BREAKDOWN_LINE=$(grep -oP 'By confidence: .*' logs/step4_match_state.log | tail -1 || echo "")
+          STATE_COL=$(echo "$BREAKDOWN_LINE" | grep -oP 'state_col=\K\d+' || echo "0")
+          EXACT=$(echo "$BREAKDOWN_LINE" | grep -oP 'exact=\K\d+' || echo "0")
+          DOMINANT=$(echo "$BREAKDOWN_LINE" | grep -oP 'dominant=\K\d+' || echo "0")
+          FROM_PARENS=$(echo "$BREAKDOWN_LINE" | grep -oP '\(XX\)=\K\d+' || echo "0")
+          FUZZY=$(echo "$BREAKDOWN_LINE" | grep -oP 'fuzzy=\K\d+' || echo "0")
+          EXCLUDED=$(grep -oP 'Excluded \(multi-state, no dominant\): \K\d+' logs/step4_match_state.log | tail -1 || echo "0")
+          echo "matched_state_col=$STATE_COL" >> $GITHUB_OUTPUT
+          echo "matched_exact=$EXACT" >> $GITHUB_OUTPUT
+          echo "matched_dominant=$DOMINANT" >> $GITHUB_OUTPUT
+          echo "matched_from_parens=$FROM_PARENS" >> $GITHUB_OUTPUT
+          echo "matched_fuzzy=$FUZZY" >> $GITHUB_OUTPUT
+          echo "excluded_multistate=$EXCLUDED" >> $GITHUB_OUTPUT
+
+      # ── Step 5: GotSport state_code backfill (residual) ───
+      - name: 'Step 5: Backfill state_code from GotSport API'
+        id: step5
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',5,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 5: BACKFILL STATE_CODE FROM GOTSPORT"
+          echo "═══════════════════════════════════════════════════"
+
+          DRY_FLAG=""
+          if [ "$INPUT_DRY_RUN" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          LIMIT_FLAG=""
+          if [ -n "$INPUT_LIMIT" ]; then LIMIT_FLAG="--limit $INPUT_LIMIT"; fi
+
+          python scripts/backfill_missing_state_codes.py --workers 10 $DRY_FLAG $LIMIT_FLAG 2>&1 | tee logs/step5_backfill_state.log
+
+          UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step5_backfill_state.log | tr -d ',' || echo "0")
+          echo "state_backfilled=${UPDATED:-0}" >> $GITHUB_OUTPUT
+
+      # ── Artifacts ─────────────────────────────────────────
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: club-state-logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 30
+
+      # ── Summary ───────────────────────────────────────────
+      - name: Pipeline Summary
+        if: always()
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          MODE="⚡ Live"
+          if [ "$INPUT_DRY_RUN" = "true" ]; then MODE="🔍 Dry Run"; fi
+
+          echo "## Update Missing Club Names & State Codes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Backfill club_name from GotSport | ${{ steps.step1.outputs.club_backfilled || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Extract club_name from team_name | ${{ steps.step2.outputs.club_extracted || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | Standardize club_name | ${{ steps.step3.outputs.naming_fixes || 'skipped' }} fixes |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | Match state_code via club | ${{ steps.step4.outputs.teams_matched || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5 | Backfill state_code from GotSport | ${{ steps.step5.outputs.state_backfilled || 'skipped' }} teams |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Step 4 confidence breakdown" >> $GITHUB_STEP_SUMMARY
+          echo "| Tier | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| state column (full name) | ${{ steps.step4.outputs.matched_state_col || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| exact (single-state club) | ${{ steps.step4.outputs.matched_exact || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| dominant state (≥90% of ≥5 anchors) | ${{ steps.step4.outputs.matched_dominant || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| (XX) suffix in club_name | ${{ steps.step4.outputs.matched_from_parens || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| fuzzy (≥0.90, ≥0.95 short names) | ${{ steps.step4.outputs.matched_fuzzy || '0' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| excluded (ambiguous multi-state) | ${{ steps.step4.outputs.excluded_multistate || '0' }} |" >> $GITHUB_STEP_SUMMARY

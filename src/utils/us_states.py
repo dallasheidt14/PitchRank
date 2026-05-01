@@ -5,11 +5,10 @@ discovery scraper (`src/scrapers/sincsports_clubs.py`) to convert between
 the full state names rendered in the SincSports filter UI and the postal
 codes stored on `teams.state_code`.
 
-Not yet adopted by the 5 pre-existing scripts that duplicate this dict
+Not yet adopted by the pre-existing scripts that duplicate this dict
 (`scripts/backfill_state_from_state_code.py`, `backfill_missing_state_codes.py`,
-`match_state_from_club.py`, `match_missing_state_codes.py`,
-`update_single_team_state.py`); migrating those callers is out of scope for
-the SincSports discovery plan.
+`match_state_from_club.py`, `update_single_team_state.py`); migrating those
+callers is out of scope for the SincSports discovery plan.
 """
 
 from typing import Optional
