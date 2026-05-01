@@ -882,6 +882,7 @@ def main() -> int:
     entrant_rows: list[dict[str, Any]] = []
     seedable_teams: list[SeedableTeam] = []
     notes: list[str] = []
+    skipped_unranked: list[str] = []
     for entrant in entrants_payload:
         canonical_team_id = str(entrant["canonical_team_id"])
         ranking_source_team_id = str(entrant.get("ranking_source_team_id") or canonical_team_id)
@@ -889,10 +890,25 @@ def main() -> int:
         ranking_row = ranking_by_id.get(ranking_source_team_id)
 
         if ranking_row is None:
-            raise ValueError(
-                f"No rankings_full row found for entrant '{entrant.get('event_team_name')}' "
-                f"(ranking_source_team_id={ranking_source_team_id})"
+            # Team is linked to a master record but has no rankings_full
+            # row (zero ranked games, deprecated, or merged-away). The
+            # cohort UI's existing path is to mark such teams external
+            # and let the seeding optimizer use a frozen median or
+            # operator-typed manual_power_score. Hard-erroring here would
+            # block the entire cohort run on one missing-rank team —
+            # log + skip so the rest of the cohort can still run, and
+            # surface the team name in ``notes`` so operators see it.
+            label = entrant.get("event_team_name") or ranking_source_team_id
+            note_msg = (
+                f"Skipped unranked entrant '{label}' "
+                f"(ranking_source_team_id={ranking_source_team_id}) — "
+                "no rankings_full row; relink to a ranked master team "
+                "or mark this team external with a manual_power_score."
             )
+            print(f"WARNING: {note_msg}", flush=True)
+            notes.append(note_msg)
+            skipped_unranked.append(str(label))
+            continue
 
         entrant_row = _build_entrant_row(
             entrant,
