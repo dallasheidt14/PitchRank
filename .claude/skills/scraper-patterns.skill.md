@@ -46,6 +46,60 @@ time.sleep(1.0)
 time.sleep(random.uniform(0.1, 2.5))
 ```
 
+## GotSport Endpoint Quirks
+
+GotSport event pages expose three different schedule URLs with very different
+contents. Pick the right one for the event type, or you will silently miss
+games.
+
+### Per-group page (`/schedules?group={X}`)
+
+- One big match table per page, columns: `Match # | Time | Home Team | Results | Away Team | Location | Division`.
+- Tournament-style events: shows played + upcoming. Parser-friendly. Default walk target.
+- League/season events (NPL, CCL, ECNL season brackets): shows **upcoming fixtures only**. Played history is NOT here. The "Results" column is `-` for every visible row.
+
+### Per-group results page (`/results?group={X}`)
+
+- Round-robin standings matrix (NxN team grid). Cells contain `2-0`, `3-1`, `-`, etc.
+- **No per-game dates, no venues, no match IDs** — useless to the existing `_parse_games_from_schedule_page` parser.
+- Do not try to add this as a parser target.
+
+### Per-team page (`/schedules?team={REGISTRATION_ID}`)
+
+- One `<table>` per match for the team's full event schedule (past + future).
+- Same 7-column layout as the per-group page, so the existing parser handles each table without changes.
+- **Required for league/season events** — this is the only endpoint that surfaces played history with real dates.
+- **Must use the registration ID, not the API team ID.** `/schedules?team={api_id}` redirects to `home.gotsport.com/login/`. Registration IDs come from the `team={\d+}` query param in per-group page hrefs (also accumulated in `api_team_id_cache` after the per-group walk).
+- **No longer exposes `rankings.gotsport.com/teams/{api_id}` or `system.gotsport.com/teams/{api_id}` anchor links** as of 2026-05-01. The legacy HTML-scraping strategies in `_resolve_api_team_id_from_event_page` (rankings link parse, `/teams/{id}` link parse, JS `team_id` parse) are dead — the only team-id-bearing link on the page is `/matches_export?team={reg_id}`, which is the registration ID, not the API ID. Use the JSON API instead (next subsection).
+
+### API endpoint (`/api/v1/teams/{id}/matches?past=true`)
+
+- Source of truth for canonical team_id resolution. **Not CAPTCHA-protected** (verified 2026-05-01) even on events whose HTML pages are CAPTCHA-gated.
+- Status-based classifier:
+  - `200` + non-empty list → `{id}` is a valid API team ID. Each match has `homeTeam.team_id` (canonical), `home_team_reg_id` (per-event registration), and the away mirrors. Match the queried `{id}` against `home_team_reg_id` / `away_team_reg_id` to pick the right canonical `team_id`.
+  - `200` + non-empty list with NO self-match → conservatively treat as unresolved. Promoting `{id}` would risk re-injecting a registration ID into `team_alias_map` as if it were canonical.
+  - `200` + empty list → ambiguous (brand-new team, or stale id). Treat as unresolved.
+  - `404` → `{id}` is a registration ID, not an API team ID. Deterministic.
+- Resolver lives at `src/scrapers/gotsport.py:_resolve_api_team_id_from_event_page` and routes through the module-level `_zenrows_get` helper. ZenRows uses basic proxy (`js_render=false`) since this is a JSON endpoint — ~1 credit per call vs ~25 with JS render.
+
+### HTML-CAPTCHA failure vs API-resolution failure
+
+These are different failure modes with different telemetry surfaces:
+
+- **HTML CAPTCHA** (event main page, per-team schedule page): `_fetch_event_page` raises `EventCaptchaGatedError` and `_write_captcha_artifact` writes `reports/<event_key>/intake/captcha_challenge.json`. Operators can replay these via a future CAPTCHA-solver integration.
+- **API resolution failure** (4xx/5xx/timeout from `_resolve_api_team_id_from_event_page`): the resolver returns `None`, the parser drops the row, and `scrape_games_from_schedule_pages` increments `self._last_resolution_metrics["dropped_unresolved"]`. The per-event summary JSON (`data/raw/new_events_*_summary.json`) carries `teams_resolved` / `teams_unresolved` / `games_dropped_unresolved`. **No `captcha_challenge.json` is written for API failures** — the API isn't CAPTCHA-protected, so non-200 means a different class of failure (registration ID, gotsport API outage, ZenRows budget exhausted). Look at `_last_resolution_metrics["dropped_unresolved"]` and the workflow logs, not at `reports/<event_key>/intake/`.
+
+### Walking pattern in `scrape_games_from_schedule_pages`
+
+1. Per-group walk first (always — populates `api_team_id_cache` keyed by reg_id).
+2. Per-team walk second, iterating `api_team_id_cache.keys()` and calling the same parser.
+3. Validator dedup (`provider:date:sorted_team_ids`) collapses the home/away duplicates.
+4. Disable per-team walk with `GOTSPORT_SKIP_PER_TEAM_WALK=1`. Cap with `GOTSPORT_MAX_TEAM_PAGES` (default 200).
+
+### Tournament vs season-event runtime
+
+Per-team walk roughly 5x's the HTTP request count vs per-group walk alone (~96 team pages vs ~20 group pages for a typical event). Stays well under the 3-hour workflow timeout but will exceed the `GOTSPORT_EVENT_TIMEOUT=240s` warn-only threshold for some events.
+
 ## Request Pattern
 
 ### Standard Request

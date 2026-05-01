@@ -751,6 +751,48 @@ def _extract_captcha_signals(response: requests.Response, fallback_target_url: s
     )
 
 
+def _zenrows_get(
+    session: requests.Session,
+    api_key: Optional[str],
+    url: str,
+    *,
+    timeout: int,
+    delay_min: float = 0.0,
+    delay_max: float = 0.0,
+) -> requests.Response:
+    """Route a GET through ZenRows when ``api_key`` is set, else direct.
+
+    Module-level so callers can use it without instantiating ``GotsportScraper``
+    (whose ``__init__`` performs a Supabase ``providers`` lookup and other
+    heavyweight setup). The class-level ``_fetch_json_via_zenrows`` shim
+    forwards production calls here with the scraper's session + delay config.
+
+    ``timeout`` is honored on both branches — unlike ``_make_zenrows_request``
+    (line 1298) which hard-codes ``timeout=self.timeout`` regardless of caller
+    intent.
+
+    Post-call jitter mirrors ``_subpage_fetcher`` (line 3037-3038): sleep AFTER
+    the response so the rate limit applies to the gap before the next request,
+    not the latency of this one.
+    """
+    if api_key:
+        zenrows_params = {
+            "apikey": api_key,
+            "url": url,
+            "js_render": "false",
+            "premium_proxy": "true",
+            "proxy_country": "us",
+        }
+        response = session.get("https://api.zenrows.com/v1/", params=zenrows_params, timeout=timeout)
+    else:
+        response = session.get(url, timeout=timeout)
+
+    if delay_min > 0 or delay_max > 0:
+        time.sleep(random.uniform(delay_min, delay_max))
+
+    return response
+
+
 def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str) -> Dict[str, List[EventTeam]]:
     """Pure-parse counterpart to ``GotsportScraper.extract_event_teams_by_bracket``.
 
@@ -1226,6 +1268,15 @@ class GotsportScraper(ProviderScraper):
         # stale candidates from a prior run don't leak.
         self._matcher_cache: dict[tuple, list[dict[str, Any]]] = {}
 
+        # Per-call resolution metrics from the most recent scrape_games_from_schedule_pages
+        # invocation. Callers (scripts/scrape_new_gotsport_events.py,
+        # scripts/scrape_upcoming_gotsport_events.py) read this immediately
+        # after the call to populate the per-event summary JSON. Per-instance,
+        # not per-call — invocations are sequential per the existing per-event
+        # loops (verified via grep 2026-05-01). Concurrent calls on a single
+        # instance would race; document this if parallelism is added.
+        self._last_resolution_metrics: dict[str, int] = {}
+
         logger.info(
             f"Initialized GotsportScraper "
             f"(skip_team_id_resolution={skip_team_id_resolution}, "
@@ -1296,6 +1347,27 @@ class GotsportScraper(ProviderScraper):
             "proxy_country": "us",
         }
         return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+
+    def _fetch_json_via_zenrows(self, url: str, *, timeout: Optional[int] = None) -> requests.Response:
+        """Route a JSON GET through ZenRows when configured, else direct session.
+
+        Class-level shim forwarding to the module-level ``_zenrows_get`` helper.
+        Used by ``_resolve_api_team_id_from_event_page`` (and any future API
+        consumer) so the production scrape carries the configured rate-limit
+        jitter without each call site re-implementing the if/else.
+
+        Unlike ``_make_zenrows_request``, the caller's ``timeout`` argument is
+        honored — passing ``timeout=10`` actually applies a 10s budget instead
+        of being silently overridden by ``self.timeout``.
+        """
+        return _zenrows_get(
+            self.session,
+            self.zenrows_api_key,
+            url,
+            timeout=timeout if timeout is not None else self.timeout,
+            delay_min=self.delay_min,
+            delay_max=self.delay_max,
+        )
 
     def _fetch_event_page(self, event_id: str) -> requests.Response:
         """Fetch the top-level event URL with unified CAPTCHA detection.
@@ -1821,113 +1893,118 @@ class GotsportScraper(ProviderScraper):
         self, event_id: str, registration_id: str, team_name: Optional[str] = None
     ) -> Optional[str]:
         """
-        Resolve GotSport API team ID from event registration ID by following the team's event page.
+        Resolve canonical GotSport API team ID from a per-event registration ID.
 
-        Uses multiple strategies:
-        1. Look for rankings link on team's event schedule page
-        2. Look for direct /teams/{id} links (API team IDs)
-        3. Look for team_id in JavaScript/JSON data on the page
-        4. Try the GotSport API directly with the registration ID (it might work)
+        Calls the gotsport public JSON API at ``/api/v1/teams/{id}/matches?past=true``
+        via ZenRows (when configured). The API is NOT CAPTCHA-protected (verified
+        2026-05-01) and serves as the source of truth after gotsport removed
+        ``rankings.gotsport.com/teams/{api_id}`` links from per-team profile
+        pages — the legacy HTML-scraping strategies (rankings link parse,
+        ``/teams/{id}`` link parse, JS ``team_id`` parse) are dead.
+
+        Resolution outcomes (verified live 2026-05-01):
+
+        - ``200`` + match list where ``homeTeam.team_id == registration_id`` (or
+          ``awayTeam.team_id``) for at least one match → return
+          ``str(registration_id)``. The queried id WAS itself an API team id
+          (the schedule page ``team=`` query param is sometimes the api_id, not
+          the reg_id, despite docs to the contrary).
+        - ``200`` + non-empty list with NO ``homeTeam.team_id`` / ``awayTeam.team_id``
+          self-match → return ``None``. Conservative; defensive against a
+          malformed API response.
+        - ``200`` + empty list → ``None`` (brand-new team, or stale id).
+        - ``404`` → ``None`` (the queried id is a registration id, not an API
+          team id — the API endpoint only accepts api_ids, verified live).
+        - 4xx/5xx/timeout → ``None`` (don't promote on uncertainty).
+
+        NOTE: ``home_team_reg_id`` / ``away_team_reg_id`` in the response are
+        per-event registration IDs of EACH team in the match. They are NOT the
+        queried team's reg_id (the API endpoint doesn't accept reg_ids in the
+        first place — they all 404). Self-match is on ``team_id`` fields only.
 
         Args:
-            event_id: GotSport event ID
-            registration_id: Event registration ID (from schedule page links)
-            team_name: Optional team name for logging
+            event_id: GotSport event ID (kept for signature compatibility; not
+                used by the API path — the API endpoint is per-team, not per-event).
+            registration_id: Event registration ID (from schedule page links).
+            team_name: Optional team name for logging.
 
         Returns:
-            API team ID if found, None otherwise
+            Canonical API team ID as a string when resolvable; ``None`` otherwise.
         """
+        api_url = f"https://system.gotsport.com/api/v1/teams/{registration_id}/matches?past=true"
+        log_label = team_name or registration_id
+
         try:
-            # Step 1: Go to team's event page
-            team_event_url = f"{self.EVENT_BASE}/{event_id}/schedules?team={registration_id}"
-            response = self.session.get(team_event_url, timeout=self.timeout)
-            response.raise_for_status()
+            response = self._fetch_json_via_zenrows(api_url, timeout=10)
 
-            soup = BeautifulSoup(response.text, "html.parser")
+            if response.status_code == 404:
+                logger.debug(
+                    f"API 404 for team {log_label} (reg_id={registration_id}) — "
+                    f"id is a registration ID, not an API team ID"
+                )
+                return None
 
-            # Strategy 1: Find "view rankings" link (most reliable)
-            rankings_links = soup.find_all("a", href=re.compile(r"rankings\.gotsport\.com/teams/\d+", re.I))
+            if response.status_code != 200:
+                logger.warning(
+                    f"API status {response.status_code} for team {log_label} "
+                    f"(reg_id={registration_id}); treating as unresolved"
+                )
+                return None
 
-            if not rankings_links:
-                # Try alternative patterns - might be in text like "View Rankings"
-                all_links = soup.find_all("a", href=True)
-                for link in all_links:
-                    href = link.get("href", "")
-                    if "rankings" in href.lower() and "/teams/" in href:
-                        rankings_links.append(link)
-                        break
+            matches = response.json()
+            if not isinstance(matches, list):
+                logger.warning(
+                    f"API returned non-list body for team {log_label} "
+                    f"(reg_id={registration_id}); treating as unresolved"
+                )
+                return None
 
-            for link in rankings_links:
-                href = link.get("href", "")
-                # Extract team ID from rankings URL: rankings.gotsport.com/teams/{id}
-                match = re.search(r"rankings\.gotsport\.com/teams/(\d+)", href, re.I)
-                if match:
-                    api_team_id = match.group(1)
+            if not matches:
+                logger.info(
+                    f"API returned empty match list for team {log_label} "
+                    f"(reg_id={registration_id}); ambiguous — treating as unresolved"
+                )
+                return None
+
+            queried_str = str(registration_id)
+            for match in matches:
+                if not isinstance(match, dict):
+                    continue
+                home_team = match.get("homeTeam") or {}
+                away_team = match.get("awayTeam") or {}
+                if str(home_team.get("team_id")) == queried_str or str(away_team.get("team_id")) == queried_str:
                     logger.debug(
-                        f"Resolved API team ID {api_team_id} from rankings link for {team_name or registration_id}"
+                        f"Resolved API team ID {queried_str} from self-match "
+                        f"for {log_label}"
                     )
-                    return api_team_id
+                    return queried_str
 
-            # Strategy 2: Look for direct /teams/{id} links (API team IDs, not event registration)
-            # These are links to the team's main page, not event-specific pages
-            team_links = soup.find_all("a", href=re.compile(r"system\.gotsport\.com/teams/\d+", re.I))
-            for link in team_links:
-                href = link.get("href", "")
-                match = re.search(r"/teams/(\d+)", href)
-                if match:
-                    api_team_id = match.group(1)
-                    # Validate this is an API team ID (not the same as registration_id)
-                    if api_team_id != registration_id:
-                        logger.debug(
-                            f"Resolved API team ID {api_team_id} from system.gotsport.com "
-                            f"link for {team_name or registration_id}"
-                        )
-                        return api_team_id
-
-            # Strategy 3: Look for team_id in JavaScript/JSON data on the page
-            scripts = soup.find_all("script")
-            for script in scripts:
-                if script.string:
-                    # Look for patterns like "team_id": 123456 or team_id = 123456
-                    patterns = [
-                        r'"team_id"\s*:\s*(\d+)',
-                        r"'team_id'\s*:\s*(\d+)",
-                        r"team_id\s*=\s*(\d+)",
-                        r'"rankings_team_id"\s*:\s*(\d+)',
-                        r'"api_team_id"\s*:\s*(\d+)',
-                    ]
-                    for pattern in patterns:
-                        matches = re.findall(pattern, script.string, re.IGNORECASE)
-                        for api_team_id in matches:
-                            # Validate it's different from registration_id (likely the API team ID)
-                            if api_team_id != registration_id and len(api_team_id) >= 5:
-                                logger.debug(
-                                    f"Resolved API team ID {api_team_id} from script data "
-                                    f"for {team_name or registration_id}"
-                                )
-                                return api_team_id
-
-            # Strategy 4: Try the GotSport API directly with the registration ID
-            # Some registration IDs might actually be valid API team IDs
-            try:
-                api_url = f"https://system.gotsport.com/api/v1/teams/{registration_id}/matches"
-                api_response = self.session.get(api_url, params={"past": "true"}, timeout=10)
-                if api_response.status_code == 200:
-                    # The registration ID is also a valid API team ID!
-                    logger.debug(
-                        f"Registration ID {registration_id} is a valid API team ID for {team_name or registration_id}"
-                    )
-                    return registration_id
-            except Exception:
-                pass  # API call failed, continue
-
-            logger.debug(
-                f"No API team ID found for team {team_name or registration_id} (registration_id={registration_id})"
+            # 200 + non-empty + no self-match — treat as unresolved. The API
+            # contract is "matches for the queried team" so every match
+            # SHOULD have queried_str as homeTeam.team_id or awayTeam.team_id.
+            # No self-match means a malformed response or contract drift;
+            # don't promote on uncertainty.
+            first = matches[0] if isinstance(matches[0], dict) else {}
+            logger.warning(
+                f"API returned matches but none have queried id={registration_id} as "
+                f"home/away team_id for {log_label}; treating as unresolved "
+                f"(first match home_tid={(first.get('homeTeam') or {}).get('team_id')}, "
+                f"away_tid={(first.get('awayTeam') or {}).get('team_id')})"
             )
             return None
 
-        except Exception as e:
-            logger.debug(f"Error resolving API team ID from event page for {team_name or registration_id}: {e}")
+        except (
+            requests.RequestException,
+            json.JSONDecodeError,
+            KeyError,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ) as e:
+            logger.warning(
+                f"Error resolving API team ID for {log_label} "
+                f"(reg_id={registration_id}): {type(e).__name__}: {e}"
+            )
             return None
 
     def scrape_games_from_schedule_pages(
@@ -1945,6 +2022,14 @@ class GotsportScraper(ProviderScraper):
             List of GameData objects from schedule pages
         """
         games: List[GameData] = []
+        # Mutable single-element list shared across both walks' parser calls so
+        # _parse_games_from_schedule_page can increment without changing its
+        # tuple-return contract. See plan Step 3 for the rationale.
+        drop_counter: List[int] = [0]
+        # Stash empty metrics up front so callers reading after an early-exit
+        # path (CAPTCHA re-raise, exception) see a sane shape, not stale data
+        # from a prior event.
+        self._last_resolution_metrics = {"resolved": 0, "unresolved": 0, "dropped_unresolved": 0}
 
         logger.info(f"Scraping games from schedule pages for event {event_id}")
 
@@ -2070,6 +2155,7 @@ class GotsportScraper(ProviderScraper):
                         teams_by_name,
                         api_team_id_cache,
                         registration_to_api,
+                        drop_counter=drop_counter,
                     )
                     games.extend(schedule_games)
                     logger.debug(
@@ -2116,6 +2202,7 @@ class GotsportScraper(ProviderScraper):
                             teams_by_name,
                             api_team_id_cache,
                             registration_to_api,
+                            drop_counter=drop_counter,
                         )
                         games.extend(team_games)
                         if page_delay > 0:
@@ -2133,18 +2220,33 @@ class GotsportScraper(ProviderScraper):
             unresolved_count = sum(1 for v in api_team_id_cache.values() if v is None)
             logger.info(f"Total games scraped from schedule pages: {len(games)}")
             logger.info(
-                f"Team ID resolution: {resolved_count} resolved, {unresolved_count} unresolved (using registration IDs)"
+                f"Team ID resolution: {resolved_count} resolved, {unresolved_count} unresolved"
             )
+            logger.info(f"Games dropped (unresolved teams): {drop_counter[0]}")
             if unresolved_count > 0:
                 logger.warning(
-                    "Some teams used registration IDs instead of API team IDs - these may not match in the database"
+                    f"{unresolved_count} teams could not be resolved to canonical API team IDs; "
+                    f"games involving them were dropped (count={drop_counter[0]})"
                 )
+            self._last_resolution_metrics = {
+                "resolved": resolved_count,
+                "unresolved": unresolved_count,
+                "dropped_unresolved": drop_counter[0],
+            }
         except EventCaptchaGatedError:
             # CAPTCHA is a retryable state — surface to caller so the event
-            # is not marked scraped and the artifact is preserved.
+            # is not marked scraped and the artifact is preserved. Metrics
+            # remain at the early-exit defaults (zeros) set above.
             raise
         except Exception as e:
             logger.error(f"Error scraping games from schedule pages: {e}")
+            # Stash whatever drop_counter accumulated before the exception so
+            # callers see partial metrics rather than zeros.
+            self._last_resolution_metrics = {
+                "resolved": 0,
+                "unresolved": 0,
+                "dropped_unresolved": drop_counter[0],
+            }
 
         return games
 
@@ -2157,8 +2259,18 @@ class GotsportScraper(ProviderScraper):
         teams_by_name: Optional[Dict[str, str]] = None,
         api_team_id_cache: Optional[Dict[str, Optional[str]]] = None,
         registration_to_api: Optional[Dict[str, str]] = None,
+        drop_counter: Optional[List[int]] = None,
     ) -> List[GameData]:
-        """Parse games from a single schedule page"""
+        """Parse games from a single schedule page.
+
+        ``drop_counter`` is a single-element mutable list — when provided,
+        ``drop_counter[0]`` is incremented for each game row dropped because
+        either home or away team failed all 5 resolution priorities and would
+        have shipped a registration ID as ``provider_team_id`` (the bug fixed
+        by removing the line 2283/2329 reg_id fallback). The caller in
+        ``scrape_games_from_schedule_pages`` owns the list so totals
+        accumulate across the per-group + per-team walks for a single event.
+        """
         if api_team_id_cache is None:
             api_team_id_cache = {}
         if teams_by_name is None:
@@ -2268,20 +2380,26 @@ class GotsportScraper(ProviderScraper):
                                             home_team_id = reg_id
                                             api_team_id_cache[reg_id] = reg_id
                                         else:
-                                            # Priority 4: Resolve API team ID by following the team's event page (SLOW!)
+                                            # Priority 4: Resolve API team ID via the gotsport public JSON API
                                             home_team_id = self._resolve_api_team_id_from_event_page(
                                                 event_id, reg_id, home_team_name
                                             )
                                             api_team_id_cache[reg_id] = home_team_id
+                                            # Propagate the resolved (reg_id → api_id) mapping so
+                                            # subsequent rows on this OR the per-team walk pass
+                                            # hit Priority 1 instead of re-resolving.
+                                            if home_team_id:
+                                                registration_to_api[reg_id] = home_team_id
 
                                         if not home_team_id:
                                             # Priority 5: Fallback to name-based mapping
                                             if teams_by_name and home_team_name:
                                                 normalized_name = " ".join(home_team_name.split()).lower()
                                                 home_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID
-                                            if not home_team_id:
-                                                home_team_id = reg_id
+                                            # If still unresolved, leave home_team_id = None.
+                                            # Do NOT fall back to reg_id — that pollutes
+                                            # team_alias_map with registration IDs treated as
+                                            # canonical provider_team_ids.
 
                         # Extract away team
                         away_cell = cells[away_col] if away_col is not None and away_col < len(cells) else None
@@ -2314,22 +2432,38 @@ class GotsportScraper(ProviderScraper):
                                             away_team_id = reg_id
                                             api_team_id_cache[reg_id] = reg_id
                                         else:
-                                            # Priority 4: Resolve API team ID by following the team's event page (SLOW!)
+                                            # Priority 4: Resolve API team ID via the gotsport public JSON API
                                             away_team_id = self._resolve_api_team_id_from_event_page(
                                                 event_id, reg_id, away_team_name
                                             )
                                             api_team_id_cache[reg_id] = away_team_id
+                                            # Propagate the resolved (reg_id → api_id) mapping so
+                                            # subsequent rows on this OR the per-team walk pass
+                                            # hit Priority 1 instead of re-resolving.
+                                            if away_team_id:
+                                                registration_to_api[reg_id] = away_team_id
 
                                         if not away_team_id:
                                             # Priority 5: Fallback to name-based mapping
                                             if teams_by_name and away_team_name:
                                                 normalized_name = " ".join(away_team_name.split()).lower()
                                                 away_team_id = teams_by_name.get(normalized_name)
-                                            # Last resort: use registration ID
-                                            if not away_team_id:
-                                                away_team_id = reg_id
+                                            # If still unresolved, leave away_team_id = None.
+                                            # Do NOT fall back to reg_id — that pollutes
+                                            # team_alias_map with registration IDs treated as
+                                            # canonical provider_team_ids.
 
                         if not home_team_name or not away_team_name:
+                            continue
+
+                        # Drop the row if either team's provider ID couldn't be resolved
+                        # to a real API team_id. Shipping the row with home_team_id/away_team_id
+                        # = None would force downstream to write a registration ID into
+                        # team_alias_map (the bug we're fixing). Counter is observed in
+                        # scrape_games_from_schedule_pages → self._last_resolution_metrics.
+                        if not home_team_id or not away_team_id:
+                            if drop_counter is not None:
+                                drop_counter[0] += 1
                             continue
 
                         # Extract score

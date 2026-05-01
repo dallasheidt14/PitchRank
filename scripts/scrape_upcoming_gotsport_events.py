@@ -943,6 +943,7 @@ def scrape_upcoming_events(
                 # Scrape games directly from schedule pages (FAST PATH)
                 # This is more reliable than extract_event_teams and avoids redundant HTTP requests
                 games = scraper.scrape_games_from_schedule_pages(event_id, event_name=event_name, since_date=since_date)
+                metrics = getattr(scraper, "_last_resolution_metrics", {}) or {}
                 games = filter_games_to_window(games, window_start, window_end)
 
                 event_elapsed = (datetime.now() - event_start_time).total_seconds()
@@ -964,6 +965,9 @@ def scrape_upcoming_events(
                             "teams_count": teams_count,
                             "games_count": len(games),
                             "status": "success",
+                            "teams_resolved": metrics.get("resolved", 0),
+                            "teams_unresolved": metrics.get("unresolved", 0),
+                            "games_dropped_unresolved": metrics.get("dropped_unresolved", 0),
                         }
                     )
                     all_games.extend(games)
@@ -980,6 +984,9 @@ def scrape_upcoming_events(
                             "teams_count": 0,
                             "games_count": 0,
                             "status": "no_games",
+                            "teams_resolved": metrics.get("resolved", 0),
+                            "teams_unresolved": metrics.get("unresolved", 0),
+                            "games_dropped_unresolved": metrics.get("dropped_unresolved", 0),
                         }
                     )
                     console.print(
@@ -988,6 +995,7 @@ def scrape_upcoming_events(
 
             except Exception as e:
                 logger.error(f"Error scraping event {event_id}: {e}")
+                metrics = getattr(scraper, "_last_resolution_metrics", {}) or {}
                 event_results.append(
                     {
                         "event_id": event_id,
@@ -996,6 +1004,9 @@ def scrape_upcoming_events(
                         "games_count": 0,
                         "status": "error",
                         "error": str(e),
+                        "teams_resolved": metrics.get("resolved", 0),
+                        "teams_unresolved": metrics.get("unresolved", 0),
+                        "games_dropped_unresolved": metrics.get("dropped_unresolved", 0),
                     }
                 )
                 console.print(f"  [red]Error scraping {event_name}: {e}[/red]")
