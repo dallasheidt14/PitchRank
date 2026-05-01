@@ -2,17 +2,12 @@
 import streamlit as st
 import pandas as pd
 import os
-import sys
-import subprocess
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 import time
 from pathlib import Path
 from supabase import create_client
 from config.settings import (
-    RANKING_CONFIG,
-    ML_CONFIG,
-    MATCHING_CONFIG,
     AGE_GROUPS,
     VERSION,
     PROJECT_NAME,
@@ -84,11 +79,15 @@ def fetch_all_rows(query_builder, page_size=1000):
     """
     Paginate through a Supabase query to fetch all rows, bypassing the
     default 1000-row API limit.  Returns the combined list of row dicts.
+    Each page is fetched with retry/backoff so a transient blip mid-pagination
+    doesn't abort the whole load.
     """
     all_rows = []
     offset = 0
     while True:
-        page = query_builder.range(offset, offset + page_size - 1).execute()
+        page = execute_with_retry(
+            lambda o=offset: query_builder.range(o, o + page_size - 1)
+        )
         rows = page.data or []
         all_rows.extend(rows)
         if len(rows) < page_size:
@@ -96,13 +95,158 @@ def fetch_all_rows(query_builder, page_size=1000):
         offset += page_size
     return all_rows
 
+
+# ============================================================================
+# Cached loaders for the Database Import Stats section
+# ============================================================================
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_overview_metrics():
+    db = get_database()
+    if not db:
+        return None
+    seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+    teams = db.table('teams').select('id', count='exact', head=True).execute()
+    games = db.table('games').select('id', count='exact', head=True).execute()
+    new_teams = db.table('teams').select('id', count='exact', head=True).gte('created_at', seven_days_ago).execute()
+    new_games = db.table('games').select('id', count='exact', head=True).gte('created_at', seven_days_ago).execute()
+    return {
+        'total_teams': teams.count or 0,
+        'total_games': games.count or 0,
+        'new_teams': new_teams.count or 0,
+        'new_games': new_games.count or 0,
+    }
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_daily_summary():
+    db = get_database()
+    if not db:
+        return None
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    yesterday_start = (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    yesterday_end = today_start
+    thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+
+    today = db.table('games').select('id', count='exact', head=True).gte('created_at', today_start).execute()
+    yesterday = db.table('games').select('id', count='exact', head=True).gte('created_at', yesterday_start).lt('created_at', yesterday_end).execute()
+    month = db.table('games').select('id', count='exact', head=True).gte('created_at', thirty_days_ago).execute()
+    recent_builds = db.table('build_logs').select(
+        'records_succeeded, records_processed'
+    ).order('started_at', desc=True).limit(10).execute()
+    return {
+        'today': today.count or 0,
+        'yesterday': yesterday.count or 0,
+        'month': month.count or 0,
+        'recent_builds': recent_builds.data or [],
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_scrape_eligibility(provider_id):
+    db = get_database()
+    if not db:
+        return {'recent': 0, 'stale': 0, 'never': 0}
+    res = execute_with_retry(
+        lambda: db.rpc(
+            'get_scrape_eligibility_counts',
+            {'p_provider_id': provider_id},
+        )
+    )
+    row = (res.data or [{}])[0]
+    return {
+        'recent': int(row.get('recent_count') or 0),
+        'stale': int(row.get('stale_count') or 0),
+        'never': int(row.get('never_count') or 0),
+    }
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_providers():
+    db = get_database()
+    if not db:
+        return []
+    return (db.table('providers').select('id, name, code').execute().data) or []
+
+
+@st.cache_data(ttl=300, show_spinner="Loading team status data...")
+def _load_rankings_view_status():
+    """Paginate rankings_view.status once and return a list of statuses."""
+    db = get_database()
+    if not db:
+        return []
+    statuses = []
+    page_size = 1000
+    offset = 0
+    while True:
+        res = db.table('rankings_view').select('status').range(offset, offset + page_size - 1).execute()
+        rows = res.data or []
+        statuses.extend(r.get('status') for r in rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return statuses
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _load_state_code_counts():
+    """Counts for the Missing State Codes section. One round-trip per bucket
+    via head=True; cached so the section doesn't re-fire 5 count queries on
+    every rerun."""
+    db = get_database()
+    if not db:
+        return None
+    total = execute_with_retry(
+        lambda: db.table('teams').select('id', count='exact', head=True)
+    )
+    no_state = execute_with_retry(
+        lambda: db.table('teams').select('id', count='exact', head=True)
+        .is_('state', 'null').is_('state_code', 'null')
+    )
+    has_state_no_code = execute_with_retry(
+        lambda: db.table('teams').select('id', count='exact', head=True)
+        .not_.is_('state', 'null').is_('state_code', 'null')
+    )
+    has_code_no_state = execute_with_retry(
+        lambda: db.table('teams').select('id', count='exact', head=True)
+        .is_('state', 'null').not_.is_('state_code', 'null')
+    )
+    has_both = execute_with_retry(
+        lambda: db.table('teams').select('id', count='exact', head=True)
+        .not_.is_('state', 'null').not_.is_('state_code', 'null')
+    )
+    return {
+        'total': total.count or 0,
+        'no_state': no_state.count or 0,
+        'has_state_no_code': has_state_no_code.count or 0,
+        'has_code_no_state': has_code_no_state.count or 0,
+        'has_both': has_both.count or 0,
+    }
+
+
+@st.cache_data(ttl=300, show_spinner="Loading status breakdown by age group and state...")
+def _load_rankings_view_age_state_status():
+    """Paginate rankings_view age/gender/state/status once."""
+    db = get_database()
+    if not db:
+        return []
+    rows = []
+    page_size = 1000
+    offset = 0
+    while True:
+        res = db.table('rankings_view').select('age, gender, state, status').range(offset, offset + page_size - 1).execute()
+        page = res.data or []
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
 # Sidebar navigation
 st.sidebar.title("Navigation")
 section = st.sidebar.radio(
     "Select Section",
     [
-        "🎯 Ranking Engine & ML",
-        "🔍 Matching Configuration",
         "📋 Review Queue",
         "👥 Age Groups",
         "📈 Database Import Stats",
@@ -115,36 +259,9 @@ section = st.sidebar.radio(
         "🔎 Team Discovery Review",
         "🛡️ Due Diligence Review",
         "📸 Instagram Review",
-        "⚖️ Weight Simulator",
         "🚫 Game Exclusion Manager"
     ]
 )
-
-# Helper function to display parameter table
-def display_params_table(params_dict, section_name):
-    """Display parameters in a clean table format"""
-    if not params_dict:
-        st.warning(f"No parameters found for {section_name}")
-        return
-
-    df = pd.DataFrame([
-        {"Parameter": k, "Value": v}
-        for k, v in params_dict.items()
-    ])
-    st.dataframe(df, use_container_width=True, hide_index=True)
-
-# Helper function to create parameter description
-def param_info(name, value, description, unit=""):
-    """Display parameter with description"""
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown(f"**{name}**")
-        st.caption(description)
-    with col2:
-        if unit:
-            st.metric(label="", value=f"{value} {unit}")
-        else:
-            st.metric(label="", value=value)
 
 # Helper functions for fuzzy matching
 def normalize_team_name(name: str) -> str:
@@ -165,470 +282,9 @@ def calculate_similarity(str1: str, str2: str) -> float:
     return SequenceMatcher(None, str1, str2).ratio()
 
 # ============================================================================
-# RANKING ENGINE & ML SECTION (Combined)
-# ============================================================================
-if section == "🎯 Ranking Engine & ML":
-    st.header("Ranking Engine & Machine Learning")
-    st.markdown("V53E ranking parameters and ML layer configuration")
-
-    # Key metrics overview
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Window Days", RANKING_CONFIG['window_days'])
-        st.caption("Game history timeframe")
-
-    with col2:
-        st.metric("SOS Transitivity λ", RANKING_CONFIG['sos_transitivity_lambda'])
-        st.caption("Opponent of opponent weight")
-
-    with col3:
-        st.metric("Recent Share", RANKING_CONFIG['recent_share'])
-        st.caption("Weight on recent games")
-
-    with col4:
-        st.metric("ML Alpha", ML_CONFIG['alpha'])
-        st.caption("ML layer contribution")
-
-    st.divider()
-
-    # Component weights validation
-    st.subheader("⚖️ Component Weights")
-
-    off_weight = RANKING_CONFIG['off_weight']
-    def_weight = RANKING_CONFIG['def_weight']
-    sos_weight = RANKING_CONFIG['sos_weight']
-    total_weight = off_weight + def_weight + sos_weight
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Offense", off_weight)
-    with col2:
-        st.metric("Defense", def_weight)
-    with col3:
-        st.metric("SOS", sos_weight)
-    with col4:
-        if abs(total_weight - 1.0) < 0.001:
-            st.metric("Total", total_weight, delta="✓ Valid")
-        else:
-            st.metric("Total", total_weight, delta="⚠️ Should be 1.0")
-
-    st.divider()
-
-    # V53E Ranking Engine Parameters
-    st.subheader("🎯 V53E Ranking Engine (24 Parameters)")
-
-    # Layer 1: Time Window & Visibility
-    with st.expander("**Layer 1: Time Window & Visibility**", expanded=True):
-        param_info(
-            "WINDOW_DAYS",
-            RANKING_CONFIG['window_days'],
-            "Number of days of game history to consider",
-            "days"
-        )
-        param_info(
-            "INACTIVE_HIDE_DAYS",
-            RANKING_CONFIG['inactive_hide_days'],
-            "Hide teams inactive for this many days",
-            "days"
-        )
-
-    # Layer 2: Game Limits & Outlier Protection
-    with st.expander("**Layer 2: Game Limits & Outlier Protection**", expanded=False):
-        param_info(
-            "MAX_GAMES_FOR_RANK",
-            RANKING_CONFIG['max_games'],
-            "Maximum games per team to consider",
-            "games"
-        )
-        param_info(
-            "GOAL_DIFF_CAP",
-            RANKING_CONFIG['goal_diff_cap'],
-            "Cap goal differential to prevent blowout bias",
-            "goals"
-        )
-        param_info(
-            "OUTLIER_GUARD_ZSCORE",
-            RANKING_CONFIG['outlier_guard_zscore'],
-            "Z-score threshold for outlier detection",
-            "σ"
-        )
-
-    # Layer 3: Recency Weighting
-    with st.expander("**Layer 3: Recency Weighting**", expanded=False):
-        param_info(
-            "RECENT_K",
-            RANKING_CONFIG['recent_k'],
-            "Number of most recent games to emphasize",
-            "games"
-        )
-        param_info(
-            "RECENT_SHARE",
-            RANKING_CONFIG['recent_share'],
-            "Weight given to recent games (vs older games)"
-        )
-        param_info(
-            "DAMPEN_TAIL_START",
-            RANKING_CONFIG['dampen_tail_start'],
-            "Game number where tail dampening begins",
-            "game #"
-        )
-        param_info(
-            "DAMPEN_TAIL_END",
-            RANKING_CONFIG['dampen_tail_end'],
-            "Game number where tail dampening ends",
-            "game #"
-        )
-        param_info(
-            "DAMPEN_TAIL_START_WEIGHT",
-            RANKING_CONFIG['dampen_tail_start_weight'],
-            "Weight at start of tail dampening"
-        )
-        param_info(
-            "DAMPEN_TAIL_END_WEIGHT",
-            RANKING_CONFIG['dampen_tail_end_weight'],
-            "Weight at end of tail dampening"
-        )
-
-    # Layer 4: Defense Ridge
-    with st.expander("**Layer 4: Defense Ridge Regularization**", expanded=False):
-        param_info(
-            "RIDGE_GA",
-            RANKING_CONFIG['ridge_ga'],
-            "Ridge penalty for defensive ratings to prevent overfitting"
-        )
-
-    # Layer 5: Adaptive K-Factor
-    with st.expander("**Layer 5: Adaptive K-Factor**", expanded=False):
-        param_info(
-            "ADAPTIVE_K_ALPHA",
-            RANKING_CONFIG['adaptive_k_alpha'],
-            "Alpha parameter for adaptive K calculation"
-        )
-        param_info(
-            "ADAPTIVE_K_BETA",
-            RANKING_CONFIG['adaptive_k_beta'],
-            "Beta parameter for adaptive K calculation"
-        )
-        param_info(
-            "TEAM_OUTLIER_GUARD_ZSCORE",
-            RANKING_CONFIG['team_outlier_guard_zscore'],
-            "Z-score threshold for team-level outlier detection",
-            "σ"
-        )
-
-    # Layer 6: Performance Adjustment
-    with st.expander("**Layer 6: Performance Adjustment**", expanded=False):
-        param_info(
-            "PERFORMANCE_K",
-            RANKING_CONFIG['performance_k'],
-            "Weight of performance adjustment"
-        )
-        param_info(
-            "PERFORMANCE_DECAY_RATE",
-            RANKING_CONFIG['performance_decay_rate'],
-            "Decay rate for performance adjustment over time"
-        )
-        param_info(
-            "PERFORMANCE_THRESHOLD",
-            RANKING_CONFIG['performance_threshold'],
-            "Threshold for significant performance adjustment",
-            "σ"
-        )
-        param_info(
-            "PERFORMANCE_GOAL_SCALE",
-            RANKING_CONFIG['performance_goal_scale'],
-            "Scaling factor for goal-based performance"
-        )
-
-    # Layer 7: Bayesian Shrinkage
-    with st.expander("**Layer 7: Bayesian Shrinkage**", expanded=False):
-        param_info(
-            "SHRINK_TAU",
-            RANKING_CONFIG['shrink_tau'],
-            "Bayesian shrinkage strength. Higher = more conservative estimates"
-        )
-
-    # Layer 8: Strength of Schedule (SOS)
-    with st.expander("**Layer 8: Strength of Schedule**", expanded=False):
-        param_info(
-            "UNRANKED_SOS_BASE",
-            RANKING_CONFIG['unranked_sos_base'],
-            "Base SOS value for unranked opponents"
-        )
-        param_info(
-            "SOS_REPEAT_CAP",
-            RANKING_CONFIG['sos_repeat_cap'],
-            "Maximum times same opponent counts toward SOS",
-            "games"
-        )
-        param_info(
-            "SOS_ITERATIONS",
-            RANKING_CONFIG['sos_iterations'],
-            "Number of SOS calculation iterations",
-            "iterations"
-        )
-        param_info(
-            "SOS_TRANSITIVITY_LAMBDA",
-            RANKING_CONFIG['sos_transitivity_lambda'],
-            "Transitivity weight: 0.20 = 80% direct + 20% indirect opponents"
-        )
-
-    # Layer 9: Opponent Adjustment
-    with st.expander("**Layer 9: Opponent-Adjusted Offense/Defense**", expanded=False):
-        param_info(
-            "OPPONENT_ADJUST_ENABLED",
-            RANKING_CONFIG['opponent_adjust_enabled'],
-            "Enable opponent-adjusted offense/defense to prevent double-counting"
-        )
-        param_info(
-            "OPPONENT_ADJUST_BASELINE",
-            RANKING_CONFIG['opponent_adjust_baseline'],
-            "Baseline opponent strength for adjustments"
-        )
-        param_info(
-            "OPPONENT_ADJUST_CLIP_MIN",
-            RANKING_CONFIG['opponent_adjust_clip_min'],
-            "Minimum clip value for opponent adjustment"
-        )
-        param_info(
-            "OPPONENT_ADJUST_CLIP_MAX",
-            RANKING_CONFIG['opponent_adjust_clip_max'],
-            "Maximum clip value for opponent adjustment"
-        )
-
-    # Layer 10: Component Weights
-    with st.expander("**Layer 10: Component Weights**", expanded=False):
-        st.markdown("These weights combine offense, defense, and SOS into final power score.")
-
-        param_info(
-            "OFF_WEIGHT",
-            RANKING_CONFIG['off_weight'],
-            "Weight for offensive component"
-        )
-        param_info(
-            "DEF_WEIGHT",
-            RANKING_CONFIG['def_weight'],
-            "Weight for defensive component"
-        )
-        param_info(
-            "SOS_WEIGHT",
-            RANKING_CONFIG['sos_weight'],
-            "Weight for strength of schedule component"
-        )
-
-        total = RANKING_CONFIG['off_weight'] + RANKING_CONFIG['def_weight'] + RANKING_CONFIG['sos_weight']
-        if abs(total - 1.0) < 0.001:
-            st.success(f"✓ Weights sum to {total:.3f}")
-        else:
-            st.error(f"⚠️ Weights sum to {total:.3f} (should be 1.0)")
-
-    # Additional Parameters
-    with st.expander("**Additional Parameters**", expanded=False):
-        param_info(
-            "MIN_GAMES_FOR_RANKING",
-            RANKING_CONFIG['min_games_for_ranking'],
-            "Minimum games required for ranking (provisional otherwise)",
-            "games"
-        )
-        param_info(
-            "ANCHOR_PERCENTILE",
-            RANKING_CONFIG['anchor_percentile'],
-            "Percentile for cross-age group anchoring"
-        )
-        param_info(
-            "NORM_MODE",
-            RANKING_CONFIG['norm_mode'],
-            "Normalization mode: 'percentile' or 'zscore'"
-        )
-
-    # ML Layer Section (Layer 13)
-    st.divider()
-    st.subheader("🤖 Machine Learning Layer (Layer 13)")
-
-    # ML Layer Status
-    col1, col2 = st.columns(2)
-    with col1:
-        if ML_CONFIG['enabled']:
-            st.success("✓ ML Layer Enabled")
-        else:
-            st.warning("⚠️ ML Layer Disabled")
-    with col2:
-        st.metric("ML Alpha (Blend Weight)", ML_CONFIG['alpha'])
-
-    # Core ML Parameters in expander
-    with st.expander("**Core ML Parameters**", expanded=False):
-        param_info(
-            "ML_ALPHA",
-            ML_CONFIG['alpha'],
-            "Blend weight for ML adjustment: 0 = no ML, 1 = full ML"
-        )
-        param_info(
-            "RECENCY_DECAY_LAMBDA",
-            ML_CONFIG['recency_decay_lambda'],
-            "Exponential decay rate for game recency"
-        )
-        param_info(
-            "MIN_TEAM_GAMES_FOR_RESIDUAL",
-            ML_CONFIG['min_team_games_for_residual'],
-            "Minimum games required to calculate game residuals",
-            "games"
-        )
-        param_info(
-            "RESIDUAL_CLIP_GOALS",
-            ML_CONFIG['residual_clip_goals'],
-            "Clip residuals to prevent extreme outlier influence",
-            "goals"
-        )
-        param_info(
-            "NORM_MODE",
-            ML_CONFIG['norm_mode'],
-            "Normalization mode for ML features"
-        )
-        param_info(
-            "LOOKBACK_DAYS",
-            ML_CONFIG['lookback_days'],
-            "Historical data window for ML training",
-            "days"
-        )
-
-    # XGBoost Parameters in expander
-    with st.expander("**XGBoost Hyperparameters**", expanded=False):
-        xgb_df = pd.DataFrame([
-            {"Parameter": k, "Value": v}
-            for k, v in ML_CONFIG['xgb_params'].items()
-        ])
-        st.dataframe(xgb_df, use_container_width=True, hide_index=True)
-
-    # Random Forest Parameters in expander
-    with st.expander("**Random Forest Hyperparameters**", expanded=False):
-        rf_df = pd.DataFrame([
-            {"Parameter": k, "Value": v}
-            for k, v in ML_CONFIG['rf_params'].items()
-        ])
-        st.dataframe(rf_df, use_container_width=True, hide_index=True)
-
-# ============================================================================
-# MATCHING CONFIGURATION SECTION
-# ============================================================================
-elif section == "🔍 Matching Configuration":
-    st.header("Team Name Fuzzy Matching")
-    st.markdown("Configuration for team name matching and deduplication")
-
-    # ------------------------------------------------------------------
-    # Confidence-range visual
-    # ------------------------------------------------------------------
-    auto_thresh = MATCHING_CONFIG['auto_approve_threshold']
-    review_thresh = MATCHING_CONFIG['review_threshold']
-
-    st.markdown(
-        f"| Range | Action |\n"
-        f"|---|---|\n"
-        f"| **≥ {auto_thresh}** | Auto-approve |\n"
-        f"| **{review_thresh} – {auto_thresh}** | Sent to **Review Queue** for manual review |\n"
-        f"| **< {review_thresh}** | Rejected |"
-    )
-
-    # Threshold metrics
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Auto-Approve Threshold",
-            auto_thresh,
-        )
-        st.caption(f"≥ {auto_thresh}: Automatic match")
-
-    with col2:
-        st.metric(
-            "Review Threshold",
-            review_thresh,
-        )
-        st.caption(f"{review_thresh}–{auto_thresh}: Manual review")
-
-    with col3:
-        st.metric(
-            "Fuzzy Threshold",
-            MATCHING_CONFIG['fuzzy_threshold'],
-        )
-        st.caption(f"< {review_thresh}: Reject")
-
-    st.divider()
-
-    # ------------------------------------------------------------------
-    # Component weights
-    # ------------------------------------------------------------------
-    st.subheader("Component Weights")
-    weights = MATCHING_CONFIG['weights']
-
-    weights_df = pd.DataFrame([
-        {"Component": k.title(), "Weight": v}
-        for k, v in weights.items()
-    ])
-
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.dataframe(weights_df, use_container_width=True, hide_index=True)
-    with col2:
-        total_weight = sum(weights.values())
-        if abs(total_weight - 1.0) < 0.001:
-            st.success(f"Total: {total_weight:.3f}")
-        else:
-            st.error(f"Total: {total_weight:.3f}")
-
-    st.divider()
-
-    # ------------------------------------------------------------------
-    # Boost & guard-rail settings
-    # ------------------------------------------------------------------
-    st.subheader("Boost & Guard-Rail Settings")
-
-    param_info(
-        "CLUB_BOOST_IDENTICAL",
-        MATCHING_CONFIG['club_boost_identical'],
-        "Score boost when club names match exactly"
-    )
-    param_info(
-        "CLUB_MIN_SIMILARITY",
-        MATCHING_CONFIG['club_min_similarity'],
-        "Minimum club name similarity to apply boost"
-    )
-    param_info(
-        "CLUB_VARIANT_MATCH_BOOST",
-        MATCHING_CONFIG.get('club_variant_match_boost', 'N/A'),
-        "Boost when both club AND variant (color/coach/direction) match"
-    )
-    param_info(
-        "FUZZY_CONFIDENCE_CEILING",
-        MATCHING_CONFIG.get('fuzzy_confidence_ceiling', 'N/A'),
-        "Max stored confidence for fuzzy matches (prevents 1.0 for non-direct)"
-    )
-
-    st.divider()
-
-    # ------------------------------------------------------------------
-    # Additional settings
-    # ------------------------------------------------------------------
-    st.subheader("Additional Settings")
-
-    param_info(
-        "MAX_AGE_DIFF",
-        MATCHING_CONFIG['max_age_diff'],
-        "Maximum age group difference for matching",
-        "years"
-    )
-    param_info(
-        "CONNECTION_REFRESH_INTERVAL",
-        MATCHING_CONFIG.get('connection_refresh_interval', 'N/A'),
-        "Refresh Supabase client every N games during long imports",
-        "games"
-    )
-
-# ============================================================================
 # REVIEW QUEUE SECTION
 # ============================================================================
-elif section == "📋 Review Queue":
+if section == "📋 Review Queue":
     st.header("Match Review Queue")
     st.markdown("Teams matched with **0.75 – 0.90 confidence** that need manual review before being linked.")
 
@@ -865,7 +521,9 @@ elif section == "🧩 Unknown Opponent Review":
             q = db.table("games").select(select_cols).eq("is_excluded", False).or_(
                 "home_team_master_id.is.null,away_team_master_id.is.null"
             ).not_.is_("home_provider_id", "null").not_.is_("away_provider_id", "null")
-            batch = q.range(offset, offset + page_size - 1).execute().data or []
+            batch = (execute_with_retry(
+                lambda o=offset: q.range(o, o + page_size - 1)
+            ).data) or []
             if not batch:
                 break
             all_games.extend(batch)
@@ -1044,32 +702,15 @@ elif section == "📈 Database Import Stats":
         col1, col2, col3, col4 = st.columns(4)
 
         try:
-            # Total teams
-            teams_result = db.table('teams').select('id', count='exact').execute()
-            total_teams = teams_result.count or 0
-
-            # Total games
-            games_result = db.table('games').select('id', count='exact').execute()
-            total_games = games_result.count or 0
-
-            # Teams added in last 7 days
-            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
-            new_teams_result = db.table('teams').select('id', count='exact').gte('created_at', seven_days_ago).execute()
-            new_teams = new_teams_result.count or 0
-
-            # Games added in last 7 days
-            new_games_result = db.table('games').select('id', count='exact').gte('created_at', seven_days_ago).execute()
-            new_games = new_games_result.count or 0
-
+            metrics = _load_overview_metrics() or {}
             with col1:
-                st.metric("Total Teams", f"{total_teams:,}")
+                st.metric("Total Teams", f"{metrics.get('total_teams', 0):,}")
             with col2:
-                st.metric("Total Games", f"{total_games:,}")
+                st.metric("Total Games", f"{metrics.get('total_games', 0):,}")
             with col3:
-                st.metric("New Teams (7d)", f"{new_teams:,}")
+                st.metric("New Teams (7d)", f"{metrics.get('new_teams', 0):,}")
             with col4:
-                st.metric("New Games (7d)", f"{new_games:,}")
-
+                st.metric("New Games (7d)", f"{metrics.get('new_games', 0):,}")
         except Exception as e:
             st.error(f"Error loading overview metrics: {e}")
 
@@ -1080,26 +721,12 @@ elif section == "📈 Database Import Stats":
         col1, col2, col3, col4 = st.columns(4)
 
         try:
-            # Today's imports
-            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            today_result = db.table('games').select('id', count='exact').gte('created_at', today_start).execute()
-            today_games = today_result.count or 0
-
-            # Yesterday's imports
-            yesterday_start = (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            yesterday_end = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-            yesterday_result = db.table('games').select('id', count='exact').gte('created_at', yesterday_start).lt('created_at', yesterday_end).execute()
-            yesterday_games = yesterday_result.count or 0
-
-            # Calculate daily average (last 30 days)
-            thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
-            month_result = db.table('games').select('id', count='exact').gte('created_at', thirty_days_ago).execute()
-            month_games = month_result.count or 0
+            daily = _load_daily_summary() or {}
+            today_games = daily.get('today', 0)
+            yesterday_games = daily.get('yesterday', 0)
+            month_games = daily.get('month', 0)
             daily_avg = month_games / 30 if month_games > 0 else 0
-
-            # Delta comparison
             delta_vs_yesterday = today_games - yesterday_games if yesterday_games > 0 else None
-            delta_vs_avg = today_games - daily_avg if daily_avg > 0 else None
 
             with col1:
                 st.metric("Today's Imports", f"{today_games:,}",
@@ -1110,14 +737,10 @@ elif section == "📈 Database Import Stats":
             with col3:
                 st.metric("Daily Average (30d)", f"{daily_avg:,.0f}")
             with col4:
-                # Success rate from recent builds
-                recent_builds = db.table('build_logs').select(
-                    'records_succeeded, records_processed'
-                ).order('started_at', desc=True).limit(10).execute()
-
-                if recent_builds.data:
-                    total_processed = sum(b.get('records_processed', 0) or 0 for b in recent_builds.data)
-                    total_succeeded = sum(b.get('records_succeeded', 0) or 0 for b in recent_builds.data)
+                recent_builds = daily.get('recent_builds') or []
+                if recent_builds:
+                    total_processed = sum(b.get('records_processed', 0) or 0 for b in recent_builds)
+                    total_succeeded = sum(b.get('records_succeeded', 0) or 0 for b in recent_builds)
                     success_rate = (total_succeeded / total_processed * 100) if total_processed > 0 else 100
                     st.metric("Success Rate (Recent)", f"{success_rate:.1f}%")
                 else:
@@ -1137,9 +760,7 @@ elif section == "📈 Database Import Stats":
         )
 
         try:
-            # Fetch providers for per-provider breakdown
-            providers_result = db.table('providers').select('id, name, code').execute()
-            providers_list = providers_result.data or []
+            providers_list = _load_providers()
 
             # Build provider filter options: "All Providers" + each provider
             provider_filter_options = ["All Providers"] + [p['name'] for p in providers_list]
@@ -1157,20 +778,10 @@ elif section == "📈 Database Import Stats":
                     None,
                 )
 
-            # get_scrape_eligibility_counts applies the same U8/U9, birth-year,
-            # and placeholder filters as get_teams_to_scrape_limited, so counts
-            # reflect workflow-eligible teams only and use server-side
-            # `now() - interval '7 days'` (no client TZ drift).
-            counts_result = execute_with_retry(
-                lambda: db.rpc(
-                    'get_scrape_eligibility_counts',
-                    {'p_provider_id': selected_provider_id},
-                )
-            )
-            counts_row = (counts_result.data or [{}])[0]
-            recent_count = int(counts_row.get('recent_count') or 0)
-            stale_count = int(counts_row.get('stale_count') or 0)
-            never_count = int(counts_row.get('never_count') or 0)
+            counts = _load_scrape_eligibility(selected_provider_id)
+            recent_count = counts['recent']
+            stale_count = counts['stale']
+            never_count = counts['never']
 
             # Total teams for percentage calculation
             total_teams = recent_count + stale_count + never_count
@@ -1203,17 +814,10 @@ elif section == "📈 Database Import Stats":
                     provider_rows = []
                     for prov in providers_list:
                         try:
-                            pid = prov['id']
-                            p_counts_res = execute_with_retry(
-                                lambda p=pid: db.rpc(
-                                    'get_scrape_eligibility_counts',
-                                    {'p_provider_id': p},
-                                )
-                            )
-                            p_row = (p_counts_res.data or [{}])[0]
-                            p_recent_ct = int(p_row.get('recent_count') or 0)
-                            p_stale_ct = int(p_row.get('stale_count') or 0)
-                            p_never_ct = int(p_row.get('never_count') or 0)
+                            p_counts = _load_scrape_eligibility(prov['id'])
+                            p_recent_ct = p_counts['recent']
+                            p_stale_ct = p_counts['stale']
+                            p_never_ct = p_counts['never']
                             p_total = p_recent_ct + p_stale_ct + p_never_ct
                             p_coverage = (p_recent_ct / p_total * 100) if p_total > 0 else 0
                             provider_rows.append({
@@ -1350,46 +954,8 @@ elif section == "📈 Database Import Stats":
         st.markdown("Breakdown of teams by ranking status (Active, Inactive, Not Enough Ranked Games)")
 
         try:
-            # Query rankings_full or rankings_view for status distribution
-            # Try rankings_view first (includes all teams with rankings)
-            status_query = """
-                SELECT 
-                    status,
-                    COUNT(*) as team_count
-                FROM rankings_view
-                GROUP BY status
-                ORDER BY 
-                    CASE status 
-                        WHEN 'Active' THEN 1 
-                        WHEN 'Not Enough Ranked Games' THEN 2 
-                        WHEN 'Inactive' THEN 3 
-                        ELSE 4 
-                    END
-            """
-            
-            # Use RPC call or direct query
-            # Since Supabase Python client doesn't support raw SQL easily, we'll use table queries
-            # Get all unique statuses and count them
-            all_statuses = []
-            page_size = 1000
-            offset = 0
-            
-            with st.spinner("Loading team status data..."):
-                while True:
-                    status_result = db.table('rankings_view').select(
-                        'status'
-                    ).range(offset, offset + page_size - 1).execute()
-                    
-                    if not status_result.data:
-                        break
-                    
-                    all_statuses.extend([r.get('status') for r in status_result.data])
-                    
-                    if len(status_result.data) < page_size:
-                        break
-                    
-                    offset += page_size
-            
+            all_statuses = _load_rankings_view_status()
+
             if all_statuses:
                 # Count statuses
                 from collections import Counter
@@ -1471,34 +1037,17 @@ elif section == "📈 Database Import Stats":
                 st.divider()
                 st.subheader("Status Breakdown by Age Group and State")
                 
-                # Get status by age group and state
-                age_state_status_data = []
-                offset = 0
-                
-                with st.spinner("Loading status breakdown by age group and state..."):
-                    while True:
-                        age_state_status_result = db.table('rankings_view').select(
-                            'age, gender, state, status'
-                        ).range(offset, offset + page_size - 1).execute()
-                        
-                        if not age_state_status_result.data:
-                            break
-                        
-                        age_state_status_data.extend([
-                            {
-                                'age': r.get('age'),
-                                'gender': r.get('gender'),
-                                'state': r.get('state') or 'Unknown',
-                                'status': r.get('status')
-                            }
-                            for r in age_state_status_result.data
-                        ])
-                        
-                        if len(age_state_status_result.data) < page_size:
-                            break
-                        
-                        offset += page_size
-                
+                rows = _load_rankings_view_age_state_status()
+                age_state_status_data = [
+                    {
+                        'age': r.get('age'),
+                        'gender': r.get('gender'),
+                        'state': r.get('state') or 'Unknown',
+                        'status': r.get('status'),
+                    }
+                    for r in rows
+                ]
+
                 if age_state_status_data:
                     age_state_status_df = pd.DataFrame(age_state_status_data)
                     
@@ -2035,9 +1584,11 @@ elif section == "🗺️ State Coverage":
 
             with st.spinner("Loading all teams..."):
                 while True:
-                    teams_result = db.table('teams').select(
-                        'state_code, age_group, gender'
-                    ).range(offset, offset + page_size - 1).execute()
+                    teams_result = execute_with_retry(
+                        lambda o=offset: db.table('teams').select(
+                            'state_code, age_group, gender'
+                        ).range(o, o + page_size - 1)
+                    )
 
                     if not teams_result.data:
                         break
@@ -2230,49 +1781,12 @@ elif section == "📍 Missing State Codes":
     else:
         try:
             with st.spinner("Loading teams without state codes..."):
-                # Get total teams count (with retry)
-                total_result = execute_with_retry(
-                    lambda: db.table('teams').select('*', count='exact'),
-                    max_retries=3,
-                    base_delay=2.0
-                )
-                total_teams = total_result.count
-                time.sleep(0.5)  # Small delay between queries
-
-                # Count teams with no state (both state and state_code are NULL)
-                no_state_result = execute_with_retry(
-                    lambda: db.table('teams').select('*', count='exact').is_('state', 'null').is_('state_code', 'null'),
-                    max_retries=3,
-                    base_delay=2.0
-                )
-                no_state_count = no_state_result.count
-                time.sleep(0.5)
-
-                # Count teams with state but no state_code
-                has_state_no_code_result = execute_with_retry(
-                    lambda: db.table('teams').select('*', count='exact').not_.is_('state', 'null').is_('state_code', 'null'),
-                    max_retries=3,
-                    base_delay=2.0
-                )
-                has_state_no_code_count = has_state_no_code_result.count
-                time.sleep(0.5)
-
-                # Count teams with state_code but no state
-                has_code_no_state_result = execute_with_retry(
-                    lambda: db.table('teams').select('*', count='exact').is_('state', 'null').not_.is_('state_code', 'null'),
-                    max_retries=3,
-                    base_delay=2.0
-                )
-                has_code_no_state_count = has_code_no_state_result.count
-                time.sleep(0.5)
-
-                # Count teams with both state and state_code
-                has_both_result = execute_with_retry(
-                    lambda: db.table('teams').select('*', count='exact').not_.is_('state', 'null').not_.is_('state_code', 'null'),
-                    max_retries=3,
-                    base_delay=2.0
-                )
-                has_both_count = has_both_result.count
+                counts = _load_state_code_counts() or {}
+                total_teams = counts.get('total', 0)
+                no_state_count = counts.get('no_state', 0)
+                has_state_no_code_count = counts.get('has_state_no_code', 0)
+                has_code_no_state_count = counts.get('has_code_no_state', 0)
+                has_both_count = counts.get('has_both', 0)
 
             # Display summary metrics
             st.subheader("Summary")
@@ -5990,7 +5504,9 @@ elif section == "📸 Instagram Review":
         offset = 0
         page_size = 1000
         while True:
-            rows = query.range(offset, offset + page_size - 1).execute().data or []
+            rows = (execute_with_retry(
+                lambda o=offset: query.range(o, o + page_size - 1)
+            ).data) or []
             all_rows.extend(rows)
             if len(rows) < page_size:
                 break
@@ -6117,245 +5633,6 @@ elif section == "📸 Instagram Review":
                 st.divider()
 
         st.caption(f"Page {ig_page} of {total_pages} | {len(rows)} total records")
-
-elif section == "⚖️ Weight Simulator":
-    db = get_database()
-    st.header("PowerScore Weight Simulator")
-    st.markdown(
-        "Replay the PowerScore blend with different weights **without re-running the full pipeline**. "
-        "Uses normalized components (off_norm, def_norm, sos_norm, perf_centered, ml_norm) "
-        "from `rankings_full`."
-    )
-
-    # ── Data source toggle ──────────────────────────────────────────
-    sim_tabs = st.tabs(["Live (Supabase)", "Sample (AZ U12M)"])
-
-    # --- helpers shared by both tabs ---
-    def _sim_provisional_mult(gp, min_gp=8):
-        if gp >= min_gp:
-            return 1.0
-        return 0.6 + 0.4 * (gp / min_gp)
-
-    def _sim_blend(rows, off_w, def_w, sos_w, perf_w, perf_cap, ml_alpha, sos_weighted_perf):
-        """Recompute PowerScore from normalized components."""
-        import numpy as np
-        results = []
-        for _, r in rows.iterrows():
-            perf = float(r.get("perf_centered", 0.0))
-            if sos_weighted_perf:
-                perf = perf * float(r.get("sos_norm", 0.5))
-            perf = max(-perf_cap, min(perf_cap, perf))
-
-            max_ps = 1.0 + perf_cap * perf_w
-            max_ml = 1.0 + perf_cap * ml_alpha
-
-            ps_core = (
-                off_w * float(r.get("off_norm", 0.5))
-                + def_w * float(r.get("def_norm", 0.5))
-                + sos_w * float(r.get("sos_norm", 0.5))
-                + perf * perf_w
-            ) / max_ps if max_ps > 0 else 0
-
-            gp = int(r.get("games_played", 30))
-            ps_adj = ps_core * _sim_provisional_mult(gp)
-
-            ml_norm_val = float(r.get("ml_norm", 0.0))
-            ps_ml = (ps_adj + ml_alpha * ml_norm_val) / max_ml if max_ml > 0 else ps_adj
-            ps_ml = max(0.0, min(1.0, ps_ml))
-
-            results.append({
-                "team_name": r.get("team_name", r.get("name", "Unknown")),
-                "club_name": r.get("club_name", ""),
-                "age_group": r.get("age_group", ""),
-                "gender": r.get("gender", ""),
-                "games_played": gp,
-                "off_norm": round(float(r.get("off_norm", 0)), 4),
-                "def_norm": round(float(r.get("def_norm", 0)), 4),
-                "sos_norm": round(float(r.get("sos_norm", 0)), 4),
-                "perf_centered": round(perf, 4),
-                "ml_norm": round(ml_norm_val, 4),
-                "ps_adj": round(ps_adj, 4),
-                "ps_ml": round(ps_ml, 4),
-                "display_score": round(ps_ml * 55, 2),
-            })
-        df = pd.DataFrame(results).sort_values("ps_ml", ascending=False).reset_index(drop=True)
-        df.index = df.index + 1
-        df.index.name = "Rank"
-        return df
-
-    # ── Sidebar-style controls (in main area via columns) ───────────
-    st.subheader("Weight Controls")
-    ctrl_cols = st.columns(4)
-    with ctrl_cols[0]:
-        sim_off_w = st.slider("OFF Weight", 0.0, 0.50, 0.20, 0.025, key="sim_off")
-        sim_def_w = st.slider("DEF Weight", 0.0, 0.50, 0.20, 0.025, key="sim_def")
-    with ctrl_cols[1]:
-        sim_sos_w = st.slider("SOS Weight", 0.20, 0.80, 0.60, 0.05, key="sim_sos")
-        weight_sum = sim_off_w + sim_def_w + sim_sos_w
-        if abs(weight_sum - 1.0) > 0.02:
-            st.warning(f"OFF+DEF+SOS = {weight_sum:.2f} (should be ~1.0)")
-        else:
-            st.success(f"OFF+DEF+SOS = {weight_sum:.2f}")
-    with ctrl_cols[2]:
-        sim_perf_w = st.slider("PERF Weight", 0.0, 0.25, 0.00, 0.01, key="sim_perf")
-        sim_perf_cap = st.slider("PERF Cap (±)", 0.05, 0.50, 0.15, 0.05, key="sim_cap")
-    with ctrl_cols[3]:
-        sim_ml_alpha = st.slider("ML Alpha", 0.0, 0.30, 0.08, 0.01, key="sim_ml")
-        sim_sos_perf = st.checkbox("SOS-weighted PERF", value=False, key="sim_sos_perf",
-                                   help="Multiply perf_centered by sos_norm before blending")
-
-    # Show current vs production
-    st.markdown("---")
-    prod_cols = st.columns(7)
-    prod_labels = ["OFF", "DEF", "SOS", "PERF", "CAP", "ML_A", "SOS-P"]
-    prod_vals = [0.20, 0.20, 0.60, 0.00, 0.15, 0.18, "N"]
-    sim_vals = [sim_off_w, sim_def_w, sim_sos_w, sim_perf_w, sim_perf_cap, sim_ml_alpha,
-                "Y" if sim_sos_perf else "N"]
-    for col, label, prod, sim in zip(prod_cols, prod_labels, prod_vals, sim_vals):
-        with col:
-            if isinstance(prod, float):
-                delta = sim - prod
-                st.metric(label, f"{sim:.2f}", f"{delta:+.2f}" if abs(delta) > 0.001 else "0")
-            else:
-                st.metric(label, str(sim), "CHANGED" if sim != prod else "")
-
-    # ── Tab 1: Live data from Supabase ──────────────────────────────
-    with sim_tabs[0]:
-        st.subheader("Live Rankings Simulation")
-
-        live_cols = st.columns(3)
-        with live_cols[0]:
-            live_age = st.selectbox("Age Group", ["All"] + [f"U{a}" for a in range(10, 20)], key="live_age")
-        with live_cols[1]:
-            live_gender = st.selectbox("Gender", ["All", "Male", "Female"], key="live_gender")
-        with live_cols[2]:
-            live_state = st.text_input("State (e.g. AZ, CA)", value="", key="live_state").strip().upper()
-
-        if st.button("Fetch & Simulate", key="live_fetch", type="primary"):
-            with st.spinner("Fetching from rankings_full..."):
-                try:
-                    query = db.table("rankings_full").select(
-                        "team_id,team_name,club_name,age_group,gender,state_code,"
-                        "games_played,off_norm,def_norm,sos_norm,perf_centered,ml_norm,"
-                        "powerscore_ml"
-                    )
-                    if live_age != "All":
-                        query = query.eq("age_group", live_age)
-                    if live_gender != "All":
-                        query = query.eq("gender", live_gender)
-                    if live_state:
-                        query = query.eq("state_code", live_state)
-                    query = query.order("powerscore_ml", desc=True).limit(100)
-                    resp = query.execute()
-                    if resp.data:
-                        live_df = pd.DataFrame(resp.data)
-                        st.session_state["sim_live_data"] = live_df
-                        st.success(f"Fetched {len(live_df)} teams")
-                    else:
-                        st.warning("No data returned. Check filters.")
-                except Exception as e:
-                    st.error(f"Supabase error: {e}")
-
-        if "sim_live_data" in st.session_state:
-            live_df = st.session_state["sim_live_data"]
-            sim_result = _sim_blend(
-                live_df, sim_off_w, sim_def_w, sim_sos_w,
-                sim_perf_w, sim_perf_cap, sim_ml_alpha, sim_sos_perf
-            )
-
-            # Show comparison: current production rank vs simulated rank
-            display_cols = ["team_name", "club_name", "age_group", "gender",
-                           "games_played", "off_norm", "def_norm", "sos_norm",
-                           "perf_centered", "ml_norm", "ps_ml", "display_score"]
-            st.dataframe(
-                sim_result[display_cols],
-                use_container_width=True,
-                height=600,
-                column_config={
-                    "ps_ml": st.column_config.NumberColumn("PowerScore", format="%.4f"),
-                    "display_score": st.column_config.NumberColumn("Display (×55)", format="%.2f"),
-                    "off_norm": st.column_config.NumberColumn("OFF", format="%.3f"),
-                    "def_norm": st.column_config.NumberColumn("DEF", format="%.3f"),
-                    "sos_norm": st.column_config.NumberColumn("SOS", format="%.3f"),
-                    "perf_centered": st.column_config.NumberColumn("PERF", format="%+.4f"),
-                    "ml_norm": st.column_config.NumberColumn("ML", format="%+.4f"),
-                }
-            )
-
-    # ── Tab 2: Hardcoded sample data ────────────────────────────────
-    with sim_tabs[1]:
-        st.subheader("Sample Data: AZ U12 Male Top 10")
-        st.caption("Hardcoded normalized components for quick testing without database access.")
-
-        sample_data = pd.DataFrame([
-            {"name": "FC Tucson 2014 Pre-MLSN #1", "off_norm": 0.9737, "def_norm": 0.9891,
-             "sos_norm": 0.9364, "perf_centered": 0.4357, "ml_norm": 0.1218, "games_played": 30},
-            {"name": "Phoenix United 2014 Academy", "off_norm": 0.9777, "def_norm": 0.9891,
-             "sos_norm": 0.9155, "perf_centered": 0.3002, "ml_norm": 0.3008, "games_played": 18},
-            {"name": "Phoenix United 2014 Elite", "off_norm": 0.8905, "def_norm": 0.9891,
-             "sos_norm": 0.9921, "perf_centered": -0.0373, "ml_norm": 0.1968, "games_played": 30},
-            {"name": "Dynamos SC 2014 SC", "off_norm": 0.7760, "def_norm": 0.9891,
-             "sos_norm": 0.9633, "perf_centered": 0.3560, "ml_norm": -0.2737, "games_played": 30},
-            {"name": "RSL Arizona North 2014 GSA", "off_norm": 0.9486, "def_norm": 0.9131,
-             "sos_norm": 0.9378, "perf_centered": 0.1755, "ml_norm": -0.1890, "games_played": 30},
-            {"name": "Next Level Southeast 2014 Black", "off_norm": 0.8295, "def_norm": 0.9891,
-             "sos_norm": 0.9346, "perf_centered": -0.2864, "ml_norm": 0.2872, "games_played": 30},
-            {"name": "Playmaker PRE-ECNL 2014", "off_norm": 0.9449, "def_norm": 0.8233,
-             "sos_norm": 0.8566, "perf_centered": 0.2502, "ml_norm": -0.1015, "games_played": 30},
-            {"name": "Excel Soccer Academy 2014 Red", "off_norm": 0.7898, "def_norm": 0.7909,
-             "sos_norm": 0.9421, "perf_centered": 0.0156, "ml_norm": 0.1425, "games_played": 30},
-            {"name": "BRAZAS FC 2014 Black", "off_norm": 0.8538, "def_norm": 0.9739,
-             "sos_norm": 0.9206, "perf_centered": 0.0278, "ml_norm": -0.3110, "games_played": 30},
-            {"name": "Tuzos Royals 2014", "off_norm": 0.6055, "def_norm": 0.9481,
-             "sos_norm": 0.9080, "perf_centered": 0.3630, "ml_norm": -0.2426, "games_played": 30},
-        ])
-        sample_data["team_name"] = sample_data["name"]
-
-        sim_sample = _sim_blend(
-            sample_data, sim_off_w, sim_def_w, sim_sos_w,
-            sim_perf_w, sim_perf_cap, sim_ml_alpha, sim_sos_perf
-        )
-
-        # Highlight Elite row
-        def _highlight_elite(row):
-            if "Elite" in str(row.get("team_name", "")):
-                return ["background-color: #1a472a; color: #F4D03F"] * len(row)
-            return [""] * len(row)
-
-        display_cols_sample = ["team_name", "games_played", "off_norm", "def_norm",
-                               "sos_norm", "perf_centered", "ml_norm", "ps_adj", "ps_ml", "display_score"]
-        styled = sim_sample[display_cols_sample].style.apply(_highlight_elite, axis=1)
-        st.dataframe(
-            styled,
-            use_container_width=True,
-            height=450,
-            column_config={
-                "ps_ml": st.column_config.NumberColumn("PowerScore", format="%.4f"),
-                "ps_adj": st.column_config.NumberColumn("Base", format="%.4f"),
-                "display_score": st.column_config.NumberColumn("Display (×55)", format="%.2f"),
-            }
-        )
-
-        # Quick comparison: production vs current sliders
-        st.markdown("---")
-        st.subheader("Production vs Simulation Comparison")
-        prod_sample = _sim_blend(sample_data, 0.20, 0.20, 0.60, 0.00, 0.15, 0.18, False)
-        comp_cols = st.columns(2)
-        with comp_cols[0]:
-            st.markdown("**Production** (OFF=0.20, DEF=0.20, SOS=0.60, PERF=0.00, ML=0.18)")
-            st.dataframe(
-                prod_sample[["team_name", "ps_ml", "display_score"]],
-                use_container_width=True,
-                height=400,
-            )
-        with comp_cols[1]:
-            st.markdown(f"**Simulation** (OFF={sim_off_w}, DEF={sim_def_w}, SOS={sim_sos_w}, "
-                       f"PERF={sim_perf_w}, ML={sim_ml_alpha})")
-            st.dataframe(
-                sim_sample[["team_name", "ps_ml", "display_score"]],
-                use_container_width=True,
-                height=400,
-            )
 
 elif section == "🚫 Game Exclusion Manager":
     st.header("🚫 Game Exclusion Manager")
