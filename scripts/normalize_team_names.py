@@ -157,7 +157,10 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
             result_tokens.append(parsed_age)
             continue
 
-        # Handle combined age patterns like '15/16B' - take oldest year
+        # Handle combined age patterns like '15/16B' - take older (smaller) year.
+        # PitchRank business rule: dual-age teams classify as the OLDER cohort
+        # (older birth year for year pairs, higher U-age for U-age pairs — both
+        # refer to the same older players). So '15/16 → 2015 (= U11).
         slash_match = re.match(r"^(\d{2})/(\d{2})([BbGgMmFf])?$", clean_token)
         if slash_match and age_found is None:
             y1, y2 = int(slash_match.group(1)), int(slash_match.group(2))

@@ -38,8 +38,12 @@ def calculate_age_group(birth_year: int) -> str:
 
     Formula: age_group = CURRENT_YEAR - birth_year + 1
     Season year rolls over on Aug 1.
+    U18 is merged into U19 to match the canonical AGE_GROUPS keyset
+    (config/settings.py) and team_name_utils.canonicalize_age_group.
     """
     age = CURRENT_YEAR - birth_year + 1
+    if age == 18:
+        age = 19
     if 7 <= age <= 19:
         return f"u{age}"
     return None
@@ -50,20 +54,24 @@ def extract_birth_year(team_name: str) -> int:
 
     Handles multiple formats:
     - Single year: "Team 2014" → 2014
-    - Two years with slash: "Team 2013/2014" → 2013 (use older/first year)
-    - Two years with dash: "Team 2009-2010" → 2009 (use older/first year)
-    - Two years after letter: "B2013/2014" → 2013 (use older/first year)
+    - Two years with slash: "Team 2013/2014" → 2013 (older/primary cohort)
+    - Two years with dash: "Team 2009-2010" → 2009 (older/primary cohort)
+    - Two years after letter: "B2013/2014" → 2013 (older/primary cohort)
+
+    PitchRank business rule (per Dallas, 2026-05-01): for dual-age teams
+    we always take the OLDER cohort — older birth year (smaller number) for
+    year pairs, higher U-age for U-age pairs. Both forms refer to the
+    same older players. So 2012/2013 → 2012 (= U14), and u10/u11 → u11.
 
     Returns the birth year if found and valid, None otherwise.
     """
     # First, check for two-year patterns like "2013/2014" or "2009-2010" or "B2013/2014"
-    # Use the FIRST (older) year in these cases
     # Note: Using (?<![0-9]) instead of \b to allow patterns like "B2013/2014"
     two_year_match = re.search(r"(?<![0-9])(20\d{2})[/-](20\d{2})(?![0-9])", team_name)
     if two_year_match:
         year1 = int(two_year_match.group(1))
         year2 = int(two_year_match.group(2))
-        # Use the older (smaller) year
+        # Use the older (smaller) year — primary cohort per business rule
         year = min(year1, year2)
         if 2005 <= year <= 2018:
             return year
@@ -75,7 +83,7 @@ def extract_birth_year(team_name: str) -> int:
         year2_short = int(short_year_match.group(2))
         # Convert short year to full year (e.g., 14 -> 2014)
         year2 = 2000 + year2_short
-        # Use the older (smaller) year
+        # Use the older (smaller) year — primary cohort per business rule
         year = min(year1, year2)
         if 2005 <= year <= 2018:
             return year
