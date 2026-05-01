@@ -408,9 +408,19 @@ def _cohort_toggle_key(age: str, gender: str) -> str:
 
 
 def _cohort_sort_key(cohort: tuple[str, str]) -> tuple[int, str]:
-    """Sort ``(age, gender)`` cohorts oldest → youngest, female before male."""
+    """Sort ``(age, gender)`` cohorts oldest → youngest, female before male.
+
+    Defensive ``int(...)``: ``_group_cohorts`` already drops cohorts whose
+    age fails ``normalize_age_group``, but compound values like ``"u17/18"``
+    that slip through (rare but seen in malformed scrapes) shouldn't crash
+    the entire page render at sort time.
+    """
     age, gender = cohort
-    age_n = int(age.removeprefix("u")) if age.startswith("u") else 0
+    digits = age.removeprefix("u") if age.startswith("u") else age
+    try:
+        age_n = int(digits)
+    except (TypeError, ValueError):
+        age_n = 99
     return (-age_n, gender)
 
 
@@ -2454,7 +2464,13 @@ def _render_external_drawer(
                                 scope="team",
                                 type="accept_match",
                                 team_ref=pid,
-                                before=_external_before(projected),
+                                # Re-read overrides at submit time so a Streamlit
+                                # rerun between render and submit doesn't put a
+                                # stale ``before`` snapshot in the audit ledger
+                                # (mirrors edit_external write at this level).
+                                before=_external_before(
+                                    project_overrides(load_overrides(event_key, scenario))[0].get(pid)
+                                ),
                                 after={
                                     "state": "resolved",
                                     "team_id_master": hit.get("team_id_master"),
@@ -4020,7 +4036,7 @@ def _render_run_all_button(
         return
 
     queued: list[tuple[str, str]] = []
-    skipped_blocked: list[tuple[str, str]] = []
+    skipped_blocked: list[tuple[tuple[str, str], tuple[str, ...]]] = []
     skipped_done: list[tuple[str, str]] = []
     for cohort in sorted_keys:
         age, gender = cohort
@@ -4029,15 +4045,23 @@ def _render_run_all_button(
             continue
         result = preflight(event_key, scenario, age, gender, supabase_client=supabase_client)
         if result.blockers:
-            skipped_blocked.append(cohort)
+            skipped_blocked.append((cohort, result.blockers))
         else:
             queued.append(cohort)
 
     if not queued:
-        st.warning(
+        # Surface the actual blocker text so the operator can see WHY each
+        # cohort is being skipped. The previous "N blocked by preflight"
+        # one-liner hid the diagnosis behind a number.
+        lines = [
             f"Nothing to run: {len(skipped_done)} already completed, "
-            f"{len(skipped_blocked)} blocked by preflight."
-        )
+            f"{len(skipped_blocked)} blocked by preflight.",
+        ]
+        for (age, gender), blockers in skipped_blocked:
+            lines.append(f"\n**{_display_gender(gender)} {age.upper()}**")
+            for blocker in blockers:
+                lines.append(f"  · {blocker}")
+        st.warning("\n".join(lines))
         return
 
     succeeded: list[tuple[str, str]] = []
@@ -4082,8 +4106,10 @@ def _render_run_all_button(
         summary_lines.append(f"↪ {len(skipped_done)} already completed (skipped)")
     if skipped_blocked:
         summary_lines.append(f"⛔ {len(skipped_blocked)} blocked by preflight (skipped):")
-        for age, gender in skipped_blocked:
-            summary_lines.append(f"   · {_display_gender(gender)} {age.upper()}")
+        for (age, gender), blockers in skipped_blocked:
+            label = f"{_display_gender(gender)} {age.upper()}"
+            for blocker in blockers:
+                summary_lines.append(f"   · {label}: {blocker}")
     summary = "\n\n".join(summary_lines)
     if failed:
         st.error(summary)

@@ -301,7 +301,7 @@ def _apply_team_override(
         )
     if type_ == "edit_external":
         strength_mode = str(after.get("strength_mode") or "") or None
-        manual_power_score = after.get("manual_power_score")
+        manual_power_score = _coerce_optional_float(after.get("manual_power_score"))
         if strength_mode != "manual":
             manual_power_score = None
         carried_team_id = prior.team_id_master if prior is not None else None
@@ -311,7 +311,7 @@ def _apply_team_override(
             manual_seed_group=str(after.get("manual_seed_group") or "") or None,
             assigned_division_name=carried_division,
             strength_mode=strength_mode,
-            manual_power_score=(float(manual_power_score) if manual_power_score is not None else None),
+            manual_power_score=manual_power_score,
             note=str(after.get("note") or "") or None,
             last_override_ts=ts,
         )
@@ -332,7 +332,7 @@ def _apply_team_override(
         # Default to external for any non-"resolved" manual_add — keeps
         # the projection deterministic if the writer ever omits the field.
         strength_mode = str(after.get("strength_mode") or "") or None
-        manual_power_score = after.get("manual_power_score")
+        manual_power_score = _coerce_optional_float(after.get("manual_power_score"))
         if strength_mode != "manual":
             manual_power_score = None
         return ProjectedTeamState(
@@ -340,13 +340,29 @@ def _apply_team_override(
             manual_seed_group=str(after.get("manual_seed_group") or "") or None,
             assigned_division_name=carried_division,
             strength_mode=strength_mode,
-            manual_power_score=(float(manual_power_score) if manual_power_score is not None else None),
+            manual_power_score=manual_power_score,
             note=str(after.get("note") or "") or None,
             last_override_ts=ts,
             cohort_age_group=cohort_age,
             cohort_gender=cohort_gender,
         )
     raise ValueError(f"unhandled team-scoped override type: {type_!r}")
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    """Defensive ``float()`` for override-projection scalars.
+
+    A future writer could persist ``""`` / non-numeric strings — without
+    this guard, ``float(value)`` raises ``ValueError`` mid-projection and
+    corrupts the entire scenario's ``team_state``. Returning ``None`` on
+    parse failure keeps the team rendered as median-mode (no manual score).
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 DivisionSource = Literal["explicit", "prefix", "stale", "none"]

@@ -89,8 +89,12 @@ def test_preflight_filters_blockers_to_requested_cohort(tmp_path: Path, monkeypa
         lambda *a, **k: ReadinessResult(
             ready=False,
             blockers=(
-                "Boys u14: A Alpha pending review",
-                "Boys u10: ghost-team pending review",
+                # Real ``is_ready`` emits ``Male``/``Female`` (registry's
+                # normalize_gender_label output) — not ``Boys``/``Girls``.
+                # The cohort-prefix filter must match this casing or it
+                # silently keeps every cohort's blocker for every cohort.
+                "Male u14: A Alpha pending review",
+                "Male u10: ghost-team pending review",
                 "event metadata missing or unreadable: oops",
                 "manual-add manual_x: cohort attribution missing (rewrite override)",
             ),
@@ -105,8 +109,8 @@ def test_preflight_filters_blockers_to_requested_cohort(tmp_path: Path, monkeypa
         supabase_client=None,
     )
     blockers = set(result.blockers)
-    assert "Boys u14: A Alpha pending review" in blockers
-    assert "Boys u10: ghost-team pending review" not in blockers
+    assert "Male u14: A Alpha pending review" in blockers
+    assert "Male u10: ghost-team pending review" not in blockers
     assert "event metadata missing or unreadable: oops" in blockers
     assert "manual-add manual_x: cohort attribution missing (rewrite override)" in blockers
 

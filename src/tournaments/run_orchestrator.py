@@ -78,6 +78,7 @@ from src.tournaments.storage._io import (
     utc_now_iso,
     write_json,
 )
+from src.tournaments.seeding_optimizer import normalize_gender_label
 from src.tournaments.triage import (
     SOURCE_EXPLICIT,
     SOURCE_PREFIX,
@@ -114,12 +115,18 @@ preflight error instead of letting the cohort CLI fail later with
 ``FileNotFoundError``.
 """
 
-_OTHER_COHORT_PREFIX_RE = re.compile(r"^(Boys|Girls) u\d+: ")
-"""Triage cohort-prefixed blocker shape (e.g. ``"Boys u14: foo pending review"``).
+_OTHER_COHORT_PREFIX_RE = re.compile(r"^(Male|Female) u\d+: ")
+"""Triage cohort-prefixed blocker shape (e.g. ``"Male u14: foo pending review"``).
 
 Used by ``preflight`` to drop blockers naming a *different* cohort while
 preserving cohort-agnostic blockers (``"event metadata missing or unreadable: ..."``)
 and manual-add blockers (``"manual-add team_x: cohort attribution missing ..."``).
+Genders are ``"Male"`` / ``"Female"`` because ``is_ready`` builds the
+prefix from ``entry.event_gender``, which ``registry.py:281`` normalizes
+via ``normalize_gender_label`` (``Boys → Male``, ``Girls → Female``). The
+old regex matched ``Boys|Girls`` and silently failed against every real
+blocker — the practical effect was that ANY cohort's blocker was kept
+for EVERY cohort, marking every Run button disabled.
 """
 
 _PROGRESS_LINE_RE = re.compile(r"^PROGRESS:\s+\S+\s+(\d+)/(\d+)\s*$")
@@ -334,7 +341,11 @@ def preflight(
         supabase_client=supabase_client,
     )
 
-    this_label = f"{gender} {age}: "
+    # ``is_ready`` emits blockers prefixed with the registry-normalized
+    # gender ("Male" / "Female"); the regex matches the same form.
+    # ``preflight`` callers pass the cohort UI's ("Boys" / "Girls"), so
+    # normalize here to align before the prefix-startswith check.
+    this_label = f"{normalize_gender_label(gender)} {age}: "
 
     def is_other_cohort(blocker: str) -> bool:
         match = _OTHER_COHORT_PREFIX_RE.match(blocker)
