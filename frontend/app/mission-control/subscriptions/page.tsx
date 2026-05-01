@@ -179,6 +179,8 @@ export default async function SubscriptionsDashboardPage() {
                 <p className="text-sm text-muted-foreground">
                   Not enough data yet. {metrics.conversion.sample} trial
                   {metrics.conversion.sample === 1 ? '' : 's'} completed in the cohort window (need ≥5 to compute).
+                  {metrics.conversion.excluded > 0 &&
+                    ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                 </p>
               ) : (
                 <div className="space-y-1">
@@ -186,6 +188,8 @@ export default async function SubscriptionsDashboardPage() {
                   <p className="text-sm text-muted-foreground">
                     {metrics.conversion.converted} of {metrics.conversion.sample} trials started 31–60 days ago paid at
                     least once (active or past_due). Trials still in flight are excluded.
+                    {metrics.conversion.excluded > 0 &&
+                      ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                   </p>
                 </div>
               )}

@@ -39,6 +39,7 @@ export type SubscriptionMetrics = {
     sample: number;
     converted: number;
     percent: number | null;
+    excluded: number; // test/internal users filtered from sample
   };
   generatedAt: string;
   errors: string[];
@@ -48,6 +49,27 @@ const SECONDS_PER_DAY = 86_400;
 const COHORT_LOOKBACK_DAYS = 60;
 const COHORT_TRIAL_END_THRESHOLD_DAYS = 30;
 const MIN_COHORT_SAMPLE = 5;
+
+/**
+ * Internal/test users whose subscriptions skew dashboard math (especially
+ * conversion %). Compared case-insensitively. Add via env var
+ * `ADMIN_DASHBOARD_EXCLUDED_EMAILS` (comma-separated) to extend at runtime
+ * without a deploy.
+ */
+const HARDCODED_EXCLUDED_EMAILS = new Set([
+  'cartermheidt@gmail.com',
+  'brooksheidt@gmail.com',
+  'dallasheidt@gmail.com',
+  'dallas@rightsideuplending.com',
+]);
+
+function getExcludedEmails(): Set<string> {
+  const fromEnv = (process.env.ADMIN_DASHBOARD_EXCLUDED_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([...HARDCODED_EXCLUDED_EMAILS, ...fromEnv]);
+}
 
 function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
   const recurring = sub.items.data[0]?.price?.recurring;
@@ -169,24 +191,30 @@ export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[
  */
 export function computeConversion(
   subs: Stripe.Subscription[],
-  now: number
-): { window: '30d'; sample: number; converted: number; percent: number | null } {
+  now: number,
+  excludedEmails: Set<string> = getExcludedEmails()
+): { window: '30d'; sample: number; converted: number; percent: number | null; excluded: number } {
   const lookbackStart = now - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY;
   const trialEndCutoff = now - COHORT_TRIAL_END_THRESHOLD_DAYS * SECONDS_PER_DAY;
 
   let sample = 0;
   let converted = 0;
+  let excluded = 0;
   for (const sub of subs) {
     if (!sub.trial_start || !sub.trial_end) continue;
     if (sub.trial_start < lookbackStart) continue;
     if (sub.trial_start >= trialEndCutoff) continue;
     if (sub.trial_end >= now) continue;
+    if (excludedEmails.has(getCustomerEmail(sub).toLowerCase())) {
+      excluded += 1;
+      continue;
+    }
     sample += 1;
     if (sub.status === 'active' || sub.status === 'past_due') converted += 1;
   }
 
   const percent = sample >= MIN_COHORT_SAMPLE ? Math.round((converted / sample) * 100) : null;
-  return { window: '30d', sample, converted, percent };
+  return { window: '30d', sample, converted, percent, excluded };
 }
 
 async function listAll(params: Stripe.SubscriptionListParams): Promise<Stripe.Subscription[]> {
