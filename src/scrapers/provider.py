@@ -60,6 +60,15 @@ class ScrapedTeam:
     playing_up: bool = False
     has_view_rankings_link: bool = False
     meta: dict[str, Any] = field(default_factory=dict)
+    # Tier-section enrichment (Shell 02 — gotsport tier-section parser).
+    # IMPORTANT: ``group_name`` here is the TIER RESIDUE (e.g., "Red", "GOLD"),
+    # NOT the bracket-section label that ``EventTeam.group_name`` carries.
+    # See ``.turbo/specs/gotsport-tier-section-parser.md`` for the persisted-data contract.
+    group_name: str | None = None
+    group_id: int | None = None
+    tier_discovery_source: str = "none"
+    tier_membership_source: str = "none"
+    tier_parse_outcome: str = "unenriched"
 
 
 @dataclass(frozen=True)

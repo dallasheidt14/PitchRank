@@ -127,9 +127,7 @@ class TestDiscoveryEmpty:
         )
         assert out == {}
         # Metrics still written with total_candidates=0.
-        payload = json.loads(
-            (tmp_path / "ek" / "intake" / "tier_parse_metrics.json").read_text()
-        )
+        payload = json.loads((tmp_path / "ek" / "intake" / "tier_parse_metrics.json").read_text())
         assert payload["total_candidates"] == 0
 
 
@@ -398,13 +396,11 @@ class TestUnknownPrefixGate:
         rows = []
         for i in range(8):
             rows.append(
-                f'<div><div><b>U10 Boys Tier{i}</b>'
-                f'<a href="/schedules?group={1000 + i}">Schedule</a></div></div>'
+                f'<div><div><b>U10 Boys Tier{i}</b><a href="/schedules?group={1000 + i}">Schedule</a></div></div>'
             )
         for i in range(2):
             rows.append(
-                f'<div><div><b>Adult Co-Ed Hammer{i}</b>'
-                f'<a href="/schedules?group={9000 + i}">Schedule</a></div></div>'
+                f'<div><div><b>Adult Co-Ed Hammer{i}</b><a href="/schedules?group={9000 + i}">Schedule</a></div></div>'
             )
         soup = BeautifulSoup("<html><body>" + "".join(rows) + "</body></html>", "html.parser")
 
@@ -429,12 +425,8 @@ class TestUnknownPrefixGate:
 class TestMemoryLifecycle:
     def test_two_separate_events_dont_share_state(self, tmp_path):
         soup = BeautifulSoup(_two_tier_landing(), "html.parser")
-        fetcher_a = _make_fetcher(
-            {1001: _subpage(_team_html([100])), 1002: _subpage(_team_html([200]))}
-        )
-        fetcher_b = _make_fetcher(
-            {1001: _subpage(_team_html([300])), 1002: _subpage(_team_html([400]))}
-        )
+        fetcher_a = _make_fetcher({1001: _subpage(_team_html([100])), 1002: _subpage(_team_html([200]))})
+        fetcher_b = _make_fetcher({1001: _subpage(_team_html([300])), 1002: _subpage(_team_html([400]))})
         out_a = enrich_teams_with_tiers(
             soup,
             teams_by_bracket={},
@@ -474,9 +466,7 @@ class TestConcurrencyDeterminism:
         def fetcher(gid):
             if gid == 1001:
                 time.sleep(0.05)  # arrives second
-            return _subpage(
-                (sub_1001 if gid == 1001 else sub_1002).read_text(encoding="utf-8")
-            )
+            return _subpage((sub_1001 if gid == 1001 else sub_1002).read_text(encoding="utf-8"))
 
         out = enrich_teams_with_tiers(
             soup,
@@ -500,9 +490,7 @@ class TestConcurrencyDeterminism:
 class TestEnrichmentResultShape:
     def test_returns_frozen_dataclasses(self, tmp_path):
         soup = BeautifulSoup(_two_tier_landing(), "html.parser")
-        fetcher = _make_fetcher(
-            {1001: _subpage(_team_html([100])), 1002: _subpage(_team_html([200]))}
-        )
+        fetcher = _make_fetcher({1001: _subpage(_team_html([100])), 1002: _subpage(_team_html([200]))})
         out = enrich_teams_with_tiers(
             soup,
             teams_by_bracket={},
@@ -516,3 +504,25 @@ class TestEnrichmentResultShape:
             assert isinstance(result, EnrichmentResult)
             with pytest.raises(AttributeError):
                 result.group_id = 99  # type: ignore[misc]
+
+
+class TestSafeFilenameToken:
+    """Windows rejects ``<>:"/\\|?*`` in filenames; the abort-artifact filename
+    must sanitize the ISO ``run_id`` while the payload preserves it."""
+
+    def test_iso_run_id_round_trip(self):
+        from src.scrapers.gotsport_tier_parser import _safe_filename_token
+
+        assert _safe_filename_token("2026-04-29T00:00:00+00:00") == "2026-04-29T00-00-00_00-00"
+
+    def test_no_op_when_no_specials(self):
+        from src.scrapers.gotsport_tier_parser import _safe_filename_token
+
+        assert _safe_filename_token("rid") == "rid"
+
+    @pytest.mark.parametrize("ch", ["<", ">", ":", '"', "/", "\\", "|", "?", "*"])
+    def test_strips_every_windows_reserved_char(self, ch):
+        from src.scrapers.gotsport_tier_parser import _safe_filename_token
+
+        out = _safe_filename_token(f"a{ch}b")
+        assert ch not in out, f"reserved char {ch!r} survived sanitization: {out!r}"
