@@ -3994,6 +3994,105 @@ def _render_cohort_completed_run(
             st.caption("No scenario-level overrides for this cohort.")
 
 
+def _render_run_all_button(
+    sorted_keys: list[tuple[str, str]],
+    *,
+    event_key: str,
+    scenario: str,
+    supabase_client: Any,
+) -> None:
+    """One-click "Run all ready cohorts" control above the cohort containers.
+
+    Discovers every cohort whose ``preflight`` is clean (no blockers) AND
+    that doesn't already have a completed run loaded. Then iterates through
+    them sequentially, calling the same ``execute_run`` path the per-cohort
+    button uses. Failures don't abort the queue — each cohort's outcome is
+    captured and surfaced in a final summary so the operator sees both
+    the wins and the misses in one place.
+
+    Sequential, not parallel: ``execute_run`` acquires a per-scenario lock
+    for the whole subprocess lifetime; concurrent cohorts would deadlock
+    on it. The progress bar advances per cohort.
+    """
+    if not sorted_keys:
+        return
+    if not st.button("▶ Run all ready cohorts", type="primary", key="_run_all_green"):
+        return
+
+    queued: list[tuple[str, str]] = []
+    skipped_blocked: list[tuple[str, str]] = []
+    skipped_done: list[tuple[str, str]] = []
+    for cohort in sorted_keys:
+        age, gender = cohort
+        if st.session_state.current_run_id_by_cohort.get(cohort):
+            skipped_done.append(cohort)
+            continue
+        result = preflight(event_key, scenario, age, gender, supabase_client=supabase_client)
+        if result.blockers:
+            skipped_blocked.append(cohort)
+        else:
+            queued.append(cohort)
+
+    if not queued:
+        st.warning(
+            f"Nothing to run: {len(skipped_done)} already completed, "
+            f"{len(skipped_blocked)} blocked by preflight."
+        )
+        return
+
+    succeeded: list[tuple[str, str]] = []
+    failed: list[tuple[tuple[str, str], str]] = []
+    progress = st.progress(0.0, text=f"Queued {len(queued)} cohorts...")
+    for index, cohort in enumerate(queued):
+        age, gender = cohort
+        progress.progress(
+            index / len(queued),
+            text=f"[{index + 1}/{len(queued)}] running {_display_gender(gender)} {age.upper()}...",
+        )
+        try:
+            outcome = execute_run(
+                event_key,
+                scenario,
+                age,
+                gender,
+                on_event=lambda _ev: None,
+            )
+        except ScenarioLockError as exc:
+            failed.append((cohort, f"scenario locked: {exc}"))
+            continue
+        except RunStateError as exc:
+            failed.append((cohort, f"cannot stage: {exc}"))
+            continue
+        except Exception as exc:  # noqa: BLE001 — bulk run must keep going
+            failed.append((cohort, f"unexpected: {exc}"))
+            continue
+        if outcome.state == "completed":
+            st.session_state.current_run_id_by_cohort[cohort] = outcome.run_dir.name
+            succeeded.append(cohort)
+        else:
+            failed.append((cohort, outcome.error or "unknown"))
+    progress.progress(1.0, text="Done.")
+
+    summary_lines = [f"✅ {len(succeeded)} succeeded"]
+    if failed:
+        summary_lines.append(f"❌ {len(failed)} failed:")
+        for (age, gender), err in failed:
+            summary_lines.append(f"   · {_display_gender(gender)} {age.upper()}: {err}")
+    if skipped_done:
+        summary_lines.append(f"↪ {len(skipped_done)} already completed (skipped)")
+    if skipped_blocked:
+        summary_lines.append(f"⛔ {len(skipped_blocked)} blocked by preflight (skipped):")
+        for age, gender in skipped_blocked:
+            summary_lines.append(f"   · {_display_gender(gender)} {age.upper()}")
+    summary = "\n\n".join(summary_lines)
+    if failed:
+        st.error(summary)
+    else:
+        st.success(summary)
+    if succeeded:
+        st.rerun()
+
+
 def _render_cohort_run_control(
     *,
     event_key: str,
@@ -4271,6 +4370,12 @@ def main() -> None:
         event_name=meta.event_name,
         supabase_client=supabase_client,
         event_key_value=key,
+    )
+    _render_run_all_button(
+        sorted_keys,
+        event_key=key,
+        scenario=st.session_state.scenario_name,
+        supabase_client=supabase_client,
     )
     _render_cohort_containers(
         cohorts,
