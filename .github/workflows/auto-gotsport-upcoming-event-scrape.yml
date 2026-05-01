@@ -49,8 +49,12 @@ jobs:
       - name: Run upcoming event fixture scraper
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          # Intentional aliasing: one secret feeds two env-var names because
+          # different scripts read different keys for the same value (see
+          # memory note gotcha_supabase_key_env_mismatch.md). DO NOT collapse.
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           PYTHONPATH: ${{ github.workspace }}
           GOTSPORT_DELAY_MIN: "0.1"
           GOTSPORT_DELAY_MAX: "0.2"
