@@ -234,6 +234,57 @@ describe('computeConversion', () => {
       sample: 0,
       converted: 0,
       percent: null,
+      excluded: 0,
     });
+  });
+
+  it('excludes test/internal users from the cohort and counts them separately', () => {
+    const excluded = new Set([
+      'cartermheidt@gmail.com',
+      'brooksheidt@gmail.com',
+      'dallasheidt@gmail.com',
+      'dallas@rightsideuplending.com',
+    ]);
+    const subs = [
+      // Real cohort: 5 users, 4 converted → 80%
+      makeSub({ status: 'active', email: 'a@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
+      makeSub({ status: 'active', email: 'b@example.com', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
+      makeSub({ status: 'active', email: 'c@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
+      makeSub({ status: 'active', email: 'd@example.com', trialStart: now - 50 * day, trialEnd: now - 43 * day }),
+      makeSub({ status: 'canceled', email: 'e@example.com', trialStart: now - 45 * day, trialEnd: now - 38 * day }),
+      // Test users in the same cohort window — must NOT be in sample
+      makeSub({
+        status: 'canceled',
+        email: 'cartermheidt@gmail.com',
+        trialStart: now - 45 * day,
+        trialEnd: now - 38 * day,
+      }),
+      makeSub({
+        status: 'canceled',
+        email: 'dallasheidt@gmail.com',
+        trialStart: now - 50 * day,
+        trialEnd: now - 43 * day,
+      }),
+    ];
+    const result = computeConversion(subs, now, excluded);
+    expect(result.sample).toBe(5);
+    expect(result.converted).toBe(4);
+    expect(result.percent).toBe(80);
+    expect(result.excluded).toBe(2);
+  });
+
+  it('email match is case-insensitive', () => {
+    const excluded = new Set(['dallasheidt@gmail.com']);
+    const subs = [
+      makeSub({
+        status: 'canceled',
+        email: 'DallasHeidt@Gmail.com',
+        trialStart: now - 45 * day,
+        trialEnd: now - 38 * day,
+      }),
+    ];
+    const result = computeConversion(subs, now, excluded);
+    expect(result.sample).toBe(0);
+    expect(result.excluded).toBe(1);
   });
 });
