@@ -69,6 +69,13 @@ class ScrapedTeam:
     tier_discovery_source: str = "none"
     tier_membership_source: str = "none"
     tier_parse_outcome: str = "unenriched"
+    # Per-event registration id for gotsport. Distinct from
+    # ``provider_team_id`` (which carries the canonical API team id, or the
+    # ``unresolved:{reg_id}`` sentinel when the canonical id can't be
+    # resolved). Pool-assignment join keys (gotsport pool pages link teams
+    # by reg_id, not canonical id) consume this field. Other providers
+    # (sincsports, playmetrics) leave this None.
+    provider_registration_id: str | None = None
 
 
 @dataclass(frozen=True)

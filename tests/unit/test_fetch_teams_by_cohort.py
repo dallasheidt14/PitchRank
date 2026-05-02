@@ -251,27 +251,32 @@ def test_direct_id_at_threshold_routes_to_upsert(mock_extract, mock_resolve, moc
 @patch("src.scrapers.gotsport.enqueue_match_review")
 @patch.object(GotsportScraper, "resolve_canonical_team_id")
 @patch.object(GotsportScraper, "extract_event_teams_by_bracket")
-def test_direct_id_below_threshold_routes_to_queue_with_reason(
+def test_direct_id_low_name_score_still_routes_to_upsert(
     mock_extract, mock_resolve, mock_enqueue, mock_upsert, scraper
 ):
+    """direct_provider_id at low name score routes to upsert (direct_id),
+    not queue. The matcher's gate at ``_route_resolution`` was removed —
+    canonical pid match IS ground truth, names can't override.
+
+    Pre-fix: the gate demoted direct-id matches with score < 0.97 to the
+    review queue, leaving curated alias rows un-promoted (e.g. event
+    42433's "Dynamos SC 14B SC" vs stored "Dynamos SC 2014 SC")."""
     mock_extract.return_value = {"U13B Elite": [_event_team("t1")]}
     mock_resolve.return_value = _resolution(
         resolved_status="direct_provider_id",
-        match_method=None,
-        team_id_master=None,
+        match_method="direct_id",
+        team_id_master="master-1",
         confidence=0.90,
-        candidates=[{"team_id_master": "candidate-1"}],
     )
-    mock_enqueue.return_value = {"action": "queued"}
+    mock_upsert.return_value = {"action": "created"}
 
     scraper.fetch_teams_by_cohort(EVENT_URL)
 
-    mock_upsert.assert_not_called()
-    mock_enqueue.assert_called_once()
-    kwargs = mock_enqueue.call_args.kwargs
-    assert kwargs["suggested_master_team_id"] == "candidate-1"
-    assert kwargs["match_details"]["reason"] == "provider_id_match_with_low_name_similarity"
-    assert kwargs["match_details"]["true_confidence"] == 0.90
+    mock_upsert.assert_called_once()
+    mock_enqueue.assert_not_called()
+    kwargs = mock_upsert.call_args.kwargs
+    assert kwargs["match_method"] == "direct_id"
+    assert kwargs["team_id_master"] == "master-1"
 
 
 @patch("src.scrapers.gotsport.upsert_team_alias")

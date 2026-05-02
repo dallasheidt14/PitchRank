@@ -10,12 +10,18 @@ Step 4+6 integration):
 
 | resolved_status    | best_score | team_id_master | match_method |
 |--------------------|------------|----------------|--------------|
-| direct_provider_id | >= 0.97    | matches[0]     | direct_id    |
-| direct_provider_id | <  0.97    | None           | None         |
+| direct_provider_id | not None   | matches[0]     | direct_id    |
+| direct_provider_id | None       | None (defensive)| None        |
 | strict_exact       | any        | matches[0]     | fuzzy_auto   |
 | high_confidence    | any        | matches[0]     | fuzzy_auto   |
 | review             | any        | None           | None         |
 | none               | any        | None           | None         |
+
+Note: the ``direct_provider_id`` row used to gate on ``best_score >= 0.97``
+(name-similarity check on top of the canonical-pid match). Post-PR-#713
+that gate was removed — the alias map's reg-id pollution is gone, so a
+canonical ``provider_team_id`` match IS the ground truth and name
+similarity cannot override it.
 """
 
 from __future__ import annotations
@@ -107,19 +113,23 @@ def test_provider_id_status_no_link():
 # ---------- _route_resolution (pure) ----------
 
 
-def test_route_direct_provider_id_at_or_above_threshold():
-    assert _route_resolution("direct_provider_id", 0.97) == ("alias", "direct_id")
-    assert _route_resolution("direct_provider_id", 0.99) == ("alias", "direct_id")
+def test_route_direct_provider_id_always_aliases_when_score_present():
+    """Canonical ``provider_team_id`` match IS ground truth — name
+    similarity (carried by ``best_score``) does NOT gate the routing.
+    A curated direct-id alias row stays direct-id even when the scraped
+    name diverges from the stored master name (e.g., "Dynamos SC 14B SC"
+    vs "Dynamos SC 2014 SC")."""
     assert _route_resolution("direct_provider_id", 1.00) == ("alias", "direct_id")
+    assert _route_resolution("direct_provider_id", 0.97) == ("alias", "direct_id")
+    assert _route_resolution("direct_provider_id", 0.90) == ("alias", "direct_id")
+    assert _route_resolution("direct_provider_id", 0.50) == ("alias", "direct_id")
+    assert _route_resolution("direct_provider_id", 0.0) == ("alias", "direct_id")
 
 
-def test_route_direct_provider_id_below_threshold():
-    assert _route_resolution("direct_provider_id", 0.9699) == (None, None)
-    assert _route_resolution("direct_provider_id", 0.50) == (None, None)
-
-
-def test_route_direct_provider_id_missing_score():
-    # Defensive: None best_score shouldn't silently elevate to alias.
+def test_route_direct_provider_id_missing_score_is_defensive():
+    # ``None`` best_score signals an upstream failure (matcher returned no
+    # score at all) — route to queue defensively rather than silently
+    # promoting on missing data.
     assert _route_resolution("direct_provider_id", None) == (None, None)
 
 
@@ -165,11 +175,12 @@ def test_resolve_direct_provider_id_at_threshold(mock_search, scraper):
 
 
 @patch("src.tournaments.event_team_matcher.search_event_team_in_db")
-def test_resolve_direct_provider_id_below_threshold_routes_queue(mock_search, scraper):
-    """Plan: direct_provider_id + <0.97 → review queue. team_id_master is None
-    in the CanonicalResolution; the caller (fetch_teams_by_cohort) routes to
-    enqueue_match_review and persists match_details.suggested_master_team_id
-    from the candidates list."""
+def test_resolve_direct_provider_id_low_name_score_still_aliases(mock_search, scraper):
+    """direct_provider_id with low name-similarity score still routes to
+    alias (direct_id). Names cannot override a canonical pid match. This
+    is the Dynamos SC 14B repro: scraped "Dynamos SC 14B SC" vs stored
+    master "Dynamos SC 2014 SC" produced score 0.90, but the alias row
+    is human-curated and the canonical pid match IS the answer."""
     mock_search.return_value = _search_result(
         resolved_status="direct_provider_id",
         best_score=0.90,
@@ -178,11 +189,9 @@ def test_resolve_direct_provider_id_below_threshold_routes_queue(mock_search, sc
     team = _scraped_team()
     res = scraper.resolve_canonical_team_id(team)
     assert res.resolved_status == "direct_provider_id"
-    assert res.match_method is None
-    assert res.team_id_master is None  # queue routing
+    assert res.match_method == "direct_id"
+    assert res.team_id_master == "master-B"
     assert res.confidence == 0.90
-    # Candidates are still carried so the caller can extract suggested master.
-    assert res.candidates == [{"team_id_master": "master-B", "score": 0.90}]
 
 
 @patch("src.tournaments.event_team_matcher.search_event_team_in_db")

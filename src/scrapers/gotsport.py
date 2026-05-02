@@ -793,6 +793,89 @@ def _zenrows_get(
     return response
 
 
+def _parse_json_team_regs_from_soup(
+    soup: BeautifulSoup,
+) -> tuple[Dict[str, str], Dict[str, str]]:
+    """Parse ``jsonTeamRegs`` from a gotsport event landing-page soup.
+
+    Returns ``(teams_by_name, registration_to_api)``:
+
+    - ``teams_by_name``: lowercase-normalized full_name → preferred id
+      (``team_id`` / ``rankings_team_id`` / ``api_team_id`` /
+      ``gotsport_team_id`` field when present, else the event registration
+      id ``id``). Used by the games-scrape path's name-fallback lookup —
+      not consumed by ``fetch_teams_by_cohort``.
+    - ``registration_to_api``: registration_id → canonical api_team_id,
+      populated only when the ``jsonTeamRegs`` row carries both AND they
+      differ. The team-list intake's resolver short-circuits on this map
+      to avoid an HTTP round-trip per team.
+
+    Both dicts empty on parse failure or absent ``jsonTeamRegs``. The
+    bracket-balanced scan handles the large nested JSON arrays gotsport
+    emits without a regex backref.
+    """
+    teams_by_name: Dict[str, str] = {}
+    registration_to_api: Dict[str, str] = {}
+    try:
+        scripts = soup.find_all("script")
+        for script in scripts:
+            if not script.string:
+                continue
+            json_match = re.search(r"jsonTeamRegs\s*=\s*(\[)", script.string, re.DOTALL)
+            if not json_match:
+                continue
+            start_pos = json_match.start(1)
+            bracket_count = 0
+            in_string = False
+            escape_next = False
+            end_pos = start_pos
+            for i in range(start_pos, len(script.string)):
+                char = script.string[i]
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == "\\":
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if char == "[":
+                        bracket_count += 1
+                    elif char == "]":
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            end_pos = i + 1
+                            break
+            json_str = script.string[start_pos:end_pos]
+            teams_json = json.loads(json_str)
+            for team in teams_json:
+                registration_id = str(team.get("id", ""))
+                api_team_id = None
+                for field_name in ("team_id", "rankings_team_id", "api_team_id", "gotsport_team_id"):
+                    if team.get(field_name):
+                        api_team_id = str(team.get(field_name))
+                        break
+                team_name = team.get("full_name", "") or team.get("name", "")
+                if team_name:
+                    normalized_name = " ".join(team_name.split()).lower()
+                    if api_team_id and api_team_id.isdigit():
+                        teams_by_name[normalized_name] = api_team_id
+                        if registration_id and registration_id != api_team_id:
+                            registration_to_api[registration_id] = api_team_id
+                    elif registration_id and registration_id.isdigit():
+                        teams_by_name[normalized_name] = registration_id
+            api_ids_found = len(registration_to_api)
+            logger.debug(
+                f"Extracted {len(teams_by_name)} teams from jsonTeamRegs "
+                f"({api_ids_found} with distinct API team IDs)"
+            )
+    except Exception as e:
+        logger.warning(f"Error extracting teams from jsonTeamRegs: {e}")
+    return teams_by_name, registration_to_api
+
+
 def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str) -> Dict[str, List[EventTeam]]:
     """Pure-parse counterpart to ``GotsportScraper.extract_event_teams_by_bracket``.
 
@@ -1931,8 +2014,48 @@ class GotsportScraper(ProviderScraper):
         Returns:
             Canonical API team ID as a string when resolvable; ``None`` otherwise.
         """
-        api_url = f"https://system.gotsport.com/api/v1/teams/{registration_id}/matches?past=true"
         log_label = team_name or registration_id
+
+        # Strategy 1: Walk the per-team schedule page and parse the
+        # ``rankings.gotsport.com/teams/{api_id}`` link. PR #713's commit
+        # message claimed these were removed but they remain present in
+        # production (verified 2026-05-01 against event 42433: 10/10
+        # sampled teams resolved this way). The JSON-API path below 404s
+        # on registration_ids, so this HTML strategy is the only way to
+        # map reg_id → canonical api_id for events whose ``jsonTeamRegs``
+        # blob doesn't carry a distinct ``team_id`` field.
+        try:
+            team_url = f"{self.EVENT_BASE}/{event_id}/schedules?team={registration_id}"
+            if self.use_zenrows:
+                html_response = self._make_zenrows_request(team_url)
+            else:
+                html_response = self.session.get(team_url, timeout=self.timeout)
+            if self.delay_min > 0 or self.delay_max > 0:
+                time.sleep(random.uniform(self.delay_min, self.delay_max))
+            if html_response.status_code == 200:
+                match = re.search(
+                    r"rankings\.gotsport\.com/teams/(\d+)",
+                    html_response.text,
+                    re.IGNORECASE,
+                )
+                if match:
+                    api_team_id = match.group(1)
+                    logger.debug(
+                        f"Resolved API team ID {api_team_id} from rankings link "
+                        f"on per-team page for {log_label} (reg_id={registration_id})"
+                    )
+                    return api_team_id
+        except Exception as e:
+            logger.debug(
+                f"Per-team page HTML strategy failed for {log_label} "
+                f"(reg_id={registration_id}): {e}"
+            )
+
+        # Strategy 2: JSON API self-match. Useful when the schedule page's
+        # ``team=<id>`` query param happens to ALREADY be a canonical
+        # api_id (rare but possible — the API returns 200 with self-match
+        # in that case).
+        api_url = f"https://system.gotsport.com/api/v1/teams/{registration_id}/matches?past=true"
 
         try:
             response = self._fetch_json_via_zenrows(api_url, timeout=10)
@@ -2072,74 +2195,7 @@ class GotsportScraper(ProviderScraper):
             # Extract API team IDs and team name mapping from event page
             # IMPORTANT: jsonTeamRegs contains 'id' (event registration ID) and may contain
             # 'team_id' (API team ID). We prefer 'team_id' when available.
-            teams_by_name: Dict[str, str] = {}  # team_name -> api_team_id
-            registration_to_api: Dict[str, str] = {}  # registration_id -> api_team_id (if different)
-            try:
-                scripts = soup.find_all("script")
-                for script in scripts:
-                    if script.string:
-                        json_match = re.search(r"jsonTeamRegs\s*=\s*(\[)", script.string, re.DOTALL)
-                        if json_match:
-                            import json
-
-                            start_pos = json_match.start(1)
-                            bracket_count = 0
-                            in_string = False
-                            escape_next = False
-                            end_pos = start_pos
-
-                            for i in range(start_pos, len(script.string)):
-                                char = script.string[i]
-                                if escape_next:
-                                    escape_next = False
-                                    continue
-                                if char == "\\":
-                                    escape_next = True
-                                    continue
-                                if char == '"' and not escape_next:
-                                    in_string = not in_string
-                                    continue
-                                if not in_string:
-                                    if char == "[":
-                                        bracket_count += 1
-                                    elif char == "]":
-                                        bracket_count -= 1
-                                        if bracket_count == 0:
-                                            end_pos = i + 1
-                                            break
-
-                            json_str = script.string[start_pos:end_pos]
-                            teams_json = json.loads(json_str)
-                            for team in teams_json:
-                                # 'id' is the event registration ID
-                                registration_id = str(team.get("id", ""))
-                                # Look for API team ID fields (preferred)
-                                api_team_id = None
-                                for field in ["team_id", "rankings_team_id", "api_team_id", "gotsport_team_id"]:
-                                    if team.get(field):
-                                        api_team_id = str(team.get(field))
-                                        break
-
-                                team_name = team.get("full_name", "") or team.get("name", "")
-
-                                if team_name:
-                                    normalized_name = " ".join(team_name.split()).lower()
-                                    # Prefer API team ID if available, otherwise use registration ID
-                                    if api_team_id and api_team_id.isdigit():
-                                        teams_by_name[normalized_name] = api_team_id
-                                        if registration_id and registration_id != api_team_id:
-                                            registration_to_api[registration_id] = api_team_id
-                                    elif registration_id and registration_id.isdigit():
-                                        teams_by_name[normalized_name] = registration_id
-
-                            # Log what we found
-                            api_ids_found = len(registration_to_api)
-                            logger.debug(
-                                f"Extracted {len(teams_by_name)} teams from jsonTeamRegs "
-                                f"({api_ids_found} with distinct API team IDs)"
-                            )
-            except Exception as e:
-                logger.warning(f"Error extracting teams from jsonTeamRegs: {e}")
+            teams_by_name, registration_to_api = _parse_json_team_regs_from_soup(soup)
 
             # Scrape games from each schedule page
             # Delay between pages from environment (default: 0.1s for aggressive scraping)
@@ -3213,6 +3269,15 @@ class GotsportScraper(ProviderScraper):
             subpage_fetcher=_subpage_fetcher,
         )
 
+        # Canonical-id resolver dicts. ``registration_to_api`` is parsed
+        # ONCE from the landing-page ``jsonTeamRegs`` so most teams hit a
+        # local lookup instead of an HTTP round-trip; the games path uses
+        # the same helper at gotsport.py:2160. ``api_team_id_cache`` is
+        # the within-scrape memo: caches the resolver's ``None`` return
+        # too so multi-bracket teams don't re-resolve a known miss.
+        _, registration_to_api = _parse_json_team_regs_from_soup(landing_soup)
+        api_team_id_cache: Dict[str, Optional[str]] = {}
+
         # --- First pass: skip-set + classification ---------------------------
         prior_store = journal.read()
         skip_set = compute_skip_set(prior_store, force_teams=force_teams)
@@ -3239,10 +3304,29 @@ class GotsportScraper(ProviderScraper):
                         dropped_out_of_scope_count += 1
                         continue
 
+                # Capture the original reg_id BEFORE we mutate
+                # ``event_team.team_id`` — ``enrichment_by_team_id`` is
+                # keyed on reg_id (``enrich_teams_with_tiers`` ran
+                # pre-resolution), and ``ScrapedTeam.provider_registration_id``
+                # is the pool-assignment join key (gotsport pool pages
+                # link teams by reg_id, not canonical id).
+                reg_id = (event_team.team_id or "").strip()
+                enrichment = enrichment_by_team_id.get(reg_id) if reg_id else None
+                if reg_id:
+                    event_team.team_id = _resolve_canonical_team_id(
+                        self,
+                        event_id,
+                        reg_id,
+                        event_team.team_name,
+                        registration_to_api,
+                        api_team_id_cache,
+                    )
+
                 scraped = _event_team_to_scraped_team(
                     event_team,
                     bracket_name,
-                    enrichment=enrichment_by_team_id.get(event_team.team_id),
+                    enrichment=enrichment,
+                    registration_id=reg_id or None,
                 )
                 bracket_scraped.append(scraped)
                 pid = scraped.provider_team_id
@@ -3257,6 +3341,29 @@ class GotsportScraper(ProviderScraper):
                 if pid in all_resolutions:
                     # Multi-bracket occurrence — resolution already computed on
                     # first-seen ScrapedTeam; just record the bracket.
+                    continue
+                if pid.startswith("unresolved:"):
+                    # Bypass the matcher: the sentinel is non-numeric, so a
+                    # direct-id lookup against ``team_alias_map`` would
+                    # always miss and fall through to fuzzy_auto — and a
+                    # fuzzy_auto write keyed on the sentinel still pollutes
+                    # the alias map under a different name. Construct a
+                    # placeholder resolution; the second-pass router sees
+                    # ``resolved_status="none"`` and writes a journal record
+                    # with ``action="none"``, surfacing the team in the
+                    # intake UI's manual-lookup drawer (commits e27659b8c,
+                    # c534e6bef) without ever touching the alias map.
+                    all_resolutions[pid] = (
+                        scraped,
+                        CanonicalResolution(
+                            team_id_master=None,
+                            confidence=None,
+                            resolved_status="none",
+                            match_method=None,
+                            candidates=[],
+                            provider_id_resolution_status="link_no_id",
+                        ),
+                    )
                     continue
                 resolution = self.resolve_canonical_team_id(scraped)
                 all_resolutions[pid] = (scraped, resolution)
@@ -3483,6 +3590,62 @@ class GotsportScraper(ProviderScraper):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_canonical_team_id(
+    scraper: "GotsportScraper",
+    event_id: str,
+    registration_id: str,
+    team_name: Optional[str],
+    registration_to_api: Dict[str, str],
+    api_team_id_cache: Dict[str, Optional[str]],
+) -> str:
+    """Resolve a per-event registration_id to its canonical gotsport API team_id.
+
+    Priority ladder mirrors the games-path mutation site at gotsport.py:2370+:
+
+    1. ``registration_to_api[reg_id]`` — fast hit from ``jsonTeamRegs``
+       parsed once per event (no HTTP).
+    2. ``api_team_id_cache[reg_id]`` — within-scrape cache; carries
+       ``None`` to short-circuit re-resolution of teams that already
+       failed once (multi-bracket teams hit this).
+    3. ``scraper._resolve_api_team_id_from_event_page(...)`` — the JSON
+       API resolver (PR #713). On hit: writeback to both dicts. On miss:
+       cache ``None`` in ``api_team_id_cache`` ONLY (don't pollute
+       ``registration_to_api``).
+
+    Returns the canonical api_team_id when resolved, OR the sentinel
+    ``f"unresolved:{registration_id}"`` when the resolver returns None.
+    Never returns the bare registration_id — falling back to reg_id
+    pollutes ``team_alias_map`` with reg-id-keyed rows that drift
+    per-event (see PR #713 commit message). The orchestrator detects the
+    sentinel prefix and bypasses ``resolve_canonical_team_id`` so the
+    matcher's fuzzy_auto path can't write polluted rows either; the team
+    surfaces in raw_scrape.jsonl with ``resolved_status="none"`` for
+    manual lookup via the intake UI's Review / External drawer.
+    """
+    if registration_id in registration_to_api:
+        api_id = registration_to_api[registration_id]
+        api_team_id_cache[registration_id] = api_id
+        return api_id
+    if registration_id in api_team_id_cache:
+        cached = api_team_id_cache[registration_id]
+        if cached is not None:
+            return cached
+        return f"unresolved:{registration_id}"
+    if scraper.skip_team_id_resolution:
+        # Caller opted out of HTTP resolution (test fixtures, legacy
+        # fast-mode). Echo the reg_id back; this is the same compromise
+        # the games path makes at gotsport.py:2394. Production callers
+        # must leave the flag at its default (False) for canonical ids.
+        api_team_id_cache[registration_id] = registration_id
+        return registration_id
+    api_id = scraper._resolve_api_team_id_from_event_page(event_id, registration_id, team_name)
+    api_team_id_cache[registration_id] = api_id
+    if api_id:
+        registration_to_api[registration_id] = api_id
+        return api_id
+    return f"unresolved:{registration_id}"
+
+
 def _provider_id_resolution_status(team: ScrapedTeam) -> str:
     """Classify a ``ScrapedTeam`` against the plan's three provider-id states.
 
@@ -3509,9 +3672,24 @@ def _route_resolution(resolved_status: str, best_score: Optional[float]) -> tupl
     the routing logic.
     """
     if resolved_status == "direct_provider_id":
-        if best_score is not None and best_score >= 0.97:
-            return ("alias", "direct_id")
-        return (None, None)  # routes to review queue
+        # Curated provider_team_id is ground truth — name similarity does NOT
+        # override. The matcher only emits this status when a ``teams`` row's
+        # ``provider_team_id`` matches the scraped pid; post-PR-#713, those
+        # rows are populated only by human-approved alias_map writes (see
+        # PR #714 audit cleanup). The pre-#713 score gate (``>= 0.97``) was
+        # protective against reg_id-keyed alias pollution; that pollution is
+        # gone, and keeping the gate demoted obvious matches into the review
+        # queue (e.g. event 42433 had 49 fuzzy_auto rows that were curated
+        # direct-id matches the gate dropped because the scraped name vs
+        # stored master name fell below 0.97 — "Dynamos SC 14B SC" vs
+        # "Dynamos SC 2014 SC"). Names cannot override a canonical id.
+        #
+        # ``best_score is None`` still routes to queue defensively — that
+        # means the matcher didn't return a score at all (something
+        # upstream is broken), not that the score is low.
+        if best_score is None:
+            return (None, None)
+        return ("alias", "direct_id")
     if resolved_status in ("strict_exact", "high_confidence"):
         return ("alias", "fuzzy_auto")
     if resolved_status == "review":
@@ -3523,6 +3701,7 @@ def _event_team_to_scraped_team(
     event_team: "EventTeam",
     bracket_name: str,
     enrichment: Optional["EnrichmentResult"] = None,
+    registration_id: Optional[str] = None,
 ) -> ScrapedTeam:
     """Convert the legacy ``EventTeam`` row to the ``ProviderScraper``-shaped
     ``ScrapedTeam``.
@@ -3541,6 +3720,15 @@ def _event_team_to_scraped_team(
     ``enrichment`` carries the Shell-02 tier-section fields. When ``None``
     (no orchestrator hit for this ``team_id``) the dataclass-default
     sentinels apply (``"none"`` / ``"unenriched"``).
+
+    ``registration_id`` is the gotsport per-event registration id.
+    ``fetch_teams_by_cohort`` mutates ``event_team.team_id`` to the
+    canonical api_team_id (or the ``unresolved:{reg_id}`` sentinel)
+    BEFORE this call, then passes the ORIGINAL reg_id here so the
+    pool-assignment join key (gotsport pool pages link teams by reg_id)
+    is preserved on ``ScrapedTeam.provider_registration_id``. Passing
+    ``None`` (default) keeps non-gotsport callers — and gotsport
+    callers that pre-date this wiring — unchanged.
     """
     pid = (event_team.team_id or "").strip()
     return ScrapedTeam(
@@ -3558,6 +3746,7 @@ def _event_team_to_scraped_team(
         tier_discovery_source=enrichment.tier_discovery_source if enrichment else "none",
         tier_membership_source=enrichment.tier_membership_source if enrichment else "none",
         tier_parse_outcome=enrichment.tier_parse_outcome if enrichment else "unenriched",
+        provider_registration_id=registration_id,
     )
 
 
@@ -3614,6 +3803,7 @@ def _build_jsonl_record(
     return {
         "run_id": run_id,
         "provider_team_id": scraped.provider_team_id,
+        "provider_registration_id": scraped.provider_registration_id,
         "team_name": scraped.team_name,
         "club_name": scraped.club_name,
         "cohort_age_group": scraped.cohort_age_group,
