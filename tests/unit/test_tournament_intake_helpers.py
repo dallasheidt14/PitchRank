@@ -13,6 +13,7 @@ from datetime import date
 from src.tournaments.triage import ProjectedTeamState
 from tournament_intake import (
     _DISABLED_MODES,
+    _bracket_to_cohort_key,
     _build_division_groups,
     _cohort_sort_key,
     _cohort_toggle_key,
@@ -146,6 +147,78 @@ def test_group_cohorts_drops_unparseable_age():
     ]
     grouped = _group_cohorts(records)
     assert set(grouped) == {("u14", "Male")}
+
+
+# -------- _bracket_to_cohort_key -----------------------------------------
+
+
+def test_bracket_to_cohort_key_parses_standard_labels():
+    assert _bracket_to_cohort_key("U12G") == ("u12", "Female")
+    assert _bracket_to_cohort_key("U13B") == ("u13", "Male")
+    assert _bracket_to_cohort_key("u17g") == ("u17", "Female")  # case-insensitive
+    assert _bracket_to_cohort_key("U9B") == ("u9", "Male")  # 1-digit age
+
+
+def test_bracket_to_cohort_key_returns_none_for_unparseable():
+    assert _bracket_to_cohort_key("") is None
+    assert _bracket_to_cohort_key(None) is None
+    assert _bracket_to_cohort_key("Red") is None  # tier label, not bracket
+    assert _bracket_to_cohort_key("U12G Premier") is None  # extra suffix
+    assert _bracket_to_cohort_key("12B") is None  # missing U
+
+
+# -------- _group_cohorts: bracket-based grouping (the division they played) ---
+
+
+def test_group_cohorts_keys_by_bracket_name_when_present():
+    """Cohort key is derived from ``bracket_name`` (the division the team
+    played in this tournament), NOT ``cohort_age_group`` (their natural
+    age). A U11 playing UP in U12G is bucketed under U12 Female."""
+    records = [
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G"},
+        {"cohort_age_group": "U11", "cohort_gender": "F", "bracket_name": "U12G"},  # play-up
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U13G"},  # play-up out
+    ]
+    grouped = _group_cohorts(records)
+    assert set(grouped) == {("u12", "Female"), ("u13", "Female")}
+    assert len(grouped[("u12", "Female")]) == 2  # 1 natural + 1 U11 play-up
+    assert len(grouped[("u13", "Female")]) == 1  # the U12 play-up out
+
+
+def test_group_cohorts_falls_back_to_natural_age_when_bracket_missing():
+    """Records without a parseable bracket_name use natural-age cohort."""
+    records = [
+        {"cohort_age_group": "U14", "cohort_gender": "Boys", "bracket_name": ""},
+        {"cohort_age_group": "U14", "cohort_gender": "Boys", "bracket_name": None},
+        {"cohort_age_group": "U15", "cohort_gender": "Girls", "bracket_name": "Tier-Red"},  # unparseable
+    ]
+    grouped = _group_cohorts(records)
+    assert set(grouped) == {("u14", "Male"), ("u15", "Female")}
+    assert len(grouped[("u14", "Male")]) == 2
+    assert len(grouped[("u15", "Female")]) == 1
+
+
+def test_group_cohorts_event_42433_repro():
+    """Repro of the operator-reported mismatch: U12 Female cohort showed 7
+    teams but the gotsport U12G division has 6. Two U12-natural teams
+    were playing up in U13G; bracket-keyed grouping correctly pushes
+    them out of the U12 cohort and into U13 Female."""
+    records = [
+        # 5 U12-natural in U12G (the actual division)
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p1"},
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p2"},
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p3"},
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p4"},
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p5"},
+        # 1 U11-natural playing UP in U12G (joins the U12 cohort)
+        {"cohort_age_group": "U11", "cohort_gender": "F", "bracket_name": "U12G", "provider_team_id": "p6"},
+        # 2 U12-natural playing UP in U13G (leave the U12 cohort)
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U13G", "provider_team_id": "p7"},
+        {"cohort_age_group": "U12", "cohort_gender": "F", "bracket_name": "U13G", "provider_team_id": "p8"},
+    ]
+    grouped = _group_cohorts(records)
+    assert len(grouped[("u12", "Female")]) == 6, "U12G division has 6 teams"
+    assert len(grouped[("u13", "Female")]) == 2, "U13G has the 2 play-up teams"
 
 
 # -------- _cohort_sort_key -----------------------------------------------

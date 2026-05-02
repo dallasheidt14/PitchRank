@@ -496,12 +496,61 @@ def _cohort_sort_key(cohort: tuple[str, str]) -> tuple[int, str]:
     return (-age_n, gender)
 
 
+_BRACKET_KEY_RE = re.compile(r"^\s*U(\d+)([BG])\s*$", re.IGNORECASE)
+
+
+def _bracket_to_cohort_key(bracket_name: str | None) -> tuple[str, str] | None:
+    """Parse a gotsport bracket label like ``"U12G"`` / ``"U13B"`` into the
+    normalized cohort tuple ``("u12", "Female")`` / ``("u13", "Male")``.
+
+    Returns ``None`` when the bracket label can't be parsed (empty,
+    non-standard, sub-tier label only). Callers fall back to the
+    record's natural ``cohort_age_group`` / ``cohort_gender``.
+    """
+    if not bracket_name:
+        return None
+    m = _BRACKET_KEY_RE.match(bracket_name)
+    if not m:
+        return None
+    try:
+        age = normalize_age_group(f"U{int(m.group(1))}")
+    except ValueError:
+        return None
+    gender = normalize_gender_label("M" if m.group(2).upper() == "B" else "F")
+    return (age, gender)
+
+
 def _group_cohorts(
     records: list[dict[str, Any]],
 ) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Group records by ``(normalized_age, normalized_gender)`` cohort."""
+    """Group records by the DIVISION (``bracket_name``) the team played in.
+
+    Cohort key is ``(age, gender)`` derived from the ``bracket_name`` field
+    on each record (e.g., ``"U12G"`` → ``("u12", "Female")``). A U11 team
+    playing UP in U12G is bucketed under U12 Female (the division they
+    played); a U12 team playing UP in U13G is bucketed under U13 Female.
+    This matches what the operator sees on the gotsport tournament page.
+
+    When ``bracket_name`` is missing or unparseable, fall back to the
+    record's natural ``cohort_age_group`` / ``cohort_gender`` so no team
+    is silently dropped from the cohort summary.
+
+    History: this used to key by natural age (``cohort_age_group``).
+    Operators reported the team_count summary mismatching the actual
+    division roster on gotsport (e.g., U12 Female cohort showed 7 teams
+    when the U12G division had 6 — the 7th was a U12-natural team
+    playing up in U13G). Re-keying by ``bracket_name`` makes the cohort
+    summary mirror the gotsport division view.
+    """
     cohorts: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for rec in records:
+        bracket_key = _bracket_to_cohort_key(rec.get("bracket_name"))
+        if bracket_key is not None:
+            cohorts.setdefault(bracket_key, []).append(rec)
+            continue
+        # Natural-age fallback: only used when bracket_name is missing
+        # or non-standard. Record stays visible in the summary even
+        # when the bracket label can't be parsed.
         age_raw = rec.get("cohort_age_group") or ""
         gender_raw = rec.get("cohort_gender") or ""
         try:
