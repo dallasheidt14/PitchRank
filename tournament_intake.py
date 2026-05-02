@@ -436,6 +436,18 @@ def _cohort_tint(
     # would mark a fully-played cohort as "partial" purely because some
     # externals didn't appear in the scrape. Filter them out so the strip
     # agrees with the preflight gate.
+    #
+    # Match key: ``provider_registration_id`` (the per-event reg_id), not
+    # ``provider_team_id`` (the canonical api_team_id). The schedule
+    # enricher extracts ``team=<id>`` from gotsport schedule-page anchors,
+    # which are reg_ids — so ``game_results.jsonl`` carries reg_ids. The
+    # canonical-id resolver translates raw_scrape's ``provider_team_id`` to
+    # the api_id, but ``provider_registration_id`` preserves the reg_id
+    # alongside it (gotsport.py:_event_team_to_scraped_team). Coverage join
+    # must use the reg_id namespace so resolved teams aren't falsely
+    # flagged as missing games. Falls back to ``provider_team_id`` for
+    # records that pre-date the registration-id field (older raw_scrape
+    # journals before the canonical-id flip).
     provider_team_ids: set[str] = set()
     for rec in records:
         pid = str(rec.get("provider_team_id") or "")
@@ -447,7 +459,8 @@ def _cohort_tint(
         scraper_state = (rec.get("canonical") or {}).get("scraper_state")
         if projected is None and scraper_state == "unresolved":
             continue
-        provider_team_ids.add(pid)
+        coverage_pid = str(rec.get("provider_registration_id") or "") or pid
+        provider_team_ids.add(coverage_pid)
     if not provider_team_ids:
         return base_level, base_note
     try:
@@ -1724,10 +1737,17 @@ def _render_games_coverage(
         getattr(division, "expected_game_count", division.team_count) for division in structure_for_cohort.divisions
     )
     if _is_backtest_mode():
+        # Match on ``provider_registration_id`` (reg_id) — see _override_aware_tint_with_games
+        # for the same join-key explanation. ``game_results.jsonl`` carries reg_ids
+        # extracted from gotsport schedule-page anchors; the canonical-id resolver
+        # rewrote ``provider_team_id`` to the api_id, which would never match.
         provider_team_ids = {
-            str(rec.get("provider_team_id") or "").strip()
+            (
+                str(rec.get("provider_registration_id") or "").strip()
+                or str(rec.get("provider_team_id") or "").strip()
+            )
             for rec in cohort_records
-            if rec.get("provider_team_id")
+            if rec.get("provider_team_id") or rec.get("provider_registration_id")
         }
         provider_team_ids.discard("")
         if not provider_team_ids:

@@ -638,11 +638,18 @@ def is_ready(
 
         if state in ("resolved", "placeholder") and team_id_master:
             cohort_team_ids.setdefault(cohort, set()).add(team_id_master)
-        # Local-coverage path uses provider_team_ids (gotsport's IDs in
-        # the local artifact); collect those for ALL non-external states
-        # so the local check sees the same population as the structure does.
+        # Local-coverage path joins on the gotsport reg_id stored in
+        # ``game_results.jsonl`` (the schedule enricher extracts
+        # ``team=<id>`` from anchor hrefs, which are reg_ids). The
+        # canonical-id resolver rewrites ``provider_team_id`` on each
+        # raw_scrape record to the api_id, so a join on ``pid`` would
+        # never match a single game. Use ``provider_registration_id``
+        # (preserved alongside the canonical id post-resolver), falling
+        # back to ``pid`` for synthetic records or older journals that
+        # pre-date the registration-id field.
         if state != "external":
-            cohort_provider_ids.setdefault(cohort, set()).add(pid)
+            coverage_pid = str(record.get("provider_registration_id") or "") or pid
+            cohort_provider_ids.setdefault(cohort, set()).add(coverage_pid)
 
     # Second pass: manual-add teams. They live only in ``team_state`` (never
     # in the registry CSV) and carry their cohort attribution in
