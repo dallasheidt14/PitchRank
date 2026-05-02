@@ -64,12 +64,21 @@ def _scraped_team(
 
 
 def _scraper() -> GotsportScraper:
-    """GotsportScraper with a mocked Supabase providers row."""
+    """GotsportScraper with a mocked Supabase providers row.
+
+    ``team_alias_map`` fast-path lookup is mocked to return empty data so
+    tests fall through to the name-matcher (which they then mock via
+    ``search_event_team_in_db``). Tests that want to exercise the
+    fast-path itself set the return data explicitly.
+    """
     supabase = MagicMock()
+    # Providers lookup: .table().select().eq().single().execute().data
     supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "provider-uuid-xyz",
         "code": "gotsport",
     }
+    # Alias-map fast-path lookup: .table().select().eq().eq().limit().execute().data
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     return GotsportScraper(supabase, "gotsport", skip_team_id_resolution=True)
 
 
@@ -192,6 +201,50 @@ def test_resolve_direct_provider_id_low_name_score_still_aliases(mock_search, sc
     assert res.match_method == "direct_id"
     assert res.team_id_master == "master-B"
     assert res.confidence == 0.90
+
+
+@patch("src.tournaments.event_team_matcher.search_event_team_in_db")
+def test_resolve_alias_map_fast_path_hits_before_matcher(mock_search, scraper):
+    """When ``team_alias_map`` has ANY row (curated or not) for the scraped
+    canonical pid pointing at a real ``team_id_master``, return that
+    immediately as ``direct_provider_id`` without consulting the
+    name-matcher. This catches merged-into teams whose canonical pid
+    lives only in the alias map (not in ``teams.provider_team_id``) —
+    e.g. event 42433's ``pid=644334`` 'U-13 (2013) MLS NEXT Academy' →
+    master ``400b69b1`` (SC Del Sol U13 AD): the alias row exists, but
+    ``teams[400b69b1].provider_team_id='389'``, so the
+    ``teams``-table-keyed candidate fetch in ``rank_db_candidates``
+    would never see this pid match and would fall back to a name fuzzy
+    that fails."""
+    # Override the default empty alias-map mock with a hit
+    scraper.supabase_client.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data = [
+        {"team_id_master": "alias-master-id"},
+    ]
+    team = _scraped_team(provider_team_id="644334")
+    res = scraper.resolve_canonical_team_id(team)
+
+    assert res.resolved_status == "direct_provider_id"
+    assert res.match_method == "direct_id"
+    assert res.team_id_master == "alias-master-id"
+    assert res.confidence == 1.0
+    mock_search.assert_not_called(), "fast-path must skip the name-matcher entirely"
+
+
+@patch("src.tournaments.event_team_matcher.search_event_team_in_db")
+def test_resolve_alias_map_fast_path_skips_when_pid_unresolved(mock_search, scraper):
+    """The fast-path requires ``provider_id_resolution_status='resolved'``.
+    Teams without a resolvable pid (no view-rankings link or empty pid)
+    skip the lookup and fall straight through to the name-matcher."""
+    mock_search.return_value = _search_result(
+        resolved_status="none",
+        best_score=None,
+        matches=[],
+    )
+    team = _scraped_team(provider_team_id="", has_view_rankings_link=False)
+    res = scraper.resolve_canonical_team_id(team)
+
+    assert res.resolved_status == "none"
+    mock_search.assert_called_once()
 
 
 @patch("src.tournaments.event_team_matcher.search_event_team_in_db")

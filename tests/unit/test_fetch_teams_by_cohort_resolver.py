@@ -43,6 +43,8 @@ def _scraper() -> GotsportScraper:
         "id": "provider-uuid",
         "code": "gotsport",
     }
+    # team_alias_map fast-path: empty by default
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     return GotsportScraper(supabase, "gotsport", skip_team_id_resolution=False)
 
 

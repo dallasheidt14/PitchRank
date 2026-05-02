@@ -45,10 +45,13 @@ EVENT_URL = "https://system.gotsport.com/org_event/events/42434"
 
 def _scraper() -> GotsportScraper:
     supabase = MagicMock()
+    # Providers lookup chain
     supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value.data = {
         "id": "provider-uuid",
         "code": "gotsport",
     }
+    # team_alias_map fast-path: empty by default so tests fall through to matcher
+    supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
     return GotsportScraper(supabase, "gotsport", skip_team_id_resolution=True)
 
 

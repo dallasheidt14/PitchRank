@@ -3559,6 +3559,49 @@ class GotsportScraper(ProviderScraper):
 
         provider_id_status = _provider_id_resolution_status(team)
 
+        # Tournament-intake fast path: when the scraped canonical pid has
+        # ANY row in ``team_alias_map`` (any match_method, any review_status)
+        # pointing at a real ``team_id_master``, that IS the answer.
+        # Names, name-similarity scores, and curation status are all
+        # irrelevant — the alias map is ground truth for "this gotsport
+        # canonical id corresponds to this master team", regardless of how
+        # the master row's primary ``teams.provider_team_id`` is set
+        # (typically to ONE of many aliases, leaving the rest invisible to
+        # the name-matcher's ``teams``-table candidate fetch). This lookup
+        # catches every merged-into team: the merge target's ``teams`` row
+        # carries the legacy/primary pid, and the new gotsport canonical
+        # pid lives only in ``team_alias_map``.
+        #
+        # Scoped to ``resolve_canonical_team_id`` (called only from
+        # ``fetch_teams_by_cohort``, the tournament intake path) — the prod
+        # games-import resolves through ``scrape_games_from_schedule_pages``
+        # which does NOT call this method.
+        if provider_id_status == "resolved" and team.provider_team_id:
+            try:
+                alias_lookup = (
+                    self.supabase_client.table("team_alias_map")
+                    .select("team_id_master")
+                    .eq("provider_id", self._provider_uuid)
+                    .eq("provider_team_id", team.provider_team_id)
+                    .limit(1)
+                    .execute()
+                )
+                if alias_lookup.data:
+                    alias_master = alias_lookup.data[0].get("team_id_master")
+                    if alias_master:
+                        return CanonicalResolution(
+                            team_id_master=alias_master,
+                            confidence=1.0,
+                            resolved_status="direct_provider_id",
+                            match_method="direct_id",
+                            candidates=[],
+                            provider_id_resolution_status=provider_id_status,
+                        )
+            except Exception as e:
+                logger.debug(
+                    f"alias_map fast-path lookup failed for pid={team.provider_team_id}: {e}"
+                )
+
         query = EventTeamSearchQuery(
             event_team_name=team.team_name,
             event_age_group=team.cohort_age_group,
