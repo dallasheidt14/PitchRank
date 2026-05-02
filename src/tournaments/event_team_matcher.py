@@ -348,6 +348,13 @@ def rank_db_candidates(
     matches.sort(
         key=lambda item: (
             item.score,
+            # Canonical pid match wins ties before any name-similarity tiebreaker.
+            # Without this, a name-tied candidate (normalized_name_exact=True at
+            # score 1.0) can outrank the pid candidate (whose stored master name
+            # differs from the scraped name, so normalized_name_exact=False),
+            # leaving ``matches[0].team_id_master`` pointing at the wrong row
+            # for ``resolve_canonical_team_id``.
+            item.score_reason == "provider_team_id",
             item.normalized_name_exact,
             item.club_exact,
             not item.team_name.lower().startswith("unknown_"),
@@ -366,6 +373,33 @@ def classify_match_result(matches: list[EventTeamMatch]) -> tuple[str, float | N
     best = matches[0]
     second_score = matches[1].score if len(matches) > 1 else None
     score_gap = round(best.score - second_score, 4) if second_score is not None else None
+
+    # A canonical ``provider_team_id`` match anywhere in the candidate
+    # list IS the ground truth — names cannot override it. Without this
+    # cross-list scan, a name-tied candidate (e.g., a different team
+    # whose normalized name equals the scraped name and scores 1.0) can
+    # outrank the pid match in ``rank_db_candidates``'s sort because the
+    # pid candidate's normalized name ≠ scraped name (line 297 sets
+    # ``normalized_name_exact=False``, demoting it in the secondary
+    # sort key). The pid candidate is still in the list — promote it
+    # here regardless of sort position.
+    pid_match = next(
+        (m for m in matches if m.score_reason == "provider_team_id"),
+        None,
+    )
+    if pid_match is not None:
+        # Compute score_gap relative to the next-highest non-pid match
+        # so downstream consumers (review-queue ranking, metrics) see a
+        # meaningful gap. ``second_score`` carries the runner-up's
+        # score from the matcher's own sort.
+        non_pid_top = next((m for m in matches if m is not pid_match), None)
+        non_pid_score = non_pid_top.score if non_pid_top is not None else None
+        pid_gap = (
+            round(pid_match.score - non_pid_score, 4)
+            if non_pid_score is not None
+            else None
+        )
+        return "direct_provider_id", pid_match.score, non_pid_score, pid_gap
 
     if best.score_reason == "provider_team_id":
         return "direct_provider_id", best.score, second_score, score_gap
