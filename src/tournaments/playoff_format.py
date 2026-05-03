@@ -143,6 +143,12 @@ def detect_format_from_stage_labels(games: list[Any]) -> str | None:
     has_consolation = any("consolation" in lbl for lbl in labels)
     has_semi = any("semi" in lbl for lbl in labels)
     has_quarter = any("quarter" in lbl or lbl.startswith("qf") for lbl in labels)
+    # "5th Place Game", "7th Place", "9th Place Game" etc. — signals that EVERY
+    # team plays a placement game (POOL_CROSSOVER), not just the top 4.
+    # Pattern: a number >= 5 followed by "place" or "th place game".
+    import re as _re
+    place_pattern = _re.compile(r"\b([5-9]|1\d|2\d)(st|nd|rd|th)?\s+place\b")
+    has_lower_placement = any(place_pattern.search(lbl) for lbl in labels)
 
     if has_quarter:
         return "QF_SF_F"
@@ -150,8 +156,13 @@ def detect_format_from_stage_labels(games: list[Any]) -> str | None:
         return "SF_F_3P"
     if has_semi:
         return "SF_F"
-    # POOL_CROSSOVER signature: Final + Third Place + Consolation A/B (no semis).
-    if has_final and has_consolation and has_third:
+    # POOL_CROSSOVER signature: every pool seed plays its mirror in the other
+    # pool. Detected by ANY of:
+    #   (a) explicit "Consolation" labels (4-team-pool form: Final, Third
+    #       Place, Consolation A, Consolation B)
+    #   (b) lower placement games beyond 3rd ("5th Place Game", "7th Place",
+    #       etc.) — signals every pool finisher plays a placement match
+    if has_final and has_third and (has_consolation or has_lower_placement):
         return "POOL_CROSSOVER"
     if has_final and has_third:
         return "F_3P"

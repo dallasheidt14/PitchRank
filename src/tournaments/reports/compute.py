@@ -690,9 +690,11 @@ def _accumulate(record: dict[str, int], team_score: int, opp_score: int) -> None
 
 
 def _standings_sort_key(row: StandingsRow) -> tuple:
-    # Division asc, then by points desc (W=3, T=1), then GD desc, then GF desc.
+    # Division asc, pool_label asc, then by points desc (W=3, T=1), then GD
+    # desc, then GF desc. Grouping by pool_label keeps each bracket's rows
+    # adjacent so the template can render per-bracket sub-tables.
     points = row.wins * 3 + row.ties
-    return (row.division_name, -points, -row.goal_differential, -row.goals_for, row.team_name)
+    return (row.division_name, row.pool_label, -points, -row.goal_differential, -row.goals_for, row.team_name)
 
 
 def _compute_actual_standings(
@@ -705,7 +707,10 @@ def _compute_actual_standings(
     Joins game_results' reg-id keys to entrants via raw_scrape's
     provider_team_id <-> provider_registration_id pairing. Each team's
     division_name is their actual played tier (entrant.actual_division_name,
-    set by the orchestrator from raw_scrape.group_name).
+    set by the orchestrator from raw_scrape.group_name). Pool label
+    (Bracket A / B) is looked up from intake/pool_assignments.json so
+    the standings render per-bracket — mirrors the actual tournament's
+    structure.
     """
     games = read_game_results(event_key, base_dir=base_dir)
     if not games:
@@ -720,14 +725,33 @@ def _compute_actual_standings(
     entrant_by_pid = {
         str(e.get("provider_team_id") or ""): e for e in entrants if e.get("provider_team_id")
     }
+    # Build reg_id -> pool_label map from pool_assignments.json. The pool
+    # enricher writes one entry per (group_id, pool_label, reg_id_list).
+    # Lazy import to avoid a circular at module top.
+    from src.tournaments.storage.pool_assignments import read_pool_assignments
+
+    pool_label_by_reg: dict[str, str] = {}
+    try:
+        pool_data = read_pool_assignments(event_key, base_dir=base_dir)
+        for _gid, pools in pool_data.items():
+            for pool in pools:
+                label = str(getattr(pool, "label", "") or "")
+                for reg in getattr(pool, "provider_team_ids", ()) or ():
+                    if reg and label:
+                        pool_label_by_reg[str(reg)] = label
+    except Exception:  # noqa: BLE001 — missing pool_assignments shouldn't break standings
+        pool_label_by_reg = {}
 
     aggregates: dict[tuple[str, str], dict[str, int]] = {}  # (canonical_id, division) -> stats
     name_by_canonical: dict[str, str] = {}
+    pool_label_by_canonical: dict[str, str] = {}
     for game in games:
         if game.home_score is None or game.away_score is None:
             continue
-        home_pid = reg_to_pid.get(str(game.home_provider_team_id or ""))
-        away_pid = reg_to_pid.get(str(game.away_provider_team_id or ""))
+        home_reg_str = str(game.home_provider_team_id or "")
+        away_reg_str = str(game.away_provider_team_id or "")
+        home_pid = reg_to_pid.get(home_reg_str)
+        away_pid = reg_to_pid.get(away_reg_str)
         if not home_pid or not away_pid:
             continue
         home_entrant = entrant_by_pid.get(home_pid)
@@ -742,6 +766,12 @@ def _compute_actual_standings(
         away_div = str(away_entrant.get("actual_division_name") or "")
         name_by_canonical[home_canonical] = str(home_entrant.get("event_team_name") or "")
         name_by_canonical[away_canonical] = str(away_entrant.get("event_team_name") or "")
+        # Bracket label per team (first observation wins; pool data is
+        # static per team in backtest mode).
+        if home_canonical not in pool_label_by_canonical and home_reg_str in pool_label_by_reg:
+            pool_label_by_canonical[home_canonical] = pool_label_by_reg[home_reg_str]
+        if away_canonical not in pool_label_by_canonical and away_reg_str in pool_label_by_reg:
+            pool_label_by_canonical[away_canonical] = pool_label_by_reg[away_reg_str]
         _accumulate(
             aggregates.setdefault((home_canonical, home_div), _empty_record()),
             int(game.home_score),
@@ -769,6 +799,7 @@ def _compute_actual_standings(
                 goals_for=stats["gf"],
                 goals_against=stats["ga"],
                 goal_differential=stats["gf"] - stats["ga"],
+                pool_label=pool_label_by_canonical.get(canonical_id, ""),
             )
         )
     rows.sort(key=_standings_sort_key)
@@ -786,6 +817,7 @@ def _compute_optimized_standings(
     aggregates: dict[str, dict[str, int]] = {}  # canonical_id -> stats
     division_by_canonical: dict[str, str] = {}
     name_by_canonical: dict[str, str] = {}
+    pool_label_by_canonical: dict[str, str] = {}
     for division in optimized_proj.get("divisions") or []:
         division_name = str(division.get("division_name") or "")
         for match in division.get("matches") or []:
@@ -793,6 +825,11 @@ def _compute_optimized_standings(
             away_score = match.get("away_score")
             if home_score is None or away_score is None:
                 continue
+            # pool_name on each match is "Pool A" / "Pool B" / None for crossovers.
+            # Strip "Pool " prefix to match the actual side's bracket-label
+            # convention (the standings template renders e.g. "Bracket A").
+            raw_pool_name = str(match.get("pool_name") or "")
+            pool_label = raw_pool_name.removeprefix("Pool ").strip() if raw_pool_name else ""
             for eid, team_score, opp_score in (
                 (str(match.get("home_team_id") or ""), int(home_score), int(away_score)),
                 (str(match.get("away_team_id") or ""), int(away_score), int(home_score)),
@@ -805,6 +842,10 @@ def _compute_optimized_standings(
                     continue
                 division_by_canonical.setdefault(canonical_id, division_name)
                 name_by_canonical.setdefault(canonical_id, str(entrant.get("event_team_name") or ""))
+                # Bracket label: only set from pool-play matches (crossover
+                # matches have pool_name=None and shouldn't override).
+                if pool_label and canonical_id not in pool_label_by_canonical:
+                    pool_label_by_canonical[canonical_id] = pool_label
                 _accumulate(
                     aggregates.setdefault(canonical_id, _empty_record()),
                     team_score,
@@ -823,6 +864,7 @@ def _compute_optimized_standings(
             goals_for=stats["gf"],
             goals_against=stats["ga"],
             goal_differential=stats["gf"] - stats["ga"],
+            pool_label=pool_label_by_canonical.get(canonical_id, ""),
         )
         for canonical_id, stats in aggregates.items()
     ]

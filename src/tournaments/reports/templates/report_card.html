@@ -209,12 +209,20 @@ delta-flat
     {% if rows %}
       <section class="rc-section">
         <div class="rc-eyebrow">{{ label }}</div>
-        {%- set ns = namespace(current_division=none) -%}
+        {%- set ns = namespace(current_division=none, current_pool=none) -%}
         {% for row in rows %}
           {% if row.division_name != ns.current_division %}
             {% if not loop.first %}</tbody></table>{% endif %}
             {%- set ns.current_division = row.division_name -%}
+            {%- set ns.current_pool = none -%}
             <h3 class="rc-division-heading">{{ row.division_name }}</h3>
+          {% endif %}
+          {% if row.pool_label != ns.current_pool %}
+            {% if ns.current_pool is not none and not loop.first %}</tbody></table>{% endif %}
+            {%- set ns.current_pool = row.pool_label -%}
+            {% if row.pool_label %}
+              <h4 class="rc-pool-heading">Bracket {{ row.pool_label }}</h4>
+            {% endif %}
             <table class="rc-table rc-mono">
               <thead>
                 <tr>

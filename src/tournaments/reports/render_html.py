@@ -107,6 +107,7 @@ body {
 .rc-audit summary { cursor: pointer; }
 .rc-division-heading { font-size: 13px; font-weight: 600; color: #374151; margin: 16px 0 4px; }
 .rc-division-heading:first-of-type { margin-top: 8px; }
+.rc-pool-heading { font-size: 12px; font-weight: 600; color: #6b7280; margin: 8px 0 2px; padding-left: 4px; }
 .rc-subtle { font-size: 12px; color: #6b7280; margin: 4px 0 8px; }
 .rc-headline { background: #f0f9ff; border-color: #bae6fd; }
 .rc-headline-lead { font-size: 15px; line-height: 1.55; margin: 8px 0 12px; color: #0c4a6e; }

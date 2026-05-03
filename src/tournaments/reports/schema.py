@@ -193,6 +193,13 @@ class StandingsRow:
     goals_for: int
     goals_against: int
     goal_differential: int
+    pool_label: str = ""
+    """Bracket / pool label within the division (e.g. ``"A"``, ``"B"``).
+    Empty string for divisions that ran as a single pool. Used by the
+    template to render per-bracket standings sub-tables instead of one
+    monolithic division table — backtest-mode invariant: the report's
+    standings layout must mirror the actual tournament's bracket
+    structure."""
 
     @property
     def avg_goal_differential(self) -> float:
@@ -214,6 +221,7 @@ class StandingsRow:
             goals_for=int(payload["goals_for"]),
             goals_against=int(payload["goals_against"]),
             goal_differential=int(payload["goal_differential"]),
+            pool_label=str(payload.get("pool_label") or ""),
         )
 
 
