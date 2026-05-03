@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 # Import base matcher for shared functionality
 from src.models.game_matcher import GameHistoryMatcher
+from src.utils.team_name_utils import resolve_distinction
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -1338,6 +1339,15 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
             clean_team_name = self._build_team_name_with_division(team_name, division)
 
+            # Modular11: pass RAW team_name (not clean_team_name). The
+            # `_build_team_name_with_division` helper appends a space-separated
+            # `HD` or `AD` token; that division belongs in the `league`
+            # column, NOT in `distinction`. Pass the pre-suffix name so the
+            # division marker doesn't leak into distinction extraction.
+            # TODO: thread state_code through this signature for state-name
+            # token stripping (parity with PlayMetrics/SincSports/AffinityWA).
+            distinction = resolve_distinction(team_name, club_name, None)
+
             # Insert new team with ALIASED provider_team_id
             team_data = {
                 "team_id_master": team_id_master,
@@ -1347,6 +1357,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 "gender": gender_normalized,
                 "provider_id": provider_id,  # Required for Modular11 teams
                 "provider_team_id": aliased_provider_team_id,  # Use aliased format: {club_id}_{age}_{division}
+                "distinction": distinction,
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 

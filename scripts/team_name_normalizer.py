@@ -95,7 +95,11 @@ def normalize_gender(text: str) -> Optional[str]:
     return None
 
 
-def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
+def parse_age_gender(
+    token: str,
+    club_skip_tokens: Optional[set] = None,
+    season_year_max: Optional[int] = None,
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse an age/gender token.
 
@@ -106,6 +110,21 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     - Age group formats → U##: 'U14B' -> 'U14', 'U-14' -> 'U14', 'BU14' -> 'U14',
       '14U' -> 'U14', '14UB' -> ('U14', 'Male')
     - Gender is extracted separately, stripped from age token
+
+    club_skip_tokens:
+        When provided and ``token`` is in this set, the bare-2-digit branch
+        (`Pattern: ## alone`) returns ``(None, None)`` instead of converting
+        to a birth year. Prevents club names like "Union 10 FC" from
+        rewriting "10" to "2010" during normalization.
+
+    season_year_max:
+        Cutoff above which 4-digit years are treated as season labels rather
+        than birth years (e.g., "Spring 2025" or a "2020" founding year for
+        a team whose actual birth-year cohort is something else). When ``None``
+        (default), derived at runtime from
+        ``CURRENT_YEAR - 7`` so the cutoff tracks the season:
+        in 2025-26 → 2018, dropping 2020+ as season labels but preserving
+        u7 = 2019-born.
 
     Examples:
         '14B' -> ('2012', 'Male')  # 14 = 2014 birth year, B = Boys
@@ -122,6 +141,20 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
         'U14' -> ('U14', None)  # age only
     """
     token = token.strip()
+    if season_year_max is None:
+        # Lazy import to avoid bootstrap cycles when this module is imported
+        # by other scripts that don't need src.utils.team_utils.
+        # Ensure repo root is on path so `src.*` imports work in standalone runs.
+        try:
+            from src.utils.team_utils import CURRENT_YEAR
+        except ModuleNotFoundError:
+            import os as _os
+            import sys as _sys
+            _repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            if _repo_root not in _sys.path:
+                _sys.path.insert(0, _repo_root)
+            from src.utils.team_utils import CURRENT_YEAR
+        season_year_max = CURRENT_YEAR - 7
 
     # Pattern: U-## with optional gender suffix (U14, U14B, U-14, U14M)
     match = re.match(r"^[Uu]-?(\d{1,2})([BbGgMmFf]?)$", token)
@@ -174,6 +207,8 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     match = re.match(r"^(\d{4})([BbGgMmFf])$", token)
     if match:
         birth_year = int(match.group(1))
+        if birth_year > season_year_max + 1:
+            return (None, None)  # season label, not birth year
         gender_char = match.group(2)
         gender = normalize_gender(gender_char)
         return (str(birth_year), gender)
@@ -183,12 +218,16 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     if match:
         gender_char = match.group(1)
         birth_year = int(match.group(2))
+        if birth_year > season_year_max + 1:
+            return (None, None)  # season label, not birth year
         gender = normalize_gender(gender_char)
         return (str(birth_year), gender)
 
     # Pattern: #### alone (4-digit birth year) -> keep as-is
     match = re.match(r"^(\d{4})$", token)
     if match:
+        if int(token) > season_year_max + 1:
+            return (None, None)  # season label, not birth year
         return (token, None)
 
     # Pattern: ## alone (2-digit, could be age or year - ambiguous)
@@ -196,6 +235,10 @@ def parse_age_gender(token: str) -> Tuple[Optional[str], Optional[str]]:
     match = re.match(r"^(\d{2})$", token)
     if match:
         num = int(match.group(1))
+        # Skip if this 2-digit token is a club-name fragment — prevents
+        # "Union 10 FC 2008" → "Union 2010 FC 2008" pollution.
+        if club_skip_tokens and token in club_skip_tokens:
+            return (None, None)
         if 6 <= num <= 18:  # Valid birth years 2006-2018
             birth_year = 2000 + num
             return (str(birth_year), None)
@@ -519,6 +562,62 @@ if __name__ == "__main__":
         result = parse_age_gender(token)
         status = "✅" if result == expected else "❌"
         print(f"  {status} {token:10} → {result} (expected: {expected})")
+
+    # ── CLUB-TOKEN SKIP ──
+    # When club_skip_tokens contains a 2-digit number, the bare-2-digit
+    # branch must return (None, None) instead of converting to a birth year.
+    # Prevents "Union 10 FC 2008" → "Union 2010 FC 2008" pollution.
+    print("\nCLUB-TOKEN SKIP (bare-2-digit branch returns None when in skip set):")
+    club_skip_tests = [
+        # (token, club_skip_tokens, expected_age)
+        ("10", {"union", "10", "fc"}, None),  # club fragment, skip
+        ("10", set(), "2010"),                 # no skip, parse as birth year
+        ("12", {"union", "10", "fc"}, "2012"), # different number, parse
+        ("08", {"team", "08"}, None),          # club fragment, skip
+        ("08", set(), "2008"),                 # no skip, parse
+        ("14", None, "2014"),                  # None skip set → no skip
+    ]
+    for token, skip, expected in club_skip_tests:
+        age, _ = parse_age_gender(token, club_skip_tokens=skip)
+        status = "✅" if age == expected else "❌"
+        skip_repr = "None" if skip is None else f"len={len(skip)}"
+        print(f"  {status} parse_age_gender({token!r}, skip={skip_repr}) → {age!r} (expected: {expected!r})")
+
+    # ── SEASON-YEAR FILTER ──
+    # 4-digit years above CURRENT_YEAR-7+1 are season labels, not birth years.
+    # In 2025-26: season_year_max=2018, so 2019 IS preserved (u7 cohort) but
+    # 2020, 2025 are dropped.
+    print("\nSEASON-YEAR FILTER (default season_year_max from CURRENT_YEAR):")
+    season_tests = [
+        ("2014", "2014"),  # within range
+        ("2018", "2018"),  # at max
+        ("2019", "2019"),  # max+1, still allowed (u7 cohort)
+        ("2020", None),    # season label, dropped
+        ("2025", None),    # season label, dropped
+        ("B2025", None),   # gender + season label
+        ("2025B", None),   # season label + gender
+    ]
+    for token, expected in season_tests:
+        age, _ = parse_age_gender(token)
+        status = "✅" if age == expected else "❌"
+        print(f"  {status} parse_age_gender({token!r}) → {age!r} (expected: {expected!r})")
+
+    # ── normalize_team_name CLUB-TOKEN preservation ──
+    # End-to-end check that the Union 10 FC pollution path is fixed.
+    try:
+        from normalize_team_names import normalize_team_name as _normalize
+    except ImportError:
+        _normalize = None
+    if _normalize:
+        print("\nnormalize_team_name preserves club-name numbers:")
+        norm_tests = [
+            ("Union 10 FC 2008 Boys", "Union 10 FC", "Union 10 FC 2008"),
+            ("Union 10 FC 2009 Boys", "Union 10 FC", "Union 10 FC 2009"),
+        ]
+        for name, club, expected in norm_tests:
+            got = _normalize(name, club)
+            status = "✅" if got == expected else "❌"
+            print(f"  {status} normalize({name!r}, {club!r}) → {got!r} (expected {expected!r})")
 
     print("\n=== TEAM NAME PARSER TEST ===\n")
     test_cases = [

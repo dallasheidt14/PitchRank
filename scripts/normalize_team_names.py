@@ -119,6 +119,35 @@ SQUAD_IDENTIFIERS = {
 GENDER_WORDS = {"boys", "boy", "girls", "girl", "male", "female"}
 
 
+# Generic noise tokens stripped from club_name when computing skip tokens.
+# Mirrors scripts/dryrun_team_distinction.py:_CLUB_NOISE — keep in sync.
+_NORMALIZER_CLUB_NOISE = {
+    "fc", "sc", "sa", "ac", "cf", "cd", "fcs", "ysa",
+    "soccer", "club", "futbol", "football", "youth", "academy",
+    "the", "of", "and", "association",
+}
+
+
+def _normalizer_club_tokens(club_name):
+    """Lowercase tokens of the club name (minus noise), no expansion.
+
+    The bare-2-digit branch in ``parse_age_gender`` sees the input token
+    (e.g., "10"), not the 4-digit form. So unlike
+    ``fix_team_age_groups._club_tokens``, this set only needs the literal
+    2-digit form.
+    """
+    if not club_name:
+        return set()
+    toks = re.split(r"[\s\-_./]+", club_name.lower())
+    out = set()
+    for t in toks:
+        t = t.strip("()[]'*.,")
+        if not t or t in _NORMALIZER_CLUB_NOISE or len(t) < 2:
+            continue
+        out.add(t)
+    return out
+
+
 def normalize_team_name(team_name: str, club_name: str = None) -> str:
     """
     Normalize a team name following Jan 2026 rules.
@@ -127,6 +156,8 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
     - Gender words stripped EVERYWHERE (B/G in age tokens normalized, standalone words removed)
     - Squad identifiers (colors, divisions, coach names) preserved
     - Case normalized for known keywords
+    - Club-name number fragments are NOT rewritten (e.g., "10" in
+      "Union 10 FC" stays as "10", not "2010").
 
     Returns: Normalized team name string
     """
@@ -134,6 +165,7 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
         return team_name
 
     original = team_name.strip()
+    club_skip_tokens = _normalizer_club_tokens(club_name)
 
     # Tokenize the entire name
     all_tokens = re.split(r"[\s]+", original)
@@ -150,8 +182,9 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
         if t_lower in GENDER_WORDS:
             continue
 
-        # Try to parse as age/gender token
-        parsed_age, _ = parse_age_gender(clean_token)
+        # Try to parse as age/gender token (skip club-name number fragments
+        # so "Union 10 FC 2008" doesn't get rewritten to "Union 2010 FC 2008").
+        parsed_age, _ = parse_age_gender(clean_token, club_skip_tokens=club_skip_tokens)
         if parsed_age and age_found is None:
             age_found = parsed_age
             result_tokens.append(parsed_age)

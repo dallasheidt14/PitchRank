@@ -818,6 +818,187 @@ def extract_distinctions(name: str) -> Dict:
     }
 
 
+# ═══════════════════════════════════════════════════════════════
+# Composite distinction resolution
+# ═══════════════════════════════════════════════════════════════
+#
+# resolve_distinction() collapses extract_distinctions() output into a
+# single ordered, lowercase string (tokens joined with "|") suitable for
+# storing in the teams.distinction column.
+#
+# Priority order (deterministic): coach | team_number | colors(sorted) |
+# directions(sorted) | squad_words(sorted, club-stripped) | program tier |
+# length-2/3 alpha-token recovery.
+#
+# Logic mirrors scripts/dryrun_team_distinction.py:resolve_distinction
+# verbatim — that script was the validated reference implementation
+# (89.5% coverage, 3.0% live-team collision rate). Keep in sync.
+
+# Generic noise tokens stripped from club_name when computing skip tokens.
+# Mirrors scripts/dryrun_team_distinction.py:_CLUB_NOISE.
+_CLUB_NOISE = frozenset({
+    "fc", "sc", "sa", "ac", "cf", "cd", "fcs", "ysa",
+    "soccer", "club", "futbol", "football", "youth", "academy",
+    "the", "of", "and", "association",
+})
+
+# League-equivalent words excluded from squad-word distinction extraction.
+# These live in the `league` column; they are NOT distinctions.
+# Named to make purpose explicit and avoid confusion with the canonical
+# league enum (see iteration-2 review feedback).
+_LEAGUE_DISTINCTION_BLOCKLIST = frozenset({
+    "ecnl", "ecnl-rl", "ecrl", "rl", "ga", "npl", "dpl", "dplo",
+    "scdsl", "nal", "mlsnext", "mls-next", "next", "ea", "ea2",
+    "pre-ecnl", "aspire",
+})
+
+# Programs that legitimately distinguish squads within the same cohort
+# (e.g., a club running Premier and Select tiers in the same age group).
+# Excludes league-equivalents — those live in the `league` column.
+_PROGRAM_DISTINCTIONS = frozenset({
+    "premier", "select", "elite", "classic", "competitive", "comp",
+    "recreational", "development", "showcase", "challenge",
+    "division", "reserve", "copa", "tal", "stxcl", "fdl", "sccl",
+})
+
+
+def _club_tokens(club_name: Optional[str]) -> set:
+    """Lowercase tokens of the club name, minus generic noise.
+
+    Used to strip club-name leakage from distinction emissions
+    (e.g. 'Cheshire SA → Cheshire 2009 DPL' should not emit 'cheshire').
+    """
+    if not club_name:
+        return set()
+    toks = re.split(r"[\s\-_./]+", club_name.lower())
+    out = set()
+    for t in toks:
+        t = t.strip("()[]'*.,")
+        if not t or t in _CLUB_NOISE or len(t) < 2:
+            continue
+        out.add(t)
+    return out
+
+
+def resolve_distinction(
+    name: str,
+    club_name: Optional[str] = None,
+    state_code: Optional[str] = None,
+) -> Optional[str]:
+    """Composite distinction: ordered concat of every distinguisher.
+
+    Order (deterministic):
+      coach | number | colors(sorted) | directions(sorted) |
+      squad_words(sorted, club-stripped) | program-tier | length-2/3 recovery
+    Joined with '|'. NULL when no distinguishers remain.
+
+    Club-token strip: any squad_word that matches a token of the team's
+    own ``club_name`` is dropped (the club extractor sometimes leaves the
+    club bleeding into team_name; we don't want that fragment counted as
+    a distinction).
+
+    State-token strip: when ``state_code`` is provided, the state's full
+    name is also added to the strip set. Disambiguating clubs that share
+    a literal name across states (e.g., 'FC Stars' in MA vs NH) live on
+    ``state_code`` — distinction should not duplicate that signal.
+    """
+    if not name:
+        return None
+    d = extract_distinctions(name)
+    parts: List[str] = []
+
+    coach = d.get("coach_name")
+    # Coach detector occasionally returns non-alpha tokens (e.g., "/07" from
+    # masked age spans). Distinction values must be alphanumeric tokens, so
+    # require coach to be alpha-only.
+    if coach and coach.isalpha():
+        parts.append(coach.lower())
+
+    if d.get("team_number"):
+        parts.append(str(d["team_number"]).lower())
+
+    colors = sorted(d.get("colors") or [])
+    parts.extend(c.lower() for c in colors)
+
+    directions = sorted(d.get("directions") or [])
+    parts.extend(dr.lower() for dr in directions)
+
+    club_toks = _club_tokens(club_name)
+    # State-name strip: skip tokens that match the team's state full-name.
+    # E.g., state_code='NH' → strip {'new', 'hampshire'}.
+    if state_code:
+        try:
+            from src.utils.us_states import STATE_CODE_TO_NAME
+            state_full = STATE_CODE_TO_NAME.get(state_code.upper(), "")
+            if state_full:
+                for tok in state_full.lower().split():
+                    if len(tok) >= 2:
+                        club_toks.add(tok)
+        except ImportError:
+            pass
+
+    squad_words = sorted(d.get("squad_words") or [])
+    for sw in squad_words:
+        sw_l = sw.lower()
+        if sw_l in club_toks:
+            continue  # club or state leakage — drop
+        parts.append(sw_l)
+
+    # Programs that distinguish squads (Premier / Select / Elite / Classic / Copa / SCCL / ...).
+    # Skip league-equivalents (those live in the `league` column).
+    programs = sorted(p.lower() for p in (d.get("programs") or []))
+    for p in programs:
+        if p in _LEAGUE_DISTINCTION_BLOCKLIST:
+            continue
+        if p in _PROGRAM_DISTINCTIONS:
+            parts.append(p)
+
+    # Recover length-2 and length-3 alpha tokens that extract_distinctions
+    # misclassifies as location_codes (Pass 4 dump-bucket). Most are real
+    # distinguishers (coach initials like 'KH', 'CV', 'NT'; or short squad
+    # words like 'Ace'). Filter against the canonical sets so we don't
+    # re-introduce noise.
+    raw_toks = re.split(r"[\s\-_./]+", (name or "").lower())
+    # Strip leading/trailing non-alphanumeric chars that survive the split
+    # (apostrophes from "'08/07", commas, parens, etc.).
+    raw_toks = [re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", t) for t in raw_toks]
+    raw_toks = [t for t in raw_toks if t]
+    seen_so_far = set(parts)
+    for tok in raw_toks:
+        if len(tok) not in (2, 3) or not tok.isalpha():
+            continue
+        if tok in club_toks:
+            continue
+        if (
+            tok in LOCATION_CODES
+            or tok in US_STATES
+            or tok in NOISE_WORDS
+            or tok in TEAM_COLORS
+            or tok in DIRECTION_CANONICAL
+            or tok in PROGRAM_WORDS
+            or tok in _LEAGUE_DISTINCTION_BLOCKLIST
+        ):
+            continue
+        if tok in seen_so_far:
+            continue
+        if tok in {"the", "and", "for"}:
+            continue
+        parts.append(tok)
+        seen_so_far.add(tok)
+
+    if not parts:
+        return None
+
+    # Dedup while preserving order
+    seen = set()
+    out: List[str] = []
+    for p in parts:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return "|".join(out)
+
+
 def should_skip_pair(name_a: str, name_b: str) -> bool:
     """
     Return True if ANY structural distinction differs — the two names
@@ -1089,6 +1270,35 @@ if __name__ == "__main__":
     print(f"  {status} extract_team_variant('FC Example 14U Riedell') → {got!r} (expected 'riedell')")
     passed += 1 if ok else 0
     failed += 0 if ok else 1
+
+    # ── resolve_distinction (composite distinction) ──
+    # Output order is: coach | number | colors | directions | squad_words(club-stripped) |
+    # programs | length-2/3 recovery. Tests below reflect spec-compliant behavior.
+    print("\n=== resolve_distinction ===")
+    distinction_cases = [
+        # (name, club_name, expected)
+        ("Almaden FC Mercury 2013 Gold", "Almaden FC", "gold|mercury"),
+        # Colors before directions (spec order):
+        ("Cleveland Force 2016 Yellow East", "Cleveland Force SC", "yellow|east"),
+        # Club-token strip drops "cheshire":
+        ("Cheshire Soccer Academy - Cheshire 2009 DPL", "Cheshire Soccer Academy", None),
+        # extract_team_variant detects "man" as coach (post-age token); "city" is squad_word:
+        ("2014 Man City", "Islandia SC PAL", "man|city"),
+        # "united" squad_word, then "challenge" via _PROGRAM_DISTINCTIONS:
+        ("CHALLENGE UNITED ECNL RL 2009", "Challenge SC", "united|challenge"),
+        # "select" via programs, "lc" via length-2 recovery:
+        ("LC Select 2019", "El Paso Premier League", "select|lc"),
+        # "gold" color, "premier" via programs:
+        ("Phoenix Premier FC U12 Gold", "Phoenix Premier FC", "gold|premier"),
+        ("FC Example 14U Riedell", "FC Example", "riedell"),
+    ]
+    for name, club, expected in distinction_cases:
+        got = resolve_distinction(name, club)
+        ok = got == expected
+        status = "✅" if ok else "❌"
+        print(f"  {status} resolve_distinction({name!r}, {club!r}) → {got!r} (expected {expected!r})")
+        passed += 1 if ok else 0
+        failed += 0 if ok else 1
 
     print(f"\n{passed} passed, {failed} failed")
     if failed:

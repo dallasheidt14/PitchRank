@@ -50,6 +50,10 @@ LEAGUE_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("MLS_NEXT_HD", re.compile(r"\bMNHD\b", re.IGNORECASE)),
     ("MLS_NEXT_AD", re.compile(r"\bMLS\s*NEXT?\s*AD\b", re.IGNORECASE)),
     ("MLS_NEXT_AD", re.compile(r"\bNEXT\s*AD\b", re.IGNORECASE)),
+    # Generic "MLS NEXT" without explicit AD/HD modifier → default to AD
+    # (matches dry-run's generic→AD fallback). Negative lookahead prevents
+    # double-matching when AD/HD is present (already handled above).
+    ("MLS_NEXT_AD", re.compile(r"\bMLS\s*NEXT?\b(?!\s*(?:AD|HD))", re.IGNORECASE)),
     # ECNL RL — check before ECNL (more specific first)
     ("ECNL_RL", re.compile(r"\bECNL[\s\-]*RL\b", re.IGNORECASE)),
     ("ECNL_RL", re.compile(r"\bECRL\b", re.IGNORECASE)),
@@ -90,12 +94,17 @@ MLS_NEXT_DIVISION_MAP = {
 
 def detect_league_from_name(team_name: str) -> str | None:
     """Detect league from team name using regex patterns."""
-    # Skip pre-development team names
+    # Skip pre-development team names — these are separate tiers, not the parent league.
     if re.search(r"\bPre[\s\-]*ECNL\b", team_name, re.IGNORECASE):
         return None
     if re.search(r"\bPre[\s\-]*MLS\b", team_name, re.IGNORECASE):
         return None
     if re.search(r"\bPRE[\s\-]*ACADEMY\b", team_name, re.IGNORECASE):
+        return None
+    if re.search(r"\bPre[\s\-]*NPL\b", team_name, re.IGNORECASE):
+        return None
+    # Negative lookahead on Pre-NL prevents matching inside longer tokens like Pre-NLSA.
+    if re.search(r"\bPre[\s\-]*NL\b(?!\w)", team_name, re.IGNORECASE):
         return None
     for league, pattern in LEAGUE_PATTERNS:
         if pattern.search(team_name):
@@ -125,14 +134,36 @@ def paginated_fetch(table: str, select: str, filters: dict | None = None) -> lis
 def main():
     parser = argparse.ArgumentParser(description="Backfill league column on teams table")
     parser.add_argument("--dry-run", action="store_true", help="Print changes without writing to DB")
+    parser.add_argument(
+        "--age-groups",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated age groups to filter (e.g., u13,u14,u15,u16,u17,u18,u19). "
+            "Default: all age groups. League is ranking-engine scope (u13+) so a "
+            "typical re-run uses --age-groups u13,u14,u15,u16,u17,u18,u19."
+        ),
+    )
     args = parser.parse_args()
+
+    age_filter: set[str] | None = None
+    if args.age_groups:
+        age_filter = {a.strip().lower() for a in args.age_groups.split(",") if a.strip()}
+        console.print(f"[yellow]Filtering to age_groups: {sorted(age_filter)}[/yellow]")
 
     console.print("\n[bold]Backfilling team leagues[/bold]\n")
 
-    # 1. Fetch all teams
+    # 1. Fetch all teams (include age_group when filtering)
     console.print("[dim]Fetching teams...[/dim]")
-    teams = paginated_fetch("teams", "team_id_master, team_name, is_deprecated")
+    select_cols = "team_id_master, team_name, is_deprecated"
+    if age_filter:
+        select_cols += ", age_group"
+    teams = paginated_fetch("teams", select_cols)
     console.print(f"  Found {len(teams):,} teams")
+    if age_filter:
+        before = len(teams)
+        teams = [t for t in teams if (t.get("age_group") or "").lower() in age_filter]
+        console.print(f"  Filtered to {len(teams):,} teams in age groups {sorted(age_filter)} (from {before:,})")
 
     # 2. Fetch alias map divisions (for MLS NEXT HD/AD detection)
     console.print("[dim]Fetching team_alias_map divisions...[/dim]")

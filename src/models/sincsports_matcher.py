@@ -39,6 +39,9 @@ try:
         extract_distinctions,
     )
     from src.utils.team_name_utils import (
+        resolve_distinction,
+    )
+    from src.utils.team_name_utils import (
         extract_team_variant as extract_variant_shared,
     )
 
@@ -721,6 +724,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 if remaining:
                     clean_team_name = remaining
 
+            # SincSports: pass clean_team_name (built above by stripping club prefix).
+            distinction = resolve_distinction(clean_team_name, club_name, state_code)
+
             team_data = {
                 "team_id_master": team_id_master,
                 "team_name": clean_team_name,
@@ -730,6 +736,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "state_code": state_code,
                 "provider_id": provider_id,
                 "provider_team_id": provider_team_id,
+                "distinction": distinction,
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
