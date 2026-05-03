@@ -116,6 +116,7 @@ def read_game_results(
                     time_text=str(payload.get("time_text") or ""),
                     location=payload.get("location"),
                     division_label=payload.get("division_label"),
+                    stage_label=payload.get("stage_label"),
                 )
             )
     return games
@@ -196,6 +197,7 @@ def write_game_results(
                         "time_text": game.time_text,
                         "location": game.location,
                         "division_label": game.division_label,
+                        "stage_label": game.stage_label,
                     }
                 )
                 + "\n"

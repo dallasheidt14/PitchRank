@@ -72,6 +72,12 @@ class GameResult:
     time_text: str
     location: str | None
     division_label: str | None
+    stage_label: str | None = None
+    """Gotsport's per-match stage tag (cell[0] after the match number).
+    Pool/group play games leave this empty/None; playoff games carry
+    explicit names like ``"Final"``, ``"Third Place"``, ``"Consolation A"``,
+    ``"Semifinal"``, ``"Quarterfinal"``. Authoritative ground-truth signal
+    for playoff format detection — preferred over pattern inference."""
 
 
 @dataclass(frozen=True)
@@ -148,12 +154,26 @@ def parse_standings_from_html(html: str) -> list[Standing]:
 
 
 def _parse_match_row(cells) -> GameResult | None:
+    match_number_cell = cells[0]
     time_cell = cells[1]
     home_cell = cells[2]
     score_cell = cells[3]
     away_cell = cells[4]
     location_cell = cells[5]
     division_cell = cells[6]
+
+    # cell[0] holds the match number, optionally followed by a stage tag
+    # for playoff games: e.g. "279 Third Place", "280 Final", "278 Consolation B".
+    # Pool play games show only the bare number. Strip leading digits +
+    # whitespace; whatever remains is the stage label.
+    cell0_text = match_number_cell.get_text(" ", strip=True)
+    stage_label: str | None = None
+    if cell0_text:
+        m = re.match(r"^\s*\d+\s*(.*)$", cell0_text)
+        if m:
+            tail = m.group(1).strip()
+            if tail:
+                stage_label = tail
 
     score_anchor = score_cell.find("a")
     score_text = (score_anchor.get_text(strip=True) if score_anchor else score_cell.get_text(strip=True)) or ""
@@ -193,6 +213,7 @@ def _parse_match_row(cells) -> GameResult | None:
         time_text=time_text,
         location=location,
         division_label=division_label,
+        stage_label=stage_label,
     )
 
 

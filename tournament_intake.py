@@ -48,6 +48,12 @@ from src.tournaments.reports import (
     ReportCardError,
     render_html,
 )
+from src.tournaments.reports.event_compute import (
+    compute_event_report_card,
+    event_report_path,
+    write_event_report_card,
+)
+from src.tournaments.reports.render_html import render_event_html
 from src.tournaments.reports.ui import (
     derive_export_filenames,
     ensure_report_card,
@@ -323,10 +329,29 @@ def _check_games_import_cached(
     return check_games_import_status(event_name, list(team_ids), supabase_client=_supabase)
 
 
-def _scrape_state_counts(records: list[dict[str, Any]]) -> dict[str, int]:
-    """Single-pass tally of ``canonical.scraper_state`` across records."""
+def _scrape_state_counts(
+    records: list[dict[str, Any]],
+    team_state: Mapping[str, Any] | None = None,
+) -> dict[str, int]:
+    """Single-pass tally of ``canonical.scraper_state`` across records.
+
+    When ``team_state`` (output of ``project_overrides``) is provided,
+    operator overrides project the per-team state BEFORE scraper_state is
+    consulted — same precedence as ``_override_aware_tint``. This keeps
+    the top-of-page banner ("Ready / Unresolved" counts) in sync with the
+    cohort cards below it; without override-awareness, a team the operator
+    has manually linked via Use this team still shows as ``unresolved``
+    forever (raw_scrape is never rewritten by override clicks).
+    """
     counts = {"alias_written": 0, "review_queued": 0, "unresolved": 0}
     for rec in records:
+        pid = str(rec.get("provider_team_id") or "")
+        projected = team_state.get(pid) if (team_state is not None and pid) else None
+        if projected is not None and projected.state in ("resolved", "external"):
+            # Operator override resolves this row; banner treats it as
+            # alias_written so Ready reflects what the cohort cards show.
+            counts["alias_written"] += 1
+            continue
         state = (rec.get("canonical") or {}).get("scraper_state") or "unresolved"
         counts[state] = counts.get(state, 0) + 1
     return counts
@@ -901,6 +926,197 @@ def _render_registry_persist_results() -> None:
     st.session_state.pop("_last_registry_persist_results", None)
 
 
+def _render_sync_structure_button(*, event_key: str, scenario: str) -> None:
+    """Sync the cohort structure spec from gotsport standings (ground truth).
+
+    Backtest-mode invariant: division/pool structure must mirror the actual
+    tournament. Standings tables on each gotsport tier page list one row
+    per team per pool with rank reset per pool — this gives us ground-truth
+    team_count + pool_sizes per division. Operator clicks once to overwrite
+    the auto-derived structure with what gotsport reports.
+    """
+    from src.tournaments.storage import load_raw_scrape, write_structure
+    from src.tournaments.storage.game_results import read_game_results, read_standings
+    from src.tournaments.storage.pool_assignments import read_pool_assignments
+    from src.tournaments.storage.structure import (
+        derive_structure_from_standings,
+        read_structure,
+    )
+
+    cols = st.columns([1, 1, 4])
+    with cols[0]:
+        clicked = st.button(
+            "🔄 Sync structure from standings",
+            key="_sync_structure_from_standings",
+            help=(
+                "Derive team_count and pool_sizes per division from gotsport's "
+                "standings tables (ground truth) and overwrite the structure spec."
+            ),
+        )
+    if not clicked:
+        return
+    raw_records = load_raw_scrape(event_key)
+    standings = read_standings(event_key)
+    if not standings:
+        st.warning(
+            "No standings on disk yet. Re-scrape the event so the schedule "
+            "enricher captures gotsport's standings tables."
+        )
+        return
+    games = read_game_results(event_key)
+    pool_assignments = read_pool_assignments(event_key)
+    # Pass pools + games so derive_structure_from_standings can also detect
+    # the playoff format per division (POOL_CROSSOVER, SF_F_3P, etc.) and
+    # populate the advancement field.
+    pools_dict = {gid: [
+        {"label": p.label, "provider_team_ids": list(p.provider_team_ids)}
+        for p in pools
+    ] for gid, pools in pool_assignments.items()}
+    derived = derive_structure_from_standings(
+        raw_records, standings,
+        pools_by_group_id=pools_dict,
+        games=games,
+    )
+    if not derived:
+        st.warning(
+            "Standings exist but couldn't be matched to any cohort — likely "
+            "a reg-id / canonical-id bridge failure. Inspect raw_scrape and "
+            "standings.jsonl manually."
+        )
+        return
+    try:
+        existing = read_structure(event_key, scenario)
+    except (FileNotFoundError, SchemaVersionError):
+        existing = []
+    existing_by_cohort = {(c.age_group, c.gender): c for c in existing}
+    diff_lines: list[str] = []
+    for cohort in derived:
+        key = (cohort.age_group, cohort.gender)
+        ex = existing_by_cohort.get(key)
+        ex_divs = {d.name: d for d in ex.divisions} if ex else {}
+        for div in cohort.divisions:
+            existing_div = ex_divs.get(div.name)
+            if existing_div is None:
+                diff_lines.append(
+                    f"+ {cohort.gender} {cohort.age_group.upper()} · {div.name}: "
+                    f"NEW team_count={div.team_count}, pool_sizes={list(div.pool_sizes)}"
+                )
+            elif (
+                existing_div.team_count != div.team_count
+                or tuple(existing_div.pool_sizes) != tuple(div.pool_sizes)
+                or (existing_div.advancement or "") != (div.advancement or "")
+            ):
+                changes = []
+                if existing_div.team_count != div.team_count:
+                    changes.append(f"team_count {existing_div.team_count}->{div.team_count}")
+                if tuple(existing_div.pool_sizes) != tuple(div.pool_sizes):
+                    changes.append(
+                        f"pool_sizes {list(existing_div.pool_sizes)}->{list(div.pool_sizes)}"
+                    )
+                if (existing_div.advancement or "") != (div.advancement or ""):
+                    changes.append(
+                        f"advancement {existing_div.advancement or '(none)'}->{div.advancement or '(none)'}"
+                    )
+                diff_lines.append(
+                    f"~ {cohort.gender} {cohort.age_group.upper()} · {div.name}: "
+                    + ", ".join(changes)
+                )
+    write_structure(event_key, scenario, derived)
+    msg_lines = [
+        f"Synced structure from gotsport standings: {len(derived)} cohorts, "
+        f"{sum(len(c.divisions) for c in derived)} divisions, "
+        f"{sum(d.team_count for c in derived for d in c.divisions)} teams.",
+    ]
+    if diff_lines:
+        msg_lines.append(f"\n**{len(diff_lines)} changes:**")
+        msg_lines.extend(diff_lines[:30])
+        if len(diff_lines) > 30:
+            msg_lines.append(f"… and {len(diff_lines) - 30} more")
+    else:
+        msg_lines.append("\nStructure already matches gotsport — nothing changed.")
+    st.success("\n\n".join(msg_lines))
+    st.rerun()
+
+
+def _render_event_report_button(*, event_key: str, scenario: str) -> None:
+    """Generate and download the tournament-wide rollup report.
+
+    Sibling to "Run all ready cohorts" — sits at the page top above per-cohort
+    containers. Walks every completed cohort run, aggregates into a single
+    EventReportCard, and offers HTML + JSON downloads.
+    """
+    cols = st.columns([1, 1, 4])
+    with cols[0]:
+        generate = st.button(
+            "📊 Event report",
+            key="_generate_event_report",
+            help="Aggregate all completed cohort runs into a tournament-wide Report Card.",
+        )
+    if generate:
+        try:
+            with st.spinner("Aggregating cohort reports..."):
+                card, json_path = write_event_report_card(event_key, scenario)
+        except ValueError as exc:
+            st.warning(str(exc))
+            return
+        except Exception as exc:  # noqa: BLE001 — surface anything as a banner
+            st.error(f"Event report failed: {exc}")
+            return
+        st.session_state["_last_event_report"] = {
+            "card": card,
+            "json_path": str(json_path),
+        }
+        st.success(
+            f"Event report aggregated {card.cohort_count} cohorts ({card.total_team_count} teams) "
+            f"with average Balance Score {card.avg_balance_score_optimized:.0f}/100."
+        )
+
+    payload = st.session_state.get("_last_event_report")
+    if not payload:
+        return
+    card = payload["card"]
+    html_bytes = render_event_html(card, mode="standalone").encode("utf-8")
+    json_bytes = (Path(payload["json_path"])).read_bytes()
+    safe_event = re.sub(r"[^a-zA-Z0-9]+", "_", card.event_name).strip("_") or "event"
+    with cols[1]:
+        st.download_button(
+            "⬇ HTML",
+            data=html_bytes,
+            file_name=f"event_report_{safe_event}.html",
+            mime="text/html",
+            key="_download_event_html",
+        )
+        st.download_button(
+            "⬇ JSON",
+            data=json_bytes,
+            file_name=f"event_report_{safe_event}.json",
+            mime="application/json",
+            key="_download_event_json",
+        )
+
+
+def _render_bulk_run_summary() -> None:
+    """Surface "Run all ready cohorts" outcome after ``st.rerun()``.
+
+    The bulk-run handler reruns immediately on success so the cohort
+    containers refresh with new run ids. Streamlit discards transient
+    widgets on rerun, so the success/failure summary would vanish without
+    this stash-then-clear pattern. Mirrors ``_render_registry_persist_results``.
+    """
+    payload = st.session_state.get("_last_bulk_run_summary")
+    if not payload:
+        return
+    text = payload.get("text", "")
+    severity = payload.get("severity", "info")
+    if severity == "error":
+        st.error(text)
+    elif severity == "success":
+        st.success(text)
+    else:
+        st.info(text)
+    st.session_state.pop("_last_bulk_run_summary", None)
+
+
 def _run_scrape(url: str, supabase_client: Any) -> None:
     """Wire the Scrape button to ``get_provider_scraper(...)`` in-process."""
     try:
@@ -1067,6 +1283,7 @@ def _render_event_banner(
     *,
     event_key: str,
     scenario: str,
+    team_state: Mapping[str, Any] | None = None,
 ) -> None:
     """Render the event banner + counts for the loaded event."""
     st.markdown(f"### {meta.event_name}")
@@ -1075,7 +1292,7 @@ def _render_event_banner(
         f"Season: {meta.season_year or '—'} · Last scrape: {meta.scrape_ts}"
     )
 
-    counts = _scrape_state_counts(records)
+    counts = _scrape_state_counts(records, team_state=team_state)
     review = counts["review_queued"]
 
     col1, col2, col3 = st.columns(3)
@@ -4256,12 +4473,20 @@ def _render_run_all_button(
             for blocker in blockers:
                 summary_lines.append(f"   · {label}: {blocker}")
     summary = "\n\n".join(summary_lines)
-    if failed:
+    # Stash the summary so it survives the immediate ``st.rerun()`` below.
+    # Streamlit discards transient widgets (st.error/st.success) on rerun, so
+    # without this the operator would see "loading..." and then nothing.
+    # Mirrors ``_render_registry_persist_results``'s stash-then-clear pattern.
+    st.session_state["_last_bulk_run_summary"] = {
+        "text": summary,
+        "severity": "error" if failed else "success",
+    }
+    if succeeded:
+        st.rerun()
+    elif failed:
         st.error(summary)
     else:
         st.success(summary)
-    if succeeded:
-        st.rerun()
 
 
 def _render_cohort_run_control(
@@ -4508,6 +4733,7 @@ def main() -> None:
     _render_rekey_banner()
     _render_intake_section(supabase_client)
     _render_registry_persist_results()
+    _render_bulk_run_summary()
 
     key = st.session_state.event_key
     if not key:
@@ -4521,11 +4747,20 @@ def main() -> None:
         return
 
     records = load_raw_scrape(key)
+    # Project overrides ONCE per page render so the banner counts, tint,
+    # the run-all gate, and downstream cohort iteration all see the same
+    # state. Loading is cheap (small JSONL); projection is in-memory.
+    # Hoisted above the banner so Ready/Unresolved counters reflect
+    # operator overrides (raw_scrape.scraper_state is frozen at scrape
+    # time and never rewritten by Use-this-team clicks).
+    overrides = load_overrides(key, st.session_state.scenario_name)
+    page_team_state, _ = project_overrides(overrides)
     _render_event_banner(
         meta,
         records,
         event_key=key,
         scenario=st.session_state.scenario_name,
+        team_state=page_team_state,
     )
     _render_event_goal_summary(key)
     if not records:
@@ -4535,11 +4770,6 @@ def main() -> None:
     cohorts = _group_cohorts(records)
     sorted_keys = sorted(cohorts.keys(), key=_cohort_sort_key)
     _render_reviewer_email_input()
-    # Project overrides ONCE per page render so the tint, the run-all
-    # gate, and downstream cohort iteration all see the same state.
-    # Loading is cheap (small JSONL); projection is in-memory.
-    overrides = load_overrides(key, st.session_state.scenario_name)
-    page_team_state, _ = project_overrides(overrides)
     tints = _render_cohort_summary(
         cohorts,
         sorted_keys,
@@ -4553,6 +4783,14 @@ def main() -> None:
         event_key=key,
         scenario=st.session_state.scenario_name,
         supabase_client=supabase_client,
+    )
+    _render_sync_structure_button(
+        event_key=key,
+        scenario=st.session_state.scenario_name,
+    )
+    _render_event_report_button(
+        event_key=key,
+        scenario=st.session_state.scenario_name,
     )
     _render_cohort_containers(
         cohorts,

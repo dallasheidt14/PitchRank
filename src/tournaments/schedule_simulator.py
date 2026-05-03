@@ -140,6 +140,7 @@ def infer_division_schedule_template(
     pool_sizes: Sequence[int],
     actual_game_count: int | None,
     actual_division_name: str | None = None,
+    advancement_override: str | None = None,
 ) -> DivisionScheduleTemplate:
     pool_sizes = tuple(int(size) for size in pool_sizes)
     pool_round_robin_games = sum(_pair_count(size) for size in pool_sizes)
@@ -160,7 +161,29 @@ def infer_division_schedule_template(
     extra_games = int(actual_game_count) - pool_round_robin_games
     playoff_format = "none"
 
-    if extra_games < 0:
+    # Authoritative override: when the structure spec carries a detected
+    # advancement value (from gotsport's per-match stage_label tags), use it
+    # directly instead of game-count heuristics. POOL_CROSSOVER produces 4
+    # extra games for 2-pool divisions — same count as cross_semis_final_third
+    # — and there's no way to distinguish them from extra_games alone.
+    override = (advancement_override or "").strip().upper()
+    advancement_to_internal = {
+        "POOL_ONLY": "none",
+        "F_ONLY": "pool_winners_final",
+        "F_3P": "cross_semis_final_third",  # closest existing analogue
+        "POOL_CROSSOVER": "pool_crossover",
+        "SF_F": "cross_semis_final",
+        "SF_F_3P": "cross_semis_final_third",
+        "QF_SF_F": "cross_semis_final",  # QF unsupported in v1; degrade to SF_F
+        "CUSTOM": "none",
+    }
+    if override and override in advancement_to_internal:
+        playoff_format = advancement_to_internal[override]
+        notes.append(
+            f"playoff_format set from advancement_override={override!r} "
+            f"(authoritative, gotsport stage_label-derived)."
+        )
+    elif extra_games < 0:
         notes.append(
             f"Actual game count {actual_game_count} is below pool round-robin minimum {pool_round_robin_games}; "
             "falling back to pool-only replay."
@@ -412,6 +435,38 @@ def simulate_division_schedule(
                 predict_fn=predict_fn,
             )
         )
+    elif template.playoff_format == "pool_crossover" and len(pool_rankings) >= 2:
+        # 2-pool crossover playoffs: each pool seed plays its mirror in the
+        # other pool. Stages mirror gotsport's labels for 4-team brackets:
+        #   1A vs 1B -> "Final"
+        #   2A vs 2B -> "Third Place"
+        #   3A vs 3B -> "Consolation A"
+        #   4A vs 4B -> "Consolation B"
+        # For larger pools (5A vs 5B, etc.), stages continue as
+        # "Consolation C", "Consolation D", ... (lettered from C onward
+        # since A/B are already taken by ranks 3 and 4).
+        crossover_stage_labels = ["Final", "Third Place", "Consolation A", "Consolation B"]
+        max_seeds = min(len(pool_rankings[0]), len(pool_rankings[1]))
+        pool_a_teams = pool_rankings[0]
+        pool_b_teams = pool_rankings[1]
+        for seed_index in range(max_seeds):
+            if seed_index < len(crossover_stage_labels):
+                stage_name = crossover_stage_labels[seed_index]
+            else:
+                # Beyond rank 4 -> Consolation C, D, E, ... (offset is 2
+                # because A and B are already rank 3 and rank 4).
+                letter = chr(ord("C") + (seed_index - len(crossover_stage_labels)))
+                stage_name = f"Consolation {letter}"
+            simulated_matches.append(
+                _simulate_match(
+                    division_name=division.name,
+                    stage=stage_name,
+                    pool_name=None,
+                    home_team=pool_a_teams[seed_index],
+                    away_team=pool_b_teams[seed_index],
+                    predict_fn=predict_fn,
+                )
+            )
 
     (
         match_count,

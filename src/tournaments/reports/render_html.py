@@ -24,10 +24,12 @@ from typing import Literal
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from src.tournaments.reports.schema import ReportCard
+from src.tournaments.reports.schema import EventReportCard, ReportCard
 
 __all__ = [
+    "render_event_html",
     "render_html",
+    "write_event_html",
     "write_html",
 ]
 
@@ -103,6 +105,14 @@ body {
 .rc-move-move_up { color: #166534; }
 .rc-move-move_down { color: #991b1b; }
 .rc-audit summary { cursor: pointer; }
+.rc-division-heading { font-size: 13px; font-weight: 600; color: #374151; margin: 16px 0 4px; }
+.rc-division-heading:first-of-type { margin-top: 8px; }
+.rc-subtle { font-size: 12px; color: #6b7280; margin: 4px 0 8px; }
+.rc-headline { background: #f0f9ff; border-color: #bae6fd; }
+.rc-headline-lead { font-size: 15px; line-height: 1.55; margin: 8px 0 12px; color: #0c4a6e; }
+.rc-headline-stats { list-style: none; padding: 0; margin: 0; display: flex; gap: 24px; flex-wrap: wrap; }
+.rc-headline-stats li { font-size: 13px; color: #0c4a6e; }
+.rc-stat-label { color: #075985; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 2px; }
 """
 
 
@@ -169,6 +179,54 @@ def write_html(
     retains its audit ``<details>`` block by default.
     """
     rendered = render_html(report_card, mode=mode, show_override_audit=show_override_audit)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(path.name + ".tmp")
+    encoded = rendered.encode("utf-8")
+    with open(tmp_path, "wb") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, path)
+    return path
+
+
+def render_event_html(
+    event_card: EventReportCard,
+    *,
+    mode: Literal["embedded", "standalone"] = "standalone",
+) -> str:
+    """Render the event-wide rollup. Mirrors ``render_html`` shape conventions
+    (embedded vs standalone, inline CSS in standalone, autoescape via Jinja).
+    """
+    template = _env.get_template("event_report_card.html")
+    fragment = template.render(event_card=event_card)
+    if mode == "embedded":
+        return fragment
+    safe_event_name = html.escape(event_card.event_name)
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '<meta charset="utf-8">\n'
+        f"<title>Event Report &middot; {safe_event_name}</title>\n"
+        f"<style>\n{_STANDALONE_CSS}</style>\n"
+        "</head>\n"
+        "<body>\n"
+        f"{fragment}\n"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
+def write_event_html(
+    event_card: EventReportCard,
+    path: Path,
+    *,
+    mode: Literal["embedded", "standalone"] = "standalone",
+) -> Path:
+    """Atomically write the rendered event HTML to ``path``."""
+    rendered = render_event_html(event_card, mode=mode)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")

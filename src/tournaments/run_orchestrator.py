@@ -64,6 +64,7 @@ from src.tournaments.storage import (
     create_staging_run,
     fail_run,
     load_overrides,
+    load_raw_scrape,
     promote_run,
     read_event_metadata,
     read_game_results,
@@ -467,6 +468,43 @@ def _build_cohort_request_payload(
     registry = read_registry(event_key, scenario, base_dir=base_dir)
     structure = read_structure(event_key, scenario, base_dir=base_dir)
 
+    # Map canonical gotsport API team id -> per-event registration id. The
+    # canonical-id resolver rewrites raw_scrape provider_team_id to the api_id,
+    # but game_results.jsonl still keys games on the reg_id (gotsport per-team
+    # schedule pages embed ?team=<reg_id>). The actual_games_override join
+    # requires reg-id keys; without this bridge every join misses and the
+    # cohort CLI falls back to Supabase. Mirrors triage.py:651.
+    raw_records = load_raw_scrape(event_key, base_dir=base_dir)
+    pid_to_reg_id: dict[str, str] = {
+        str(r.get("provider_team_id") or ""): str(r.get("provider_registration_id") or "")
+        for r in raw_records
+        if r.get("provider_team_id") and r.get("provider_registration_id")
+    }
+    # Authoritative tier per team from the gotsport tier-section parser
+    # (raw_scrape ``group_name``). When divisions are tier-named (Blue / Red /
+    # Washington / White) the team-name prefix heuristic in
+    # ``resolve_division_assignment`` cannot recover the tier — every team
+    # without an explicit override would land in division[0] and the Report
+    # Card's team_movements would falsely claim every team needs to move.
+    pid_to_group_name: dict[str, str] = {
+        str(r.get("provider_team_id") or ""): str(r.get("group_name") or "")
+        for r in raw_records
+        if r.get("provider_team_id") and r.get("group_name")
+    }
+    # Play-up routing: in backtest mode, a team belongs to the bracket they
+    # actually competed in. A 2013-born team competing in U14 Boys Red has
+    # ``cohort_age_group: U13`` (their natural age), ``playing_up: True``,
+    # and ``also_appears_in_brackets: ["U14B"]``. Without this map the team
+    # would be filed in U13 Boys (their natural cohort) and the U14 Boys
+    # Red roster would be short by one — exactly what was happening in
+    # this event for ~9 teams across the cohorts.
+    pid_to_raw_record: dict[str, dict[str, Any]] = {
+        str(r.get("provider_team_id") or ""): r
+        for r in raw_records
+        if r.get("provider_team_id")
+    }
+    target_bracket_key = f"U{age.removeprefix('u')}{'B' if gender_canonical == 'Male' else 'G'}"
+
     cohort_structure = next(
         (c for c in structure if c.age_group == age and normalize_gender_label(c.gender) == gender_canonical),
         None,
@@ -483,12 +521,25 @@ def _build_cohort_request_payload(
     division_routing_stale_assignments: list[str] = []
 
     for entry in registry:
-        if (
-            entry.event_age_group != age
-            or normalize_gender_label(entry.event_gender) != gender_canonical
-        ):
-            continue
         pid = registry_provider_id(entry)
+        # Play-up routing: a team filed in a younger natural cohort but
+        # whose raw_scrape says they competed in our target bracket should
+        # be INCLUDED here; conversely a team in our natural cohort that
+        # played up to an older bracket should be EXCLUDED (they belong
+        # to the older cohort's payload).
+        raw = pid_to_raw_record.get(pid) or {}
+        plays_in_target = target_bracket_key in (raw.get("also_appears_in_brackets") or [])
+        is_natural_cohort = (
+            entry.event_age_group == age
+            and normalize_gender_label(entry.event_gender) == gender_canonical
+        )
+        playing_up = bool(raw.get("playing_up"))
+        if is_natural_cohort and playing_up:
+            # Filed here naturally but actually competed in an older
+            # bracket — skip; the older cohort's payload picks them up.
+            continue
+        if not is_natural_cohort and not plays_in_target:
+            continue
         projected = team_state.get(pid)
         team_id_master = (
             projected.team_id_master
@@ -499,7 +550,15 @@ def _build_cohort_request_payload(
             continue
         team_name = entry.event_team_name or pid
         resolution = resolve_division_assignment(projected, team_name, division_names=division_names)
-        if resolution.source in (SOURCE_EXPLICIT, SOURCE_PREFIX):
+        scraped_group = pid_to_group_name.get(pid, "")
+        if resolution.source == SOURCE_EXPLICIT:
+            # Operator override always wins (they're correcting the scrape).
+            chosen_division = resolution.name or ""
+        elif scraped_group and scraped_group in division_names:
+            # Tier-section parser captured the actual played tier — use it as
+            # the source-of-truth for the "actual" side of the Report Card.
+            chosen_division = scraped_group
+        elif resolution.source == SOURCE_PREFIX:
             chosen_division = resolution.name or ""
         elif resolution.source == SOURCE_STALE:
             # Stale assignment: use the prefix-resolved fallback name when
@@ -550,13 +609,17 @@ def _build_cohort_request_payload(
                     "actual_division_name": normalized_name,
                 }
             )
-            provider_to_division[team["provider_team_id"]] = (team["team_id_master"], actual_division_name)
+            # Key on reg_id, not canonical pid: game_results.jsonl rows carry
+            # gotsport per-event registration ids in home/away_provider_team_id.
+            reg_id = pid_to_reg_id.get(team["provider_team_id"], team["provider_team_id"])
+            provider_to_division[reg_id] = (team["team_id_master"], actual_division_name)
         divisions_payload.append(
             {
                 "name": normalized_name,
                 "actual_division_name": actual_division_name,
                 "team_count": division.team_count,
                 "pool_sizes": list(division.pool_sizes),
+                "advancement": division.advancement,
             }
         )
 

@@ -1084,6 +1084,10 @@ def main() -> int:
             actual_game_count=actual_game_counts.get(
                 str(division_payload.get("actual_division_name") or division_spec.name)
             ),  # noqa: E501
+            # Authoritative playoff format from gotsport stage_label
+            # detection (POOL_CROSSOVER, SF_F_3P, etc.). Falls back to
+            # game-count heuristics when not set.
+            advancement_override=division_spec.advancement,
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }

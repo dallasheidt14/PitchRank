@@ -533,6 +533,52 @@ def registry_provider_id(entry: Any) -> str:
     return str(getattr(entry, "event_registration_id", "") or "").strip()
 
 
+def parse_bracket_key(bracket: str) -> tuple[str, str] | None:
+    """``"U14B"`` -> ``("u14", "Male")``; ``"U13G"`` -> ``("u13", "Female")``.
+
+    Returns ``None`` for unparseable bracket strings (e.g. tier-name-only
+    brackets that don't carry a U-prefix).
+    """
+    bracket = (bracket or "").strip()
+    if len(bracket) < 3 or not bracket.upper().startswith("U"):
+        return None
+    suffix = bracket[-1].upper()
+    if suffix not in ("B", "G"):
+        return None
+    digits = bracket[1:-1]
+    if not digits.isdigit():
+        return None
+    age = f"u{int(digits)}"
+    gender = "Male" if suffix == "B" else "Female"
+    return age, gender
+
+
+def effective_cohort_for_team(
+    natural_age: str,
+    natural_gender: str,
+    raw_record: dict[str, Any] | None,
+) -> tuple[str, str]:
+    """Backtest-mode cohort routing: a team belongs to the bracket they
+    ACTUALLY competed in. A team filed under U13 Boys naturally but with
+    ``playing_up: True`` and ``also_appears_in_brackets: ["U14B"]``
+    belongs to U14 Boys for analysis purposes (their natural age is
+    metadata, not identity).
+
+    Falls back to the natural cohort when the raw_scrape record is
+    missing, the team isn't playing up, or no bracket key parses cleanly.
+    """
+    if not raw_record:
+        return natural_age, natural_gender
+    if not raw_record.get("playing_up"):
+        return natural_age, natural_gender
+    appears_in = raw_record.get("also_appears_in_brackets") or []
+    for bracket in appears_in:
+        parsed = parse_bracket_key(str(bracket))
+        if parsed is not None:
+            return parsed
+    return natural_age, natural_gender
+
+
 def is_ready(
     event_key: str,
     scenario: str,
@@ -605,8 +651,6 @@ def is_ready(
         pid = registry_provider_id(entry)
         if not pid:
             continue
-        cohort = (entry.event_age_group, entry.event_gender)
-        cohorts_seen.add(cohort)
 
         record = raw_by_pid.get(pid)
         if record is None:
@@ -616,6 +660,14 @@ def is_ready(
                     "scraper_state": _scraper_state_from_status(entry.canonical_resolution_status),
                 },
             }
+        # Backtest-mode play-up routing: bucket the team into the bracket
+        # they actually competed in (older), not their natural age cohort.
+        # Without this, preflight/coverage checks see the wrong roster
+        # vs what the orchestrator builds at run time.
+        cohort = effective_cohort_for_team(
+            entry.event_age_group, entry.event_gender, record
+        )
+        cohorts_seen.add(cohort)
         projected = team_state.get(pid)
 
         team_id_master: str | None = None
@@ -699,6 +751,27 @@ def is_ready(
         if cohort not in structure_by_cohort:
             blockers.append(f"{cohort_label}: structure not entered")
             continue
+        # Mirror the optimizer's _pool_specs_from_division and _validate_flights
+        # checks at preflight time so the cohort tints to amber before the user
+        # burns a bulk-run cycle to discover an unrunnable structure.
+        cohort_structure = structure_by_cohort[cohort]
+        team_count_for_cohort = len(cohort_team_ids.get(cohort, set()))
+        division_total_slots = 0
+        for division in cohort_structure.divisions:
+            pool_sizes = tuple(int(s) for s in (division.pool_sizes or ()) if int(s) > 0)
+            if pool_sizes and sum(pool_sizes) != int(division.team_count):
+                blockers.append(
+                    f"{cohort_label}: division '{division.name}' pool sizes sum to "
+                    f"{sum(pool_sizes)} but team_count is {division.team_count} — "
+                    "edit pool sizes or team count in Division setup."
+                )
+            division_total_slots += int(division.team_count)
+        if team_count_for_cohort and division_total_slots != team_count_for_cohort:
+            blockers.append(
+                f"{cohort_label}: division team_count totals {division_total_slots} but "
+                f"{team_count_for_cohort} teams resolved to this cohort — add/remove teams "
+                "or adjust division team counts in Division setup."
+            )
         if use_local_coverage:
             provider_ids = cohort_provider_ids.get(cohort, set())
             if not provider_ids:

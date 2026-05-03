@@ -1,0 +1,210 @@
+{#-
+  Event-wide MatchBalance Report Card.
+  Aggregates one ReportCard per cohort into a tournament-level view.
+  Same CSS surface as the per-cohort card so styling is reused.
+-#}
+<section class="report-card">
+  <header class="rc-header">
+    <div class="rc-eyebrow">MatchBalance Event Report</div>
+    <h1 class="rc-title">{{ event_card.event_name }} &middot; tournament-wide</h1>
+    <div class="rc-meta">
+      Scenario <code>{{ event_card.scenario }}</code> &middot;
+      {{ event_card.cohort_count }} cohorts &middot;
+      {{ event_card.total_team_count }} teams &middot;
+      computed {{ event_card.computed_at }}
+    </div>
+  </header>
+
+  <section class="rc-hero">
+    <div class="rc-card rc-actual">
+      <div class="rc-eyebrow rc-eyebrow-muted">Avg cohort Balance Score range</div>
+      <div class="rc-score">{{ '%.0f' | format(event_card.min_balance_score_optimized) }} &ndash; {{ '%.0f' | format(event_card.max_balance_score_optimized) }}</div>
+      <div class="rc-meta">/ 100 across {{ event_card.cohort_count }} cohorts</div>
+    </div>
+    <div class="rc-card rc-optimized">
+      <div class="rc-eyebrow rc-eyebrow-good">MatchBalance event-wide</div>
+      <div class="rc-score rc-score-good">{{ '%.0f' | format(event_card.avg_balance_score_optimized) }}</div>
+      <div class="rc-meta rc-meta-good">/ 100 average Balance Score</div>
+    </div>
+  </section>
+
+  <section class="rc-section rc-headline">
+    <div class="rc-eyebrow">Tournament summary</div>
+    <p class="rc-headline-lead">
+      <strong>{{ event_card.cohort_count }} cohorts</strong> ran across <strong>{{ event_card.total_team_count }} teams</strong>.
+      Average cohort Balance Score: <strong>{{ '%.0f' | format(event_card.avg_balance_score_optimized) }}/100</strong>
+      (range {{ '%.0f' | format(event_card.min_balance_score_optimized) }}&ndash;{{ '%.0f' | format(event_card.max_balance_score_optimized) }}).
+    </p>
+    <ul class="rc-headline-stats">
+      {% if event_card.aggregate_actual_avg_gd is not none and event_card.aggregate_optimized_avg_gd is not none %}
+        <li><span class="rc-stat-label">Event-wide avg game margin</span> {{ '%.2f' | format(event_card.aggregate_actual_avg_gd) }} &rarr; <strong>{{ '%.2f' | format(event_card.aggregate_optimized_avg_gd) }}</strong> goals</li>
+      {% endif %}
+      {% if event_card.aggregate_actual_close_game_rate is not none and event_card.aggregate_optimized_close_game_rate is not none %}
+        <li><span class="rc-stat-label">Event-wide one-goal games</span> {{ '%.0f%%' | format(event_card.aggregate_actual_close_game_rate * 100) }} &rarr; <strong>{{ '%.0f%%' | format(event_card.aggregate_optimized_close_game_rate * 100) }}</strong></li>
+      {% endif %}
+      {% if event_card.aggregate_actual_blowout_5plus_rate is not none and event_card.aggregate_optimized_blowout_5plus_rate is not none %}
+        <li><span class="rc-stat-label">Event-wide 5+ goal blowouts</span> {{ '%.0f%%' | format(event_card.aggregate_actual_blowout_5plus_rate * 100) }} &rarr; <strong>{{ '%.0f%%' | format(event_card.aggregate_optimized_blowout_5plus_rate * 100) }}</strong></li>
+      {% endif %}
+    </ul>
+  </section>
+
+  {% if event_card.cohort_champions %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Champions across the event &middot; actual vs projected</div>
+      <p class="rc-subtle">
+        One row per cohort/division: who actually won vs who would have won under MatchBalance's seeding.
+        "(same)" indicates the optimizer would have produced the same champion the actual tournament did.
+      </p>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Cohort</th>
+            <th>Division</th>
+            <th>Actual champion</th>
+            <th class="rc-num">Record</th>
+            <th class="rc-num">GD</th>
+            <th>Projected champion</th>
+            <th class="rc-num">Record</th>
+            <th class="rc-num">GD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in event_card.cohort_champions %}
+            <tr>
+              <td><strong>{{ r.gender | capitalize }} {{ r.age_group | upper }}</strong></td>
+              <td>{{ r.division_name }}</td>
+              <td>{{ r.actual_team_name or '—' }}</td>
+              <td class="rc-num">{{ r.actual_record or '—' }}</td>
+              <td class="rc-num">{% if r.actual_goal_differential is not none %}{{ '%+d' | format(r.actual_goal_differential) }}{% else %}—{% endif %}</td>
+              <td>{{ r.projected_team_name or '—' }}{% if r.same_team %} <span class="rc-to">(same)</span>{% endif %}</td>
+              <td class="rc-num">{{ r.projected_record or '—' }}</td>
+              <td class="rc-num">{% if r.projected_goal_differential is not none %}{{ '%+d' | format(r.projected_goal_differential) }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if event_card.cohort_scorecards %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Cohort scorecard &middot; sortable summary of every cohort</div>
+      <p class="rc-subtle">
+        One row per cohort. Sort by Balance Score to find the worst-built cohorts; sort by team count to see scale.
+      </p>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Cohort</th>
+            <th class="rc-num">Teams</th>
+            <th class="rc-num">Divs</th>
+            <th class="rc-num">Balance</th>
+            <th class="rc-num">DQ pen.</th>
+            <th class="rc-num">Better exp.</th>
+            <th class="rc-num">Step up</th>
+            <th class="rc-num">Actual avg GD</th>
+            <th class="rc-num">Opt avg GD</th>
+            <th class="rc-num">Actual 5+ blowouts</th>
+            <th class="rc-num">Opt 5+ blowouts</th>
+            <th class="rc-num">Concerns</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in event_card.cohort_scorecards %}
+            <tr>
+              <td><strong>{{ r.gender | capitalize }} {{ r.age_group | upper }}</strong></td>
+              <td class="rc-num">{{ r.team_count }}</td>
+              <td class="rc-num">{{ r.division_count }}</td>
+              <td class="rc-num"><strong>{{ '%.0f' | format(r.balance_score_optimized) }}</strong></td>
+              <td class="rc-num">{% if r.data_quality_penalty %}-{{ '%.0f' | format(r.data_quality_penalty) }}{% else %}&mdash;{% endif %}</td>
+              <td class="rc-num">{{ r.better_experience_count }}</td>
+              <td class="rc-num">{{ r.asked_to_step_up_count }}</td>
+              <td class="rc-num">{% if r.actual_avg_gd is not none %}{{ '%.2f' | format(r.actual_avg_gd) }}{% else %}&mdash;{% endif %}</td>
+              <td class="rc-num">{% if r.optimized_avg_gd is not none %}{{ '%.2f' | format(r.optimized_avg_gd) }}{% else %}&mdash;{% endif %}</td>
+              <td class="rc-num">{% if r.actual_blowout_5plus_rate is not none %}{{ '%.0f%%' | format(r.actual_blowout_5plus_rate * 100) }}{% else %}&mdash;{% endif %}</td>
+              <td class="rc-num">{% if r.optimized_blowout_5plus_rate is not none %}{{ '%.0f%%' | format(r.optimized_blowout_5plus_rate * 100) }}{% else %}&mdash;{% endif %}</td>
+              <td class="rc-num">{{ r.concerns_count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {%- macro experience_table(rows, label, blurb) -%}
+    {% if rows %}
+      <section class="rc-section">
+        <div class="rc-eyebrow">{{ label }} &middot; top {{ rows | length }} event-wide</div>
+        <p class="rc-subtle">{{ blurb }}</p>
+        <table class="rc-table rc-mono">
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Actual division</th>
+              <th class="rc-num">Actual avg GD</th>
+              <th>Optimized division</th>
+              <th class="rc-num">Optimized avg GD</th>
+              <th class="rc-num">|GD| change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.team_name }}</td>
+                <td>{{ row.actual_division }}</td>
+                <td class="rc-num">{{ '%+.2f' | format(row.actual_avg_gd) }}</td>
+                <td>{{ row.optimized_division }}</td>
+                <td class="rc-num">{{ '%+.2f' | format(row.optimized_avg_gd) }}</td>
+                <td class="rc-num"><strong>{{ '%+.2f' | format(row.pain_reduction) }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+  {%- endmacro -%}
+
+  {{ experience_table(
+    event_card.event_better_experience,
+    'Teams with the most-improved experience',
+    'Top 10 teams across the entire event whose simulated experience would be most competitive vs what they actually got.'
+  ) }}
+
+  {{ experience_table(
+    event_card.event_worse_experience,
+    'Teams asked to step up',
+    'Top 10 teams across the entire event who dominated their actual division and would face stiffer competition optimized.'
+  ) }}
+
+  {% if event_card.event_concerns %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Operational concerns &middot; {{ event_card.event_concerns | length }} matchups across all cohorts</div>
+      <p class="rc-subtle">
+        Same-club matchups and intra-event rematches in pool/semi rounds across the optimized schedule for every cohort.
+        Reseat manually if needed.
+      </p>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Kind</th>
+            <th>Division</th>
+            <th>Stage</th>
+            <th>Matchup</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in event_card.event_concerns %}
+            <tr>
+              <td><span class="rc-severity rc-severity-warning">{{ c.kind }}</span></td>
+              <td>{{ c.division_name }}</td>
+              <td>{{ c.stage }}</td>
+              <td>{{ c.home_team_name }} <span class="rc-from">vs</span> {{ c.away_team_name }}</td>
+              <td>{{ c.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+</section>

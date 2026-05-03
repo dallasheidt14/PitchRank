@@ -74,6 +74,79 @@ delta-flat
     </div>
   </section>
 
+  {% if report_card.headline_summary %}
+    {% set hs = report_card.headline_summary %}
+    <section class="rc-section rc-headline">
+      <div class="rc-eyebrow">Tournament director summary</div>
+      <p class="rc-headline-lead">
+        <strong>{{ hs.team_count }} teams</strong> in this cohort.
+        {% if hs.better_experience_count %}<strong>{{ hs.better_experience_count }}</strong> would have a more competitive experience{% endif %}{% if hs.asked_to_step_up_count %}{% if hs.better_experience_count %}, {% endif %}<strong>{{ hs.asked_to_step_up_count }}</strong> would be asked to step up{% endif %}{% if hs.unchanged_count %}{% if hs.better_experience_count or hs.asked_to_step_up_count %}, {% endif %}<strong>{{ hs.unchanged_count }}</strong> roughly unchanged{% endif %}.
+      </p>
+      <ul class="rc-headline-stats">
+        {% if hs.actual_avg_gd is not none and hs.optimized_avg_gd is not none %}
+          <li><span class="rc-stat-label">Avg game margin</span> {{ '%.2f' | format(hs.actual_avg_gd) }} &rarr; <strong>{{ '%.2f' | format(hs.optimized_avg_gd) }}</strong> goals</li>
+        {% endif %}
+        {% if hs.actual_close_game_rate is not none and hs.optimized_close_game_rate is not none %}
+          <li><span class="rc-stat-label">One-goal games</span> {{ '%.0f%%' | format(hs.actual_close_game_rate * 100) }} &rarr; <strong>{{ '%.0f%%' | format(hs.optimized_close_game_rate * 100) }}</strong></li>
+        {% endif %}
+        {% if hs.actual_blowout_5plus_rate is not none and hs.optimized_blowout_5plus_rate is not none %}
+          <li><span class="rc-stat-label">5+ goal blowouts</span> {{ '%.0f%%' | format(hs.actual_blowout_5plus_rate * 100) }} &rarr; <strong>{{ '%.0f%%' | format(hs.optimized_blowout_5plus_rate * 100) }}</strong></li>
+        {% endif %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if report_card.actual_champions or report_card.projected_champions %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Champions &middot; actual vs projected</div>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Division</th>
+            <th>Actual champion</th>
+            <th class="rc-num">Record</th>
+            <th class="rc-num">GD</th>
+            <th>Projected champion</th>
+            <th class="rc-num">Record</th>
+            <th class="rc-num">GD</th>
+          </tr>
+        </thead>
+        <tbody>
+          {%- set ns = namespace(actual_by_div={}, proj_by_div={}, divisions=[]) -%}
+          {%- for c in report_card.actual_champions -%}
+            {%- set _ = ns.actual_by_div.update({c.division_name: c}) -%}
+            {%- if c.division_name not in ns.divisions -%}{%- set _ = ns.divisions.append(c.division_name) -%}{%- endif -%}
+          {%- endfor -%}
+          {%- for c in report_card.projected_champions -%}
+            {%- set _ = ns.proj_by_div.update({c.division_name: c}) -%}
+            {%- if c.division_name not in ns.divisions -%}{%- set _ = ns.divisions.append(c.division_name) -%}{%- endif -%}
+          {%- endfor -%}
+          {%- for div in ns.divisions | sort -%}
+            {%- set ac = ns.actual_by_div.get(div) -%}
+            {%- set pc = ns.proj_by_div.get(div) -%}
+            <tr>
+              <td><strong>{{ div }}</strong></td>
+              {% if ac %}
+                <td>{{ ac.team_name }}</td>
+                <td class="rc-num">{{ ac.wins }}-{{ ac.losses }}-{{ ac.ties }}</td>
+                <td class="rc-num">{{ '%+d' | format(ac.goal_differential) }}</td>
+              {% else %}
+                <td colspan="3" class="rc-na">&mdash;</td>
+              {% endif %}
+              {% if pc %}
+                <td>{{ pc.team_name }}{% if ac and ac.canonical_team_id == pc.canonical_team_id %} <span class="rc-to">(same team)</span>{% endif %}</td>
+                <td class="rc-num">{{ pc.wins }}-{{ pc.losses }}-{{ pc.ties }}</td>
+                <td class="rc-num">{{ '%+d' | format(pc.goal_differential) }}</td>
+              {% else %}
+                <td colspan="3" class="rc-na">&mdash;</td>
+              {% endif %}
+            </tr>
+          {%- endfor -%}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
   <section class="rc-section">
     <div class="rc-eyebrow">Why MatchBalance beats the status quo</div>
     {% if report_card.top_reasons %}
@@ -86,6 +159,182 @@ delta-flat
       <div class="rc-na">No measurable improvement over the actual schedule.</div>
     {% endif %}
   </section>
+
+  {%- macro experience_table(rows, label, blurb) -%}
+    {% if rows %}
+      <section class="rc-section">
+        <div class="rc-eyebrow">{{ label }} &middot; top {{ rows | length }}</div>
+        <p class="rc-subtle">{{ blurb }}</p>
+        <table class="rc-table rc-mono">
+          <thead>
+            <tr>
+              <th>Team</th>
+              <th>Actual division</th>
+              <th class="rc-num">Actual avg GD</th>
+              <th>Optimized division</th>
+              <th class="rc-num">Optimized avg GD</th>
+              <th class="rc-num">|GD| change</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ row.team_name }}</td>
+                <td>{{ row.actual_division }}</td>
+                <td class="rc-num">{{ '%+.2f' | format(row.actual_avg_gd) }}</td>
+                <td>{{ row.optimized_division }}</td>
+                <td class="rc-num">{{ '%+.2f' | format(row.optimized_avg_gd) }}</td>
+                <td class="rc-num"><strong>{{ '%+.2f' | format(row.pain_reduction) }}</strong></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+  {%- endmacro -%}
+
+  {{ experience_table(
+    report_card.better_experience,
+    'Teams with a better experience',
+    'These teams had the largest swing from a lopsided actual experience to a more competitive optimized one. Negative actual GD that shrinks toward zero = closer games for previously-outmatched teams.'
+  ) }}
+
+  {{ experience_table(
+    report_card.worse_experience,
+    'Teams asked to step up',
+    'These teams dominated their actual division (positive avg GD) and would face stiffer competition in the optimized seeding. Their margins compress — a balance win for the tournament, but the dominant team has to actually compete.'
+  ) }}
+
+  {%- macro standings_table(rows, label) -%}
+    {% if rows %}
+      <section class="rc-section">
+        <div class="rc-eyebrow">{{ label }}</div>
+        {%- set ns = namespace(current_division=none) -%}
+        {% for row in rows %}
+          {% if row.division_name != ns.current_division %}
+            {% if not loop.first %}</tbody></table>{% endif %}
+            {%- set ns.current_division = row.division_name -%}
+            <h3 class="rc-division-heading">{{ row.division_name }}</h3>
+            <table class="rc-table rc-mono">
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th class="rc-num">P</th>
+                  <th class="rc-num">W</th>
+                  <th class="rc-num">L</th>
+                  <th class="rc-num">T</th>
+                  <th class="rc-num">GF</th>
+                  <th class="rc-num">GA</th>
+                  <th class="rc-num">GD</th>
+                </tr>
+              </thead>
+              <tbody>
+          {% endif %}
+                <tr>
+                  <td>{{ row.team_name }}</td>
+                  <td class="rc-num">{{ row.played }}</td>
+                  <td class="rc-num">{{ row.wins }}</td>
+                  <td class="rc-num">{{ row.losses }}</td>
+                  <td class="rc-num">{{ row.ties }}</td>
+                  <td class="rc-num">{{ row.goals_for }}</td>
+                  <td class="rc-num">{{ row.goals_against }}</td>
+                  <td class="rc-num">{{ '%+d' | format(row.goal_differential) }}</td>
+                </tr>
+          {% if loop.last %}</tbody></table>{% endif %}
+        {% endfor %}
+      </section>
+    {% endif %}
+  {%- endmacro -%}
+
+  {% if report_card.division_balance %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Per-division balance &middot; sorted by largest improvement</div>
+      <p class="rc-subtle">
+        How each division stacks up actual vs optimized. Divisions at the top had the biggest
+        margin compression; those at the bottom were already well-built.
+      </p>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Division</th>
+            <th class="rc-num">Teams</th>
+            <th class="rc-num">Actual avg GD</th>
+            <th class="rc-num">Opt avg GD</th>
+            <th class="rc-num">Actual close-game rate</th>
+            <th class="rc-num">Opt close-game rate</th>
+            <th class="rc-num">Actual 5+ blowouts</th>
+            <th class="rc-num">Opt 5+ blowouts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report_card.division_balance %}
+            <tr>
+              <td><strong>{{ row.division_name }}</strong></td>
+              <td class="rc-num">{{ row.team_count }}</td>
+              <td class="rc-num">{{ '%.2f' | format(row.actual_avg_gd) }}</td>
+              <td class="rc-num"><strong>{{ '%.2f' | format(row.optimized_avg_gd) }}</strong></td>
+              <td class="rc-num">{{ '%.0f%%' | format(row.actual_close_game_rate * 100) }}</td>
+              <td class="rc-num"><strong>{{ '%.0f%%' | format(row.optimized_close_game_rate * 100) }}</strong></td>
+              <td class="rc-num">{{ '%.0f%%' | format(row.actual_blowout_5plus_rate * 100) }}</td>
+              <td class="rc-num"><strong>{{ '%.0f%%' | format(row.optimized_blowout_5plus_rate * 100) }}</strong></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {% if report_card.early_meeting_concerns %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Operational concerns &middot; {{ report_card.early_meeting_concerns | length }} matchups to flag</div>
+      <p class="rc-subtle">
+        Same-club matchups and intra-event rematches in pool/semi rounds of the optimized schedule.
+        These are the matchups the TD has to defend at the awards ceremony &mdash; reseat manually if needed.
+      </p>
+      <table class="rc-table rc-mono">
+        <thead>
+          <tr>
+            <th>Kind</th>
+            <th>Division</th>
+            <th>Stage</th>
+            <th>Matchup</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in report_card.early_meeting_concerns %}
+            <tr>
+              <td><span class="rc-severity rc-severity-warning">{{ c.kind }}</span></td>
+              <td>{{ c.division_name }}</td>
+              <td>{{ c.stage }}</td>
+              <td>{{ c.home_team_name }} <span class="rc-from">vs</span> {{ c.away_team_name }}</td>
+              <td>{{ c.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {{ standings_table(report_card.actual_standings, 'Actual tournament standings') }}
+  {{ standings_table(report_card.optimized_standings, 'Optimized standings (simulated)') }}
+
+  {% if report_card.team_movements %}
+    <section class="rc-section">
+      <div class="rc-eyebrow">Team movements &middot; {{ report_card.team_movements | length }} changes</div>
+      <ul class="rc-list rc-mono">
+        {% for movement in report_card.team_movements %}
+          <li>
+            {{ movement.team_name }} &middot;
+            <span class="rc-from">{{ movement.from_division }}</span>
+            &rarr;
+            <span class="rc-to">{{ movement.to_division }}</span>
+            <span class="rc-move-{{ movement.move }}">({{ movement.move }})</span>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
 
   <section class="rc-section">
     <div class="rc-eyebrow">Side-by-side metrics</div>
@@ -123,23 +372,6 @@ delta-flat
             {% if flag.affected_teams %}
               <span class="rc-affected">({{ flag.affected_teams | join(', ') }})</span>
             {% endif %}
-          </li>
-        {% endfor %}
-      </ul>
-    </section>
-  {% endif %}
-
-  {% if report_card.team_movements %}
-    <section class="rc-section">
-      <div class="rc-eyebrow">Team movements &middot; {{ report_card.team_movements | length }} changes</div>
-      <ul class="rc-list rc-mono">
-        {% for movement in report_card.team_movements %}
-          <li>
-            {{ movement.team_name }} &middot;
-            <span class="rc-from">{{ movement.from_division }}</span>
-            &rarr;
-            <span class="rc-to">{{ movement.to_division }}</span>
-            <span class="rc-move-{{ movement.move }}">({{ movement.move }})</span>
           </li>
         {% endfor %}
       </ul>
