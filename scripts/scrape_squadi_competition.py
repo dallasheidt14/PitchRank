@@ -112,5 +112,5 @@ TEAMS_COLUMNS = [
 ]
 
 # Globals set in main()
-SCRAPE_TS: Optional[str] = None
-SCRAPE_RUN_ID: Optional[str] = None
+SCRAPE_TS = None
+SCRAPE_RUN_ID = None

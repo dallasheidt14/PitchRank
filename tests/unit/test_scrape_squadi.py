@@ -13,7 +13,7 @@ verification in Task 16, not by unit tests.
 from scripts.scrape_squadi_competition import REQUIRED_COLUMNS
 
 
-def test_required_columns_match_canonical_27_plus_division_name():
+def test_required_columns_match_canonical_28_col_list():
     assert REQUIRED_COLUMNS[0] == "provider"
     assert REQUIRED_COLUMNS[-1] == "division_name"
     assert len(REQUIRED_COLUMNS) == 28
