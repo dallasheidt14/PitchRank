@@ -471,6 +471,109 @@ class SquadiTokenHarvester:
         return self._build_hash
 
 
+# -----------------------------
+# API CLIENT
+# -----------------------------
+
+
+class SquadiClient:
+    """Thin wrapper around requests.Session with token + retry + delay."""
+
+    def __init__(
+        self,
+        token_harvester: SquadiTokenHarvester,
+        api_base: str = SQUADI_API_BASE,
+        delay_sec: float = 0.3,
+        max_retries: int = 3,
+        timeout: int = 30,
+    ):
+        self.harvester = token_harvester
+        self.api_base = api_base.rstrip("/")
+        self.delay_sec = delay_sec
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.token_refresh_count = 0
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "authorization": self.harvester.get_token(),
+            "accept": "application/json",
+            "user-agent": SquadiTokenHarvester.DEFAULT_HEADERS["User-Agent"],
+        }
+
+    def _get_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """GET with retry + 401-triggered token refresh.
+
+        Raises RuntimeError on persistent failure.
+        """
+        url = f"{self.api_base}/{path.lstrip('/')}"
+        last_error: Optional[str] = None
+        token_already_refreshed = False
+
+        for attempt in range(self.max_retries):
+            try:
+                r = self.session.get(
+                    url, params=params, headers=self._headers(), timeout=self.timeout
+                )
+                if r.status_code == 200:
+                    if attempt > 0:
+                        time.sleep(self.delay_sec)
+                    return r.json()
+                if r.status_code == 401 and not token_already_refreshed:
+                    logger.warning(f"401 on {path} — refreshing token and retrying once")
+                    self.harvester.invalidate()
+                    self.token_refresh_count += 1
+                    token_already_refreshed = True
+                    continue  # retry without consuming an attempt
+                last_error = f"HTTP {r.status_code}"
+                logger.warning(f"⚠️ {last_error} for {path} (attempt {attempt+1}/{self.max_retries})")
+            except requests.RequestException as e:
+                last_error = str(e)
+                logger.warning(f"⚠️ Request error for {path}: {e}")
+
+            if attempt < self.max_retries - 1:
+                time.sleep(0.5 * (2 ** attempt))  # exponential backoff: 0.5, 1, 2
+
+        raise RuntimeError(
+            f"SQUADI API call failed after {self.max_retries} attempts: {path} "
+            f"({last_error}, build={self.harvester.build_hash})"
+        )
+
+    def list_years(self, org_uuid: str) -> List[Dict[str, Any]]:
+        time.sleep(self.delay_sec)
+        return self._get_json(
+            "common/common/reference/year",
+            params={"organisationUniqueKey": org_uuid, "scope": 1},
+        )
+
+    def list_competitions(self, org_uuid: str, year_ref_id: int) -> List[Dict[str, Any]]:
+        time.sleep(self.delay_sec)
+        return self._get_json(
+            "livescores/competitions/list",
+            params={"organisationUniqueKey": org_uuid, "yearRefId": year_ref_id},
+        )
+
+    def list_divisions(self, competition_uuid: str) -> List[Dict[str, Any]]:
+        time.sleep(self.delay_sec)
+        return self._get_json(
+            "livescores/division",
+            params={"competitionKey": competition_uuid},
+        )
+
+    def get_round_matches(self, competition_int_id: int) -> Dict[str, Any]:
+        time.sleep(self.delay_sec)
+        return self._get_json(
+            "livescores/round/matches",
+            params={
+                "competitionId": competition_int_id,
+                "divisionId": "",
+                "teamIds": "",
+                "ignoreStatuses": "[1]",
+            },
+        )
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
