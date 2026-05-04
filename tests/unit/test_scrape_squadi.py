@@ -175,3 +175,35 @@ class TestExtractExternalOrgId:
         assert extract_external_org_id(None) is None
         assert extract_external_org_id("") is None
         assert extract_external_org_id("https://example.com/no-org-here.png") is None
+
+
+from scripts.scrape_squadi_competition import parse_squadi_url
+
+
+class TestParseSquadiUrl:
+    def test_full_url_extraction(self):
+        url = ("https://registration.us.squadi.com/livescoreSeasonFixture"
+               "?organisationKey=7cfab077-e619-47e4-ab36-0febc29501a2"
+               "&competitionUniqueKey=539ff993-3032-414e-9dfe-5466629fc1c9"
+               "&yearId=6&divisionId=All")
+        result = parse_squadi_url(url)
+        assert result["org_uuid"] == "7cfab077-e619-47e4-ab36-0febc29501a2"
+        assert result["competition_uuid"] == "539ff993-3032-414e-9dfe-5466629fc1c9"
+        assert result["year_ref_id"] == 6
+
+    def test_missing_org_key_returns_none(self):
+        url = "https://registration.us.squadi.com/livescoreSeasonFixture?yearId=6"
+        assert parse_squadi_url(url) is None
+
+    def test_missing_year_id_is_optional(self):
+        url = ("https://registration.us.squadi.com/livescoreSeasonFixture"
+               "?organisationKey=7cfab077-e619-47e4-ab36-0febc29501a2"
+               "&competitionUniqueKey=539ff993-3032-414e-9dfe-5466629fc1c9")
+        result = parse_squadi_url(url)
+        assert result["org_uuid"] == "7cfab077-e619-47e4-ab36-0febc29501a2"
+        assert result["year_ref_id"] is None
+
+    def test_invalid_url_returns_none(self):
+        assert parse_squadi_url("not a url") is None
+        assert parse_squadi_url("") is None
+        assert parse_squadi_url(None) is None

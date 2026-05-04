@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -255,6 +256,42 @@ def extract_external_org_id(logo_url: Optional[str]) -> Optional[str]:
         return None
     m = _LOGO_ORG_RE.search(logo_url)
     return m.group(1) if m else None
+
+
+def parse_squadi_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Parse a SQUADI livescoreSeasonFixture URL into discovery params.
+
+    Returns {"org_uuid", "competition_uuid", "year_ref_id"} or None when the
+    URL is missing the organisationKey query param (the only required field).
+    """
+    if not url:
+        return None
+    try:
+        parsed = urllib.parse.urlparse(url)
+        if not parsed.scheme or not parsed.netloc:
+            return None
+        qs = urllib.parse.parse_qs(parsed.query)
+    except (ValueError, AttributeError):
+        return None
+
+    org_uuid = (qs.get("organisationKey") or [None])[0]
+    if not org_uuid:
+        return None
+
+    comp_uuid = (qs.get("competitionUniqueKey") or [None])[0]
+    year_id_raw = (qs.get("yearId") or [None])[0]
+    year_ref_id = None
+    if year_id_raw is not None:
+        try:
+            year_ref_id = int(year_id_raw)
+        except (ValueError, TypeError):
+            year_ref_id = None
+
+    return {
+        "org_uuid": org_uuid,
+        "competition_uuid": comp_uuid,
+        "year_ref_id": year_ref_id,
+    }
 
 
 # Globals set in main()
