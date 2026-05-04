@@ -858,6 +858,106 @@ def normalize_match(
     return ([row_team1, row_team2], [team_row_1, team_row_2])
 
 
+# -----------------------------
+# COMPETITION SCRAPER
+# -----------------------------
+
+
+@dataclass
+class CompScrapeResult:
+    competition_uuid: str
+    competition_id_int: int
+    competition_name: str
+    games_emitted: int = 0
+    teams_emitted: int = 0
+    skipped_scheduled: int = 0
+    skipped_orphan_team: int = 0
+    parse_warnings: int = 0
+    raw_dir: Optional[Path] = None
+    error: Optional[str] = None
+
+
+def scrape_competition(
+    client: "SquadiClient",
+    competition: Dict[str, Any],
+    org_uuid: str,
+    org_meta: Dict[str, str],
+    *,
+    scrape_run_id: str,
+    scraped_at: str,
+    raw_dir: Optional[Path] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], CompScrapeResult]:
+    """Walk one competition. Returns (game_rows, team_rows, result)."""
+    comp_uuid = str(competition.get("uniqueKey") or "")
+    comp_int_id = competition.get("id")
+    comp_name = str(competition.get("name") or "")
+    res = CompScrapeResult(
+        competition_uuid=comp_uuid,
+        competition_id_int=int(comp_int_id) if comp_int_id is not None else 0,
+        competition_name=comp_name,
+    )
+
+    # Stamp org context onto competition for normalize_match's source_url helper
+    competition.setdefault("organisation", {})["organisationUniqueKey"] = org_uuid
+
+    try:
+        divisions_raw = client.list_divisions(comp_uuid)
+        round_matches = client.get_round_matches(int(comp_int_id))
+    except RuntimeError as e:
+        logger.error(f"Competition {comp_name} ({comp_uuid}): {e}")
+        res.error = str(e)
+        return ([], [], res)
+
+    if raw_dir:
+        try:
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            (raw_dir / "competition.json").write_text(json.dumps(competition))
+            (raw_dir / "divisions.json").write_text(json.dumps(divisions_raw))
+            (raw_dir / "round_matches.json").write_text(json.dumps(round_matches))
+            res.raw_dir = raw_dir
+        except OSError as e:
+            logger.warning(f"Could not persist raw JSON: {e}")
+
+    div_lookup = {d.get("id"): d for d in divisions_raw if d.get("id") is not None}
+
+    games_buf: List[Dict[str, Any]] = []
+    teams_buf: Dict[Tuple[str, Any], Dict[str, Any]] = {}
+
+    for rd in round_matches.get("rounds") or []:
+        for match in rd.get("matches") or []:
+            div = div_lookup.get(match.get("divisionId"))
+            if not div:
+                res.skipped_orphan_team += 1
+                logger.warning(
+                    f"Match {match.get('id')} in comp {comp_name} has no matching "
+                    f"divisionId={match.get('divisionId')}"
+                )
+                continue
+            try:
+                game_rows, team_rows = normalize_match(
+                    match, div, competition, org_meta,
+                    scrape_run_id=scrape_run_id, scraped_at=scraped_at,
+                )
+            except Exception as e:
+                logger.warning(f"Match {match.get('id')} normalization error: {e}")
+                res.parse_warnings += 1
+                continue
+
+            if not game_rows:
+                res.skipped_scheduled += 1
+                continue
+
+            games_buf.extend(game_rows)
+            res.games_emitted += 1
+            for tr in team_rows:
+                key = (tr["provider_team_id"], div.get("id"))
+                if key not in teams_buf:
+                    teams_buf[key] = tr
+
+    res.teams_emitted = len(teams_buf)
+    return (games_buf, list(teams_buf.values()), res)
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
