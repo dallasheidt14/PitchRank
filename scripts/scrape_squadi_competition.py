@@ -1026,6 +1026,216 @@ def write_outputs(
     return final_dir
 
 
+# -----------------------------
+# CONFIG + ENTRYPOINT
+# -----------------------------
+
+
+def resolve_config() -> Dict[str, Any]:
+    parser = argparse.ArgumentParser(description="SQUADI Competition Scraper")
+    parser.add_argument("--url", type=str, help="Squadi livescoreSeasonFixture URL (parses org+comp+year)")
+    parser.add_argument("--org-key", type=str, help="organisationUniqueKey (UUID)")
+    parser.add_argument("--year-ref-id", type=int, help="Squadi yearRefId (e.g. 8 for 2026)")
+    parser.add_argument("--competition-key", type=str, help="competitionUniqueKey (UUID); skips discovery")
+    parser.add_argument("--output-dir", type=str, help=f"Output root (default {OUTPUT_DIR})")
+    parser.add_argument("--keep-raw", action="store_true", help="Persist raw JSON responses for audit")
+    parser.add_argument("--verbose", action="store_true", help="DEBUG-level logging")
+    parser.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        default=True,
+        help="Validate token + scrape, do NOT write CSVs (default: ON)",
+    )
+    parser.add_argument(
+        "--no-dry-run",
+        dest="dry_run",
+        action="store_false",
+        help="Disable dry-run and write CSV outputs to disk",
+    )
+
+    args = parser.parse_args()
+
+    org_uuid: Optional[str] = None
+    competition_uuid: Optional[str] = None
+    year_ref_id: Optional[int] = None
+
+    if args.url:
+        parsed = parse_squadi_url(args.url)
+        if not parsed:
+            print(f"❌ Could not parse --url: {args.url}", file=sys.stderr)
+            sys.exit(1)
+        org_uuid = parsed["org_uuid"]
+        competition_uuid = parsed["competition_uuid"] or args.competition_key
+        year_ref_id = parsed["year_ref_id"] if parsed["year_ref_id"] is not None else args.year_ref_id
+    else:
+        org_uuid = args.org_key
+        competition_uuid = args.competition_key
+        year_ref_id = args.year_ref_id
+
+    if not org_uuid and not competition_uuid:
+        print("❌ Must provide --url, --org-key, or --competition-key", file=sys.stderr)
+        sys.exit(1)
+
+    blocklist_env = os.getenv("SQUADI_COMP_BLOCKLIST", "")
+    blocklist = tuple(s.strip() for s in blocklist_env.split(",") if s.strip()) or DEFAULT_COMP_NAME_BLOCKLIST
+
+    return {
+        "org_uuid": org_uuid,
+        "competition_uuid": competition_uuid,
+        "year_ref_id": year_ref_id,
+        "output_dir": args.output_dir or OUTPUT_DIR,
+        "keep_raw": args.keep_raw,
+        "verbose": args.verbose,
+        "dry_run": args.dry_run,
+        "name_blocklist": blocklist,
+        "delay_sec": float(os.getenv("SQUADI_DELAY_SEC", "0.3")),
+    }
+
+
+def main() -> int:
+    global SCRAPE_TS, SCRAPE_RUN_ID
+    config = resolve_config()
+    logging.basicConfig(
+        level=logging.DEBUG if config["verbose"] else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    SCRAPE_TS = datetime.now(timezone.utc).isoformat()
+    SCRAPE_RUN_ID = f"{SCRAPE_TS.replace(':', '-').replace('.', '-')}_{uuid.uuid4().hex[:6]}"
+
+    print("🚀 SQUADI Competition Scraper")
+    print(f"🆔 Scrape run ID: {SCRAPE_RUN_ID}")
+    print(f"🔧 Mode: {'DRY-RUN' if config['dry_run'] else 'WRITE'}")
+
+    harvester = SquadiTokenHarvester()
+    client = SquadiClient(harvester, delay_sec=config["delay_sec"])
+
+    if config["competition_uuid"] and not config["org_uuid"]:
+        target_comps = []
+        for org_uuid_candidate in ORG_REGISTRY.keys():
+            for yri in YEAR_REF_TO_CALENDAR.keys():
+                try:
+                    comps = client.list_competitions(org_uuid_candidate, yri)
+                except RuntimeError:
+                    continue
+                for comp in comps:
+                    if comp.get("uniqueKey") == config["competition_uuid"]:
+                        config["org_uuid"] = org_uuid_candidate
+                        target_comps = [comp]
+                        break
+                else:
+                    continue
+                break
+            else:
+                continue
+            break
+        if not config.get("org_uuid"):
+            print(f"❌ Could not locate competition {config['competition_uuid']} in any known org", file=sys.stderr)
+            return 1
+    elif config["competition_uuid"] and config["org_uuid"]:
+        target_comps = []
+        for yri in (config["year_ref_id"],) if config["year_ref_id"] else YEAR_REF_TO_CALENDAR.keys():
+            try:
+                comps = client.list_competitions(config["org_uuid"], yri)
+            except RuntimeError:
+                continue
+            for comp in comps:
+                if comp.get("uniqueKey") == config["competition_uuid"]:
+                    target_comps.append(comp)
+        if not target_comps:
+            print(f"❌ Competition {config['competition_uuid']} not found under org {config['org_uuid']}", file=sys.stderr)
+            return 1
+    else:
+        target_comps = discover_competitions(
+            client, config["org_uuid"],
+            year_ref_id=config["year_ref_id"],
+            name_blocklist=config["name_blocklist"],
+        )
+
+    if not target_comps:
+        print(f"⚠️ No active competitions found for org={config['org_uuid']} year={config['year_ref_id']}")
+        return 0
+
+    org_meta = ORG_REGISTRY.get(config["org_uuid"])
+    if not org_meta:
+        print(f"❌ Org {config['org_uuid']} not in ORG_REGISTRY — add it before scraping", file=sys.stderr)
+        return 1
+
+    output_root = Path(config["output_dir"])
+    raw_root = output_root / SCRAPE_RUN_ID / "raw" if config["keep_raw"] else None
+
+    all_games: List[Dict[str, Any]] = []
+    all_teams_map: Dict[Tuple[str, Any], Dict[str, Any]] = {}
+    comp_results: List[CompScrapeResult] = []
+
+    scrape_start = time.time()
+    for comp in target_comps:
+        comp_raw_dir = (raw_root / str(comp.get("uniqueKey"))) if raw_root else None
+        games, teams, res = scrape_competition(
+            client, comp, config["org_uuid"], org_meta,
+            scrape_run_id=SCRAPE_RUN_ID, scraped_at=SCRAPE_TS,
+            raw_dir=comp_raw_dir,
+        )
+        all_games.extend(games)
+        for tr in teams:
+            key = (tr["provider_team_id"], json.loads(tr["meta"]).get("squadi_division_id"))
+            all_teams_map.setdefault(key, tr)
+        comp_results.append(res)
+        print(
+            f"  ✅ {res.competition_name}: games={res.games_emitted} "
+            f"teams={res.teams_emitted} skipped_scheduled={res.skipped_scheduled} "
+            f"errors={'1' if res.error else '0'}"
+        )
+
+    duration = time.time() - scrape_start
+    all_teams = list(all_teams_map.values())
+
+    if all_games:
+        validate_records(all_games)
+
+    manifest = {
+        "run_id": SCRAPE_RUN_ID,
+        "scraped_at": SCRAPE_TS,
+        "org_uuid": config["org_uuid"],
+        "year_ref_id": config["year_ref_id"],
+        "comps_total": len(target_comps),
+        "comps_ok": sum(1 for r in comp_results if not r.error),
+        "comps_failed": sum(1 for r in comp_results if r.error),
+        "games_emitted": len(all_games),
+        "teams_emitted": len(all_teams),
+        "token_refresh_count": client.token_refresh_count,
+        "build_hash": harvester.build_hash,
+        "duration_sec": round(duration, 2),
+        "competitions": [
+            {
+                "uuid": r.competition_uuid,
+                "id_int": r.competition_id_int,
+                "name": r.competition_name,
+                "games": r.games_emitted,
+                "teams": r.teams_emitted,
+                "error": r.error,
+            }
+            for r in comp_results
+        ],
+        "status": "ok" if all(not r.error for r in comp_results) else "partial",
+        "dry_run": config["dry_run"],
+    }
+
+    if not config["dry_run"]:
+        out_dir = write_outputs(all_games, all_teams, manifest, output_root, SCRAPE_RUN_ID)
+        print(f"\n✅ OUTPUT: {out_dir}")
+    else:
+        print(f"\n🔍 DRY RUN — {len(all_games)} game rows, {len(all_teams)} team rows validated (not written)")
+
+    print(json.dumps({"summary": manifest}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
