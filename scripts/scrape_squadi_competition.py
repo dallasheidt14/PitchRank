@@ -170,6 +170,7 @@ def parse_utc_to_local_date(iso_utc: Optional[str], tz_name: str) -> Tuple[str, 
 
 # Match all "<n>U" tokens and pick the largest (older cohort wins for dual-age).
 _AGE_TOKEN_RE = re.compile(r"\b(\d{1,2})[Uu]\b")
+_GENDER_RE = re.compile(r"(?i)\b(boys|girls)\b")
 
 
 def parse_division_metadata(
@@ -212,18 +213,13 @@ def parse_division_metadata(
         elif 10 <= n <= 17 or n == 19:
             age_group = f"u{n}"
 
-    # Gender
-    lower = name.lower()
-    if " boys" in f" {lower}" or lower.startswith("boys"):
-        gender = "Boys"
-    elif " girls" in f" {lower}" or lower.startswith("girls"):
-        gender = "Girls"
-    else:
-        gender = ""
+    # Gender — word-boundary match avoids false positives like "Girlscout"
+    m = _GENDER_RE.search(name)
+    gender = m.group(1).capitalize() if m else ""
 
     # Tier: residual after stripping all age tokens + gender tokens
     tier = _AGE_TOKEN_RE.sub("", name)
-    tier = re.sub(r"(?i)\b(boys|girls)\b", "", tier)
+    tier = _GENDER_RE.sub("", tier)
     tier = re.sub(r"\s*/\s*", " ", tier)  # collapse "/ " from dual-age splits
     tier = re.sub(r"\s+", " ", tier).strip()
 

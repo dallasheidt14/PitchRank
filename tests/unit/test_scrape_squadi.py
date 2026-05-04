@@ -129,3 +129,9 @@ class TestParseDivisionMetadata:
     def test_fully_unparseable(self):
         assert parse_division_metadata("Random String", None) == ("", "", "Random String")
         assert parse_division_metadata("", None) == ("", "", "")
+
+    def test_gender_uses_word_boundary_no_false_positives(self):
+        # Substrings that *contain* "boys"/"girls" must not trigger gender detection.
+        # Without word-boundary matching, "Girlscout" would falsely return "Girls".
+        assert parse_division_metadata("Girlscout 11U Division", 10) == ("u11", "", "Girlscout Division")
+        assert parse_division_metadata("Boysenberry 11U Division", 10) == ("u11", "", "Boysenberry Division")
