@@ -327,3 +327,25 @@ All under `https://api.us.squadi.com`:
 | `state` / `state_code` | `"New Jersey"` / `"NJ"` |
 | Timezone | `America/New_York` |
 | Spring 2026 cup `competitionUniqueKey` | `076cbf4a-26f8-4878-9d86-8fea4d43b7c6` (id=261) |
+
+## Implementation notes
+
+- v1 implemented on branch `scraper/squadi-nj` (commits `0625ebc18` through `42ff17cc9`).
+- Token build hash at first scrape: `e68022e7` (length 448).
+- Dry-run gates passed 2026-05-04:
+  - **16.1 Token harvest**: `token len=448 build=e68022e7` — pass.
+  - **16.2 NJYS 2026 (yearRefId=8) discovery + dry-run**: comps_total=1, comps_ok=1, games_emitted=642 (321 games × 2 perspectives), teams_emitted=297, skipped_scheduled=61, duration_sec=1.32, status=ok, dry_run=true — pass.
+  - **16.3 NJYS Fall 2024 (yearRefId=6) discovery + dry-run**: comps_total=2, comps_ok=2, games_emitted=1580 (790 games × 2), teams_emitted=667, duration_sec=2.58, status=ok, dry_run=true. Competitions: "State Cups Fall 2024 (11U-14U)" (games=730 teams=606) + "NJ ODP Friendlies (December 2024)" (games=60 teams=61) — pass.
+  - **16.4 --no-dry-run CSV write**: games rows=1580, unique team UUIDs=648, distinct results=['D','L','W'] (no 'U' = no unplayed games in dataset), distinct age_groups=['','u11','u12','u13','u14'], distinct genders=['Boys','Girls'], state_codes=['NJ'], manifest.status=ok — pass with one noted observation (see below).
+  - **16.6 Importer dry-run**: Errored as expected — `Provider not found: squadi` (PGRST116, 0 rows). Migration `20260504000000_add_squadi_provider.sql` not yet applied to Supabase. Not blocking.
+- CSV observation: 120 rows (all from "NJ ODP Friendlies") carry `age_group=''` and `age_year=''`. ODP select teams (e.g. "NJ BLUE TEAM") have no parseable birth-year in their name — expected and harmless; importer can skip or null-fill these rows.
+- Production deploy still required:
+  - Apply migration `supabase/migrations/20260504000000_add_squadi_provider.sql`.
+  - Run `python scripts/import_games_enhanced.py data/raw/squadi/<run_id>/games.csv squadi --dry-run` to verify importer dedupe + matcher behavior.
+  - Spot-check 3 matches in the live Squadi UI vs the CSV (gate 16.5).
+  - Run real import (gate 16.7) followed by rankings health check (gate 16.8).
+- Open follow-ups:
+  - Triple-nested for/for/for in `main()` competition_uuid resolution path could extract to a helper for readability (cosmetic).
+  - `json.loads(tr["meta"])` in main's dedup loop re-decodes per row — pre-parse if dataset grows large.
+  - If review-queue overlap with TGS/GotSport/EDP teams is excessive on first import, consider a `SquadiGameMatcher` subclass with state-scoped autocreate (mirroring PlayMetrics).
+  - ODP Friendlies rows with empty age_group: decide whether to filter them out pre-import or let the importer null-fill and skip matching.
