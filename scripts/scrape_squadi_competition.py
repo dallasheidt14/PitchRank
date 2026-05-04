@@ -111,6 +111,63 @@ TEAMS_COLUMNS = [
     "meta",
 ]
 
+# -----------------------------
+# PURE HELPERS
+# -----------------------------
+
+
+def compute_result(goals_for: Optional[int], goals_against: Optional[int]) -> str:
+    """Compute result from a team's perspective: W / L / D / U."""
+    if goals_for is None or goals_against is None:
+        return "U"
+    if goals_for > goals_against:
+        return "W"
+    if goals_for < goals_against:
+        return "L"
+    return "D"
+
+
+def parse_int_or_none(v: Any) -> Optional[int]:
+    """Parse a game score. Only whole integers in 0..50 are accepted; else None.
+
+    Filters malformed scores at scrape time so they don't surface as bogus W/L/D
+    rows. Matches the importer validation window (src/utils/enhanced_validators.py).
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v if 0 <= v <= 50 else None
+    s = str(v).strip()
+    if not s or s.lower() in ("none", "null"):
+        return None
+    try:
+        f = float(s)
+    except (ValueError, TypeError):
+        return None
+    if not f.is_integer():
+        return None
+    i = int(f)
+    return i if 0 <= i <= 50 else None
+
+
+def parse_utc_to_local_date(iso_utc: Optional[str], tz_name: str) -> Tuple[str, str]:
+    """Convert a UTC ISO timestamp to (YYYY-MM-DD, HH:MM) in the given timezone.
+
+    Returns ('', '') on parse failure or empty input.
+    """
+    if not iso_utc:
+        return ("", "")
+    try:
+        dt_iso = iso_utc.rstrip("Z")
+        dt = datetime.fromisoformat(dt_iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local = dt.astimezone(ZoneInfo(tz_name))
+        return (local.strftime("%Y-%m-%d"), local.strftime("%H:%M"))
+    except (ValueError, TypeError):
+        return ("", "")
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
