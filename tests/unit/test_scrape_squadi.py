@@ -246,3 +246,33 @@ class TestExtractTokenFromBundle:
         # Must be at least 256 chars to qualify
         bundle = 'var TOKEN="' + ("a" * 100) + '"; "authorization"'
         assert extract_token_from_bundle(bundle) is None
+
+    def test_token_after_authorization_keyword(self):
+        # Token appears AFTER 'authorization' in the bundle (reverse order from main fixture)
+        token_hex = "a" * 256
+        bundle = f'fetch(url, {{"authorization": x}}); var T="{token_hex}";'
+        result = extract_token_from_bundle(bundle)
+        assert result == token_hex
+
+    def test_distance_filter_rejects_far_candidate(self):
+        # Two candidates: one near 'authorization' (within 300 chars), one far (>300 chars away)
+        near_token = "a" * 256
+        far_token = "b" * 256
+        # Layout: [near_token][~50 chars including 'authorization'][2000 chars padding][far_token]
+        padding = "x" * 2000
+        bundle = (
+            f'var NEAR="{near_token}"; '
+            f'fetch(url, {{"authorization": NEAR}}); '
+            f'{padding} '
+            f'var FAR="{far_token}";'
+        )
+        result = extract_token_from_bundle(bundle)
+        assert result == near_token
+
+    def test_fallback_to_longest_when_no_authorization_anchor(self):
+        # No 'authorization' keyword anywhere — fallback returns the longest hex candidate
+        short_hex = "a" * 256
+        long_hex = "b" * 400
+        bundle = f'var X="{short_hex}"; var Y="{long_hex}";'
+        result = extract_token_from_bundle(bundle)
+        assert result == long_hex
