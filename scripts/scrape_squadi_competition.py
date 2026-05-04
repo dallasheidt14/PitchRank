@@ -958,6 +958,74 @@ def scrape_competition(
     return (games_buf, list(teams_buf.values()), res)
 
 
+# -----------------------------
+# VALIDATION + OUTPUT
+# -----------------------------
+
+
+def validate_records(records: List[Dict[str, Any]]) -> None:
+    """Ensure every game record has all 28 REQUIRED_COLUMNS."""
+    for i, r in enumerate(records):
+        missing = [c for c in REQUIRED_COLUMNS if c not in r]
+        if missing:
+            raise ValueError(f"Record {i} missing columns: {missing}")
+
+
+def write_outputs(
+    games: List[Dict[str, Any]],
+    teams: List[Dict[str, Any]],
+    manifest: Dict[str, Any],
+    output_root: Path,
+    scrape_run_id: str,
+) -> Path:
+    """Atomic write: <output_root>/<run_id>.tmp/ → <output_root>/<run_id>/
+
+    Returns the final output directory.
+    """
+    output_root.mkdir(parents=True, exist_ok=True)
+    final_dir = output_root / scrape_run_id
+    tmp_dir = output_root / f"{scrape_run_id}.tmp"
+
+    if tmp_dir.exists():
+        # Stale tmp from prior crash — wipe it
+        for child in tmp_dir.rglob("*"):
+            if child.is_file():
+                child.unlink()
+        for child in sorted(tmp_dir.rglob("*"), reverse=True):
+            if child.is_dir():
+                child.rmdir()
+        tmp_dir.rmdir()
+
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    # games.csv
+    with open(tmp_dir / "games.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=REQUIRED_COLUMNS)
+        writer.writeheader()
+        writer.writerows(games)
+
+    # teams.csv
+    with open(tmp_dir / "teams.csv", "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=TEAMS_COLUMNS)
+        writer.writeheader()
+        writer.writerows(teams)
+
+    # manifest.json
+    (tmp_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+    if final_dir.exists():
+        # Replace existing run dir
+        for child in final_dir.rglob("*"):
+            if child.is_file():
+                child.unlink()
+        for child in sorted(final_dir.rglob("*"), reverse=True):
+            if child.is_dir():
+                child.rmdir()
+        final_dir.rmdir()
+    tmp_dir.rename(final_dir)
+    return final_dir
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
