@@ -286,6 +286,20 @@ cn('base-class', condition && 'conditional-class');
 
 ---
 
+## Content Generation
+
+### llms.txt
+
+`frontend/public/llms.txt` is a generated content map for AI engines (ChatGPT, Claude, Perplexity, Gemini) following the [llms.txt convention](https://llmstxt.org/). Regenerate after any blog post change or `STATE_PILLAR_SLUGS` edit:
+
+```bash
+npm run generate-llms   # writes to public/llms.txt
+```
+
+The script (`scripts/generate-llms-txt.ts`) reuses `getAllBlogPosts()` from `lib/blog.tsx` and `STATE_PILLAR_SLUGS` from `lib/cohort-seo.ts`, so the output stays in sync with the live site. CI fails the PR if the committed file is stale (`frontend-llms-drift` job in `.github/workflows/ci.yml`).
+
+---
+
 ## Performance
 
 - ISR for team pages (revalidate: 3600s)
