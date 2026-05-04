@@ -314,23 +314,28 @@ def extract_token_from_bundle(bundle_text: Optional[str]) -> Optional[str]:
     """Pull the anonymous public-read token from the SPA bundle.
 
     Strategy: find all 256+ char hex strings, return the one closest to (within
-    300 chars of) the literal string "authorization". This is robust to bundle
-    minification — the constant gets concatenated near the fetch wrapper that
-    sets the auth header.
+    300 chars of) an auth anchor keyword. Anchors checked in priority order:
+      1. "AUTH_TOKEN"  — matches REACT_APP_DEFAULT_AUTH_TOKEN env constant
+      2. "authorization" — matches Authorization header setter in fetch wrapper
+
+    This two-anchor approach is robust to bundle structure: newer bundles embed
+    the token as REACT_APP_DEFAULT_AUTH_TOKEN; if that ever moves the
+    "authorization" anchor catches the fetch-wrapper pattern instead.
     """
     if not bundle_text:
         return None
     candidates = list(_TOKEN_HEX_RE.finditer(bundle_text))
     if not candidates:
         return None
-    auth_positions = [m.start() for m in re.finditer(r'authorization', bundle_text, re.IGNORECASE)]
-    if not auth_positions:
-        # No "authorization" anchor found — return the longest hex candidate as a
-        # best-effort fallback. Caller will verify by attempting an API call.
+    # Build combined anchor positions, preferring AUTH_TOKEN (more specific)
+    anchor_positions = [m.start() for m in re.finditer(r'AUTH_TOKEN|authorization', bundle_text, re.IGNORECASE)]
+    if not anchor_positions:
+        # No anchor found — return the longest hex candidate as a best-effort
+        # fallback. Caller will verify by attempting an API call.
         return max(candidates, key=lambda m: len(m.group(1))).group(1)
-    # Find the candidate token closest to any authorization mention.
+    # Find the candidate token closest to any anchor mention.
     # Distance is measured from whichever edge of the token is nearer to the
-    # keyword (start or end), so long tokens adjacent to "authorization" are
+    # keyword (start or end), so long tokens adjacent to the anchor are
     # still captured correctly even when the keyword follows the token value.
     best = None
     best_dist = float("inf")
@@ -339,12 +344,131 @@ def extract_token_from_bundle(bundle_text: Optional[str]) -> Optional[str]:
         cand_end = cand.end()
         dist = min(
             min(abs(cand_start - a), abs(cand_end - a))
-            for a in auth_positions
+            for a in anchor_positions
         )
         if dist < best_dist and dist <= 300:
             best_dist = dist
             best = cand.group(1)
     return best
+
+
+# -----------------------------
+# TOKEN HARVESTER
+# -----------------------------
+
+
+class SquadiTokenError(RuntimeError):
+    """Raised when token harvest fails irrecoverably."""
+
+
+class SquadiTokenHarvester:
+    """Fetches the anonymous auth token from the SPA bundle, with disk cache.
+
+    Cache: ~/.cache/squadi/token.json with TTL 24h. On 401 from any API call,
+    callers should invoke .invalidate() and retry once.
+    """
+
+    DEFAULT_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    def __init__(self, spa_base: str = SQUADI_SPA_BASE, cache_path: Path = TOKEN_CACHE_PATH):
+        self.spa_base = spa_base.rstrip("/")
+        self.cache_path = cache_path
+        self._token: Optional[str] = None
+        self._build_hash: Optional[str] = None
+
+    def _load_cache(self) -> Optional[Dict[str, Any]]:
+        if not self.cache_path.exists():
+            return None
+        try:
+            data = json.loads(self.cache_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        ts = data.get("fetched_at", 0)
+        if (time.time() - ts) > TOKEN_TTL_SECONDS:
+            return None
+        return data
+
+    def _save_cache(self, token: str, build_hash: str) -> None:
+        try:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_path.write_text(json.dumps({
+                "token": token,
+                "build_hash": build_hash,
+                "fetched_at": time.time(),
+            }))
+        except OSError as e:
+            logger.warning(f"Failed to write token cache: {e}")
+
+    def get_token(self) -> str:
+        """Return a valid token, using cache when fresh."""
+        if self._token:
+            return self._token
+        cached = self._load_cache()
+        if cached:
+            self._token = cached["token"]
+            self._build_hash = cached.get("build_hash")
+            logger.debug(f"Loaded cached token (build={self._build_hash})")
+            return self._token
+        return self._refresh_token()
+
+    def _refresh_token(self) -> str:
+        """Fetch SPA, find bundle, regex out the token. Persist to cache."""
+        logger.info(f"Harvesting token from {self.spa_base}")
+        try:
+            r = requests.get(self.spa_base + "/", headers=self.DEFAULT_HEADERS, timeout=15)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            raise SquadiTokenError(f"Failed to fetch SPA index: {e}") from e
+
+        bundle_path = extract_bundle_url_from_html(r.text)
+        if not bundle_path:
+            raise SquadiTokenError(
+                "Could not find main.<hash>.js in SPA HTML — Squadi may have "
+                "changed bundle structure. Inspect HTML manually."
+            )
+        bundle_url = self.spa_base + bundle_path
+        try:
+            br = requests.get(bundle_url, headers=self.DEFAULT_HEADERS, timeout=30)
+            br.raise_for_status()
+        except requests.RequestException as e:
+            raise SquadiTokenError(f"Failed to fetch bundle {bundle_url}: {e}") from e
+
+        token = extract_token_from_bundle(br.text)
+        if not token:
+            raise SquadiTokenError(
+                f"Could not extract token from bundle {bundle_url} — Squadi may "
+                f"have changed token structure. Bundle size: {len(br.text)} bytes."
+            )
+
+        # build hash = the <hash> portion of main.<hash>.js
+        build_hash = bundle_path.split(".")[1] if "." in bundle_path else "unknown"
+        self._token = token
+        self._build_hash = build_hash
+        self._save_cache(token, build_hash)
+        logger.info(f"Harvested token (build={build_hash}, len={len(token)})")
+        return token
+
+    def invalidate(self) -> None:
+        """Drop in-memory + on-disk cache. Next get_token() refetches."""
+        self._token = None
+        self._build_hash = None
+        try:
+            if self.cache_path.exists():
+                self.cache_path.unlink()
+        except OSError:
+            pass
+
+    @property
+    def build_hash(self) -> Optional[str]:
+        return self._build_hash
 
 
 # Globals set in main()
