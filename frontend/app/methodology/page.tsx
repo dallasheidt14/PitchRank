@@ -40,7 +40,7 @@ export default function MethodologyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
       <BreadcrumbSchema items={[{ name: 'Methodology', href: '/methodology' }]} />
-      <MethodologySchema datePublished="2026-04-30" dateModified="2026-04-30" />
+      <MethodologySchema datePublished="2026-04-30T00:00:00Z" dateModified="2026-04-30T00:00:00Z" />
       <PageHeader
         title="Ranking Methodology"
         description="Understanding how PitchRank calculates team rankings and power scores"
