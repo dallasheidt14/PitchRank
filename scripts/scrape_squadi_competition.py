@@ -574,6 +574,55 @@ class SquadiClient:
         )
 
 
+# -----------------------------
+# COMPETITION DISCOVERY
+# -----------------------------
+
+
+def filter_competitions(
+    competitions: List[Dict[str, Any]],
+    name_blocklist: Tuple[str, ...] = DEFAULT_COMP_NAME_BLOCKLIST,
+) -> List[Dict[str, Any]]:
+    """Filter raw /competitions/list output by status, deletion, and name.
+
+    Keep: statusRefId == 2 (active/published), deleted_at is null, name does
+    not contain any blocklist substring (case-insensitive).
+    """
+    out: List[Dict[str, Any]] = []
+    for comp in competitions:
+        if comp.get("statusRefId") != 2:
+            continue
+        if comp.get("deleted_at") is not None:
+            continue
+        name = str(comp.get("name") or "").lower()
+        if any(bl.lower() in name for bl in name_blocklist):
+            continue
+        out.append(comp)
+    return out
+
+
+def discover_competitions(
+    client: SquadiClient,
+    org_uuid: str,
+    year_ref_id: Optional[int] = None,
+    name_blocklist: Tuple[str, ...] = DEFAULT_COMP_NAME_BLOCKLIST,
+) -> List[Dict[str, Any]]:
+    """List + filter competitions for an org.
+
+    When year_ref_id is None, walks every yearRefId in YEAR_REF_TO_CALENDAR.
+    """
+    year_ids = [year_ref_id] if year_ref_id is not None else list(YEAR_REF_TO_CALENDAR.keys())
+    all_comps: List[Dict[str, Any]] = []
+    for yri in year_ids:
+        try:
+            raw = client.list_competitions(org_uuid, yri)
+        except RuntimeError as e:
+            logger.warning(f"Skipping yearRefId={yri}: {e}")
+            continue
+        all_comps.extend(filter_competitions(raw, name_blocklist=name_blocklist))
+    return all_comps
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None

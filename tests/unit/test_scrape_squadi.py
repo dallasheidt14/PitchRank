@@ -10,16 +10,19 @@ discovery filter, and the CSV writer are covered by the end-to-end dry-run
 verification in Task 16, not by unit tests.
 """
 
+import json as _json
 from pathlib import Path
 
 import pytest
 
 from scripts.scrape_squadi_competition import (
+    DEFAULT_COMP_NAME_BLOCKLIST,
     REQUIRED_COLUMNS,
     compute_result,
     extract_bundle_url_from_html,
     extract_external_org_id,
     extract_token_from_bundle,
+    filter_competitions,
     parse_club_name,
     parse_division_metadata,
     parse_int_or_none,
@@ -276,3 +279,40 @@ class TestExtractTokenFromBundle:
         bundle = f'var X="{short_hex}"; var Y="{long_hex}";'
         result = extract_token_from_bundle(bundle)
         assert result == long_hex
+
+
+class TestFilterCompetitions:
+    def setup_method(self):
+        self.raw = _json.loads(
+            (FIXTURE_DIR / "competitions_list_sample.json").read_text()
+        )
+
+    def test_keeps_active_published(self):
+        result = filter_competitions(self.raw, name_blocklist=())
+        ids = [c["id"] for c in result]
+        # status=2 and not deleted: id=40, id=58
+        assert 40 in ids
+        assert 58 in ids
+
+    def test_drops_demo_status_3(self):
+        result = filter_competitions(self.raw, name_blocklist=())
+        ids = [c["id"] for c in result]
+        assert 46 not in ids  # statusRefId=3
+
+    def test_drops_deleted(self):
+        result = filter_competitions(self.raw, name_blocklist=())
+        ids = [c["id"] for c in result]
+        assert 99 not in ids  # has deleted_at
+
+    def test_name_blocklist_drops_matching_substring(self):
+        result = filter_competitions(self.raw, name_blocklist=("Demo Comp", "ODP"))
+        ids = [c["id"] for c in result]
+        assert 40 in ids  # State Cups passes
+        assert 58 not in ids  # ODP filtered
+
+    def test_default_blocklist_drops_demo_only(self):
+        # Default blocklist contains "Demo Comp" — but status=3 already drops it
+        result = filter_competitions(self.raw, name_blocklist=DEFAULT_COMP_NAME_BLOCKLIST)
+        ids = [c["id"] for c in result]
+        assert 40 in ids
+        assert 58 in ids

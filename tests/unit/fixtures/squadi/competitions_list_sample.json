@@ -1,0 +1,6 @@
+[
+  {"id": 46, "uniqueKey": "2695023d-863e-4d7f-baeb-b0d3ef251a5b", "name": "Demo Comp (State Cup)", "statusRefId": 3, "yearRefId": 6, "organisationId": 380, "deleted_at": null},
+  {"id": 40, "uniqueKey": "539ff993-3032-414e-9dfe-5466629fc1c9", "name": "New Jersey Youth Soccer State Cups - Fall 2024 (11U-14U)", "statusRefId": 2, "yearRefId": 6, "organisationId": 380, "deleted_at": null},
+  {"id": 58, "uniqueKey": "b44adaff-e799-4c33-b63c-5d22cce91260", "name": "NJ ODP Friendlies (December 2024)", "statusRefId": 2, "yearRefId": 6, "organisationId": 380, "deleted_at": null},
+  {"id": 99, "uniqueKey": "deleted-comp-uuid", "name": "Old Comp", "statusRefId": 2, "yearRefId": 6, "organisationId": 380, "deleted_at": "2025-01-01T00:00:00Z"}
+]
