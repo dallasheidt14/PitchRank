@@ -20,6 +20,7 @@ from typing import Dict, Optional
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
+from src.utils.team_name_utils import resolve_distinction
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +379,9 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
             elif remaining:
                 clean_team_name = remaining.lstrip("-–—").strip() or team_name
 
+        # Affinity WA: pass clean_team_name (built above by stripping club prefix).
+        distinction = resolve_distinction(clean_team_name, club_name, STATE_CODE)
+
         team_data = {
             "team_id_master": team_id_master,
             "team_name": clean_team_name,
@@ -387,6 +391,7 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
             "state_code": STATE_CODE,
             "provider_id": provider_id,
             "provider_team_id": provider_team_id,
+            "distinction": distinction,
         }
         self.db.table("teams").insert(team_data).execute()
         return team_id_master

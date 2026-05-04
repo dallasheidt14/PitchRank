@@ -34,10 +34,11 @@ on:
 # ─────────────────────────────────────────────────────────────
 # Pipeline order (dependencies matter!):
 #
-#   1. normalize_team_names.py     — Ages (14B→2014, 15M→2015), strip gender words
-#   2. fix_team_age_groups.py      — Fix age_group from birth year (before Fuzzy compares)
-#   3. find_fuzzy_duplicate_teams  — Fuzzy-match & merge (needs state for grouping)
-#   4. find_queue_matches.py       — Match review queue (fewer orphans after Fuzzy)
+#   1.  normalize_team_names.py     — Ages (14B→2014, 15M→2015), strip gender words
+#   1b. backfill_team_distinction.py — Populate distinction column from team_name
+#   2.  fix_team_age_groups.py      — Fix age_group from birth year (before Fuzzy compares)
+#   3.  find_fuzzy_duplicate_teams  — Fuzzy-match & merge (needs state for grouping)
+#   4.  find_queue_matches.py       — Match review queue (fewer orphans after Fuzzy)
 #
 # Club name standardization + state_code matching now run upstream of this
 # pipeline in `update-missing-club-and-state.yml` (Mondays). They used to
@@ -47,6 +48,9 @@ on:
 # Why this order:
 #   • Fix Age before Fuzzy: correct age before comparing duplicates
 #   • Normalize before Fix Age: clean tokens first
+#   • Distinction (1b) after Normalize because it reads canonical team_name;
+#     placed before Fix Age because age_group changes are rare relative to
+#     team_name tokenization.
 # ─────────────────────────────────────────────────────────────
 
 env:
@@ -113,6 +117,25 @@ jobs:
 
           NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1_normalize_names.log || echo "0")
           echo "teams_normalized=$NORMALIZED" >> $GITHUB_OUTPUT
+
+      # ── Step 1b: Backfill Team Distinction ────────────────
+      - name: 'Step 1b: Backfill Team Distinction'
+        id: step1b
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',1b,') }}
+        run: |
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 1b: BACKFILL TEAM DISTINCTION"
+          echo "═══════════════════════════════════════════════════"
+
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+
+          python scripts/backfill_team_distinction.py $DRY_RUN_FLAG 2>&1 | tee logs/step1b_distinction.log
+
+          DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1 || echo "0")
+          echo "distinction_updated=$DISTINCTION_UPDATED" >> $GITHUB_OUTPUT
 
       # ── Step 2: Fix Age Year Discrepancies ─────────────────
       - name: 'Step 2: Fix Age Year Discrepancies'
@@ -225,12 +248,13 @@ jobs:
           echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| 1 | Normalize Team Names | ${{ steps.step1.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1b | Backfill Distinction | ${{ steps.step1b.outputs.distinction_updated || 'skipped' }} updated |" >> $GITHUB_STEP_SUMMARY
           echo "| 2 | Fix Age Year | ${{ steps.step2.outputs.age_fixed || 'skipped' }} fixed |" >> $GITHUB_STEP_SUMMARY
           echo "| 3 | Fuzzy Duplicate Merge | ${{ steps.step3.outputs.fuzzy_suggested || 'skipped' }} suggested, ${{ steps.step3.outputs.fuzzy_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
           echo "| 4 | Match Review Queue | ${{ steps.step4.outputs.exact_matches || 'skipped' }} exact, ${{ steps.step4.outputs.queue_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pipeline Order" >> $GITHUB_STEP_SUMMARY
-          echo "1. Normalize → 2. Fix age → 3. Fuzzy merge → 4. Queue" >> $GITHUB_STEP_SUMMARY
+          echo "1. Normalize → 1b. Distinction → 2. Fix age → 3. Fuzzy merge → 4. Queue" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Club name standardization + state_code matching run upstream in \`update-missing-club-and-state.yml\` (Mondays)." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

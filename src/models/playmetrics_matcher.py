@@ -1,54 +1,74 @@
 """
-PlayMetrics-specific game matcher for Wisconsin youth soccer leagues.
+PlayMetrics-specific game matcher.
 
 Hybrid design:
 - Structure mirrors ``TGSGameMatcher`` — JSON-API, integer provider_team_id
   unique per team, so ``_match_by_provider_id`` skips the age-group gate.
-- State scoping mirrors ``AffinityWAGameMatcher`` — candidates are narrowed to
-  WI in ``_fuzzy_match_team`` and autocreated teams get ``state_code="WI"``.
+- State scoping is configurable per-instance via ``default_state_code``:
+    * ``"WI"`` (default) — SECL flow: WI-scoped fuzzy candidates, WI autocreate.
+    * ``None`` — tournament flow: no state filter on fuzzy candidates,
+      autocreate resolves state from the club's existing rows in ``teams``
+      (unique non-null state) or leaves it NULL when the club spans states
+      or is unknown to the DB.
 - Inline autocreate: after base ``_match_team`` exhausts alias / direct_id /
   fuzzy paths without matching, a fresh team row is created so no game is
   dropped.
 """
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
-from src.utils.team_name_utils import extract_distinctions
+from src.utils.team_name_utils import extract_distinctions, resolve_distinction
 
 logger = logging.getLogger(__name__)
 
-STATE_CODE = "WI"
+DEFAULT_STATE_CODE = "WI"
 
-# state_code → full state name (mirrors the scraper's mapping; keep in sync
-# with ``scripts/scrape_playmetrics_league.py`` when new states are added).
+# state_code → full state name. Only used when ``default_state_code`` is set
+# at construction; the no-state autocreate path reads the canonical ``state``
+# string straight off the existing teams row instead.
 STATE_CODE_TO_NAME: Dict[str, str] = {
     "WI": "Wisconsin",
 }
 
 
 class PlayMetricsGameMatcher(GameHistoryMatcher):
-    """PlayMetrics matcher: WI-scoped fuzzy + autocreate fallback.
+    """PlayMetrics matcher: state-scoped (or open) fuzzy + autocreate fallback.
 
     Keeps base thresholds (fuzzy=0.75, auto_approve=0.90, review=0.75) so the
     review-queue routing in the base class continues to behave the same way.
     """
 
-    def __init__(self, supabase, provider_id=None, alias_cache=None):
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
-        self.default_state_code = STATE_CODE
+    def __init__(
+        self,
+        supabase,
+        provider_id=None,
+        alias_cache=None,
+        default_state_code=DEFAULT_STATE_CODE,
+        dry_run: bool = False,
+    ):
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
+        # ``None`` opts into the multi-state tournament path. Any string
+        # (e.g. ``"WI"``) preserves the original single-state SECL behavior.
+        self.default_state_code = default_state_code
         # Per-(state, age_group, gender) candidate cache for _fuzzy_match_team.
         # Without it, each unmatched team in a batch re-issues the same
         # ~200-500-row query for its bucket — dozens to thousands of identical
         # RTTs per import. Populated on first miss; kept fresh via `append`
-        # inside ``_create_new_playmetrics_team``. Keyed by state so multi-state
-        # support (next-GB onboarding) is a drop-in.
+        # inside ``_create_new_playmetrics_team``. Cache keys include
+        # ``state_code=None`` for the tournament path so it doesn't collide
+        # with state-scoped entries.
         self._candidate_cache: Dict = {}
+        # club_name → resolved (state_code, state) for autocreate. Built lazily
+        # on first miss in ``_resolve_state_from_club``. Cached so repeated
+        # autocreates within one batch don't re-query teams.
+        self._club_state_cache: Dict[str, Optional[Tuple[Optional[str], Optional[str]]]] = {}
 
     @staticmethod
     def _normalize_gender(gender: Optional[str]) -> Optional[str]:
@@ -136,35 +156,79 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             logger.debug(f"[PlayMetrics] No alias map match: {e}")
         return None
 
+    @staticmethod
+    def _normalize_pm_tournament_team_name(name: str) -> str:
+        """Bring a PlayMetrics tournament team_name closer to PitchRank's DB format.
+
+        Tournament names follow a compact convention: ``{2-digit-year} {gender-word} {tier}``
+        (e.g. ``"15 Boys Pre-MLS Academy North | Tan"``, ``"07/08 Boys North Meck
+        State Blue"``), while existing ``teams`` rows use 4-digit years and often
+        a club abbreviation prefix (e.g. ``"CISC 2015 PRE MLS Academy North
+        Tan"``). Without normalization, token-overlap scoring penalizes the same
+        team for cosmetic differences. This helper:
+          * Slash-token birth-year pairs (``07/08``, ``09/10/11/12``) anywhere
+            in the name → 4-digit year for the *oldest* cohort (smaller digit).
+            Confirmed pattern in PlayMetrics: every slash-token observed maps
+            to a division whose U-cohort matches the older year (e.g. ``07/08``
+            → U19, ``10/11`` → U16). U-age slash tokens (``U10/U11``) are NOT
+            used by PlayMetrics — only birth-year pairs.
+          * Leading single 2-digit cohort token (``00``-``19``) → 4-digit
+            (``2000``-``2019``) so birth-year matches become token-aligned.
+          * Strips separator characters (``|``, en/em dashes) that fragment tokens.
+
+        Applied only on the tournament path (``default_state_code=None``); the
+        SECL flow keeps its original league-format names untouched.
+        """
+        if not name:
+            return name
+        s = re.sub(r"\b(\d{2})(?:/\d{2})+\b", r"20\1", name)
+        s = re.sub(r"^([01]\d)\b", lambda m: f"20{m.group(1)}", s)
+        s = re.sub(r"[|–—]+", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
     def _fuzzy_match_team(
         self, team_name: str, age_group: str, gender: str, club_name: Optional[str] = None
     ) -> Optional[Dict]:
-        """WI-scoped fuzzy matching with Python-side club gate.
+        """State-scoped fuzzy matching with Python-side club gate.
 
-        SQL narrows candidates to ``state_code/age_group/gender`` only — no SQL
-        ``.ilike("club_name", ...)`` prefix filter because that drops legitimate
-        candidates whose club_name differs by prefix (e.g. ``"Bavarian United"``
-        vs ``"Bavarian Soccer Club"`` normalize to the same canonical club).
-        Within the candidate set, ``are_same_club`` enforces the club gate, then
-        distinction-based rejection prevents within-club variant collisions
-        (Red ≠ Blue, ECNL ≠ ECRL), and finally base ``_calculate_match_score``
-        assigns the weighted score.
+        SQL narrows candidates by ``age_group/gender`` and (when set) by
+        ``state_code``. With ``default_state_code=None`` the state filter is
+        dropped — the candidate pool grows to all states, the team_name is
+        normalized via ``_normalize_pm_tournament_team_name`` (2-digit-year →
+        4-digit, separator strip) so PM tournament naming aligns with DB
+        format, and the candidate's ``state_code`` is copied onto the provider
+        for scoring (otherwise the location component drags every score down
+        by 0.10 since PM doesn't expose team state). The ``are_same_club`` gate
+        becomes the load-bearing identity check.
+
+        No SQL ``.ilike("club_name", ...)`` prefix filter because that drops
+        legitimate candidates whose club_name differs by prefix (e.g.
+        ``"Bavarian United"`` vs ``"Bavarian Soccer Club"`` normalize to the
+        same canonical club). Within the candidate set, ``are_same_club``
+        enforces the club gate, then distinction-based rejection prevents
+        within-club variant collisions (Red ≠ Blue, ECNL ≠ ECRL), and finally
+        base ``_calculate_match_score`` assigns the weighted score.
         """
         try:
             age_group_normalized = age_group.lower() if age_group else age_group
             gender_normalized = self._normalize_gender(gender)
             club_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
 
-            candidates = self._get_candidates(STATE_CODE, age_group_normalized, gender_normalized)
+            candidates = self._get_candidates(self.default_state_code, age_group_normalized, gender_normalized)
             if not candidates:
                 return None
 
-            provider_distinctions = extract_distinctions(team_name)
+            tournament_path = self.default_state_code is None
+            scoring_team_name = (
+                self._normalize_pm_tournament_team_name(team_name) if tournament_path else team_name
+            )
+            provider_distinctions = extract_distinctions(scoring_team_name)
             provider_team = {
-                "team_name": team_name,
+                "team_name": scoring_team_name,
                 "club_name": club_name,
                 "age_group": age_group,
-                "state_code": STATE_CODE,
+                "state_code": self.default_state_code,
             }
 
             best_match = None
@@ -206,13 +270,20 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     continue
 
                 cand_name = team.get("team_name", "")
+                cand_state = team.get("state_code")
+                # Tournament path: copy candidate's state_code so the location
+                # component (0.10 weight) doesn't penalize for PM's missing state.
+                # SECL path: provider already has its own state_code.
+                provider_for_scoring = provider_team
+                if tournament_path and cand_state:
+                    provider_for_scoring = {**provider_team, "state_code": cand_state}
                 candidate = {
                     "team_name": cand_name,
                     "club_name": candidate_club,
                     "age_group": team.get("age_group"),
-                    "state_code": team.get("state_code"),
+                    "state_code": cand_state,
                 }
-                score = self._calculate_match_score(provider_team, candidate)
+                score = self._calculate_match_score(provider_for_scoring, candidate)
 
                 if score >= self.fuzzy_threshold and score > best_score:
                     best_score = score
@@ -229,23 +300,27 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
     def _get_candidates(
         self,
-        state_code: str,
+        state_code: Optional[str],
         age_group_normalized: Optional[str],
         gender_normalized: Optional[str],
     ) -> list:
-        """Return the candidate set for (state, age_group, gender), fetching on first miss."""
+        """Return the candidate set for (state, age_group, gender), fetching on first miss.
+
+        ``state_code=None`` skips the state filter entirely (tournament path).
+        """
         key = (state_code, age_group_normalized, gender_normalized)
         cached = self._candidate_cache.get(key)
         if cached is not None:
             return cached
-        result = (
+        query = (
             self.db.table("teams")
             .select("team_id_master, team_name, club_name, age_group, gender, state_code")
             .eq("age_group", age_group_normalized)
             .eq("gender", gender_normalized)
-            .eq("state_code", state_code)
-            .execute()
         )
+        if state_code is not None:
+            query = query.eq("state_code", state_code)
+        result = query.execute()
         data = list(result.data) if result and result.data else []
         self._candidate_cache[key] = data
         return data
@@ -301,6 +376,44 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
         return base_result
 
+    def _resolve_state_from_club(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Look up ``(state_code, state)`` for a brand-new team in the multi-state path.
+
+        Returns the unique non-null ``(state_code, state)`` pair if every existing
+        ``teams`` row for this ``club_name`` agrees on it. Returns ``(None, None)``
+        when the club spans multiple states, has no rows, or has rows but all have
+        NULL state — those cases defer state assignment to the review queue or a
+        later import that *does* know the state.
+        """
+        if not club_name:
+            return (None, None)
+        cached = self._club_state_cache.get(club_name)
+        if cached is not None:
+            return cached
+        try:
+            result = (
+                self.db.table("teams")
+                .select("state_code, state")
+                .eq("club_name", club_name)
+                .not_.is_("state_code", "null")
+                .limit(500)
+                .execute()
+            )
+            rows = list(result.data) if result and result.data else []
+        except Exception as e:
+            logger.debug(f"[PlayMetrics] club→state lookup failed for '{club_name}': {e}")
+            rows = []
+        distinct_codes = {row.get("state_code") for row in rows if row.get("state_code")}
+        if len(distinct_codes) == 1:
+            code = next(iter(distinct_codes))
+            # Take the canonical full-name `state` from the first row that has it.
+            full = next((row.get("state") for row in rows if row.get("state")), None)
+            resolved = (code, full)
+        else:
+            resolved = (None, None)
+        self._club_state_cache[club_name] = resolved
+        return resolved
+
     def _create_new_playmetrics_team(
         self,
         team_name: str,
@@ -310,7 +423,15 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         provider_id: Optional[str],
         provider_team_id: Optional[str] = None,
     ) -> str:
-        """Create a new row in ``teams`` for a PlayMetrics team. WI-only for now.
+        """Create a new row in ``teams`` for a PlayMetrics team.
+
+        State assignment:
+          * ``default_state_code`` set (SECL) → use it directly with
+            ``STATE_CODE_TO_NAME`` for the ``state`` column.
+          * ``default_state_code`` is ``None`` (tournament) → resolve from the
+            club's existing rows in ``teams`` (unique non-null state); leave
+            both ``state_code`` and ``state`` NULL if the club spans multiple
+            states or has no DB signal.
 
         Handles the concurrent-autocreate race: two games in the same batch for
         a brand-new team can both reach this method, so we retry the lookup on
@@ -337,9 +458,33 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             except Exception:
                 pass
 
-        team_id_master = str(uuid.uuid4())
         age_group_normalized = age_group.lower() if age_group else age_group
         gender_normalized = self._normalize_gender(gender)
+
+        if self.default_state_code is not None:
+            new_state_code = self.default_state_code
+            new_state = STATE_CODE_TO_NAME.get(self.default_state_code)
+        else:
+            new_state_code, new_state = self._resolve_state_from_club(club_name)
+
+        # Deterministic stub UUID for dry-runs — same inputs always yield the
+        # same ID so home + away perspectives within a batch resolve to one
+        # "team", and repeated dry-runs are idempotent. Real team_id_master
+        # uses uuid4 (random) per insert.
+        if self.dry_run:
+            team_id_master = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_DNS,
+                    f"playmetrics_dry_run|{provider_id}|{provider_team_id}|{team_name}|{age_group_normalized}|{gender_normalized}",
+                )
+            )
+        else:
+            team_id_master = str(uuid.uuid4())
+
+        # PlayMetrics: pass raw `team_name` — no clean_team_name intermediate exists.
+        # state_code lets resolve_distinction strip state-name tokens
+        # (e.g., 'New Hampshire' for clubs whose name doesn't include the state).
+        distinction = resolve_distinction(team_name, club_name, new_state_code)
 
         team_data = {
             "team_id_master": team_id_master,
@@ -347,18 +492,24 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             "club_name": club_name or team_name,
             "age_group": age_group_normalized,
             "gender": gender_normalized,
-            "state_code": STATE_CODE,
-            "state": STATE_CODE_TO_NAME.get(STATE_CODE),
+            "state_code": new_state_code,
+            "state": new_state,
             "provider_id": provider_id,
             "provider_team_id": provider_team_id,
+            "distinction": distinction,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
-            self.db.table("teams").insert(team_data).execute()
+            if not self.dry_run:
+                self.db.table("teams").insert(team_data).execute()
             # Keep the fuzzy-match candidate cache fresh so later rows in the same
-            # batch can match against the team we just created.
-            key = (STATE_CODE, age_group_normalized, gender_normalized)
+            # batch can match against the team we just created. Cache key uses
+            # ``self.default_state_code`` so the no-state cache (None, age, gender)
+            # gets the new row in tournament mode and the state-scoped cache
+            # ("WI", age, gender) gets it in SECL mode. Cached during dry-runs
+            # too so the in-batch dedup works the same way.
+            key = (self.default_state_code, age_group_normalized, gender_normalized)
             if key in self._candidate_cache:
                 self._candidate_cache[key].append({**team_data, "_distinctions": None})
             return team_id_master

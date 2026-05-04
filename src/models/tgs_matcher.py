@@ -650,6 +650,14 @@ class TGSGameMatcher(GameHistoryMatcher):
                 if remaining:
                     clean_team_name = remaining
 
+            # TGS: pass clean_team_name (built above by stripping club prefix).
+            # TODO: thread state_code through this signature so resolve_distinction
+            # can strip state-name tokens (e.g., 'New Hampshire' for clubs that
+            # don't include the state in club_name). Not load-bearing today since
+            # TGS-sourced teams are typically labeled with full club names.
+            from src.utils.team_name_utils import resolve_distinction
+            distinction = resolve_distinction(clean_team_name, club_name, None)
+
             # Insert new team
             team_data = {
                 "team_id_master": team_id_master,
@@ -659,6 +667,7 @@ class TGSGameMatcher(GameHistoryMatcher):
                 "gender": gender_normalized,
                 "provider_id": provider_id,  # Required for TGS teams
                 "provider_team_id": provider_team_id,  # REQUIRED (NOT NULL)
+                "distinction": distinction,
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
