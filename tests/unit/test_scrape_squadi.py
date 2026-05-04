@@ -19,6 +19,7 @@ from scripts.scrape_squadi_competition import (
     parse_club_name,
     parse_division_metadata,
     parse_int_or_none,
+    parse_squadi_url,
     parse_utc_to_local_date,
 )
 
@@ -177,9 +178,6 @@ class TestExtractExternalOrgId:
         assert extract_external_org_id("https://example.com/no-org-here.png") is None
 
 
-from scripts.scrape_squadi_competition import parse_squadi_url
-
-
 class TestParseSquadiUrl:
     def test_full_url_extraction(self):
         url = ("https://registration.us.squadi.com/livescoreSeasonFixture"
@@ -207,3 +205,8 @@ class TestParseSquadiUrl:
         assert parse_squadi_url("not a url") is None
         assert parse_squadi_url("") is None
         assert parse_squadi_url(None) is None
+
+    def test_empty_org_key_returns_none(self):
+        # ?organisationKey= (empty string value) should be treated as missing
+        url = "https://registration.us.squadi.com/livescoreSeasonFixture?organisationKey=&yearId=6"
+        assert parse_squadi_url(url) is None
