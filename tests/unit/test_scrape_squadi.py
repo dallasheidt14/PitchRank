@@ -23,6 +23,7 @@ from scripts.scrape_squadi_competition import (
     extract_external_org_id,
     extract_token_from_bundle,
     filter_competitions,
+    normalize_match,
     parse_club_name,
     parse_division_metadata,
     parse_int_or_none,
@@ -316,3 +317,132 @@ class TestFilterCompetitions:
         ids = [c["id"] for c in result]
         assert 40 in ids
         assert 58 in ids
+
+
+@pytest.fixture
+def sample_division():
+    return {
+        "id": 390,
+        "name": "11U Boys Challenge Cup NJYS",
+        "divisionName": "11U Boys Challenge Cup",
+        "uniqueKey": "div-uuid-1",
+        "age": 10,
+        "competitionId": 40,
+    }
+
+
+@pytest.fixture
+def sample_competition():
+    return {
+        "id": 40,
+        "uniqueKey": "comp-uuid-1",
+        "name": "NJYS State Cups - Fall 2024 (11U-14U)",
+        "yearRefId": 6,
+        "organisationId": 380,
+    }
+
+
+@pytest.fixture
+def sample_org_meta():
+    return {"state": "New Jersey", "state_code": "NJ", "timezone": "America/New_York"}
+
+
+@pytest.fixture
+def all_matches():
+    return _json.loads((FIXTURE_DIR / "round_matches_sample.json").read_text())
+
+
+class TestNormalizeMatch:
+    def test_finished_win_loss_emits_two_rows(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][0]  # 5-0 W/L
+        rows, team_rows = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        assert len(rows) == 2
+        assert len(team_rows) == 2
+        r0 = rows[0]
+        assert r0["provider"] == "squadi"
+        assert r0["age_group"] == "u11"
+        assert r0["gender"] == "Boys"
+        assert r0["team_id"] == "uuid-team-100"
+        assert r0["team_id_source"] == "100"
+        assert r0["team_name"] == "Mount Olive SC - STA Mount Olive 2014 EDP Boys"
+        assert r0["club_name"] == "Mount Olive SC"
+        assert r0["opponent_id"] == "uuid-team-200"
+        assert r0["opponent_name"] == "NJ Stallions 14 Betis EDP"
+        assert r0["opponent_club_name"] == "NJ Stallions 14 Betis EDP"
+        assert r0["state"] == "New Jersey"
+        assert r0["state_code"] == "NJ"
+        assert r0["game_date"] == "2024-09-06"
+        assert r0["game_time"] == "18:30"
+        assert r0["home_away"] == "H"
+        assert r0["goals_for"] == 5
+        assert r0["goals_against"] == 0
+        assert r0["result"] == "W"
+        assert r0["venue"] == "Turkey Brook Park - Field 4"
+        assert r0["division_name"] == "11U Boys Challenge Cup"
+        assert rows[1]["team_id"] == "uuid-team-200"
+        assert rows[1]["home_away"] == "A"
+        assert rows[1]["goals_for"] == 0
+        assert rows[1]["goals_against"] == 5
+        assert rows[1]["result"] == "L"
+
+    def test_drawn_no_pks(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][1]
+        rows, _ = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        assert rows[0]["result"] == "D"
+        assert rows[1]["result"] == "D"
+
+    def test_drawn_with_pks_result_stays_d(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][2]
+        rows, _ = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        assert rows[0]["result"] == "D"
+        assert rows[1]["result"] == "D"
+
+    def test_forfeit_emits_unknown_result(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][3]
+        rows, _ = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        assert rows[0]["result"] == "U"
+        assert rows[1]["result"] == "U"
+
+    def test_scheduled_match_emits_no_rows(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][4]
+        rows, team_rows = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        assert rows == []
+        assert team_rows == []
+
+    def test_team_row_has_external_org_id_from_logo(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][0]
+        _, team_rows = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        team1 = next(t for t in team_rows if t["provider_team_id"] == "uuid-team-100")
+        assert team1["external_org_id"] == "443"
+        assert team1["age_group"] == "u11"
+        assert team1["gender"] == "Boys"
+
+    def test_source_url_construction(self, all_matches, sample_division, sample_competition, sample_org_meta):
+        match = all_matches["rounds"][0]["matches"][0]
+        rows, _ = normalize_match(
+            match, sample_division, sample_competition, sample_org_meta,
+            scrape_run_id="run-x", scraped_at="2026-05-04T12:00:00Z",
+        )
+        url = rows[0]["source_url"]
+        assert "organisationKey=" in url
+        assert "competitionUniqueKey=comp-uuid-1" in url
+        assert "yearId=6" in url
+        assert "divisionId=div-uuid-1" in url

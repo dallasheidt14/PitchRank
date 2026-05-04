@@ -623,6 +623,230 @@ def discover_competitions(
     return all_comps
 
 
+# -----------------------------
+# MATCH NORMALIZATION
+# -----------------------------
+
+# matchSubstatusRefId values that indicate a forfeit/abandonment outcome.
+# Discovered empirically; expand as more substatus codes are observed.
+FORFEIT_SUBSTATUS_IDS = {11, 12, 13, 14}  # Working hypothesis; verify in production
+
+
+def _build_venue(venue_court: Optional[Dict[str, Any]]) -> str:
+    """Compose 'Venue Name - Field N' from venueCourt."""
+    if not venue_court:
+        return ""
+    venue = venue_court.get("venue") or {}
+    venue_name = str(venue.get("name") or "").strip()
+    field_name = str(venue_court.get("name") or "").strip()
+    if venue_name and field_name:
+        return f"{venue_name} - {field_name}"
+    return venue_name or field_name
+
+
+def _build_source_url(org_uuid: str, comp_uuid: str, year_ref_id: Optional[int], division_uuid: str) -> str:
+    year_part = f"&yearId={year_ref_id}" if year_ref_id is not None else ""
+    div_part = f"&divisionId={division_uuid}" if division_uuid else ""
+    return (
+        f"{SQUADI_SPA_BASE}/livescoreSeasonFixture"
+        f"?organisationKey={org_uuid}"
+        f"&competitionUniqueKey={comp_uuid}"
+        f"{year_part}{div_part}"
+    )
+
+
+def _compute_age_year(age_group: str, comp_calendar_year: Optional[int]) -> str:
+    """Birth year heuristic: comp_year - U_age - 1."""
+    if not age_group or not comp_calendar_year:
+        return ""
+    try:
+        n = int(age_group.lstrip("uU"))
+        return str(comp_calendar_year - n - 1)
+    except (ValueError, TypeError):
+        return ""
+
+
+def normalize_match(
+    match: Dict[str, Any],
+    division: Dict[str, Any],
+    competition: Dict[str, Any],
+    org_meta: Dict[str, str],
+    *,
+    scrape_run_id: str,
+    scraped_at: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Convert one Squadi match into (game_rows, team_rows).
+
+    Returns ([], []) when the match should be skipped (e.g. SCHEDULED).
+    Otherwise returns:
+      - 2 game rows (team1-perspective, team2-perspective)
+      - 2 team rows (one per team), deduplicatable by (teamUUID, divisionId)
+    """
+    match_status = str(match.get("matchStatus") or "").upper()
+    if match_status != "ENDED":
+        return ([], [])
+
+    team1 = match.get("team1") or {}
+    team2 = match.get("team2") or {}
+    team1_uuid = str(team1.get("teamUniqueKey") or "")
+    team2_uuid = str(team2.get("teamUniqueKey") or "")
+    team1_int_id = team1.get("id")
+    team2_int_id = team2.get("id")
+    if not team1_uuid or not team2_uuid:
+        logger.warning(f"Match {match.get('id')} missing teamUniqueKey; skipping")
+        return ([], [])
+
+    team1_name = str(team1.get("name") or "").strip()
+    team2_name = str(team2.get("name") or "").strip()
+
+    raw_t1 = match.get("team1Score")
+    raw_t2 = match.get("team2Score")
+    t1_score = parse_int_or_none(raw_t1)
+    t2_score = parse_int_or_none(raw_t2)
+
+    substatus = match.get("matchSubstatusRefId")
+    is_forfeit = substatus in FORFEIT_SUBSTATUS_IDS or (
+        match_status == "ENDED" and (raw_t1 is None or raw_t2 is None)
+    )
+
+    if is_forfeit and (t1_score is None or t2_score is None):
+        result_t1 = "U"
+        result_t2 = "U"
+    else:
+        result_t1 = compute_result(t1_score, t2_score)
+        result_t2 = compute_result(t2_score, t1_score)
+
+    division_name = str(division.get("divisionName") or division.get("name") or "").strip()
+    age_group, gender, tier = parse_division_metadata(division_name, division.get("age"))
+
+    comp_uuid = str(competition.get("uniqueKey") or "")
+    comp_name = str(competition.get("name") or "")
+    year_ref_id = competition.get("yearRefId")
+    comp_calendar_year = YEAR_REF_TO_CALENDAR.get(year_ref_id) if year_ref_id else None
+    org_uuid = str((competition.get("organisation") or {}).get("organisationUniqueKey") or "")
+    if not org_uuid:
+        org_uuid = org_meta.get("org_uuid", "")
+
+    age_year = _compute_age_year(age_group, comp_calendar_year)
+    source_url = _build_source_url(
+        org_uuid, comp_uuid, year_ref_id, str(division.get("uniqueKey") or "")
+    )
+    venue = _build_venue(match.get("venueCourt"))
+
+    game_date, game_time = parse_utc_to_local_date(
+        match.get("startTime"), org_meta.get("timezone", "America/New_York")
+    )
+
+    schedule_id = f"r{match.get('roundId') or ''}-d{match.get('divisionId') or ''}"
+
+    pk_winner = ""
+    if match.get("hasPenalty"):
+        pk1 = match.get("team1PenaltyScore")
+        pk2 = match.get("team2PenaltyScore")
+        if isinstance(pk1, int) and isinstance(pk2, int):
+            if pk1 > pk2:
+                pk_winner = team1_uuid
+            elif pk2 > pk1:
+                pk_winner = team2_uuid
+
+    base = {
+        "provider": "squadi",
+        "scrape_run_id": scrape_run_id,
+        "event_id": comp_uuid,
+        "event_name": comp_name,
+        "schedule_id": schedule_id,
+        "age_year": age_year,
+        "age_group": age_group,
+        "gender": gender,
+        "state": org_meta.get("state", ""),
+        "state_code": org_meta.get("state_code", ""),
+        "game_date": game_date,
+        "game_time": game_time,
+        "venue": venue,
+        "source_url": source_url,
+        "scraped_at": scraped_at,
+        "division_name": division_name,
+    }
+
+    team1_club = parse_club_name(team1_name)
+    team2_club = parse_club_name(team2_name)
+
+    row_team1 = {
+        **base,
+        "team_id": team1_uuid,
+        "team_id_source": str(team1_int_id) if team1_int_id is not None else "",
+        "team_name": team1_name,
+        "club_name": team1_club,
+        "opponent_id": team2_uuid,
+        "opponent_id_source": str(team2_int_id) if team2_int_id is not None else "",
+        "opponent_name": team2_name,
+        "opponent_club_name": team2_club,
+        "home_away": "H",
+        "goals_for": t1_score if t1_score is not None else "",
+        "goals_against": t2_score if t2_score is not None else "",
+        "result": result_t1,
+    }
+    row_team2 = {
+        **base,
+        "team_id": team2_uuid,
+        "team_id_source": str(team2_int_id) if team2_int_id is not None else "",
+        "team_name": team2_name,
+        "club_name": team2_club,
+        "opponent_id": team1_uuid,
+        "opponent_id_source": str(team1_int_id) if team1_int_id is not None else "",
+        "opponent_name": team1_name,
+        "opponent_club_name": team1_club,
+        "home_away": "A",
+        "goals_for": t2_score if t2_score is not None else "",
+        "goals_against": t1_score if t1_score is not None else "",
+        "result": result_t2,
+    }
+
+    base_team = {
+        "provider": "squadi",
+        "age_group": age_group,
+        "gender": gender,
+        "state": org_meta.get("state", ""),
+        "state_code": org_meta.get("state_code", ""),
+        "division_name": division_name,
+        "tier": tier,
+    }
+    team_row_1 = {
+        **base_team,
+        "provider_team_id": team1_uuid,
+        "provider_team_id_source": str(team1_int_id) if team1_int_id is not None else "",
+        "team_name": team1_name,
+        "club_name": team1_club,
+        "external_org_id": extract_external_org_id(team1.get("logoUrl")) or "",
+        "meta": json.dumps({
+            "squadi_team_id_int": team1_int_id,
+            "squadi_competition_uuid": comp_uuid,
+            "squadi_division_id": division.get("id"),
+        }),
+    }
+    team_row_2 = {
+        **base_team,
+        "provider_team_id": team2_uuid,
+        "provider_team_id_source": str(team2_int_id) if team2_int_id is not None else "",
+        "team_name": team2_name,
+        "club_name": team2_club,
+        "external_org_id": extract_external_org_id(team2.get("logoUrl")) or "",
+        "meta": json.dumps({
+            "squadi_team_id_int": team2_int_id,
+            "squadi_competition_uuid": comp_uuid,
+            "squadi_division_id": division.get("id"),
+        }),
+    }
+
+    if pk_winner:
+        for tr in (team_row_1, team_row_2):
+            extra_meta = json.loads(tr["meta"])
+            extra_meta["last_pk_winner_team_uuid"] = pk_winner
+            tr["meta"] = json.dumps(extra_meta)
+
+    return ([row_team1, row_team2], [team_row_1, team_row_2])
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None

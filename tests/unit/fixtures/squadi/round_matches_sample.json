@@ -1,0 +1,28 @@
+{
+  "rounds": [
+    {
+      "id": 3632,
+      "name": "Round of 64",
+      "sequence": 0,
+      "competitionId": 40,
+      "divisionId": 390,
+      "matches": [
+        {"id": 1001, "team1Score": 5, "team2Score": 0, "hasPenalty": false, "team1PenaltyScore": null, "team2PenaltyScore": null, "competitionId": 40, "divisionId": 390, "team1Id": 100, "team2Id": 200, "startTime": "2024-09-06T22:30:00.000Z", "endTime": "2024-09-06T23:30:00.000Z", "matchStatus": "ENDED", "resultStatus": "FINAL", "team1ResultId": 1, "team2ResultId": 2, "isResultsLocked": true, "isFinals": false, "finalsAlias": "1-8", "matchSubstatusRefId": 5, "team1": {"id": 100, "name": "Mount Olive SC - STA Mount Olive 2014 EDP Boys", "teamUniqueKey": "uuid-team-100", "logoUrl": "https://example/o/%2Forganisation%2Flogo_org_443_x.blob"}, "team2": {"id": 200, "name": "NJ Stallions 14 Betis EDP", "teamUniqueKey": "uuid-team-200", "logoUrl": "https://example/o/%2Forganisation%2Flogo_org_457_y.blob"}, "venueCourt": {"name": "Field 4", "venue": {"name": "Turkey Brook Park", "lat": "40.86", "lng": "-74.72"}}, "round": {"id": 3632, "name": "Round of 64", "sequence": 0, "competitionId": 40, "divisionId": 390}},
+        {"id": 1002, "team1Score": 1, "team2Score": 1, "hasPenalty": false, "team1PenaltyScore": null, "team2PenaltyScore": null, "competitionId": 40, "divisionId": 390, "team1Id": 300, "team2Id": 400, "startTime": "2024-09-07T18:00:00.000Z", "matchStatus": "ENDED", "resultStatus": "FINAL", "team1ResultId": 3, "team2ResultId": 3, "team1": {"id": 300, "name": "Wall SC - Liverpool", "teamUniqueKey": "uuid-team-300", "logoUrl": null}, "team2": {"id": 400, "name": "Point Pleasant Travel SC - Wave United Black", "teamUniqueKey": "uuid-team-400", "logoUrl": null}, "venueCourt": null, "round": {"id": 3632, "name": "Round of 64", "sequence": 0, "competitionId": 40, "divisionId": 390}},
+        {"id": 1003, "team1Score": 2, "team2Score": 2, "hasPenalty": true, "team1PenaltyScore": 4, "team2PenaltyScore": 3, "competitionId": 40, "divisionId": 390, "team1Id": 500, "team2Id": 600, "startTime": "2024-09-08T19:00:00.000Z", "matchStatus": "ENDED", "resultStatus": "FINAL", "team1ResultId": 1, "team2ResultId": 2, "team1": {"id": 500, "name": "Club A - Team Alpha", "teamUniqueKey": "uuid-team-500", "logoUrl": null}, "team2": {"id": 600, "name": "Club B - Team Bravo", "teamUniqueKey": "uuid-team-600", "logoUrl": null}, "venueCourt": null, "round": {"id": 3632, "name": "Round of 64", "sequence": 0, "competitionId": 40, "divisionId": 390}},
+        {"id": 1004, "team1Score": null, "team2Score": null, "hasPenalty": false, "competitionId": 40, "divisionId": 390, "team1Id": 700, "team2Id": 800, "startTime": "2024-09-09T19:00:00.000Z", "matchStatus": "ENDED", "resultStatus": "FINAL", "matchSubstatusRefId": 11, "team1": {"id": 700, "name": "Forfeit Club - Team", "teamUniqueKey": "uuid-team-700", "logoUrl": null}, "team2": {"id": 800, "name": "Other Club - Team", "teamUniqueKey": "uuid-team-800", "logoUrl": null}, "venueCourt": null, "round": {"id": 3632, "name": "Round of 64", "sequence": 0, "competitionId": 40, "divisionId": 390}},
+        {"id": 1005, "team1Score": null, "team2Score": null, "hasPenalty": false, "competitionId": 40, "divisionId": 390, "team1Id": 900, "team2Id": 1000, "startTime": "2024-12-01T19:00:00.000Z", "matchStatus": "SCHEDULED", "resultStatus": "PROVISIONAL", "team1": {"id": 900, "name": "Future Club - Team", "teamUniqueKey": "uuid-team-900", "logoUrl": null}, "team2": {"id": 1000, "name": "Future Club B - Team", "teamUniqueKey": "uuid-team-1000", "logoUrl": null}, "venueCourt": null, "round": {"id": 3632, "name": "Round of 64", "sequence": 0, "competitionId": 40, "divisionId": 390}}
+      ]
+    },
+    {
+      "id": 3633,
+      "name": "Quarter-Final",
+      "sequence": 2,
+      "competitionId": 40,
+      "divisionId": 390,
+      "matches": [
+        {"id": 1006, "team1Score": 3, "team2Score": 1, "hasPenalty": false, "competitionId": 40, "divisionId": 390, "team1Id": 100, "team2Id": 500, "startTime": "2024-09-15T20:00:00.000Z", "matchStatus": "ENDED", "resultStatus": "FINAL", "team1ResultId": 1, "team2ResultId": 2, "isFinals": true, "finalsAlias": "QF-1", "team1": {"id": 100, "name": "Mount Olive SC - STA Mount Olive 2014 EDP Boys", "teamUniqueKey": "uuid-team-100", "logoUrl": "https://example/o/%2Forganisation%2Flogo_org_443_x.blob"}, "team2": {"id": 500, "name": "Club A - Team Alpha", "teamUniqueKey": "uuid-team-500", "logoUrl": null}, "venueCourt": {"name": "Field 1", "venue": {"name": "Wall Soccer Complex"}}, "round": {"id": 3633, "name": "Quarter-Final", "sequence": 2, "competitionId": 40, "divisionId": 390}}
+      ]
+    }
+  ]
+}
