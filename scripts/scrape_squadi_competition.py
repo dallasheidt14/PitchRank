@@ -986,16 +986,9 @@ def write_outputs(
     final_dir = output_root / scrape_run_id
     tmp_dir = output_root / f"{scrape_run_id}.tmp"
 
-    if tmp_dir.exists():
-        # Stale tmp from prior crash — wipe it
-        for child in tmp_dir.rglob("*"):
-            if child.is_file():
-                child.unlink()
-        for child in sorted(tmp_dir.rglob("*"), reverse=True):
-            if child.is_dir():
-                child.rmdir()
-        tmp_dir.rmdir()
-
+    # tmp_dir may already exist when --keep-raw pre-populated raw/ files into it.
+    # A truly stale .tmp from a prior crash would have a different SCRAPE_RUN_ID
+    # (timestamp + random hex), so there is no collision in practice.
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     # games.csv
@@ -1163,7 +1156,7 @@ def main() -> int:
         return 1
 
     output_root = Path(config["output_dir"])
-    raw_root = output_root / SCRAPE_RUN_ID / "raw" if config["keep_raw"] else None
+    raw_root = output_root / f"{SCRAPE_RUN_ID}.tmp" / "raw" if config["keep_raw"] else None
 
     all_games: List[Dict[str, Any]] = []
     all_teams_map: Dict[Tuple[str, Any], Dict[str, Any]] = {}
@@ -1227,6 +1220,17 @@ def main() -> int:
         print(f"\n✅ OUTPUT: {out_dir}")
     else:
         print(f"\n🔍 DRY RUN — {len(all_games)} game rows, {len(all_teams)} team rows validated (not written)")
+        # Clean up the raw .tmp directory in dry-run mode
+        if config["keep_raw"]:
+            tmp_dir = output_root / f"{SCRAPE_RUN_ID}.tmp"
+            if tmp_dir.exists():
+                for child in tmp_dir.rglob("*"):
+                    if child.is_file():
+                        child.unlink()
+                for child in sorted(tmp_dir.rglob("*"), reverse=True):
+                    if child.is_dir():
+                        child.rmdir()
+                tmp_dir.rmdir()
 
     print(json.dumps({"summary": manifest}, indent=2))
     return 0
