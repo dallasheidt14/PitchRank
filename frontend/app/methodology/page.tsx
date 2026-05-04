@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader';
 import { MethodologySection } from '@/components/MethodologySection';
 import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
+import { MethodologySchema } from '@/components/MethodologySchema';
 import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
 
@@ -39,6 +40,7 @@ export default function MethodologyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
       <BreadcrumbSchema items={[{ name: 'Methodology', href: '/methodology' }]} />
+      <MethodologySchema datePublished="2026-04-30" dateModified="2026-04-30" />
       <PageHeader
         title="Ranking Methodology"
         description="Understanding how PitchRank calculates team rankings and power scores"

@@ -1,5 +1,5 @@
 import { MetadataRoute } from 'next';
-import { US_STATES, AGE_GROUPS, BASE_URL_WWW } from '@/lib/constants';
+import { US_STATES, AGE_GROUPS, BASE_URL_WWW, PITCHRANK_TEAM_AUTHOR_PATH } from '@/lib/constants';
 import { getAllBlogSlugs } from '@/lib/blog';
 
 /**
@@ -48,6 +48,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: 'weekly',
       priority: 0.7,
+    },
+    {
+      url: `${baseUrl}${PITCHRANK_TEAM_AUTHOR_PATH}`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.4,
     },
   ];
 

@@ -2882,7 +2882,7 @@ export const blogPosts: BlogPost[] = [
     title: 'What is PowerScore in Youth Soccer? The Complete Guide',
     excerpt:
       "PowerScore is PitchRank's 0–1 team strength rating: 13 layers, 50% strength of schedule, updated weekly. Here's how it works and how to read your team's number.",
-    author: 'PitchRank',
+    author: 'PitchRank Team',
     date: '2026-03-18',
     readingTime: '11 min read',
     tags: ['PowerScore', 'Rankings', 'Educational', 'Methodology'],
