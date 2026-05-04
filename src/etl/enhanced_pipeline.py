@@ -242,7 +242,25 @@ class EnhancedETLPipeline:
 
             logger.info("Using PlayMetricsGameMatcher (WI-scoped fuzzy + auto-create)")
             self.matcher = PlayMetricsGameMatcher(
-                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
+        elif self.provider_code.lower() == "playmetrics_tournament":
+            from src.models.playmetrics_matcher import PlayMetricsGameMatcher
+
+            # Tournament path: no default state. Fuzzy candidate set spans all
+            # states, autocreate resolves state from the club's existing teams
+            # rows (unique non-null state) or leaves NULL. See
+            # ``PlayMetricsGameMatcher.__init__`` for the contract.
+            logger.info("Using PlayMetricsGameMatcher (multi-state tournament + auto-create)")
+            self.matcher = PlayMetricsGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                default_state_code=None,
+                dry_run=self.dry_run,
             )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")

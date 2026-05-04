@@ -1,0 +1,133 @@
+name: PlayMetrics Tournament Scrape and Import
+
+# Tournaments are one-shot events, not weekly recurring like SECL — no cron.
+# Run on demand by pasting the tournament URL into workflow_dispatch.
+on:
+  workflow_dispatch:
+    inputs:
+      tournament_url:
+        description: 'PlayMetrics tournament URL (e.g. https://playmetricssports.com/g/leagues/<gb>-<league>-<key>/league_view.html)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Scrape only (skip import step)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  scrape-and-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create data directories
+        run: |
+          mkdir -p data/raw/playmetrics_tournament
+          mkdir -p logs
+
+      - name: Scrape PlayMetrics Tournament
+        env:
+          # Scraper only POSTs to the PlayMetrics public API and writes a local
+          # CSV — no Supabase access, so no service key is exposed here.
+          PYTHONPATH: ${{ github.workspace }}
+          # Hoist inputs into env so they cannot inject shell metacharacters
+          # into the run block (see gha_inputs_shell_injection memory).
+          TOURNAMENT_URL: ${{ inputs.tournament_url }}
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          echo "Scraping PlayMetrics tournament: $TOURNAMENT_URL"
+          python scripts/scrape_playmetrics_tournament.py \
+            --tournament-url "$TOURNAMENT_URL" \
+            --output-dir data/raw/playmetrics_tournament \
+            2>&1 | tee logs/playmetrics_tournament_scrape.log
+
+      - name: Find scraped CSV file
+        id: find_csv
+        run: |
+          CSV_FILE=$(ls -t data/raw/playmetrics_tournament/playmetrics_tournament_*.csv 2>/dev/null | head -n 1)
+          if [ -z "$CSV_FILE" ]; then
+            echo "Error: Could not find scraped CSV file"
+            exit 1
+          fi
+          echo "Found CSV file: $CSV_FILE"
+          echo "csv_file=$CSV_FILE" >> "$GITHUB_OUTPUT"
+
+          LINE_COUNT=$(wc -l < "$CSV_FILE")
+          GAME_COUNT=$((LINE_COUNT - 1))
+          echo "game_count=$GAME_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$GAME_COUNT" -le 0 ]; then
+            echo "⚠️  CSV has 0 game records (headers only) — skipping import step"
+            echo "has_games=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ CSV has $GAME_COUNT game records"
+            echo "has_games=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import Games
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && inputs.dry_run == false }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
+          echo "Importing games from: $CSV_FILE"
+          python scripts/import_games_enhanced.py "$CSV_FILE" playmetrics_tournament --stream --concurrency 8 --checkpoint \
+            2>&1 | tee logs/playmetrics_tournament_import.log
+
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playmetrics-tournament-csv-${{ github.run_number }}
+          path: data/raw/playmetrics_tournament/playmetrics_tournament_*.csv
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playmetrics-tournament-logs-${{ github.run_number }}
+          path: logs/playmetrics_tournament_*.log
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Report results
+        if: always()
+        env:
+          TOURNAMENT_URL: ${{ inputs.tournament_url }}
+        run: |
+          {
+            echo "## PlayMetrics Tournament Scrape Summary"
+            echo ""
+            echo "- **Tournament URL:** $TOURNAMENT_URL"
+            echo "- **Trigger:** ${{ github.event_name }}"
+            echo "- **Games found:** ${{ steps.find_csv.outputs.game_count || '0' }}"
+            if [ "${{ steps.find_csv.outputs.has_games }}" == "false" ]; then
+              echo "- **Import:** Skipped (no games to import)"
+            elif [ "${{ inputs.dry_run }}" == "false" ]; then
+              echo "- **Import:** Completed"
+            else
+              echo "- **Import:** Skipped (dry run)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
