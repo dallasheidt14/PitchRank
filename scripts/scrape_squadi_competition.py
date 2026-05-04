@@ -294,6 +294,59 @@ def parse_squadi_url(url: Optional[str]) -> Optional[Dict[str, Any]]:
     }
 
 
+# Bundle URL: /static/js/main.<hash>.js
+_BUNDLE_URL_RE = re.compile(r'(/static/js/main\.[a-f0-9]+\.js)')
+
+# Token: 256+ char lowercase hex string (Squadi's auth token).
+# Used as a candidate filter; we then verify proximity to "authorization".
+_TOKEN_HEX_RE = re.compile(r'([a-f0-9]{256,1024})')
+
+
+def extract_bundle_url_from_html(html: Optional[str]) -> Optional[str]:
+    """Find the SPA's main JS bundle URL in the served HTML."""
+    if not html:
+        return None
+    m = _BUNDLE_URL_RE.search(html)
+    return m.group(1) if m else None
+
+
+def extract_token_from_bundle(bundle_text: Optional[str]) -> Optional[str]:
+    """Pull the anonymous public-read token from the SPA bundle.
+
+    Strategy: find all 256+ char hex strings, return the one closest to (within
+    300 chars of) the literal string "authorization". This is robust to bundle
+    minification — the constant gets concatenated near the fetch wrapper that
+    sets the auth header.
+    """
+    if not bundle_text:
+        return None
+    candidates = list(_TOKEN_HEX_RE.finditer(bundle_text))
+    if not candidates:
+        return None
+    auth_positions = [m.start() for m in re.finditer(r'authorization', bundle_text, re.IGNORECASE)]
+    if not auth_positions:
+        # No "authorization" anchor found — return the longest hex candidate as a
+        # best-effort fallback. Caller will verify by attempting an API call.
+        return max(candidates, key=lambda m: len(m.group(1))).group(1)
+    # Find the candidate token closest to any authorization mention.
+    # Distance is measured from whichever edge of the token is nearer to the
+    # keyword (start or end), so long tokens adjacent to "authorization" are
+    # still captured correctly even when the keyword follows the token value.
+    best = None
+    best_dist = float("inf")
+    for cand in candidates:
+        cand_start = cand.start()
+        cand_end = cand.end()
+        dist = min(
+            min(abs(cand_start - a), abs(cand_end - a))
+            for a in auth_positions
+        )
+        if dist < best_dist and dist <= 300:
+            best_dist = dist
+            best = cand.group(1)
+    return best
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None

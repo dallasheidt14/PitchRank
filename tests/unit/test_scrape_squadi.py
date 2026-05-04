@@ -10,18 +10,24 @@ discovery filter, and the CSV writer are covered by the end-to-end dry-run
 verification in Task 16, not by unit tests.
 """
 
+from pathlib import Path
+
 import pytest
 
 from scripts.scrape_squadi_competition import (
     REQUIRED_COLUMNS,
     compute_result,
+    extract_bundle_url_from_html,
     extract_external_org_id,
+    extract_token_from_bundle,
     parse_club_name,
     parse_division_metadata,
     parse_int_or_none,
     parse_squadi_url,
     parse_utc_to_local_date,
 )
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "squadi"
 
 
 def test_required_columns_match_canonical_28_col_list():
@@ -210,3 +216,33 @@ class TestParseSquadiUrl:
         # ?organisationKey= (empty string value) should be treated as missing
         url = "https://registration.us.squadi.com/livescoreSeasonFixture?organisationKey=&yearId=6"
         assert parse_squadi_url(url) is None
+
+
+class TestExtractBundleUrlFromHtml:
+    def test_finds_main_bundle(self):
+        html = (FIXTURE_DIR / "spa_index.html").read_text()
+        assert extract_bundle_url_from_html(html) == "/static/js/main.e68022e7.js"
+
+    def test_no_main_bundle_returns_none(self):
+        assert extract_bundle_url_from_html("<html></html>") is None
+        assert extract_bundle_url_from_html(
+            '<script src="/static/js/2.abcdef.chunk.js"></script>'
+        ) is None
+
+
+class TestExtractTokenFromBundle:
+    def test_finds_token_next_to_authorization_keyword(self):
+        bundle = (FIXTURE_DIR / "main_bundle_sample.js").read_text()
+        token = extract_token_from_bundle(bundle)
+        assert token is not None
+        assert len(token) >= 256
+        assert all(c in "0123456789abcdef" for c in token)
+        assert token.startswith("f68a1ffd")
+
+    def test_no_token_returns_none(self):
+        assert extract_token_from_bundle("var x = 1; var y = 'hello';") is None
+
+    def test_short_hex_strings_are_rejected(self):
+        # Must be at least 256 chars to qualify
+        bundle = 'var TOKEN="' + ("a" * 100) + '"; "authorization"'
+        assert extract_token_from_bundle(bundle) is None
