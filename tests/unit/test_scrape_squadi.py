@@ -15,6 +15,7 @@ import pytest
 from scripts.scrape_squadi_competition import (
     REQUIRED_COLUMNS,
     compute_result,
+    parse_division_metadata,
     parse_int_or_none,
     parse_utc_to_local_date,
 )
@@ -83,3 +84,48 @@ class TestParseUtcToLocalDate:
         assert parse_utc_to_local_date("not-a-date", "America/New_York") == ("", "")
         assert parse_utc_to_local_date("", "America/New_York") == ("", "")
         assert parse_utc_to_local_date(None, "America/New_York") == ("", "")
+
+
+class TestParseDivisionMetadata:
+    @pytest.mark.parametrize(
+        "division_name, fallback_age_int, expected",
+        [
+            # Standard cases
+            ("11U Boys Challenge Cup", 10, ("u11", "Boys", "Challenge Cup")),
+            ("14U Girls National Championship Series", 13,
+             ("u14", "Girls", "National Championship Series")),
+            ("17U Boys Champions League", 16, ("u17", "Boys", "Champions League")),
+            # Dual-age picks the older cohort
+            ("15U/16U Girls National Championship Series", 14,
+             ("u16", "Girls", "National Championship Series")),
+            ("13U/14U Boys Challenge Cup", 12, ("u14", "Boys", "Challenge Cup")),
+            # u18 remaps to u19
+            ("18U Boys Champions League", 17, ("u19", "Boys", "Champions League")),
+            ("17U/18U Girls Challenge Cup", 16, ("u19", "Girls", "Challenge Cup")),
+            # Trailing whitespace / mixed case
+            ("  11U   Boys   Challenge Cup  ", 10, ("u11", "Boys", "Challenge Cup")),
+            # Boys/Girls capitalization variants — output is always "Boys"/"Girls"
+            ("11U BOYS Challenge Cup", 10, ("u11", "Boys", "Challenge Cup")),
+            ("11U girls Challenge Cup", 10, ("u11", "Girls", "Challenge Cup")),
+        ],
+    )
+    def test_well_formed_division_names(self, division_name, fallback_age_int, expected):
+        assert parse_division_metadata(division_name, fallback_age_int) == expected
+
+    def test_no_age_token_falls_back_to_division_age_int(self):
+        # division.age=10 means 11U per Squadi's "min age" convention
+        assert parse_division_metadata("Boys Recreational", 10) == ("u11", "Boys", "Recreational")
+
+    def test_no_age_token_no_fallback_returns_blank_age(self):
+        assert parse_division_metadata("Boys Recreational", None) == ("", "Boys", "Recreational")
+
+    def test_no_gender_token_returns_blank_gender(self):
+        assert parse_division_metadata("11U Open Division", 10) == ("u11", "", "Open Division")
+
+    def test_age_below_tracked_range_returns_blank(self):
+        # u9 etc. are out of PitchRank's tracked range
+        assert parse_division_metadata("9U Boys Recreational", 8) == ("", "Boys", "Recreational")
+
+    def test_fully_unparseable(self):
+        assert parse_division_metadata("Random String", None) == ("", "", "Random String")
+        assert parse_division_metadata("", None) == ("", "", "")

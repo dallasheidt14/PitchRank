@@ -168,6 +168,68 @@ def parse_utc_to_local_date(iso_utc: Optional[str], tz_name: str) -> Tuple[str, 
         return ("", "")
 
 
+# Match all "<n>U" tokens and pick the largest (older cohort wins for dual-age).
+_AGE_TOKEN_RE = re.compile(r"\b(\d{1,2})[Uu]\b")
+
+
+def parse_division_metadata(
+    division_name: str,
+    fallback_age_int: Optional[int],
+) -> Tuple[str, str, str]:
+    """Parse division.divisionName into (age_group, gender, tier).
+
+    Rules (locked in spec §A and reinforced by memory):
+    - age_group format: "u<n>" lowercase (gotcha_age_group_format).
+    - Dual-age divisions take the OLDER cohort, e.g. "15U/16U" → u16
+      (gotcha_slash_age_tokens).
+    - u18 always remaps to u19 since PitchRank merges u18 into u19
+      (gotcha_no_u18_age_group).
+    - gender returns "Boys" / "Girls" — never "Male" / "Female"
+      (gotcha_format_gender_returns_boys_girls). Empty string when ambiguous.
+    - tier is the residual division name with the age and gender tokens stripped.
+    - When the regex finds no age token, fall back to fallback_age_int + 1
+      (Squadi stores division.age as "min age", so age=10 means 11U).
+    - PitchRank tracks u10–u17 and u19; ages outside this range return "".
+    """
+    name = (division_name or "").strip()
+    if not name:
+        return ("", "", name)
+
+    # Age — pick the largest U-token (older cohort)
+    matches = _AGE_TOKEN_RE.findall(name)
+    age_group = ""
+    if matches:
+        nums = sorted({int(m) for m in matches})
+        n = nums[-1]
+        if n == 18:
+            age_group = "u19"
+        elif n == 19 or 10 <= n <= 17:
+            age_group = f"u{n}"
+    elif fallback_age_int is not None:
+        n = fallback_age_int + 1  # Squadi "min age" convention
+        if n == 18:
+            age_group = "u19"
+        elif 10 <= n <= 17 or n == 19:
+            age_group = f"u{n}"
+
+    # Gender
+    lower = name.lower()
+    if " boys" in f" {lower}" or lower.startswith("boys"):
+        gender = "Boys"
+    elif " girls" in f" {lower}" or lower.startswith("girls"):
+        gender = "Girls"
+    else:
+        gender = ""
+
+    # Tier: residual after stripping all age tokens + gender tokens
+    tier = _AGE_TOKEN_RE.sub("", name)
+    tier = re.sub(r"(?i)\b(boys|girls)\b", "", tier)
+    tier = re.sub(r"\s*/\s*", " ", tier)  # collapse "/ " from dual-age splits
+    tier = re.sub(r"\s+", " ", tier).strip()
+
+    return (age_group, gender, tier)
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
