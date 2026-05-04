@@ -226,6 +226,37 @@ def parse_division_metadata(
     return (age_group, gender, tier)
 
 
+_LOGO_ORG_RE = re.compile(r"org_(\d+)")
+
+
+def parse_club_name(team_name: Optional[str]) -> str:
+    """Split team_name on first ' - ' separator; left side = club name.
+
+    Squadi convention is "<Club> - <Team>". Returns full team_name when no
+    separator present. Returns "" for None/empty input.
+    """
+    if not team_name:
+        return ""
+    s = team_name.strip()
+    if " - " in s:
+        return s.split(" - ", 1)[0].strip()
+    return s
+
+
+def extract_external_org_id(logo_url: Optional[str]) -> Optional[str]:
+    """Pull the Squadi club-org id from a team's logoUrl.
+
+    Squadi stores logos at .../organisation/logo_org_<orgId>_<ts>.blob — the
+    org id is a useful matcher tie-breaker when two clubs share a short name.
+    Returns None when the URL is missing/blank or has no org_<n> token.
+    The "comp_<n>" prefix is for competition logos, not orgs, so it's filtered.
+    """
+    if not logo_url:
+        return None
+    m = _LOGO_ORG_RE.search(logo_url)
+    return m.group(1) if m else None
+
+
 # Globals set in main()
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None

@@ -15,6 +15,8 @@ import pytest
 from scripts.scrape_squadi_competition import (
     REQUIRED_COLUMNS,
     compute_result,
+    extract_external_org_id,
+    parse_club_name,
     parse_division_metadata,
     parse_int_or_none,
     parse_utc_to_local_date,
@@ -135,3 +137,41 @@ class TestParseDivisionMetadata:
         # Without word-boundary matching, "Girlscout" would falsely return "Girls".
         assert parse_division_metadata("Girlscout 11U Division", 10) == ("u11", "", "Girlscout Division")
         assert parse_division_metadata("Boysenberry 11U Division", 10) == ("u11", "", "Boysenberry Division")
+
+
+class TestParseClubName:
+    @pytest.mark.parametrize(
+        "team_name, expected_club",
+        [
+            ("Mount Olive SC - STA Mount Olive 2014 EDP Boys", "Mount Olive SC"),
+            ("Wall SC - Liverpool", "Wall SC"),
+            ("Point Pleasant Travel SC - Wave United Black", "Point Pleasant Travel SC"),
+            # No dash → club = full name
+            ("NJ Stallions 14 Betis EDP", "NJ Stallions 14 Betis EDP"),
+            # Empty / None
+            ("", ""),
+            (None, ""),
+            # Multiple dashes → first segment only
+            ("Team A - Sub - Detail", "Team A"),
+            # Whitespace handling
+            ("  Wall SC  -  Liverpool  ", "Wall SC"),
+        ],
+    )
+    def test_split(self, team_name, expected_club):
+        assert parse_club_name(team_name) == expected_club
+
+
+class TestExtractExternalOrgId:
+    def test_standard_logo_url(self):
+        url = "https://storage.googleapis.com/download/storage/v1/b/squadi-prod-us.appspot.com/o/%2Forganisation%2Flogo_org_443_1720797311497.blob?generation=1720797311634378&alt=media"
+        assert extract_external_org_id(url) == "443"
+
+    def test_comp_logo_url_returns_none(self):
+        # comp_<id> isn't an org id
+        url = "https://storage.googleapis.com/download/storage/v1/b/squadi-prod-us.appspot.com/o/%2Fcomp_46%2Flogo_1725580224902.blob"
+        assert extract_external_org_id(url) is None
+
+    def test_missing_or_blank(self):
+        assert extract_external_org_id(None) is None
+        assert extract_external_org_id("") is None
+        assert extract_external_org_id("https://example.com/no-org-here.png") is None
