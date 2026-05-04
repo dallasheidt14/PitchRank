@@ -705,9 +705,20 @@ def normalize_match(
     t2_score = parse_int_or_none(raw_t2)
 
     substatus = match.get("matchSubstatusRefId")
-    is_forfeit = substatus in FORFEIT_SUBSTATUS_IDS or (
+    explicit_forfeit = substatus in FORFEIT_SUBSTATUS_IDS
+    null_score_ended = (
         match_status == "ENDED" and (raw_t1 is None or raw_t2 is None)
     )
+    is_forfeit = explicit_forfeit or null_score_ended
+
+    # Surface anomalies: ENDED match with exactly one null score is unusual —
+    # could be a real forfeit OR an API population lag. Worth logging.
+    if null_score_ended and not explicit_forfeit:
+        logger.warning(
+            f"Match {match.get('id')} matchStatus=ENDED but scores incomplete "
+            f"(t1={raw_t1!r}, t2={raw_t2!r}, substatus={substatus}); "
+            f"emitting result=U"
+        )
 
     if is_forfeit and (t1_score is None or t2_score is None):
         result_t1 = "U"
