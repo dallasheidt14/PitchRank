@@ -244,6 +244,16 @@ class EnhancedETLPipeline:
             self.matcher = PlayMetricsGameMatcher(
                 self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
             )
+        elif self.provider_code.lower() == "squadi":
+            # Squadi uses the standard GameHistoryMatcher per spec §2.6.
+            # Per spec §C, NJYS team overlap with TGS / GotSport / EDP rows is
+            # handled via provider_team_id (UUID) primary alias and (state_code,
+            # age_group, gender) fuzzy fallback. Revisit if review-queue volume
+            # warrants a SquadiGameMatcher subclass with state-scoped autocreate.
+            logger.info("Using GameHistoryMatcher for provider: squadi")
+            self.matcher = GameHistoryMatcher(
+                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+            )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")
             self.matcher = GameHistoryMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
