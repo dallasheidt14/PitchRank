@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClientSupabase } from '@/lib/supabase/client';
-import { normalizeAgeGroup } from '@/lib/utils';
+import { normalizeAgeGroup, formatLeague, formatDistinction } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -31,7 +31,7 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
   while (hasMore) {
     const { data, error } = await supabase
       .from('teams')
-      .select('team_id_master, team_name, club_name, state_code, age_group, gender')
+      .select('team_id_master, team_name, club_name, league, distinction, state_code, age_group, gender')
       .eq('is_deprecated', false) // Filter out deprecated/merged teams
       .order('team_name', { ascending: true })
       .range(offset, offset + BATCH_SIZE - 1);
@@ -51,14 +51,33 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
       // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
       const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : ('M' as 'M' | 'F' | 'B' | 'G');
 
-      // Create searchable name that combines team name + club name for cross-field matching
-      // This allows "rebels san diego romero" to match team "B2014 Pre-ECNL (Romero)" from club "Rebels San Diego"
+      // Create searchable name that combines team name + club name + composed-display
+      // tokens (U{age}, league, distinction) so users can search using the same string
+      // they see in the rankings table.
+      const ageInt = normalizeAgeGroup(team.age_group);
+      const leagueDisplay = formatLeague(team.league);
+      const distinctionDisplay = formatDistinction(team.distinction);
       const searchable_name = (() => {
         let name = team.team_name;
 
         // Add club name for combined searches (e.g., "rebels romero")
         if (team.club_name) {
           name += ' ' + team.club_name;
+        }
+
+        // Add U{age} so "u14" matches even when team_name lacks it
+        if (ageInt != null) {
+          name += ' U' + ageInt;
+        }
+
+        // Add league + distinction (raw + formatted) so users can search the visible name
+        if (team.league) {
+          name += ' ' + team.league;
+          if (leagueDisplay && leagueDisplay !== team.league) name += ' ' + leagueDisplay;
+        }
+        if (team.distinction) {
+          name += ' ' + team.distinction.replace(/\|/g, ' ');
+          if (distinctionDisplay) name += ' ' + distinctionDisplay;
         }
 
         // Add year variations: "2015" ↔ "15"
@@ -80,8 +99,10 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
         team_name: team.team_name,
         searchable_name,
         club_name: team.club_name,
+        league: team.league ?? null,
+        distinction: team.distinction ?? null,
         state: team.state_code, // Map state_code to state
-        age: normalizeAgeGroup(team.age_group) ?? 0, // Convert age_group to integer age
+        age: ageInt ?? 0, // Convert age_group to integer age
         gender: genderCode,
         // Ranking fields (default values for unranked teams)
         power_score_final: 0,

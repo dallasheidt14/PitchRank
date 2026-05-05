@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore } from '@/lib/utils';
+import { formatPowerScore, composeTeamDisplay } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -130,8 +130,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = getDisplayRank(b) ?? Infinity;
           break;
         case 'team':
-          aValue = a.team_name.toLowerCase();
-          bValue = b.team_name.toLowerCase();
+          aValue = composeTeamDisplay(a).toLowerCase();
+          bValue = composeTeamDisplay(b).toLowerCase();
           break;
         case 'powerScore':
           aValue = a.power_score_final ?? 0;
@@ -295,7 +295,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     .filter((team) => getDisplayRank(team) != null)
     .slice(0, 10)
     .map((team) => ({
-      teamName: team.team_name,
+      teamName: composeTeamDisplay(team),
       clubName: team.club_name ?? undefined,
       rank: getDisplayRank(team)!,
       powerScore: team.power_score_final ?? undefined,
@@ -513,15 +513,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               );
                             })()}
                           </div>
-                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
+                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden flex items-center">
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
-                              {team.team_name}
+                              {composeTeamDisplay(team)}
                             </span>
-                            <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
-                              {team.club_name && <span>{team.club_name}</span>}
-                              {team.club_name && team.state && <span> &bull; </span>}
-                              {team.state && <span>{team.state}</span>}
-                            </div>
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             <span className="truncate">{formatPowerScore(team.power_score_final)}</span>

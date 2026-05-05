@@ -27,6 +27,55 @@ export function formatSOSIndex(sosNorm?: number | null): string {
   return (sosNorm * 100).toFixed(1);
 }
 
+const LEAGUE_DISPLAY: Record<string, string> = {
+  ECNL: 'ECNL',
+  ECNL_RL: 'ECNL RL',
+  MLS_NEXT: 'MLS Next',
+  MLS_NEXT_HD: 'MLS Next',
+  MLS_NEXT_AD: 'MLS Next AD',
+  GA: 'GA',
+  DPL: 'DPL',
+  NPL: 'NPL',
+  EA: 'EA',
+  NL: 'NL',
+  ASPIRE: 'Aspire',
+};
+
+export function formatLeague(league?: string | null): string | null {
+  if (!league) return null;
+  return LEAGUE_DISPLAY[league] ?? league.replace(/_/g, ' ');
+}
+
+export function formatDistinction(distinction?: string | null): string | null {
+  if (!distinction) return null;
+  return distinction
+    .split('|')
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(' ');
+}
+
+/**
+ * Compose a clean display name from structured team fields.
+ * Format: "{club_name} U{age} {league} {distinction}" — pieces are skipped when null.
+ * Falls back to team_name when club_name is missing.
+ */
+export function composeTeamDisplay(team: {
+  team_name: string;
+  club_name: string | null;
+  league?: string | null;
+  distinction?: string | null;
+  age?: number | null;
+}): string {
+  if (!team.club_name) return team.team_name;
+  const parts: string[] = [team.club_name];
+  if (team.age != null) parts.push(`U${team.age}`);
+  const league = formatLeague(team.league);
+  if (league) parts.push(league);
+  const distinction = formatDistinction(team.distinction);
+  if (distinction) parts.push(distinction);
+  return parts.join(' ');
+}
+
 /**
  * Soccer season year: rolls over on Aug 1.
  * Before Aug 1, season year = previous calendar year.
