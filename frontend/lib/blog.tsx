@@ -9,6 +9,7 @@ export interface BlogPost {
   excerpt: string;
   content: React.ReactNode | string;
   date: string;
+  modifiedDate?: string;
   author: string;
   readingTime?: string;
   tags?: string[];
@@ -31,6 +32,7 @@ function parseMarkdownFile(file: string): BlogPost {
     excerpt: data.excerpt || '',
     content,
     date: data.date ? String(data.date) : '1970-01-01',
+    modifiedDate: data.modifiedDate,
     author: data.author || 'PitchRank Team',
     readingTime: data.readingTime,
     tags: data.tags,

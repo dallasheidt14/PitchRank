@@ -84,6 +84,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         excerpt={post.excerpt}
         slug={slug}
         date={post.date}
+        modifiedDate={post.modifiedDate}
         readingTime={post.readingTime}
         tags={post.tags}
         image={heroImagePath}

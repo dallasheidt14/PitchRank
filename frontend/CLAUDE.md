@@ -286,6 +286,15 @@ cn('base-class', condition && 'conditional-class');
 
 ---
 
+## Content Authoring
+
+- Every blog post edit (MDX frontmatter or TSX `BlogPost` object) must bump `modifiedDate` to the current date.
+- Format is ISO-8601 UTC: `'YYYY-MM-DDT00:00:00Z'` (e.g. `'2026-05-04T00:00:00Z'`). Bare `YYYY-MM-DD` triggers Google Rich Results Test "missing timezone" warnings.
+- For new blog posts, set both `date` and `modifiedDate` to the publish date.
+- Convention checked at PR review — no lint rule or pre-commit hook.
+
+---
+
 ## Content Generation
 
 ### llms.txt
