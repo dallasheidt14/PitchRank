@@ -8,6 +8,8 @@ function makeTeam(overrides: Partial<TeamWithRanking> = {}): TeamWithRanking {
     team_id_master: 'team-default',
     team_name: 'Default FC 14B',
     club_name: 'Default FC',
+    league: null,
+    distinction: null,
     state: 'TX',
     age: 12,
     gender: 'M',

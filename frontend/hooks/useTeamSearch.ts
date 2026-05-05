@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClientSupabase } from '@/lib/supabase/client';
-import { normalizeAgeGroup } from '@/lib/utils';
+import { normalizeAgeGroup, formatLeague, formatDistinction } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 /**
@@ -20,6 +20,31 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes (parity with prior staleTime)
 let cached: { data: RankingRow[]; fetchedAt: number } | null = null;
 let inFlight: Promise<RankingRow[]> | null = null;
 
+async function fetchModular11TeamIds(supabase: ReturnType<typeof createClientSupabase>): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const BATCH_SIZE = 1000;
+  let offset = 0;
+  // Fetch all team_id_masters that have a Modular 11 (MLS Next) provider alias.
+  // Used to suppress composeTeamDisplay for those teams — their team_name is already clean.
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('team_alias_map')
+      .select('team_id_master, providers!inner(code)')
+      .eq('providers.code', 'modular11')
+      .range(offset, offset + BATCH_SIZE - 1);
+    if (error) {
+      console.warn('[useTeamSearch] Failed to load modular11 aliases — falling back to league check:', error.message);
+      return ids;
+    }
+    if (!data || data.length === 0) break;
+    for (const row of data) ids.add(row.team_id_master);
+    if (data.length < BATCH_SIZE) break;
+    offset += BATCH_SIZE;
+  }
+  return ids;
+}
+
 async function fetchAllTeams(): Promise<RankingRow[]> {
   const supabase = createClientSupabase();
   const BATCH_SIZE = 1000; // Supabase default limit
@@ -27,11 +52,13 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
   let offset = 0;
   let hasMore = true;
 
+  const modular11TeamIds = await fetchModular11TeamIds(supabase);
+
   // Fetch teams in batches until we've got them all
   while (hasMore) {
     const { data, error } = await supabase
       .from('teams')
-      .select('team_id_master, team_name, club_name, state_code, age_group, gender')
+      .select('team_id_master, team_name, club_name, league, distinction, state_code, age_group, gender')
       .eq('is_deprecated', false) // Filter out deprecated/merged teams
       .order('team_name', { ascending: true })
       .range(offset, offset + BATCH_SIZE - 1);
@@ -51,14 +78,33 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
       // Convert gender from database format ('Male'|'Female') to API format ('M'|'F')
       const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : ('M' as 'M' | 'F' | 'B' | 'G');
 
-      // Create searchable name that combines team name + club name for cross-field matching
-      // This allows "rebels san diego romero" to match team "B2014 Pre-ECNL (Romero)" from club "Rebels San Diego"
+      // Create searchable name that combines team name + club name + composed-display
+      // tokens (U{age}, league, distinction) so users can search using the same string
+      // they see in the rankings table.
+      const ageInt = normalizeAgeGroup(team.age_group);
+      const leagueDisplay = formatLeague(team.league);
+      const distinctionDisplay = formatDistinction(team.distinction);
       const searchable_name = (() => {
         let name = team.team_name;
 
         // Add club name for combined searches (e.g., "rebels romero")
         if (team.club_name) {
           name += ' ' + team.club_name;
+        }
+
+        // Add U{age} so "u14" matches even when team_name lacks it
+        if (ageInt != null) {
+          name += ' U' + ageInt;
+        }
+
+        // Add league + distinction (raw + formatted) so users can search the visible name
+        if (team.league) {
+          name += ' ' + team.league;
+          if (leagueDisplay && leagueDisplay !== team.league) name += ' ' + leagueDisplay;
+        }
+        if (team.distinction) {
+          name += ' ' + team.distinction.replace(/\|/g, ' ');
+          if (distinctionDisplay) name += ' ' + distinctionDisplay;
         }
 
         // Add year variations: "2015" ↔ "15"
@@ -80,8 +126,11 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
         team_name: team.team_name,
         searchable_name,
         club_name: team.club_name,
+        league: team.league ?? null,
+        distinction: team.distinction ?? null,
+        has_modular11_alias: modular11TeamIds.has(team.team_id_master),
         state: team.state_code, // Map state_code to state
-        age: normalizeAgeGroup(team.age_group) ?? 0, // Convert age_group to integer age
+        age: ageInt ?? 0, // Convert age_group to integer age
         gender: genderCode,
         // Ranking fields (default values for unranked teams)
         power_score_final: 0,

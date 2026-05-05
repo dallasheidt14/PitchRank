@@ -43,6 +43,8 @@ type TeamRow = {
   team_id_master: string;
   team_name: string;
   club_name: string | null;
+  league: string | null;
+  distinction: string | null;
   state: string | null;
   state_code: string | null;
   age_group: string | null;
@@ -191,7 +193,9 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   const [teamResult, rankingResult, stateRankingResult, rankingsFullData, predictiveResult] = await Promise.all([
     supabase
       .from('teams')
-      .select('team_id_master, team_name, club_name, state, state_code, age_group, gender, last_scraped_at')
+      .select(
+        'team_id_master, team_name, club_name, league, distinction, state, state_code, age_group, gender, last_scraped_at'
+      )
       .eq('team_id_master', teamId)
       .maybeSingle(),
     supabase
@@ -242,10 +246,20 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     rankingData?.games_played ?? stateRankingData?.games_played ?? rankingsFullData?.games_played ?? 0;
   const computedWinPercentage = gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : null;
 
+  const modular11AliasResult = await supabase
+    .from('team_alias_map')
+    .select('id, providers!inner(code)')
+    .eq('team_id_master', teamData.team_id_master)
+    .eq('providers.code', 'modular11')
+    .limit(1);
+
   const team: TeamWithRanking = {
     team_id_master: teamData.team_id_master,
     team_name: teamData.team_name,
     club_name: teamData.club_name,
+    league: teamData.league ?? null,
+    distinction: teamData.distinction ?? null,
+    has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
     state: teamData.state ?? teamData.state_code,
     age,
     gender: normalizeGenderCode(

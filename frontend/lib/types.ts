@@ -10,6 +10,8 @@ export interface Team {
   provider_id: string | null;
   team_name: string;
   club_name: string | null;
+  league: string | null; // National league code (ECNL, ECNL_RL, MLS_NEXT_HD, ...)
+  distinction: string | null; // Lowercase pipe-delimited squad distinguisher
   state: string | null;
   state_code: string | null; // 2-letter state code
   age_group: string; // 'u10', 'u11', etc.
@@ -52,6 +54,9 @@ export interface TeamWithRanking {
   team_id_master: string;
   team_name: string;
   club_name: string | null;
+  league: string | null; // National league code (ECNL, ECNL_RL, MLS_NEXT_HD, ...)
+  distinction: string | null; // Lowercase pipe-delimited squad distinguisher
+  has_modular11_alias?: boolean | null; // True when team has a Modular 11 (MLS Next) alias.
   state: string | null; // alias for state_code
   age: number | null; // INTEGER age group number (e.g., 11)
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes

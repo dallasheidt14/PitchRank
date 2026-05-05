@@ -9,6 +9,9 @@ export interface RankingRow {
   team_name: string;
   searchable_name?: string; // Computed field for search (team_name + club_name + year variations)
   club_name: string | null;
+  league: string | null; // National league code (ECNL, ECNL_RL, MLS_NEXT_HD, ...). NULL = unaffiliated.
+  distinction: string | null; // Lowercase pipe-delimited squad distinguisher (e.g. "white|2", "black", "smith"). NULL = single squad in cohort.
+  has_modular11_alias?: boolean | null; // True when team has a Modular 11 (MLS Next) alias — UI keeps raw team_name for these.
   state: string | null; // alias for state_code
   age: number; // INTEGER age group number (e.g., 11)
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
