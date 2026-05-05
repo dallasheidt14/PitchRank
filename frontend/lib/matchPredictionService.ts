@@ -43,6 +43,8 @@ type TeamRow = {
   team_id_master: string;
   team_name: string;
   club_name: string | null;
+  league: string | null;
+  distinction: string | null;
   state: string | null;
   state_code: string | null;
   age_group: string | null;
@@ -191,7 +193,9 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   const [teamResult, rankingResult, stateRankingResult, rankingsFullData, predictiveResult] = await Promise.all([
     supabase
       .from('teams')
-      .select('team_id_master, team_name, club_name, state, state_code, age_group, gender, last_scraped_at')
+      .select(
+        'team_id_master, team_name, club_name, league, distinction, state, state_code, age_group, gender, last_scraped_at'
+      )
       .eq('team_id_master', teamId)
       .maybeSingle(),
     supabase
@@ -246,6 +250,8 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     team_id_master: teamData.team_id_master,
     team_name: teamData.team_name,
     club_name: teamData.club_name,
+    league: teamData.league ?? null,
+    distinction: teamData.distinction ?? null,
     state: teamData.state ?? teamData.state_code,
     age,
     gender: normalizeGenderCode(

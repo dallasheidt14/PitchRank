@@ -19,7 +19,7 @@ import {
   Tooltip as RechartsTooltip,
 } from 'recharts';
 import { ArrowLeftRight, HelpCircle } from 'lucide-react';
-import { formatPowerScore } from '@/lib/utils';
+import { formatPowerScore, composeTeamDisplay } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trackCompareOpened, trackComparisonGenerated, trackPredictionViewed, trackTeamsSwapped } from '@/lib/events';
@@ -300,10 +300,10 @@ export function ComparePanel() {
                           Metric
                         </th>
                         <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">
-                          {team1Details.team_name}
+                          {composeTeamDisplay(team1Details)}
                         </th>
                         <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">
-                          {team2Details.team_name}
+                          {composeTeamDisplay(team2Details)}
                         </th>
                       </tr>
                     </thead>
@@ -471,8 +471,8 @@ export function ComparePanel() {
               {/* Match Prediction - Prominently Displayed */}
               {matchPrediction && (
                 <EnhancedPredictionCard
-                  teamAName={team1Details.team_name}
-                  teamBName={team2Details.team_name}
+                  teamAName={composeTeamDisplay(team1Details)}
+                  teamBName={composeTeamDisplay(team2Details)}
                   prediction={matchPrediction.prediction}
                   explanation={matchPrediction.explanation}
                 />
@@ -524,7 +524,7 @@ export function ComparePanel() {
                           <div className="font-medium">{opponent.opponent_name}</div>
                           <div className="flex items-center gap-4 text-sm">
                             <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{team1Details.team_name}:</span>
+                              <span className="text-muted-foreground">{composeTeamDisplay(team1Details)}:</span>
                               <span
                                 className={`font-semibold ${
                                   opponent.team1_result === 'W'
@@ -543,7 +543,7 @@ export function ComparePanel() {
                               )}
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{team2Details.team_name}:</span>
+                              <span className="text-muted-foreground">{composeTeamDisplay(team2Details)}:</span>
                               <span
                                 className={`font-semibold ${
                                   opponent.team2_result === 'W'
@@ -684,7 +684,7 @@ export function ComparePanel() {
                           }}
                         />
                         <Radar
-                          name={team1Details.team_name}
+                          name={composeTeamDisplay(team1Details)}
                           dataKey="team1"
                           stroke="#16a34a"
                           fill="#16a34a"
@@ -692,7 +692,7 @@ export function ComparePanel() {
                           strokeWidth={2}
                         />
                         <Radar
-                          name={team2Details.team_name}
+                          name={composeTeamDisplay(team2Details)}
                           dataKey="team2"
                           stroke="#2563eb"
                           fill="#2563eb"
@@ -721,8 +721,8 @@ export function ComparePanel() {
                 <>
                   <p className="font-medium">
                     {team1Id
-                      ? `${team1Data?.team_name || 'Team 1'} selected`
-                      : `${team2Data?.team_name || 'Team 2'} selected`}
+                      ? `${team1Data ? composeTeamDisplay(team1Data) : 'Team 1'} selected`
+                      : `${team2Data ? composeTeamDisplay(team2Data) : 'Team 2'} selected`}
                   </p>
                   <p className="text-sm mt-1">Select {team1Id ? 'Team 2' : 'Team 1'} to see the comparison</p>
                 </>
