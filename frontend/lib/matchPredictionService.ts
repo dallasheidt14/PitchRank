@@ -246,12 +246,20 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     rankingData?.games_played ?? stateRankingData?.games_played ?? rankingsFullData?.games_played ?? 0;
   const computedWinPercentage = gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : null;
 
+  const modular11AliasResult = await supabase
+    .from('team_alias_map')
+    .select('id, providers!inner(code)')
+    .eq('team_id_master', teamData.team_id_master)
+    .eq('providers.code', 'modular11')
+    .limit(1);
+
   const team: TeamWithRanking = {
     team_id_master: teamData.team_id_master,
     team_name: teamData.team_name,
     club_name: teamData.club_name,
     league: teamData.league ?? null,
     distinction: teamData.distinction ?? null,
+    has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
     state: teamData.state ?? teamData.state_code,
     age,
     gender: normalizeGenderCode(

@@ -20,12 +20,39 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes (parity with prior staleTime)
 let cached: { data: RankingRow[]; fetchedAt: number } | null = null;
 let inFlight: Promise<RankingRow[]> | null = null;
 
+async function fetchModular11TeamIds(supabase: ReturnType<typeof createClientSupabase>): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const BATCH_SIZE = 1000;
+  let offset = 0;
+  // Fetch all team_id_masters that have a Modular 11 (MLS Next) provider alias.
+  // Used to suppress composeTeamDisplay for those teams — their team_name is already clean.
+   
+  while (true) {
+    const { data, error } = await supabase
+      .from('team_alias_map')
+      .select('team_id_master, providers!inner(code)')
+      .eq('providers.code', 'modular11')
+      .range(offset, offset + BATCH_SIZE - 1);
+    if (error) {
+      console.warn('[useTeamSearch] Failed to load modular11 aliases — falling back to league check:', error.message);
+      return ids;
+    }
+    if (!data || data.length === 0) break;
+    for (const row of data) ids.add(row.team_id_master);
+    if (data.length < BATCH_SIZE) break;
+    offset += BATCH_SIZE;
+  }
+  return ids;
+}
+
 async function fetchAllTeams(): Promise<RankingRow[]> {
   const supabase = createClientSupabase();
   const BATCH_SIZE = 1000; // Supabase default limit
   const allTeams: RankingRow[] = [];
   let offset = 0;
   let hasMore = true;
+
+  const modular11TeamIds = await fetchModular11TeamIds(supabase);
 
   // Fetch teams in batches until we've got them all
   while (hasMore) {
@@ -101,6 +128,7 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
         club_name: team.club_name,
         league: team.league ?? null,
         distinction: team.distinction ?? null,
+        has_modular11_alias: modular11TeamIds.has(team.team_id_master),
         state: team.state_code, // Map state_code to state
         age: ageInt ?? 0, // Convert age_group to integer age
         gender: genderCode,

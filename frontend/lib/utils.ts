@@ -128,9 +128,10 @@ export function composeTeamDisplay(team: {
   league?: string | null;
   distinction?: string | null;
   age?: number | null;
+  has_modular11_alias?: boolean | null;
 }): string {
   if (!team.club_name) return team.team_name;
-  if (team.league && team.league.startsWith('MLS_NEXT')) return team.team_name;
+  if (team.has_modular11_alias) return team.team_name;
   const parts: string[] = [abbreviateClubName(team.club_name)];
   const league = formatLeague(team.league);
   if (league) parts.push(league);

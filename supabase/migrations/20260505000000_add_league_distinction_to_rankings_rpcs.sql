@@ -18,6 +18,7 @@ RETURNS TABLE (
     club_name TEXT,
     league TEXT,
     distinction TEXT,
+    has_modular11_alias BOOLEAN,
     state TEXT,
     age INT,
     gender TEXT,
@@ -69,6 +70,12 @@ RETURNS TABLE (
             t.club_name,
             t.league,
             t.distinction,
+            EXISTS (
+                SELECT 1 FROM team_alias_map am
+                JOIN providers p ON p.id = am.provider_id
+                WHERE am.team_id_master = t.team_id_master
+                  AND p.code = 'modular11'
+            ) AS has_modular11_alias,
             rf.state_code,
             CASE
                 WHEN (
@@ -156,6 +163,7 @@ RETURNS TABLE (
         b.club_name,
         b.league,
         b.distinction,
+        b.has_modular11_alias,
         b.state_code AS state,
         b.normalized_age AS age,
         CASE
@@ -221,6 +229,7 @@ RETURNS TABLE (
     club_name TEXT,
     league TEXT,
     distinction TEXT,
+    has_modular11_alias BOOLEAN,
     state TEXT,
     age INT,
     gender TEXT,
@@ -266,6 +275,12 @@ RETURNS TABLE (
             t.club_name,
             t.league,
             t.distinction,
+            EXISTS (
+                SELECT 1 FROM team_alias_map am
+                JOIN providers p ON p.id = am.provider_id
+                WHERE am.team_id_master = t.team_id_master
+                  AND p.code = 'modular11'
+            ) AS has_modular11_alias,
             rf.state_code,
             rf.age_group,
             rf.gender AS raw_gender,
@@ -324,6 +339,7 @@ RETURNS TABLE (
         c.club_name,
         c.league,
         c.distinction,
+        c.has_modular11_alias,
         c.state_code AS state,
         c.age_group::INT AS age,
         CASE

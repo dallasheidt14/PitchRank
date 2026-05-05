@@ -242,13 +242,20 @@ export const api = {
   async getTeam(id: string): Promise<TeamWithRanking> {
     // Phase 1: Fetch team data, ranking views, and merge map in parallel
     // These are all independent lookups that don't depend on each other
-    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult] = await Promise.all([
-      supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
-      supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
-    ]);
+    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, modular11AliasResult] =
+      await Promise.all([
+        supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
+        supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
+        supabase
+          .from('team_alias_map')
+          .select('id, providers!inner(code)')
+          .eq('team_id_master', id)
+          .eq('providers.code', 'modular11')
+          .limit(1),
+      ]);
 
     const { data: teamData, error: teamError } = teamResult;
     const { data: rankingData, error: rankingError } = rankingResult;
@@ -480,6 +487,7 @@ export const api = {
       club_name: team.club_name,
       league: team.league,
       distinction: team.distinction,
+      has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
