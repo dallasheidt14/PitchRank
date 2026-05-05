@@ -62,17 +62,20 @@ function romanToArabic(token: string): string {
   return total > 0 ? String(total) : token;
 }
 
+const UPPERCASE_HINTS = new Set(['hd', 'ad', 'rl', 'mls', 'ecnl', 'ga', 'npl', 'nl', 'dpl', 'ea', 'us', 'fc', 'sc']);
+
 /**
  * Format a distinction value (lowercase pipe-delimited squad distinguisher) for display.
  * Stored format: tokens joined with "|" and ordered by category priority (most-specific first).
- * Display format: ALL UPPERCASE, roman numerals converted to arabic, word tokens
- * reversed (so natural-language order is restored), numerals always last.
+ * Display: Title Case (known abbreviations stay uppercase), roman numerals → arabic,
+ * word tokens reversed (priority order → natural reading order), numerals always last.
  *
  * Examples:
- *   "i|elite|pre"      → "PRE ELITE 1"
- *   "ii|central|select"→ "SELECT CENTRAL 2"
- *   "white|2"          → "WHITE 2"
- *   "smith"            → "SMITH"
+ *   "i|elite|pre"      → "Pre Elite 1"
+ *   "ii|central|select"→ "Select Central 2"
+ *   "white|2"          → "White 2"
+ *   "red|hd"           → "Red HD"
+ *   "smith"            → "Smith"
  */
 export function formatDistinction(distinction?: string | null): string | null {
   if (!distinction) return null;
@@ -83,8 +86,12 @@ export function formatDistinction(distinction?: string | null): string | null {
   const numerals = tokens.filter(isTrailing);
   const reordered = [...words.reverse(), ...numerals];
   return reordered
-    .map((t) => (NUMERIC_RE.test(t) ? t : ROMAN_RE.test(t) ? romanToArabic(t) : t))
-    .map((t) => t.toUpperCase())
+    .map((t) => {
+      if (NUMERIC_RE.test(t)) return t;
+      if (ROMAN_RE.test(t)) return romanToArabic(t);
+      if (UPPERCASE_HINTS.has(t.toLowerCase())) return t.toUpperCase();
+      return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    })
     .join(' ');
 }
 
