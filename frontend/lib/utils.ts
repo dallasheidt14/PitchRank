@@ -115,6 +115,11 @@ export function abbreviateClubName(clubName: string | null | undefined): string 
  * Compose a clean display name from structured team fields.
  * Format: "{club_name (abbreviated)} {league} {distinction}" — age is intentionally
  * dropped because it's already in the page's URL filter. Pieces are skipped when null.
+ *
+ * MLS Next / Modular 11 teams already have well-formatted, recognizable team_name
+ * values (e.g. "Cedar Stars Academy Bergen U14 HD") so we leave them untouched
+ * regardless of how their distinction tokens decompose.
+ *
  * Falls back to team_name when club_name is missing.
  */
 export function composeTeamDisplay(team: {
@@ -125,6 +130,7 @@ export function composeTeamDisplay(team: {
   age?: number | null;
 }): string {
   if (!team.club_name) return team.team_name;
+  if (team.league && team.league.startsWith('MLS_NEXT')) return team.team_name;
   const parts: string[] = [abbreviateClubName(team.club_name)];
   const league = formatLeague(team.league);
   if (league) parts.push(league);
