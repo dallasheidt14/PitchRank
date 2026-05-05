@@ -298,7 +298,14 @@ RETURNS TABLE (
         LEFT JOIN current_rankings cr ON t.team_id_master = cr.team_id
         CROSS JOIN gender_norm gn
         WHERE rf.state_code = UPPER(p_state)
-          AND rf.age_group = p_age
+          AND (
+              CASE
+                  WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
+                  WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
+                  WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
+                  ELSE NULL
+              END
+          ) = p_age::INTEGER
           AND rf.gender = gn.gender_val
           AND rf.status IN ('Active', 'Not Enough Ranked Games')
           AND t.is_deprecated IS NOT TRUE
