@@ -2,6 +2,10 @@
 -- so the rankings table UI can compose a clean display name from
 -- (club_name, age, league, distinction) instead of the messy raw team_name.
 
+-- DROP first because CREATE OR REPLACE cannot change a function's return columns.
+DROP FUNCTION IF EXISTS get_national_rankings(TEXT, TEXT, INT, INT);
+DROP FUNCTION IF EXISTS get_state_rankings(TEXT, TEXT, TEXT, INT, INT);
+
 CREATE OR REPLACE FUNCTION get_national_rankings(
     p_age TEXT DEFAULT '',
     p_gender TEXT DEFAULT '',
