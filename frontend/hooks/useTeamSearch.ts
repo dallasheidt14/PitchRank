@@ -26,7 +26,7 @@ async function fetchModular11TeamIds(supabase: ReturnType<typeof createClientSup
   let offset = 0;
   // Fetch all team_id_masters that have a Modular 11 (MLS Next) provider alias.
   // Used to suppress composeTeamDisplay for those teams — their team_name is already clean.
-   
+
   while (true) {
     const { data, error } = await supabase
       .from('team_alias_map')

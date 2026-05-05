@@ -120,6 +120,9 @@ function createMockSupabase() {
       case 'rankings_full':
       case 'team_predictive_view':
         return { data: null, error: null };
+      case 'team_alias_map':
+        // No modular11 alias for the test fixtures.
+        return { data: [], error: null };
       case 'games':
         return {
           data: [
@@ -165,6 +168,7 @@ function createMockSupabase() {
         return builder;
       }),
       order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn(async () => resolveQuery(state)),
       then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
         Promise.resolve(resolveQuery(state)).then(resolve, reject),
