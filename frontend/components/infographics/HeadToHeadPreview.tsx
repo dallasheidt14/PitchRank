@@ -6,6 +6,7 @@ import type { TeamWithRanking } from '@/lib/types';
 import type { RankingRow } from '@/types/RankingRow';
 import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface TeamCardProps {
   team: RankingRow;
@@ -53,7 +54,7 @@ function TeamCard({ team, rank, side, rankSize, teamNameSize, smallTextSize, max
           whiteSpace: 'nowrap',
         }}
       >
-        {team.team_name}
+        {composeTeamDisplay(team)}
       </div>
       <div
         style={{

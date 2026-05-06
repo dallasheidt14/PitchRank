@@ -1,5 +1,6 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface RankingMoversOptions {
   climbers: Array<RankingRow & { change: number; rank?: number }>;
@@ -149,7 +150,7 @@ export async function renderRankingMoversToCanvas(options: RankingMoversOptions)
     ctx.fillStyle = BRAND_COLORS.brightWhite;
     ctx.font = `600 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
 
-    let name = team.team_name.toUpperCase();
+    let name = composeTeamDisplay(team).toUpperCase();
     const maxNameWidth = width - (textX - x) - 60;
     while (ctx.measureText(name).width > maxNameWidth && name.length > 8) {
       name = name.slice(0, -4) + '...';

@@ -24,6 +24,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
 import { AGE_GROUPS_ALL, formatGender } from '@/lib/constants';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface UnknownOpponentLinkProps {
   game: GameWithTeams;
@@ -240,7 +241,7 @@ export function UnknownOpponentLink({
 
   const handleSelectTeam = (team: RankingRow) => {
     setSelectedTeam(team);
-    setSearchQuery(team.team_name);
+    setSearchQuery(composeTeamDisplay(team));
     setIsSearchOpen(false);
     setSelectedIndex(0);
   };
@@ -533,29 +534,32 @@ export function UnknownOpponentLink({
                         </div>
                       ) : (
                         <div className="space-y-1">
-                          {filteredTeams.map((team, index) => (
-                            <button
-                              key={team.team_id_master}
-                              onClick={() => handleSelectTeam(team)}
-                              className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                                index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                              }`}
-                              aria-label={`Select ${team.team_name}`}
-                            >
-                              <div className="font-medium">{highlightMatch(team.team_name, deferredSearchQuery)}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
-                                {team.state && (
-                                  <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>
-                                )}
-                                {team.age != null && team.gender && (
-                                  <span className={team.club_name || team.state ? ' • ' : ''}>
-                                    U{team.age} {formatGender(team.gender)}
-                                  </span>
-                                )}
-                              </div>
-                            </button>
-                          ))}
+                          {filteredTeams.map((team, index) => {
+                            const displayName = composeTeamDisplay(team);
+                            return (
+                              <button
+                                key={team.team_id_master}
+                                onClick={() => handleSelectTeam(team)}
+                                className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                                  index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                                }`}
+                                aria-label={`Select ${displayName}`}
+                              >
+                                <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
+                                  {team.state && (
+                                    <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>
+                                  )}
+                                  {team.age != null && team.gender && (
+                                    <span className={team.club_name || team.state ? ' • ' : ''}>
+                                      U{team.age} {formatGender(team.gender)}
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </CardContent>
@@ -672,7 +676,7 @@ export function UnknownOpponentLink({
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">{selectedTeam.team_name}</p>
+                  <p className="font-medium text-green-800 dark:text-green-200">{composeTeamDisplay(selectedTeam)}</p>
                   <p className="text-green-600 dark:text-green-300 text-xs">
                     {selectedTeam.club_name && `${selectedTeam.club_name} • `}
                     {selectedTeam.state?.toUpperCase()}
