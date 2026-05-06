@@ -1,5 +1,6 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface StateChampionsOptions {
   champions: Array<{ state: string; team: RankingRow }>;
@@ -150,7 +151,7 @@ export async function renderStateChampionsToCanvas(options: StateChampionsOption
     // Team name (truncated)
     ctx.fillStyle = BRAND_COLORS.brightWhite;
     ctx.font = `600 ${teamNameSize}px "DM Sans", Arial, sans-serif`;
-    let teamName = champ.team.team_name.toUpperCase();
+    let teamName = composeTeamDisplay(champ.team).toUpperCase();
     const maxNameWidth = cardWidth - 20;
     while (ctx.measureText(teamName).width > maxNameWidth && teamName.length > 8) {
       teamName = teamName.slice(0, -4) + '...';
