@@ -103,7 +103,9 @@ Each unit has one clear job:
 
 ## API: `POST /api/feedback`
 
-### Request body (zod schema)
+### Request body shape
+
+Validation is manual (mirroring `app/api/newsletter/route.ts`); zod is not installed in this project and we won't add it for one route.
 
 ```ts
 {
@@ -125,7 +127,7 @@ Each unit has one clear job:
 ### Flow
 
 1. Parse JSON via `parseJsonBody` helper. Bad JSON → 400.
-2. zod-validate. Validation fail → 400 with field-level errors.
+2. Validate fields manually (presence, type, length, email regex matching the project's existing pattern). Validation fail → 400 with a single `error` string.
 3. **Honeypot check.** If `website` is non-empty → return 200 `{ ok: true }` *without sending* (silent reject so bots don't learn).
 4. **Min-time floor.** If `submittedAt - openedAt < 2000ms` → return 200 `{ ok: true }` without sending. Same silent-reject rationale. Both timestamps are client-clock; the *delta* is meaningful even under clock skew, so the server uses the client values as-given for this check (it does not substitute its own clock).
 5. **Identify caller.** Try `getUser()` from server Supabase client. If session present, capture `user.id` + `user.email` from the *server-side*, not the client body (never trust client identity).
@@ -142,7 +144,7 @@ Each unit has one clear job:
 ### Response shapes
 
 - **200** `{ ok: true }` — success, honeypot reject, or min-time reject.
-- **400** `{ error: 'validation', details: <zod field map> }`
+- **400** `{ error: <human-readable string, e.g. "Message must be at least 10 characters"> }`
 - **429** `{ error: 'rate_limited' }` + `Retry-After` header
 - **502** `{ error: 'send_failed' }`
 
