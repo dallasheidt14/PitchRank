@@ -12,7 +12,7 @@ export function StructuredData() {
     '@type': 'Organization',
     name: 'PitchRank',
     url: BASE_URL,
-    logo: `${BASE_URL}/logos/pitchrank-logo-dark.png`,
+    logo: `${BASE_URL}/logos/icon-512.png`,
     description: 'Data-powered youth soccer team rankings and performance analytics',
     sameAs: PITCHRANK_SAMEAS,
     contactPoint: {
