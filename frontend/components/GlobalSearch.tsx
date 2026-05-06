@@ -235,31 +235,38 @@ export function GlobalSearch() {
               </div>
             ) : (
               <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
-                {searchResults.map((team, index) => (
-                  <button
-                    key={team.team_id_master}
-                    role="option"
-                    aria-selected={index === selectedIndex}
-                    onClick={() => handleSelect(team)}
-                    className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
-                      index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                    }`}
-                    aria-label={`Select ${composeTeamDisplay(team)}`}
-                  >
-                    <div className="font-medium truncate">
-                      {highlightMatch(composeTeamDisplay(team), deferredSearchQuery)}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {team.state && <span>{team.state.toUpperCase()}</span>}
-                      {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
-                      {team.age != null && team.gender && (
-                        <span className={team.state || team.rank_in_cohort_final ? ' • ' : ''}>
-                          {formatGender(team.gender)}
-                        </span>
+                {searchResults.map((team, index) => {
+                  const composed = composeTeamDisplay(team);
+                  const showRawName = !!team.team_name && team.team_name !== composed;
+                  return (
+                    <button
+                      key={team.team_id_master}
+                      role="option"
+                      aria-selected={index === selectedIndex}
+                      onClick={() => handleSelect(team)}
+                      className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
+                        index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                      }`}
+                      aria-label={`Select ${composed}${showRawName ? ` (${team.team_name})` : ''}`}
+                    >
+                      <div className="font-medium truncate">{highlightMatch(composed, deferredSearchQuery)}</div>
+                      {showRawName && (
+                        <div className="text-xs text-muted-foreground truncate">
+                          {highlightMatch(team.team_name, deferredSearchQuery)}
+                        </div>
                       )}
-                    </div>
-                  </button>
-                ))}
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {team.state && <span>{team.state.toUpperCase()}</span>}
+                        {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
+                        {team.age != null && team.gender && (
+                          <span className={team.state || team.rank_in_cohort_final ? ' • ' : ''}>
+                            U{team.age} {formatGender(team.gender)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </CardContent>
