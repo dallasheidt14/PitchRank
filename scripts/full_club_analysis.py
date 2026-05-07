@@ -926,7 +926,8 @@ def generate_sql(all_fixes):
                 )
             else:
                 lines.append(
-                    f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' AND state_code = '{state}';"
+                    f"UPDATE teams SET club_name = '{to_esc}' "
+                    f"WHERE club_name = '{from_esc}' AND state_code = '{state}';"
                 )
             lines.append("")
         lines.append("")

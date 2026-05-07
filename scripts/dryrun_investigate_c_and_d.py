@@ -25,7 +25,6 @@ import csv
 import os
 import re
 import sys
-from datetime import date
 
 from dotenv import load_dotenv
 
@@ -34,7 +33,6 @@ load_dotenv("C:/PitchRank/.env")
 
 sys.path.insert(0, "C:/PitchRank")
 from src.utils.team_utils import calculate_age_group_from_birth_year  # noqa: E402
-
 from supabase import create_client  # noqa: E402
 
 # Recognized league markers (string patterns). Map to the canonical
@@ -187,13 +185,13 @@ def main():
         for row in age_misclass:
             w.writerow(row)
 
-    print(f"\n=== (c) AGE-GROUP MISCLASSIFICATION ===")
+    print("\n=== (c) AGE-GROUP MISCLASSIFICATION ===")
     print(f"  Live teams with year-in-name not matching stored age: {len(age_misclass):,}")
     print(f"  → CSV: {out_path}")
-    print(f"\n  Top 15 clubs by misclass count:")
+    print("\n  Top 15 clubs by misclass count:")
     for club, n in age_misclass_by_club.most_common(15):
         print(f"    {n:>4}  {club}")
-    print(f"\n  Sample 12 misclassified teams:")
+    print("\n  Sample 12 misclassified teams:")
     for row in age_misclass[:12]:
         print(f"    [{row['stored_age']!s:>4} → {row['suggested_age']!s:>4}]  "
               f"club={row['club_name']!r:30.30}  name={row['team_name']!r}")
@@ -259,24 +257,24 @@ def main():
         for row in missing_league:
             w.writerow(row)
 
-    print(f"\n=== (d) MISSING LEAGUE ===")
+    print("\n=== (d) MISSING LEAGUE ===")
     print(f"  Live teams with league marker in name but `league` IS NULL: {len(missing_league):,}")
     print(f"  → CSV: {out_path2}")
-    print(f"\n  Suggested league distribution:")
+    print("\n  Suggested league distribution:")
     for lg, n in by_league.most_common():
         print(f"    {lg:>15}  {n:>6,}")
-    print(f"\n  Top 15 clubs by missing-league count:")
+    print("\n  Top 15 clubs by missing-league count:")
     for club, n in by_club.most_common(15):
         print(f"    {n:>4}  {club}")
-    print(f"\n  Sample 12 missing-league teams:")
+    print("\n  Sample 12 missing-league teams:")
     for row in missing_league[:12]:
         print(f"    [→ {row['suggested_league']:>11}]  "
               f"club={row['club_name']!r:30.30}  name={row['team_name']!r}")
 
-    print(f"\n=== (d-extra) LEAGUE MISMATCH (stored vs name) ===")
+    print("\n=== (d-extra) LEAGUE MISMATCH (stored vs name) ===")
     print(f"  Live teams where stored league differs from name marker: {len(league_mismatch):,}")
     if league_mismatch[:8]:
-        print(f"  Sample 8:")
+        print("  Sample 8:")
         for row in league_mismatch[:8]:
             print(f"    stored={row['stored_league']:>11}  markers={row['markers_in_name']:<25}  "
                   f"name={row['team_name']!r}")
