@@ -20,7 +20,6 @@ export interface FeedbackContext {
   userAgent?: string;
   viewport?: { w: number; h: number };
   submittedAt: string;
-  openedAt: string;
 }
 
 export interface SendFeedbackEmailInput {
@@ -57,7 +56,6 @@ function buildFromLine(identity: FeedbackIdentity): string {
 }
 
 function pickReplyTo(identity: FeedbackIdentity): string | undefined {
-  if (identity.kind === 'signed-in') return identity.email;
   return identity.email;
 }
 
