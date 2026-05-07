@@ -37,8 +37,6 @@ try:
     )
     from src.utils.team_name_utils import (
         extract_distinctions,
-    )
-    from src.utils.team_name_utils import (
         resolve_distinction,
     )
     from src.utils.team_name_utils import (

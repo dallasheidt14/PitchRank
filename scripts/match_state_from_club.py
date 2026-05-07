@@ -289,7 +289,10 @@ def main(dry_run=False, auto_yes=False):
             skipped_generic += 1
             continue
         first_word_index[first].append((norm, state_code))
-    print(f"  Fuzzy index: {sum(len(v) for v in first_word_index.values())} candidates ({skipped_generic} generic-prefix anchors excluded)")
+    print(
+        f"  Fuzzy index: {sum(len(v) for v in first_word_index.values())} candidates "
+        f"({skipped_generic} generic-prefix anchors excluded)"
+    )
 
     print()
 
