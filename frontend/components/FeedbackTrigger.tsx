@@ -26,7 +26,6 @@ export function FeedbackTrigger() {
         title="Something seems off?"
         onClick={() => setOpen(true)}
         data-testid="feedback-trigger"
-        className="min-w-[44px] min-h-[44px]"
       >
         <HelpCircle className="h-5 w-5" />
       </Button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser } from '@/hooks/useUser';
 
@@ -36,6 +37,9 @@ const PLACEHOLDERS: Record<Category, string> = {
 
 const MIN_MESSAGE = 10;
 const MAX_MESSAGE = 2000;
+
+const TEXTAREA_CLASSES =
+  'flex w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
 
 interface FeedbackModalProps {
   open: boolean;
@@ -103,10 +107,6 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
       }
 
       setStatus('success');
-      setCategory('');
-      setMessage('');
-      setEmail('');
-      setWebsite('');
     } catch {
       setStatus('error');
     }
@@ -140,9 +140,7 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
       )}
 
       <div className="space-y-1.5">
-        <label htmlFor="feedback-category" className="text-sm font-medium">
-          Category
-        </label>
+        <Label htmlFor="feedback-category">Category</Label>
         <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
           <SelectTrigger id="feedback-category" data-testid="feedback-category">
             <SelectValue placeholder="Select one…" />
@@ -158,19 +156,16 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
       </div>
 
       <div className="space-y-1.5">
-        <label htmlFor="feedback-message" className="text-sm font-medium">
-          What&apos;s happening?
-        </label>
+        <Label htmlFor="feedback-message">What&apos;s happening?</Label>
         <textarea
           id="feedback-message"
           data-testid="feedback-message"
-          className="flex w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className={TEXTAREA_CLASSES}
           placeholder={placeholder}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows={5}
           maxLength={MAX_MESSAGE}
-          autoFocus
         />
         <p className="text-xs text-muted-foreground">
           {message.trim().length} / {MAX_MESSAGE}
@@ -179,9 +174,9 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
 
       {!hasUser && (
         <div className="space-y-1.5">
-          <label htmlFor="feedback-email" className="text-sm font-medium">
+          <Label htmlFor="feedback-email">
             Email <span className="text-muted-foreground font-normal">(optional)</span>
-          </label>
+          </Label>
           <Input
             id="feedback-email"
             data-testid="feedback-email"
@@ -199,7 +194,6 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
 
       {/* Honeypot — must remain hidden and not focusable */}
       <div
-        aria-hidden="true"
         style={{
           position: 'absolute',
           left: '-9999px',
@@ -222,7 +216,7 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
       </div>
 
       <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
         <Button type="submit" disabled={!canSubmit || status === 'submitting'} data-testid="feedback-submit">
@@ -257,6 +251,8 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
 
   const formKey = `${pathname ?? ''}:${openCount}`;
 
+  const onClose = useCallback(() => onOpenChange(false), [onOpenChange]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]" data-testid="feedback-modal">
@@ -265,7 +261,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           <DialogDescription>Tell us what you&apos;re seeing — we read every report.</DialogDescription>
         </DialogHeader>
 
-        <FeedbackForm key={formKey} pathname={pathname ?? ''} hasUser={!!user} onClose={() => onOpenChange(false)} />
+        <FeedbackForm key={formKey} pathname={pathname ?? ''} hasUser={!!user} onClose={onClose} />
       </DialogContent>
     </Dialog>
   );
