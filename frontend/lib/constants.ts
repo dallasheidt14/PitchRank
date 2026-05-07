@@ -66,6 +66,50 @@ export const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pitchra
  */
 export const BASE_URL_WWW = BASE_URL.includes('://www.') ? BASE_URL : BASE_URL.replace('https://', 'https://www.');
 
+// --- Brand / Author ---
+
+/** Canonical site path for the PitchRank Team author entity. */
+export const PITCHRANK_TEAM_AUTHOR_PATH = '/authors/pitchrank-team' as const;
+
+/**
+ * External profiles linked from PitchRank's Schema.org Organization entities.
+ * Shared by the homepage Organization (StructuredData.tsx) and the PitchRank Team
+ * author entity (PITCHRANK_TEAM_AUTHOR) so both stay in sync.
+ */
+export const PITCHRANK_SAMEAS = [
+  'https://twitter.com/pitchrank',
+  'https://instagram.com/pitchrank',
+  'https://facebook.com/pitchrank',
+  'https://linkedin.com/company/pitchrank',
+] as const;
+
+/**
+ * Author entity for PitchRank-published content. Used as the JSON-LD `author`
+ * value in BlogPosting and Article schemas, and as the self-referential
+ * Organization schema rendered on PITCHRANK_TEAM_AUTHOR_PATH.
+ */
+export const PITCHRANK_TEAM_AUTHOR = {
+  '@type': 'Organization',
+  '@id': `${BASE_URL}${PITCHRANK_TEAM_AUTHOR_PATH}`,
+  name: 'PitchRank Team',
+  url: `${BASE_URL}${PITCHRANK_TEAM_AUTHOR_PATH}`,
+  sameAs: PITCHRANK_SAMEAS,
+} as const;
+
+/**
+ * Publisher entity used inside Article / BlogPosting schemas.
+ * Logo is a square raster (512×512 PNG); Google's structured-data spec rejects
+ * SVG / vector logos for `publisher.logo` on Article schemas.
+ */
+export const PITCHRANK_PUBLISHER = {
+  '@type': 'Organization',
+  name: 'PitchRank',
+  logo: {
+    '@type': 'ImageObject',
+    url: `${BASE_URL}/logos/icon-512.png`,
+  },
+} as const;
+
 // --- Age Groups ---
 
 /** Standard ranked age groups (excludes u18 which has no rankings cohort). */

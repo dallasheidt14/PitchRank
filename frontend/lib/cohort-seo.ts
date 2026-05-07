@@ -109,7 +109,7 @@ export function computeCohortModules(
  * States that have a pillar blog post.
  * Returns the blog slug and display title, or null if no pillar exists.
  */
-const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
+export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
   az: { slug: 'arizona-youth-soccer-rankings-guide', title: 'Arizona Youth Soccer Rankings Guide' },
   ca: { slug: 'california-youth-soccer-rankings-guide', title: 'California Youth Soccer Rankings Guide' },
   co: { slug: 'colorado-youth-soccer-rankings-guide', title: 'Colorado Youth Soccer Rankings Guide' },
