@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Menu, X, Star, User, LogOut, LogIn } from 'lucide-react';
 import { GlobalSearch } from './GlobalSearch';
+import { FeedbackTrigger } from './FeedbackTrigger';
 import { Button } from './ui/button';
 import { useUser } from '@/hooks/useUser';
 
@@ -114,6 +115,8 @@ export function Navigation() {
             Blog
           </Link>
 
+          <FeedbackTrigger />
+
           {/* Auth Section */}
           {!isLoading && (
             <>
@@ -146,11 +149,12 @@ export function Navigation() {
           )}
         </nav>
 
-        {/* Mobile: Search + Menu Button */}
+        {/* Mobile: Search + Feedback + Menu Button */}
         <div className="flex lg:hidden items-center gap-2 sm:gap-3">
           <div className="flex-1 min-w-0">
             <GlobalSearch />
           </div>
+          <FeedbackTrigger />
           <Button
             variant="ghost"
             size="icon"
