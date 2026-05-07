@@ -62,6 +62,10 @@ export async function POST(request: NextRequest) {
     if (parsed.error) return parsed.error;
     const body = parsed.data;
 
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return bad('Invalid request body');
+    }
+
     // Honeypot — silent accept, do not send.
     if (typeof body.website === 'string' && body.website.length > 0) {
       return NextResponse.json({ ok: true });
@@ -117,9 +121,17 @@ export async function POST(request: NextRequest) {
     const { data: userResult } = await supabase.auth.getUser();
     const sessionUser = userResult?.user ?? null;
 
-    const identity: FeedbackIdentity = sessionUser?.email
-      ? { kind: 'signed-in', userId: sessionUser.id, email: sessionUser.email }
-      : { kind: 'anonymous', ...(anonymousEmail ? { email: anonymousEmail } : {}) };
+    let identity: FeedbackIdentity;
+    if (sessionUser?.email) {
+      identity = { kind: 'signed-in', userId: sessionUser.id, email: sessionUser.email };
+    } else {
+      if (sessionUser) {
+        console.warn('[feedback] signed-in user has no email; treating as anonymous', {
+          userId: sessionUser.id,
+        });
+      }
+      identity = { kind: 'anonymous', ...(anonymousEmail ? { email: anonymousEmail } : {}) };
+    }
 
     // Optional context fields (typed as unknown above; coerce safely)
     const referrer = isStringWithLen(ctx.referrer, 0, MAX_TEXT_FIELD) ? ctx.referrer : undefined;
@@ -160,6 +172,7 @@ export async function POST(request: NextRequest) {
         scope: 'feedback',
         category,
         identity: identity.kind === 'signed-in' ? identity.userId : 'anonymous',
+        sessionUserId: sessionUser?.id ?? null,
         pathname: ctx.pathname,
         outcome: 'sent',
       })

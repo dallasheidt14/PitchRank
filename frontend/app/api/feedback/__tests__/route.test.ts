@@ -166,4 +166,99 @@ describe('POST /api/feedback', () => {
     await POST(makeRequest(validBody));
     expect(mockSendFeedback.mock.calls[0][0].ipMasked).toBe('203.0.113.x');
   });
+
+  it('400 when the JSON body is literal null', async () => {
+    const req = new Request('http://localhost/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '203.0.113.42' },
+      body: 'null',
+    }) as NextRequest;
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(mockSendFeedback).not.toHaveBeenCalled();
+  });
+
+  it('400 when context.pathname is missing', async () => {
+    const res = await POST(
+      makeRequest({
+        ...validBody,
+        context: { openedAt: VALID_OPENED, submittedAt: VALID_SUBMITTED },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(mockSendFeedback).not.toHaveBeenCalled();
+  });
+
+  it('400 when timestamps fail to parse', async () => {
+    const res = await POST(
+      makeRequest({
+        ...validBody,
+        context: {
+          pathname: '/teams/abc',
+          openedAt: 'not-a-date',
+          submittedAt: 'also-not-a-date',
+        },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(mockSendFeedback).not.toHaveBeenCalled();
+  });
+
+  it('500 when the Supabase auth lookup throws', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockRejectedValue(new Error('supabase unreachable'));
+    const res = await POST(makeRequest(validBody));
+    expect(res.status).toBe(500);
+    expect(mockSendFeedback).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('masks IPv6 addresses by dropping the last segment', async () => {
+    const req = new Request('http://localhost/api/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '2001:db8:abcd:1234:5678:9abc:def0:1111',
+      },
+      body: JSON.stringify(validBody),
+    }) as NextRequest;
+    await POST(req);
+    expect(mockSendFeedback).toHaveBeenCalled();
+    const masked = mockSendFeedback.mock.calls[0][0].ipMasked;
+    // Last segment replaced with 'x'.
+    expect(masked.endsWith(':x')).toBe(true);
+    expect(masked.startsWith('2001:db8:')).toBe(true);
+  });
+
+  it('returns "masked" for IPs that are neither IPv4 nor IPv6', async () => {
+    const req = new Request('http://localhost/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': 'garbage' },
+      body: JSON.stringify(validBody),
+    }) as NextRequest;
+    await POST(req);
+    expect(mockSendFeedback.mock.calls[0][0].ipMasked).toBe('masked');
+  });
+
+  it('demotes signed-in user with null email to anonymous and warns', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-no-email', email: null } },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({ ...validBody, email: 'fallback@example.com' }));
+
+    expect(res.status).toBe(200);
+    expect(mockSendFeedback).toHaveBeenCalledOnce();
+    expect(mockSendFeedback.mock.calls[0][0].identity).toEqual({
+      kind: 'anonymous',
+      email: 'fallback@example.com',
+    });
+    expect(warnSpy).toHaveBeenCalledWith('[feedback] signed-in user has no email; treating as anonymous', {
+      userId: 'user-no-email',
+    });
+
+    warnSpy.mockRestore();
+  });
 });
