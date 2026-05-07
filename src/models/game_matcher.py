@@ -648,6 +648,14 @@ class GameHistoryMatcher:
                 team1_id=home_provider_id,
                 team2_id=away_provider_id,
             )
+            # Bracket play in PlayMetrics tournaments routinely has the same two
+            # teams playing twice on one day (pool + final, or consolation). PM
+            # gives a unique schedule_id per match, so suffixing the game_uid
+            # with it disambiguates rematches that would otherwise collapse
+            # under the symmetric (provider, date, team1, team2) key. Mirrors
+            # Modular11's :age_group:division suffix at enhanced_pipeline.py:811.
+            if provider_code == "playmetrics_tournament" and game_data.get("schedule_id"):
+                game_uid = f"{game_uid}:{game_data['schedule_id']}"
         else:
             game_uid = game_data.get("game_uid")
 

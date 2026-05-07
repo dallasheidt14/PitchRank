@@ -510,6 +510,17 @@ class EnhancedETLPipeline:
                                 team1_id=home_team_id,
                                 team2_id=away_team_id,
                             )
+                            # Preserve the schedule_id suffix added in
+                            # _validate_games for tournament rematches; without
+                            # this re-append, the master-ID regen strips it and
+                            # collapses both rematches back into one game_uid.
+                            if (
+                                self.provider_code
+                                and self.provider_code.lower() == "playmetrics_tournament"
+                            ):
+                                schedule_id_suffix = (matched_game.get("schedule_id") or "").strip()
+                                if schedule_id_suffix:
+                                    master_game_uid = f"{master_game_uid}:{schedule_id_suffix}"
                             old_uid = matched_game.get("game_uid", "")
                             if master_game_uid != old_uid:
                                 logger.debug(
@@ -1093,6 +1104,19 @@ class EnhancedETLPipeline:
                     f"{sorted_teams[0]}:{sorted_teams[1]}:"
                     f"{age_group_key}:{division_key}"
                 )
+            elif provider_code and provider_code.lower() == "playmetrics_tournament":
+                # Bracket play has same teams playing twice on one day (pool +
+                # final / consolation). PM gives a unique schedule_id per match;
+                # without it in the key, rematches collapse to one. Mirror of
+                # the Modular11 branch above.
+                schedule_id_key = (game.get("schedule_id") or "").strip()
+                if schedule_id_key:
+                    game_key = (
+                        f"{provider_code}:{game_date_normalized}:"
+                        f"{sorted_teams[0]}:{sorted_teams[1]}:{schedule_id_key}"
+                    )
+                else:
+                    game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
             else:
                 game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
 
@@ -1115,6 +1139,13 @@ class EnhancedETLPipeline:
                 team1_id=sorted_teams[0],
                 team2_id=sorted_teams[1],
             )
+            # Suffix the persistent game_uid with the same field that
+            # disambiguates the dedup key above, so DB-side dedup matches
+            # batch-side dedup.
+            if provider_code and provider_code.lower() == "playmetrics_tournament":
+                schedule_id_suffix = (game.get("schedule_id") or "").strip()
+                if schedule_id_suffix:
+                    game_uid = f"{game_uid}:{schedule_id_suffix}"
             transformed_game["game_uid"] = game_uid
             transformed_game["game_date"] = game_date_normalized
 
