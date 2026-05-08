@@ -249,7 +249,10 @@ class EnhancedETLPipeline:
 
             logger.info("Using SquadiGameMatcher (NJ-scoped fuzzy + auto-create)")
             self.matcher = SquadiGameMatcher(
-                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
             )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")

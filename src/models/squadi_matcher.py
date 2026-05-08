@@ -43,9 +43,15 @@ class SquadiGameMatcher(GameHistoryMatcher):
     review-queue routing in the base class continues to behave the same way.
     """
 
-    def __init__(self, supabase, provider_id=None, alias_cache=None):
+    def __init__(self, supabase, provider_id=None, alias_cache=None, dry_run: bool = False):
         super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
         self.default_state_code = STATE_CODE
+        # Honor the pipeline's --dry-run flag: skip teams + alias writes when
+        # set, so a verification run never pollutes the production DB. The base
+        # ``GameHistoryMatcher`` does not own this gate, so the override is
+        # local to this subclass (and ``_create_alias`` is overridden below for
+        # the same reason).
+        self.dry_run = dry_run
         # Per-(state, age_group, gender) candidate cache for _fuzzy_match_team.
         # Without it, each unmatched team in a batch re-issues the same
         # ~200-500-row query for its bucket — dozens to thousands of identical
@@ -254,6 +260,39 @@ class SquadiGameMatcher(GameHistoryMatcher):
         self._candidate_cache[key] = data
         return data
 
+    def _create_alias(
+        self,
+        provider_id: str,
+        provider_team_id: Optional[str],
+        team_name: str,
+        team_id_master: str,
+        match_method: str,
+        confidence: float,
+        age_group: str,
+        gender: str,
+        review_status: str = "approved",
+    ):
+        """Skip DB writes in dry-run mode. Otherwise delegate to the base impl.
+
+        The base ``GameHistoryMatcher._create_alias`` writes unconditionally,
+        which pollutes the DB during dry-runs (550 alias rows landed in prod
+        on first try before this gate was added). This override preserves the
+        base contract on real runs by delegating, and short-circuits on dry-run.
+        """
+        if self.dry_run:
+            return
+        return super()._create_alias(
+            provider_id=provider_id,
+            provider_team_id=provider_team_id,
+            team_name=team_name,
+            team_id_master=team_id_master,
+            match_method=match_method,
+            confidence=confidence,
+            age_group=age_group,
+            gender=gender,
+            review_status=review_status,
+        )
+
     def _match_team(
         self,
         provider_id: str,
@@ -341,9 +380,22 @@ class SquadiGameMatcher(GameHistoryMatcher):
             except Exception:
                 pass
 
-        team_id_master = str(uuid.uuid4())
         age_group_normalized = age_group.lower() if age_group else age_group
         gender_normalized = self._normalize_gender(gender)
+
+        # Deterministic stub UUID for dry-runs — same inputs always yield the
+        # same ID so home + away perspectives within a batch resolve to one
+        # "team", and repeated dry-runs are idempotent. Real team_id_master
+        # uses uuid4 (random) per insert.
+        if self.dry_run:
+            team_id_master = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_DNS,
+                    f"squadi_dry_run|{provider_id}|{provider_team_id}|{team_name}|{age_group_normalized}|{gender_normalized}",
+                )
+            )
+        else:
+            team_id_master = str(uuid.uuid4())
 
         team_data = {
             "team_id_master": team_id_master,
@@ -359,9 +411,11 @@ class SquadiGameMatcher(GameHistoryMatcher):
         }
 
         try:
-            self.db.table("teams").insert(team_data).execute()
+            if not self.dry_run:
+                self.db.table("teams").insert(team_data).execute()
             # Keep the fuzzy-match candidate cache fresh so later rows in the same
-            # batch can match against the team we just created.
+            # batch can match against the team we just created. Cached during
+            # dry-runs too so the in-batch dedup works the same way.
             key = (STATE_CODE, age_group_normalized, gender_normalized)
             if key in self._candidate_cache:
                 self._candidate_cache[key].append({**team_data, "_distinctions": None})
