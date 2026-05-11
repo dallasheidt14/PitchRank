@@ -359,6 +359,10 @@ jobs:
           fi
 
           echo "Dispatching next chain link (chain_remaining=$NEXT_REMAINING)"
+          # --repo is required because this job has no checkout step; without
+          # it `gh` looks for a local git repo and exits with
+          # `fatal: not a git repository`.
           gh workflow run scrape-games.yml \
+            --repo "${GITHUB_REPOSITORY}" \
             --ref "${GITHUB_REF_NAME}" \
             -f chain_remaining="$NEXT_REMAINING"
