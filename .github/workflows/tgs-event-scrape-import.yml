@@ -1,28 +1,40 @@
 name: TGS Event Scrape and Import
 run-name: >-
   TGS Event Scrape ·
-  ${{ github.event_name == 'schedule' && '4050-4150 (scheduled)' || format('{0}-{1}', inputs.start_event, inputs.end_event) }}
+  ${{ github.event_name == 'schedule' && '3400-3550 (scheduled, chain start)' || format('{0}-{1}{2}', inputs.start_event, inputs.end_event, inputs.chain_next == true && ' (chain)' || '') }}
 
 on:
   schedule:
     # Run every Sunday at 11:30 PM Mountain Time
     # MST (UTC-7): 11:30 PM MST Sunday = 6:30 AM UTC Monday
     # MDT (UTC-6): 11:30 PM MDT Sunday = 5:30 AM UTC Monday
+    #
+    # Cron seeds the first chain link (3400-3550). Each successful run then
+    # auto-dispatches the next link via the "Dispatch next chain link" step
+    # in the finalize job. Chain: 3400-3550 → 3551-3700 → 3701-3850 →
+    # 3851-4000 → 4001-4150 → 4151-4300 → 4301-4600 (stop). Workflow-level
+    # concurrency (`tgs-event-scrape`, cancel-in-progress: false) queues each
+    # dispatched link behind the previous one so they run strictly serially.
     - cron: '30 6 * * 1'
   workflow_dispatch:
     inputs:
       start_event:
-        description: 'Starting event ID (default: 4050 for scheduled runs)'
+        description: 'Starting event ID (default: 3400 for scheduled runs)'
         required: false
         type: string
-        default: '4050'
+        default: '3400'
       end_event:
-        description: 'Ending event ID (default: 4150 for scheduled runs)'
+        description: 'Ending event ID (default: 3550 for scheduled runs)'
         required: false
         type: string
-        default: '4150'
+        default: '3550'
       skip_import:
         description: 'Skip import step (only scrape)'
+        required: false
+        type: boolean
+        default: false
+      chain_next:
+        description: 'Auto-dispatch the next chain link on success (cron sets this implicitly)'
         required: false
         type: boolean
         default: false
@@ -37,8 +49,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEFAULT_START_EVENT: '4050'
-  DEFAULT_END_EVENT: '4150'
+  DEFAULT_START_EVENT: '3400'
+  DEFAULT_END_EVENT: '3550'
   # Below this many events: keep single-shard behavior (matches the proven
   # scheduled-run path of ~100 events / ~40 min). At/above this: split into 5
   # parallel shards.
@@ -309,6 +321,13 @@ jobs:
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # `actions: write` lets the "Dispatch next chain link" step trigger this
+    # workflow's next link via `gh workflow run`. `contents: read` is the
+    # default we'd otherwise inherit; declared explicitly so adding the
+    # actions scope doesn't widen the rest of the token.
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -388,3 +407,44 @@ jobs:
           echo "Skip import:       ${SKIP_IMPORT}"
           echo "Any shard imported: ${ANY_IMPORTED:-false} (${IMPORTED_SHARDS:-0}/${SHARD_COUNT})"
           echo "Check the per-shard artifacts above for scraped data and logs."
+
+      - name: Dispatch next chain link
+        # Auto-chain controller. Fires only when:
+        #   (a) this run was the scheduled Sunday seed (event_name == 'schedule'),
+        #       OR an earlier link explicitly set chain_next=true; AND
+        #   (b) the scrape-and-import job succeeded for every shard.
+        # Manual one-off dispatches without chain_next stay non-chaining.
+        #
+        # The workflow-level concurrency group (tgs-event-scrape, cancel-in-progress: false)
+        # queues the next dispatched run behind this one, so links execute strictly
+        # serially — link N+1 will not start until link N's run is fully complete.
+        if: ${{ (github.event_name == 'schedule' || inputs.chain_next == true) && needs.scrape-and-import.result == 'success' }}
+        env:
+          GH_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          CURRENT_START: ${{ needs.prepare.outputs.start_event }}
+          CURRENT_END:   ${{ needs.prepare.outputs.end_event }}
+        run: |
+          # Chain lookup. Keep in sync with the comment block on the `schedule:` trigger.
+          case "${CURRENT_START}-${CURRENT_END}" in
+            "3400-3550") NEXT_START=3551; NEXT_END=3700 ;;
+            "3551-3700") NEXT_START=3701; NEXT_END=3850 ;;
+            "3701-3850") NEXT_START=3851; NEXT_END=4000 ;;
+            "3851-4000") NEXT_START=4001; NEXT_END=4150 ;;
+            "4001-4150") NEXT_START=4151; NEXT_END=4300 ;;
+            "4151-4300") NEXT_START=4301; NEXT_END=4600 ;;
+            "4301-4600")
+              echo "Range ${CURRENT_START}-${CURRENT_END} is the final chain link — chain complete."
+              exit 0
+              ;;
+            *)
+              echo "Range ${CURRENT_START}-${CURRENT_END} is not part of the chain — not dispatching."
+              exit 0
+              ;;
+          esac
+
+          echo "Dispatching next chain link: ${NEXT_START}-${NEXT_END}"
+          gh workflow run tgs-event-scrape-import.yml \
+            --ref "${GITHUB_REF_NAME}" \
+            -f start_event="${NEXT_START}" \
+            -f end_event="${NEXT_END}" \
+            -f chain_next=true
