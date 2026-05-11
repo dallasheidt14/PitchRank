@@ -210,6 +210,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'massachusetts-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Massachusetts youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Massachusetts teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,587+ Massachusetts teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Massachusetts?',
+      answer:
+        'Major Massachusetts youth soccer clubs include NEFC, FC Stars, IFA, Select, FC Boston Bolts, New England Surf, Seacoast United Massachusetts, Scorpions SC, and New England Force. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Massachusetts soccer rankings updated?',
+      answer:
+        'Massachusetts youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Massachusetts?',
+      answer:
+        'Massachusetts teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, EDP New England, and National League — plus state competition through MYSA premier divisions and the Massachusetts State Cup. The New England Revolution Academy is the top boys pathway in the region.',
+    },
+    {
+      question: 'How does Greater Boston compare to Western Massachusetts in rankings?',
+      answer:
+        'Greater Boston and MetroWest concentrate most of the state’s ECNL and MLS NEXT teams, anchored by NEFC, FC Stars, Select, and FC Boston Bolts. Central and Western Massachusetts clubs like New England Surf, New England Force, and Western United Pioneers FC compete strongly at ECNL Regional and NPL levels. Use PitchRank’s state filter to compare clubs across regions.',
+    },
+  ],
+
   'maryland-youth-soccer-rankings-guide': [
     {
       question: 'How are Maryland youth soccer teams ranked?',
@@ -502,6 +530,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How do Northern Virginia and Hampton Roads clubs compare?',
       answer:
         "Northern Virginia has the deepest competitive density, anchored by Arlington Soccer, Springfield SYC, Loudoun, McLean, and Alexandria SA — plus tight integration with the D.C. metro youth soccer market. Hampton Roads' Beach FC is the largest single club in the state and competes heavily within Tidewater plus showcases in NoVA and Richmond. Use PitchRank's state filter to compare clubs across regions.",
+    },
+  ],
+
+  'washington-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Washington youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Washington teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,574+ Washington teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Washington?',
+      answer:
+        'Major Washington youth soccer clubs include Eastside FC, Seattle United, Crossfire Premier, Seattle Celtic, Pacific Northwest SC, NPSA, Washington Premier FC, Spokane Shadow, and Washington East Surf. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Washington soccer rankings updated?',
+      answer:
+        'Washington youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Washington?',
+      answer:
+        'Washington teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Northwest, National League, and the Northwest Conference — plus state competition through WYS premier divisions and the Washington State Cup. The Seattle Sounders Academy is the top boys pathway in the region.',
+    },
+    {
+      question: 'How do Eastside and Eastern Washington clubs compare in rankings?',
+      answer:
+        'The Eastside and Seattle have the deepest competitive density, anchored by Eastside FC, Seattle United, Crossfire Premier, and Pacific Northwest SC, with year-round access to Sounders Academy pathways. Eastern Washington clubs like Spokane Shadow and Washington East Surf compete in a separate geographic ecosystem, often playing into Idaho and Montana more than across the Cascades. Use PitchRank’s state filter to compare clubs across regions.',
     },
   ],
 
