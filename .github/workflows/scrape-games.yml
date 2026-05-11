@@ -2,7 +2,7 @@ name: Scrape Games
 # Run title shown in the Actions list. Cleaner than the default (latest commit subject).
 run-name: >-
   Scrape Games · ${{
-    github.event_name == 'schedule' && '25000 (scheduled)' ||
+    github.event_name == 'schedule' && '70000 (scheduled, full sweep)' ||
     (inputs.limit_teams != '' && format('{0} teams', inputs.limit_teams)) ||
     (inputs.null_teams_only == true && 'NULL bootstrap') ||
     (inputs.include_recent == true && 'include recent') ||
@@ -12,12 +12,15 @@ run-name: >-
 on:
   schedule:
     # Run 1: Every Sunday at 11:00 PM Mountain Time = Monday 6:00 AM UTC
-    # Scrapes first batch of 25,000 teams
+    # Scrapes first batch of 70,000 teams (14,000 per shard × 5 shards).
     - cron: '0 6 * * 1'
     # Run 2: Every Monday at 4:15 AM Mountain Time = Monday 11:15 AM UTC
     # MST (UTC-7): 4:15 AM MST = 11:15 AM UTC
     # MDT (UTC-6): 4:15 AM MDT = 10:15 AM UTC
-    # Scrapes second batch of 25,000 teams (different teams due to last_scraped_at filter)
+    # Scrapes second batch of 70,000 teams. Run 1 + Run 2 = 140K, enough to
+    # sweep the full ~137K gotsport pool weekly. Run 2 picks up the teams
+    # Run 1 didn't reach because the RPC orders by last_scraped_at ASC and
+    # Run 1's teams are now the freshest.
     - cron: '15 11 * * 1'
   workflow_dispatch:
     inputs:
@@ -197,8 +200,12 @@ jobs:
 
           LIMIT_FLAG=""
           if [ "$EVENT_NAME" = "schedule" ]; then
-            # Scheduled: 25000 teams total / 5 shards = 5000 per shard
-            LIMIT_FLAG="--limit-teams 5000"
+            # Scheduled: 70000 teams total / 5 shards = 14000 per shard.
+            # Two crons/week × 70K = 140K, enough to sweep the full ~137K
+            # gotsport team pool weekly with headroom. Per-shard wall clock
+            # at this size is ~75 min (5/4 baseline: 5K teams in 26 min →
+            # 14K teams in ~73 min), comfortably under the 120-min job timeout.
+            LIMIT_FLAG="--limit-teams 14000"
           elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]] && [ "$LIMIT_TEAMS" -ge 5000 ]; then
             LIMIT_FLAG="--limit-teams $(( LIMIT_TEAMS / 5 ))"
           elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]]; then
@@ -220,7 +227,15 @@ jobs:
             CMD="$CMD --since-date $SINCE_DATE"
           fi
 
-          if [ "$INCLUDE_RECENT" = "true" ]; then
+          # On schedule, always pass --include-recent so the 7-day staleness
+          # gate doesn't shadow teams scraped 6.x days ago by the previous
+          # Monday's cron. The RPC's `ORDER BY last_scraped_at ASC NULLS FIRST`
+          # combined with the 14000/shard cap already picks the oldest teams
+          # — the staleness filter is redundant under a hard limit and only
+          # introduces a boundary bug when cron drift puts the prior run's
+          # teams at "scraped 6 days 23 hr ago" instead of "7+ days ago".
+          # Manual runs respect the workflow_dispatch input as before.
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$INCLUDE_RECENT" = "true" ]; then
             CMD="$CMD --include-recent"
           fi
 
@@ -274,7 +289,7 @@ jobs:
           echo "Scrape shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT} completed"
           echo "===================="
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Teams limit: 5000 per shard × 5 shards = 25000 (scheduled run)"
+            echo "Teams limit: 14000 per shard × 5 shards = 70000 (scheduled run, --include-recent)"
           else
             echo "Teams limit input: ${{ inputs.limit_teams || 'empty (incremental mode)' }}"
           fi
