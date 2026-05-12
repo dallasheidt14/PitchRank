@@ -25,6 +25,7 @@ import type {
   SeasonTruthInsight,
   ConsistencyInsight,
   PersonaInsight,
+  FormBadgeInsight,
 } from '@/lib/insights/types';
 import Link from 'next/link';
 
@@ -78,6 +79,8 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
   const consistency = insights?.insights.find((i) => i.type === 'consistency_score') as ConsistencyInsight | undefined;
 
   const persona = insights?.insights.find((i) => i.type === 'persona') as PersonaInsight | undefined;
+
+  const formBadge = insights?.insights.find((i) => i.type === 'form_badge') as FormBadgeInsight | undefined;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -136,6 +139,24 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                       {(seasonTruth.details.playStyle === 'Balanced Squad' ||
                         seasonTruth.details.playStyle === 'Rebuilding') && <Target className="h-3 w-3" />}
                       {seasonTruth.details.playStyle}
+                    </span>
+                  )}
+                  {/* Form Badge — Surging / Slumping */}
+                  {formBadge && (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
+                        formBadge.label === 'Surging'
+                          ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
+                          : 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+                      )}
+                    >
+                      {formBadge.label === 'Surging' ? (
+                        <Flame className="h-3 w-3" />
+                      ) : (
+                        <Snowflake className="h-3 w-3" />
+                      )}
+                      {formBadge.label}
                     </span>
                   )}
                   {/* Current Streak Badge */}
@@ -337,6 +358,10 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                 </div>
 
                 <p className="text-foreground/90 leading-relaxed">{persona.explanation}</p>
+
+                {persona.details.trait && (
+                  <p className="text-sm text-foreground/70 italic mt-2">✨ {persona.details.trait}</p>
+                )}
 
                 {/* Signature Result */}
                 {persona.details.signatureResult && (
