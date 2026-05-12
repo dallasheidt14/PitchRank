@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore, composeTeamDisplay } from '@/lib/utils';
+import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -130,8 +130,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = getDisplayRank(b) ?? Infinity;
           break;
         case 'team':
-          aValue = composeTeamDisplay(a).toLowerCase();
-          bValue = composeTeamDisplay(b).toLowerCase();
+          aValue = a.team_name.toLowerCase();
+          bValue = b.team_name.toLowerCase();
           break;
         case 'powerScore':
           aValue = a.power_score_final ?? 0;
@@ -295,7 +295,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     .filter((team) => getDisplayRank(team) != null)
     .slice(0, 10)
     .map((team) => ({
-      teamName: composeTeamDisplay(team),
+      teamName: team.team_name,
       clubName: team.club_name ?? undefined,
       rank: getDisplayRank(team)!,
       powerScore: team.power_score_final ?? undefined,
@@ -515,7 +515,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
-                              {composeTeamDisplay(team)}
+                              {team.team_name}
                             </span>
                             {(team.club_name || team.state) && (
                               <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">

@@ -12,7 +12,6 @@ import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
 import { formatGender } from '@/lib/constants';
-import { composeTeamDisplay } from '@/lib/utils';
 
 /**
  * Escape special regex characters in a string
@@ -236,8 +235,6 @@ export function GlobalSearch() {
             ) : (
               <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
                 {searchResults.map((team, index) => {
-                  const composed = composeTeamDisplay(team);
-                  const showRawName = !!team.team_name && team.team_name !== composed;
                   return (
                     <button
                       key={team.team_id_master}
@@ -247,14 +244,9 @@ export function GlobalSearch() {
                       className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
                         index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                       }`}
-                      aria-label={`Select ${composed}${showRawName ? ` (${team.team_name})` : ''}`}
+                      aria-label={`Select ${team.team_name}`}
                     >
-                      <div className="font-medium truncate">{highlightMatch(composed, deferredSearchQuery)}</div>
-                      {showRawName && (
-                        <div className="text-xs text-muted-foreground truncate">
-                          {highlightMatch(team.team_name, deferredSearchQuery)}
-                        </div>
-                      )}
+                      <div className="font-medium truncate">{highlightMatch(team.team_name, deferredSearchQuery)}</div>
                       <div className="text-xs text-muted-foreground mt-1">
                         {team.state && <span>{team.state.toUpperCase()}</span>}
                         {team.rank_in_cohort_final && <span> • Rank #{team.rank_in_cohort_final}</span>}
