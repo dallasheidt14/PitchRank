@@ -24,6 +24,30 @@ def _compute_state_ranks(df: pd.DataFrame, active_mask: "pd.Series[bool]", score
     return active_subset.groupby(["state_code", "age_group", "gender"]).cumcount() + 1
 
 
+def _canonicalize_age_group(value) -> str:
+    """Coerce age_group to canonical 'u{N}' form. Returns '' for missing/unparseable input.
+
+    Upstream callers may pass numeric strings ("14"), capitalized ("U14"),
+    or the canonical form ("u14"); all flatten to "u14".
+    """
+    if pd.isna(value):
+        return ""
+    digits = "".join(ch for ch in str(value).strip().lower() if ch.isdigit())
+    return f"u{int(digits)}" if digits else ""
+
+
+def _apply_age_group_canonicalization(df: pd.DataFrame) -> None:
+    """Canonicalize df['age_group'] in place, deriving from 'age' when needed."""
+    if "age_group" in df.columns:
+        df["age_group"] = df["age_group"].apply(_canonicalize_age_group)
+        if "age" in df.columns:
+            empty = df["age_group"].eq("")
+            if empty.any():
+                df.loc[empty, "age_group"] = df.loc[empty, "age"].apply(_canonicalize_age_group)
+    elif "age" in df.columns:
+        df["age_group"] = df["age"].apply(_canonicalize_age_group)
+
+
 async def save_ranking_snapshot(
     supabase_client, rankings_df: pd.DataFrame, snapshot_date: Optional[date] = None
 ) -> int:
@@ -57,10 +81,11 @@ async def save_ranking_snapshot(
     # Make a copy to avoid modifying original DataFrame
     df = rankings_df.copy()
 
-    # Derive age_group from 'age' field if not already present
-    if "age_group" not in df.columns or df["age_group"].isna().all():
-        if "age" in df.columns:
-            df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
+    # Canonicalize age_group to 'u{N}' form before any downstream use.
+    # Upstream callers (e.g. Glicko engine) may set this to a bare numeric
+    # string ("14"); canonicalizing here keeps ranking_history consistent
+    # with rankings_full and the teams table.
+    _apply_age_group_canonicalization(df)
 
     # Calculate state ranks within each (state_code, age_group, gender) cohort
     # Only Active teams get state ranks — consistent with state_rankings_view
@@ -471,11 +496,8 @@ async def calculate_rank_changes(
     # This matches the logic in save_ranking_snapshot()
     has_state_data = "state_code" in current_rankings_df.columns and "power_score_final" in current_rankings_df.columns
     if has_state_data:
-        # Derive age_group from 'age' field if not already present
         df = current_rankings_df.copy()
-        if "age_group" not in df.columns or df["age_group"].isna().all():
-            if "age" in df.columns:
-                df["age_group"] = df["age"].apply(lambda x: f"u{int(float(x))}" if pd.notna(x) else "")
+        _apply_age_group_canonicalization(df)
 
         # Use power_score_final to match save_ranking_snapshot() — both must use
         # the same score column to avoid phantom rank changes
