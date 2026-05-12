@@ -19,85 +19,93 @@ import type { InsightInputData, ConsistencyInsight } from './types';
  */
 const GOAL_DIFF_CAP = 6;
 
-/**
- * Calculate standard deviation of goal differentials
- * Caps goal differential at ±6 to match v53e engine
- */
-function calculateGoalDiffStdDev(games: InsightInputData['games'], teamId: string): number {
-  const goalDiffs: number[] = [];
+/** Window of most-recent played games used for consistency inputs */
+const RECENCY_WINDOW = 15;
 
+/**
+ * Walk newest-first games and collect up to RECENCY_WINDOW played
+ * results (those with both scores present), capping goal diff at ±6.
+ */
+function extractRecentPlayedResults(
+  games: InsightInputData['games'],
+  teamId: string
+): Array<{ goalDiff: number; result: 'W' | 'L' | 'D' }> {
+  const out: Array<{ goalDiff: number; result: 'W' | 'L' | 'D' }> = [];
   for (const game of games) {
+    if (out.length >= RECENCY_WINDOW) break;
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;
-
-    if (teamScore !== null && oppScore !== null) {
-      // Cap goal differential to match v53e Layer 2
-      const rawDiff = teamScore - oppScore;
-      const cappedDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
-      goalDiffs.push(cappedDiff);
-    }
+    if (teamScore === null || oppScore === null) continue;
+    const rawDiff = teamScore - oppScore;
+    const goalDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
+    const result = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'D';
+    out.push({ goalDiff, result });
   }
+  return out;
+}
 
-  if (goalDiffs.length < 2) return 0;
-
+/**
+ * Calculate standard deviation of goal differentials over the pre-computed
+ * recency window. Caller is responsible for capping goal diffs.
+ */
+function calculateGoalDiffStdDev(recent: Array<{ goalDiff: number }>): number {
+  if (recent.length < 2) return 0;
+  const goalDiffs = recent.map((r) => r.goalDiff);
   const mean = goalDiffs.reduce((a, b) => a + b, 0) / goalDiffs.length;
   const variance = goalDiffs.reduce((sum, gd) => sum + Math.pow(gd - mean, 2), 0) / goalDiffs.length;
-
   return Math.sqrt(variance);
 }
 
 /**
- * Calculate streak fragmentation
- * Higher value = more fragmented (more result changes)
- * Returns value between 0 and 1
+ * Calculate streak fragmentation over the pre-computed recency window.
+ * Higher value = more fragmented (more result changes). Returns 0..1.
+ * Transition count is order-invariant.
  */
-function calculateStreakFragmentation(games: InsightInputData['games'], teamId: string): number {
-  const results: ('W' | 'L' | 'D')[] = [];
-
-  for (const game of games) {
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-
-    if (teamScore !== null && oppScore !== null) {
-      if (teamScore > oppScore) results.push('W');
-      else if (teamScore < oppScore) results.push('L');
-      else results.push('D');
-    }
-  }
-
-  if (results.length < 2) return 0;
-
-  // Count transitions between different results
+function calculateStreakFragmentation(recent: Array<{ result: 'W' | 'L' | 'D' }>): number {
+  if (recent.length < 2) return 0;
   let transitions = 0;
-  for (let i = 1; i < results.length; i++) {
-    if (results[i] !== results[i - 1]) {
-      transitions++;
-    }
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i].result !== recent[i - 1].result) transitions++;
   }
-
-  // Normalize: max transitions = results.length - 1
-  return transitions / (results.length - 1);
+  return transitions / (recent.length - 1);
 }
 
 /**
- * Calculate PowerScore volatility from ranking history
- * Returns coefficient of variation (std dev / mean)
+ * Calculate PowerScore volatility from ranking history.
+ *
+ * Returns stddev of residuals around the best-fit trend line, divided by
+ * the mean — so a team climbing the ranks linearly is NOT penalized for
+ * climbing. Only deviations from the trend count as volatility.
  */
 function calculatePowerScoreVolatility(rankingHistory: InsightInputData['rankingHistory']): number {
-  const scores = rankingHistory.map((h) => h.power_score_final).filter((s): s is number => s !== null);
+  const scoresNewestFirst = rankingHistory.map((h) => h.power_score_final).filter((s): s is number => s !== null);
 
-  if (scores.length < 2) return 0;
+  if (scoresNewestFirst.length < 4) return 0;
 
-  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
-  if (mean === 0) return 0;
+  // Reverse to chronological order so x=0..n-1 is oldest..newest.
+  const scores = scoresNewestFirst.slice().reverse();
+  const n = scores.length;
+  const xMean = (n - 1) / 2;
+  const yMean = scores.reduce((s, v) => s + v, 0) / n;
 
-  const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
-  const stdDev = Math.sqrt(variance);
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (i - xMean) * (scores[i] - yMean);
+    den += (i - xMean) ** 2;
+  }
+  const slope = den === 0 ? 0 : num / den;
+  const intercept = yMean - slope * xMean;
 
-  // Return coefficient of variation (CV)
-  return stdDev / mean;
+  let sumSq = 0;
+  for (let i = 0; i < n; i++) {
+    const predicted = intercept + slope * i;
+    sumSq += (scores[i] - predicted) ** 2;
+  }
+  const residualStdDev = Math.sqrt(sumSq / n);
+
+  return residualStdDev / Math.max(yMean, 0.01);
 }
 
 /**
@@ -134,7 +142,7 @@ function calculateConsistencyScore(
   // Shifted to center around typical values (0.4-0.6)
   const sfScore = Math.max(0, Math.min(100, 130 - streakFragmentation * 150));
 
-  // Power score volatility (coefficient of variation):
+  // Power score volatility (residual stddev / mean):
   // - Stable ranking (< 0.05): very consistent -> high score
   // - Volatile ranking (> 0.15): jumping around -> low score
   // If no history data (volatility = 0), use neutral 60
@@ -156,20 +164,6 @@ function getConsistencyLabel(score: number): ConsistencyInsight['label'] {
   return 'highly volatile';
 }
 
-/**
- * Count games with valid scores for a team
- */
-function countScoredGames(games: InsightInputData['games'], teamId: string): number {
-  let count = 0;
-  for (const game of games) {
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-    if (teamScore !== null && oppScore !== null) count++;
-  }
-  return count;
-}
-
 /** Minimum scored games required for a meaningful consistency score */
 const MIN_GAMES_FOR_CONSISTENCY = 3;
 
@@ -179,11 +173,11 @@ const MIN_GAMES_FOR_CONSISTENCY = 3;
 export function generateConsistencyScore(data: InsightInputData): ConsistencyInsight {
   const { team, games, rankingHistory } = data;
 
-  const scoredGames = countScoredGames(games, team.team_id_master);
+  const recent = extractRecentPlayedResults(games, team.team_id_master);
 
   // With fewer than 3 scored games, default to a neutral "unpredictable"
   // instead of inflating the score from near-zero variance
-  if (scoredGames < MIN_GAMES_FOR_CONSISTENCY) {
+  if (recent.length < MIN_GAMES_FOR_CONSISTENCY) {
     return {
       type: 'consistency_score',
       score: 50,
@@ -196,8 +190,8 @@ export function generateConsistencyScore(data: InsightInputData): ConsistencyIns
     };
   }
 
-  const goalDifferentialStdDev = calculateGoalDiffStdDev(games, team.team_id_master);
-  const streakFragmentation = calculateStreakFragmentation(games, team.team_id_master);
+  const goalDifferentialStdDev = calculateGoalDiffStdDev(recent);
+  const streakFragmentation = calculateStreakFragmentation(recent);
   const powerScoreVolatility = calculatePowerScoreVolatility(rankingHistory);
 
   const score = calculateConsistencyScore(goalDifferentialStdDev, streakFragmentation, powerScoreVolatility);
