@@ -203,7 +203,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         .select('team_id_master, power_score_final')
         .eq('age', ranking.age)
         .eq('gender', ranking.gender)
-        .eq('state_code', team.state_code)
+        .eq('state', team.state_code)
         .eq('status', 'Active')
         .order('power_score_final', { ascending: false });
 
