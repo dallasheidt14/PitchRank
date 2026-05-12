@@ -195,6 +195,28 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       }
     }
 
+    // State-cohort rank (for state-leaderboard persona trait)
+    let stateCohort: InsightInputData['stateCohort'] = null;
+    if (team.state_code && ranking?.age && ranking?.gender) {
+      const { data: stateCohortData, error: stateCohortError } = await supabase
+        .from('rankings_view')
+        .select('team_id_master, power_score_final')
+        .eq('age', ranking.age)
+        .eq('gender', ranking.gender)
+        .eq('state_code', team.state_code)
+        .eq('status', 'Active')
+        .order('power_score_final', { ascending: false });
+
+      if (!stateCohortError && stateCohortData && stateCohortData.length >= 5) {
+        const idx = (stateCohortData as Array<{ team_id_master: string }>).findIndex(
+          (r) => r.team_id_master === teamId
+        );
+        if (idx >= 0) {
+          stateCohort = { rank: idx + 1, totalTeams: stateCohortData.length };
+        }
+      }
+    }
+
     // Build insight input data
     const insightData: InsightInputData = {
       team: {
@@ -248,6 +270,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         power_score_final: h.power_score_final,
       })),
       cohortStats,
+      stateCohort,
     };
 
     // Generate insights
