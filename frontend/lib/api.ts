@@ -1201,6 +1201,11 @@ export const api = {
 
     if (!data || data.length === 0) return [];
 
+    // Exclude the Glicko-2 engine cutover window (Apr 1–10, 2026) — transient
+    // ranks during this period are noise from the engine swap, not real movement.
+    const ENGINE_CUTOVER_START = '2026-04-01';
+    const ENGINE_CUTOVER_END = '2026-04-10';
+
     // Filter to only Monday snapshots (day 1) and dedupe by week
     const seen = new Set<string>();
     const points: RankHistoryPoint[] = [];
@@ -1211,6 +1216,10 @@ export const api = {
       rank_in_cohort_ml: number | null;
       rank_in_cohort_final: number | null;
     }>) {
+      if (row.snapshot_date >= ENGINE_CUTOVER_START && row.snapshot_date <= ENGINE_CUTOVER_END) {
+        continue;
+      }
+
       // Find the Monday of this snapshot's week
       const d = new Date(row.snapshot_date + 'T00:00:00');
       const day = d.getUTCDay(); // 0=Sun, 1=Mon, ...
