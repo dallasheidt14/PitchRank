@@ -13,6 +13,7 @@
  * - Power score is the normalized metric v53e uses for team strength
  */
 
+import { formatGender } from '@/lib/constants';
 import type { InsightInputData, PersonaInsight } from './types';
 
 /**
@@ -149,6 +150,14 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   const hasEnoughTopGames = totalVsHigherRanked >= 2;
   const hasEnoughBottomGames = totalVsLowerRanked >= 2;
 
+  // Title Contender: handles both tiers — stricter than Giant Killer.
+  if (hasEnoughTopGames && hasEnoughBottomGames && winRateVsTop >= 0.4 && winRateVsBottom >= 0.75) {
+    return {
+      label: 'Title Contender',
+      explanation: `Won ${winsVsHigherRanked} of ${totalVsHigherRanked} vs stronger opponents AND ${winsVsLowerRanked} of ${totalVsLowerRanked} vs weaker (${Math.round(winRateVsBottom * 100)}%). This team handles every tier — the mark of a serious contender.`,
+    };
+  }
+
   // Giant Killer: Strong performance against stronger teams (40%+ win rate)
   if (hasEnoughTopGames && winRateVsTop >= 0.4 && winsVsHigherRanked >= 2) {
     return {
@@ -200,6 +209,148 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
 }
 
 /**
+ * Returns up to `limit` of the team's most impressive wins.
+ * Sorted by lowest opponent_rank first; ties broken by larger goal margin.
+ */
+export function findSignatureWins(
+  games: InsightInputData['games'],
+  teamId: string,
+  limit: number
+): Array<{ opponent_rank: number; teamScore: number; oppScore: number }> {
+  const wins: Array<{ opponent_rank: number; teamScore: number; oppScore: number }> = [];
+
+  for (const game of games) {
+    const isHome = game.home_team_master_id === teamId;
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+
+    if (teamScore === null || oppScore === null) continue;
+    if (teamScore <= oppScore) continue;
+    if (game.opponent_rank === null) continue;
+
+    wins.push({
+      opponent_rank: game.opponent_rank,
+      teamScore,
+      oppScore,
+    });
+  }
+
+  wins.sort((a, b) => {
+    if (a.opponent_rank !== b.opponent_rank) return a.opponent_rank - b.opponent_rank;
+    return b.teamScore - b.oppScore - (a.teamScore - a.oppScore);
+  });
+
+  return wins.slice(0, limit);
+}
+
+const GOAL_DIFF_CAP = 6;
+const TOP_OPP_RANK_SIGNATURE = 25;
+const TOP_OPP_RANK_BIG_GAME = 10;
+const MIN_STATE_COHORT_SIZE = 5;
+const STATE_LEADERBOARD_TOP_N = 5;
+const NATIONAL_TOP_PERCENTILE = 95; // i.e. percentile ≥ 95 → top 5% nationally
+const MIN_WINS_FOR_MARGIN = 6;
+
+function formatRankList(ranks: number[]): string {
+  if (ranks.length === 1) return `Beat #${ranks[0]} this season`;
+  if (ranks.length === 2) return `Beat #${ranks[0]} and #${ranks[1]} this season`;
+  const head = ranks
+    .slice(0, -1)
+    .map((r) => `#${r}`)
+    .join(', ');
+  return `Beat ${head}, and #${ranks[ranks.length - 1]} this season`;
+}
+
+/**
+ * Picks the single most distinguishing trait for this team.
+ * Priority order — first match wins:
+ *   1. Signature wins list (≥2 wins vs opponents ranked top 25)
+ *   2. Big-game record (≥3 games vs opponents ranked top 10)
+ *   3. State leaderboard (top 5 in state cohort, cohort ≥ MIN_STATE_COHORT_SIZE)
+ *   4. National percentile (cohortStats.percentile ≥ 95)
+ *   5. Margin profile (≥6 wins played, capped at +6 goals per game per v53e)
+ * Returns null when nothing qualifies.
+ */
+export function buildPersonaTrait(data: InsightInputData): string | null {
+  const { team, games, cohortStats, stateCohort } = data;
+
+  // 1. Signature wins list
+  const topWins: number[] = [];
+  for (const g of games) {
+    const isHome = g.home_team_master_id === team.team_id_master;
+    const ts = isHome ? g.home_score : g.away_score;
+    const os = isHome ? g.away_score : g.home_score;
+    if (ts === null || os === null) continue;
+    if (ts <= os) continue;
+    if (g.opponent_rank === null) continue;
+    if (g.opponent_rank > TOP_OPP_RANK_SIGNATURE) continue;
+    topWins.push(g.opponent_rank);
+  }
+  if (topWins.length >= 2) {
+    topWins.sort((a, b) => a - b);
+    return formatRankList(topWins.slice(0, 3));
+  }
+
+  // 2. Big-game record
+  let bigW = 0,
+    bigL = 0,
+    bigD = 0;
+  for (const g of games) {
+    const isHome = g.home_team_master_id === team.team_id_master;
+    const ts = isHome ? g.home_score : g.away_score;
+    const os = isHome ? g.away_score : g.home_score;
+    if (ts === null || os === null) continue;
+    if (g.opponent_rank === null || g.opponent_rank > TOP_OPP_RANK_BIG_GAME) continue;
+    if (ts > os) bigW++;
+    else if (ts < os) bigL++;
+    else bigD++;
+  }
+  if (bigW + bigL + bigD >= 3) {
+    const recordParts = [bigW, bigL];
+    if (bigD > 0) recordParts.push(bigD);
+    return `${recordParts.join('-')} vs top-10 opponents`;
+  }
+
+  // 3. State leaderboard
+  if (
+    stateCohort &&
+    stateCohort.totalTeams >= MIN_STATE_COHORT_SIZE &&
+    stateCohort.rank <= STATE_LEADERBOARD_TOP_N &&
+    team.state &&
+    team.age !== null
+  ) {
+    const genderLabel = formatGender(team.gender);
+    return `#${stateCohort.rank} in ${team.state} U${team.age} ${genderLabel}`;
+  }
+
+  // 4. National percentile
+  if (cohortStats.percentile >= NATIONAL_TOP_PERCENTILE && cohortStats.totalTeams > 0) {
+    const topPct = 100 - cohortStats.percentile;
+    return `Top ${topPct}% nationally`;
+  }
+
+  // 5. Margin profile (fallback)
+  let wins = 0;
+  let marginSum = 0;
+  for (const g of games) {
+    const isHome = g.home_team_master_id === team.team_id_master;
+    const ts = isHome ? g.home_score : g.away_score;
+    const os = isHome ? g.away_score : g.home_score;
+    if (ts === null || os === null) continue;
+    if (ts <= os) continue;
+    const margin = Math.min(GOAL_DIFF_CAP, ts - os);
+    wins++;
+    marginSum += margin;
+  }
+  if (wins >= MIN_WINS_FOR_MARGIN) {
+    const avg = (marginSum / wins).toFixed(1);
+    return `Wins by ${avg} goals on average`;
+  }
+
+  return null;
+}
+
+/**
  * Finds the most impressive win: highest-ranked opponent beaten by the largest margin.
  * Returns a string like "Beat #3 opponent 4-1" or null if no notable wins.
  */
@@ -247,8 +398,21 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   // Use power score for tier analysis (cohort-size independent)
   const stats = analyzePerformanceByTier(games, team.team_id_master, ranking.power_score_final, scaledThreshold);
 
-  const { label, explanation } = determinePersona(stats);
+  const { label, explanation: baseExplanation } = determinePersona(stats);
   const signatureResult = findSignatureResult(games, team.team_id_master);
+  const signatureWins = findSignatureWins(games, team.team_id_master, 3);
+  const trait = buildPersonaTrait(data);
+
+  // Enrich Title Contender + Giant Killer explanations with cited wins.
+  let explanation = baseExplanation;
+  if ((label === 'Title Contender' || label === 'Giant Killer') && signatureWins.length > 0) {
+    const cited = signatureWins.map((w) => `#${w.opponent_rank} ${w.teamScore}-${w.oppScore}`).join(', ');
+    // Inject "(beat #X ...)" before the first period.
+    const firstPeriod = baseExplanation.indexOf('.');
+    if (firstPeriod !== -1) {
+      explanation = baseExplanation.slice(0, firstPeriod) + ` (beat ${cited})` + baseExplanation.slice(firstPeriod);
+    }
+  }
 
   const winRateVsTop =
     stats.totalVsHigherRanked > 0 ? Math.round((stats.winsVsHigherRanked / stats.totalVsHigherRanked) * 100) : 0;
@@ -267,6 +431,8 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
       winRateVsTop,
       winRateVsBottom,
       signatureResult,
+      signatureWins,
+      trait,
     },
   };
 }
