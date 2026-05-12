@@ -248,16 +248,19 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               <div
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
-                  persona.label === 'Giant Killer'
-                    ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                    : persona.label === 'Flat Track Bully'
-                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                      : persona.label === 'Gatekeeper'
-                        ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
-                        : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                  persona.label === 'Title Contender'
+                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    : persona.label === 'Giant Killer'
+                      ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                      : persona.label === 'Flat Track Bully'
+                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                        : persona.label === 'Gatekeeper'
+                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
+                          : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
                 )}
               >
                 <Swords className="h-4 w-4" />
+                {persona.label === 'Title Contender' && '👑'}
                 {persona.label === 'Giant Killer' && '🗡️'}
                 {persona.label === 'Flat Track Bully' && '💪'}
                 {persona.label === 'Gatekeeper' && '🛡️'}
@@ -271,13 +274,15 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                 <TooltipContent side="right" className="max-w-[280px]">
                   <p className="font-semibold mb-1">Team Persona</p>
                   <p className="text-xs">
-                    {persona.label === 'Giant Killer'
-                      ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
-                      : persona.label === 'Flat Track Bully'
-                        ? 'This team dominates weaker opponents but struggles against top competition.'
-                        : persona.label === 'Gatekeeper'
-                          ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
-                          : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
+                    {persona.label === 'Title Contender'
+                      ? 'This team handles every tier — they beat both stronger and weaker opponents with consistency. The mark of a serious contender.'
+                      : persona.label === 'Giant Killer'
+                        ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
+                        : persona.label === 'Flat Track Bully'
+                          ? 'This team dominates weaker opponents but struggles against top competition.'
+                          : persona.label === 'Gatekeeper'
+                            ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
+                            : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
                   </p>
                 </TooltipContent>
               </Tooltip>

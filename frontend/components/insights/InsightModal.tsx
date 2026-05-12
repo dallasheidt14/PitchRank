@@ -296,26 +296,30 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
               <div
                 className={cn(
                   'rounded-xl p-5 border',
-                  persona.label === 'Giant Killer'
-                    ? 'bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-purple-500/20'
-                    : persona.label === 'Flat Track Bully'
-                      ? 'bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20'
-                      : persona.label === 'Gatekeeper'
-                        ? 'bg-gradient-to-br from-cyan-500/5 to-cyan-500/10 border-cyan-500/20'
-                        : 'bg-gradient-to-br from-gray-500/5 to-gray-500/10 border-gray-500/20'
+                  persona.label === 'Title Contender'
+                    ? 'bg-gradient-to-br from-amber-500/5 to-amber-500/10 border-amber-500/20'
+                    : persona.label === 'Giant Killer'
+                      ? 'bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-purple-500/20'
+                      : persona.label === 'Flat Track Bully'
+                        ? 'bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20'
+                        : persona.label === 'Gatekeeper'
+                          ? 'bg-gradient-to-br from-cyan-500/5 to-cyan-500/10 border-cyan-500/20'
+                          : 'bg-gradient-to-br from-gray-500/5 to-gray-500/10 border-gray-500/20'
                 )}
               >
                 <div className="flex items-center gap-2 mb-3">
                   <Swords
                     className={cn(
                       'h-5 w-5',
-                      persona.label === 'Giant Killer'
-                        ? 'text-purple-500'
-                        : persona.label === 'Flat Track Bully'
-                          ? 'text-orange-500'
-                          : persona.label === 'Gatekeeper'
-                            ? 'text-cyan-500'
-                            : 'text-gray-500'
+                      persona.label === 'Title Contender'
+                        ? 'text-amber-500'
+                        : persona.label === 'Giant Killer'
+                          ? 'text-purple-500'
+                          : persona.label === 'Flat Track Bully'
+                            ? 'text-orange-500'
+                            : persona.label === 'Gatekeeper'
+                              ? 'text-cyan-500'
+                              : 'text-gray-500'
                     )}
                   />
                   <h3 className="font-semibold text-lg">Team Persona</h3>
@@ -324,15 +328,18 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                 <div
                   className={cn(
                     'inline-flex items-center gap-2 px-4 py-2 rounded-lg mb-3 font-display text-lg font-bold',
-                    persona.label === 'Giant Killer'
-                      ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                      : persona.label === 'Flat Track Bully'
-                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                        : persona.label === 'Gatekeeper'
-                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
-                          : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                    persona.label === 'Title Contender'
+                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                      : persona.label === 'Giant Killer'
+                        ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                        : persona.label === 'Flat Track Bully'
+                          ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                          : persona.label === 'Gatekeeper'
+                            ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
+                            : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
                   )}
                 >
+                  {persona.label === 'Title Contender' && '👑'}
                   {persona.label === 'Giant Killer' && '🗡️'}
                   {persona.label === 'Flat Track Bully' && '💪'}
                   {persona.label === 'Gatekeeper' && '🛡️'}
