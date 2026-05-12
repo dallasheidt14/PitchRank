@@ -207,23 +207,6 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                   <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
                     SOS: {seasonTruth.details.sosPercentile}th percentile
                   </span>
-                  {/* Form Signal Badge - only show notable streaks */}
-                  {seasonTruth.details.formSignal &&
-                    (seasonTruth.details.formSignal === 'hot_streak' ||
-                      seasonTruth.details.formSignal === 'cold_streak') && (
-                      <span
-                        className={cn(
-                          'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
-                          seasonTruth.details.formSignal === 'hot_streak'
-                            ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                            : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
-                        )}
-                      >
-                        {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
-                        {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
-                        {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
-                      </span>
-                    )}
                 </div>
               </div>
             )}
