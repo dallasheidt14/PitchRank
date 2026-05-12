@@ -244,23 +244,25 @@ def _load_rankings_view_age_state_status():
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
+_nav_options = [
+    "📋 Review Queue",
+    "👥 Age Groups",
+    "📈 Database Import Stats",
+    "🆕 New Accounts",
+    "🧩 Unknown Opponent Review",
+    "🗺️ State Coverage",
+    "📍 Missing State Codes",
+    "🔀 Team Merge Manager",
+    "✏️ Manual Team Edit",
+    "🔎 Team Discovery Review",
+    "🛡️ Due Diligence Review",
+    "📸 Instagram Review",
+    "🚫 Game Exclusion Manager"
+]
 section = st.sidebar.radio(
     "Select Section",
-    [
-        "📋 Review Queue",
-        "👥 Age Groups",
-        "📈 Database Import Stats",
-        "🆕 New Accounts",
-        "🧩 Unknown Opponent Review",
-        "🗺️ State Coverage",
-        "📍 Missing State Codes",
-        "🔀 Team Merge Manager",
-        "✏️ Manual Team Edit",
-        "🔎 Team Discovery Review",
-        "🛡️ Due Diligence Review",
-        "📸 Instagram Review",
-        "🚫 Game Exclusion Manager"
-    ]
+    _nav_options,
+    index=_nav_options.index("🔀 Team Merge Manager"),
 )
 
 # Helper functions for fuzzy matching
