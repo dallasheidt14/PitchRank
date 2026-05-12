@@ -93,7 +93,11 @@ function determinePlayStyle(offenseNorm: number | null, defenseNorm: number | nu
 
 /**
  * Computes the current W/L/D streak from most recent games
- * Games are ordered most-recent-first
+ * Games are ordered most-recent-first.
+ *
+ * NOTE: Caller is responsible for passing the team's full game set
+ * (including games stored under deprecated/merged team_ids) — this
+ * function does not resolve `team_merge_map`.
  */
 function getCurrentStreak(games: InsightInputData['games'], teamId: string): string | null {
   if (games.length === 0) return null;

@@ -436,7 +436,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             {/* Rank Velocity - specific movement context */}
             {seasonTruth.details.rankVelocity && (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Movement</span>
+                <span className="text-muted-foreground">Movement (Nationally)</span>
                 <span className="text-xs font-medium text-foreground/80">{seasonTruth.details.rankVelocity}</span>
               </div>
             )}
