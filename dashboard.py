@@ -4099,7 +4099,8 @@ elif section == "✏️ Manual Team Edit":
                         select_fields = (
                             'team_id_master, provider_team_id, team_name, club_name, '
                             'age_group, gender, state_code, birth_year, is_deprecated, '
-                            'created_at, updated_at, last_scraped_at, state, provider_id'
+                            'created_at, updated_at, last_scraped_at, state, provider_id, '
+                            'league, distinction, team_name_original'
                         )
 
                         # Search by ID first (exact match) - highest priority
