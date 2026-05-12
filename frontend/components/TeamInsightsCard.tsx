@@ -423,41 +423,44 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             )}
 
             {/* Rank Trajectory - Based on recent form (perf_centered) */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Rank Trend</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-[280px]">
-                    <p className="font-semibold mb-1">Rank Trend</p>
-                    <p className="text-xs">
-                      Based on recent game results compared to expectations. Rising means the team is overperforming and
-                      their rank will likely improve. Falling means recent results suggest their rank may drop.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
-                  seasonTruth.details.rankTrajectory === 'rising'
-                    ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+            {/* Suppressed when Form badge is set: temporal signal already covered, and perf_centered re-zeros to 'Stable' once Glicko re-calibrates */}
+            {!formBadge && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Rank Trend</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-[280px]">
+                      <p className="font-semibold mb-1">Rank Trend</p>
+                      <p className="text-xs">
+                        Based on recent game results compared to expectations. Rising means the team is overperforming
+                        and their rank will likely improve. Falling means recent results suggest their rank may drop.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                    seasonTruth.details.rankTrajectory === 'rising'
+                      ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                      : seasonTruth.details.rankTrajectory === 'falling'
+                        ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                        : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
+                  {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
+                  {seasonTruth.details.rankTrajectory === 'rising'
+                    ? 'Rising'
                     : seasonTruth.details.rankTrajectory === 'falling'
-                      ? 'bg-red-500/20 text-red-700 dark:text-red-400'
-                      : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
-                {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
-                {seasonTruth.details.rankTrajectory === 'rising'
-                  ? 'Rising'
-                  : seasonTruth.details.rankTrajectory === 'falling'
-                    ? 'Falling'
-                    : 'Stable'}
-              </span>
-            </div>
+                      ? 'Falling'
+                      : 'Stable'}
+                </span>
+              </div>
+            )}
 
             {/* Rank Velocity - specific movement context */}
             {seasonTruth.details.rankVelocity && (

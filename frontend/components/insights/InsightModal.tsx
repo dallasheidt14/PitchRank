@@ -179,24 +179,27 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                     </span>
                   )}
                   {/* Rank Trajectory Badge - based on perf_centered */}
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
-                      seasonTruth.details.rankTrajectory === 'rising'
-                        ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                  {/* Suppressed when Form badge is set: temporal signal already covered, and perf_centered re-zeros to 'Stable' once Glicko re-calibrates */}
+                  {!formBadge && (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
+                        seasonTruth.details.rankTrajectory === 'rising'
+                          ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                          : seasonTruth.details.rankTrajectory === 'falling'
+                            ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                            : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
+                      {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
+                      {seasonTruth.details.rankTrajectory === 'rising'
+                        ? 'Rank Rising'
                         : seasonTruth.details.rankTrajectory === 'falling'
-                          ? 'bg-red-500/20 text-red-700 dark:text-red-400'
-                          : 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
-                    {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
-                    {seasonTruth.details.rankTrajectory === 'rising'
-                      ? 'Rank Rising'
-                      : seasonTruth.details.rankTrajectory === 'falling'
-                        ? 'Rank Falling'
-                        : 'Rank Stable'}
-                  </span>
+                          ? 'Rank Falling'
+                          : 'Rank Stable'}
+                    </span>
+                  )}
                   {/* Rank Velocity Badge */}
                   {seasonTruth.details.rankVelocity && (
                     <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
