@@ -200,6 +200,41 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
 }
 
 /**
+ * Returns up to `limit` of the team's most impressive wins.
+ * Sorted by lowest opponent_rank first; ties broken by larger goal margin.
+ */
+export function findSignatureWins(
+  games: InsightInputData['games'],
+  teamId: string,
+  limit: number
+): Array<{ opponent_rank: number; teamScore: number; oppScore: number }> {
+  const wins: Array<{ opponent_rank: number; teamScore: number; oppScore: number }> = [];
+
+  for (const game of games) {
+    const isHome = game.home_team_master_id === teamId;
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
+
+    if (teamScore === null || oppScore === null) continue;
+    if (teamScore <= oppScore) continue;
+    if (game.opponent_rank === null) continue;
+
+    wins.push({
+      opponent_rank: game.opponent_rank,
+      teamScore,
+      oppScore,
+    });
+  }
+
+  wins.sort((a, b) => {
+    if (a.opponent_rank !== b.opponent_rank) return a.opponent_rank - b.opponent_rank;
+    return b.teamScore - b.oppScore - (a.teamScore - a.oppScore);
+  });
+
+  return wins.slice(0, limit);
+}
+
+/**
  * Finds the most impressive win: highest-ranked opponent beaten by the largest margin.
  * Returns a string like "Beat #3 opponent 4-1" or null if no notable wins.
  */
