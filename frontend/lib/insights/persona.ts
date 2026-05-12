@@ -150,6 +150,14 @@ function determinePersona(stats: ReturnType<typeof analyzePerformanceByTier>): {
   const hasEnoughTopGames = totalVsHigherRanked >= 2;
   const hasEnoughBottomGames = totalVsLowerRanked >= 2;
 
+  // Title Contender: handles both tiers — stricter than Giant Killer.
+  if (hasEnoughTopGames && hasEnoughBottomGames && winRateVsTop >= 0.4 && winRateVsBottom >= 0.75) {
+    return {
+      label: 'Title Contender',
+      explanation: `Won ${winsVsHigherRanked} of ${totalVsHigherRanked} vs stronger opponents AND ${winsVsLowerRanked} of ${totalVsLowerRanked} vs weaker (${Math.round(winRateVsBottom * 100)}%). This team handles every tier — the mark of a serious contender.`,
+    };
+  }
+
   // Giant Killer: Strong performance against stronger teams (40%+ win rate)
   if (hasEnoughTopGames && winRateVsTop >= 0.4 && winsVsHigherRanked >= 2) {
     return {
@@ -390,8 +398,21 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   // Use power score for tier analysis (cohort-size independent)
   const stats = analyzePerformanceByTier(games, team.team_id_master, ranking.power_score_final, scaledThreshold);
 
-  const { label, explanation } = determinePersona(stats);
+  const { label, explanation: baseExplanation } = determinePersona(stats);
   const signatureResult = findSignatureResult(games, team.team_id_master);
+  const signatureWins = findSignatureWins(games, team.team_id_master, 3);
+  const trait = buildPersonaTrait(data);
+
+  // Enrich Title Contender + Giant Killer explanations with cited wins.
+  let explanation = baseExplanation;
+  if ((label === 'Title Contender' || label === 'Giant Killer') && signatureWins.length > 0) {
+    const cited = signatureWins.map((w) => `#${w.opponent_rank} ${w.teamScore}-${w.oppScore}`).join(', ');
+    // Inject "(beat #X ...)" before the first period.
+    const firstPeriod = baseExplanation.indexOf('.');
+    if (firstPeriod !== -1) {
+      explanation = baseExplanation.slice(0, firstPeriod) + ` (beat ${cited})` + baseExplanation.slice(firstPeriod);
+    }
+  }
 
   const winRateVsTop =
     stats.totalVsHigherRanked > 0 ? Math.round((stats.winsVsHigherRanked / stats.totalVsHigherRanked) * 100) : 0;
@@ -410,6 +431,8 @@ export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
       winRateVsTop,
       winRateVsBottom,
       signatureResult,
+      signatureWins,
+      trait,
     },
   };
 }

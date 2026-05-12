@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findSignatureWins, buildPersonaTrait } from '../persona';
+import { findSignatureWins, buildPersonaTrait, generatePersonaInsight } from '../persona';
 import type { InsightInputData } from '../types';
 
 const TEAM_ID = 'team-a';
@@ -148,5 +148,57 @@ describe('buildPersonaTrait', () => {
   it('skips state-leaderboard when state cohort is too small', () => {
     const data = buildInput({ stateCohort: { rank: 1, totalTeams: 3 } });
     expect(buildPersonaTrait(data)).toBeNull();
+  });
+});
+
+describe('generatePersonaInsight — Title Contender', () => {
+  it('returns Title Contender when team beats both tiers handily', () => {
+    // 4 games vs stronger (3 wins → 75%), 4 games vs weaker (4 wins → 100%)
+    const data = buildInput({
+      ranking: {
+        ...buildInput().ranking,
+        power_score_final: 0.5,
+      },
+      games: [
+        // vs stronger (opp power higher than team's 0.5 by > 0.056 = 0.08*0.7 anchor)
+        { ...game({ opp_rank: 3, team_score: 2, opp_score: 1 }), opponent_power_score: 0.7 },
+        { ...game({ opp_rank: 5, team_score: 3, opp_score: 0 }), opponent_power_score: 0.7 },
+        { ...game({ opp_rank: 8, team_score: 1, opp_score: 0 }), opponent_power_score: 0.7 },
+        { ...game({ opp_rank: 6, team_score: 0, opp_score: 1 }), opponent_power_score: 0.7 },
+        // vs weaker
+        { ...game({ opp_rank: 80, team_score: 5, opp_score: 0 }), opponent_power_score: 0.2 },
+        { ...game({ opp_rank: 90, team_score: 4, opp_score: 1 }), opponent_power_score: 0.2 },
+        { ...game({ opp_rank: 100, team_score: 3, opp_score: 0 }), opponent_power_score: 0.2 },
+        { ...game({ opp_rank: 110, team_score: 6, opp_score: 0 }), opponent_power_score: 0.2 },
+      ],
+    });
+    const result = generatePersonaInsight(data);
+    expect(result.label).toBe('Title Contender');
+  });
+
+  it('Giant Killer explanation cites up to 3 signature wins', () => {
+    const data = buildInput({
+      ranking: { ...buildInput().ranking, power_score_final: 0.5 },
+      games: [
+        { ...game({ opp_rank: 3, team_score: 2, opp_score: 1 }), opponent_power_score: 0.7 },
+        { ...game({ opp_rank: 11, team_score: 2, opp_score: 0 }), opponent_power_score: 0.7 },
+        { ...game({ opp_rank: 18, team_score: 1, opp_score: 0 }), opponent_power_score: 0.7 },
+      ],
+    });
+    const result = generatePersonaInsight(data);
+    expect(result.label).toBe('Giant Killer');
+    expect(result.explanation).toContain('beat #3 ');
+    expect(result.explanation).toContain('#11 ');
+    expect(result.explanation).toContain('#18 ');
+  });
+
+  it('populates details.trait and details.signatureWins', () => {
+    const data = buildInput({
+      games: [game({ opp_rank: 4, team_score: 2, opp_score: 0 }), game({ opp_rank: 9, team_score: 1, opp_score: 0 })],
+    });
+    const result = generatePersonaInsight(data);
+    expect(result.details.trait).toBe('Beat #4 and #9 this season');
+    expect(result.details.signatureWins).toHaveLength(2);
+    expect(result.details.signatureWins[0]).toEqual({ opponent_rank: 4, teamScore: 2, oppScore: 0 });
   });
 });
