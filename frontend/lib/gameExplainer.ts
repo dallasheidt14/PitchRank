@@ -1,8 +1,8 @@
 import type { GameExplainability } from './types';
 
-export type GameExplanationTone = 'positive' | 'negative' | 'neutral';
+type GameExplanationTone = 'positive' | 'negative' | 'neutral';
 
-export interface GameBreakdownExplanation {
+interface GameBreakdownExplanation {
   headline: string;
   highlightReason: string | null;
   expectationLine: string;

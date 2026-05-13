@@ -183,7 +183,7 @@ function getOrFetchTeams(force: boolean): Promise<RankingRow[]> {
   return inFlight;
 }
 
-export interface UseTeamSearchReturn {
+interface UseTeamSearchReturn {
   data: RankingRow[] | undefined;
   isLoading: boolean;
   isError: boolean;

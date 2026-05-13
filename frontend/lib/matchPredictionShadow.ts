@@ -3,7 +3,7 @@ import 'server-only';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import type { MatchPredictionResponse, MatchPredictionShadowContext } from './matchPredictionService';
 
-export interface MatchPredictionShadowLogInput {
+interface MatchPredictionShadowLogInput {
   userId?: string | null;
   requestIp?: string | null;
   teamAId: string;

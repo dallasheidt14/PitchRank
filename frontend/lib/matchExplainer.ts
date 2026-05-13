@@ -11,7 +11,7 @@ import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
 import { extractAgeFromTeamName } from './utils';
 
-export type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
+type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
 export type ExplanationFactor =
   | 'overall_strength'
   | 'recent_form'

@@ -147,7 +147,7 @@ function sigmoid(x: number): number {
 /**
  * Confidence result
  */
-export interface ConfidenceResult {
+interface ConfidenceResult {
   confidence_score: number;
   confidence: 'high' | 'medium' | 'low';
 }

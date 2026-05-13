@@ -35,7 +35,7 @@ export function hasAdminAccess(profile: UserProfile | null): boolean {
   return profile.plan === 'admin';
 }
 
-export interface UseUserReturn {
+interface UseUserReturn {
   user: User | null;
   profile: UserProfile | null;
   session: Session | null;
