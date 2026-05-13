@@ -19,7 +19,7 @@ import {
 } from '@/lib/watchlist';
 import type { WatchlistResponse } from '@/app/api/watchlist/route';
 import { formatPowerScore } from '@/lib/utils';
-import { useUser, hasPremiumAccess } from '@/hooks/useUser';
+import { useUser, hasPremiumAccess, hasAdminAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
 import { NotificationBell } from '@/components/NotificationBell';
 import { TeamSchema } from '@/components/TeamSchema';
@@ -60,6 +60,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
   // Wait for user loading to complete before determining premium status
   // This prevents race conditions where profile is null during initial load
   const isPremium = !userLoading && hasPremiumAccess(profile);
+  const isAdmin = !userLoading && hasAdminAccess(profile);
 
   const [watched, setWatched] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
@@ -284,20 +285,26 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="relative">
-                <button
-                  onClick={() => setAliasesOpen(!aliasesOpen)}
-                  className="flex items-center gap-1.5 text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-                  aria-label="View team aliases"
-                  aria-expanded={aliasesOpen}
-                >
-                  {team.team_name}
-                  <ChevronDown
-                    className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={() => setAliasesOpen(!aliasesOpen)}
+                    className="flex items-center gap-1.5 text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                    aria-label="View team aliases"
+                    aria-expanded={aliasesOpen}
+                  >
+                    {team.team_name}
+                    <ChevronDown
+                      className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                ) : (
+                  <div className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
+                    {team.team_name}
+                  </div>
+                )}
 
-                {/* Aliases Dropdown */}
-                {aliasesOpen && (
+                {/* Aliases Dropdown (admin-only) */}
+                {isAdmin && aliasesOpen && (
                   <>
                     {/* Backdrop to close dropdown when clicking outside */}
                     <div className="fixed inset-0 z-40" onClick={() => setAliasesOpen(false)} />

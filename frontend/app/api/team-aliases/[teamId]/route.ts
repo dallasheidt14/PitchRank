@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
+import { createServiceSupabase } from '@/lib/supabase/service';
 
 /**
  * Get all aliases for a team from team_alias_map
@@ -13,15 +13,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { teamId } = await params;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('[team-aliases] Missing environment variables');
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    // team_alias_map has a deny-all RLS policy for anon/authenticated roles;
+    // service-role bypass is required to read it. Auth is already gated by requireAdmin().
+    const supabase = createServiceSupabase();
 
     // Fetch all aliases for this team with provider info
     // Include division field for MLS NEXT HD/AD differentiation

@@ -257,7 +257,7 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]" data-testid="feedback-modal">
         <DialogHeader>
-          <DialogTitle>Something seems off?</DialogTitle>
+          <DialogTitle>Feedback/Questions</DialogTitle>
           <DialogDescription>Tell us what you&apos;re seeing — we read every report.</DialogDescription>
         </DialogHeader>
 
