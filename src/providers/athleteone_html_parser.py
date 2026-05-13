@@ -113,21 +113,6 @@ GAME_ROW_SELECTORS = [
     {"class": lambda x: x and "game" in x.lower()},
 ]
 
-TEAM_NAME_SELECTORS = [
-    ".team-name",
-    ".team-info",
-    ".home-team",
-    ".away-team",
-    ".team-column.home-team",
-    ".team-column.away-team",
-]
-
-SCORE_SELECTORS = [
-    ".score-column",
-    ".score-info",
-    ".score",
-]
-
 DATE_SELECTORS = [
     ".game-date",
     ".date-info",
@@ -136,14 +121,6 @@ DATE_SELECTORS = [
 TIME_SELECTORS = [
     ".game-time",
     ".time-info",
-]
-
-VENUE_SELECTORS = [
-    ".venue-info",
-    ".location-info",
-    ".field",
-    ".venue",
-    ".complex",
 ]
 
 COMPETITION_SELECTORS = [

@@ -1,11 +1,7 @@
 """Tests for game matching system — game_matcher.py"""
-import uuid
 import pytest
 
-from src.models.game_matcher import (
-    extract_team_variant,
-    GAME_UID_NAMESPACE,
-)
+from src.models.game_matcher import extract_team_variant
 
 
 class TestExtractTeamVariant:
@@ -53,24 +49,3 @@ class TestExtractTeamVariant:
         """Program names like 'aspire' should not be treated as coach names."""
         result = extract_team_variant("FC Dallas 2014 Aspire")
         assert result is None or result == "aspire"  # aspire is in _PROGRAM_NAMES
-
-
-class TestGenerateGameUid:
-    """Tests for deterministic game UID generation."""
-
-    def test_deterministic(self):
-        """Same inputs always produce the same UID."""
-        key = "gotsport|123|456|2025-01-15"
-        uid1 = str(uuid.uuid5(GAME_UID_NAMESPACE, key))
-        uid2 = str(uuid.uuid5(GAME_UID_NAMESPACE, key))
-        assert uid1 == uid2
-
-    def test_different_inputs_different_uids(self):
-        uid1 = str(uuid.uuid5(GAME_UID_NAMESPACE, "gotsport|123|456|2025-01-15"))
-        uid2 = str(uuid.uuid5(GAME_UID_NAMESPACE, "gotsport|123|456|2025-01-16"))
-        assert uid1 != uid2
-
-    def test_valid_uuid_format(self):
-        uid = str(uuid.uuid5(GAME_UID_NAMESPACE, "test|1|2|2025-01-01"))
-        parsed = uuid.UUID(uid)
-        assert parsed.version == 5

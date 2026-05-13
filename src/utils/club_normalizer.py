@@ -152,76 +152,6 @@ CITY_ABBREVIATIONS = {
     "dfw": "dallas fort worth",
 }
 
-# Common soccer abbreviations
-SOCCER_ABBREVIATIONS = {
-    "fc": "football club",
-    "sc": "soccer club",
-    "sa": "soccer academy",
-    "ac": "athletic club",
-    "afc": "association football club",
-    "cf": "club de futbol",
-    "ys": "youth soccer",
-    "ysc": "youth soccer club",
-    "utd": "united",
-    "u": "united",  # Only when standalone
-    "fca": "football club academy",
-    "sfc": "soccer football club",
-}
-
-# State abbreviations (for removal from club names)
-STATE_ABBREVIATIONS = {
-    "al": "alabama",
-    "ak": "alaska",
-    "az": "arizona",
-    "ar": "arkansas",
-    "ca": "california",
-    "co": "colorado",
-    "ct": "connecticut",
-    "de": "delaware",
-    "fl": "florida",
-    "ga": "georgia",
-    "hi": "hawaii",
-    "id": "idaho",
-    "il": "illinois",
-    "in": "indiana",
-    "ia": "iowa",
-    "ks": "kansas",
-    "ky": "kentucky",
-    "la": "louisiana",
-    "me": "maine",
-    "md": "maryland",
-    "ma": "massachusetts",
-    "mi": "michigan",
-    "mn": "minnesota",
-    "ms": "mississippi",
-    "mo": "missouri",
-    "mt": "montana",
-    "ne": "nebraska",
-    "nv": "nevada",
-    "nh": "new hampshire",
-    "nj": "new jersey",
-    "nm": "new mexico",
-    "ny": "new york",
-    "nc": "north carolina",
-    "nd": "north dakota",
-    "oh": "ohio",
-    "ok": "oklahoma",
-    "or": "oregon",
-    "pa": "pennsylvania",
-    "ri": "rhode island",
-    "sc": "south carolina",
-    "sd": "south dakota",
-    "tn": "tennessee",
-    "tx": "texas",
-    "ut": "utah",
-    "vt": "vermont",
-    "va": "virginia",
-    "wa": "washington",
-    "wv": "west virginia",
-    "wi": "wisconsin",
-    "wy": "wyoming",
-}
-
 # =============================================================================
 # SUFFIXES AND PREFIXES TO REMOVE
 # =============================================================================
@@ -851,22 +781,6 @@ def normalize_club_names_batch(names: List[str], fuzzy_threshold: float = 0.85) 
     return [normalize_to_club(name, fuzzy_threshold) for name in names]
 
 
-def build_club_mapping(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, ClubNormResult]:
-    """
-    Build a mapping from original names to normalized results.
-
-    Useful for deduplication: find all unique clubs from a list of names.
-
-    Args:
-        names: List of raw club name strings
-        fuzzy_threshold: Minimum similarity for fuzzy matching
-
-    Returns:
-        Dict mapping original name -> ClubNormResult
-    """
-    return {name: normalize_to_club(name, fuzzy_threshold) for name in names}
-
-
 def group_by_club(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, List[str]]:
     """
     Group raw club names by their normalized club_id.
@@ -907,49 +821,6 @@ def get_matches_needing_review(names: List[str], fuzzy_threshold: float = 0.85) 
     """
     results = normalize_club_names_batch(names, fuzzy_threshold)
     return [r for r in results if r.needs_review]
-
-
-# =============================================================================
-# REGISTRY MANAGEMENT
-# =============================================================================
-
-
-def add_canonical_club(canonical: str, variations: List[str]) -> None:
-    """
-    Add a new canonical club to the registry at runtime.
-
-    Args:
-        canonical: The canonical club name (will be uppercased)
-        variations: List of known variations (will be lowercased)
-    """
-    canonical_upper = canonical.upper()
-    variations_lower = [v.lower() for v in variations]
-
-    # Also store normalized forms so lookups work after suffix/prefix stripping
-    variations_normalized = set(variations_lower)
-    for v in variations_lower:
-        norm = normalize_club_name(v)
-        if norm:
-            variations_normalized.add(norm)
-
-    # Add to main registry
-    if canonical_upper not in CANONICAL_CLUBS:
-        CANONICAL_CLUBS[canonical_upper] = []
-    CANONICAL_CLUBS[canonical_upper].extend(list(variations_normalized))
-
-    # Update reverse lookup
-    for var in variations_normalized:
-        _VARIATION_TO_CANONICAL[var] = canonical_upper
-
-
-def get_all_canonical_clubs() -> List[str]:
-    """Return list of all canonical club names"""
-    return list(CANONICAL_CLUBS.keys())
-
-
-def get_variations_for_club(canonical: str) -> List[str]:
-    """Return all known variations for a canonical club name"""
-    return CANONICAL_CLUBS.get(canonical.upper(), [])
 
 
 # =============================================================================
