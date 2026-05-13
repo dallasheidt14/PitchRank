@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabase } from '@/lib/supabase/client';
 
-export interface InstagramHandle {
+interface InstagramHandle {
   team_id: string;
   club_name: string | null;
   handle: string;

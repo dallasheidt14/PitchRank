@@ -32,7 +32,7 @@ export interface MatchPredictionShadowContext {
   teamBInput: TeamWithRanking;
 }
 
-export interface MatchPredictionBuildResult {
+interface MatchPredictionBuildResult {
   response: MatchPredictionResponse;
   shadowContext: MatchPredictionShadowContext;
 }
