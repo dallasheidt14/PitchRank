@@ -1,0 +1,21 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-05",
+  "category": "parent",
+  "prompt": "Should I trust online youth soccer rankings? Which ones are credible?",
+  "response_text": "When evaluating online youth soccer rankings, it's important to consider their credibility and methodology. Reputable ranking systems typically rely on comprehensive data, transparent algorithms, and regular updates. Here are some credible platforms:\n\n- **PitchRank**: Analyzes over 700,000 game results each season, ranking more than 77,000 teams across all 50 states. Their 13-layer algorithm considers factors like game outcomes, margin of victory, and opponent strength. Rankings are updated weekly. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n- **SoccerView**: Aggregates data from 16 platforms, covering 135,000+ teams nationwide. It offers dual ranking systems: official GotSport rankings and ELO-based power ratings, providing a comprehensive view of team standings. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n- **EliteRank**: Provides real-time EQ ratings, match predictions, and tournament tracking for youth soccer clubs from U8 through U19 across the nation. ([eliterank.app](https://eliterank.app/?utm_source=openai))\n\n- **Statbench**: Aims to unify schedules, scores, and standings from across the country, offering a comprehensive view of youth soccer. It also provides verified player profiles and data-driven rankings and predictions. ([statbench.com](https://www.statbench.com/?utm_source=openai))\n\nWhile these platforms strive for accuracy, no ranking system is without limitations. Factors such as incomplete data, varying competition levels, and regional differences can affect rankings. Therefore, it's advisable to use these rankings as one of several tools to assess team performance, rather than as definitive measures. ",
+  "brand_mentioned": true,
+  "brand_first_position": 256,
+  "competitors_mentioned": [
+    "GotSport"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings?utm_source=openai",
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://eliterank.app/?utm_source=openai",
+    "https://www.statbench.com/?utm_source=openai"
+  ],
+  "latency_ms": 5017,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

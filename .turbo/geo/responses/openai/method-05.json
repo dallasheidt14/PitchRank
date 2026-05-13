@@ -1,0 +1,23 @@
+{
+  "engine": "openai",
+  "prompt_id": "method-05",
+  "category": "methodology",
+  "prompt": "What's a fair way to rank youth soccer teams across age groups and states?",
+  "response_text": "Ranking youth soccer teams fairly across various age groups and states requires a comprehensive, data-driven approach that accounts for multiple factors influencing team performance. Several organizations have developed methodologies to achieve this:\n\n**1. PitchRank's PowerScore System**\n\nPitchRank evaluates over 77,000 youth soccer teams nationwide using a 13-layer algorithm. Their PowerScore is determined by:\n\n- **Match Outcomes**: Win or loss results.\n- **Margin of Victory**: The score difference in matches.\n- **Opponent Strength**: The caliber of the teams played.\n- **Game Context**: Whether the match was part of a league, tournament, or a friendly.\n\nThis system ensures that victories against stronger opponents contribute more to a team's ranking than wins against weaker teams. Rankings are updated weekly to reflect current performance levels. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n**2. SoccerView's ELO-Based Ratings**\n\nSoccerView aggregates data from 16 platforms, covering over 135,000 youth soccer teams. They employ an ELO-based power rating system, assigning letter grades from A+ to D. This method considers:\n\n- **Match Results**: Outcomes of games played.\n- **Strength of Opponents**: Quality of the teams faced.\n- **League Standings**: Performance within specific leagues.\n\nBy consolidating data from various sources, SoccerView provides a holistic view of team standings across different regions and age groups. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n**3. GotSport's Point-Based System**\n\nGotSport assigns points to teams based on their performance in games and competitions. Teams accumulate points for wins and participation in sanctioned events, leading to rankings within their age group, state, region, and nationally. This system is widely used by league and tournament organizers to ensure balanced competition. ([support.gotsport.com](https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai))\n\n**4. SoccerWire's Club Rankings**\n\nSoccerWire focuses on club performance in top national leagues like ECNL and MLS NEXT. Their rankings are based on:\n\n- **League Standings**: Points per game basis.\n- **Playoff and Championship Performance**: Success in postseason play.\n- **Player Development**: National team call-ups and professional signings.\n\nThis approach emphasizes both team success and individual player advancement. ([soccerwire.com](https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/?utm_source=openai))\n\n**Key Considerations for Fair Rankings**\n\n- **Strength of Schedule**: Teams should be evaluated based on the quality of their opponents to ensure that records reflect the level of competition faced.\n- **Consistent Methodology**: Applying the same ranking criteria across all age groups and states ensures fairness and comparability.\n- **Regular Updates**: Frequent updates to rankings capture current team performance and account for recent developments.\n- **Transparency**: Clear communication of the ranking methodology builds trust and allows stakeholders to understand the factors influencing rankings.\n\nBy integrating these elements, ranking systems can provide a fair and accurate representation of youth soccer team performances across diverse age groups and regions. ",
+  "brand_mentioned": true,
+  "brand_first_position": 257,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire",
+    "GotSoccer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings?utm_source=openai",
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/?utm_source=openai"
+  ],
+  "latency_ms": 8464,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

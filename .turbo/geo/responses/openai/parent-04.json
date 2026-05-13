@@ -1,0 +1,25 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-04",
+  "category": "parent",
+  "prompt": "What's the best app or website for tracking youth soccer team performance?",
+  "response_text": "Tracking the performance of a youth soccer team is essential for monitoring progress and identifying areas for improvement. Here are some top apps and websites designed to assist coaches, parents, and players in this endeavor:\n\n\n[Best Apps for Soccer Coaches on iPhone](https://itigic.com/best-apps-for-soccer-coaches-on-iphone/?utm_source=openai)\n**SoccerLogics**  \nAn AI-powered app that allows youth players to track their soccer journey. Features include AI coaching feedback, comprehensive stat tracking, and tools for players, parents, and coaches to monitor progress. Available on iOS. ([soccerlogics.com](https://www.soccerlogics.com/?utm_source=openai))\n\n\n\n[Built Cricbuzz Live Stats Dashboard with Streamlit and SQLite | SOUMIK ADAK posted on the topic | LinkedIn](https://www.linkedin.com/posts/soumik-adak-601973237_cricket-datascience-python-activity-7372970875832229888-bpOW?utm_source=openai)\n**SoccerView**  \nThis app consolidates rankings, stats, standings, and match predictions for over 100,000 youth soccer teams across the U.S. It offers dual ranking systems, deep team analytics, league standings, and AI-powered match predictions. Designed for iPhone and iPad. ([apps.apple.com](https://apps.apple.com/us/app/soccerview/id6757836960?utm_source=openai))\n\n\n\n[How do I use Hustle Studio? \u2013 Hustle](https://help.hustle.com/hc/en-us/articles/1500005926802-How-do-I-get-started-with-Hustle-Studio-?utm_source=openai)\n**Hustle**  \nAn all-in-one platform for parents and coaches to track athlete performance, log games, and access AI-powered training. Features include game stats tracking, AI-driven workout plans, mental performance tools, and deep analytics. ([hustlestats.io](https://hustlestats.io/?utm_source=openai))\n\n\n\n[Working in teams with specific responsibilities, creating roles and using them in workflows](https://kb.scompler.com/en/knowledge/working-with-roles-for-the-workflow?utm_source=openai)\n**Squadline**  \nA comprehensive team management app that replaces scattered communication methods with a unified platform. It offers team feeds, chat, calendar with RSVP, rosters, smart alerts, and multi-team management. Available on iOS and Android. ([squadline.com](https://squadline.com/?utm_source=openai))\n\n\n\n[Soccer IQ Player Development Pack + The Complete Field Player Pack](https://go.coachestrainingroom.com/attacking-in-the-final-third-6-week-player-development-pack1727805380152?utm_source=openai)\n**Matchday IQ**  \nAn AI-powered coaching assistant for youth soccer, providing live game clock and substitutions, parent spectator view, AI post-game analysis, lineup builder, tryout management, and practice plans with drills. ([matchdayiq.com](https://www.matchdayiq.com/?utm_source=openai))\n\n\nEach of these platforms offers unique features tailored to different aspects of team performance tracking and management. Depending on your specific needs\u2014be it AI-driven coaching feedback, comprehensive stat tracking, or team management tools\u2014you can select the app that best aligns with your objectives. ",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://itigic.com/best-apps-for-soccer-coaches-on-iphone/?utm_source=openai",
+    "https://www.soccerlogics.com/?utm_source=openai",
+    "https://www.linkedin.com/posts/soumik-adak-601973237_cricket-datascience-python-activity-7372970875832229888-bpOW?utm_source=openai",
+    "https://apps.apple.com/us/app/soccerview/id6757836960?utm_source=openai",
+    "https://help.hustle.com/hc/en-us/articles/1500005926802-How-do-I-get-started-with-Hustle-Studio-?utm_source=openai",
+    "https://hustlestats.io/?utm_source=openai",
+    "https://kb.scompler.com/en/knowledge/working-with-roles-for-the-workflow?utm_source=openai",
+    "https://squadline.com/?utm_source=openai",
+    "https://go.coachestrainingroom.com/attacking-in-the-final-third-6-week-player-development-pack1727805380152?utm_source=openai",
+    "https://www.matchdayiq.com/?utm_source=openai"
+  ],
+  "latency_ms": 5915,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

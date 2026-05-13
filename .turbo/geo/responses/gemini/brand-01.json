@@ -1,0 +1,19 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-01",
+  "category": "brand",
+  "prompt": "What is PitchRank and what does it do?",
+  "response_text": "PitchRank is a data-driven platform primarily dedicated to creating fair and accurate youth soccer team rankings across the United States. It provides performance analytics for boys and girls teams in age groups U10-U19, aiming to offer an objective comparison of teams nationally and across all 50 states.\n\n**What PitchRank Does:**\n\nPitchRank utilizes a two-part rating system to achieve its rankings:\n\n*   **Core Rating Engine:** This foundational component deeply analyzes games, considering factors beyond just scores. It accounts for opponent quality, the strength of a team's schedule, consistency, and performance trends. Schedule strength, for example, makes up 50% of a team's power score, emphasizing that beating strong teams is crucial for rising in the ranks, rather than simply accumulating wins against weaker opponents.\n*   **Machine Learning Layer:** This layer evaluates how a team is trending by analyzing every game and determining if the result was expected or surprising given the teams involved. If a team consistently overperforms expectations, they are likely to climb in the rankings, while underperforming teams will see a decline. This machine learning adjustment helps identify underrated teams and filter out misleading results, contributing to the stability and accuracy of the rankings.\n\nThe platform collects verified game results from over 124,000 teams and more than 1.1 million games, refreshing rankings weekly every Monday morning. This allows coaches, parents, and players to see how their team compares nationally, not just within their local league. PitchRank also offers features like head-to-head stats, win probabilities, match predictions, and the ability to track favorite teams.\n\nSeparately, PitchRank also offers \"Global Football Power Rankings\" which provides a consistent view of professional teams' true strengths across major European leagues and MLS, derived from betting market data.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGOPevb8n2wk4wEXXnQkSm8BuQqFuwNA_SHnc5n5LnLGhR7SXF3TgnKRqHAn2aqvBM48TypbfSdoI5rqTY5aFIUI8wy2mbyFHqxbrN6Eg8AN9gaCxDYMWHxNskDQExX",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEE_Jjc8Gjdy_ZbRlxXnGFxCHAByM5ca_ma7ntqbc9TkZf9Xw9yMiDqFElshmlTefaRpnDJMtvGQJJnPXKyDrXJPDCtmDs2CudtgVWTbUrgNlm6pZhyFdRudIrVqHjtmTab8ttjmGg9S0U=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGL7opzliBN3L7FZLlYNnveCDOmj4uO7Yt5FZp3_lO2aTxYb7XL7qqzRJHfQyrGfsY2hst2SkgtvYP6PcKVZZdIeooW4a7yFOBAhAnvAJn3ZZHE9w==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHTPGgjs1cr02jL-AoStBfgKGQQ_mMUQjAjZnwyKbRvaMoQyCK2smeGLqHu8VLYVbVc77vWbFFLdyyAK9efTGyCa2K7fgxUrbxwntDVc-NCrQ=="
+  ],
+  "latency_ms": 6815,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

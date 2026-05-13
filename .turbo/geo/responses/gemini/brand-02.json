@@ -1,0 +1,20 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-02",
+  "category": "brand",
+  "prompt": "How does PitchRank rank youth soccer teams?",
+  "response_text": "PitchRank utilizes a sophisticated, data-driven methodology to rank youth soccer teams, aiming for accuracy, stability, and resistance to manipulation. Their system processes hundreds of thousands of game results each season for over 77,000 teams across all 50 states, covering age groups from U10 through U19 for both boys and girls.\n\nThe core of PitchRank's system is a \"PowerScore,\" a single numerical rating that reflects a team's strength based on their performance throughout the season. This PowerScore is derived from a 13-layer rating engine that considers several key factors:\n*   **Quality of Opponents:** The strength of the teams a club plays against significantly influences its ranking. Beating a top-ranked team carries more weight than defeating a weaker opponent. Strength of Schedule (SOS) accounts for 50% of the PowerScore, emphasizing that who a team plays matters as much as their win-loss record.\n*   **Competitiveness:** The margin of victory or defeat is considered. A narrow 1-0 win against a strong opponent indicates more about a team's quality than a dominant 10-0 victory over a much weaker team.\n*   **Game Results:** Whether a team wins or loses is a fundamental component.\n*   **Offensive & Defensive Behavior:** Beyond just scores, PitchRank analyzes patterns in a team's offensive and defensive performance.\n*   **Recency:** More recent game results have a greater impact on the rankings than older ones, reflecting a team's current form.\n*   **Stability:** The system is designed to provide consistent rankings, recognizing stable performance and preventing single, anomalous results from drastically altering a team's standing. This is achieved through techniques like Bayesian shrinkage, outlier clipping, and exponential decay.\n*   **Game Context:** The type of game (league, tournament, or friendly) is also factored into the PowerScore calculation.\n\nPitchRank distinguishes itself by incorporating \"cross-age intelligence,\" which allows for fair evaluation of matchups between teams of different age groups (e.g., U13 playing U14) through age-anchored power scaling. It also uses machine learning (ML) trend detection to identify rising teams even before their standing explicitly shows it, by analyzing game residuals to pinpoint consistent overperformance.\n\nRankings are updated weekly, every Monday, based on public game results gathered directly from league websites and scoring platforms, rather than relying on subjective polls or coach votes. This comprehensive approach aims to provide a more accurate and objective reflection of youth soccer team strength across the nation.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0d7iH0BGsAMrZlX-ZezMETv0q32Cu15xloe3xL8MEME7BkSyOt0Qyxr5JRmu2NgMgJDISHdSoF2mJgVmvvUIU5th6UqKmPIrpU8tZl7KLGVyGiOdPqsKut7bAIt71",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEWGbkL7QYk7gNGhKYsaUAHK_pLFXi3G3hGnHx4Xn-xeU0REpaPJI6EOkIdVa1X-ONKH6sXBzcQsipgSjufkOs-sh148XWV6Z5aYGWhffht_4fevAONVXC-JpZP",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGdUExomEBg9_JptKT4QCvVCc1TZA7Z-xAEvIE4BCJXjQ3i6DUI4-aRGZO3cXx-Ac_wJwzS0yRk6DZO_Esv2ZFPK4r2uYlI0IeUnvikctdlI8O_IQ==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHi0YHIghCogobpd0LzjWHlgmsEWTiiMDKSBJsmFHcKA8p7zeBKSTFjjefnKg7N69vsgEu5xW5_mzI5iyUQp9VgW4giGc-Kfekx3hhcca24ySPt-RppX0Q=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGoRu83_pjIgCEKjG5tuVlhAxptUSXE7XMFXBC8HbfHKGjIvi22nYAlWnQBu24MGsP83c9cXPWw4nQNaT44WIIhVnDdTkCUZR5I0MIMrBeUWSsG5HgdDCYcmlLDw0GglWTbFPH4kccsHaNzho8O83HkJSd_i1xeWA=="
+  ],
+  "latency_ms": 6615,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

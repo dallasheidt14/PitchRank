@@ -1,0 +1,22 @@
+{
+  "engine": "openai",
+  "prompt_id": "info-05",
+  "category": "informational",
+  "prompt": "How do I find rankings for ECNL, NAL, and MLS Next teams in the same view?",
+  "response_text": "To compare rankings for ECNL (Elite Clubs National League), NAL (National Academy League), and MLS Next teams in a unified view, you can utilize the following resources:\n\n1. **YouthSoccerRankings.com**: This website aggregates team rankings across various youth soccer leagues, including ECNL, NAL, and MLS Next. It allows you to filter and compare teams from different leagues within the same interface. Visit [YouthSoccerRankings.com](https://www.youthsoccerrankings.com/) and use the search or filter functions to select the leagues and teams you're interested in.\n\n2. **GotSoccer**: GotSoccer provides comprehensive rankings and team information for youth soccer teams across the United States. By creating a free account, you can access detailed rankings and compare teams from ECNL, NAL, and MLS Next. Navigate to [GotSoccer Team Rankings](https://home.gotsoccer.com/rankings/) and use the search features to find and compare teams across the different leagues.\n\n3. **SoccerWire**: SoccerWire offers news, rankings, and analysis on youth soccer, including coverage of ECNL, NAL, and MLS Next. While it may not provide a direct comparison tool, it offers insights and articles that can help you assess team performances across these leagues. Explore their content at [SoccerWire.com](https://www.soccerwire.com/).\n\nPlease note that rankings can vary based on the criteria and data sources used by each platform. It's advisable to consult multiple sources to get a comprehensive understanding of team standings and performances across these leagues. ",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [
+    "SoccerWire",
+    "YouthSoccerRankings",
+    "GotSoccer"
+  ],
+  "citation_urls": [
+    "https://www.youthsoccerrankings.com/",
+    "https://home.gotsoccer.com/rankings/",
+    "https://www.soccerwire.com/"
+  ],
+  "latency_ms": 8443,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

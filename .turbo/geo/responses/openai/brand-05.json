@@ -1,0 +1,23 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-05",
+  "category": "brand",
+  "prompt": "How is PitchRank different from GotSport or SoccerWire rankings?",
+  "response_text": "PitchRank and GotSport both provide youth soccer team rankings, but they differ in their methodologies and focus.\n\n**PitchRank**:\n\n- **Data-Driven Analysis**: Utilizes a 13-layer algorithm that evaluates real game results, considering factors such as win/loss outcomes, margin of victory, opponent strength, and game context (league, tournament, or friendly). ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n- **Comprehensive Coverage**: Ranks over 77,000 teams across all 50 states, covering age groups from U10 through U19 for both boys and girls. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n- **Weekly Updates**: Rankings are updated every Monday, ensuring current standings based on recent performances. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n- **Transparency**: Provides detailed insights into its ranking methodology, emphasizing factors like strength of schedule and performance trends. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n**GotSport**:\n\n- **Points-Based System**: Teams accumulate points for winning games and competitions, with rankings reflecting these accumulated points. ([support.gotsport.com](https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai))\n\n- **National Recognition**: Hosts the annual RIA Champions Awards, honoring top-performing teams based on their rankings over the calendar year. ([home.gotsport.com](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai))\n\n- **Integration with Events**: Results from GotSport events feed directly into the system, influencing team rankings. ([support.gotsport.com](https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai))\n\nRegarding SoccerWire, it primarily serves as a news and information platform for youth soccer, offering coverage on various topics, including team rankings. However, it does not maintain its own ranking system like PitchRank or GotSport.\n\nIn summary, while both PitchRank and GotSport offer youth soccer team rankings, PitchRank emphasizes a data-driven, algorithmic approach with frequent updates, whereas GotSport focuses on a points-based system integrated with its events and provides annual awards to top teams. ",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire",
+    "GotSoccer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings?utm_source=openai",
+    "https://www.pitchrank.io/methodology?utm_source=openai",
+    "https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai",
+    "https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai"
+  ],
+  "latency_ms": 5194,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

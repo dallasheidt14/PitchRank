@@ -1,0 +1,27 @@
+{
+  "engine": "gemini",
+  "prompt_id": "parent-02",
+  "category": "parent",
+  "prompt": "Where can I look up youth soccer team rankings in Texas?",
+  "response_text": "To look up youth soccer team rankings in Texas, you have several excellent resources available, ranging from broad statewide ranking platforms to specific regional and league-based websites.\n\n**General Statewide Rankings:**\n*   **PitchRank** provides weekly PowerScore ratings for thousands of Texas youth soccer teams across all age groups and competitive levels, based on real game results.\n*   **USA Rank** offers comprehensive Texas rankings, allowing you to filter by age and competitive level (Gold, Silver, Bronze, Red, Blue, Green).\n\n**North Texas Specific Rankings and Standings:**\n*   **North Texas Soccer** is a member of the United States Youth Soccer and United States Adult Soccer, and their website may provide links to affiliated leagues and their standings.\n*   The **Texas Club Soccer League (TCSL)** is a key resource for North Texas, offering standings for various competitive platforms including:\n    *   Pre-ECNL North Texas.\n    *   National Premier Leagues (NPL) North Texas.\n    *   ECNL Regional League (ECNL RL) North Texas for both boys and girls.\n\n**South Texas Specific Rankings and Standings:**\n*   **South Texas Youth Soccer** (STXsoccer), an affiliate of US Youth Soccer, hosts championship events and club-based programs. Their website is a good starting point for finding official league information.\n*   The **South Texas Champions League (STXCL)**, formerly known as United Soccer Clubs Texas, provides standings for teams in greater Houston, Austin, San Antonio, El Paso, Beaumont, and the Rio Grande Valley. This includes:\n    *   Eastern Conference League schedules and standings.\n    *   Western Conference League schedules.\n    *   STXCL NPL Division.\n    *   ECNL Regional League (ECNL RL) STXCL for both boys and girls.",
+  "brand_mentioned": true,
+  "brand_first_position": 230,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF6vghL8o78jqLPNX5ueD--FMtAyb8rBthjYrK0OBaSlhSardDImxurcYXmdGpZ0JxxbBvxTMSESSLjcrLyusFRnSa5QUYWl-DiFH4NKI0FmxnlUJwYD75bajpKW5aQ2QlHFG3_a9zibWip3O0_zKUQLbpvXC6iCmOu",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHrX9F9CG9v9zdWvHS5b8IaZs5vI0FqOkUur0wq72aLx9G7OLDT8-pXGIpC00E8TeEfFddV1jWwFhKA1Ijj_u2ZwmRWOzXMEs3Px__hD7kb4x-vsjL3j9FMfttAmg==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFo8TKC81A1_ri23Wj55UvtuYN_tS-pxJbvLgmlzYTAxTa4GapSL15P1iLD6q8fRq-G--40JrayCc4jVsVH9hp-r2WgL2Hx85NjMQqE9B0SvLyU-PDALf__7PGM",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFW7ZbH526U6r7BRFFOB5vv41FiTztj5EbZzTTFjxeseCd6e_4FRJn1yEdNUMODJ_4TsLEioNbqHZkSclHdb0sLkp9wyDbn6O__KKEGTb8ylI19bbt8SoxhR6PhFQ==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQECZJ7ziYS_rCF-NqX-yQ5J7rH7VTCh4EOZS-U84N_HRi5pdD0IWR0etF6Y4RIapASzgzmFQGeeUr_0R9rizQJIZexqpnY5UZNkz8gVgJtDxvrvU0k=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH_8RSLAxj6O1q2ZFmkbDxf2rix6tMShxB-37-XAPvIIEFswvizmIkTw0uyCbTFEpHhPg9Fjg9dW6ApBB04q-u30VBeWoDgV4GTbVL2IdGXI2hr2Kt9IQO8APF3yka8iVzIhgmkeQFpzqk=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHnDFb6HtwJweyMHyNA28jBGIXfJ4zvxMBANXs1Hg2Tmmc-moiuJkZdDJ3aObCo8gvTmD9sHn5qSCJ_odlM7ZLNUoNhuLP8vnqhKwCLOczf8uV5Lcrvz2ID1jiPL3KG",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFtqGl3grFuim7AIst26a0Es40wsoeB1_lC2khHBOKRB5ATvy-RsCtEZTXGmY1Y0UlUSgn7_CSjaBT4X5BLaNI1eablxRM1uyhzF2lN7fovIz-RmiVPmgVKlEwxtzXKkV4ctw==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEr6F3hv6RHPaitQ66ByBTAzMSl0FrAfxhwV4Xo0ArisHsVpbVHBmyyr6M9ft38cYVMKZdKtM09TEwo8SPgvLdTByy8Q7sWzM5LGAOu-vywWgr5eQs=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHByMTLAgqmUFaPksK6mN303F77Mc965Ao0nXBz7IFXqVEfU59CPV9v5k7Az-KrG48AB81Z33G8_Em49T_K9TqFFF_XpOO38FZ7TIWaRmE0Q_cgFVW0xI9kpBqDbvkT-1J2BvZImFzENLk=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGrcgKtvaptdyN5_erNnW_YbPYn6Dxeoz_ZVfI3HQvKamRm1EUO10jVusM9vWi1256vg7z1b_j1E0cQvwKyPEpSwUdhazzgncKFYjM9MlqCen6uSc-16o-OiBEY9vo=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFZYOMk2dE2lFZBZ4E6fE22uRY18CkE3Ae0eI9HVk_pQMDrYC_ynl_tlHvHaWx3YOfDw1cQO-hSPBH82ww5-i0X4gelGpMOp2P90FVQkOHm"
+  ],
+  "latency_ms": 6004,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

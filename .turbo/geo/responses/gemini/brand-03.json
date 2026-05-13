@@ -1,0 +1,18 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-03",
+  "category": "brand",
+  "prompt": "Is PitchRank free to use?",
+  "response_text": "Yes, PitchRank for youth soccer rankings is free to use. You can browse all rankings without needing to sign up. The rankings are updated every Monday and are freely accessible. PitchRank states that its mission is for parents to be able to check their child's team standing without encountering a paywall.\n\nIt's worth noting that there is also a \"PitchRank - Global Football (Soccer) Power Rankings\" based on betting market data. The search results primarily focused on the youth soccer rankings being free.",
+  "brand_mentioned": true,
+  "brand_first_position": 5,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFKYbyElYL_GAuEJeLnfUR1EwueLSJD3f4oNZSAlnvQfXy67baLmz3T_hZiOBOoBg4qGGNxJMLUpWKf1WbPn6J1BZSyscvRyPnQdRuYy4SIhd34_zPSsw9QR4VXww==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFiJB_RZiULEU8FMTT5Cvn-f8OGCr2s8jsMvVH1gKPVg8iBcczMJRVNafbnqCJ8tYzqlL36PBaCwEWigBksoohITPhyYVn48SVS10p4TWUaKsYX5tQTAIm6",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGkP-YM1fn16w_NNevG4cNmTENgxTP_gNiJQTRfDh_trVEnrjoL5VSq14bnPUkFF6UK1fSTjURGKVyqH9YDT2wJFds_C6uxjWF6bg6LCGJ-AKA="
+  ],
+  "latency_ms": 4710,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

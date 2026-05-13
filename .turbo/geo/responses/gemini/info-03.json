@@ -1,0 +1,27 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-03",
+  "category": "informational",
+  "prompt": "Where can I see independent rankings of youth soccer teams?",
+  "response_text": "You can find independent rankings of youth soccer teams from several sources that utilize data-driven approaches:\n\n*   **TopDrawerSoccer.com (TeamRank)**: This platform offers a comprehensive, results-based ranking system called TeamRank. It aims to provide an objective approach to ranking elite youth soccer teams nationally, with monthly updates. While primarily results-based, it also considers league and championship competitions and includes an executive evaluation layer to account for variables.\n*   **PitchRank**: PitchRank rates over 77,000 teams across all 50 states for age groups U10 through U19 (boys and girls). Their \"PowerScore\" is calculated from game results, including wins, losses, margin of victory, opponent strength, and game context (league, tournament, or friendly). Rankings are updated weekly and are described as free, data-driven, and without bias.\n*   **SoccerView App**: This app compiles rankings, stats, standings, and match predictions for over 90,000 youth soccer teams across the U.S.. It features dual ranking systems: \"Official Rankings\" directly from GotSport national rankings and a \"Power Rating\" that uses an ELO system similar to FIFA's.\n*   **GotSport.com**: This website also provides rankings for thousands of travel teams in the US and Canada. However, some discussions suggest its data might be incomplete as it primarily includes results from matches played on their platform.\n\nIt's worth noting that while SoccerWire.com provides \"Top 100 Clubs Rankings\" based on factors like team performance in top national leagues, national team call-ups, and professional signings, they no longer include individual team rankings from third-party sources.",
+  "brand_mentioned": true,
+  "brand_first_position": 511,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire",
+    "TopDrawer"
+  ],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEnEScwDpKK23l8XgWeQVOb_XHMnTQb7wGZ0H4lxv9V0j4toQnn1628TgQOdmtia7Vpqx9_N7PX3O3NCIpUZGmP5Bks7wH1R8m2px34tPbpTZ4agCsovjawUeQr9BxDVJfqzgGumMDfquAn-IldKvr7Gc8ZWkAZ2g==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHS8CTK3W_Qyv9Z9H2ngZh4BWIyZsku-x_h-J5WDSn2YIcOxP-ELi4g566lZ2AqFf0pQpo-PkCnAN0rOncW6VGKwE0NrrkTRBVekHLHNKfasDf7itI2T-uW2tzVZImNVbBfllf3uIU0RplvWhwYoAxTALH29VURn5N7tLccCuCB_ZrjMMRiR2WzvM5b9oB4ww==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFBXRK2-DjO1KZVLiWFOqpCjYOrt3YrFIf5Rsx8F8hMz6iX4c62prTZvK8frfL-pdCmv20wgs59qKiPHfBfCVEjTt4m9pte3uKhLOdVsWb1PP64bsjzvjZYvRyiPg==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGKBg7JGG3xqRePWMhIXGEnDY7f0UWbc3GgYMhQK6p6E9ROFX8DYgAXCzihScFRahOGo3LZ8weNde8WPNN9ARwlSPF0Z8qil4LJo6LJmAB2ILh2sL-gJ8IQKcYrpoZH_cH51jrYrNo4WF7otOYiP6CphVvxMtH6hEZYYugxqo9L",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEVCADicjNQma1KhyzXZUsHsc63UqTqhPYGGzk_K5g3DkKI-7POwMx-XOB4dzMIc37rH4JdOfTTeBPjol5xPapaUhLOJAZnpLRkky6DocjhBWGa59m5jHjPfezMhgW2EhkmCE47yjLh",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF9iH9bBN4uqL_9cNNa71hblhFw4D2s9UDpnaX9CDWqM0kJwNdL66xwP3t1kQf6UjrgqCFfOda1_VCHkK8ehPU74HODKlsyrWCXtyMQ9kE65OEecLD5W-tZpR-tmHqCc2KskCNdW7K1nPRKiG69UVwIxIFsKq7MqCI8SEKSwNF9RR3eDiRd1skmmrS_tTh7ZJMzhPkXrtxz0Q96M3BIF2r38g==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEYSIjOIdTm5dlvNW7-8DjXLFmUM6MivWeBvZ7FV5TunafZWieZ6f8NuYoT6w9eU1hhSsNzObPv5bN__dYATZoL0r3b7tzrLpdK9kg3HhnRqo4EAeIUq5xS_KHsmUvVScr7vmlukPGay7vIkGuGKAifIqf6Sz6hdRa59Pkg60EDET-ne5lmrQ3Qk2qncTFkaL0BcOFbDdg=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF7JTjZBAQm9rzg-SBubPkcBo3vO2dsTUuvjqJ2fs42FxhgV4oSC_8aTOWhun9B4ay_JmBAYijcnkpoL5n22Bm0tdkZTQ3dkXVJNyhV8W3eG6fHLNuwXKaycwef6Pvx2uc-zJQYdgxpC_Eh3EzqfOk6qHxTJM2DAesW6Ox7NAzPfNe0rrc="
+  ],
+  "latency_ms": 5618,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

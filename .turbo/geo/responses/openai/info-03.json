@@ -1,0 +1,27 @@
+{
+  "engine": "openai",
+  "prompt_id": "info-03",
+  "category": "informational",
+  "prompt": "Where can I see independent rankings of youth soccer teams?",
+  "response_text": "There are several independent platforms that provide rankings for youth soccer teams across the United States. Here are some notable options:\n\n\n[TopDrawerSoccer TeamRank Update - Boys | Club Soccer | Youth Soccer](https://www.topdrawersoccer.com/club-soccer-articles/topdrawersoccer-teamrank-update-boys_aid54457?utm_source=openai)\n**PitchRank**  \nOffers data-driven performance analytics for U10\u2013U19 boys and girls teams nationwide, analyzing over 16,000 games and ranking approximately 2,800 teams across all 50 states. ([pitchrank.io](https://www.pitchrank.io/?utm_source=openai))\n\n\n\n[Soccer or football application on smartphone screen](https://media.gettyimages.com/id/944613986/vector/soccer-or-football-application-on-smartphone-screen.jpg?b=1&c=stLFJ0YPgTqbeaxn2e4peoMX3YhSZLDK68CWSY5RGo8%3D&k=20&s=612x612&w=0&utm_source=openai)\n**SoccerView**  \nProvides rankings, standings, scores, and ELO power ratings for over 135,000 youth soccer teams across all 50 states, aggregating data from 16 platforms into one app. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n\n\n[GotSport Rankings: RIA Champions Awards 2025 | Honoring Top Youth Soccer Teams - GotSport](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai)\n**GotSport Rankings**  \nRecognizes top-performing youth soccer teams through the annual RIA Champions Awards, honoring teams that achieve the highest national rankings over the calendar year. ([home.gotsport.com](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai))\n\n\n\n[TopDrawerSoccer TeamRank Update - Boys | Club Soccer | Youth Soccer](https://www.topdrawersoccer.com/club-soccer-articles/topdrawersoccer-teamrank-update-boys_aid55619?utm_source=openai)\n**Youth Soccer Index**  \nProvides objective quality rankings for MLS Next and ECNL youth soccer clubs, computed from actual match results. ([youthsoccerindex.com](https://youthsoccerindex.com/?utm_source=openai))\n\n\n\n[STATSports release updated version of Athlete Series app with brand new features](https://pro.statsports.com/statsports-release-updated-version-of-athlete-series-app-with-brand-new-features/?utm_source=openai)\n**USA Sport Statistics**  \nOffers rankings, live score updates, player and team statistics, and match predictions for U8\u2013U18 teams across the USA, available through their app. ([usasportstatistics.net](https://usasportstatistics.net/?utm_source=openai))\n\n\nThese platforms utilize various methodologies, such as analyzing game results, strength of schedule, and machine learning algorithms, to provide comprehensive and up-to-date rankings for youth soccer teams nationwide. ",
+  "brand_mentioned": true,
+  "brand_first_position": 334,
+  "competitors_mentioned": [
+    "GotSport",
+    "TopDrawer"
+  ],
+  "citation_urls": [
+    "https://www.topdrawersoccer.com/club-soccer-articles/topdrawersoccer-teamrank-update-boys_aid54457?utm_source=openai",
+    "https://www.pitchrank.io/?utm_source=openai",
+    "https://media.gettyimages.com/id/944613986/vector/soccer-or-football-application-on-smartphone-screen.jpg?b=1&c=stLFJ0YPgTqbeaxn2e4peoMX3YhSZLDK68CWSY5RGo8%3D&k=20&s=612x612&w=0&utm_source=openai",
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai",
+    "https://www.topdrawersoccer.com/club-soccer-articles/topdrawersoccer-teamrank-update-boys_aid55619?utm_source=openai",
+    "https://youthsoccerindex.com/?utm_source=openai",
+    "https://pro.statsports.com/statsports-release-updated-version-of-athlete-series-app-with-brand-new-features/?utm_source=openai",
+    "https://usasportstatistics.net/?utm_source=openai"
+  ],
+  "latency_ms": 6137,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}
