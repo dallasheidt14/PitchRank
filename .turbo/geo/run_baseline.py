@@ -215,16 +215,28 @@ def run() -> int:
 
     RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
     results: list[CallResult] = []
+    loaded_keys: set[tuple[str, str]] = set()
+
+    # Load every cached response from disk first so the summary keeps prior
+    # engines when re-running with only a newly-configured key.
+    active_names = {name for name, _ in active}
+    if RESPONSES_DIR.exists():
+        for engine_dir in sorted(RESPONSES_DIR.iterdir()):
+            if not engine_dir.is_dir():
+                continue
+            for cache_file in sorted(engine_dir.glob("*.json")):
+                cached = json.loads(cache_file.read_text(encoding="utf-8"))
+                results.append(CallResult(**cached))
+                loaded_keys.add((cached["engine"], cached["prompt_id"]))
+                if engine_dir.name not in active_names:
+                    print(f"  [cached] {engine_dir.name}/{cache_file.stem} (inactive engine)")
 
     for engine_name, fn in active:
         engine_dir = RESPONSES_DIR / engine_name
         engine_dir.mkdir(exist_ok=True)
         for p in prompts:
             out_path = engine_dir / f"{p['id']}.json"
-            if out_path.exists():
-                # resume support — skip already-run prompts
-                cached = json.loads(out_path.read_text(encoding="utf-8"))
-                results.append(CallResult(**cached))
+            if (engine_name, p["id"]) in loaded_keys:
                 print(f"  [cached] {engine_name}/{p['id']}")
                 continue
 
