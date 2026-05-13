@@ -362,7 +362,7 @@ def test_positive_ml_evidence_scale_severe_connectivity_blocks_ml():
     assert _positive_ml_evidence_scale(row) == 0.0
 
 
-def test_positive_ml_evidence_scale_repetitive_quality_profile_gets_partial_ml():
+def test_positive_ml_evidence_scale_releases_elite_repetitive_quality_profile():
     row = pd.Series(
         {
             "age_num": 12,
@@ -373,6 +373,32 @@ def test_positive_ml_evidence_scale_repetitive_quality_profile_gets_partial_ml()
             "same_age_top500_opp_count": 11,
             "same_age_top500_non_loss_opp_count": 12,
             "same_age_top1000_non_loss_opp_count": 14,
+            "same_age_avg_opp_power_adj": 0.699,
+            "same_age_quality_opp_power_adj": 0.699,
+            "repeat_opponent_share": 0.558,
+            "unique_opp_states": 2,
+            "bridge_games": 4.78,
+            "scf": 0.73,
+            "games_last_180_days": 27,
+            "days_since_last": 9,
+            "powerscore_adj": 0.935,
+            "powerscore_ml": 0.975,
+        }
+    )
+    assert _positive_ml_evidence_scale(row) >= 0.75
+
+
+def test_positive_ml_evidence_scale_keeps_non_elite_repetitive_profile_partial():
+    row = pd.Series(
+        {
+            "age_num": 12,
+            "same_age_games": 34,
+            "same_age_unique_opponents": 21,
+            "same_age_top100_opp_count": 5,
+            "same_age_top100_non_loss_opp_count": 1,
+            "same_age_top500_opp_count": 11,
+            "same_age_top500_non_loss_opp_count": 8,
+            "same_age_top1000_non_loss_opp_count": 10,
             "same_age_avg_opp_power_adj": 0.699,
             "same_age_quality_opp_power_adj": 0.699,
             "repeat_opponent_share": 0.558,
@@ -444,7 +470,7 @@ def test_publication_cap_rank_hits_severe_connectivity_team():
     assert _publication_cap_rank(row) == 400
 
 
-def test_publication_cap_rank_soft_caps_repetitive_quality_profile():
+def test_publication_cap_rank_releases_elite_repetitive_quality_profile():
     row = pd.Series(
         {
             "age_num": 12,
@@ -467,7 +493,7 @@ def test_publication_cap_rank_soft_caps_repetitive_quality_profile():
             "powerscore_ml": 0.975,
         }
     )
-    assert _publication_cap_rank(row) == 250
+    assert _publication_cap_rank(row) is None
 
 
 def test_same_age_publish_penalty_relieves_proven_repetitive_profile():
@@ -493,7 +519,7 @@ def test_same_age_publish_penalty_relieves_proven_repetitive_profile():
             "powerscore_ml": 0.975,
         }
     )
-    assert _same_age_publish_penalty(row) < 0.02
+    assert _same_age_publish_penalty(row) < 0.01
 
 
 def test_publication_cap_rank_hits_severe_empty_schedule_bucket():

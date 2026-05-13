@@ -438,6 +438,13 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "repetitive_quality_relief_min_scf": 0.65,
         "repetitive_quality_relief_min_bridge_games": 3.0,
         "repetitive_quality_relief_max_repeat_share": 0.62,
+        "elite_repetitive_release_min_top100_non_loss": 2,
+        "elite_repetitive_release_min_top500_non_loss": 10,
+        "elite_repetitive_release_min_top1000_non_loss": 12,
+        "elite_repetitive_release_min_recent_games": 20,
+        "elite_repetitive_release_min_quality_support": 0.70,
+        "elite_repetitive_release_ml_scale_floor": 0.75,
+        "elite_repetitive_release_connectivity_penalty_multiplier": 0.35,
         "publish_field_penalty_max": 0.035,
         "publish_freshness_penalty_max": 0.025,
         "publish_connectivity_penalty_max": 0.010,
@@ -905,6 +912,25 @@ def _has_proven_repetitive_profile(row: pd.Series, policy: dict[str, float | int
     )
 
 
+def _has_elite_repetitive_release_profile(row: pd.Series, policy: dict[str, float | int]) -> bool:
+    if not _has_proven_repetitive_profile(row, policy):
+        return False
+
+    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
+    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
+    top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
+    recent_games = _safe_int(row.get("games_last_180_days"))
+    quality_support = _same_age_quality_support_score(row, policy)
+
+    return bool(
+        top100_non_loss >= int(policy["elite_repetitive_release_min_top100_non_loss"])
+        and top500_non_loss >= int(policy["elite_repetitive_release_min_top500_non_loss"])
+        and top1000_non_loss >= int(policy["elite_repetitive_release_min_top1000_non_loss"])
+        and recent_games >= int(policy["elite_repetitive_release_min_recent_games"])
+        and quality_support >= float(policy["elite_repetitive_release_min_quality_support"])
+    )
+
+
 def _days_since_last_game(row: pd.Series) -> float | None:
     days_since_last = _safe_float(row.get("days_since_last"))
     if days_since_last is not None:
@@ -1362,6 +1388,7 @@ def _same_age_publish_penalty(row: pd.Series) -> float:
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state, repeat_heavy, severe_connectivity = _connectivity_flags(row, policy)
     strong_broad_profile = _has_strong_broad_profile(row, policy)
+    elite_repetitive_release = _has_elite_repetitive_release_profile(row, policy)
     weak_field_connectivity_profile = _has_weak_field_connectivity_overtrust_profile(row, policy)
     quality_field_strength = _unit_interval(
         quality_avg_opp_power,
@@ -1422,7 +1449,14 @@ def _same_age_publish_penalty(row: pd.Series) -> float:
     if stale_recent:
         penalty += 0.012
     if low_state or repeat_heavy:
-        penalty += float(policy["publish_connectivity_penalty_max"]) * max(repeat_pressure, 0.5 * float(low_state))
+        connectivity_multiplier = 1.0
+        if elite_repetitive_release:
+            connectivity_multiplier = float(policy["elite_repetitive_release_connectivity_penalty_multiplier"])
+        penalty += (
+            float(policy["publish_connectivity_penalty_max"])
+            * max(repeat_pressure, 0.5 * float(low_state))
+            * connectivity_multiplier
+        )
     if severe_connectivity:
         penalty += 0.005
 
@@ -1535,6 +1569,7 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     )
     authority = _same_age_authority_score(row, policy)
     quality_bridge = _has_quality_bridge_support(row, policy)
+    elite_repetitive_release = _has_elite_repetitive_release_profile(row, policy)
 
     if severe_connectivity:
         if has_play_up_support:
@@ -1545,11 +1580,13 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
                 float(policy["thin_recent_ml_scale_max"]),
             )
         return 0.0
-    if has_play_up_support and connectivity_constrained:
+    if elite_repetitive_release and not severe_connectivity:
+        scale = max(authority, float(policy["elite_repetitive_release_ml_scale_floor"]))
+    elif has_play_up_support and connectivity_constrained:
         return float(policy["play_up_partial_ml_scale"])
-    if connectivity_constrained and top100 >= 1:
+    elif connectivity_constrained and top100 >= 1:
         return float(policy["partial_ml_scale"])
-    if has_play_up_support:
+    elif has_play_up_support:
         scale = max(authority, float(policy["play_up_partial_ml_scale"]))
     else:
         scale = authority
@@ -1594,6 +1631,7 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     )
     authority = _same_age_authority_score(row, policy)
     quality_bridge = _has_quality_bridge_support(row, policy)
+    elite_repetitive_release = _has_elite_repetitive_release_profile(row, policy)
     freshness, recent_games, days_since_last, thin_recent, stale_recent = _freshness_flags(row, policy)
 
     thin_schedule = (
@@ -1685,6 +1723,8 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     if has_play_up_support and connectivity_constrained:
         return int(policy["soft_cap_rank"])
     if strong_broad_profile and not severe_connectivity:
+        if elite_repetitive_release:
+            return None
         if repeat_heavy_for_cap or connectivity_constrained:
             return int(policy["soft_cap_rank"])
         return None
