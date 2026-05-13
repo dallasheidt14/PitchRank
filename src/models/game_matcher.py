@@ -53,9 +53,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# UUID namespace for deterministic game UIDs
-GAME_UID_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # Standard DNS namespace
-
 # --- Team variant detection (ported from find_queue_matches.py) ---
 # Colors that indicate DIFFERENT teams within the same club
 TEAM_COLORS = {
@@ -430,14 +427,6 @@ class MatchResult:
     confidence: float
     provider_team_name: str
     details: Dict[str, Any]
-
-
-class MatchingThresholds:
-    """Enforced matching thresholds"""
-
-    AUTO_LINK = 0.90  # Automatically link
-    MANUAL_REVIEW = 0.75  # Queue for review
-    BLOCK = 0.75  # Reject below this
 
 
 class GameHistoryMatcher:

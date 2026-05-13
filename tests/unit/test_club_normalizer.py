@@ -14,7 +14,6 @@ from src.utils.club_normalizer import (
     similarity_score,
     are_same_club,
     group_by_club,
-    add_canonical_club,
     ClubNormResult,
 )
 
@@ -280,19 +279,6 @@ class TestGroupByClub:
         # LA Galaxy variations should be grouped
         assert "la_galaxy" in groups
         assert len(groups["la_galaxy"]) == 2
-
-
-class TestAddCanonicalClub:
-    """Tests for the add_canonical_club function"""
-
-    def test_add_new_club(self):
-        """Test adding a new canonical club"""
-        add_canonical_club("Test Club", ["test club", "tc", "test fc"])
-
-        # Should now be recognized
-        result = normalize_to_club("Test FC")
-        assert result.club_norm == "TEST CLUB"
-        assert result.matched_canonical is True
 
 
 class TestRealWorldExamples:
