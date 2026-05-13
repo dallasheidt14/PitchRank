@@ -77,6 +77,7 @@ export const PITCHRANK_TEAM_AUTHOR_PATH = '/authors/pitchrank-team' as const;
  * author entity (PITCHRANK_TEAM_AUTHOR) so both stay in sync.
  */
 export const PITCHRANK_SAMEAS = [
+  'https://www.wikidata.org/wiki/Q139785143',
   'https://twitter.com/pitchrank',
   'https://instagram.com/pitchrank',
   'https://facebook.com/pitchrank',

@@ -55,20 +55,13 @@ If you want Wikidata's structured data to reflect that PitchRank uses Glicko-2 s
 1. Paste the assigned **Q-number** below this line:
 
 ```
-PitchRank Q-number: Q______
-Created: 2026-05-_
+PitchRank Q-number: Q139785143
+URL: https://www.wikidata.org/wiki/Q139785143
+Created: 2026-05-13
 By: Dallas Heidt
 ```
 
-2. Add the Q-number to `frontend/components/AuthorEntitySchema.tsx` as a `sameAs` reference in the Organization schema (this signals AI crawlers that the Wikidata entity is canonical):
-
-```tsx
-sameAs: [
-  "https://www.wikidata.org/wiki/Q______",
-  "https://pitchrank.io",
-  // existing entries...
-]
-```
+2. ✅ Done — Wikidata URL added to `PITCHRANK_SAMEAS` in `frontend/lib/constants.ts`. That single constant propagates to both the homepage Organization schema (via `StructuredData.tsx`) and the PitchRank Team author entity (used as `author` on every blog post / methodology page).
 
 3. Submit the item to https://search.google.com/test/rich-results with our homepage URL — Google's Knowledge Graph picks up the new sameAs link and may surface PitchRank as a verified entity within ~2 weeks.
 
