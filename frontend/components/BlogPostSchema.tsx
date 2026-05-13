@@ -1,5 +1,5 @@
 import React from 'react';
-import { BASE_URL } from '@/lib/constants';
+import { BASE_URL, PITCHRANK_PUBLISHER, PITCHRANK_TEAM_AUTHOR } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 
 interface BlogPostSchemaProps {
@@ -7,7 +7,6 @@ interface BlogPostSchemaProps {
   excerpt: string;
   slug: string;
   date: string;
-  author: string;
   readingTime?: string;
   tags?: string[];
   modifiedDate?: string;
@@ -25,7 +24,6 @@ export function BlogPostSchema({
   excerpt,
   slug,
   date,
-  author,
   readingTime,
   tags,
   modifiedDate,
@@ -47,18 +45,8 @@ export function BlogPostSchema({
     url: postUrl,
     datePublished: date,
     dateModified: modifiedDate || date,
-    author: {
-      '@type': 'Person',
-      name: author,
-    },
-    publisher: {
-      '@type': 'Organization',
-      name: 'PitchRank',
-      logo: {
-        '@type': 'ImageObject',
-        url: `${BASE_URL}/logos/pitchrank-wordmark.svg`,
-      },
-    },
+    author: PITCHRANK_TEAM_AUTHOR,
+    publisher: PITCHRANK_PUBLISHER,
     image: imageUrl,
     mainEntityOfPage: {
       '@type': 'WebPage',

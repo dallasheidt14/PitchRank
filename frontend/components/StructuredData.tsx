@@ -1,4 +1,4 @@
-import { BASE_URL } from '@/lib/constants';
+import { BASE_URL, PITCHRANK_SAMEAS } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 
 /**
@@ -12,14 +12,9 @@ export function StructuredData() {
     '@type': 'Organization',
     name: 'PitchRank',
     url: BASE_URL,
-    logo: `${BASE_URL}/logos/pitchrank-logo-dark.png`,
+    logo: `${BASE_URL}/logos/icon-512.png`,
     description: 'Data-powered youth soccer team rankings and performance analytics',
-    sameAs: [
-      'https://twitter.com/pitchrank',
-      'https://instagram.com/pitchrank',
-      'https://facebook.com/pitchrank',
-      'https://linkedin.com/company/pitchrank',
-    ],
+    sameAs: PITCHRANK_SAMEAS,
     contactPoint: {
       '@type': 'ContactPoint',
       contactType: 'Customer Support',

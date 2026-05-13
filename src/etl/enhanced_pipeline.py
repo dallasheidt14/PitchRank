@@ -242,7 +242,25 @@ class EnhancedETLPipeline:
 
             logger.info("Using PlayMetricsGameMatcher (WI-scoped fuzzy + auto-create)")
             self.matcher = PlayMetricsGameMatcher(
-                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
+        elif self.provider_code.lower() == "playmetrics_tournament":
+            from src.models.playmetrics_matcher import PlayMetricsGameMatcher
+
+            # Tournament path: no default state. Fuzzy candidate set spans all
+            # states, autocreate resolves state from the club's existing teams
+            # rows (unique non-null state) or leaves NULL. See
+            # ``PlayMetricsGameMatcher.__init__`` for the contract.
+            logger.info("Using PlayMetricsGameMatcher (multi-state tournament + auto-create)")
+            self.matcher = PlayMetricsGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                default_state_code=None,
+                dry_run=self.dry_run,
             )
         elif self.provider_code.lower() == "squadi":
             from src.models.squadi_matcher import SquadiGameMatcher
@@ -502,6 +520,17 @@ class EnhancedETLPipeline:
                                 team1_id=home_team_id,
                                 team2_id=away_team_id,
                             )
+                            # Preserve the schedule_id suffix added in
+                            # _validate_games for tournament rematches; without
+                            # this re-append, the master-ID regen strips it and
+                            # collapses both rematches back into one game_uid.
+                            if (
+                                self.provider_code
+                                and self.provider_code.lower() == "playmetrics_tournament"
+                            ):
+                                schedule_id_suffix = (matched_game.get("schedule_id") or "").strip()
+                                if schedule_id_suffix:
+                                    master_game_uid = f"{master_game_uid}:{schedule_id_suffix}"
                             old_uid = matched_game.get("game_uid", "")
                             if master_game_uid != old_uid:
                                 logger.debug(
@@ -1085,6 +1114,19 @@ class EnhancedETLPipeline:
                     f"{sorted_teams[0]}:{sorted_teams[1]}:"
                     f"{age_group_key}:{division_key}"
                 )
+            elif provider_code and provider_code.lower() == "playmetrics_tournament":
+                # Bracket play has same teams playing twice on one day (pool +
+                # final / consolation). PM gives a unique schedule_id per match;
+                # without it in the key, rematches collapse to one. Mirror of
+                # the Modular11 branch above.
+                schedule_id_key = (game.get("schedule_id") or "").strip()
+                if schedule_id_key:
+                    game_key = (
+                        f"{provider_code}:{game_date_normalized}:"
+                        f"{sorted_teams[0]}:{sorted_teams[1]}:{schedule_id_key}"
+                    )
+                else:
+                    game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
             else:
                 game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"
 
@@ -1107,6 +1149,13 @@ class EnhancedETLPipeline:
                 team1_id=sorted_teams[0],
                 team2_id=sorted_teams[1],
             )
+            # Suffix the persistent game_uid with the same field that
+            # disambiguates the dedup key above, so DB-side dedup matches
+            # batch-side dedup.
+            if provider_code and provider_code.lower() == "playmetrics_tournament":
+                schedule_id_suffix = (game.get("schedule_id") or "").strip()
+                if schedule_id_suffix:
+                    game_uid = f"{game_uid}:{schedule_id_suffix}"
             transformed_game["game_uid"] = game_uid
             transformed_game["game_date"] = game_date_normalized
 

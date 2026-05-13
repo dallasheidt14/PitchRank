@@ -93,7 +93,11 @@ function determinePlayStyle(offenseNorm: number | null, defenseNorm: number | nu
 
 /**
  * Computes the current W/L/D streak from most recent games
- * Games are ordered most-recent-first
+ * Games are ordered most-recent-first.
+ *
+ * NOTE: Caller is responsible for passing the team's full game set
+ * (including games stored under deprecated/merged team_ids) — this
+ * function does not resolve `team_merge_map`.
  */
 function getCurrentStreak(games: InsightInputData['games'], teamId: string): string | null {
   if (games.length === 0) return null;
@@ -195,6 +199,7 @@ function buildCohortContext(
 function analyzeConsistencyPattern(games: InsightInputData['games'], teamId: string): string {
   if (games.length < 3) return 'limited data available';
 
+  const RECENCY_WINDOW = 15;
   const results: ('W' | 'L' | 'D')[] = [];
   const goalDiffs: number[] = [];
 
@@ -202,6 +207,7 @@ function analyzeConsistencyPattern(games: InsightInputData['games'], teamId: str
   const GOAL_DIFF_CAP = 6;
 
   for (const game of games) {
+    if (results.length >= RECENCY_WINDOW) break;
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;

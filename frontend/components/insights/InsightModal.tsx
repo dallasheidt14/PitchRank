@@ -25,6 +25,7 @@ import type {
   SeasonTruthInsight,
   ConsistencyInsight,
   PersonaInsight,
+  FormBadgeInsight,
 } from '@/lib/insights/types';
 import Link from 'next/link';
 
@@ -78,6 +79,8 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
   const consistency = insights?.insights.find((i) => i.type === 'consistency_score') as ConsistencyInsight | undefined;
 
   const persona = insights?.insights.find((i) => i.type === 'persona') as PersonaInsight | undefined;
+
+  const formBadge = insights?.insights.find((i) => i.type === 'form_badge') as FormBadgeInsight | undefined;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -138,6 +141,24 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                       {seasonTruth.details.playStyle}
                     </span>
                   )}
+                  {/* Form Badge — Surging / Slumping */}
+                  {formBadge && (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
+                        formBadge.label === 'Surging'
+                          ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
+                          : 'bg-sky-500/20 text-sky-700 dark:text-sky-400'
+                      )}
+                    >
+                      {formBadge.label === 'Surging' ? (
+                        <Flame className="h-3 w-3" />
+                      ) : (
+                        <Snowflake className="h-3 w-3" />
+                      )}
+                      {formBadge.label}
+                    </span>
+                  )}
                   {/* Current Streak Badge */}
                   {seasonTruth.details.currentStreak && (
                     <span
@@ -158,24 +179,27 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                     </span>
                   )}
                   {/* Rank Trajectory Badge - based on perf_centered */}
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
-                      seasonTruth.details.rankTrajectory === 'rising'
-                        ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                  {/* Suppressed when Form badge is set: temporal signal already covered, and perf_centered re-zeros to 'Stable' once Glicko re-calibrates */}
+                  {!formBadge && (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
+                        seasonTruth.details.rankTrajectory === 'rising'
+                          ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                          : seasonTruth.details.rankTrajectory === 'falling'
+                            ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                            : 'bg-muted text-muted-foreground'
+                      )}
+                    >
+                      {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
+                      {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
+                      {seasonTruth.details.rankTrajectory === 'rising'
+                        ? 'Rank Rising'
                         : seasonTruth.details.rankTrajectory === 'falling'
-                          ? 'bg-red-500/20 text-red-700 dark:text-red-400'
-                          : 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
-                    {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
-                    {seasonTruth.details.rankTrajectory === 'rising'
-                      ? 'Rank Rising'
-                      : seasonTruth.details.rankTrajectory === 'falling'
-                        ? 'Rank Falling'
-                        : 'Rank Stable'}
-                  </span>
+                          ? 'Rank Falling'
+                          : 'Rank Stable'}
+                    </span>
+                  )}
                   {/* Rank Velocity Badge */}
                   {seasonTruth.details.rankVelocity && (
                     <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
@@ -186,23 +210,6 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                   <span className="text-xs px-2.5 py-1 rounded-full bg-muted text-muted-foreground font-medium">
                     SOS: {seasonTruth.details.sosPercentile}th percentile
                   </span>
-                  {/* Form Signal Badge - only show notable streaks */}
-                  {seasonTruth.details.formSignal &&
-                    (seasonTruth.details.formSignal === 'hot_streak' ||
-                      seasonTruth.details.formSignal === 'cold_streak') && (
-                      <span
-                        className={cn(
-                          'inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium',
-                          seasonTruth.details.formSignal === 'hot_streak'
-                            ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                            : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
-                        )}
-                      >
-                        {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
-                        {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
-                        {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
-                      </span>
-                    )}
                 </div>
               </div>
             )}
@@ -292,26 +299,30 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
               <div
                 className={cn(
                   'rounded-xl p-5 border',
-                  persona.label === 'Giant Killer'
-                    ? 'bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-purple-500/20'
-                    : persona.label === 'Flat Track Bully'
-                      ? 'bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20'
-                      : persona.label === 'Gatekeeper'
-                        ? 'bg-gradient-to-br from-cyan-500/5 to-cyan-500/10 border-cyan-500/20'
-                        : 'bg-gradient-to-br from-gray-500/5 to-gray-500/10 border-gray-500/20'
+                  persona.label === 'Title Contender'
+                    ? 'bg-gradient-to-br from-amber-500/5 to-amber-500/10 border-amber-500/20'
+                    : persona.label === 'Giant Killer'
+                      ? 'bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-purple-500/20'
+                      : persona.label === 'Flat Track Bully'
+                        ? 'bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20'
+                        : persona.label === 'Gatekeeper'
+                          ? 'bg-gradient-to-br from-cyan-500/5 to-cyan-500/10 border-cyan-500/20'
+                          : 'bg-gradient-to-br from-gray-500/5 to-gray-500/10 border-gray-500/20'
                 )}
               >
                 <div className="flex items-center gap-2 mb-3">
                   <Swords
                     className={cn(
                       'h-5 w-5',
-                      persona.label === 'Giant Killer'
-                        ? 'text-purple-500'
-                        : persona.label === 'Flat Track Bully'
-                          ? 'text-orange-500'
-                          : persona.label === 'Gatekeeper'
-                            ? 'text-cyan-500'
-                            : 'text-gray-500'
+                      persona.label === 'Title Contender'
+                        ? 'text-amber-500'
+                        : persona.label === 'Giant Killer'
+                          ? 'text-purple-500'
+                          : persona.label === 'Flat Track Bully'
+                            ? 'text-orange-500'
+                            : persona.label === 'Gatekeeper'
+                              ? 'text-cyan-500'
+                              : 'text-gray-500'
                     )}
                   />
                   <h3 className="font-semibold text-lg">Team Persona</h3>
@@ -320,15 +331,18 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                 <div
                   className={cn(
                     'inline-flex items-center gap-2 px-4 py-2 rounded-lg mb-3 font-display text-lg font-bold',
-                    persona.label === 'Giant Killer'
-                      ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                      : persona.label === 'Flat Track Bully'
-                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                        : persona.label === 'Gatekeeper'
-                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
-                          : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                    persona.label === 'Title Contender'
+                      ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                      : persona.label === 'Giant Killer'
+                        ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                        : persona.label === 'Flat Track Bully'
+                          ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                          : persona.label === 'Gatekeeper'
+                            ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
+                            : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
                   )}
                 >
+                  {persona.label === 'Title Contender' && '👑'}
                   {persona.label === 'Giant Killer' && '🗡️'}
                   {persona.label === 'Flat Track Bully' && '💪'}
                   {persona.label === 'Gatekeeper' && '🛡️'}
@@ -337,6 +351,10 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
                 </div>
 
                 <p className="text-foreground/90 leading-relaxed">{persona.explanation}</p>
+
+                {persona.details.trait && (
+                  <p className="text-sm text-foreground/70 italic mt-2">✨ {persona.details.trait}</p>
+                )}
 
                 {/* Signature Result */}
                 {persona.details.signatureResult && (

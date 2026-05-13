@@ -28,6 +28,7 @@ import type {
   SeasonTruthInsight,
   ConsistencyInsight,
   PersonaInsight,
+  FormBadgeInsight,
 } from '@/lib/insights/types';
 
 interface TeamInsightsCardProps {
@@ -91,6 +92,8 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
   const consistency = insights?.insights.find((i) => i.type === 'consistency_score') as ConsistencyInsight | undefined;
 
   const persona = insights?.insights.find((i) => i.type === 'persona') as PersonaInsight | undefined;
+
+  const formBadge = insights?.insights.find((i) => i.type === 'form_badge') as FormBadgeInsight | undefined;
 
   // Loading state for user check
   if (userLoading) {
@@ -245,16 +248,19 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               <div
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
-                  persona.label === 'Giant Killer'
-                    ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
-                    : persona.label === 'Flat Track Bully'
-                      ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
-                      : persona.label === 'Gatekeeper'
-                        ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
-                        : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
+                  persona.label === 'Title Contender'
+                    ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                    : persona.label === 'Giant Killer'
+                      ? 'bg-purple-500/20 text-purple-700 dark:text-purple-300'
+                      : persona.label === 'Flat Track Bully'
+                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                        : persona.label === 'Gatekeeper'
+                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300'
+                          : 'bg-gray-500/20 text-gray-700 dark:text-gray-300'
                 )}
               >
                 <Swords className="h-4 w-4" />
+                {persona.label === 'Title Contender' && '👑'}
                 {persona.label === 'Giant Killer' && '🗡️'}
                 {persona.label === 'Flat Track Bully' && '💪'}
                 {persona.label === 'Gatekeeper' && '🛡️'}
@@ -268,13 +274,15 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                 <TooltipContent side="right" className="max-w-[280px]">
                   <p className="font-semibold mb-1">Team Persona</p>
                   <p className="text-xs">
-                    {persona.label === 'Giant Killer'
-                      ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
-                      : persona.label === 'Flat Track Bully'
-                        ? 'This team dominates weaker opponents but struggles against top competition.'
-                        : persona.label === 'Gatekeeper'
-                          ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
-                          : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
+                    {persona.label === 'Title Contender'
+                      ? 'This team handles every tier — they beat both stronger and weaker opponents with consistency. The mark of a serious contender.'
+                      : persona.label === 'Giant Killer'
+                        ? 'This team punches above their weight - they consistently beat higher-ranked opponents.'
+                        : persona.label === 'Flat Track Bully'
+                          ? 'This team dominates weaker opponents but struggles against top competition.'
+                          : persona.label === 'Gatekeeper'
+                            ? 'A solid, reliable team that wins the games they should and keeps things competitive against stronger teams.'
+                            : 'Unpredictable results - this team can beat anyone or lose to anyone on any given day.'}
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -305,6 +313,21 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               {seasonTruth.details.playStyle}
             </div>
           )}
+
+          {/* Form Badge — Surging / Slumping (independent of tier persona) */}
+          {formBadge && (
+            <div
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold text-sm',
+                formBadge.label === 'Surging'
+                  ? 'bg-orange-500/20 text-orange-700 dark:text-orange-300'
+                  : 'bg-sky-500/20 text-sky-700 dark:text-sky-300'
+              )}
+            >
+              {formBadge.label === 'Surging' ? <Flame className="h-4 w-4" /> : <Snowflake className="h-4 w-4" />}
+              {formBadge.label}
+            </div>
+          )}
         </div>
 
         {/* Signature Result - if available */}
@@ -313,6 +336,9 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             {persona.details.signatureResult}
           </p>
         )}
+
+        {/* Auto-picked trait line under signature result */}
+        {persona?.details.trait && <p className="text-xs text-foreground/70 italic">✨ {persona.details.trait}</p>}
 
         {/* Consistency Score */}
         {consistency && (
@@ -397,46 +423,49 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             )}
 
             {/* Rank Trajectory - Based on recent form (perf_centered) */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Rank Trend</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-[280px]">
-                    <p className="font-semibold mb-1">Rank Trend</p>
-                    <p className="text-xs">
-                      Based on recent game results compared to expectations. Rising means the team is overperforming and
-                      their rank will likely improve. Falling means recent results suggest their rank may drop.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
-                  seasonTruth.details.rankTrajectory === 'rising'
-                    ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+            {/* Suppressed when Form badge is set: temporal signal already covered, and perf_centered re-zeros to 'Stable' once Glicko re-calibrates */}
+            {!formBadge && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-muted-foreground">Rank Trend</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-[280px]">
+                      <p className="font-semibold mb-1">Rank Trend</p>
+                      <p className="text-xs">
+                        Based on recent game results compared to expectations. Rising means the team is overperforming
+                        and their rank will likely improve. Falling means recent results suggest their rank may drop.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
+                    seasonTruth.details.rankTrajectory === 'rising'
+                      ? 'bg-green-500/20 text-green-700 dark:text-green-400'
+                      : seasonTruth.details.rankTrajectory === 'falling'
+                        ? 'bg-red-500/20 text-red-700 dark:text-red-400'
+                        : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
+                  {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
+                  {seasonTruth.details.rankTrajectory === 'rising'
+                    ? 'Rising'
                     : seasonTruth.details.rankTrajectory === 'falling'
-                      ? 'bg-red-500/20 text-red-700 dark:text-red-400'
-                      : 'bg-muted text-muted-foreground'
-                )}
-              >
-                {seasonTruth.details.rankTrajectory === 'rising' && <TrendingUp className="h-3 w-3" />}
-                {seasonTruth.details.rankTrajectory === 'falling' && <TrendingDown className="h-3 w-3" />}
-                {seasonTruth.details.rankTrajectory === 'rising'
-                  ? 'Rising'
-                  : seasonTruth.details.rankTrajectory === 'falling'
-                    ? 'Falling'
-                    : 'Stable'}
-              </span>
-            </div>
+                      ? 'Falling'
+                      : 'Stable'}
+                </span>
+              </div>
+            )}
 
             {/* Rank Velocity - specific movement context */}
             {seasonTruth.details.rankVelocity && (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Movement</span>
+                <span className="text-muted-foreground">Movement (Nationally)</span>
                 <span className="text-xs font-medium text-foreground/80">{seasonTruth.details.rankVelocity}</span>
               </div>
             )}
@@ -463,41 +492,6 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               </div>
               <span className="font-mono font-medium">{seasonTruth.details.sosPercentile}th %ile</span>
             </div>
-
-            {/* Form/Momentum - Only show notable streaks */}
-            {seasonTruth.details.formSignal &&
-              (seasonTruth.details.formSignal === 'hot_streak' || seasonTruth.details.formSignal === 'cold_streak') && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground">Current Form</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-[280px]">
-                        <p className="font-semibold mb-1">Current Form</p>
-                        <p className="text-xs">
-                          {seasonTruth.details.formSignal === 'hot_streak'
-                            ? "This team is on fire! They're winning games they're expected to lose and dominating matches they should win."
-                            : "This team is struggling. Recent results are below what you'd expect based on their overall talent level."}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <span
-                    className={cn(
-                      'inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium',
-                      seasonTruth.details.formSignal === 'hot_streak'
-                        ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400'
-                        : 'bg-blue-500/20 text-blue-700 dark:text-blue-400'
-                    )}
-                  >
-                    {seasonTruth.details.formSignal === 'hot_streak' && <Flame className="h-3 w-3" />}
-                    {seasonTruth.details.formSignal === 'cold_streak' && <Snowflake className="h-3 w-3" />}
-                    {seasonTruth.details.formSignal === 'hot_streak' ? 'Hot Streak' : 'Cold Streak'}
-                  </span>
-                </div>
-              )}
           </div>
         )}
       </CardContent>

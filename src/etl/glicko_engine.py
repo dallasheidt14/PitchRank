@@ -1787,7 +1787,9 @@ def compute_rankings_v2(
     _age_val = games_df["age"].iloc[0] if len(games_df) > 0 else "U15"
     if "age" not in team_df.columns:
         team_df["age"] = _age_val
-    team_df["age_group"] = team_df["age"]
+    team_df["age_group"] = team_df["age"].apply(
+        lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None
+    )
     if "gender" not in team_df.columns:
         team_df["gender"] = games_df["gender"].iloc[0] if len(games_df) > 0 else "M"
 

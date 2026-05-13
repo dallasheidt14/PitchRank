@@ -2,15 +2,42 @@
 > Data-powered youth soccer team rankings and performance analytics
 
 ## About
-PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U19 boys and girls teams across all 50 states.
+PitchRank provides the most accurate youth soccer rankings in the United States, covering U10-U19 boys and girls teams across all 50 states. Rankings are updated weekly based on game results from sanctioned leagues and tournaments.
 
-## Key Pages
-- [Rankings](https://www.pitchrank.io/rankings): Browse national and state-level rankings
-- [Methodology](https://www.pitchrank.io/methodology): How we calculate rankings
-- [Blog](https://www.pitchrank.io/blog): Youth soccer insights and analysis
+## Core Content
+- [Methodology](https://www.pitchrank.io/methodology): How PitchRank calculates rankings
+- [National Rankings](https://www.pitchrank.io/rankings): Top youth soccer teams across the United States
+- [About PitchRank](https://www.pitchrank.io/authors/pitchrank-team): The team behind the rankings
 
-## Data
-- Rankings updated daily
-- Covers 50 states + national rankings
-- Age groups: U10 through U19
-- Both boys and girls divisions
+## Blog
+*State-specific guides are listed under State Pillars below.*
+
+- [Youth Soccer Levels Explained: ECNL, MLS NEXT, NPL & More (2026)](https://www.pitchrank.io/blog/youth-soccer-levels-explained): A plain-English guide to the levels of youth soccer in the US — ECNL, MLS NEXT, GA, NPL, ECNL Regional, National League, state premier, and travel/rec. What each is, how they fit together, and what it actually means for your kid.
+- [PA U10 Boys Soccer Rankings 2026: Top 25 Teams in Pennsylvania](https://www.pitchrank.io/blog/pa-u10-boys-soccer-rankings): The top 25 U10 boys soccer teams in Pennsylvania, ranked by PowerScore. FC DELCO, Philadelphia Union SWAG, Pittsburgh Riverhounds — see where your team stands.
+- [Youth Soccer Tryouts 2026: A Data-Driven Guide for Parents](https://www.pitchrank.io/blog/youth-soccer-tryouts-2026): Youth soccer tryouts are changing in 2026 with new age groups. Learn what to look for, how to evaluate clubs with data, and when to switch.
+- [Youth Soccer Age Group Changes for 2026-2027: What Every Parent Needs to Know](https://www.pitchrank.io/blog/youth-soccer-age-group-change-2026-2027): Youth soccer is switching from birth-year to school-year age groups starting fall 2026. Here's exactly how it works, who it affects, and what to do before tryouts.
+- [What is PowerScore in Youth Soccer? The Complete Guide](https://www.pitchrank.io/blog/what-is-powerscore-youth-soccer): PowerScore is PitchRank's 0–1 team strength rating: 13 layers, 50% strength of schedule, updated weekly. Here's how it works and how to read your team's number.
+- [What Predicts Winning Better Than Goals Scored? We Analyzed 700,000+ Youth Soccer Games to Find Out](https://www.pitchrank.io/blog/what-predicts-winning-beyond-goals): Goals scored alone predict only 47% of outcomes — barely better than a coin flip. After analyzing 700,000+ youth soccer games, we found the real predictors of team quality. The answer might surprise you.
+- [Youth Soccer Rankings by State: Complete Guide for 2026](https://www.pitchrank.io/blog/youth-soccer-rankings-by-state): Find youth soccer team rankings in every state. The only platform with comprehensive 50-state rankings powered by a 13-layer algorithm. California, Texas, Florida, and more.
+- [Youth Soccer Rankings Explained: A Parent's Guide to Understanding Your Team's Position](https://www.pitchrank.io/blog/youth-soccer-rankings-explained): Confused by youth soccer rankings? This guide breaks down how different ranking systems work, what your team's ranking actually means, and which systems parents should trust.
+- [Youth Soccer Rankings: The Complete Guide for Parents](https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide): Everything parents need to know about youth soccer rankings—what they are, how they work, and why they matter for your child's development and club selection.
+- [How PitchRank Rankings Work](https://www.pitchrank.io/blog/how-pitchrank-rankings-work): Discover the algorithm methodology behind PitchRank's youth soccer rankings and why our power scores are more accurate than traditional ranking systems.
+
+## State Pillars
+- [Arizona Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/arizona-youth-soccer-rankings-guide): Confused about Arizona soccer rankings? Here's what every parent needs to know about youth soccer team rankings in AZ, from Phoenix to Tucson.
+- [California Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/california-youth-soccer-rankings-guide): Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC and more — rated weekly by PowerScore. Free.
+- [Colorado Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/colorado-youth-soccer-rankings-guide): Find where your Colorado club ranks. Rapids Youth, Real Colorado, Colorado Storm and more — rated by PowerScore from real game results. Free rankings updated every Monday.
+- [Florida Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/florida-youth-soccer-rankings-guide): Florida has 5,300+ ranked youth soccer teams — 3rd most in the country. Here's what every parent needs to know about rankings, from Miami to Jacksonville.
+- [Georgia Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/georgia-youth-soccer-rankings-guide): Find where your GA youth soccer club ranks among 789 teams. Concorde Fire, UFA, NASA Tophat, Southern Soccer Academy, Gwinnett SA and more — rated weekly by PowerScore. Free.
+- [Illinois Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/illinois-youth-soccer-rankings-guide): Find where your IL youth soccer club ranks among 1,284 teams. Sockers FC, Metro Alliance, Chicago Fire Youth, Central Illinois United and more — rated weekly by PowerScore. Free.
+- [Massachusetts Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/massachusetts-youth-soccer-rankings-guide): Find where your MA youth soccer club ranks among 1,500+ teams. NEFC, FC Stars, IFA, Select, FC Boston Bolts and more — rated weekly by PowerScore. Free.
+- [Maryland Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/maryland-youth-soccer-rankings-guide): Find where your MD youth soccer club ranks among 1,500+ teams. Bethesda SC, Coppermine, Maryland United, Pipeline and more — rated weekly by PowerScore. Free.
+- [Michigan Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/michigan-youth-soccer-rankings-guide): Find where your Michigan club ranks among thousands of teams. Michigan Hawks, Vardar, DCFC and more — rated by PowerScore from real game results. Free rankings updated every Monday.
+- [New Jersey Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/new-jersey-youth-soccer-rankings-guide): Find where your NJ club ranks among thousands of teams. PDA, STA, Match Fit Academy, FC Copa and more — rated by PowerScore from real game results. Free rankings updated every Monday.
+- [New York Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/new-york-youth-soccer-rankings-guide): Find where your NY youth soccer club ranks among 3,600+ teams. Manhattan SC, SUSA FC, WNY Flash, Long Island SC and more — rated weekly by PowerScore. Free.
+- [North Carolina Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/north-carolina-youth-soccer-rankings-guide): Find where your NC youth soccer club ranks among 2,600+ teams. Charlotte SA, NCFC, Wake FC and more — rated weekly by PowerScore. Free.
+- [Ohio Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/ohio-youth-soccer-rankings-guide): Find where your OH youth soccer club ranks among 2,650 teams. Cincinnati United Premier, Club Ohio, Columbus Force, Cleveland Force and more — rated weekly by PowerScore. Free.
+- [Pennsylvania Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/pennsylvania-youth-soccer-rankings-guide): Pennsylvania youth soccer rankings guide: EDP, EPYSA explained. See where PA clubs rank by PowerScore. Updated weekly. Free for parents.
+- [Texas Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/texas-youth-soccer-rankings-guide): Find where your Texas club ranks among 9,457 teams. FC Dallas, Solar SC, and more — rated weekly by PowerScore from real game results. Free.
+- [Virginia Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/virginia-youth-soccer-rankings-guide): Find where your VA youth soccer club ranks among 1,500+ teams. Beach FC, Richmond United, Arlington Soccer, Loudoun and more — rated weekly by PowerScore. Free.
+- [Washington Youth Soccer Rankings Guide](https://www.pitchrank.io/blog/washington-youth-soccer-rankings-guide): Find where your WA youth soccer club ranks among 1,500+ teams. Eastside FC, Seattle United, Crossfire Premier, Seattle Celtic, Pacific Northwest SC and more — rated weekly by PowerScore. Free.

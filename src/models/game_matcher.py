@@ -443,7 +443,13 @@ class MatchingThresholds:
 class GameHistoryMatcher:
     """Match game history records to master teams using fuzzy matching and aliases"""
 
-    def __init__(self, supabase: Client, provider_id: Optional[str] = None, alias_cache: Optional[Dict] = None):
+    def __init__(
+        self,
+        supabase: Client,
+        provider_id: Optional[str] = None,
+        alias_cache: Optional[Dict] = None,
+        dry_run: bool = False,
+    ):
         self.db = supabase
         self.fuzzy_threshold = MATCHING_CONFIG["fuzzy_threshold"]
         self.auto_approve_threshold = MATCHING_CONFIG["auto_approve_threshold"]
@@ -451,6 +457,11 @@ class GameHistoryMatcher:
         self.max_age_diff = MATCHING_CONFIG["max_age_diff"]
         self._provider_id_cache: Dict[str, str] = {}  # Cache provider_id by code
         self.alias_cache = alias_cache or {}  # Cache for alias map lookups
+        # When True, ``_create_alias`` and subclass autocreate paths skip their
+        # writes. The pipeline-level ``dry_run`` only gates the games insert;
+        # without this flag, every dry-run still pollutes ``team_alias_map``,
+        # ``teams``, and ``team_match_review_queue`` via the matcher.
+        self.dry_run = dry_run
         if provider_id:
             # Cache the provider_id if provided (for the provider_code used in this pipeline)
             # We'll need to know the code, but for now just store it as a fallback
@@ -637,6 +648,14 @@ class GameHistoryMatcher:
                 team1_id=home_provider_id,
                 team2_id=away_provider_id,
             )
+            # Bracket play in PlayMetrics tournaments routinely has the same two
+            # teams playing twice on one day (pool + final, or consolation). PM
+            # gives a unique schedule_id per match, so suffixing the game_uid
+            # with it disambiguates rematches that would otherwise collapse
+            # under the symmetric (provider, date, team1, team2) key. Mirrors
+            # Modular11's :age_group:division suffix at enhanced_pipeline.py:811.
+            if provider_code == "playmetrics_tournament" and game_data.get("schedule_id"):
+                game_uid = f"{game_uid}:{game_data['schedule_id']}"
         else:
             game_uid = game_data.get("game_uid")
 
@@ -1448,12 +1467,13 @@ class GameHistoryMatcher:
                 "created_at": datetime.now().isoformat(),
             }
 
-            if existing and existing.data:
-                # Update existing
-                self.db.table("team_alias_map").update(alias_data).eq("id", existing.data[0]["id"]).execute()
-            else:
-                # Create new
-                self.db.table("team_alias_map").insert(alias_data).execute()
+            if not self.dry_run:
+                if existing and existing.data:
+                    # Update existing
+                    self.db.table("team_alias_map").update(alias_data).eq("id", existing.data[0]["id"]).execute()
+                else:
+                    # Create new
+                    self.db.table("team_alias_map").insert(alias_data).execute()
 
             # Update the in-memory alias cache so subsequent games in the same
             # import batch can find this alias without re-querying or re-fuzzy-matching.
@@ -1513,7 +1533,8 @@ class GameHistoryMatcher:
             )
 
             if not existing.data:
-                self.db.table("team_match_review_queue").insert(review_entry).execute()
+                if not self.dry_run:
+                    self.db.table("team_match_review_queue").insert(review_entry).execute()
                 logger.info(f"Created review queue entry for {provider_team_name} (confidence: {confidence_score:.2f})")
         except Exception as e:
             logger.error(f"Error creating review queue entry: {e}")

@@ -7,7 +7,7 @@ import { ArrowUp, ArrowDown, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ListSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
-import { normalizeAgeGroup } from '@/lib/utils';
+import { normalizeAgeGroup, composeTeamDisplay } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 
 type TimeWindow = '7d' | '30d';
@@ -259,18 +259,19 @@ export function RecentMovers({
                 {recentMovers.map((team) => {
                   const rankChange = timeWindow === '7d' ? (team.rank_change_7d ?? 0) : (team.rank_change_30d ?? 0);
                   const isImprovement = rankChange > 0;
+                  const displayName = composeTeamDisplay(team);
 
                   return (
                     <Link
                       key={team.team_id_master}
                       href={`/teams/${team.team_id_master}`}
                       className="flex items-center justify-between p-3 rounded-md hover:bg-secondary/50 border border-transparent hover:border-border transition-all duration-300 group"
-                      aria-label={`View ${team.team_name} - moved ${Math.abs(rankChange)} positions ${isImprovement ? 'up' : 'down'}`}
+                      aria-label={`View ${displayName} - moved ${Math.abs(rankChange)} positions ${isImprovement ? 'up' : 'down'}`}
                       tabIndex={0}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
-                          {team.team_name}
+                          {displayName}
                         </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-1.5">
                           <span className="font-mono">

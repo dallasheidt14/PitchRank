@@ -105,6 +105,7 @@ def stream_games_csv(
                     "source_url": row.get("source_url", "").strip(),
                     "scraped_at": row.get("scraped_at", "").strip(),
                     "mls_division": row.get("mls_division", "").strip(),  # Modular11 division (HD/AD)
+                    "schedule_id": row.get("schedule_id", "").strip(),  # PlayMetrics tournament rematches
                 }
 
                 # Convert numeric fields
@@ -173,6 +174,7 @@ def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
                     "source_url": row.get("source_url", "").strip(),
                     "scraped_at": row.get("scraped_at", "").strip(),
                     "mls_division": row.get("mls_division", "").strip(),  # Modular11 division (HD/AD)
+                    "schedule_id": row.get("schedule_id", "").strip(),  # PlayMetrics tournament rematches
                 }
 
                 # Convert numeric fields

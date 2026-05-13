@@ -97,6 +97,9 @@ PROGRAM_WORDS = frozenset(
         "challenge",
         "development",
         "competitive",
+        # National Academy League (NAL) and Pre-NL feeder labels
+        "pre-nl",
+        "prenl",
     }
 )
 
@@ -603,6 +606,8 @@ def extract_team_variant(name: str) -> Optional[str]:
                 continue
             if wc in NON_COACH_WORDS:
                 continue
+            if wc in PROGRAM_WORDS:
+                continue
             if wc in REGION_CODES_COACH:
                 continue
             if wc in VARIANT_PROGRAM_NAMES:
@@ -620,14 +625,19 @@ def extract_team_variant(name: str) -> Optional[str]:
     coach_match = re.search(r"\(([a-z]+)\)\s*$", name_lower)
     if coach_match:
         w = coach_match.group(1)
-        if w not in REGION_CODES_COACH and len(w) >= 3:
+        if w not in REGION_CODES_COACH and w not in PROGRAM_WORDS and len(w) >= 3:
             return w
 
     # 6. ALL-CAPS word after year: "2014 THOMPSON"
     caps_match = re.search(r"20\d{2}\s+([A-Z]{4,})\b", name)
     if caps_match:
         w = caps_match.group(1).lower()
-        if w not in NON_COACH_WORDS and w not in REGION_CODES_COACH and w not in VARIANT_PROGRAM_NAMES:
+        if (
+            w not in NON_COACH_WORDS
+            and w not in PROGRAM_WORDS
+            and w not in REGION_CODES_COACH
+            and w not in VARIANT_PROGRAM_NAMES
+        ):
             return w
 
     # 7. Capitalized last word after age portion
@@ -639,6 +649,7 @@ def extract_team_variant(name: str) -> Optional[str]:
             last[0].isupper()
             and lc not in TEAM_COLORS
             and lc not in NON_COACH_WORDS
+            and lc not in PROGRAM_WORDS
             and lc not in REGION_CODES_COACH
             and lc not in VARIANT_PROGRAM_NAMES
             and lc not in DIRECTION_CANONICAL

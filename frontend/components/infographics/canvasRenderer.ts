@@ -1,5 +1,6 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface RenderOptions {
   teams: RankingRow[];
@@ -191,7 +192,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
     ctx.font = `600 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
 
     // Truncate team name if too long
-    let teamName = team.team_name.toUpperCase();
+    let teamName = composeTeamDisplay(team).toUpperCase();
     const maxTeamWidth = dimensions.width - teamInfoX - 180;
     while (ctx.measureText(teamName).width > maxTeamWidth && teamName.length > 10) {
       teamName = teamName.slice(0, -4) + '...';

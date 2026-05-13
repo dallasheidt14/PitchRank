@@ -3,6 +3,7 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface TeamSpotlightPreviewProps {
   team: RankingRow & { rank?: number };
@@ -168,7 +169,7 @@ export const TeamSpotlightPreview = forwardRef<HTMLDivElement, TeamSpotlightPrev
               whiteSpace: 'nowrap',
             }}
           >
-            {team.team_name}
+            {composeTeamDisplay(team)}
           </div>
 
           {/* Club & Location */}

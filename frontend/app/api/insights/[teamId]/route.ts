@@ -48,11 +48,36 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       console.error('Error fetching ranking:', rankingError);
     }
 
-    // Fetch games with opponent rankings
+    // Resolve merged team IDs so games stored under deprecated IDs are included
+    // (mirrors api.getTeamGames). Without this, streak/consistency stop at the
+    // first gap caused by games scraped under a pre-merge team_id.
+    const { data: incomingMerge } = await supabase
+      .from('team_merge_map')
+      .select('canonical_team_id')
+      .eq('deprecated_team_id', teamId)
+      .maybeSingle();
+    const canonicalTeamId = (incomingMerge as { canonical_team_id?: string } | null)?.canonical_team_id ?? teamId;
+
+    const { data: mergedTeams } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id')
+      .eq('canonical_team_id', canonicalTeamId);
+
+    const teamIdsToQuery = new Set<string>([canonicalTeamId, teamId]);
+    ((mergedTeams || []) as { deprecated_team_id: string | null }[]).forEach((m) => {
+      if (m.deprecated_team_id) teamIdsToQuery.add(m.deprecated_team_id);
+    });
+    const teamIdList = Array.from(teamIdsToQuery);
+
+    // Fetch games with opponent rankings (across canonical + all merged team IDs)
+    const orConditions = teamIdList
+      .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
+      .join(',');
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
-      .or(`home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
+      .or(orConditions)
+      .eq('is_excluded', false)
       .order('game_date', { ascending: false })
       .limit(50);
 
@@ -88,9 +113,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     };
 
     // Get opponent team IDs for ranking lookup
+    // Use the merged-id set so a game scraped under a deprecated id still
+    // identifies the opponent correctly.
     const opponentIds = new Set<string>();
     ((games || []) as GameRow[]).forEach((game: GameRow) => {
-      const oppId = game.home_team_master_id === teamId ? game.away_team_master_id : game.home_team_master_id;
+      const homeIsTeam = game.home_team_master_id !== null && teamIdsToQuery.has(game.home_team_master_id);
+      const oppId = homeIsTeam ? game.away_team_master_id : game.home_team_master_id;
       if (oppId) opponentIds.add(oppId);
     });
 
@@ -167,6 +195,28 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       }
     }
 
+    // State-cohort rank (for state-leaderboard persona trait)
+    let stateCohort: InsightInputData['stateCohort'] = null;
+    if (team.state_code && ranking?.age && ranking?.gender) {
+      const { data: stateCohortData, error: stateCohortError } = await supabase
+        .from('rankings_view')
+        .select('team_id_master, power_score_final')
+        .eq('age', ranking.age)
+        .eq('gender', ranking.gender)
+        .eq('state', team.state_code)
+        .eq('status', 'Active')
+        .order('power_score_final', { ascending: false });
+
+      if (!stateCohortError && stateCohortData && stateCohortData.length >= 5) {
+        const idx = (stateCohortData as Array<{ team_id_master: string }>).findIndex(
+          (r) => r.team_id_master === teamId
+        );
+        if (idx >= 0) {
+          stateCohort = { rank: idx + 1, totalTeams: stateCohortData.length };
+        }
+      }
+    }
+
     // Build insight input data
     const insightData: InsightInputData = {
       team: {
@@ -192,13 +242,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         perf_centered: ranking?.perf_centered ?? null,
       },
       games: ((games || []) as GameRow[]).map((game: GameRow) => {
-        const oppId = game.home_team_master_id === teamId ? game.away_team_master_id : game.home_team_master_id;
+        const homeIsTeam = game.home_team_master_id !== null && teamIdsToQuery.has(game.home_team_master_id);
+        const oppId = homeIsTeam ? game.away_team_master_id : game.home_team_master_id;
         const oppData = oppId ? oppRankMap.get(oppId) : null;
+
+        // Normalize the team's side to the canonical team_id_master so downstream
+        // streak/consistency logic (which compares with `===`) treats games scraped
+        // under any merged team id as the same team.
+        const home_team_master_id = homeIsTeam ? team.team_id_master : game.home_team_master_id;
+        const away_team_master_id = homeIsTeam ? game.away_team_master_id : team.team_id_master;
 
         return {
           game_date: game.game_date,
-          home_team_master_id: game.home_team_master_id,
-          away_team_master_id: game.away_team_master_id,
+          home_team_master_id,
+          away_team_master_id,
           home_score: game.home_score,
           away_score: game.away_score,
           opponent_rank: oppData?.rank ?? null,
@@ -213,6 +270,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         power_score_final: h.power_score_final,
       })),
       cohortStats,
+      stateCohort,
     };
 
     // Generate insights

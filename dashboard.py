@@ -244,23 +244,25 @@ def _load_rankings_view_age_state_status():
 
 # Sidebar navigation
 st.sidebar.title("Navigation")
+_nav_options = [
+    "📋 Review Queue",
+    "👥 Age Groups",
+    "📈 Database Import Stats",
+    "🆕 New Accounts",
+    "🧩 Unknown Opponent Review",
+    "🗺️ State Coverage",
+    "📍 Missing State Codes",
+    "🔀 Team Merge Manager",
+    "✏️ Manual Team Edit",
+    "🔎 Team Discovery Review",
+    "🛡️ Due Diligence Review",
+    "📸 Instagram Review",
+    "🚫 Game Exclusion Manager"
+]
 section = st.sidebar.radio(
     "Select Section",
-    [
-        "📋 Review Queue",
-        "👥 Age Groups",
-        "📈 Database Import Stats",
-        "🆕 New Accounts",
-        "🧩 Unknown Opponent Review",
-        "🗺️ State Coverage",
-        "📍 Missing State Codes",
-        "🔀 Team Merge Manager",
-        "✏️ Manual Team Edit",
-        "🔎 Team Discovery Review",
-        "🛡️ Due Diligence Review",
-        "📸 Instagram Review",
-        "🚫 Game Exclusion Manager"
-    ]
+    _nav_options,
+    index=_nav_options.index("🔀 Team Merge Manager"),
 )
 
 # Helper functions for fuzzy matching
@@ -4099,7 +4101,8 @@ elif section == "✏️ Manual Team Edit":
                         select_fields = (
                             'team_id_master, provider_team_id, team_name, club_name, '
                             'age_group, gender, state_code, birth_year, is_deprecated, '
-                            'created_at, updated_at, last_scraped_at, state, provider_id'
+                            'created_at, updated_at, last_scraped_at, state, provider_id, '
+                            'league, distinction, team_name_original'
                         )
 
                         # Search by ID first (exact match) - highest priority

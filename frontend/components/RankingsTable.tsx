@@ -517,11 +517,13 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
                               {team.team_name}
                             </span>
-                            <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
-                              {team.club_name && <span>{team.club_name}</span>}
-                              {team.club_name && team.state && <span> &bull; </span>}
-                              {team.state && <span>{team.state}</span>}
-                            </div>
+                            {(team.club_name || team.state) && (
+                              <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">
+                                {team.club_name && <span>{team.club_name}</span>}
+                                {team.club_name && team.state && <span> &bull; </span>}
+                                {team.state && <span>{team.state.toUpperCase()}</span>}
+                              </div>
+                            )}
                           </div>
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             <span className="truncate">{formatPowerScore(team.power_score_final)}</span>

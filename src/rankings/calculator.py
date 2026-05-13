@@ -429,6 +429,15 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "strong_broad_exposure_max_repeat_share": 0.30,
         "strong_broad_field_penalty_floor": 0.72,
         "strong_broad_authority_floor": 0.40,
+        "repetitive_quality_relief_min_top100": 4,
+        "repetitive_quality_relief_min_top500_non_loss": 6,
+        "repetitive_quality_relief_min_top1000_non_loss": 8,
+        "repetitive_quality_relief_min_unique_opponents": 20,
+        "repetitive_quality_relief_min_recent_games": 12,
+        "repetitive_quality_relief_min_quality_avg_opp_power": 0.64,
+        "repetitive_quality_relief_min_scf": 0.65,
+        "repetitive_quality_relief_min_bridge_games": 3.0,
+        "repetitive_quality_relief_max_repeat_share": 0.62,
         "publish_field_penalty_max": 0.035,
         "publish_freshness_penalty_max": 0.025,
         "publish_connectivity_penalty_max": 0.010,
@@ -856,7 +865,8 @@ def _connectivity_flags(row: pd.Series, policy: dict[str, float | int]) -> tuple
     repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
     low_state = unique_states is not None and unique_states < int(policy["connectivity_min_unique_states"])
     repeat_heavy = repeat_share >= float(policy["connectivity_repeat_share"])
-    severe_connectivity = low_state and repeat_heavy
+    repetitive_quality_relief = _has_proven_repetitive_profile(row, policy)
+    severe_connectivity = low_state and repeat_heavy and not repetitive_quality_relief
     return low_state, repeat_heavy, severe_connectivity
 
 
@@ -865,6 +875,34 @@ def _quality_same_age_avg_opp_power(row: pd.Series) -> float | None:
     if quality_avg is not None:
         return quality_avg
     return _safe_float(row.get("same_age_avg_opp_power_adj"))
+
+
+def _has_proven_repetitive_profile(row: pd.Series, policy: dict[str, float | int]) -> bool:
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
+    top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
+    unique_opponents = _safe_int(row.get("same_age_unique_opponents"))
+    recent_games = _safe_int(row.get("games_last_180_days"))
+    quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
+    scf = _safe_float(row.get("scf"))
+    bridge_games = _safe_float(row.get("bridge_games"))
+
+    return bool(
+        repeat_share >= float(policy["connectivity_repeat_share"])
+        and repeat_share <= float(policy["repetitive_quality_relief_max_repeat_share"])
+        and top100 >= int(policy["repetitive_quality_relief_min_top100"])
+        and top500_non_loss >= int(policy["repetitive_quality_relief_min_top500_non_loss"])
+        and top1000_non_loss >= int(policy["repetitive_quality_relief_min_top1000_non_loss"])
+        and unique_opponents >= int(policy["repetitive_quality_relief_min_unique_opponents"])
+        and recent_games >= int(policy["repetitive_quality_relief_min_recent_games"])
+        and quality_avg_opp_power is not None
+        and quality_avg_opp_power >= float(policy["repetitive_quality_relief_min_quality_avg_opp_power"])
+        and scf is not None
+        and scf >= float(policy["repetitive_quality_relief_min_scf"])
+        and bridge_games is not None
+        and bridge_games >= float(policy["repetitive_quality_relief_min_bridge_games"])
+    )
 
 
 def _days_since_last_game(row: pd.Series) -> float | None:
@@ -1056,6 +1094,7 @@ def _has_strong_broad_profile(row: pd.Series, policy: dict[str, float | int]) ->
     quality_avg_opp_power = _quality_same_age_avg_opp_power(row)
     quality_support = _same_age_quality_support_score(row, policy)
     unique_states = _safe_int(row.get("unique_opp_states")) if row.get("unique_opp_states") is not None else None
+    proven_repetitive_profile = _has_proven_repetitive_profile(row, policy)
 
     strict_profile = (
         unique_opponents >= 20
@@ -1091,7 +1130,7 @@ def _has_strong_broad_profile(row: pd.Series, policy: dict[str, float | int]) ->
         and quality_support >= float(policy["strong_broad_exposure_min_quality_support"])
         and repeat_share <= float(policy["strong_broad_exposure_max_repeat_share"])
     )
-    return bool(strict_profile or broad_sheet_profile or broad_exposure_profile)
+    return bool(strict_profile or broad_sheet_profile or broad_exposure_profile or proven_repetitive_profile)
 
 
 def _has_weak_field_connectivity_overtrust_profile(
@@ -1646,6 +1685,8 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     if has_play_up_support and connectivity_constrained:
         return int(policy["soft_cap_rank"])
     if strong_broad_profile and not severe_connectivity:
+        if repeat_heavy_for_cap or connectivity_constrained:
+            return int(policy["soft_cap_rank"])
         return None
     if local_loop_override:
         return int(policy["severe_cap_rank"])

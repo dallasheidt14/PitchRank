@@ -109,13 +109,14 @@ export function computeCohortModules(
  * States that have a pillar blog post.
  * Returns the blog slug and display title, or null if no pillar exists.
  */
-const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
+export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
   az: { slug: 'arizona-youth-soccer-rankings-guide', title: 'Arizona Youth Soccer Rankings Guide' },
   ca: { slug: 'california-youth-soccer-rankings-guide', title: 'California Youth Soccer Rankings Guide' },
   co: { slug: 'colorado-youth-soccer-rankings-guide', title: 'Colorado Youth Soccer Rankings Guide' },
   fl: { slug: 'florida-youth-soccer-rankings-guide', title: 'Florida Youth Soccer Rankings Guide' },
   ga: { slug: 'georgia-youth-soccer-rankings-guide', title: 'Georgia Youth Soccer Rankings Guide' },
   il: { slug: 'illinois-youth-soccer-rankings-guide', title: 'Illinois Youth Soccer Rankings Guide' },
+  ma: { slug: 'massachusetts-youth-soccer-rankings-guide', title: 'Massachusetts Youth Soccer Rankings Guide' },
   md: { slug: 'maryland-youth-soccer-rankings-guide', title: 'Maryland Youth Soccer Rankings Guide' },
   mi: { slug: 'michigan-youth-soccer-rankings-guide', title: 'Michigan Youth Soccer Rankings Guide' },
   nj: { slug: 'new-jersey-youth-soccer-rankings-guide', title: 'New Jersey Youth Soccer Rankings Guide' },
@@ -125,6 +126,7 @@ const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }> = {
   pa: { slug: 'pennsylvania-youth-soccer-rankings-guide', title: 'Pennsylvania Youth Soccer Rankings Guide' },
   tx: { slug: 'texas-youth-soccer-rankings-guide', title: 'Texas Youth Soccer Rankings Guide' },
   va: { slug: 'virginia-youth-soccer-rankings-guide', title: 'Virginia Youth Soccer Rankings Guide' },
+  wa: { slug: 'washington-youth-soccer-rankings-guide', title: 'Washington Youth Soccer Rankings Guide' },
 };
 
 export function getRelatedGuide(stateCode: string): { slug: string; title: string } | null {

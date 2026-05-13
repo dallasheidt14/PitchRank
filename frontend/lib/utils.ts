@@ -27,6 +27,119 @@ export function formatSOSIndex(sosNorm?: number | null): string {
   return (sosNorm * 100).toFixed(1);
 }
 
+const LEAGUE_DISPLAY: Record<string, string> = {
+  ECNL: 'ECNL',
+  ECNL_RL: 'ECNL RL',
+  MLS_NEXT: 'MLS Next',
+  MLS_NEXT_HD: 'MLS Next',
+  MLS_NEXT_AD: 'MLS Next AD',
+  GA: 'GA',
+  DPL: 'DPL',
+  NPL: 'NPL',
+  EA: 'EA',
+  NL: 'NL',
+  ASPIRE: 'Aspire',
+};
+
+export function formatLeague(league?: string | null): string | null {
+  if (!league) return null;
+  return LEAGUE_DISPLAY[league] ?? league.replace(/_/g, ' ');
+}
+
+const NUMERIC_RE = /^[0-9]+$/;
+const ROMAN_RE = /^[ivxlcdm]+$/i;
+const ROMAN_VALUES: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+
+function romanToArabic(token: string): string {
+  const lower = token.toLowerCase();
+  let total = 0;
+  for (let i = 0; i < lower.length; i++) {
+    const cur = ROMAN_VALUES[lower[i]];
+    const next = ROMAN_VALUES[lower[i + 1]];
+    if (cur === undefined) return token;
+    total += next && cur < next ? -cur : cur;
+  }
+  return total > 0 ? String(total) : token;
+}
+
+const UPPERCASE_HINTS = new Set(['hd', 'ad', 'rl', 'mls', 'ecnl', 'ga', 'npl', 'nl', 'dpl', 'ea', 'us', 'fc', 'sc']);
+
+/**
+ * Format a distinction value (lowercase pipe-delimited squad distinguisher) for display.
+ * Stored format: tokens joined with "|" and ordered by category priority (most-specific first).
+ * Display: Title Case (known abbreviations stay uppercase), roman numerals → arabic,
+ * word tokens reversed (priority order → natural reading order), numerals always last.
+ *
+ * Examples:
+ *   "i|elite|pre"      → "Pre Elite 1"
+ *   "ii|central|select"→ "Select Central 2"
+ *   "white|2"          → "White 2"
+ *   "red|hd"           → "Red HD"
+ *   "smith"            → "Smith"
+ */
+export function formatDistinction(distinction?: string | null): string | null {
+  if (!distinction) return null;
+  const tokens = distinction.split('|').filter(Boolean);
+  if (tokens.length === 0) return null;
+  const isTrailing = (t: string) => NUMERIC_RE.test(t) || ROMAN_RE.test(t);
+  const words = tokens.filter((t) => !isTrailing(t));
+  const numerals = tokens.filter(isTrailing);
+  const reordered = [...words.reverse(), ...numerals];
+  return reordered
+    .map((t) => {
+      if (NUMERIC_RE.test(t)) return t;
+      if (ROMAN_RE.test(t)) return romanToArabic(t);
+      if (UPPERCASE_HINTS.has(t.toLowerCase())) return t.toUpperCase();
+      return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    })
+    .join(' ');
+}
+
+const CLUB_ABBREVIATIONS: Array<[RegExp, string]> = [
+  [/\bSoccer Club\b/i, 'SC'],
+  [/\bFootball Club\b/i, 'FC'],
+  [/\bSports Club\b/i, 'SC'],
+  [/\bAthletic Club\b/i, 'AC'],
+];
+
+export function abbreviateClubName(clubName: string | null | undefined): string {
+  if (!clubName) return '';
+  let result = clubName;
+  for (const [pattern, replacement] of CLUB_ABBREVIATIONS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+/**
+ * Compose a clean display name from structured team fields.
+ * Format: "{club_name (abbreviated)} {league} {distinction}" — age is intentionally
+ * dropped because it's already in the page's URL filter. Pieces are skipped when null.
+ *
+ * MLS Next / Modular 11 teams already have well-formatted, recognizable team_name
+ * values (e.g. "Cedar Stars Academy Bergen U14 HD") so we leave them untouched
+ * regardless of how their distinction tokens decompose.
+ *
+ * Falls back to team_name when club_name is missing.
+ */
+export function composeTeamDisplay(team: {
+  team_name: string;
+  club_name: string | null;
+  league?: string | null;
+  distinction?: string | null;
+  age?: number | null;
+  has_modular11_alias?: boolean | null;
+}): string {
+  if (!team.club_name) return team.team_name;
+  if (team.has_modular11_alias) return team.team_name;
+  const parts: string[] = [abbreviateClubName(team.club_name)];
+  const league = formatLeague(team.league);
+  if (league) parts.push(league);
+  const distinction = formatDistinction(team.distinction);
+  if (distinction) parts.push(distinction);
+  return parts.join(' ');
+}
+
 /**
  * Soccer season year: rolls over on Aug 1.
  * Before Aug 1, season year = previous calendar year.

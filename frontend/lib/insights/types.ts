@@ -31,6 +31,27 @@ export type PlayStyle =
   | 'Rebuilding';
 
 /**
+ * Form Badge label — temporal signal showing whether a team is trending up or down.
+ * Independent of tier-based persona; a team can be a "Giant Killer · Surging".
+ */
+export type FormBadgeLabel = 'Surging' | 'Slumping';
+
+/**
+ * Form Badge Insight — separate from tier persona, surfaces recent-trend signal.
+ * Returns null when neither trigger fires; the badge is hidden in that case.
+ */
+export interface FormBadgeInsight {
+  type: 'form_badge';
+  label: FormBadgeLabel;
+  /** Negative = rank improved (Surging); positive = rank dropped (Slumping) */
+  rankDelta: number;
+  /** Days between oldest and newest snapshot used */
+  daySpan: number;
+  /** Last-5 record as "W-L-D", e.g. "5-0-0" or "1-3-1" */
+  recentRecord: string;
+}
+
+/**
  * Season Truth Summary - narrative evaluation of team's season
  * Uses v53e perf_centered to predict rank trajectory
  */
@@ -80,7 +101,7 @@ export interface ConsistencyInsight {
  */
 export interface PersonaInsight {
   type: 'persona';
-  label: 'Giant Killer' | 'Flat Track Bully' | 'Gatekeeper' | 'Wildcard';
+  label: 'Title Contender' | 'Giant Killer' | 'Flat Track Bully' | 'Gatekeeper' | 'Wildcard';
   explanation: string;
   details: {
     winsVsHigherRanked: number;
@@ -91,13 +112,17 @@ export interface PersonaInsight {
     winRateVsBottom: number;
     /** Best win description, e.g. "Beat #3 opponent 4-1" */
     signatureResult: string | null;
+    /** Auto-picked trait line, e.g. "Beat #3, #7, and #12 this season". Null when no trait qualifies. */
+    trait: string | null;
+    /** Up to 3 signature wins sorted by impressiveness (lowest opponent_rank first, tie-break by margin) */
+    signatureWins: Array<{ opponent_rank: number; teamScore: number; oppScore: number }>;
   };
 }
 
 /**
  * Union type for all insights
  */
-export type TeamInsight = SeasonTruthInsight | ConsistencyInsight | PersonaInsight;
+export type TeamInsight = SeasonTruthInsight | ConsistencyInsight | PersonaInsight | FormBadgeInsight;
 
 /**
  * Full insights response for a team
@@ -158,4 +183,9 @@ export interface InsightInputData {
     medianPowerScore: number;
     percentile: number;
   };
+  /** State-cohort rank info for the state-leaderboard trait. Null when state_code is missing or cohort < 5 teams. */
+  stateCohort: {
+    rank: number;
+    totalTeams: number;
+  } | null;
 }

@@ -286,6 +286,29 @@ cn('base-class', condition && 'conditional-class');
 
 ---
 
+## Content Authoring
+
+- Every blog post edit (MDX frontmatter or TSX `BlogPost` object) must bump `modifiedDate` to the current date.
+- Format is ISO-8601 UTC: `'YYYY-MM-DDT00:00:00Z'` (e.g. `'2026-05-04T00:00:00Z'`). Bare `YYYY-MM-DD` triggers Google Rich Results Test "missing timezone" warnings.
+- For new blog posts, set both `date` and `modifiedDate` to the publish date.
+- Convention checked at PR review — no lint rule or pre-commit hook.
+
+---
+
+## Content Generation
+
+### llms.txt
+
+`frontend/public/llms.txt` is a generated content map for AI engines (ChatGPT, Claude, Perplexity, Gemini) following the [llms.txt convention](https://llmstxt.org/). Regenerate after any blog post change or `STATE_PILLAR_SLUGS` edit:
+
+```bash
+npm run generate-llms   # writes to public/llms.txt
+```
+
+The script (`scripts/generate-llms-txt.ts`) reuses `getAllBlogPosts()` from `lib/blog.tsx` and `STATE_PILLAR_SLUGS` from `lib/cohort-seo.ts`, so the output stays in sync with the live site. CI fails the PR if the committed file is stale (`frontend-llms-drift` job in `.github/workflows/ci.yml`).
+
+---
+
 ## Performance
 
 - ISR for team pages (revalidate: 3600s)

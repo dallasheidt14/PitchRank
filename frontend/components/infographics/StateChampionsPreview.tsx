@@ -3,6 +3,7 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface StateChampion {
   state: string;
@@ -185,7 +186,7 @@ export const StateChampionsPreview = forwardRef<HTMLDivElement, StateChampionsPr
                     maxHeight: `${teamNameSize * 2.4}px`,
                   }}
                 >
-                  {champion.team.team_name}
+                  {composeTeamDisplay(champion.team)}
                 </div>
 
                 {/* Power Score */}

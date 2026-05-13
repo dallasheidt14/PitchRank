@@ -37,9 +37,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from supabase import create_client
-
 from src.utils.team_name_utils import resolve_distinction
+from supabase import create_client
 
 console = Console()
 
@@ -80,7 +79,6 @@ def _self_test() -> int:
     ``(Would update|Updated):\\s*\\d+`` in stdout. Enforces the
     load-bearing single-emission invariant for the workflow grep.
     """
-    import io
     import subprocess
     # Run with PITCHRANK_SELF_TEST=1 — main() short-circuits before DB access
     # and emits both the dry-run and live-run summary lines for inspection.
@@ -170,7 +168,6 @@ def main():
         return q
 
     console.print("[dim]Fetching teams...[/dim]")
-    distinction_column_exists = True
     try:
         teams = paginated_fetch(sb, lambda: build_query(True), max_rows=args.limit)
     except Exception as e:
@@ -179,7 +176,6 @@ def main():
                 "[yellow]⚠️ teams.distinction column does not exist yet — "
                 "running without idempotency check (apply the migration before live run).[/yellow]"
             )
-            distinction_column_exists = False
             teams = paginated_fetch(sb, lambda: build_query(False), max_rows=args.limit)
         else:
             raise

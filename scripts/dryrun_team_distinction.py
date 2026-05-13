@@ -30,9 +30,7 @@ load_dotenv("C:/PitchRank/.env")
 # Importable from the repo
 sys.path.insert(0, "C:/PitchRank")
 from src.utils.team_name_utils import extract_distinctions  # noqa: E402
-
 from supabase import create_client  # noqa: E402
-
 
 _CLUB_NOISE = {
     "fc", "sc", "sa", "ac", "cf", "cd", "fcs", "ysa",
@@ -122,13 +120,14 @@ def resolve_distinction(name: str, club_name: Optional[str] = None) -> Optional[
     # original name; only keep tokens not already accounted for, not in the
     # *real* LOCATION_CODES set, not US states, not noise, not league markers.
     import re as _re
+
     from src.utils.team_name_utils import (
-        LOCATION_CODES,
-        US_STATES,
-        NOISE_WORDS,
-        TEAM_COLORS,
         DIRECTION_CANONICAL,
+        LOCATION_CODES,
+        NOISE_WORDS,
         PROGRAM_WORDS,
+        TEAM_COLORS,
+        US_STATES,
     )
     raw_toks = _re.split(r"[\s\-_./]+", (name or "").lower())
     raw_toks = [t.strip("()[]'*.,") for t in raw_toks if t.strip("()[]'*.,")]
@@ -284,7 +283,10 @@ def main():
         print("\n--- Sample collisions (first 15) ---")
         for k, v in list(dup_keys.items())[:15]:
             club, age, league, gender, st, dist = k
-            print(f"\nKEY: club={club!r}  age={age}  league={league!r}  gender={gender}  state={st}  distinction={dist!r}")
+            print(
+                f"\nKEY: club={club!r}  age={age}  league={league!r}  "
+                f"gender={gender}  state={st}  distinction={dist!r}"
+            )
             for t in v[:5]:
                 print(f"  - id={t['id'][:8]} team_name={t['team_name']!r}  orig={t.get('team_name_original')!r}")
 
@@ -343,7 +345,10 @@ def main():
                     t.get("team_name_original") or "",
                 ])
                 total_teams_b4 += 1
-    print(f"  → Bucket 4 CSV written: {out_path}  ({total_teams_b4:,} teams across {len(null_dist_collisions):,} groups)")
+    print(
+        f"  → Bucket 4 CSV written: {out_path}  "
+        f"({total_teams_b4:,} teams across {len(null_dist_collisions):,} groups)"
+    )
 
     # Also show top 25 largest Bucket 4 groups inline
     print("\n--- Bucket 4 (top 25 groups by size) ---")

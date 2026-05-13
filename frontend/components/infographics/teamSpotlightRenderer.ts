@@ -1,5 +1,6 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { composeTeamDisplay } from '@/lib/utils';
 
 interface TeamSpotlightOptions {
   team: RankingRow & { rank?: number };
@@ -126,7 +127,7 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
   ctx.textBaseline = 'top';
 
   // Truncate if needed
-  let teamName = team.team_name.toUpperCase();
+  let teamName = composeTeamDisplay(team).toUpperCase();
   const maxWidth = dimensions.width - padding * 2;
   while (ctx.measureText(teamName).width > maxWidth && teamName.length > 10) {
     teamName = teamName.slice(0, -4) + '...';

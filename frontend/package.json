@@ -17,6 +17,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "process:prospective:heuristic": "tsx -r ./scripts/server-only-shim.cjs scripts/process-prospective-heuristic-predictions.ts",
+    "generate-llms": "tsx scripts/generate-llms-txt.ts > public/llms.txt",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

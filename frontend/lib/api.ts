@@ -242,13 +242,20 @@ export const api = {
   async getTeam(id: string): Promise<TeamWithRanking> {
     // Phase 1: Fetch team data, ranking views, and merge map in parallel
     // These are all independent lookups that don't depend on each other
-    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult] = await Promise.all([
-      supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
-      supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
-      supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
-    ]);
+    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, modular11AliasResult] =
+      await Promise.all([
+        supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
+        supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
+        supabase
+          .from('team_alias_map')
+          .select('id, providers!inner(code)')
+          .eq('team_id_master', id)
+          .eq('providers.code', 'modular11')
+          .limit(1),
+      ]);
 
     const { data: teamData, error: teamError } = teamResult;
     const { data: rankingData, error: rankingError } = rankingResult;
@@ -354,6 +361,8 @@ export const api = {
       provider_id: teamData.provider_id,
       team_name: teamData.team_name,
       club_name: teamData.club_name,
+      league: teamData.league ?? null,
+      distinction: teamData.distinction ?? null,
       state: teamData.state,
       state_code: teamData.state_code,
       age_group: teamData.age_group,
@@ -476,6 +485,9 @@ export const api = {
       team_id_master: team.team_id_master,
       team_name: team.team_name,
       club_name: team.club_name,
+      league: team.league,
+      distinction: team.distinction,
+      has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
@@ -1189,6 +1201,11 @@ export const api = {
 
     if (!data || data.length === 0) return [];
 
+    // Exclude the Glicko-2 engine cutover window (Apr 1–10, 2026) — transient
+    // ranks during this period are noise from the engine swap, not real movement.
+    const ENGINE_CUTOVER_START = '2026-04-01';
+    const ENGINE_CUTOVER_END = '2026-04-10';
+
     // Filter to only Monday snapshots (day 1) and dedupe by week
     const seen = new Set<string>();
     const points: RankHistoryPoint[] = [];
@@ -1199,6 +1216,10 @@ export const api = {
       rank_in_cohort_ml: number | null;
       rank_in_cohort_final: number | null;
     }>) {
+      if (row.snapshot_date >= ENGINE_CUTOVER_START && row.snapshot_date <= ENGINE_CUTOVER_END) {
+        continue;
+      }
+
       // Find the Monday of this snapshot's week
       const d = new Date(row.snapshot_date + 'T00:00:00');
       const day = d.getUTCDay(); // 0=Sun, 1=Mon, ...

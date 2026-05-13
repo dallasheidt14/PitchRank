@@ -32,6 +32,7 @@ export const blogPosts: BlogPost[] = [
       "Confused by youth soccer rankings? This guide breaks down how different ranking systems work, what your team's ranking actually means, and which systems parents should trust.",
     author: 'PitchRank Team',
     date: '2026-03-05',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '8 min read',
     tags: ['Rankings', 'Educational', 'Parents', 'Decision Making'],
     content: (
@@ -422,6 +423,7 @@ export const blogPosts: BlogPost[] = [
       "Everything parents need to know about youth soccer rankings—what they are, how they work, and why they matter for your child's development and club selection.",
     author: 'PitchRank Team',
     date: '2026-03-02',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '9 min read',
     tags: ['Rankings', 'Parents', 'Club Selection'],
     content: (
@@ -907,6 +909,7 @@ export const blogPosts: BlogPost[] = [
       "Discover the algorithm methodology behind PitchRank's youth soccer rankings and why our power scores are more accurate than traditional ranking systems.",
     author: 'PitchRank Team',
     date: '2025-02-04',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '8 min read',
     tags: ['Algorithm', 'Methodology', 'Rankings'],
     content: (
@@ -1199,6 +1202,7 @@ export const blogPosts: BlogPost[] = [
       'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC and more — rated weekly by PowerScore. Free.',
     author: 'PitchRank Team',
     date: '2026-02-21',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '9 min read',
     tags: ['California', 'Youth Soccer', 'Rankings', 'Parent Guide'],
     content: (
@@ -1875,6 +1879,7 @@ export const blogPosts: BlogPost[] = [
       'Find where your Texas club ranks among 9,457 teams. FC Dallas, Solar SC, and more — rated weekly by PowerScore from real game results. Free.',
     author: 'PitchRank Team',
     date: '2026-03-14',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '10 min read',
     tags: ['Texas', 'Youth Soccer', 'Rankings', 'Parent Guide'],
     content: (
@@ -2569,6 +2574,7 @@ export const blogPosts: BlogPost[] = [
       'Find youth soccer team rankings in every state. The only platform with comprehensive 50-state rankings powered by a 13-layer algorithm. California, Texas, Florida, and more.',
     author: 'PitchRank Team',
     date: '2026-03-12',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '12 min read',
     tags: ['Youth Soccer', 'Rankings', 'State Rankings', 'Parent Guide', '50 States'],
     content: (
@@ -2882,8 +2888,9 @@ export const blogPosts: BlogPost[] = [
     title: 'What is PowerScore in Youth Soccer? The Complete Guide',
     excerpt:
       "PowerScore is PitchRank's 0–1 team strength rating: 13 layers, 50% strength of schedule, updated weekly. Here's how it works and how to read your team's number.",
-    author: 'PitchRank',
+    author: 'PitchRank Team',
     date: '2026-03-18',
+    modifiedDate: '2026-04-30T00:00:00Z',
     readingTime: '11 min read',
     tags: ['PowerScore', 'Rankings', 'Educational', 'Methodology'],
     content: (

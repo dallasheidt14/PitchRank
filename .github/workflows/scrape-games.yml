@@ -2,7 +2,8 @@ name: Scrape Games
 # Run title shown in the Actions list. Cleaner than the default (latest commit subject).
 run-name: >-
   Scrape Games · ${{
-    github.event_name == 'schedule' && '70000 (scheduled, full sweep)' ||
+    github.event_name == 'schedule' && '25000 (scheduled, chain start)' ||
+    (inputs.chain_remaining != '' && inputs.chain_remaining != '0' && format('25000 (chain, {0} remaining)', inputs.chain_remaining)) ||
     (inputs.limit_teams != '' && format('{0} teams', inputs.limit_teams)) ||
     (inputs.null_teams_only == true && 'NULL bootstrap') ||
     (inputs.include_recent == true && 'include recent') ||
@@ -11,17 +12,16 @@ run-name: >-
 
 on:
   schedule:
-    # Run 1: Every Sunday at 11:00 PM Mountain Time = Monday 6:00 AM UTC
-    # Scrapes first batch of 70,000 teams (14,000 per shard × 5 shards).
+    # Every Sunday at 11:00 PM Mountain Time = Monday 6:00 AM UTC.
+    # Seeds a 6-link chain: each completed run dispatches the next with
+    # chain_remaining decremented, until chain_remaining hits 0.
+    # 6 links × 25,000 teams = 150,000 teams/week, enough to sweep the
+    # full ~137K gotsport pool. Each link runs --include-recent so the
+    # 7-day staleness gate doesn't shadow last week's freshly-scraped
+    # teams; the RPC's ORDER BY last_scraped_at ASC NULLS FIRST + the
+    # 25K limit naturally picks the oldest 25K each link, and prior
+    # link's teams become "freshest" so the next link sees a new set.
     - cron: '0 6 * * 1'
-    # Run 2: Every Monday at 4:15 AM Mountain Time = Monday 11:15 AM UTC
-    # MST (UTC-7): 4:15 AM MST = 11:15 AM UTC
-    # MDT (UTC-6): 4:15 AM MDT = 10:15 AM UTC
-    # Scrapes second batch of 70,000 teams. Run 1 + Run 2 = 140K, enough to
-    # sweep the full ~137K gotsport pool weekly. Run 2 picks up the teams
-    # Run 1 didn't reach because the RPC orders by last_scraped_at ASC and
-    # Run 1's teams are now the freshest.
-    - cron: '15 11 * * 1'
   workflow_dispatch:
     inputs:
       limit_teams:
@@ -54,18 +54,24 @@ on:
         required: false
         type: boolean
         default: false
+      chain_remaining:
+        description: 'Links remaining in the auto-chain after this run (cron sets this implicitly). 0 = do not chain.'
+        required: false
+        type: string
+        default: '0'
 
-# Workflow-level concurrency: serialize SEPARATE workflow RUNS (the Mon 06:00 UTC
-# cron must finish before the Mon 11:15 UTC cron starts). Without this, the two
-# runs write to `games` and `team_alias_map` simultaneously, causing duplicate
-# inserts and stale alias-cache reads.
+# Workflow-level concurrency: serialize SEPARATE workflow RUNS. Each chain link
+# is a separate run; the concurrency group queues them strictly serially so
+# link N+1 waits for link N to fully exit before it starts. Without this, two
+# links would write to `games` and `team_alias_map` simultaneously, causing
+# duplicate inserts and stale alias-cache reads.
 #
 # DO NOT add a job-level `concurrency:` key inside `scrape-and-import` — doing so
 # would serialize the 5 matrix shards and kill the parallel-speedup the plan
 # relies on.
 concurrency:
   group: game-scraping
-  cancel-in-progress: false  # Queue the second cron run; do not cancel the first
+  cancel-in-progress: false  # Queue subsequent chain links; do not cancel
 
 jobs:
   prepare:
@@ -106,8 +112,12 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           LIMIT_TEAMS: ${{ inputs.limit_teams }}
+          CHAIN_REMAINING: ${{ inputs.chain_remaining }}
         run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
+          # Schedule cron, in-flight chain link (chain_remaining > 0), and
+          # large manual runs all shard into 5. Small manual runs collapse
+          # to single-shard so the RPC's hash filter is a no-op.
+          if [ "$EVENT_NAME" = "schedule" ] || [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
             echo "should_shard=true"        >> "$GITHUB_OUTPUT"
             echo "shard_count=5"            >> "$GITHUB_OUTPUT"
             echo "shards=[0,1,2,3,4]"       >> "$GITHUB_OUTPUT"
@@ -194,18 +204,23 @@ jobs:
           NULL_TEAMS_ONLY:   ${{ inputs.null_teams_only }}
           SINCE_DATE:        ${{ inputs.since_date }}
           INCLUDE_RECENT:    ${{ inputs.include_recent }}
+          CHAIN_REMAINING:   ${{ inputs.chain_remaining }}
           CONCURRENCY_INPUT: ${{ inputs.concurrency }}
         run: |
           CMD="python scripts/scrape_games.py --provider gotsport --auto-import"
 
+          # A chain link is either the cron seed OR a workflow_dispatch with
+          # chain_remaining > 0. Both seed and links scrape 25000 teams
+          # (5000 per shard × 5 shards).
+          IS_CHAIN_LINK="false"
+          if [ "$EVENT_NAME" = "schedule" ] || [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
+            IS_CHAIN_LINK="true"
+          fi
+
           LIMIT_FLAG=""
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            # Scheduled: 70000 teams total / 5 shards = 14000 per shard.
-            # Two crons/week × 70K = 140K, enough to sweep the full ~137K
-            # gotsport team pool weekly with headroom. Per-shard wall clock
-            # at this size is ~75 min (5/4 baseline: 5K teams in 26 min →
-            # 14K teams in ~73 min), comfortably under the 120-min job timeout.
-            LIMIT_FLAG="--limit-teams 14000"
+          if [ "$IS_CHAIN_LINK" = "true" ]; then
+            # Chain link (seed or follow-up): 25000 teams total / 5 shards = 5000 per shard
+            LIMIT_FLAG="--limit-teams 5000"
           elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]] && [ "$LIMIT_TEAMS" -ge 5000 ]; then
             LIMIT_FLAG="--limit-teams $(( LIMIT_TEAMS / 5 ))"
           elif [[ "$LIMIT_TEAMS" =~ ^[0-9]+$ ]]; then
@@ -227,15 +242,11 @@ jobs:
             CMD="$CMD --since-date $SINCE_DATE"
           fi
 
-          # On schedule, always pass --include-recent so the 7-day staleness
-          # gate doesn't shadow teams scraped 6.x days ago by the previous
-          # Monday's cron. The RPC's `ORDER BY last_scraped_at ASC NULLS FIRST`
-          # combined with the 14000/shard cap already picks the oldest teams
-          # — the staleness filter is redundant under a hard limit and only
-          # introduces a boundary bug when cron drift puts the prior run's
-          # teams at "scraped 6 days 23 hr ago" instead of "7+ days ago".
-          # Manual runs respect the workflow_dispatch input as before.
-          if [ "$EVENT_NAME" = "schedule" ] || [ "$INCLUDE_RECENT" = "true" ]; then
+          # Chain links (cron seed + dispatched follow-ups) always pass
+          # --include-recent so the RPC's 7-day staleness gate doesn't shadow
+          # teams scraped 6.x days ago by the previous Monday's chain.
+          # Manual one-off dispatches still respect the workflow_dispatch input.
+          if [ "$IS_CHAIN_LINK" = "true" ] || [ "$INCLUDE_RECENT" = "true" ]; then
             CMD="$CMD --include-recent"
           fi
 
@@ -289,7 +300,9 @@ jobs:
           echo "Scrape shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT} completed"
           echo "===================="
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Teams limit: 14000 per shard × 5 shards = 70000 (scheduled run, --include-recent)"
+            echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain seed)"
+          elif [ -n "${{ inputs.chain_remaining }}" ] && [ "${{ inputs.chain_remaining }}" != "0" ]; then
+            echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain link, ${{ inputs.chain_remaining }} remaining)"
           else
             echo "Teams limit input: ${{ inputs.limit_teams || 'empty (incremental mode)' }}"
           fi
@@ -297,3 +310,59 @@ jobs:
           echo "Include recent (override 7-day filter): ${{ inputs.include_recent }}"
           echo "Concurrency input: ${{ inputs.concurrency }}"
           echo "Check artifacts for scraped data and logs"
+
+  finalize:
+    # Single-job tail after the matrix shards. Hosts the chain dispatcher so it
+    # fires once per run instead of once per shard.
+    needs: [prepare, scrape-and-import]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # `actions: write` lets the "Dispatch next chain link" step trigger this
+    # workflow's next link via `gh workflow run`. `contents: read` is declared
+    # explicitly so the added scope doesn't widen the rest of the token.
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch next chain link
+        # Fires only when:
+        #   (a) this run was the scheduled Monday seed (event_name == 'schedule'),
+        #       OR an earlier link explicitly set chain_remaining > 0; AND
+        #   (b) every shard's scrape-and-import succeeded.
+        # Manual one-off dispatches without chain_remaining stay non-chaining.
+        #
+        # The workflow-level concurrency group (game-scraping, cancel-in-progress: false)
+        # queues the next dispatched run behind this one, so links execute strictly
+        # serially — link N+1 will not start until link N's run is fully complete.
+        #
+        # Chain seeding: schedule fires the first link, then dispatches a follow-up
+        # with chain_remaining=5. That follow-up dispatches chain_remaining=4, and
+        # so on down to 1 (which dispatches chain_remaining=0, the terminator).
+        # Total: 1 seed + 5 chained = 6 links × 25,000 teams = 150,000 teams/week,
+        # enough to sweep the full ~137K gotsport pool.
+        if: ${{ (github.event_name == 'schedule' || (inputs.chain_remaining != '' && inputs.chain_remaining != '0')) && needs.scrape-and-import.result == 'success' }}
+        env:
+          GH_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME:      ${{ github.event_name }}
+          CHAIN_REMAINING: ${{ inputs.chain_remaining }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            NEXT_REMAINING=5
+          else
+            NEXT_REMAINING=$(( CHAIN_REMAINING - 1 ))
+          fi
+
+          if [ "$NEXT_REMAINING" -le 0 ]; then
+            echo "Chain complete (next would be chain_remaining=$NEXT_REMAINING)."
+            exit 0
+          fi
+
+          echo "Dispatching next chain link (chain_remaining=$NEXT_REMAINING)"
+          # --repo is required because this job has no checkout step; without
+          # it `gh` looks for a local git repo and exits with
+          # `fatal: not a git repository`.
+          gh workflow run scrape-games.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}" \
+            -f chain_remaining="$NEXT_REMAINING"
