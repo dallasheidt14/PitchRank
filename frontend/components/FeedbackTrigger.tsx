@@ -22,8 +22,8 @@ export function FeedbackTrigger() {
         type="button"
         variant="ghost"
         size="icon"
-        aria-label="Report an issue"
-        title="Something seems off?"
+        aria-label="Feedback or questions"
+        title="Feedback/Questions"
         onClick={() => setOpen(true)}
         data-testid="feedback-trigger"
       >
