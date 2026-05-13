@@ -1,0 +1,22 @@
+{
+  "engine": "openai",
+  "prompt_id": "info-01",
+  "category": "informational",
+  "prompt": "What are the best youth soccer team ranking sites in the US?",
+  "response_text": "Several reputable platforms provide comprehensive rankings and analytics for youth soccer teams across the United States. Here are some of the top sites:\n\n1. **SoccerView**: This platform offers rankings, standings, scores, and ELO power ratings for over 135,000 youth soccer teams nationwide. It consolidates data from 16 major platforms, providing a unified view of team performances. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n2. **PitchRank**: PitchRank delivers data-driven performance analytics for U10 to U19 boys and girls teams across all 50 states. Their rankings are updated weekly and are based on a 13-layer algorithm that evaluates real game results. ([pitchrank.io](https://www.pitchrank.io/?utm_source=openai))\n\n3. **EliteRank**: EliteRank provides real-time EQ ratings, match predictions, and tournament tracking for youth soccer clubs from U8 through U19. Their proprietary Elite Quotient system offers dynamic, match-driven scores updated in real time. ([eliterank.app](https://eliterank.app/?utm_source=openai))\n\n4. **GotSport Rankings**: GotSport recognizes top-performing youth soccer teams through their RIA Champions Awards, honoring teams that finish at the top of the national leaderboard over the calendar year. ([home.gotsport.com](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai))\n\n5. **USA Sport Statistics**: This app tracks teams from U8 to U18 across the USA, offering live score updates, verified competition flighting, schedules, and reliable rankings. ([usasportstatistics.net](https://usasportstatistics.net/?utm_source=openai))\n\nThese platforms provide valuable insights into team performances, helping players, coaches, and parents stay informed about the competitive landscape of youth soccer in the U.S. ",
+  "brand_mentioned": true,
+  "brand_first_position": 465,
+  "competitors_mentioned": [
+    "GotSport"
+  ],
+  "citation_urls": [
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://www.pitchrank.io/?utm_source=openai",
+    "https://eliterank.app/?utm_source=openai",
+    "https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai",
+    "https://usasportstatistics.net/?utm_source=openai"
+  ],
+  "latency_ms": 5423,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

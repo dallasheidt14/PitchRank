@@ -1,0 +1,17 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-02",
+  "category": "brand",
+  "prompt": "How does PitchRank rank youth soccer teams?",
+  "response_text": "PitchRank employs a comprehensive, data-driven methodology to rank youth soccer teams across the United States, focusing on creating fair and accurate assessments that are resistant to manipulation. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n**Core Rating Engine:**\n\nAt the heart of PitchRank's system is a robust rating engine that evaluates teams based on several key factors:\n\n- **Quality of Opponents:** Victories against higher-ranked teams carry more weight than those against lower-ranked ones.\n\n- **Competitiveness of Matches:** Narrow wins against strong teams are valued more than large-margin victories over weaker opponents.\n\n- **Strength of Schedule (SOS):** A team's record is analyzed in the context of the difficulty of their opponents.\n\n- **Offensive and Defensive Performance:** Patterns in scoring and defense are considered beyond just the final scores.\n\n- **Recency of Results:** More recent games have a greater impact on rankings than older ones.\n\n- **Consistency:** Teams demonstrating steady performance are recognized, while outlier results have less influence.\n\n**Machine Learning Layer:**\n\nBuilding upon the core ratings, PitchRank integrates machine learning to detect trends:\n\n- **Performance Trends:** The system assesses whether a team's results align with expectations based on their and their opponents' known strengths.\n\n- **Adjustments for Overperformance or Underperformance:** Teams consistently exceeding expectations see positive adjustments, while those underperforming experience negative ones.\n\nThese adjustments are subtle yet effective in highlighting emerging teams and mitigating the impact of anomalous results.\n\n**Ranking Updates and Connectivity:**\n\nRankings are refreshed every Monday, incorporating the latest game data to ensure accuracy. The system also establishes connections across states, leagues, and events, enhancing the national coherence of the rankings. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n**Handling New or Data-Limited Teams:**\n\nNew teams begin with conservative ratings and adjust as more game data becomes available, ensuring fair initial placements without artificial inflation or penalties.\n\nBy combining these elements, PitchRank delivers a stable, fair, and data-driven ranking system that accurately reflects the true strength of youth soccer teams nationwide. ",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/methodology?utm_source=openai",
+    "https://www.pitchrank.io/rankings?utm_source=openai"
+  ],
+  "latency_ms": 6660,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

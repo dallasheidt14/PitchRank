@@ -1,0 +1,18 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-03",
+  "category": "brand",
+  "prompt": "Is PitchRank free to use?",
+  "response_text": "I couldn't find specific information about a service named \"PitchRank.\" It's possible there might be a typographical error or confusion with similarly named services. Here are some services with similar names and their pricing details:\n\n1. **Pitch**: A collaborative presentation software offering a free plan for individuals and small teams (up to 5 members). Paid plans start at $15 per month for the Plus plan and $23 per seat per month for the Team plan. ([pitch.com](https://pitch.com/pricing/us?utm_source=openai))\n\n2. **Pitchpilot**: Provides call review and messaging feedback services. They offer a free plan with limited features, while their Pro User plan is priced at $149 per month, and the Pro Team plan starts at $129 per user per month. ([pitchpilot.com](https://www.pitchpilot.com/pricing?utm_source=openai))\n\n3. **PitchScore**: Offers tools for startups to evaluate their pitches. They have a free Basic plan and a Premium plan at $20 per month, which includes additional features like multiple AI evaluations and team collaboration tools. ([pitchscore.com](https://pitchscore.com/Pricing/?utm_source=openai))\n\nIf you can provide more context or verify the name of the service you're interested in, I'd be happy to assist you further. ",
+  "brand_mentioned": true,
+  "brand_first_position": 60,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://pitch.com/pricing/us?utm_source=openai",
+    "https://www.pitchpilot.com/pricing?utm_source=openai",
+    "https://pitchscore.com/Pricing/?utm_source=openai"
+  ],
+  "latency_ms": 4831,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

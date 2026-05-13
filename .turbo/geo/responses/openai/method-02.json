@@ -1,0 +1,20 @@
+{
+  "engine": "openai",
+  "prompt_id": "method-02",
+  "category": "methodology",
+  "prompt": "How should youth soccer teams be rated when they play across different leagues?",
+  "response_text": "Evaluating youth soccer teams across different leagues is complex due to the diverse structures and competition levels in U.S. youth soccer. To address this, several organizations have developed comprehensive ranking systems that assess teams nationwide, regardless of their league affiliations.\n\n**Key Ranking Platforms:**\n\n- **SoccerView:** This platform aggregates data from 16 major youth soccer platforms, covering over 135,000 teams across all 50 states. It provides ELO-based power ratings, letter grades from A+ to D, and integrates league standings and match histories into a unified view. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n- **PitchRank:** Utilizing a 13-layer algorithm, PitchRank evaluates teams from U10 to U19 age groups nationwide. It considers factors such as strength of schedule, cross-age matchups, and machine learning trend detection to produce a PowerScore for each team. Rankings are updated weekly and are accessible by state and age group. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n- **GotSport Rankings:** Recognizing top-performing teams through the RIA Champions Awards, GotSport compiles data from thousands of leagues and competitions nationwide. It honors teams that achieve the highest national rankings over a calendar year, reflecting consistent excellence across various leagues. ([home.gotsport.com](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai))\n\n**Methodologies Employed:**\n\nThese platforms typically use advanced algorithms that account for:\n\n- **Strength of Schedule:** Evaluating the quality of opponents to ensure that victories against stronger teams are weighted more heavily.\n\n- **Cross-Age and Cross-League Comparisons:** Adjusting for differences when teams play against older age groups or teams from other leagues.\n\n- **Machine Learning Trend Detection:** Identifying teams that consistently outperform expectations to capture rising talent.\n\nBy leveraging these comprehensive ranking systems, stakeholders can gain a more accurate and holistic understanding of a youth soccer team's performance across different leagues. ",
+  "brand_mentioned": true,
+  "brand_first_position": 676,
+  "competitors_mentioned": [
+    "GotSport"
+  ],
+  "citation_urls": [
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://www.pitchrank.io/rankings?utm_source=openai",
+    "https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai"
+  ],
+  "latency_ms": 5784,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

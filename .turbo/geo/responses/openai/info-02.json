@@ -1,0 +1,21 @@
+{
+  "engine": "openai",
+  "prompt_id": "info-02",
+  "category": "informational",
+  "prompt": "How do youth soccer rankings work?",
+  "response_text": "Youth soccer rankings are systems designed to objectively assess and compare the performance of teams across various leagues, tournaments, and regions. Unlike league standings, which reflect results within a specific league, these rankings aim to provide a broader perspective on a team's competitive strength.\n\n**Key Components of Youth Soccer Rankings:**\n\n1. **Match Outcomes:** Wins, losses, and draws are fundamental, but the context of these results is crucial.\n\n2. **Strength of Opponents:** Defeating a highly ranked team carries more weight than beating a lower-ranked one. For instance, PitchRank emphasizes the quality of opponents, stating, \"Your results are measured through the lens of who you played. Beat a top team? That matters. Roll over a struggling one? Not as much.\" ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n3. **Margin of Victory:** The scoreline can indicate the dominance of a performance. A narrow win against a strong team might be more telling than a large-margin victory over a weaker opponent.\n\n4. **Strength of Schedule:** A team's overall schedule difficulty is considered. Teams consistently facing strong opponents are often ranked higher than those with easier schedules.\n\n5. **Game Context:** The nature of the match\u2014whether it's a league game, tournament, or friendly\u2014can influence its impact on rankings.\n\n**Common Ranking Methodologies:**\n\n- **Point-Based Systems:** Teams accumulate points for wins and participation in sanctioned events. However, these systems may not fully account for the quality of opponents. GotSport, for example, uses such a system where \"teams build up points for winning games and competitions and are ranked against other teams in their age group.\" ([support.gotsport.com](https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai))\n\n- **Algorithmic Models:** Advanced systems employ algorithms that adjust for opponent strength and other factors. PitchRank utilizes a 13-layer algorithm that processes game results to generate a PowerScore for each team, considering factors like opponent quality and game context. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n**Purpose and Use of Rankings:**\n\n- **Tournament Seeding:** Organizers use rankings to create balanced and competitive brackets.\n\n- **Club Evaluation:** Rankings help assess a club's competitiveness and development success.\n\n- **Player Development Tracking:** They provide insights into a team's progress over time.\n\n- **College Recruiting:** For older age groups, rankings can influence scouting and recruitment decisions.\n\nIt's essential to approach youth soccer rankings as one of many tools to evaluate team performance and development. While they offer valuable insights, they should be considered alongside other factors like player growth, coaching quality, and overall team dynamics. ",
+  "brand_mentioned": true,
+  "brand_first_position": 596,
+  "competitors_mentioned": [
+    "GotSport",
+    "GotSoccer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/methodology?utm_source=openai",
+    "https://support.gotsport.com/what-are-the-gotsoccer-rankings?hsLang=en-us&utm_source=openai",
+    "https://www.pitchrank.io/rankings?utm_source=openai"
+  ],
+  "latency_ms": 5916,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

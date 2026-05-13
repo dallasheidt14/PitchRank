@@ -1,0 +1,20 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-02",
+  "category": "parent",
+  "prompt": "Where can I look up youth soccer team rankings in Texas?",
+  "response_text": "To find youth soccer team rankings in Texas, you can utilize several online platforms that provide comprehensive and up-to-date information:\n\n1. **PitchRank**: This platform offers data-driven performance analytics for U10 to U19 boys and girls teams nationwide. It ranks over 77,000 teams across all 50 states, including Texas, using a 13-layer algorithm based on real game results. Rankings are updated every Monday and are free to access. You can browse rankings by state and age group to find detailed information about Texas teams. ([pitchrank.io](https://www.pitchrank.io/rankings?utm_source=openai))\n\n2. **SoccerView**: This app consolidates rankings, standings, scores, and ELO power ratings for over 135,000 youth soccer teams across the United States. It aggregates data from 16 platforms, including GotSport, MLS Next, and ECNL, providing a comprehensive view of team performances. The app is free to use and does not require an account. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n3. **Youth Soccer Index**: This platform provides objective quality rankings for MLS Next and ECNL youth soccer clubs, computed from actual match results. It allows you to explore clubs by location, including those in Texas, and offers insights into team performances. ([youthsoccerindex.com](https://youthsoccerindex.com/?utm_source=openai))\n\nThese resources should help you find the most current and comprehensive youth soccer team rankings in Texas. ",
+  "brand_mentioned": true,
+  "brand_first_position": 147,
+  "competitors_mentioned": [
+    "GotSport"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings?utm_source=openai",
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://youthsoccerindex.com/?utm_source=openai"
+  ],
+  "latency_ms": 3580,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

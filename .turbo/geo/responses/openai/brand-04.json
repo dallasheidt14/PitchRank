@@ -1,0 +1,16 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-04",
+  "category": "brand",
+  "prompt": "Who runs PitchRank?",
+  "response_text": "PitchRank is a platform that provides data-driven performance analytics and rankings for youth soccer teams across the United States. ([pitchrank.io](https://www.pitchrank.io/?utm_source=openai)) However, the available information does not specify the individuals or organization responsible for running PitchRank. ",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/?utm_source=openai"
+  ],
+  "latency_ms": 2709,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

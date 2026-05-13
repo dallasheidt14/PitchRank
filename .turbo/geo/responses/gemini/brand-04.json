@@ -1,0 +1,16 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-04",
+  "category": "brand",
+  "prompt": "Who runs PitchRank?",
+  "response_text": "PitchRank is run by a small team based in Arizona. This team is dedicated to providing transparent, data-driven rankings for youth soccer. They developed the platform due to a perceived lack of objective, cross-state comparisons within youth club soccer.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFESbYkh1zpiEUtAwz_RYVKTkjwVEvj-Lh-ePcrmdwxggvII9nLkGWLYCd7ERej_e7OoNvuelPzmT5NgmQ_tkSywV_2DFl8pPk8JvUY5krl2WoGjhbeIFobkQI9P-QOJrlRkzhtF9fduWyW"
+  ],
+  "latency_ms": 3083,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

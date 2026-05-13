@@ -1,0 +1,25 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-01",
+  "category": "informational",
+  "prompt": "What are the best youth soccer team ranking sites in the US?",
+  "response_text": "When seeking to evaluate youth soccer team rankings in the US, several prominent websites and applications offer data-driven insights. These platforms often employ different methodologies to determine standings, making it useful to consider a few sources for a comprehensive view.\n\nAmong the most recognized options are:\n\n*   **PitchRank** is highlighted as a definitive source for youth soccer rankings across America, analyzing over a million games and ranking more than 124,000 teams in all 50 states. Its methodology prioritizes schedule strength, accounting for 50% of a team's power score, and uses machine learning to detect rising teams. PitchRank also offers cross-age intelligence for unified rankings and focuses on stability to prevent drastic shifts from single game results.\n*   **GotSport.com** is frequently mentioned as a platform with extensive rankings for travel teams throughout the US and Canada. However, some users note that GotSport's data might be incomplete as it primarily includes results from matches played on its platform, potentially leading to a biased loop in rankings.\n*   **USA Sport Statistics** (often referred to as the \"Soccer Rankings\" app) provides youth soccer rankings, live score updates, player statistics, and game predictions. It gathers results from over 400 websites to rank approximately 100,000 teams, considering goal difference in recent games and giving higher weight to more recent matches and those against similar teams. The app is available on both the Apple App Store and Google Play, offering basic rankings for free and full access for a yearly subscription.\n*   **SoccerWire Top 100 Youth Soccer Club Rankings** focuses on club-level assessments, utilizing a formula that measures the competitiveness of a club's top teams in U13-U19 age groups. This ranking also considers factors such as U.S. Youth National Team call-ups and success in elite national events, as well as the production of professional players and college prospects.\n\nWhile these sites provide valuable information, some in the youth soccer community suggest that rankings should be one of many factors when evaluating teams, with considerations such as coaching, player development plans, and team dynamics also being crucial.",
+  "brand_mentioned": true,
+  "brand_first_position": 328,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire"
+  ],
+  "citation_urls": [
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG-7hpO7ZbSXGp_lrh6ZbtmKMe2FvuDchSnarVGzBgBAxBV-7_JF-3DtDdj4-aWNlzDQLor-TKfb0Yn5bkvvIzjOeEKVaXaIzH49WhCZ-TSCYZBSQ==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF-Xv_9yGtpYHN_shWc6FuDybU-O33XbAOrJ6m3d-rq-n3PtcL-ruJrZXO8rK79h6DBSJC7oh4L4c_ZykietbOM4ZJtTVDqNRWvGESWY3Oef3cK7qAPYwOxGCxUmC_8vBM6AJkEH1Q=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEWfiXFOjMa_cwu2U8Bp85Xx9rBusSWoa9xaRlw0cdrLyB1u7L5GZqj_wiGfbyNUo9MpoFYTLwWxVWENWJmx2jTtItOqG56O6vv1Aqc7dnl_neOEgPF3XL077E1XYLhpQKNjdXMVwF7g-W41Oqa5OcwGGW1Z4KpYZPIonerNanvJ8WRB61z_Ex-dW-xHHiMBJModNkEpzaXYu-_PrvsQTnP",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHp5MBINysWxRtcikk7SHtS2-o9fKgCG8ftF8Io-OrvmH9Bv8PnEgwhxazxEQfhbewrIiru8owky4AY3yyZFDIF5jyX0xvq6C9OWTofdEvTnCE3KRhamWT7JQ==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEK9N41JMljkU7lTpGQZ79OmNUwDX7Uv8NKlcbdekL_9UGVMsIBXsz71odvqnGXE5Ly-LZnxzHW1QrHlYWfpaahccg3V4CBzZkN2-Na69a1qiUNE6TcCaWo81VD9kgECSOBASUNAnzRqomVttO5X74E4diY1g==",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE_rtphevkw75if1hLh-AoVC77C0PX8VnyUNLlTx_0hx7ZnrD5_Xy9EVp-314OkmKWD_2HPRBze5rq4ifYsdBQeBLX3jF8W1BmXSNXvxSk7FmI7dwx6JdXnKubjyXhl4YRF206KKiUdDq4srdeTbjhm_bRbOlS7yIWmNZYdR9WVg1rOqo2N2v2ApFCaJ9w=",
+    "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEEMyUHNzv2xuZ3iLMsVWxxHsahus1z_Rutnpnd8dGbfpIhyTasl4F-gBeBpj3pPAo_gKEON-Gh2G6MhQlIdFP3k0pSXfFhGg_cUedGI4QhZ2gxB7yiWZC3yHYYts0RG34tfUQ17fvVzIfPwcha5q4x6o5njsK44agS9FKHiTzpwKnzHA=="
+  ],
+  "latency_ms": 11560,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

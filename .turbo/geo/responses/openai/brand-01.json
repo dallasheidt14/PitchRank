@@ -1,0 +1,17 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-01",
+  "category": "brand",
+  "prompt": "What is PitchRank and what does it do?",
+  "response_text": "PitchRank is a data-driven platform that provides comprehensive performance analytics and rankings for youth soccer teams across the United States, covering age groups from U10 to U19 for both boys and girls. ([pitchrank.io](https://www.pitchrank.io/?utm_source=openai))\n\n**Key Features of PitchRank:**\n\n- **Extensive Data Analysis:** The platform has analyzed over 16,000 games and ranked approximately 2,800 teams across all 50 states.\n\n- **Strength of Schedule (SOS):** Recognizing that the quality of opponents significantly impacts team performance, SOS accounts for 50% of a team's power score. This approach ensures that victories against strong teams are more impactful than wins against weaker opponents.\n\n- **Cross-Age Comparisons:** PitchRank employs age-anchored power scaling to fairly evaluate matchups between teams of different age groups, allowing for unified rankings across U10 to U19 categories.\n\n- **Machine Learning Insights:** By analyzing game residuals, the platform's machine learning algorithms identify teams that consistently overperform expectations, enabling early detection of rising teams before traditional standings reflect their progress.\n\n- **Ranking Stability:** To prevent rankings from being unduly influenced by single game outcomes, PitchRank incorporates Bayesian shrinkage, outlier clipping, and exponential decay methods, ensuring more stable and accurate rankings.\n\n**Additional Tools and Services:**\n\n- **Team Comparisons and Predictions:** Users can access head-to-head statistics, win probabilities, and match predictions powered by machine learning, facilitating informed decision-making.\n\n- **Watchlist Feature:** The platform allows users to track their favorite teams and monitor ranking changes over time, enhancing engagement and personalized experience.\n\n- **State-Specific Rankings:** PitchRank offers detailed rankings for all 50 states, enabling users to identify and follow the best teams in their specific regions.\n\n- **Comprehensive Team Profiles:** Each team has a detailed profile that includes complete game history, performance trends, and momentum analysis, providing a holistic view of team performance.\n\nFor users seeking advanced features, PitchRank offers a premium subscription service called PitchRank+. This subscription provides unlimited access to all rankings, advanced analytics, real-time ranking updates, and the ability to edit team information, such as merging duplicate teams or updating game histories. The subscription is available at $6.99 per month or $69 per year, with the annual plan offering a discount equivalent to two free months. ([pitchrank.io](https://www.pitchrank.io/watchlist?utm_source=openai))\n\nIn summary, PitchRank serves as a comprehensive resource for players, coaches, and enthusiasts of youth soccer, offering in-depth analytics and rankings to support the development and recognition of teams nationwide. ",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/?utm_source=openai",
+    "https://www.pitchrank.io/watchlist?utm_source=openai"
+  ],
+  "latency_ms": 14694,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

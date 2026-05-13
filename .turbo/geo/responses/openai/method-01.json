@@ -1,0 +1,16 @@
+{
+  "engine": "openai",
+  "prompt_id": "method-01",
+  "category": "methodology",
+  "prompt": "What is Glicko-2 and how is it used for sports rankings?",
+  "response_text": "The Glicko-2 rating system, developed by Professor Mark E. Glickman, is an advanced method for assessing player skill levels in competitive games, particularly those involving head-to-head matchups. It builds upon the original Glicko system by introducing additional parameters to more accurately reflect a player's true skill and the confidence in that assessment.\n\n**Key Components of Glicko-2:**\n\n1. **Rating (r):** Represents the player's estimated skill level.\n\n2. **Rating Deviation (RD):** Measures the uncertainty in the player's rating. A lower RD indicates higher confidence in the rating's accuracy.\n\n3. **Volatility (\u03c3):** Reflects the degree of expected fluctuation in a player's rating, capturing the consistency of their performance over time.\n\n**How Glicko-2 Works:**\n\n- **Initial Values:** New players start with a default rating (commonly 1500), an RD (often 350), and a volatility (typically 0.06).\n\n- **Rating Periods:** Unlike systems that update ratings after each game, Glicko-2 processes games in batches called rating periods. After each period, the system updates the player's rating, RD, and volatility based on all games played during that time.\n\n- **Adjustments:**\n  - **Rating Changes:** The magnitude of rating adjustments depends on the player's RD and the strength of opponents faced.\n  - **RD Updates:** Active play decreases RD, indicating increased confidence in the rating. Inactivity causes RD to increase, reflecting growing uncertainty.\n  - **Volatility Updates:** Consistent performance leads to lower volatility, while erratic results increase it, allowing the system to adapt to changes in a player's skill level.\n\n**Application in Sports Rankings:**\n\nGlicko-2 is widely used in various competitive settings to rank players or teams. Its ability to account for rating uncertainty and performance volatility makes it particularly effective in environments where player skills can change over time. For example, online gaming platforms like Chess.com and Lichess.org implement Glicko-2 to provide accurate and dynamic player ratings. ([glicko.net](https://www.glicko.net/glicko.html?utm_source=openai))\n\nBy incorporating measures of uncertainty and volatility, Glicko-2 offers a nuanced and responsive approach to ranking, ensuring that ratings more accurately reflect current performance levels. ",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.glicko.net/glicko.html?utm_source=openai"
+  ],
+  "latency_ms": 6517,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

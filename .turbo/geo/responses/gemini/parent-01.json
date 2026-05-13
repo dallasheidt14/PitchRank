@@ -1,0 +1,14 @@
+{
+  "engine": "gemini",
+  "prompt_id": "parent-01",
+  "category": "parent",
+  "prompt": "How good is my kid's youth soccer team compared to others in our state?",
+  "response_text": "To assess how good your kid's youth soccer team is compared to others in your state, I need more information. Please tell me which state you are referring to.\n\nOnce you provide the state, here's what you can look for to gauge your team's standing:\n\n*   **League Standings:** Most youth soccer leagues publish standings online. This will show you where your team ranks within its specific division and age group.\n*   **Tournament Results:** Check the results of any tournaments your team has participated in, especially state-wide or regional tournaments. Seeing how they performed against teams from different leagues can offer a broader perspective.\n*   **State Youth Soccer Association Rankings:** Many state youth soccer associations have ranking systems or provide information on top-performing teams in various age groups.\n*   **Word of Mouth and Observation:** Talking to other parents and coaches, and observing games played by other teams in your area, can also provide anecdotal evidence of team strength.",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [],
+  "latency_ms": 2967,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

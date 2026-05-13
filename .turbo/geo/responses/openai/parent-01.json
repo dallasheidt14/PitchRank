@@ -1,0 +1,20 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-01",
+  "category": "parent",
+  "prompt": "How good is my kid's youth soccer team compared to others in our state?",
+  "response_text": "Assessing your child's youth soccer team's standing within your state can be achieved through several reputable platforms that offer comprehensive rankings and performance analytics. Here are some resources you might find helpful:\n\n1. **PitchRank**: This platform provides data-driven performance analytics for U10 to U19 boys and girls teams nationwide. It evaluates teams based on factors such as strength of schedule, cross-age matchups, and machine learning trend detection. You can explore rankings by state and age group to see where your child's team stands. ([pitchrank.io](https://www.pitchrank.io/?utm_source=openai))\n\n2. **SoccerView**: SoccerView aggregates rankings, standings, scores, and ELO power ratings for over 135,000 youth soccer teams across all 50 states. It consolidates data from multiple platforms, offering a comprehensive view of team performance. The app is free to use and does not require an account. ([sportsviewapp.com](https://www.sportsviewapp.com/?utm_source=openai))\n\n3. **GotSport Rankings**: GotSport recognizes top-performing youth soccer teams through its RIA Champions Awards, honoring teams that finish at the top of the national leaderboard over the calendar year. Their rankings are based on extensive data from leagues and competitions nationwide. ([home.gotsport.com](https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai))\n\nBy utilizing these platforms, you can gain a clearer understanding of your child's team's performance relative to others in your state. ",
+  "brand_mentioned": true,
+  "brand_first_position": 237,
+  "competitors_mentioned": [
+    "GotSport"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/?utm_source=openai",
+    "https://www.sportsviewapp.com/?utm_source=openai",
+    "https://home.gotsport.com/ria-champions-awards-rankings-champions-2025/?utm_source=openai"
+  ],
+  "latency_ms": 2985,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

@@ -1,0 +1,46 @@
+{
+  "version": "2026-05-13",
+  "description": "GEO baseline prompt panel for PitchRank — 5 brand + 5 informational + 5 methodology + 5 parent queries",
+  "prompts": [
+    { "id": "brand-01", "category": "brand", "text": "What is PitchRank and what does it do?" },
+    { "id": "brand-02", "category": "brand", "text": "How does PitchRank rank youth soccer teams?" },
+    { "id": "brand-03", "category": "brand", "text": "Is PitchRank free to use?" },
+    { "id": "brand-04", "category": "brand", "text": "Who runs PitchRank?" },
+    { "id": "brand-05", "category": "brand", "text": "How is PitchRank different from GotSport or SoccerWire rankings?" },
+
+    { "id": "info-01", "category": "informational", "text": "What are the best youth soccer team ranking sites in the US?" },
+    { "id": "info-02", "category": "informational", "text": "How do youth soccer rankings work?" },
+    { "id": "info-03", "category": "informational", "text": "Where can I see independent rankings of youth soccer teams?" },
+    { "id": "info-04", "category": "informational", "text": "What's the most accurate way to compare youth soccer teams across leagues?" },
+    { "id": "info-05", "category": "informational", "text": "How do I find rankings for ECNL, NAL, and MLS Next teams in the same view?" },
+
+    { "id": "method-01", "category": "methodology", "text": "What is Glicko-2 and how is it used for sports rankings?" },
+    { "id": "method-02", "category": "methodology", "text": "How should youth soccer teams be rated when they play across different leagues?" },
+    { "id": "method-03", "category": "methodology", "text": "What rating system best handles teams that rarely play each other?" },
+    { "id": "method-04", "category": "methodology", "text": "How do you account for league strength when ranking youth soccer teams?" },
+    { "id": "method-05", "category": "methodology", "text": "What's a fair way to rank youth soccer teams across age groups and states?" },
+
+    { "id": "parent-01", "category": "parent", "text": "How good is my kid's youth soccer team compared to others in our state?" },
+    { "id": "parent-02", "category": "parent", "text": "Where can I look up youth soccer team rankings in Texas?" },
+    { "id": "parent-03", "category": "parent", "text": "How do I find the top U14 boys soccer teams in California?" },
+    { "id": "parent-04", "category": "parent", "text": "What's the best app or website for tracking youth soccer team performance?" },
+    { "id": "parent-05", "category": "parent", "text": "Should I trust online youth soccer rankings? Which ones are credible?" }
+  ],
+  "competitors": [
+    "GotSport",
+    "SoccerWire",
+    "TopDrawer",
+    "YouthSoccerRankings",
+    "GotSoccer",
+    "Got Soccer",
+    "Rankings HQ",
+    "RankingsHQ",
+    "USYS",
+    "US Club Soccer"
+  ],
+  "brand_terms": [
+    "PitchRank",
+    "pitchrank.io",
+    "pitchrank.com"
+  ]
+}

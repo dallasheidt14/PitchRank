@@ -1,0 +1,17 @@
+{
+  "engine": "openai",
+  "prompt_id": "method-04",
+  "category": "methodology",
+  "prompt": "How do you account for league strength when ranking youth soccer teams?",
+  "response_text": "When ranking youth soccer teams, accounting for league strength is crucial to ensure that rankings accurately reflect a team's performance relative to the quality of their competition. Here are several methods used to incorporate league strength into team rankings:\n\n1. **Strength of Schedule (SOS):** This metric evaluates the difficulty of a team's opponents. Teams that compete against stronger opponents receive higher SOS ratings. For instance, PitchRank assigns SOS to account for 50% of a team's power score, emphasizing the importance of facing strong competition. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n2. **Opponent Quality Assessment:** Beyond just wins and losses, the quality of the opponents is considered. Victories against high-caliber teams are weighted more heavily than those against weaker teams. This approach ensures that a team's ranking reflects not just their record but also the strength of the teams they've faced. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n3. **Cross-League Comparisons:** By analyzing results from teams across different leagues, ranking systems can establish a comparative strength between leagues. This method allows for a more accurate assessment of a team's performance in the context of their league's overall strength. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\n4. **Weighted Match Outcomes:** Some models assign weights to match outcomes based on factors like match importance and recency. For example, a study comparing various statistical models for ranking soccer teams found that incorporating time depreciation factors\u2014giving less weight to older matches\u2014can enhance the accuracy of rankings. ([arxiv.org](https://arxiv.org/abs/1705.09575?utm_source=openai))\n\nBy integrating these methods, ranking systems can more accurately reflect a team's true performance level, considering both their results and the strength of their competition. ",
+  "brand_mentioned": true,
+  "brand_first_position": 450,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/methodology?utm_source=openai",
+    "https://arxiv.org/abs/1705.09575?utm_source=openai"
+  ],
+  "latency_ms": 5575,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}

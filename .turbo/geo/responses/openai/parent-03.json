@@ -1,0 +1,20 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-03",
+  "category": "parent",
+  "prompt": "How do I find the top U14 boys soccer teams in California?",
+  "response_text": "To find the top U14 boys' soccer teams in California, you can refer to several reputable ranking sources:\n\n1. **PitchRank**: This platform provides comprehensive, data-driven rankings for youth soccer teams across various age groups and states. Their rankings are updated weekly and cover a wide range of teams, from elite to developmental levels. You can explore the latest U14 boys' soccer team rankings for California on their website. ([pitchrank.io](https://www.pitchrank.io/rankings/ca/u14/male?utm_source=openai))\n\n2. **TopDrawerSoccer**: Known for its extensive coverage of youth soccer, TopDrawerSoccer offers club team rankings that include U14 boys' teams. Their rankings are periodically updated and provide insights into team performances nationwide. You can view their U14 boys' club soccer team rankings here. ([topdrawersoccer.com](https://www.topdrawersoccer.com/club-soccer/club-soccer-team-rankings/men/u14/2/1653?utm_source=openai))\n\n3. **Ranking Soccer**: This site publishes top 25 rankings for various youth soccer leagues, including the Elite Clubs National League (ECNL). They offer preseason and weekly updates on team standings. For instance, their U14 ECNL Boys Top 25 Soccer Team Rankings provide insights into top-performing teams. ([rankingsoccer.com](https://rankingsoccer.com/blogs/ecnl-boys-top-25/u14-ecnl-boys-top-25-soccer-team-rankings-week-1-preseason?utm_source=openai))\n\nBy consulting these sources, you can obtain a comprehensive view of the top U14 boys' soccer teams in California. Keep in mind that rankings can change throughout the season, so it's advisable to check these platforms regularly for the most current information. ",
+  "brand_mentioned": true,
+  "brand_first_position": 112,
+  "competitors_mentioned": [
+    "TopDrawer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings/ca/u14/male?utm_source=openai",
+    "https://www.topdrawersoccer.com/club-soccer/club-soccer-team-rankings/men/u14/2/1653?utm_source=openai",
+    "https://rankingsoccer.com/blogs/ecnl-boys-top-25/u14-ecnl-boys-top-25-soccer-team-rankings-week-1-preseason?utm_source=openai"
+  ],
+  "latency_ms": 4153,
+  "error": null,
+  "model": "gpt-4o-search-preview"
+}
