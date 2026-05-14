@@ -8,7 +8,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
 import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
-import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -84,12 +84,17 @@ function getRankBorderClass(rank: number | null | undefined): string {
 export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [searchQuery, _setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const deferredQuery = useDeferredValue(searchQuery);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const { data: rankings, isLoading, isFetching, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
+
+  // Clear search query when cohort changes
+  useEffect(() => {
+    setSearchQuery('');
+  }, [region, ageGroup, gender]);
 
   // Track rankings viewed when data loads
   useEffect(() => {
@@ -358,10 +363,34 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="rounded-md border overflow-hidden">
               {/* Table wrapper - no horizontal scroll on mobile, columns flex to fit */}
               <div>
+                {/* Sticky search input */}
+                <div className="sticky top-0 z-20 bg-background border-b">
+                  <div className="relative px-2 py-2 sm:px-4">
+                    <Search className="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Filter teams in this list…"
+                      aria-label="Filter teams in this list"
+                      className="w-full h-9 pl-9 pr-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {/* Table Header */}
                 <div
                   data-testid="rankings-table-header"
-                  className="grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
+                  className="grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-[52px] z-10"
                 >
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
@@ -574,6 +603,18 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     })}
                     {paddingBottom > 0 && <div style={{ height: `${paddingBottom}px` }} />}
                   </div>
+                  {deferredQuery.trim() && visibleRankings.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No teams match &ldquo;{deferredQuery.trim()}&rdquo; in this cohort.
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="block mx-auto mt-2 text-primary hover:underline"
+                      >
+                        Clear search
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
