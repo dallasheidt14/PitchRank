@@ -352,6 +352,11 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
 
   'north-carolina-youth-soccer-rankings-guide': [
     {
+      question: 'What is NCYSA and does it publish team rankings?',
+      answer:
+        "NCYSA (North Carolina Youth Soccer Association) is the state's USYS-affiliated governing body — it sanctions league play, runs the State Cup, and certifies referees. NCYSA itself publishes league standings (wins, losses, points) but not cross-league team rankings. PitchRank fills that gap by pulling results from every NCYSA league plus ECNL and MLS NEXT into a single PowerScore for every NC team.",
+    },
+    {
       question: 'How are North Carolina youth soccer teams ranked?',
       answer:
         'PitchRank ranks North Carolina teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 2,600+ NC teams.',

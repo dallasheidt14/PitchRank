@@ -1197,9 +1197,9 @@ export const blogPosts: BlogPost[] = [
   },
   {
     slug: 'california-youth-soccer-rankings-guide',
-    title: 'California Youth Soccer Rankings — 15,700 Clubs 2026',
+    title: 'California Youth Soccer Rankings — 15,700 Teams',
     excerpt:
-      'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC and more — rated weekly by PowerScore. Free.',
+      'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC, Sacramento Republic and more — rated weekly by PowerScore. Free.',
     author: 'PitchRank Team',
     date: '2026-02-21',
     modifiedDate: '2026-04-30T00:00:00Z',

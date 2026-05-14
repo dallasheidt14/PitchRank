@@ -31,36 +31,36 @@ function getStateInfo(stateCode: string): { code: string; name: string } | null 
  * Keyed by lowercase state code. Falls back to generic template if not listed.
  */
 const STATE_DESCRIPTIONS: Record<string, string> = {
-  co: 'Colorado youth soccer rankings for every age group — Rapids Youth, Real Colorado, Colorado Storm and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  tx: 'Texas youth soccer rankings for every age group — FC Dallas, Solar SC, Lonestar and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  md: 'Maryland youth soccer rankings for every age group — Baltimore Armour, Pipeline SC, MSC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ca: 'California youth soccer rankings for every age group — LA Galaxy, San Diego Surf, Beach FC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ny: 'New York youth soccer rankings for every age group — Manhattan SC, SUSA, Albertson and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ga: 'Georgia youth soccer rankings for every age group — Atlanta United, Concorde Fire, United Futbol and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  nj: 'New Jersey youth soccer rankings for every age group — PDA, STA, Players Development and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  az: 'Arizona youth soccer rankings for every age group — SC Del Sol, Scottsdale Blackhawks, Real Salt Lake AZ and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  pa: 'Pennsylvania youth soccer rankings for every age group — Philadelphia Union, FC DELCO, Bethlehem and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  fl: 'Florida youth soccer rankings for every age group — Weston FC, South Florida Football Academy, Orlando City and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  va: 'Virginia youth soccer rankings for every age group — Richmond United, Beach FC, Arlington Soccer and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  or: 'Oregon youth soccer rankings for every age group — Oregon Premier FC, Oregon Surf SC, Eastside Timbers and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  la: 'Louisiana youth soccer rankings for every age group — Louisiana Fire SC, LA Krewe Rush, Louisiana Elite and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  al: 'Alabama youth soccer rankings for every age group — Alabama FC, Hoover-Vestavia, Auburn Soccer Club and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  mn: 'Minnesota youth soccer rankings for every age group — MN Thunder Academy, Salvo SC, Minnesota Rush and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ar: 'Arkansas youth soccer rankings for every age group — Arkansas Comets, Arkansas Rising, Sporting Arkansas and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  wa: 'Washington youth soccer rankings for every age group — Crossfire Premier, Eastside FC, Seattle United and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  oh: 'Ohio youth soccer rankings for every age group — Cincinnati United Premier, Club Ohio, Cleveland Force SC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ky: 'Kentucky youth soccer rankings for every age group — LouCity Academy, Kings Hammer, Lexington Sporting and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  nc: 'North Carolina youth soccer rankings for every age group — NCFC, Charlotte Soccer Academy, Wake FC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ne: 'Nebraska youth soccer rankings for every age group — Sting Nebraska, Gretna Elite Academy, Sporting Nebraska and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ks: 'Kansas youth soccer rankings for every age group — FC Wichita, Sporting Wichita, Sporting Blue Valley and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ma: 'Massachusetts youth soccer rankings for every age group — NEFC, FC Stars, FC Boston Bolts and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ct: 'Connecticut youth soccer rankings for every age group — CFC North, Inter Connecticut, Oakwood SC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  me: 'Maine youth soccer rankings for every age group — Seacoast United Maine, Maine Lightning, FC America Maine and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ut: 'Utah youth soccer rankings for every age group — La Roca FC, Utah Avalanche, Wasatch SC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  id: 'Idaho youth soccer rankings for every age group — Boise Timbers, Idaho Rush, Idaho Inferno and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ms: 'Mississippi youth soccer rankings for every age group — Mississippi Rush, Lobos Rush, Desoto FC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ak: 'Alaska youth soccer rankings for every age group — Cook Inlet, Alaska Rush, Chugiak SC and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
-  ok: 'Oklahoma youth soccer rankings for every age group — Oklahoma Energy FC, FC Tulsa Academy, Tulsa Soccer Club and more. 77K+ teams rated by PowerScore from real game results. Updated every Monday.',
+  co: 'Colorado youth soccer rankings — Rapids Youth, Real Colorado, Colorado Storm and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  tx: 'Texas youth soccer rankings — FC Dallas, Solar SC, Lonestar and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  md: 'Maryland youth soccer rankings — Baltimore Armour, Pipeline SC, MSC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ca: 'California youth soccer rankings — LA Galaxy, San Diego Surf, Beach FC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ny: 'New York youth soccer rankings — Manhattan SC, SUSA, Albertson and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ga: 'Georgia youth soccer rankings — Atlanta United, Concorde Fire, United Futbol and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  nj: 'New Jersey youth soccer rankings — PDA, STA, Match Fit, Cedar Stars and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  az: 'Arizona youth soccer rankings — SC Del Sol, Scottsdale Blackhawks, Real Salt Lake AZ and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  pa: 'Pennsylvania youth soccer rankings — Philadelphia Union, FC DELCO, Bethlehem and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  fl: 'Florida youth soccer rankings — Weston FC, South Florida FA, Orlando City and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  va: 'Virginia youth soccer rankings — Richmond United, Beach FC, Arlington Soccer and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  or: 'Oregon youth soccer rankings — Oregon Premier FC, Oregon Surf, Eastside Timbers and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  la: 'Louisiana youth soccer rankings — Louisiana Fire SC, LA Krewe Rush, Louisiana Elite and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  al: 'Alabama youth soccer rankings — Alabama FC, Hoover-Vestavia, Auburn SC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  mn: 'Minnesota youth soccer rankings — MN Thunder Academy, Salvo SC, Minnesota Rush and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ar: 'Arkansas youth soccer rankings — Arkansas Comets, Arkansas Rising, Sporting Arkansas and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  wa: 'Washington youth soccer rankings — Crossfire Premier, Eastside FC, Seattle United and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  oh: 'Ohio youth soccer rankings — Cincinnati United Premier, Club Ohio, Cleveland Force and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ky: 'Kentucky youth soccer rankings — LouCity Academy, Kings Hammer, Lexington Sporting and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  nc: 'North Carolina youth soccer rankings — NCFC, Charlotte SA, Wake FC, NC Fusion and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ne: 'Nebraska youth soccer rankings — Sting Nebraska, Gretna Elite, Sporting Nebraska and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ks: 'Kansas youth soccer rankings — FC Wichita, Sporting Wichita, Sporting Blue Valley and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ma: 'Massachusetts youth soccer rankings — NEFC, FC Stars, FC Boston Bolts and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ct: 'Connecticut youth soccer rankings — CFC North, Inter Connecticut, Oakwood SC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  me: 'Maine youth soccer rankings — Seacoast United, Maine Lightning, FC America and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ut: 'Utah youth soccer rankings — La Roca FC, Utah Avalanche, Wasatch SC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  id: 'Idaho youth soccer rankings — Boise Timbers, Idaho Rush, Idaho Inferno and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ms: 'Mississippi youth soccer rankings — Mississippi Rush, Lobos Rush, Desoto FC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ak: 'Alaska youth soccer rankings — Cook Inlet, Alaska Rush, Chugiak SC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
+  ok: 'Oklahoma youth soccer rankings — Oklahoma Energy FC, FC Tulsa Academy, Tulsa SC and more. 77K+ teams rated weekly by PowerScore. Free, updated Mondays.',
 };
 
 /**
@@ -298,8 +298,9 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             <p className="text-sm text-muted-foreground mt-2">
               Part of{' '}
               <Link href="/rankings" className="text-primary hover:underline font-medium">
-                77,000+ teams ranked nationally
-              </Link>
+                all US youth soccer rankings
+              </Link>{' '}
+              — 77,000+ teams across 50 states
             </p>
           )}
         </div>
