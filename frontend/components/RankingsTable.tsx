@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
+import { useDeferredValue, useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -84,6 +84,8 @@ function getRankBorderClass(rank: number | null | undefined): string {
 export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [searchQuery, _setSearchQuery] = useState('');
+  const deferredQuery = useDeferredValue(searchQuery);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const { data: rankings, isLoading, isFetching, isError, error, refetch } = useRankings(region, ageGroup, gender);
@@ -168,10 +170,21 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return sorted;
   }, [getDisplayRank, getDisplaySosRank, rankings, sortField, sortDirection]);
 
+  // Filter sorted rankings by search query
+  const visibleRankings = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase();
+    if (!q) return sortedRankings;
+    return sortedRankings.filter((team) => {
+      const name = team.team_name?.toLowerCase() ?? '';
+      const club = team.club_name?.toLowerCase() ?? '';
+      return name.includes(q) || club.includes(q);
+    });
+  }, [sortedRankings, deferredQuery]);
+
   // Virtualizer for rendering only visible rows
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: sortedRankings.length,
+    count: visibleRankings.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 5, // Render 5 extra rows above/below viewport
@@ -433,7 +446,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                   >
                     {paddingTop > 0 && <div style={{ height: `${paddingTop}px` }} />}
                     {virtualItems.map((virtualRow) => {
-                      const team = sortedRankings[virtualRow.index];
+                      const team = visibleRankings[virtualRow.index];
                       const displayRank = getDisplayRank(team);
                       const borderClass = getRankBorderClass(displayRank ?? null);
                       const isTop3 = displayRank != null && displayRank <= 3;
