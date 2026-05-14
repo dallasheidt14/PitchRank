@@ -4,7 +4,6 @@ import logging
 import re
 import string
 import time
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
