@@ -8,13 +8,13 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
  */
 export function createServiceSupabase(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error(`Missing Supabase service environment variables (url=${!!supabaseUrl}, key=${!!serviceKey})`);
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(`Missing Supabase service environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
   }
 
-  return createClient(supabaseUrl, serviceKey, {
+  return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

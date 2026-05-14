@@ -8,9 +8,9 @@ export async function POST(request: NextRequest) {
     if (auth.error) return auth.error;
 
     // Check for service key
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceKey) {
-      console.error('[scrape-missing-game] Missing SUPABASE_SERVICE_KEY environment variable');
+      console.error('[scrape-missing-game] Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 

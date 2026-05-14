@@ -27,9 +27,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceKey) {
-      console.error('[process-missing-games] Missing SUPABASE_SERVICE_KEY');
+      console.error('[process-missing-games] Missing SUPABASE_SERVICE_ROLE_KEY');
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
     }
 
