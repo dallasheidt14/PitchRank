@@ -160,3 +160,68 @@ test.describe('Rankings - Loading States', () => {
     expect(response?.status()).toBeLessThan(500);
   });
 });
+
+test.describe('rankings page — mobile sticky filters + cohort search', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('sticky chip bar appears when filter card scrolls off screen', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const sticky = page.getByTestId('rankings-sticky-filters');
+    await expect(sticky).toHaveAttribute('aria-hidden', 'true');
+
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="rankings-table-header"]')?.scrollIntoView({ block: 'start' });
+    });
+
+    await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
+    await expect(sticky).toContainText(/National/i);
+  });
+
+  test('tapping sticky chip bar scrolls back to filter card', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="rankings-table-header"]')?.scrollIntoView({ block: 'start' });
+    });
+
+    const sticky = page.getByTestId('rankings-sticky-filters');
+    await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
+
+    await sticky.click();
+    await expect(sticky).toHaveAttribute('aria-hidden', 'true', { timeout: 5_000 });
+  });
+
+  test('cohort search input filters the visible rows', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const input = page.getByPlaceholder('Filter teams in this list…');
+    await input.fill('united');
+
+    const firstRow = page.locator('[data-testid="rankings-row-0"]');
+    await expect(firstRow).toBeVisible({ timeout: 5_000 });
+    await expect(firstRow).toContainText(/united/i);
+
+    await input.fill('');
+    await expect(firstRow).toBeVisible();
+  });
+
+  test('non-matching search shows empty state with clear button', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const input = page.getByPlaceholder('Filter teams in this list…');
+    await input.fill('zzzzznevermatchzzzzz');
+
+    await expect(page.getByText(/No teams match/i)).toBeVisible({ timeout: 5_000 });
+
+    // Two "Clear search" buttons exist: the input's X icon (aria-label) and the
+    // empty-state CTA rendered below the table. Target the empty-state one.
+    await page.getByRole('button', { name: 'Clear search' }).last().click();
+    await expect(input).toHaveValue('');
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible();
+  });
+});
