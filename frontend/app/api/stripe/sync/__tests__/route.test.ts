@@ -48,15 +48,29 @@ function makeRequest(body: unknown): Request {
   });
 }
 
-// Helper to build a chainable supabase query mock that returns the given final value
-function chain(final: { data?: unknown; error?: unknown }) {
+/**
+ * Build a chainable supabase SELECT mock that records the filter args
+ * (column/value pair) so tests can assert the lookup is keyed correctly.
+ * Returns the supabase-shaped `client` plus the underlying spies.
+ *
+ * Supports both `.single()` and `.maybeSingle()` terminators.
+ */
+function selectChain(final: { data?: unknown; error?: unknown }) {
   const single = vi.fn().mockResolvedValue(final);
   const maybeSingle = vi.fn().mockResolvedValue(final);
-  const eq2 = vi.fn(() => ({ single, maybeSingle }));
-  const eq1 = vi.fn(() => ({ single, maybeSingle, eq: eq2 }));
-  const select = vi.fn(() => ({ eq: eq1 }));
-  const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue(final) }));
-  return { select, update, eq: eq1 };
+  const eq = vi.fn(() => ({ single, maybeSingle }));
+  const select = vi.fn(() => ({ eq }));
+  return { client: { select }, select, eq, single, maybeSingle };
+}
+
+/**
+ * Build a chainable supabase UPDATE mock that records the filter args.
+ * The route pattern is `.from(table).update(updates).eq(column, value)`.
+ */
+function updateChain(final: { error?: unknown } = { error: null }) {
+  const eq = vi.fn().mockResolvedValue(final);
+  const update = vi.fn(() => ({ eq }));
+  return { client: { update }, update, eq };
 }
 
 describe('POST /api/stripe/sync', () => {
@@ -112,12 +126,19 @@ describe('POST /api/stripe/sync', () => {
       subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
       metadata: {},
     });
-    mockServerFrom.mockReturnValue(chain({ data: { stripe_customer_id: 'cus_real' }, error: null }));
+    const chain = selectChain({ data: { stripe_customer_id: 'cus_real' }, error: null });
+    mockServerFrom.mockReturnValue(chain.client);
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: 'Session does not belong to you' });
+
+    // Ownership check must look up the profile by user.id, never by anything
+    // attacker-controlled. Wrong filter column here = anyone can claim any
+    // checkout session.
+    expect(mockServerFrom).toHaveBeenCalledWith('user_profiles');
+    expect(chain.eq).toHaveBeenCalledWith('id', 'user-real');
   });
 
   it('authenticated: returns 403 when profile has no customer_id (cannot verify)', async () => {
@@ -127,13 +148,15 @@ describe('POST /api/stripe/sync', () => {
       subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
       metadata: {},
     });
-    mockServerFrom.mockReturnValue(chain({ data: { stripe_customer_id: null }, error: null }));
+    const chain = selectChain({ data: { stripe_customer_id: null }, error: null });
+    mockServerFrom.mockReturnValue(chain.client);
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
     expect(res.status).toBe(403);
     const body = await res.json();
     expect(body.error).toMatch(/cannot verify/i);
+    expect(chain.eq).toHaveBeenCalledWith('id', 'user-real');
   });
 
   it('authenticated: syncs profile by user.id when metadata matches', async () => {
@@ -143,15 +166,20 @@ describe('POST /api/stripe/sync', () => {
       subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
       metadata: { supabase_user_id: 'user-real' },
     });
-    const updateEq = vi.fn().mockResolvedValue({ error: null });
-    mockServerFrom.mockReturnValue({ update: vi.fn(() => ({ eq: updateEq })) });
+    const update = updateChain({ error: null });
+    mockServerFrom.mockReturnValue(update.client);
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ synced: true, plan: 'premium', status: 'active' });
-    expect(updateEq).toHaveBeenCalledWith('id', 'user-real');
+
+    // Critical: must update the profile keyed by user.id from the verified
+    // session, never by stripe_customer_id directly (otherwise a forged session
+    // pointing at another user's customer_id would mutate that user's row).
+    expect(mockServerFrom).toHaveBeenCalledWith('user_profiles');
+    expect(update.eq).toHaveBeenCalledWith('id', 'user-real');
   });
 
   it('anonymous: returns 202 when no profile exists yet (webhook pending)', async () => {
@@ -160,13 +188,21 @@ describe('POST /api/stripe/sync', () => {
       customer: 'cus_anon',
       subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
     });
-    mockAdminFrom.mockReturnValue(chain({ data: null, error: null }));
+    const chain = selectChain({ data: null, error: null });
+    mockAdminFrom.mockReturnValue(chain.client);
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_anon' }));
 
     expect(res.status).toBe(202);
     const body = await res.json();
     expect(body).toMatchObject({ synced: false });
+
+    // Anonymous-path lookup MUST be keyed by stripe_customer_id from the
+    // verified Stripe session, never by anything client-supplied. Wrong column
+    // here = account-linking regression (e.g., looking up by email could
+    // attach a payment to the wrong account).
+    expect(mockAdminFrom).toHaveBeenCalledWith('user_profiles');
+    expect(chain.eq).toHaveBeenCalledWith('stripe_customer_id', 'cus_anon');
   });
 
   it('anonymous: syncs by stripe_customer_id when profile exists', async () => {
@@ -175,17 +211,23 @@ describe('POST /api/stripe/sync', () => {
       customer: 'cus_anon',
       subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
     });
-    // First call (lookup) returns profile; second call (update) returns success
-    const updateEq = vi.fn().mockResolvedValue({ error: null });
-    const lookupChain = chain({ data: { id: 'profile-99' }, error: null });
-    mockAdminFrom.mockReturnValueOnce(lookupChain).mockReturnValueOnce({ update: vi.fn(() => ({ eq: updateEq })) });
+    const lookup = selectChain({ data: { id: 'profile-99' }, error: null });
+    const update = updateChain({ error: null });
+    mockAdminFrom
+      .mockReturnValueOnce(lookup.client) // first call: SELECT to find profile
+      .mockReturnValueOnce(update.client); // second call: UPDATE that profile
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_anon' }));
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ synced: true, plan: 'premium', status: 'active' });
-    expect(updateEq).toHaveBeenCalledWith('id', 'profile-99');
+
+    // Lookup keyed by stripe_customer_id from Stripe (not client input).
+    expect(lookup.eq).toHaveBeenCalledWith('stripe_customer_id', 'cus_anon');
+    // Then update by the resolved profile.id — NOT by stripe_customer_id again
+    // (which would update any row sharing that customer_id, not just this profile).
+    expect(update.eq).toHaveBeenCalledWith('id', 'profile-99');
   });
 
   it('returns 500 on unexpected Stripe error', async () => {
