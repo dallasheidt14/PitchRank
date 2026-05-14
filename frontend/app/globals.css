@@ -289,7 +289,7 @@
 
   /* Rankings row hover dimming — non-hovered rows fade when any row is hovered */
   .rankings-body:hover .rankings-row-link:not(:hover) {
-    opacity: 0.55;
+    opacity: 0.75;
   }
 
   /* Medal/rank badge colors */
