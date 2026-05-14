@@ -40,6 +40,16 @@ function isMissingNationalRankingsRpc(error: { code?: string | null } | null): b
   return error?.code === 'PGRST202';
 }
 
+// rankings_full.gender values vary across upstream sources ("Male"/"Female"
+// from canonical pipeline, "Boys"/"Girls" from older imports). Collapse to
+// the M/F codes the UI expects. Returns null if the input is empty/unknown
+// so the caller can fall back to the team-row gender.
+function normalizeRankingsFullGender(raw: string | null | undefined): 'M' | 'F' | null {
+  if (raw === 'Male' || raw === 'Boys' || raw === 'M') return 'M';
+  if (raw === 'Female' || raw === 'Girls' || raw === 'F') return 'F';
+  return null;
+}
+
 /**
  * API functions for interacting with Supabase
  * These functions wrap Supabase queries and can be used with React Query
@@ -240,8 +250,12 @@ export const api = {
    * @returns TeamWithRanking object (Team + Ranking data from rankings_view)
    */
   async getTeam(id: string): Promise<TeamWithRanking> {
-    // Phase 1: Fetch team data, ranking views, and merge map in parallel
-    // These are all independent lookups that don't depend on each other
+    // Phase 1: Fetch team data, ranking views, and merge map in parallel.
+    // `rankings_full` is load-bearing: a fallback source when `state_rankings_view`
+    // times out (its ROW_NUMBER window scans all rows). See the deprecated-team
+    // skip + RPC fallback below at lines ~290.
+    // `modular11AliasResult` is a HEAD count-only query — only the boolean
+    // `count > 0` is used for `has_modular11_alias`.
     const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, modular11AliasResult] =
       await Promise.all([
         supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
@@ -251,10 +265,9 @@ export const api = {
         supabase.from('rankings_full').select('*').eq('team_id', id).maybeSingle(),
         supabase
           .from('team_alias_map')
-          .select('id, providers!inner(code)')
+          .select('id, providers!inner(code)', { count: 'exact', head: true })
           .eq('team_id_master', id)
-          .eq('providers.code', 'modular11')
-          .limit(1),
+          .eq('providers.code', 'modular11'),
       ]);
 
     const { data: teamData, error: teamError } = teamResult;
@@ -380,18 +393,7 @@ export const api = {
       (team.age_group ? normalizeAgeGroup(team.age_group) : null);
 
     const genderFromRankings =
-      rankingData?.gender ??
-      (rankingsFullData?.gender
-        ? rankingsFullData.gender === 'Male'
-          ? 'M'
-          : rankingsFullData.gender === 'Female'
-            ? 'F'
-            : rankingsFullData.gender === 'Boys'
-              ? 'M'
-              : rankingsFullData.gender === 'Girls'
-                ? 'F'
-                : rankingsFullData.gender
-        : null);
+      rankingData?.gender ?? normalizeRankingsFullGender(rankingsFullData?.gender as string | null | undefined);
     const gender =
       genderFromRankings ??
       ((team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : 'M') as 'M' | 'F' | 'B' | 'G');
@@ -487,7 +489,7 @@ export const api = {
       club_name: team.club_name,
       league: team.league,
       distinction: team.distinction,
-      has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
+      has_modular11_alias: (modular11AliasResult.count ?? 0) > 0,
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
