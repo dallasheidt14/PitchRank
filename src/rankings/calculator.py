@@ -49,7 +49,6 @@ class RankingContext:
     save_snapshot: bool = True
     persist_game_residuals: bool = True
     persist_game_explainability: bool = True
-    calculate_rank_changes: bool = True
     # Instrumentation
     timing_report: Optional[Any] = None
     pass_label: Optional[str] = None
@@ -1951,7 +1950,6 @@ async def compute_rankings_with_ml(
     save_snapshot = ctx.save_snapshot
     persist_game_residuals = ctx.persist_game_residuals
     persist_game_explainability = ctx.persist_game_explainability
-    calculate_rank_changes_enabled = ctx.calculate_rank_changes
     global_strength_map = ctx.global_strength_map
     merge_version = ctx.merge_version
     team_state_map = ctx.team_state_map
@@ -2246,24 +2244,16 @@ async def compute_rankings_with_ml(
                 after = ps_max_after_ml.get((age, gender), 0)
                 logger.debug(f"  {age} {gender}: pre-ML={before:.3f}, post-ML={after:.3f}, diff={after - before:+.3f}")
 
-    # Calculate rank changes using historical snapshots (7d and 30d)
-    if calculate_rank_changes_enabled:
-        logger.info("📊 Calculating rank changes from historical data...")
-        with _section(timing_report, "rank_changes"):
-            teams_with_ml = await calculate_rank_changes(
-                supabase_client=supabase_client,
-                current_rankings_df=teams_with_ml,
-                reference_date=snapshot_date,
-            )
-    else:
-        for column in [
-            "rank_change_7d",
-            "rank_change_30d",
-            "rank_change_state_7d",
-            "rank_change_state_30d",
-        ]:
-            if column not in teams_with_ml.columns:
-                teams_with_ml[column] = None
+    # Rank-change columns are populated later in compute_all_cohorts; init here so
+    # solo callers of this function still see the columns on the returned DataFrame.
+    for column in [
+        "rank_change_7d",
+        "rank_change_30d",
+        "rank_change_state_7d",
+        "rank_change_state_30d",
+    ]:
+        if column not in teams_with_ml.columns:
+            teams_with_ml[column] = None
 
     # Save current rankings as a snapshot for future rank change calculations
     # (Skip if save_snapshot=False, e.g., when called from compute_all_cohorts)
@@ -2372,7 +2362,7 @@ async def compute_all_cohorts(
     use_glicko: bool = True,  # True = Glicko-2 engine, False = legacy v53e engine
     persist_game_residuals: bool = True,
     persist_game_explainability: bool = True,
-    calculate_rank_changes: bool = True,
+    calculate_rank_changes_enabled: bool = True,
     save_snapshot: bool = True,
 ) -> Dict[str, pd.DataFrame]:
     """
@@ -2527,7 +2517,6 @@ async def compute_all_cohorts(
                 use_glicko=use_glicko,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
-                calculate_rank_changes=calculate_rank_changes,
             ),
         )
         pass1_tasks.append(task)
@@ -2598,7 +2587,6 @@ async def compute_all_cohorts(
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
-                calculate_rank_changes=calculate_rank_changes,
             ),
         )
         pass2_tasks.append(task)
@@ -3172,6 +3160,17 @@ async def compute_all_cohorts(
                         )
                         teams_combined.loc[ranks.index, "rank_in_cohort_final"] = ranks
                     logger.info(f"  Published rank_in_cohort_final computed for {active_mask.sum()} Active teams")
+
+                # Compute rank-change deltas inside the rank_in_cohort_final guard so both
+                # sides of the diff resolve to the published final rank, not rank_in_cohort_ml.
+                if calculate_rank_changes_enabled:
+                    logger.info("📊 Calculating rank changes from historical data...")
+                    with _section(timing_report, "rank_changes"):
+                        teams_combined = await calculate_rank_changes(
+                            supabase_client=supabase_client,
+                            current_rankings_df=teams_combined,
+                            reference_date=_normalize_snapshot_date(today),
+                        )
 
             # === Anchor integrity sample (top 3 per age group) ===
             if "power_score_true" in teams_combined.columns:

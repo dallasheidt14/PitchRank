@@ -152,7 +152,7 @@ async def replay_prediction_snapshot(
         merge_resolver=merge_resolver,
         use_glicko=use_glicko,
         persist_game_residuals=False,
-        calculate_rank_changes=False,
+        calculate_rank_changes_enabled=False,
         save_snapshot=False,
     )
 
