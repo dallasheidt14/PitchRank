@@ -348,7 +348,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                 {/* Table Header */}
                 <div
                   data-testid="rankings-table-header"
-                  className="grid grid-cols-[44px_1fr_58px_50px_28px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
+                  className="grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
                 >
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
@@ -394,7 +394,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="hidden sm:block px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
@@ -462,9 +462,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           aria-label={`View ${team.team_name} team details`}
                           className={`
                             rankings-row-link touch-auto
-                            grid grid-cols-[44px_1fr_58px_50px_28px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
+                            grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
                             ${isTop3 ? 'hover:bg-accent/[0.12]' : 'hover:bg-primary/[0.04]'} hover:shadow-md
-                            transition-[background-color,box-shadow,opacity] duration-200 ease-in-out
+                            active:bg-primary/[0.10] active:scale-[0.997]
+                            transition-[background-color,box-shadow,opacity,transform] duration-200 ease-in-out
                             hover:z-10
                             ${borderClass}
                           `}
@@ -513,7 +514,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               );
                             })()}
                           </div>
-                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
+                          <div className="px-1 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
                               {team.team_name}
                             </span>
@@ -528,7 +529,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right font-semibold flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             <span className="truncate">{formatPowerScore(team.power_score_final)}</span>
                           </div>
-                          <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right flex items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
+                          <div className="hidden sm:flex px-1.5 sm:px-4 py-2 sm:py-3 text-right items-center justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
                             {(() => {
                               const sosRank = getDisplaySosRank(team);
                               if (!sosRank) return <span className="truncate">—</span>;
@@ -550,10 +551,10 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                             })()}
                           </div>
                           <div className="flex items-center justify-end gap-1 px-1 sm:px-2">
-                            <span className="hidden sm:inline text-[0.72rem] font-medium text-primary opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-[180ms] delay-100">
+                            <span className="text-[0.65rem] sm:text-[0.72rem] font-semibold sm:font-medium text-primary whitespace-nowrap opacity-100 translate-x-0 sm:opacity-0 sm:translate-x-2 sm:group-hover:opacity-100 sm:group-hover:translate-x-0 transition-all duration-[180ms] sm:delay-100">
                               View team
                             </span>
-                            <ChevronRight className="h-4 w-4 sm:h-[1.1rem] sm:w-[1.1rem] text-muted-foreground opacity-50 sm:opacity-50 group-hover:text-primary group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-200 shrink-0" />
+                            <ChevronRight className="hidden sm:block sm:h-[1.1rem] sm:w-[1.1rem] sm:text-muted-foreground sm:opacity-50 sm:group-hover:text-primary sm:group-hover:opacity-100 sm:group-hover:translate-x-0.5 transition-all duration-200 shrink-0" />
                           </div>
                         </Link>
                       );
