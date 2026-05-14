@@ -214,15 +214,21 @@ def extract_team_variant(name, club_name: str = ""):
     name_lower = name.lower()
     words = name_lower.split()
 
+    # Strip set must include `'*` so trailing markers like "Blue*" / "Bolts'"
+    # don't leak into the variant and cause a phantom mismatch against an
+    # otherwise-identical sibling. Mirrors `_tokenize` in
+    # find_fuzzy_duplicate_teams.py — keep the two in sync.
+    strip_chars = "-()[]'*"
+
     # Check for color ANYWHERE in name (not just at end)
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(strip_chars)
         if word_clean in TEAM_COLORS:
             return word_clean
 
     # Check for direction variants (North, South, East, West, Central)
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(strip_chars)
         if word_clean in TEAM_DIRECTIONS:
             return word_clean
 
