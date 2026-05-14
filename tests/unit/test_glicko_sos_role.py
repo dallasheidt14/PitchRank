@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import numpy as np
 import pandas as pd
@@ -404,7 +405,6 @@ async def test_compute_all_cohorts_can_skip_snapshot_and_rank_change_side_effect
             {
                 "pass_label": pass_label,
                 "persist_game_residuals": ctx.persist_game_residuals if ctx else None,
-                "calculate_rank_changes": ctx.calculate_rank_changes if ctx else None,
                 "save_snapshot": ctx.save_snapshot if ctx else None,
             }
         )
@@ -423,9 +423,12 @@ async def test_compute_all_cohorts_can_skip_snapshot_and_rank_change_side_effect
         save_calls["prediction"] += 1
         return None
 
+    rank_change_spy = AsyncMock()
+
     monkeypatch.setattr(calculator, "compute_rankings_with_ml", fake_compute_rankings_with_ml)
     monkeypatch.setattr(calculator, "save_ranking_snapshot", fake_save_ranking_snapshot)
     monkeypatch.setattr(calculator, "_save_prediction_feature_snapshot_safe", fake_save_prediction_feature_snapshot)
+    monkeypatch.setattr(calculator, "calculate_rank_changes", rank_change_spy)
 
     games = pd.DataFrame(
         _make_game_pair("A", "B", 2, 1, "2026-03-01", age="14")
@@ -438,15 +441,15 @@ async def test_compute_all_cohorts_can_skip_snapshot_and_rank_change_side_effect
         fetch_from_supabase=False,
         use_glicko=True,
         persist_game_residuals=False,
-        calculate_rank_changes=False,
+        calculate_rank_changes_enabled=False,
         save_snapshot=False,
     )
 
     assert not result["teams"].empty
     assert save_calls == {"ranking": 0, "prediction": 0}
+    rank_change_spy.assert_not_called()
     assert len(calls) == 4
     assert all(call["persist_game_residuals"] is False for call in calls)
-    assert all(call["calculate_rank_changes"] is False for call in calls)
     assert all(call["save_snapshot"] is False for call in calls)
     assert "same_age_games" in result["teams"].columns
     assert "publication_cap_rank" in result["teams"].columns
@@ -671,7 +674,7 @@ async def test_compute_all_cohorts_merges_game_explainability_and_threads_flag(m
         fetch_from_supabase=False,
         use_glicko=True,
         persist_game_explainability=False,
-        calculate_rank_changes=False,
+        calculate_rank_changes_enabled=False,
         save_snapshot=False,
     )
 
