@@ -2,6 +2,8 @@
 
 import { forwardRef } from 'react';
 
+import { formatGender, US_STATES } from '@/lib/constants';
+
 interface RankingsStickyFiltersProps {
   region: string;
   ageGroup: string;
@@ -12,17 +14,12 @@ interface RankingsStickyFiltersProps {
 
 function formatRegion(region: string) {
   if (!region || region === 'national') return 'National';
-  return region.toUpperCase();
+  return US_STATES.find((s) => s.code.toLowerCase() === region.toLowerCase())?.name ?? region.toUpperCase();
 }
 
 function formatAge(age: string) {
+  if (!age) return '';
   return age.toUpperCase();
-}
-
-function formatGender(gender: string) {
-  if (gender === 'male') return 'Boys';
-  if (gender === 'female') return 'Girls';
-  return gender;
 }
 
 export const RankingsStickyFilters = forwardRef<HTMLDivElement, RankingsStickyFiltersProps>(
@@ -32,13 +29,16 @@ export const RankingsStickyFilters = forwardRef<HTMLDivElement, RankingsStickyFi
         ref={ref}
         data-testid="rankings-sticky-filters"
         aria-hidden={!visible}
-        className={`sm:hidden fixed left-0 right-0 top-16 z-30 bg-background border-b transition-transform duration-150 ${
+        style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}
+        className={`sm:hidden fixed left-0 right-0 z-30 bg-background border-b transition-transform duration-150 ${
           visible ? 'translate-y-0' : '-translate-y-full'
         }`}
       >
         <button
           type="button"
           onClick={onChangeClick}
+          tabIndex={visible ? 0 : -1}
+          aria-label="Change rankings filter"
           className="w-full h-9 px-4 flex items-center justify-between text-sm"
         >
           <span className="font-medium truncate">
