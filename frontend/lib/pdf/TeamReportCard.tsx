@@ -1,33 +1,27 @@
+import path from 'path';
 import React from 'react';
 import { Document, Page, View, Text, Link, StyleSheet, Font } from '@react-pdf/renderer';
 import { formatGender } from '@/lib/constants';
 
-// Register fonts via Google Fonts CDN
+// Register fonts from local files in public/fonts/. Files originate from
+// @fontsource/oswald and @fontsource/dm-sans (pinned npm deps); they were
+// copied into public/fonts/ so Vercel function bundles ship them directly,
+// without relying on a runtime fetch from fonts.gstatic.com.
+const fontDir = path.join(process.cwd(), 'public/fonts');
+
 Font.register({
   family: 'Oswald',
   fonts: [
-    {
-      src: 'https://fonts.gstatic.com/s/oswald/v53/TK3_WkUHHAIjg75cFRf3bXL8LICs1_FvsUZiYA.ttf',
-      fontWeight: 400,
-    },
-    {
-      src: 'https://fonts.gstatic.com/s/oswald/v53/TK3_WkUHHAIjg75cFRf3bXL8LICs18NvsUZiYA.ttf',
-      fontWeight: 700,
-    },
+    { src: path.join(fontDir, 'Oswald-Regular.woff'), fontWeight: 400 },
+    { src: path.join(fontDir, 'Oswald-Bold.woff'), fontWeight: 700 },
   ],
 });
 
 Font.register({
   family: 'DM Sans',
   fonts: [
-    {
-      src: 'https://fonts.gstatic.com/s/dmsans/v15/rP2Hp2ywxg089UriI5-g4vlH9VoD8Cmcqbu0-K4.ttf',
-      fontWeight: 400,
-    },
-    {
-      src: 'https://fonts.gstatic.com/s/dmsans/v15/rP2Hp2ywxg089UriI5-g4vlH9VoD8CmcqbuN_K4.ttf',
-      fontWeight: 700,
-    },
+    { src: path.join(fontDir, 'DMSans-Regular.woff'), fontWeight: 400 },
+    { src: path.join(fontDir, 'DMSans-Bold.woff'), fontWeight: 700 },
   ],
 });
 
