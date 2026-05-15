@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { ReportCardForm } from '@/components/ReportCardForm';
 import { ReportCardPreview } from '@/components/ReportCardPreview';
 import { BASE_URL } from '@/lib/constants';
@@ -26,18 +27,41 @@ const STATS = [
   { value: '50', label: 'States Covered' },
 ];
 
-const FAQS = [
+const FAQS: { q: string; a: React.ReactNode }[] = [
   {
     q: 'Is this really free?',
     a: 'Yes. No credit card, no trial. The report card is a free PDF delivered to your inbox in about 60 seconds.',
   },
   {
     q: 'How accurate are the rankings?',
-    a: 'Every team is rated by our proprietary rating engine using real game data from GotSport, MLS NEXT, SincSports, AthleteOne, and TGS — over 1.1 million games across 50 states. Rankings update every Monday.',
+    a: (
+      <>
+        See our{' '}
+        <Link
+          href="/methodology"
+          className="text-[#0B5345] font-medium underline underline-offset-2 hover:no-underline"
+        >
+          Methodology page
+        </Link>{' '}
+        for a detailed breakdown of how we rank every team.
+      </>
+    ),
   },
   {
     q: 'What if I can’t find my team?',
-    a: "Try widening the age or state filter, or check the team's club name. If you still can't find them, they may not have enough scored games yet (we require a few completed matches before rating).",
+    a: (
+      <>
+        Try widening the age or state filter, or check the team&apos;s club name. If you still can&apos;t find them,
+        email us at{' '}
+        <a
+          href="mailto:pitchrankio@gmail.com"
+          className="text-[#0B5345] font-medium underline underline-offset-2 hover:no-underline"
+        >
+          pitchrankio@gmail.com
+        </a>{' '}
+        and we&apos;ll help track them down.
+      </>
+    ),
   },
   {
     q: 'Will you spam me?',
