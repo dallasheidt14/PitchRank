@@ -192,3 +192,42 @@ export async function subscribeFreeLead(email: string, attrs: ReportCardLeadAttr
     return false;
   }
 }
+
+/**
+ * Enroll an email in a Beehiiv automation via the automation-journey API.
+ *
+ * Works for both new and existing subscribers (a returning newsletter
+ * subscriber filling out the report-card form gets enrolled even though
+ * the create-subscription branch never fires for them).
+ *
+ * The target automation must have an "Add by API" trigger enabled in
+ * Beehiiv. Silently no-ops if API credentials or the automation ID are
+ * not configured.
+ */
+export async function enrollInAutomation(email: string, automationId: string): Promise<boolean> {
+  const { apiKey, pubId } = getConfig();
+  if (!apiKey || !pubId || !automationId) return false;
+
+  try {
+    const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/automations/${automationId}/journeys`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      console.warn(`[beehiiv] Automation enrollment failed (${resp.status}): ${body}`);
+      return false;
+    }
+
+    console.log(`[beehiiv] Enrolled email in automation ${automationId}`);
+    return true;
+  } catch (err) {
+    console.error(`[beehiiv] Error enrolling in automation: ${err}`);
+    return false;
+  }
+}

@@ -2,7 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
-import { subscribeFreeLead } from '@/lib/beehiiv';
+import { subscribeFreeLead, enrollInAutomation } from '@/lib/beehiiv';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
@@ -191,7 +191,11 @@ export async function POST(request: NextRequest) {
         if (insertError) console.error('Failed to save report card lead:', insertError);
       });
 
-    // Sync lead to Beehiiv as free-tier subscriber for nurture automation (non-blocking)
+    // Sync lead to Beehiiv as free-tier subscriber for nurture automation (non-blocking).
+    // Then explicitly enroll in the report-card automation so existing subscribers
+    // (newsletter signups, Stripe premium-tier syncs) also enter the sequence — the
+    // create-subscription branch only fires for brand-new emails.
+    const reportCardAutomationId = process.env.BEEHIIV_REPORT_CARD_AUTOMATION_ID;
     subscribeFreeLead(normalizedEmail, {
       teamName: team.team_name,
       clubName: team.club_name,
@@ -199,9 +203,15 @@ export async function POST(request: NextRequest) {
       ageGroup: team.age_group,
       gender: team.gender,
       role: role || null,
-    }).catch((err) => {
-      console.error('Failed to sync report card lead to Beehiiv:', err);
-    });
+    })
+      .then(() => {
+        if (reportCardAutomationId) {
+          return enrollInAutomation(normalizedEmail, reportCardAutomationId);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to sync report card lead to Beehiiv:', err);
+      });
 
     // Send email with PDF attachment (non-blocking)
     const record = `${ranking.total_wins ?? ranking.wins}-${ranking.total_losses ?? ranking.losses}-${ranking.total_draws ?? ranking.draws}`;
