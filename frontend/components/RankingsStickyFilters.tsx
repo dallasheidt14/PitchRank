@@ -29,7 +29,7 @@ export const RankingsStickyFilters = forwardRef<HTMLDivElement, RankingsStickyFi
         ref={ref}
         data-testid="rankings-sticky-filters"
         aria-hidden={!visible}
-        style={{ top: 'calc(4rem + env(safe-area-inset-top, 0px))' }}
+        style={{ top: 'calc(4rem + max(1rem, env(safe-area-inset-top, 0px)))' }}
         className={`sm:hidden fixed left-0 right-0 z-30 bg-background border-b transition-transform duration-150 ${
           visible ? 'translate-y-0' : '-translate-y-full'
         }`}
@@ -39,7 +39,7 @@ export const RankingsStickyFilters = forwardRef<HTMLDivElement, RankingsStickyFi
           onClick={onChangeClick}
           tabIndex={visible ? 0 : -1}
           aria-label="Change rankings filter"
-          className="w-full h-9 px-4 flex items-center justify-between text-sm"
+          className="w-full h-9 px-4 flex items-center justify-between text-[0.8125rem]"
         >
           <span className="font-medium truncate">
             {formatRegion(region)} • {formatAge(ageGroup)} • {formatGender(gender)}
