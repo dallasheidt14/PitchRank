@@ -417,13 +417,14 @@ export function TeamReportCard({
 }: ReportCardProps) {
   const percentile = Math.max(1, Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100));
   const genderLabel = formatGender(team.gender);
-  const winPct =
-    ranking.win_percentage != null
-      ? `${Math.round(ranking.win_percentage)}%`
-      : ranking.total_games_played > 0
-        ? `${Math.round(((ranking.total_wins + 0.5 * ranking.total_draws) / ranking.total_games_played) * 100)}%`
-        : '—';
-  const recordStr = `${ranking.total_wins}-${ranking.total_losses}-${ranking.total_draws}`;
+  // Use season fields (wins/losses/draws/games_played), not total_* — the report
+  // card is a current-season summary, and conflating with career history would
+  // misstate the headline for teams whose all-time differs from this season.
+  const seasonWinPct =
+    ranking.games_played > 0
+      ? `${Math.round(((ranking.wins + 0.5 * ranking.draws) / ranking.games_played) * 100)}%`
+      : '—';
+  const recordStr = `${ranking.wins}-${ranking.losses}-${ranking.draws}`;
   // Last 5: aggregate W/L/D shape only — opponent + score detail is premium-gated.
   const last5 = games.slice(0, 5).map((g) => g.result);
 
@@ -468,10 +469,10 @@ export function TeamReportCard({
         {/* Record + Last 5 */}
         <View style={s.midRow}>
           <View style={s.midBox}>
-            <Text style={s.midLabel}>RECORD</Text>
+            <Text style={s.midLabel}>SEASON RECORD</Text>
             <Text style={s.recordValue}>{recordStr}</Text>
             <Text style={s.recordSub}>
-              Win rate {winPct} · {ranking.total_games_played} games
+              Win rate {seasonWinPct} · {ranking.games_played} games
             </Text>
           </View>
           <View style={s.midBox}>
