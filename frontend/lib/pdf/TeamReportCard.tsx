@@ -46,122 +46,160 @@ const C = {
   drawGray: '#9CA3AF',
 };
 
-// --- Shared styles ---
 const s = StyleSheet.create({
   page: {
     fontFamily: 'DM Sans',
     fontSize: 10,
     color: C.nearBlack,
     backgroundColor: C.white,
-    paddingTop: 30,
-    paddingBottom: 30,
-    paddingHorizontal: 36,
+    paddingTop: 0,
+    paddingBottom: 24,
+    paddingHorizontal: 32,
   },
-  // Header
-  headerBar: {
+  // Brand bar
+  brandBar: {
     backgroundColor: C.forestGreen,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginBottom: 16,
-    marginHorizontal: -36,
-    marginTop: -30,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    marginHorizontal: -32,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   brandName: {
     fontFamily: 'Oswald',
     fontWeight: 700,
-    fontSize: 20,
+    fontSize: 16,
     color: C.electricYellow,
     letterSpacing: 2,
   },
-  headerSubtitle: {
+  brandTag: {
     fontFamily: 'Oswald',
     fontWeight: 400,
-    fontSize: 11,
+    fontSize: 9,
     color: C.white,
-    marginTop: 2,
-    letterSpacing: 1,
+    letterSpacing: 2,
   },
-  teamNameRow: {
-    marginBottom: 4,
-    marginTop: 12,
+  // Team identity
+  teamBlock: {
+    marginTop: 14,
+    marginBottom: 12,
   },
   teamName: {
     fontFamily: 'Oswald',
     fontWeight: 700,
     fontSize: 22,
     color: C.forestGreen,
+    letterSpacing: 0.5,
   },
   teamMeta: {
     fontSize: 9,
     color: C.mediumGray,
+    marginTop: 3,
+  },
+  // Hero stats (PowerScore + Rank)
+  heroRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 10,
+  },
+  heroBox: {
+    flex: 1,
+    backgroundColor: C.lightGray,
+    borderRadius: 6,
+    padding: 14,
+  },
+  heroLabel: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 8,
+    color: C.mediumGray,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  heroValue: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 36,
+    color: C.forestGreen,
+    lineHeight: 1.1,
+  },
+  heroValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  heroChange: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 12,
+  },
+  heroSub: {
+    fontSize: 9,
+    color: C.mediumGray,
+    marginTop: 4,
+  },
+  // Record + Last 5 row
+  midRow: {
+    flexDirection: 'row',
+    gap: 12,
     marginBottom: 14,
+  },
+  midBox: {
+    flex: 1,
+    backgroundColor: C.lightGray,
+    borderRadius: 6,
+    padding: 12,
+  },
+  midLabel: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 8,
+    color: C.mediumGray,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  recordValue: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 22,
+    color: C.nearBlack,
+  },
+  recordSub: {
+    fontSize: 9,
+    color: C.mediumGray,
+    marginTop: 2,
+  },
+  formRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 2,
+  },
+  formBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 11,
+    color: C.white,
+    textAlign: 'center',
+    lineHeight: 1.8,
   },
   // Section
   sectionTitle: {
     fontFamily: 'Oswald',
     fontWeight: 700,
-    fontSize: 11,
+    fontSize: 10,
     color: C.forestGreen,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     marginBottom: 8,
     textTransform: 'uppercase' as const,
   },
   divider: {
     borderBottomWidth: 1,
     borderBottomColor: C.borderGray,
-    marginVertical: 10,
-  },
-  // Ranking Overview
-  rankRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  rankBox: {
-    width: '30%',
-    alignItems: 'center',
-    backgroundColor: C.lightGray,
-    borderRadius: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-  },
-  rankNumber: {
-    fontFamily: 'Oswald',
-    fontWeight: 700,
-    fontSize: 32,
-    color: C.forestGreen,
-  },
-  rankLabel: {
-    fontSize: 8,
-    color: C.mediumGray,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  rankChange: {
-    fontSize: 8,
-    marginTop: 2,
-  },
-  // PowerScore bar
-  scoreBarOuter: {
-    height: 14,
-    backgroundColor: C.borderGray,
-    borderRadius: 7,
-    marginTop: 4,
-    marginBottom: 2,
-    overflow: 'hidden',
-  },
-  scoreBarInner: {
-    height: 14,
-    backgroundColor: C.forestGreen,
-    borderRadius: 7,
-  },
-  scoreLabel: {
-    fontSize: 9,
-    color: C.mediumGray,
-  },
-  scoreBold: {
-    fontWeight: 700,
-    color: C.nearBlack,
+    marginVertical: 12,
   },
   // Strength bars
   strengthRow: {
@@ -170,7 +208,7 @@ const s = StyleSheet.create({
     marginBottom: 6,
   },
   strengthLabel: {
-    width: 60,
+    width: 70,
     fontSize: 9,
     color: C.mediumGray,
   },
@@ -187,37 +225,12 @@ const s = StyleSheet.create({
     borderRadius: 5,
   },
   strengthValue: {
-    width: 30,
+    width: 32,
     fontSize: 9,
     fontWeight: 700,
     textAlign: 'right',
   },
-  // Record boxes
-  recordRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  recordBox: {
-    width: '23%',
-    alignItems: 'center',
-    backgroundColor: C.lightGray,
-    borderRadius: 4,
-    paddingVertical: 6,
-  },
-  recordNumber: {
-    fontFamily: 'Oswald',
-    fontWeight: 700,
-    fontSize: 18,
-    color: C.nearBlack,
-  },
-  recordLabel: {
-    fontSize: 7,
-    color: C.mediumGray,
-    marginTop: 1,
-    textTransform: 'uppercase' as const,
-  },
-  // Recent results table
+  // Recent results
   gameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -226,7 +239,7 @@ const s = StyleSheet.create({
     borderBottomColor: C.borderGray,
   },
   gameDate: {
-    width: 60,
+    width: 50,
     fontSize: 8,
     color: C.mediumGray,
   },
@@ -235,7 +248,7 @@ const s = StyleSheet.create({
     fontSize: 9,
   },
   gameScore: {
-    width: 40,
+    width: 38,
     fontSize: 9,
     fontWeight: 700,
     textAlign: 'center',
@@ -252,48 +265,47 @@ const s = StyleSheet.create({
   // Premium CTA
   ctaBox: {
     backgroundColor: C.forestGreen,
-    borderRadius: 8,
+    borderRadius: 6,
     paddingVertical: 14,
     paddingHorizontal: 18,
-    marginTop: 12,
+    marginTop: 14,
   },
   ctaTitle: {
     fontFamily: 'Oswald',
     fontWeight: 700,
-    fontSize: 12,
+    fontSize: 13,
     color: C.electricYellow,
     marginBottom: 6,
-    letterSpacing: 1,
+    letterSpacing: 0.5,
   },
   ctaText: {
-    fontSize: 8.5,
+    fontSize: 9,
     color: C.white,
     lineHeight: 1.5,
-    marginBottom: 2,
   },
   ctaButton: {
     backgroundColor: C.electricYellow,
     borderRadius: 4,
-    paddingVertical: 6,
+    paddingVertical: 7,
     paddingHorizontal: 16,
     alignSelf: 'flex-start',
-    marginTop: 8,
+    marginTop: 10,
   },
   ctaButtonText: {
     fontFamily: 'Oswald',
     fontWeight: 700,
     fontSize: 10,
     color: C.forestGreen,
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   ctaSmall: {
-    fontSize: 7,
-    color: C.lightGreen,
-    marginTop: 4,
+    fontSize: 8,
+    color: C.electricYellow,
+    marginTop: 5,
   },
   // Footer
   footer: {
-    marginTop: 'auto',
+    marginTop: 14,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: C.borderGray,
@@ -306,15 +318,18 @@ const s = StyleSheet.create({
   },
 });
 
-// --- Helper components ---
+// --- Helpers ---
 
-function RankChangeText({ change }: { change: number | null }) {
-  if (change == null || change === 0) return <Text style={[s.rankChange, { color: C.mediumGray }]}>—</Text>;
-  const isUp = change > 0;
+function RankWithDelta({ rank, change }: { rank: number; change: number | null }) {
   return (
-    <Text style={[s.rankChange, { color: isUp ? C.winGreen : C.lossRed }]}>
-      {isUp ? `▲${change}` : `▼${Math.abs(change)}`} 30d
-    </Text>
+    <View style={s.heroValueRow}>
+      <Text style={s.heroValue}>#{rank}</Text>
+      {change != null && change !== 0 && (
+        <Text style={[s.heroChange, { color: change > 0 ? C.winGreen : C.lossRed }]}>
+          {change > 0 ? `▲${change}` : `▼${Math.abs(change)}`}
+        </Text>
+      )}
+    </View>
   );
 }
 
@@ -342,21 +357,14 @@ function ResultBadge({ result }: { result: string }) {
   return <Text style={[s.gameBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>{result}</Text>;
 }
 
-function FormIndicator({ perf }: { perf: number | null }) {
-  if (perf == null) return null;
-  let label: string;
-  let color: string;
-  if (perf > 0.05) {
-    label = '▲ Overperforming';
-    color = C.winGreen;
-  } else if (perf < -0.05) {
-    label = '▼ Underperforming';
-    color = C.lossRed;
-  } else {
-    label = '● On Track';
-    color = C.mediumGray;
-  }
-  return <Text style={{ fontSize: 8, color, marginTop: 2 }}>{label}</Text>;
+function FormCircle({ result }: { result: string }) {
+  const colorMap: Record<string, string> = {
+    W: C.winGreen,
+    L: C.lossRed,
+    D: C.drawGray,
+    U: C.mediumGray,
+  };
+  return <Text style={[s.formBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>{result}</Text>;
 }
 
 // --- Props ---
@@ -414,7 +422,7 @@ export function TeamReportCard({
   stateCohortTotal,
   generatedDate,
 }: ReportCardProps) {
-  const percentile = Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100);
+  const percentile = Math.max(1, Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100));
   const genderLabel = formatGender(team.gender);
   const winPct =
     ranking.win_percentage != null
@@ -422,100 +430,76 @@ export function TeamReportCard({
       : ranking.total_games_played > 0
         ? `${Math.round(((ranking.total_wins + 0.5 * ranking.total_draws) / ranking.total_games_played) * 100)}%`
         : '—';
+  const recordStr = `${ranking.total_wins}-${ranking.total_losses}-${ranking.total_draws}`;
+  // Last 5 results derived from the games array (already DESC by date, max 5)
+  const last5 = games.slice(0, 5).map((g) => g.result);
 
   return (
     <Document>
       <Page size="LETTER" style={s.page}>
-        {/* Header bar */}
-        <View style={s.headerBar}>
+        {/* Brand strip */}
+        <View style={s.brandBar}>
           <Text style={s.brandName}>PITCHRANK</Text>
-          <Text style={s.headerSubtitle}>TEAM REPORT CARD</Text>
+          <Text style={s.brandTag}>TEAM REPORT CARD</Text>
         </View>
 
         {/* Team identity */}
-        <View style={s.teamNameRow}>
+        <View style={s.teamBlock}>
           <Text style={s.teamName}>{team.team_name}</Text>
+          <Text style={s.teamMeta}>
+            {team.club_name ? `${team.club_name} · ` : ''}
+            {team.state ? `${team.state.toUpperCase()} · ` : ''}U{team.age} {genderLabel} · Generated {generatedDate}
+          </Text>
         </View>
-        <Text style={s.teamMeta}>
-          {team.club_name ? `${team.club_name} · ` : ''}
-          {team.state ? `${team.state.toUpperCase()} · ` : ''}U{team.age} {genderLabel} · Generated {generatedDate}
-        </Text>
 
-        {/* Ranking Overview */}
-        <Text style={s.sectionTitle}>Ranking Overview</Text>
-        <View style={s.rankRow}>
-          <View style={s.rankBox}>
-            <Text style={s.rankNumber}>#{ranking.rank_in_cohort_final}</Text>
-            <Text style={s.rankLabel}>
-              National Rank{'\n'}of {cohortTotal} teams
+        {/* Hero stats — PowerScore + National Rank */}
+        <View style={s.heroRow}>
+          <View style={s.heroBox}>
+            <Text style={s.heroLabel}>POWERSCORE</Text>
+            <Text style={s.heroValue}>{ranking.power_score_final.toFixed(3)}</Text>
+            <Text style={s.heroSub}>
+              Top {percentile}% nationally · #{ranking.rank_in_cohort_final} of {cohortTotal.toLocaleString()}
             </Text>
-            <RankChangeText change={ranking.rank_change_30d} />
           </View>
-          {ranking.rank_in_state_final != null && (
-            <View style={s.rankBox}>
-              <Text style={s.rankNumber}>#{ranking.rank_in_state_final}</Text>
-              <Text style={s.rankLabel}>
-                State Rank{'\n'}of {stateCohortTotal} in {team.state?.toUpperCase()}
-              </Text>
-              <RankChangeText change={ranking.rank_change_state_30d} />
-            </View>
-          )}
-          <View style={s.rankBox}>
-            <Text style={[s.rankNumber, { fontSize: 24 }]}>{ranking.power_score_final.toFixed(2)}</Text>
-            <Text style={s.rankLabel}>PowerScore</Text>
-            <Text style={[s.rankChange, { color: C.forestGreen }]}>Top {percentile > 0 ? percentile : 1}%</Text>
+          <View style={s.heroBox}>
+            <Text style={s.heroLabel}>NATIONAL RANK</Text>
+            <RankWithDelta rank={ranking.rank_in_cohort_final} change={ranking.rank_change_30d} />
+            <Text style={s.heroSub}>
+              {ranking.rank_in_state_final != null && team.state
+                ? `#${ranking.rank_in_state_final} in ${team.state.toUpperCase()} · ${stateCohortTotal.toLocaleString()} teams`
+                : '30-day change'}
+            </Text>
           </View>
         </View>
 
-        {/* PowerScore bar */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
-          <Text style={s.scoreLabel}>PowerScore</Text>
-          <Text style={[s.scoreLabel, s.scoreBold]}>{ranking.power_score_final.toFixed(2)}</Text>
+        {/* Record + Last 5 */}
+        <View style={s.midRow}>
+          <View style={s.midBox}>
+            <Text style={s.midLabel}>RECORD</Text>
+            <Text style={s.recordValue}>{recordStr}</Text>
+            <Text style={s.recordSub}>
+              Win rate {winPct} · {ranking.total_games_played} games
+            </Text>
+          </View>
+          <View style={s.midBox}>
+            <Text style={s.midLabel}>LAST 5</Text>
+            {last5.length > 0 ? (
+              <View style={s.formRow}>
+                {last5.map((r, i) => (
+                  <FormCircle key={i} result={r} />
+                ))}
+              </View>
+            ) : (
+              <Text style={s.recordSub}>No scored games yet</Text>
+            )}
+          </View>
         </View>
-        <View style={s.scoreBarOuter}>
-          <View style={[s.scoreBarInner, { width: `${Math.round(ranking.power_score_final * 100)}%` }]} />
-        </View>
-
-        <View style={s.divider} />
 
         {/* Strength Profile */}
         <Text style={s.sectionTitle}>Strength Profile</Text>
         <StrengthBar label="Offense" value={ranking.offense_norm} />
         <StrengthBar label="Defense" value={ranking.defense_norm} />
         <StrengthBar label="Schedule" value={ranking.sos_norm} color={C.lightGreen} />
-
-        <View style={s.divider} />
-
-        {/* Season Record */}
-        <Text style={s.sectionTitle}>Season Record</Text>
-        <View style={s.recordRow}>
-          <View style={s.recordBox}>
-            <Text style={s.recordNumber}>{ranking.games_played}</Text>
-            <Text style={s.recordLabel}>Games</Text>
-          </View>
-          <View style={s.recordBox}>
-            <Text style={[s.recordNumber, { color: C.winGreen }]}>{ranking.wins}</Text>
-            <Text style={s.recordLabel}>Wins</Text>
-          </View>
-          <View style={s.recordBox}>
-            <Text style={[s.recordNumber, { color: C.lossRed }]}>{ranking.losses}</Text>
-            <Text style={s.recordLabel}>Losses</Text>
-          </View>
-          <View style={s.recordBox}>
-            <Text style={s.recordNumber}>{ranking.draws}</Text>
-            <Text style={s.recordLabel}>Draws</Text>
-          </View>
-        </View>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
-          <Text style={{ fontSize: 9 }}>
-            Win Rate: <Text style={{ fontWeight: 700 }}>{winPct}</Text>
-          </Text>
-          <Text style={{ fontSize: 9, color: C.mediumGray }}>
-            Career: {ranking.total_wins}-{ranking.total_losses}-{ranking.total_draws} ({ranking.total_games_played}{' '}
-            games)
-          </Text>
-        </View>
-        <FormIndicator perf={ranking.perf_centered} />
 
         <View style={s.divider} />
 
@@ -536,15 +520,13 @@ export function TeamReportCard({
 
         {/* Premium CTA */}
         <View style={s.ctaBox}>
-          <Text style={s.ctaTitle}>WANT THE FULL PICTURE?</Text>
-          <Text style={s.ctaText}>{'✓ Head-to-head team comparisons'}</Text>
-          <Text style={s.ctaText}>{'✓ Predictive matchup analytics'}</Text>
-          <Text style={s.ctaText}>{'✓ 90-day ranking trend charts'}</Text>
-          <Text style={s.ctaText}>{'✓ Strength of schedule deep-dives'}</Text>
-          <Text style={s.ctaText}>{'✓ Weekly ranking alerts for your team'}</Text>
+          <Text style={s.ctaTitle}>DON&apos;T MAKE A $10K CLUB DECISION ON A HUNCH.</Text>
+          <Text style={s.ctaText}>
+            PitchRank+ unlocks head-to-head team comparisons, AI insights, weekly rank alerts, and matchup predictions.
+          </Text>
           <Link src="https://pitchrank.io/upgrade">
             <View style={s.ctaButton}>
-              <Text style={s.ctaButtonText}>Start Your Free Trial</Text>
+              <Text style={s.ctaButtonText}>START FREE 7-DAY TRIAL</Text>
             </View>
           </Link>
           <Text style={s.ctaSmall}>7 days free · $6.99/mo · Cancel anytime</Text>
@@ -552,9 +534,7 @@ export function TeamReportCard({
 
         {/* Footer */}
         <View style={s.footer}>
-          <Text style={s.footerText}>
-            Rankings powered by PitchRank&apos;s 13-layer algorithm · 25,000+ teams · Updated weekly
-          </Text>
+          <Text style={s.footerText}>Powered by PitchRank · 1.1M+ games analyzed · Updated weekly</Text>
           <Text style={s.footerText}>pitchrank.io</Text>
         </View>
       </Page>
