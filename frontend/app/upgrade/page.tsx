@@ -413,6 +413,12 @@ function UpgradePageContent() {
           <p className="text-xs text-muted-foreground mt-3">
             7-day free trial. Cancel anytime. No commitment required.
           </p>
+          <p className="text-sm text-muted-foreground mt-6">
+            Not ready?{' '}
+            <Link href="/report-card" className="text-primary font-medium hover:underline">
+              Get a free team report card →
+            </Link>
+          </p>
         </div>
       </div>
     </div>

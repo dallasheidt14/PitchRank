@@ -42,6 +42,7 @@ export function Footer() {
       { name: 'Compare Teams', href: '/compare' },
     ],
     Resources: [
+      { name: 'Free Team Report Card', href: '/report-card' },
       { name: 'Methodology', href: '/methodology' },
       { name: 'Blog', href: '/blog' },
     ],
