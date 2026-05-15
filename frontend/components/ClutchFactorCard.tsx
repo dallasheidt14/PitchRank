@@ -102,7 +102,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clutch Factor
+            Clutch Factor (last 30 games)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -118,7 +118,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clutch Factor
+            Clutch Factor (last 30 games)
           </CardTitle>
           <CardDescription>Record in close vs. blowout games</CardDescription>
         </CardHeader>
@@ -163,7 +163,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clutch Factor
+            Clutch Factor (last 30 games)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -179,7 +179,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clutch Factor
+            Clutch Factor (last 30 games)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -204,7 +204,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardHeader className="pb-3">
           <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
             <Flame className="h-4 w-4" />
-            Clutch Factor
+            Clutch Factor (last 30 games)
           </CardTitle>
           <CardDescription>Record in close vs. blowout games</CardDescription>
         </CardHeader>
@@ -220,7 +220,7 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
       <CardHeader className="pb-3">
         <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
           <Flame className="h-4 w-4 text-primary" />
-          Clutch Factor
+          Clutch Factor (last 30 games)
           <Tooltip>
             <TooltipTrigger asChild>
               <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />

@@ -46,11 +46,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
 
     const { data: games, error: gamesError } = await supabase
       .from('games')
-      .select('home_team_master_id, away_team_master_id, home_score, away_score')
+      .select('home_team_master_id, away_team_master_id, home_score, away_score, game_date')
       .or(orConditions)
       .eq('is_excluded', false)
       .not('home_score', 'is', null)
-      .not('away_score', 'is', null);
+      .not('away_score', 'is', null)
+      .order('game_date', { ascending: false })
+      .limit(30);
 
     if (gamesError) {
       console.error('Error fetching games for clutch factor:', gamesError);
