@@ -36,7 +36,18 @@ function buildSearchQuery(
     .limit(limit);
 
   if (filters.ageGroup) {
-    query = query.eq('age_group', filters.ageGroup);
+    // Accept comma-separated values so callers can express cohort merges
+    // (e.g. the report-card form bridges u18→u19 since u18 teams re-cohort
+    // into u19 in rankings_view but keep teams.age_group='u18').
+    const ageGroups = filters.ageGroup
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ageGroups.length > 1) {
+      query = query.in('age_group', ageGroups);
+    } else if (ageGroups.length === 1) {
+      query = query.eq('age_group', ageGroups[0]);
+    }
   }
   if (filters.gender) {
     query = query.eq('gender', filters.gender);
