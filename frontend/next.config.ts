@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
     optimizePackageImports: ['recharts', 'lucide-react', 'date-fns'],
   },
 
+  // Keep @react-pdf in its Node form for server routes. The package ships a
+  // separate browser bundle whose font loader drops the local-file branch
+  // (fetchFont URL only); Turbopack would otherwise pick that one and break
+  // Font.register({ src: '<absolute path>' }) in PDF generation.
+  serverExternalPackages: ['@react-pdf/renderer', '@react-pdf/font'],
+
   images: {
     remotePatterns: [
       {
