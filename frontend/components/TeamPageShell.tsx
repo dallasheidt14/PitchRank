@@ -27,6 +27,11 @@ const LazyTeamInsightsCard = dynamic(
   { ssr: true, loading: () => <div className="h-40 animate-pulse bg-muted rounded-lg" /> }
 );
 
+const LazyClutchFactorCard = dynamic(
+  () => import('@/components/ClutchFactorCard').then((mod) => ({ default: mod.ClutchFactorCard })),
+  { ssr: true, loading: () => <div className="h-32 animate-pulse bg-muted rounded-lg" /> }
+);
+
 const LazyRankHistoryChart = dynamic(
   () => import('@/components/RankHistoryChart').then((mod) => ({ default: mod.RankHistoryChart })),
   { ssr: true, loading: () => <div className="h-[240px] animate-pulse bg-muted rounded-lg" /> }
@@ -137,6 +142,9 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
               </SectionErrorBoundary>
               <SectionErrorBoundary fallbackTitle="Failed to load insights.">
                 <LazyTeamInsightsCard teamId={id} />
+              </SectionErrorBoundary>
+              <SectionErrorBoundary fallbackTitle="Failed to load clutch factor.">
+                <LazyClutchFactorCard teamId={id} />
               </SectionErrorBoundary>
             </div>
           </div>
