@@ -6,10 +6,13 @@
 
 ## Goals
 
-1. **Sharper hierarchy.** The current PDF treats National Rank, State Rank, PowerScore, Offense, Defense, SoS, W/L/D, and the career line as roughly equal visual weight. The one number a parent actually wants to see — **PowerScore + National Rank** — should dominate the top of the page, baseball-card style.
-2. **Add a Last 5 form strip.** Five colored circles (W=green, L=red, D=gray) replace the tiny "▲12 30d" microtext. This is the single most-scannable bit of season summary; the HTML mock landing page already promises it.
-3. **Strip stale stats and internal naming.** Footer currently reads "13-layer algorithm · 25,000+ teams" — both violate brand voice rules and contradict the landing page (1.1M+ games · 126K+ teams). Replace.
-4. **Tighten copy.** Generic "WANT THE FULL PICTURE?" CTA → loss-framed match to the upgrade-page voice ("Don't make a $10K club decision on a hunch.").
+The PDF is a **lead magnet**, not a deliverable. Give the parent just enough to (a) trust the data is real and (b) feel they got fair value for the email, while leaving the *interpretation* — the part premium answers — visibly locked.
+
+1. **Sharper hierarchy.** PowerScore + National Rank dominate the top of the page, baseball-card style. The current PDF gives them equal visual weight to Offense/Defense/SoS/W/L/D, which dilutes the headline.
+2. **Add a Last 5 form strip.** Five colored circles (W/L/D shape only, no opponents or scores) — aggregate visual, not detailed per-game data.
+3. **Replace data-rich sections with locked previews.** Strength Profile values, full Recent Results, win probability, and 90-day trend chart are all premium-gated features. Show them as locked cards with brief teasers, not actual data.
+4. **Strip stale stats and internal naming.** Footer currently reads "13-layer algorithm · 25,000+ teams" — both violate brand voice rules and contradict the landing page (1.1M+ games · 126K+ teams).
+5. **Tighten copy.** Generic "WANT THE FULL PICTURE?" CTA → loss-framed match to the upgrade-page voice ("Don't make a $10K club decision on a hunch.").
 
 ## Layout (single LETTER page)
 
@@ -29,25 +32,26 @@
 └────────────────────────┴──────────────────────────────┘
 ┌────────────────────────┬──────────────────────────────┐
 │  RECORD                │  LAST 5                       │
-│  14-2-3   .763         │  [W][W][L][W][W]              │ ← colored circles
+│  14-2-3   .763         │  [W][W][L][W][W]              │ ← shape only
 └────────────────────────┴──────────────────────────────┘
 ─── divider ────────────────────────────────────────────
-STRENGTH PROFILE
-Offense   [bar=====       ]   0.71
-Defense   [bar========    ]   0.82
-Schedule  [bar=====       ]   0.68
-─── divider ────────────────────────────────────────────
-RECENT RESULTS
-Nov 9    Tucson Soccer Academy 14B          3-1   [W]
-Nov 2    AZ Arsenal SC ECNL                 2-2   [D]
-Oct 26   SC del Sol Premier                 4-0   [W]
-... (up to 5)
-─── divider ────────────────────────────────────────────
+WHAT'S INSIDE PITCHRANK+ (2×2 locked grid, yellow left-border)
+┌──────────────────────────┬──────────────────────────────┐
+│  [PREMIUM] RECENT RESULTS│  [PREMIUM] STRENGTH PROFILE  │
+│  Every game — opponents, │  Offense, defense, SoS scored│
+│  scores, results.        │  against your peer group.    │
+│  ▮▮▮▮ ▮▮▮ ▮▮            │  ▮▮▮▮ ▮▮▮ ▮▮                │
+├──────────────────────────┼──────────────────────────────┤
+│  [PREMIUM] WIN PROBABILITY│ [PREMIUM] 90-DAY RANK TREND │
+│  Predictions for next    │  Climbing or sliding —       │
+│  opponents + comparisons │  weekly change alerts.       │
+│  ▮▮▮▮ ▮▮▮ ▮▮            │  ▮▮▮▮ ▮▮▮ ▮▮                │
+└──────────────────────────┴──────────────────────────────┘
 ┌───────────────────────────────────────────────────────┐
 │  [forest green CTA box]                                │
 │  DON'T MAKE A $10K CLUB DECISION ON A HUNCH.           │
-│  PitchRank+ unlocks: team comparisons · AI insights ·  │
-│  weekly rank alerts · matchup predictions.             │
+│  Unlock the four sections above plus team comparisons, │
+│  AI Insights, and watchlist alerts.                    │
 │  [yellow button: START FREE 7-DAY TRIAL]               │
 │  7 days free · $6.99/mo · Cancel anytime               │
 └───────────────────────────────────────────────────────┘
@@ -57,20 +61,26 @@ Oct 26   SC del Sol Premier                 4-0   [W]
 └───────────────────────────────────────────────────────┘
 ```
 
-## What's removed
+## What's removed from the free PDF
 
-- Career-record sub-line (`Career: 23-7-4 (34 games)`) — too granular for a one-page summary; if we keep it, demote to a tiny right-aligned caption under Record
-- Form indicator (▲ Overperforming / ▼ Underperforming) — replaced by the Last 5 strip which is more honest and intuitive
-- "13-layer algorithm" mention anywhere
-- "25,000+ teams" — bumped to 1.1M+ games
+- **Strength Profile bars** with actual values — interpretation of offense/defense/SoS is the premium product. Replaced by a locked card.
+- **Full Recent Results table** with opponents, scores, results — game-level data is premium-gated (per `gotcha_team_detail_premium_gated`). Replaced by a locked card.
+- Career-record sub-line (`Career: 23-7-4 (34 games)`) — too granular for a one-page summary.
+- Form indicator (▲ Overperforming / ▼ Underperforming) — replaced by the Last 5 shape strip.
+- "13-layer algorithm" mention anywhere.
+- "25,000+ teams" — bumped to 1.1M+ games.
 
-## What's kept
+## What's kept (the lead-magnet payload)
 
 - Brand fonts (Oswald + DM Sans) and colors (forest green `#0B5345`, electric yellow `#F4D03F`)
-- Strength Profile bars (Offense / Defense / Schedule)
-- Recent Results table with result badges
-- Premium CTA box with clickable upgrade link
-- Footer with site URL
+- Team identity block (confirms "your team is real to us")
+- PowerScore hero (the one number they came for)
+- National + state rank with 30-day delta
+- W-L-D record + win rate (aggregate, no per-game leak)
+- Last 5 form strip (shape only — W/L/D, no opponents or scores)
+- 2×2 locked previews of: Recent Results, Strength Profile, Win Probability, 90-Day Trend
+- Premium CTA box backed by the locked items directly above it
+- Footer
 - LETTER page size, react-pdf renderer
 
 ## What's not in scope

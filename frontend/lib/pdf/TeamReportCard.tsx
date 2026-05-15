@@ -41,6 +41,7 @@ const C = {
   lightGray: '#F3F4F6',
   mediumGray: '#6B7280',
   borderGray: '#E5E7EB',
+  blurGray: '#D1D5DB',
   winGreen: '#10B981',
   lossRed: '#EF4444',
   drawGray: '#9CA3AF',
@@ -139,7 +140,7 @@ const s = StyleSheet.create({
     color: C.mediumGray,
     marginTop: 4,
   },
-  // Record + Last 5 row
+  // Record + Last 5
   midRow: {
     flexDirection: 'row',
     gap: 12,
@@ -201,66 +202,64 @@ const s = StyleSheet.create({
     borderBottomColor: C.borderGray,
     marginVertical: 12,
   },
-  // Strength bars
-  strengthRow: {
+  // Locked premium teasers (2x2 grid)
+  lockedSection: {
+    marginBottom: 10,
+  },
+  lockedGridRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  lockedCard: {
+    flex: 1,
+    backgroundColor: C.lightGray,
+    borderRadius: 6,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: C.electricYellow,
+  },
+  lockedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
+    gap: 6,
   },
-  strengthLabel: {
-    width: 70,
-    fontSize: 9,
-    color: C.mediumGray,
-  },
-  strengthBarOuter: {
-    flex: 1,
-    height: 10,
-    backgroundColor: C.borderGray,
-    borderRadius: 5,
-    overflow: 'hidden',
-    marginRight: 8,
-  },
-  strengthBarInner: {
-    height: 10,
-    borderRadius: 5,
-  },
-  strengthValue: {
-    width: 32,
-    fontSize: 9,
+  lockedPill: {
+    backgroundColor: C.electricYellow,
+    color: C.forestGreen,
+    fontFamily: 'Oswald',
     fontWeight: 700,
-    textAlign: 'right',
-  },
-  // Recent results
-  gameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderBottomWidth: 0.5,
-    borderBottomColor: C.borderGray,
-  },
-  gameDate: {
-    width: 50,
-    fontSize: 8,
-    color: C.mediumGray,
-  },
-  gameOpponent: {
-    flex: 1,
-    fontSize: 9,
-  },
-  gameScore: {
-    width: 38,
-    fontSize: 9,
-    fontWeight: 700,
-    textAlign: 'center',
-  },
-  gameBadge: {
-    width: 18,
-    fontSize: 8,
-    fontWeight: 700,
-    textAlign: 'center',
+    fontSize: 7,
+    letterSpacing: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
     borderRadius: 3,
-    paddingVertical: 1,
-    color: C.white,
+  },
+  lockedTitle: {
+    fontFamily: 'Oswald',
+    fontWeight: 700,
+    fontSize: 10,
+    color: C.forestGreen,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase' as const,
+  },
+  lockedDesc: {
+    fontSize: 8.5,
+    color: C.mediumGray,
+    marginBottom: 6,
+    lineHeight: 1.4,
+  },
+  lockedBlur: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 4,
+  },
+  lockedBlurBar: {
+    height: 6,
+    backgroundColor: C.blurGray,
+    borderRadius: 3,
+    flex: 1,
   },
   // Premium CTA
   ctaBox: {
@@ -268,7 +267,7 @@ const s = StyleSheet.create({
     borderRadius: 6,
     paddingVertical: 14,
     paddingHorizontal: 18,
-    marginTop: 14,
+    marginTop: 4,
   },
   ctaTitle: {
     fontFamily: 'Oswald',
@@ -333,30 +332,6 @@ function RankWithDelta({ rank, change }: { rank: number; change: number | null }
   );
 }
 
-function StrengthBar({ label, value, color }: { label: string; value: number | null; color?: string }) {
-  const v = value ?? 0;
-  const pct = Math.round(v * 100);
-  return (
-    <View style={s.strengthRow}>
-      <Text style={s.strengthLabel}>{label}</Text>
-      <View style={s.strengthBarOuter}>
-        <View style={[s.strengthBarInner, { width: `${pct}%`, backgroundColor: color || C.forestGreen }]} />
-      </View>
-      <Text style={s.strengthValue}>{v.toFixed(2)}</Text>
-    </View>
-  );
-}
-
-function ResultBadge({ result }: { result: string }) {
-  const colorMap: Record<string, string> = {
-    W: C.winGreen,
-    L: C.lossRed,
-    D: C.drawGray,
-    U: C.mediumGray,
-  };
-  return <Text style={[s.gameBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>{result}</Text>;
-}
-
 function FormCircle({ result }: { result: string }) {
   const colorMap: Record<string, string> = {
     W: C.winGreen,
@@ -365,6 +340,24 @@ function FormCircle({ result }: { result: string }) {
     U: C.mediumGray,
   };
   return <Text style={[s.formBadge, { backgroundColor: colorMap[result] || C.mediumGray }]}>{result}</Text>;
+}
+
+function LockedCard({ title, description }: { title: string; description: string }) {
+  return (
+    <View style={s.lockedCard}>
+      <View style={s.lockedHeader}>
+        <Text style={s.lockedPill}>PREMIUM</Text>
+        <Text style={s.lockedTitle}>{title}</Text>
+      </View>
+      <Text style={s.lockedDesc}>{description}</Text>
+      {/* Blurred visual hint — suggests data is "there" but obscured */}
+      <View style={s.lockedBlur}>
+        <View style={s.lockedBlurBar} />
+        <View style={[s.lockedBlurBar, { flex: 0.7 }]} />
+        <View style={[s.lockedBlurBar, { flex: 0.4 }]} />
+      </View>
+    </View>
+  );
 }
 
 // --- Props ---
@@ -431,7 +424,7 @@ export function TeamReportCard({
         ? `${Math.round(((ranking.total_wins + 0.5 * ranking.total_draws) / ranking.total_games_played) * 100)}%`
         : '—';
   const recordStr = `${ranking.total_wins}-${ranking.total_losses}-${ranking.total_draws}`;
-  // Last 5 results derived from the games array (already DESC by date, max 5)
+  // Last 5: aggregate W/L/D shape only — opponent + score detail is premium-gated.
   const last5 = games.slice(0, 5).map((g) => g.result);
 
   return (
@@ -495,34 +488,38 @@ export function TeamReportCard({
           </View>
         </View>
 
-        {/* Strength Profile */}
-        <Text style={s.sectionTitle}>Strength Profile</Text>
-        <StrengthBar label="Offense" value={ranking.offense_norm} />
-        <StrengthBar label="Defense" value={ranking.defense_norm} />
-        <StrengthBar label="Schedule" value={ranking.sos_norm} color={C.lightGreen} />
-
         <View style={s.divider} />
 
-        {/* Recent Results */}
-        {games.length > 0 && (
-          <>
-            <Text style={s.sectionTitle}>Recent Results</Text>
-            {games.map((g, i) => (
-              <View key={i} style={s.gameRow}>
-                <Text style={s.gameDate}>{g.game_date}</Text>
-                <Text style={s.gameOpponent}>{g.opponent_name}</Text>
-                <Text style={s.gameScore}>{g.score}</Text>
-                <ResultBadge result={g.result} />
-              </View>
-            ))}
-          </>
-        )}
+        {/* What's inside PitchRank+ — locked previews */}
+        <Text style={s.sectionTitle}>What&apos;s inside PitchRank+</Text>
+        <View style={s.lockedSection}>
+          <View style={s.lockedGridRow}>
+            <LockedCard
+              title="Recent Results"
+              description="Every game this season — opponents, scores, and result. See exactly who you've played and how it went."
+            />
+            <LockedCard
+              title="Strength Profile"
+              description="Offense, defense, and strength of schedule scored against every team in your group."
+            />
+          </View>
+          <View style={s.lockedGridRow}>
+            <LockedCard
+              title="Win Probability"
+              description="Head-to-head predictions for your next opponent and any team you want to compare against."
+            />
+            <LockedCard
+              title="90-Day Rank Trend"
+              description="See whether your team is climbing or sliding, with weekly rank-change alerts as it happens."
+            />
+          </View>
+        </View>
 
         {/* Premium CTA */}
         <View style={s.ctaBox}>
           <Text style={s.ctaTitle}>DON&apos;T MAKE A $10K CLUB DECISION ON A HUNCH.</Text>
           <Text style={s.ctaText}>
-            PitchRank+ unlocks head-to-head team comparisons, AI insights, weekly rank alerts, and matchup predictions.
+            Unlock the four sections above plus team comparisons, AI Insights, and watchlist alerts. Cancel anytime.
           </Text>
           <Link src="https://pitchrank.io/upgrade">
             <View style={s.ctaButton}>
