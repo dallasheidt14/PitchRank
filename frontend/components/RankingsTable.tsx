@@ -602,7 +602,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="flex items-center justify-end gap-1 px-1 sm:px-2">
                             <span className="text-[0.65rem] sm:text-[0.72rem] font-semibold sm:font-medium text-primary whitespace-nowrap opacity-100 translate-x-0 sm:opacity-0 sm:translate-x-2 sm:group-hover:opacity-100 sm:group-hover:translate-x-0 transition-all duration-[180ms] sm:delay-100">
-                              View team
+                              View Team
                             </span>
                             <ChevronRight className="hidden sm:block sm:h-[1.1rem] sm:w-[1.1rem] sm:text-muted-foreground sm:opacity-50 sm:group-hover:text-primary sm:group-hover:opacity-100 sm:group-hover:translate-x-0.5 transition-all duration-200 shrink-0" />
                           </div>
