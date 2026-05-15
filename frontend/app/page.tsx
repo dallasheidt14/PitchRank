@@ -47,6 +47,14 @@ export default function Home() {
                 <Link href="/rankings">View Rankings</Link>
               </Button>
               <Button
+                data-testid="cta-report-card"
+                size="lg"
+                asChild
+                className="font-semibold uppercase tracking-wide bg-accent text-primary hover:bg-accent/90"
+              >
+                <Link href="/report-card">Free Team Report Card</Link>
+              </Button>
+              <Button
                 data-testid="cta-methodology"
                 size="lg"
                 variant="outline"
