@@ -108,3 +108,87 @@ export async function tagSubscriber(email: string): Promise<boolean> {
 export async function untagSubscriber(email: string): Promise<boolean> {
   return setSubscriberTier(email, 'free');
 }
+
+export interface ReportCardLeadAttrs {
+  teamName?: string | null;
+  clubName?: string | null;
+  state?: string | null;
+  ageGroup?: string | null;
+  gender?: string | null;
+  role?: string | null;
+}
+
+/**
+ * Subscribe a report-card lead to Beehiiv as a free-tier subscriber.
+ *
+ * Sets utm_source=report-card and custom fields so the welcome automation
+ * can branch on source and personalize Day 2+ emails with team details.
+ * Creates the subscriber if missing; updates their custom fields if they
+ * already exist (returning visitor).
+ */
+export async function subscribeFreeLead(email: string, attrs: ReportCardLeadAttrs = {}): Promise<boolean> {
+  const { apiKey, pubId } = getConfig();
+  if (!apiKey || !pubId) {
+    console.warn('[beehiiv] API key or publication ID not configured, skipping report-card sync');
+    return false;
+  }
+
+  const customFields = [
+    { name: 'source', value: 'report-card' },
+    { name: 'team_name', value: attrs.teamName ?? '' },
+    { name: 'club_name', value: attrs.clubName ?? '' },
+    { name: 'state', value: attrs.state ?? '' },
+    { name: 'age_group', value: attrs.ageGroup ?? '' },
+    { name: 'gender', value: attrs.gender ?? '' },
+    { name: 'role', value: attrs.role ?? '' },
+  ].filter((f) => f.value !== '');
+
+  try {
+    const subscriberId = await findSubscriberId(email);
+
+    if (subscriberId) {
+      const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/${subscriberId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ custom_fields: customFields }),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        console.warn(`[beehiiv] Report-card custom fields update failed (${resp.status}): ${body}`);
+        return false;
+      }
+    } else {
+      const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          tier: 'free',
+          utm_source: 'report-card',
+          reactivate_existing: false,
+          send_welcome_email: false,
+          custom_fields: customFields,
+        }),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        console.warn(`[beehiiv] Report-card subscribe failed (${resp.status}): ${body}`);
+        return false;
+      }
+    }
+
+    console.log(`[beehiiv] Synced report-card lead (${attrs.teamName ?? 'unknown team'})`);
+    return true;
+  } catch (err) {
+    console.error(`[beehiiv] Error syncing report-card lead: ${err}`);
+    return false;
+  }
+}

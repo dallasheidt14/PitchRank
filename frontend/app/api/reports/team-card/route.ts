@@ -2,6 +2,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
+import { subscribeFreeLead } from '@/lib/beehiiv';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
@@ -189,6 +190,18 @@ export async function POST(request: NextRequest) {
       .then(({ error: insertError }) => {
         if (insertError) console.error('Failed to save report card lead:', insertError);
       });
+
+    // Sync lead to Beehiiv as free-tier subscriber for nurture automation (non-blocking)
+    subscribeFreeLead(normalizedEmail, {
+      teamName: team.team_name,
+      clubName: team.club_name,
+      state: team.state_code,
+      ageGroup: team.age_group,
+      gender: team.gender,
+      role: role || null,
+    }).catch((err) => {
+      console.error('Failed to sync report card lead to Beehiiv:', err);
+    });
 
     // Send email with PDF attachment (non-blocking)
     const record = `${ranking.total_wins ?? ranking.wins}-${ranking.total_losses ?? ranking.losses}-${ranking.total_draws ?? ranking.draws}`;
