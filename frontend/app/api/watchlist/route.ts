@@ -16,6 +16,8 @@ export interface WatchlistTeam {
   rank_in_state_final: number | null;
   power_score_final: number | null;
   sos_norm: number | null;
+  sos_rank_state: number | null;
+  sos_rank_national: number | null;
   // Deltas
   rank_change_7d: number | null;
   rank_change_30d: number | null;
@@ -29,6 +31,7 @@ export interface WatchlistTeam {
   // Recent activity
   new_games_count: number;
   last_game_date: string | null;
+  last_5_results: ('W' | 'L' | 'D')[]; // Oldest-first for left-to-right timeline display
   // Added to watchlist
   watchlist_added_at: string;
 }
@@ -128,6 +131,7 @@ export async function GET() {
     type StateRankRow = {
       team_id_master: string;
       rank_in_state_final: number | null;
+      sos_rank_state: number | null;
     };
 
     type RankingRow = {
@@ -140,6 +144,8 @@ export async function GET() {
       rank_in_cohort_final: number | null;
       power_score_final: number | null;
       sos_norm: number | null;
+      sos_rank_state: number | null;
+      sos_rank_national: number | null;
       rank_change_7d: number | null;
       rank_change_30d: number | null;
       wins: number | null;
@@ -163,10 +169,42 @@ export async function GET() {
       });
     }
 
-    // Get team IDs
+    // Get team IDs (may include deprecated team_id_masters from before merges).
+    // Resolve to canonical via team_merge_map so rankings/state queries hit the
+    // canonical row — otherwise the watchlist card shows stale pre-merge data
+    // while the team page (which redirects deprecated → canonical) shows current data.
     const typedItems = items as WatchlistItem[];
-    const teamIds = typedItems.map((item: WatchlistItem) => item.team_id_master);
-    const itemMap = new Map(typedItems.map((item: WatchlistItem) => [item.team_id_master, item.created_at]));
+    const originalIds = typedItems.map((item: WatchlistItem) => item.team_id_master);
+
+    const { data: mergeData, error: mergeError } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id, canonical_team_id')
+      .in('deprecated_team_id', originalIds);
+
+    if (mergeError) {
+      console.error('[Watchlist API] Error fetching merge map:', mergeError);
+    }
+
+    const canonicalByDeprecated = new Map<string, string>(
+      ((mergeData || []) as { deprecated_team_id: string; canonical_team_id: string }[]).map((m) => [
+        m.deprecated_team_id,
+        m.canonical_team_id,
+      ])
+    );
+
+    const resolveId = (id: string) => canonicalByDeprecated.get(id) ?? id;
+    const teamIds = Array.from(new Set(originalIds.map(resolveId)));
+
+    // Key itemMap by canonical id so the response carries the canonical team_id_master.
+    // If both the deprecated and canonical IDs are in the watchlist, keep the earliest added_at.
+    const itemMap = new Map<string, string>();
+    for (const item of typedItems) {
+      const canonical = resolveId(item.team_id_master);
+      const existing = itemMap.get(canonical);
+      if (!existing || item.created_at < existing) {
+        itemMap.set(canonical, item.created_at);
+      }
+    }
 
     // Guard against empty teamIds array
     if (teamIds.length === 0) {
@@ -213,7 +251,7 @@ export async function GET() {
     // Fetch state rankings for state rank (with status filter)
     const { data: stateRankingsData, error: stateRankingsError } = await supabase
       .from('state_rankings_view')
-      .select('team_id_master, rank_in_state_final')
+      .select('team_id_master, rank_in_state_final, sos_rank_state')
       .in('team_id_master', teamIds)
       .in('status', ['Active', 'Not Enough Ranked Games']);
 
@@ -226,6 +264,9 @@ export async function GET() {
         sr.team_id_master,
         sr.rank_in_state_final,
       ])
+    );
+    const sosRankStateMap = new Map(
+      ((stateRankingsData || []) as StateRankRow[]).map((sr: StateRankRow) => [sr.team_id_master, sr.sos_rank_state])
     );
 
     // Calculate new games count (last 7 days) for each team
@@ -332,6 +373,64 @@ export async function GET() {
       }
     }
 
+    // Compute last 5 game results (W/L/D) per team for the form strip.
+    // Overshoot the limit so the per-team top-5 survives the home/away merge + dedupe.
+    const formLimit = teamIds.length * 12;
+    const [formHomeResult, formAwayResult] = await Promise.all([
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, home_score, away_score, game_date')
+        .in('home_team_master_id', teamIds)
+        .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
+        .order('game_date', { ascending: false })
+        .limit(formLimit),
+      supabase
+        .from('games')
+        .select('home_team_master_id, away_team_master_id, home_score, away_score, game_date')
+        .in('away_team_master_id', teamIds)
+        .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
+        .order('game_date', { ascending: false })
+        .limit(formLimit),
+    ]);
+
+    const formGamesRaw = [...(formHomeResult.data || []), ...(formAwayResult.data || [])];
+    const formSeen = new Set<string>();
+    const formGames = formGamesRaw
+      .filter((g) => {
+        const key = `${g.home_team_master_id}|${g.away_team_master_id}|${g.game_date}`;
+        if (formSeen.has(key)) return false;
+        formSeen.add(key);
+        return true;
+      })
+      .sort((a, b) => (b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0));
+
+    // Walk most-recent-first; take 5 per team; then reverse so the array is oldest-first.
+    const formByTeam = new Map<string, ('W' | 'L' | 'D')[]>();
+    const teamIdSet = new Set(teamIds);
+    for (const game of formGames) {
+      const homeId = game.home_team_master_id;
+      const awayId = game.away_team_master_id;
+      for (const teamId of [homeId, awayId]) {
+        if (!teamId || !teamIdSet.has(teamId)) continue;
+        const list = formByTeam.get(teamId) ?? [];
+        if (list.length >= 5) continue;
+        const isHome = teamId === homeId;
+        const myScore = isHome ? game.home_score : game.away_score;
+        const opScore = isHome ? game.away_score : game.home_score;
+        if (myScore == null || opScore == null) continue;
+        const result: 'W' | 'L' | 'D' = myScore > opScore ? 'W' : myScore < opScore ? 'L' : 'D';
+        list.push(result);
+        formByTeam.set(teamId, list);
+      }
+    }
+    for (const [id, results] of formByTeam) {
+      formByTeam.set(id, results.reverse());
+    }
+
     // Define type for team data from teams table
     type TeamRow = {
       team_id_master: string;
@@ -382,6 +481,8 @@ export async function GET() {
         rank_in_state_final: stateRankMap.get(team.team_id_master) ?? null,
         power_score_final: ranking?.power_score_final ?? null,
         sos_norm: ranking?.sos_norm ?? null,
+        sos_rank_state: sosRankStateMap.get(team.team_id_master) ?? ranking?.sos_rank_state ?? null,
+        sos_rank_national: ranking?.sos_rank_national ?? null,
         rank_change_7d: ranking?.rank_change_7d ?? null,
         rank_change_30d: ranking?.rank_change_30d ?? null,
         wins: ranking?.wins || 0,
@@ -392,6 +493,7 @@ export async function GET() {
         win_percentage: ranking?.win_percentage ?? null,
         new_games_count: newGamesMap.get(team.team_id_master) || 0,
         last_game_date: lastGameMap.get(team.team_id_master) || null,
+        last_5_results: formByTeam.get(team.team_id_master) ?? [],
         watchlist_added_at: itemMap.get(team.team_id_master) || '',
       };
     });

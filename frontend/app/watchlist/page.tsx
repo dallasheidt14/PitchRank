@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { fetchWatchlist, removeFromSupabaseWatchlist, initWatchlist } from '@/lib/watchlist';
 import type { WatchlistResponse } from '@/app/api/watchlist/route';
-import { formatPowerScore, formatSOSIndex, cn } from '@/lib/utils';
+import { formatPowerScore, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -585,15 +585,36 @@ export default function WatchlistPage() {
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
                           <p className="text-xs text-muted-foreground uppercase tracking-wide">SOS</p>
-                          <p className="font-mono font-semibold text-sm">{formatSOSIndex(team.sos_norm)}</p>
+                          <p className="font-mono font-semibold text-sm">
+                            {team.sos_rank_national ? `#${team.sos_rank_national}` : '—'}
+                          </p>
                         </div>
                         <div className="text-center p-2 bg-muted/50 rounded-lg">
-                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Record</p>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide">Ranked Record</p>
                           <p className="font-mono font-semibold text-sm">
                             {team.wins}-{team.losses}-{team.draws}
                           </p>
                         </div>
                       </div>
+
+                      {/* Form (last 5 games, oldest left → newest right) */}
+                      {team.last_5_results.length > 0 && (
+                        <div className="flex items-center justify-center gap-1.5 mb-4">
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wide mr-1">Form</span>
+                          {team.last_5_results.map((r, i) => (
+                            <span
+                              key={i}
+                              className={cn(
+                                'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold text-white',
+                                r === 'W' ? 'bg-green-500' : r === 'L' ? 'bg-red-500' : 'bg-gray-400'
+                              )}
+                              title={r === 'W' ? 'Win' : r === 'L' ? 'Loss' : 'Draw'}
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
                       {/* Actions */}
                       <div className="flex items-center justify-between pt-3 border-t">
