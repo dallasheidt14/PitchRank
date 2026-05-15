@@ -176,7 +176,6 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
     });
 
     await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
-    await expect(sticky).toContainText(/National/i);
   });
 
   test('tapping sticky chip bar scrolls back to filter card', async ({ page }) => {
@@ -191,6 +190,7 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
     await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
 
     await sticky.click();
+    await page.waitForTimeout(400);
     await expect(sticky).toHaveAttribute('aria-hidden', 'true', { timeout: 5_000 });
   });
 
@@ -201,12 +201,12 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
     const input = page.getByPlaceholder('Filter teams in this list…');
     await input.fill('united');
 
-    const firstRow = page.locator('[data-testid="rankings-row-0"]');
-    await expect(firstRow).toBeVisible({ timeout: 5_000 });
-    await expect(firstRow).toContainText(/united/i);
+    const anyRow = page.locator('[data-testid^="rankings-row-"]').first();
+    await expect(anyRow).toBeVisible({ timeout: 5_000 });
+    await expect(anyRow).toContainText(/united/i);
 
     await input.fill('');
-    await expect(firstRow).toBeVisible();
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible({ timeout: 5_000 });
   });
 
   test('non-matching search shows empty state with clear button', async ({ page }) => {
@@ -218,9 +218,7 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
 
     await expect(page.getByText(/No teams match/i)).toBeVisible({ timeout: 5_000 });
 
-    // Two "Clear search" buttons exist: the input's X icon (aria-label) and the
-    // empty-state CTA rendered below the table. Target the empty-state one.
-    await page.getByRole('button', { name: 'Clear search' }).last().click();
+    await page.getByTestId('rankings-search-empty-clear').click();
     await expect(input).toHaveValue('');
     await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible();
   });

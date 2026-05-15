@@ -609,6 +609,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       <button
                         type="button"
                         onClick={() => setSearchQuery('')}
+                        data-testid="rankings-search-empty-clear"
                         className="block mx-auto mt-2 text-primary hover:underline"
                       >
                         Clear search
