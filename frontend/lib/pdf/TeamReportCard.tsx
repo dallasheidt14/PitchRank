@@ -495,22 +495,22 @@ export function TeamReportCard({
         <View style={s.lockedSection}>
           <View style={s.lockedGridRow}>
             <LockedCard
-              title="Recent Results"
-              description="Every game this season — opponents, scores, and result. See exactly who you've played and how it went."
+              title="Game History"
+              description="Every game this season with over- and underperformance highlights — see which results boosted your rank and which dragged it down."
             />
             <LockedCard
-              title="Strength Profile"
-              description="Offense, defense, and strength of schedule scored against every team in your group."
+              title="Ranking History + Momentum"
+              description="Where you've ranked over time, recent momentum, and a goal-differential trajectory chart that shows the shape of your season."
             />
           </View>
           <View style={s.lockedGridRow}>
             <LockedCard
-              title="Win Probability"
-              description="Head-to-head predictions for your next opponent and any team you want to compare against."
+              title="Team Insights"
+              description="Clutch Factor, Season Truth, and persona analysis — the patterns inside your results that the raw W-L-D doesn't show."
             />
             <LockedCard
-              title="90-Day Rank Trend"
-              description="See whether your team is climbing or sliding, with weekly rank-change alerts as it happens."
+              title="Compare + Predict"
+              description="Head-to-head comparisons and matchup predictions that are scary accurate. Watchlist any team and get alerts when their rank moves."
             />
           </View>
         </View>
@@ -519,7 +519,8 @@ export function TeamReportCard({
         <View style={s.ctaBox}>
           <Text style={s.ctaTitle}>DON&apos;T MAKE A $10K CLUB DECISION ON A HUNCH.</Text>
           <Text style={s.ctaText}>
-            Unlock the four sections above plus team comparisons, AI Insights, and watchlist alerts. Cancel anytime.
+            Unlock the four sections above — your full game history, ranking history, team insights, and scary-accurate
+            matchup predictions. Cancel anytime.
           </Text>
           <Link src="https://pitchrank.io/upgrade">
             <View style={s.ctaButton}>

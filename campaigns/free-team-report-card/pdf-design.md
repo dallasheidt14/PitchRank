@@ -37,21 +37,22 @@ The PDF is a **lead magnet**, not a deliverable. Give the parent just enough to 
 ─── divider ────────────────────────────────────────────
 WHAT'S INSIDE PITCHRANK+ (2×2 locked grid, yellow left-border)
 ┌──────────────────────────┬──────────────────────────────┐
-│  [PREMIUM] RECENT RESULTS│  [PREMIUM] STRENGTH PROFILE  │
-│  Every game — opponents, │  Offense, defense, SoS scored│
-│  scores, results.        │  against your peer group.    │
+│  [PREMIUM] GAME HISTORY  │  [PREMIUM] RANKING HISTORY  │
+│  Every game w/ over- and │  + MOMENTUM                 │
+│  underperformance flags  │  Trajectory chart + momentum│
 │  ▮▮▮▮ ▮▮▮ ▮▮            │  ▮▮▮▮ ▮▮▮ ▮▮                │
 ├──────────────────────────┼──────────────────────────────┤
-│  [PREMIUM] WIN PROBABILITY│ [PREMIUM] 90-DAY RANK TREND │
-│  Predictions for next    │  Climbing or sliding —       │
-│  opponents + comparisons │  weekly change alerts.       │
+│  [PREMIUM] TEAM INSIGHTS │  [PREMIUM] COMPARE + PREDICT│
+│  Clutch Factor, Season   │  Head-to-head + matchup     │
+│  Truth, persona analysis │  predictions + watchlist    │
 │  ▮▮▮▮ ▮▮▮ ▮▮            │  ▮▮▮▮ ▮▮▮ ▮▮                │
 └──────────────────────────┴──────────────────────────────┘
 ┌───────────────────────────────────────────────────────┐
 │  [forest green CTA box]                                │
 │  DON'T MAKE A $10K CLUB DECISION ON A HUNCH.           │
-│  Unlock the four sections above plus team comparisons, │
-│  AI Insights, and watchlist alerts.                    │
+│  Unlock the four sections above — your full game       │
+│  history, ranking history, team insights, and          │
+│  scary-accurate matchup predictions.                   │
 │  [yellow button: START FREE 7-DAY TRIAL]               │
 │  7 days free · $6.99/mo · Cancel anytime               │
 └───────────────────────────────────────────────────────┘
