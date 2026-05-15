@@ -30,28 +30,9 @@ const FEATURES = [
 ];
 
 const SOCIAL_PROOF_STATS = [
-  { value: '25,000+', label: 'Teams Ranked' },
-  { value: '500+', label: 'Clubs Covered' },
-  { value: 'Weekly', label: 'Updated Rankings' },
-];
-
-const TESTIMONIALS = [
-  {
-    quote: 'PitchRank+ gave us the edge to find the right competition level for our son. The insights are incredible.',
-    author: 'Soccer Parent',
-    detail: 'ECNL U14 Boys',
-  },
-  {
-    quote:
-      "I use the comparison tool every week before games. Knowing our opponent's consistency score helps us prepare.",
-    author: 'Club Coach',
-    detail: 'GA Premier',
-  },
-  {
-    quote: 'The watchlist feature saves me hours of research. I can track every team in our bracket from one place.',
-    author: 'Tournament Director',
-    detail: 'Southwest Region',
-  },
+  { value: '1.1M+', label: 'Games Analyzed' },
+  { value: '126K+', label: 'Teams Ranked' },
+  { value: '50', label: 'States Covered' },
 ];
 
 export default function UpgradePage() {
@@ -118,10 +99,12 @@ function UpgradePageContent() {
             <Crown className="w-3 h-3 mr-1" />
             Premium
           </Badge>
-          <h1 className="text-4xl md:text-5xl font-bold font-display mb-4">Upgrade to PitchRank+</h1>
+          <h1 className="text-4xl md:text-5xl font-bold font-display mb-4">
+            Stop guessing where your team really stands.
+          </h1>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            The most comprehensive youth soccer analytics platform. Make smarter decisions for your player&apos;s
-            journey with data that coaches and parents trust.
+            Real game data on every team your kid plays — across every league. PitchRank+ gives you the full picture for
+            a $10,000+ club decision.
           </p>
         </div>
 
@@ -134,19 +117,6 @@ function UpgradePageContent() {
             </div>
           ))}
         </div>
-
-        {/* Existing Account Notice */}
-        {!userLoading && !user && (
-          <div className="max-w-md mx-auto mb-8 p-4 bg-muted/50 border border-border rounded-lg text-center">
-            <p className="text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Link href="/login?next=/upgrade" className="text-primary font-medium hover:underline">
-                Sign in
-              </Link>{' '}
-              to manage your existing subscription.
-            </p>
-          </div>
-        )}
 
         {/* Error Message */}
         {error && (
@@ -194,7 +164,7 @@ function UpgradePageContent() {
           >
             <CardHeader>
               <CardTitle className="text-2xl">Monthly</CardTitle>
-              <CardDescription>Perfect for trying out premium</CardDescription>
+              <CardDescription>Month-to-month flexibility</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="mb-2">
@@ -217,7 +187,7 @@ function UpgradePageContent() {
                 ))}
               </ul>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
               <Button
                 className="w-full"
                 size="lg"
@@ -240,6 +210,7 @@ function UpgradePageContent() {
                   </>
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground">7-day free trial · Cancel anytime</p>
             </CardFooter>
           </Card>
 
@@ -252,7 +223,7 @@ function UpgradePageContent() {
             onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge className="bg-green-600 text-white shadow-lg">Most Popular - Save 17%</Badge>
+              <Badge className="bg-green-600 text-white shadow-lg">Best Value — 2 Months Free</Badge>
             </div>
             <CardHeader>
               <CardTitle className="text-2xl">Yearly</CardTitle>
@@ -267,6 +238,9 @@ function UpgradePageContent() {
                   <span className="line-through">$83.88</span>
                   <span className="text-green-600 font-medium ml-1">Save $13.89</span>
                 </div>
+                <p className="text-xs text-muted-foreground mt-2 italic">
+                  Less than one tournament weekend — for a full year of clarity on a $10,000+ decision.
+                </p>
               </div>
               <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
               <p className="text-xs text-muted-foreground mb-4">After trial: $69.99/year. Cancel anytime.</p>
@@ -284,7 +258,7 @@ function UpgradePageContent() {
                 ))}
               </ul>
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
               <Button
                 className="w-full"
                 size="lg"
@@ -302,10 +276,11 @@ function UpgradePageContent() {
                 ) : (
                   <>
                     <Crown className="w-4 h-4 mr-2" />
-                    Start Free Trial - Best Value
+                    Start Free Trial — Best Value
                   </>
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground">7-day free trial · Cancel anytime</p>
             </CardFooter>
           </Card>
         </div>
@@ -327,29 +302,14 @@ function UpgradePageContent() {
               <span className="text-xs">Instant Access</span>
             </div>
           </div>
-        </div>
-
-        {/* Testimonials Section */}
-        <div className="mt-16 max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-8 font-display">Trusted by Soccer Families Nationwide</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            {TESTIMONIALS.map((testimonial, index) => (
-              <Card key={index} variant="elevated" className="text-left">
-                <CardContent className="pt-6">
-                  <div className="flex gap-1 mb-3">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                    ))}
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4 italic">&ldquo;{testimonial.quote}&rdquo;</p>
-                  <div>
-                    <p className="text-sm font-medium">{testimonial.author}</p>
-                    <p className="text-xs text-muted-foreground">{testimonial.detail}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {!userLoading && !user && (
+            <p className="mt-6 text-xs text-muted-foreground">
+              Already a PitchRank+ member?{' '}
+              <Link href="/login?next=/upgrade" className="text-primary hover:underline">
+                Sign in to manage your subscription
+              </Link>
+            </p>
+          )}
         </div>
 
         {/* Feature Comparison: Free vs Premium */}
@@ -418,8 +378,8 @@ function UpgradePageContent() {
             <div>
               <h3 className="font-semibold mb-2">How often are rankings updated?</h3>
               <p className="text-muted-foreground text-sm">
-                Rankings are recalculated every Monday using our 13-layer algorithm (v53e + ML). We process data from
-                25,000+ teams across all major youth soccer platforms weekly.
+                Rankings are recalculated every Monday using our proprietary rating engine. We process data from
+                126,000+ teams and 1.1M+ games across all major youth soccer platforms.
               </p>
             </div>
             <div>
@@ -434,9 +394,11 @@ function UpgradePageContent() {
 
         {/* Final CTA */}
         <div className="mt-16 text-center pb-8">
-          <h2 className="text-2xl md:text-3xl font-bold font-display mb-4">Ready to get the full picture?</h2>
+          <h2 className="text-2xl md:text-3xl font-bold font-display mb-4">
+            Don&apos;t make a $10K club decision on a hunch.
+          </h2>
           <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-            Join thousands of soccer families using PitchRank+ to make smarter decisions.
+            Start your free 7-day trial. See where your team really stands before next tryouts.
           </p>
           <Button
             size="lg"
