@@ -57,12 +57,31 @@ export async function POST(req: Request) {
       });
     }
 
-    // Remove team from watchlist
+    // The GET /api/watchlist response resolves deprecated team_id_master values
+    // to canonical via team_merge_map, so the UI may post the canonical ID even
+    // when the underlying watchlist_items row stores the deprecated ID (or vice
+    // versa). Look up all related IDs and delete every matching row so Remove
+    // works regardless of which side of the merge the stored row is on.
+    const { data: mergeRows, error: mergeError } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id, canonical_team_id')
+      .or(`deprecated_team_id.eq.${teamIdMaster},canonical_team_id.eq.${teamIdMaster}`);
+
+    if (mergeError) {
+      console.error('[Watchlist Remove] Error fetching merge map:', mergeError);
+    }
+
+    const idsToDelete = new Set<string>([teamIdMaster]);
+    for (const row of (mergeRows || []) as { deprecated_team_id: string; canonical_team_id: string }[]) {
+      if (row.deprecated_team_id) idsToDelete.add(row.deprecated_team_id);
+      if (row.canonical_team_id) idsToDelete.add(row.canonical_team_id);
+    }
+
     const { error: removeError } = await supabase
       .from('watchlist_items')
       .delete()
       .eq('watchlist_id', resolvedWatchlist.id)
-      .eq('team_id_master', teamIdMaster);
+      .in('team_id_master', Array.from(idsToDelete));
 
     if (removeError) {
       console.error('Error removing team from watchlist:', removeError);
