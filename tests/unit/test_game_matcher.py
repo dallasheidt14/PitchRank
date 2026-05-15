@@ -62,3 +62,18 @@ class TestExtractTeamVariant:
         assert extract_team_variant("FC Dallas 2014 Blue*") == "blue"
         assert extract_team_variant("Select North*") == "north"
         assert extract_team_variant("Rush South'") == "south"
+
+    def test_coach_name_trailing_markers_stripped(self):
+        """Trailing markers must also be stripped in the coach-name branch.
+
+        Regression: the color/direction loops were patched first but the
+        coach branch kept its own strip literal that excluded `'*` —
+        'Atletico Dallas 15G Riedell*' would extract 'riedell*' while the
+        unmarked sibling extracted 'riedell', leaving them as distinct
+        coach_name values in extract_distinctions and blocking the merge.
+        """
+        assert extract_team_variant("Atletico Dallas 15G Riedell*") == "riedell"
+        assert extract_team_variant("Atletico Dallas 15G Riedell'") == "riedell"
+        assert extract_team_variant("FC Dynamo 2014 Davis,") == "davis"
+        # And the unmarked sibling must still match identically.
+        assert extract_team_variant("Atletico Dallas 15G Riedell") == "riedell"

@@ -571,12 +571,14 @@ def extract_team_variant(name: str) -> Optional[str]:
     name_lower = name.lower()
     words = name_lower.split()
 
-    # Strip set must include `'*` so trailing markers like "Blue*" / "Bolts'"
-    # don't leak into the variant and cause a phantom mismatch against an
-    # otherwise-identical sibling. Mirrors `_tokenize` below — keep all three
+    # Strip set must include `'*.,` so trailing markers like "Blue*" /
+    # "Bolts'" / "Riedell," don't leak into the variant (color, direction, OR
+    # coach branch below — coach_name in extract_distinctions is populated
+    # from this function and a leaked marker breaks the distinction-equality
+    # gate at game-match time). Mirrors `_tokenize` below — keep all three
     # extract_team_variant copies (here, find_queue_matches.py,
     # game_matcher.py) in sync.
-    strip_chars = "-()[]'*"
+    strip_chars = "-()[]'*.,"
 
     # 1. Color anywhere in name
     for w in words:
@@ -608,7 +610,7 @@ def extract_team_variant(name: str) -> Optional[str]:
         # Strip trailing region markers in parens: "(CTX)" → ""
         after_age_clean = re.sub(r"\s*\([^)]+\)\s*$", "", after_age).strip()
         for word in after_age_clean.split():
-            wc = word.strip("-()[].,").lower()
+            wc = word.strip(strip_chars).lower()
             if not wc or len(wc) < 3:
                 continue
             if wc in NON_COACH_WORDS:
