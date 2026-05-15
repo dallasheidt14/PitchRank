@@ -10,6 +10,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
+  ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
 import { useRankHistory } from '@/lib/hooks';
@@ -43,16 +44,34 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
     if (!history || history.length === 0) return [];
 
     return history.map((point) => {
-      const d = new Date(point.snapshot_date + 'T00:00:00');
+      const d = new Date(point.snapshot_date + 'T00:00:00Z');
       const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
       const day = d.getUTCDate();
+      const year = d.getUTCFullYear();
+      // Append 2-digit year on January labels so the Dec→Jan boundary is unambiguous.
+      const label = month === 'Jan' ? `${month} ${day} '${String(year).slice(2)}` : `${month} ${day}`;
       return {
-        label: `${month} ${day}`,
+        label,
         fullDate: point.snapshot_date,
+        displayDate: `${month} ${day}, ${year}`,
         rank: point.rank,
       };
     });
   }, [history]);
+
+  // One tick per month (first snapshot of each calendar month) — ~12 ticks for a year.
+  const monthTicks = useMemo(() => {
+    const seen = new Set<string>();
+    const ticks: string[] = [];
+    for (const d of chartData) {
+      const key = d.fullDate.slice(0, 7); // YYYY-MM
+      if (!seen.has(key)) {
+        seen.add(key);
+        ticks.push(d.label);
+      }
+    }
+    return ticks;
+  }, [chartData]);
 
   // Calculate Y-axis domain: pad slightly beyond min/max rank
   const yDomain = useMemo(() => {
@@ -64,6 +83,12 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
     const padding = Math.max(2, Math.ceil((maxRank - minRank) * 0.1));
     return [Math.max(1, minRank - padding), maxRank + padding];
   }, [chartData]);
+
+  // Widen Y-axis when ranks have more digits so #1234 doesn't clip.
+  const yAxisWidth = useMemo(() => {
+    const maxDigits = String(yDomain[1]).length;
+    return Math.max(40, maxDigits * 9 + 16);
+  }, [yDomain]);
 
   if (isLoading) {
     return (
@@ -121,6 +146,10 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
   const earliestRank = chartData[0].rank;
   const rankDelta = earliestRank - currentRank; // positive = improved
 
+  const trendText =
+    rankDelta > 0 ? `improved by ${rankDelta}` : rankDelta < 0 ? `declined by ${Math.abs(rankDelta)}` : 'unchanged';
+  const ariaLabel = `Ranking history. Currently rank #${currentRank}, ${trendText} since ${chartData[0].displayDate}.`;
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -146,7 +175,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <div className="h-[180px] w-full">
+        <div className="h-[180px] w-full" role="img" aria-label={ariaLabel}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
@@ -155,7 +184,8 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
-                interval="preserveStartEnd"
+                ticks={monthTicks}
+                interval={0}
                 className="fill-muted-foreground"
               />
               <YAxis
@@ -166,7 +196,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                 axisLine={false}
                 tickFormatter={(v: number) => `#${v}`}
                 className="fill-muted-foreground"
-                width={48}
+                width={yAxisWidth}
                 allowDecimals={false}
               />
               <RechartsTooltip
@@ -181,12 +211,15 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
                   const d = payload[0].payload;
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-md text-xs">
-                      <p className="font-medium">{d.fullDate}</p>
+                      <p className="font-medium">{d.displayDate}</p>
                       <p className="text-primary font-mono font-semibold">Rank #{d.rank}</p>
                     </div>
                   );
                 }}
               />
+              {yDomain[0] <= 1 && (
+                <ReferenceLine y={1} stroke="var(--muted-foreground)" strokeDasharray="3 3" strokeWidth={1} />
+              )}
               <Line
                 type="monotone"
                 dataKey="rank"
