@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
+import { useDeferredValue, useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -8,7 +8,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
 import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
-import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatPowerScore } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
@@ -84,10 +84,17 @@ function getRankBorderClass(rank: number | null | undefined): string {
 export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [searchQuery, setSearchQuery] = useState('');
+  const deferredQuery = useDeferredValue(searchQuery);
   const parentRef = useRef<HTMLDivElement>(null);
 
   const { data: rankings, isLoading, isFetching, isError, error, refetch } = useRankings(region, ageGroup, gender);
   const prefetchTeam = usePrefetchTeam();
+
+  // Clear search query when cohort changes
+  useEffect(() => {
+    setSearchQuery('');
+  }, [region, ageGroup, gender]);
 
   // Track rankings viewed when data loads
   useEffect(() => {
@@ -168,10 +175,29 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return sorted;
   }, [getDisplayRank, getDisplaySosRank, rankings, sortField, sortDirection]);
 
+  // Filter sorted rankings by search query.
+  // Normalizes hyphens/punctuation to spaces and matches every token as a
+  // substring so "pre elite" finds "Pre-Elite" and "2014 elite" matches
+  // regardless of where the words appear in name/club.
+  const visibleRankings = useMemo(() => {
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[-_./'"]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const tokens = normalize(deferredQuery).split(' ').filter(Boolean);
+    if (tokens.length === 0) return sortedRankings;
+    return sortedRankings.filter((team) => {
+      const haystack = normalize(`${team.team_name ?? ''} ${team.club_name ?? ''}`);
+      return tokens.every((t) => haystack.includes(t));
+    });
+  }, [sortedRankings, deferredQuery]);
+
   // Virtualizer for rendering only visible rows
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
-    count: sortedRankings.length,
+    count: visibleRankings.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 5, // Render 5 extra rows above/below viewport
@@ -345,10 +371,34 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
             <div className="rounded-md border overflow-hidden">
               {/* Table wrapper - no horizontal scroll on mobile, columns flex to fit */}
               <div>
+                {/* Sticky search input */}
+                <div className="sticky top-0 z-20 bg-background border-b">
+                  <div className="relative px-2 py-2 sm:px-4">
+                    <Search className="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search your team"
+                      aria-label="Search your team"
+                      className="w-full h-9 pl-9 pr-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {/* Table Header */}
                 <div
                   data-testid="rankings-table-header"
-                  className="grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-0 z-10"
+                  className="grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b-2 border-primary bg-secondary/50 sticky top-[52px] z-10"
                 >
                   <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
@@ -433,7 +483,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                   >
                     {paddingTop > 0 && <div style={{ height: `${paddingTop}px` }} />}
                     {virtualItems.map((virtualRow) => {
-                      const team = sortedRankings[virtualRow.index];
+                      const team = visibleRankings[virtualRow.index];
                       const displayRank = getDisplayRank(team);
                       const borderClass = getRankBorderClass(displayRank ?? null);
                       const isTop3 = displayRank != null && displayRank <= 3;
@@ -552,7 +602,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="flex items-center justify-end gap-1 px-1 sm:px-2">
                             <span className="text-[0.65rem] sm:text-[0.72rem] font-semibold sm:font-medium text-primary whitespace-nowrap opacity-100 translate-x-0 sm:opacity-0 sm:translate-x-2 sm:group-hover:opacity-100 sm:group-hover:translate-x-0 transition-all duration-[180ms] sm:delay-100">
-                              View team
+                              View Team
                             </span>
                             <ChevronRight className="hidden sm:block sm:h-[1.1rem] sm:w-[1.1rem] sm:text-muted-foreground sm:opacity-50 sm:group-hover:text-primary sm:group-hover:opacity-100 sm:group-hover:translate-x-0.5 transition-all duration-200 shrink-0" />
                           </div>
@@ -561,6 +611,19 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                     })}
                     {paddingBottom > 0 && <div style={{ height: `${paddingBottom}px` }} />}
                   </div>
+                  {deferredQuery.trim() && visibleRankings.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      No teams match &ldquo;{deferredQuery.trim()}&rdquo; in this cohort.
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        data-testid="rankings-search-empty-clear"
+                        className="block mx-auto mt-2 text-primary hover:underline"
+                      >
+                        Clear search
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

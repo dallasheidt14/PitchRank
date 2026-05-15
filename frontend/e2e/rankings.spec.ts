@@ -160,3 +160,66 @@ test.describe('Rankings - Loading States', () => {
     expect(response?.status()).toBeLessThan(500);
   });
 });
+
+test.describe('rankings page — mobile sticky filters + cohort search', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('sticky chip bar appears when filter card scrolls off screen', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const sticky = page.getByTestId('rankings-sticky-filters');
+    await expect(sticky).toHaveAttribute('aria-hidden', 'true');
+
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="rankings-table-header"]')?.scrollIntoView({ block: 'start' });
+    });
+
+    await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
+  });
+
+  test('tapping sticky chip bar scrolls back to filter card', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    await page.evaluate(() => {
+      document.querySelector('[data-testid="rankings-table-header"]')?.scrollIntoView({ block: 'start' });
+    });
+
+    const sticky = page.getByTestId('rankings-sticky-filters');
+    await expect(sticky).toHaveAttribute('aria-hidden', 'false', { timeout: 5_000 });
+
+    await sticky.click();
+    await page.waitForTimeout(400);
+    await expect(sticky).toHaveAttribute('aria-hidden', 'true', { timeout: 5_000 });
+  });
+
+  test('cohort search input filters the visible rows', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const input = page.getByPlaceholder('Search your team');
+    await input.fill('united');
+
+    const anyRow = page.locator('[data-testid^="rankings-row-"]').first();
+    await expect(anyRow).toBeVisible({ timeout: 5_000 });
+    await expect(anyRow).toContainText(/united/i);
+
+    await input.fill('');
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('non-matching search shows empty state with clear button', async ({ page }) => {
+    await page.goto('/rankings');
+    await waitForRankingsTable(page);
+
+    const input = page.getByPlaceholder('Search your team');
+    await input.fill('zzzzznevermatchzzzzz');
+
+    await expect(page.getByText(/No teams match/i)).toBeVisible({ timeout: 5_000 });
+
+    await page.getByTestId('rankings-search-empty-clear').click();
+    await expect(input).toHaveValue('');
+    await expect(page.locator('[data-testid="rankings-row-0"]')).toBeVisible();
+  });
+});
