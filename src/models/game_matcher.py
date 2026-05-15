@@ -273,15 +273,23 @@ def extract_team_variant(name: str) -> Optional[str]:
     name_lower = name.lower()
     words = name_lower.split()
 
+    # Strip set must include `'*.,` so trailing markers like "Blue*" /
+    # "Bolts'" / "Riedell," don't leak into the variant (color, direction, OR
+    # coach branch below) and cause a phantom mismatch against an otherwise-
+    # identical sibling. Mirrors `_tokenize` in src/utils/team_name_utils.py —
+    # keep all three extract_team_variant copies (here, find_queue_matches.py,
+    # team_name_utils.py) in sync.
+    strip_chars = "-()[]'*.,"
+
     # Check for color ANYWHERE in name
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(strip_chars)
         if word_clean in TEAM_COLORS:
             return word_clean
 
     # Check for direction variants
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(strip_chars)
         if word_clean in TEAM_DIRECTIONS:
             return word_clean
 
@@ -307,7 +315,7 @@ def extract_team_variant(name: str) -> Optional[str]:
         after_words = after_age_clean.split()
 
         for word in after_words:
-            word_clean = word.strip("-()[].,").lower()
+            word_clean = word.strip(strip_chars).lower()
             if not word_clean or len(word_clean) < 3:
                 continue
             if word_clean in _NON_COACH_WORDS:

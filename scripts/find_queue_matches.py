@@ -196,6 +196,15 @@ TEAM_COLORS = {
 # Direction/location variants that indicate different teams
 TEAM_DIRECTIONS = {"north", "south", "east", "west", "central"}
 
+# Trailing-marker punctuation stripped from each token before matching against
+# variant/coach/program tables. Must include `'*` so markers like "Blue*" /
+# "Bolts'" don't leak into the variant and cause a phantom mismatch against an
+# otherwise-identical sibling, and `.,` so coach names like "Riedell," parse
+# correctly. Mirrors `_tokenize` in find_fuzzy_duplicate_teams.py and the
+# matching constants in src/utils/team_name_utils.py and
+# src/models/game_matcher.py — keep all four in sync.
+_VARIANT_STRIP_CHARS = "-()[]'*.,"
+
 
 def extract_team_variant(name, club_name: str = ""):
     """Extract team variant (color, direction, coach name, roman numeral) from team name.
@@ -216,13 +225,13 @@ def extract_team_variant(name, club_name: str = ""):
 
     # Check for color ANYWHERE in name (not just at end)
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(_VARIANT_STRIP_CHARS)
         if word_clean in TEAM_COLORS:
             return word_clean
 
     # Check for direction variants (North, South, East, West, Central)
     for word in words:
-        word_clean = word.strip("-()[]")
+        word_clean = word.strip(_VARIANT_STRIP_CHARS)
         if word_clean in TEAM_DIRECTIONS:
             return word_clean
 
@@ -453,7 +462,7 @@ def extract_team_variant(name, club_name: str = ""):
     # Club tokens are never variants — strip them so duplicates whose stored
     # name omits the club prefix don't produce a phantom variant from a club word.
     if club_name:
-        club_tokens = {w.strip("-()[].,").lower() for w in club_name.replace("-", " ").split()}
+        club_tokens = {w.strip(_VARIANT_STRIP_CHARS).lower() for w in club_name.replace("-", " ").split()}
         _skip_words = _skip_words | (club_tokens - {""})
 
     def _extract_candidate(text):
@@ -462,7 +471,7 @@ def extract_team_variant(name, club_name: str = ""):
         # (each part checked individually against _skip_words)
         text = text.replace("-", " ")
         for word in text.split():
-            w = word.strip("-()[].,").lower()
+            w = word.strip(_VARIANT_STRIP_CHARS).lower()
             if not w or len(w) < 3:
                 continue
             if w in _skip_words:
@@ -665,7 +674,7 @@ def extract_program_tier(name):
         after_age = name[age_end:].strip(" -")
         after_words = after_age.lower().split()
         if after_words:
-            first_word = after_words[0].strip("-()[].,")
+            first_word = after_words[0].strip(_VARIANT_STRIP_CHARS)
             if first_word in SHORT_BRANCH_TOKENS:
                 return first_word
 

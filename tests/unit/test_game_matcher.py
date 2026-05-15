@@ -49,3 +49,31 @@ class TestExtractTeamVariant:
         """Program names like 'aspire' should not be treated as coach names."""
         result = extract_team_variant("FC Dallas 2014 Aspire")
         assert result is None or result == "aspire"  # aspire is in _PROGRAM_NAMES
+
+    def test_trailing_marker_punctuation_stripped(self):
+        """Trailing markers like '*' or "'" must not leak into the variant.
+
+        Regression for the Skyline duplicate case: 'Skyline - 2015 Blue' and
+        'Skyline - 2015 Blue*' are the same team — both must extract 'blue'.
+        Same parity fix applied to find_queue_matches.extract_team_variant
+        and team_name_utils.extract_team_variant.
+        """
+        assert extract_team_variant("Skyline - 2015 Blue*") == "blue"
+        assert extract_team_variant("FC Dallas 2014 Blue*") == "blue"
+        assert extract_team_variant("Select North*") == "north"
+        assert extract_team_variant("Rush South'") == "south"
+
+    def test_coach_name_trailing_markers_stripped(self):
+        """Trailing markers must also be stripped in the coach-name branch.
+
+        Regression: the color/direction loops were patched first but the
+        coach branch kept its own strip literal that excluded `'*` —
+        'Atletico Dallas 15G Riedell*' would extract 'riedell*' while the
+        unmarked sibling extracted 'riedell', leaving them as distinct
+        coach_name values in extract_distinctions and blocking the merge.
+        """
+        assert extract_team_variant("Atletico Dallas 15G Riedell*") == "riedell"
+        assert extract_team_variant("Atletico Dallas 15G Riedell'") == "riedell"
+        assert extract_team_variant("FC Dynamo 2014 Davis,") == "davis"
+        # And the unmarked sibling must still match identically.
+        assert extract_team_variant("Atletico Dallas 15G Riedell") == "riedell"
