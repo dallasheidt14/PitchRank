@@ -175,14 +175,22 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     return sorted;
   }, [getDisplayRank, getDisplaySosRank, rankings, sortField, sortDirection]);
 
-  // Filter sorted rankings by search query
+  // Filter sorted rankings by search query.
+  // Normalizes hyphens/punctuation to spaces and matches every token as a
+  // substring so "pre elite" finds "Pre-Elite" and "2014 elite" matches
+  // regardless of where the words appear in name/club.
   const visibleRankings = useMemo(() => {
-    const q = deferredQuery.trim().toLowerCase();
-    if (!q) return sortedRankings;
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[-_./'"]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const tokens = normalize(deferredQuery).split(' ').filter(Boolean);
+    if (tokens.length === 0) return sortedRankings;
     return sortedRankings.filter((team) => {
-      const name = team.team_name?.toLowerCase() ?? '';
-      const club = team.club_name?.toLowerCase() ?? '';
-      return name.includes(q) || club.includes(q);
+      const haystack = normalize(`${team.team_name ?? ''} ${team.club_name ?? ''}`);
+      return tokens.every((t) => haystack.includes(t));
     });
   }, [sortedRankings, deferredQuery]);
 
@@ -371,8 +379,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                       type="search"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Filter teams in this list…"
-                      aria-label="Filter teams in this list"
+                      placeholder="Search your team"
+                      aria-label="Search your team"
                       className="w-full h-9 pl-9 pr-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     />
                     {searchQuery && (

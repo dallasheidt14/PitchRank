@@ -198,7 +198,7 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
     await page.goto('/rankings');
     await waitForRankingsTable(page);
 
-    const input = page.getByPlaceholder('Filter teams in this list…');
+    const input = page.getByPlaceholder('Search your team');
     await input.fill('united');
 
     const anyRow = page.locator('[data-testid^="rankings-row-"]').first();
@@ -213,7 +213,7 @@ test.describe('rankings page — mobile sticky filters + cohort search', () => {
     await page.goto('/rankings');
     await waitForRankingsTable(page);
 
-    const input = page.getByPlaceholder('Filter teams in this list…');
+    const input = page.getByPlaceholder('Search your team');
     await input.fill('zzzzznevermatchzzzzz');
 
     await expect(page.getByText(/No teams match/i)).toBeVisible({ timeout: 5_000 });
