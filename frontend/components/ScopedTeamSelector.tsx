@@ -85,9 +85,14 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
     setIsLoading(true);
     // state_code in the teams table is uppercase ('AZ'); our dropdown emits the
     // lowercase URL-slug form ('az'). Normalize at the fetch boundary.
+    //
+    // U19 cohort merge: u18 teams keep teams.age_group='u18' but re-cohort
+    // into u19 in rankings_view, so picking U19 in the dropdown must search
+    // both age values to surface them.
+    const ageGroupParam = ageGroup === 'u19' ? 'u19,u18' : ageGroup!;
     const params = new URLSearchParams({
       q: deferredQuery.trim(),
-      ageGroup: ageGroup!,
+      ageGroup: ageGroupParam,
       gender: gender!,
       stateCode: stateCode!.toUpperCase(),
       limit: '15',
