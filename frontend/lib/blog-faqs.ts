@@ -96,6 +96,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'connecticut-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Connecticut youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Connecticut teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 1,544+ Connecticut teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Connecticut?',
+      answer:
+        'Major Connecticut youth soccer clubs include CT Rush, CFC North, Inter Connecticut FC, Ginga FC, Vale SC, Connecticut FC, A.C. Connecticut, FSA FC, Oakwood Soccer Club, Beachside of Connecticut, Hartford Athletic Youth Academy, and Chelsea Piers SC. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Connecticut soccer rankings updated?',
+      answer:
+        'Connecticut youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Connecticut?',
+      answer:
+        'Connecticut teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Northeast, EDP, and National League — plus state competition through CJSA premier divisions and the Connecticut State Cup. Hartford Athletic Youth Academy is the home-state MLS NEXT pathway.',
+    },
+    {
+      question: 'How does Fairfield County compare to the rest of Connecticut in rankings?',
+      answer:
+        "Fairfield County concentrates much of the state's ECNL, MLS NEXT, and GA presence, anchored by Beachside, New Canaan FC, Stamford FC, Chelsea Piers SC, and Darien. Hartford-area clubs like Oakwood and CFC North run some of the deepest competitive rosters at older age groups, while statewide travel clubs like CT Rush, Inter Connecticut FC, Connecticut FC, and Ginga FC draw players from across the state. Use PitchRank's state filter to compare clubs across regions.",
+    },
+  ],
+
   'florida-youth-soccer-rankings-guide': [
     {
       question: 'How are Florida youth soccer teams ranked?',
@@ -291,6 +319,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'Does indoor soccer season affect Michigan rankings?',
       answer:
         'Indoor season can cause mid-winter ranking dips since fewer outdoor games are tracked. However, Michigan teams often surge in spring rankings as indoor training translates to improved outdoor performance.',
+    },
+  ],
+
+  'minnesota-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Minnesota youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Minnesota teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings are updated every Monday with real game data from 2,206+ Minnesota teams.',
+    },
+    {
+      question: 'What are the top youth soccer clubs in Minnesota?',
+      answer:
+        'Major Minnesota youth soccer clubs include Minnesota Rush, Salvo SC, Fusion Soccer Club, North Star FC, Minneapolis United, Lakeville Soccer Club, MN Thunder Academy, St. Croix, St. Paul Blackhawks, Edina Soccer Club, Tonka United SA, and EPSC. Rankings vary by age group — check PitchRank for current standings.',
+    },
+    {
+      question: 'How often are Minnesota soccer rankings updated?',
+      answer:
+        'Minnesota youth soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Minnesota?',
+      answer:
+        'Minnesota teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Midwest, National League, and the Heartland Conference — plus state competition through MYSA premier divisions and the Minnesota State Cup. Minnesota Thunder Academy is the long-standing pre-academy pathway into Minnesota United FC.',
+    },
+    {
+      question: 'How does the Twin Cities metro compare to Greater Minnesota in rankings?',
+      answer:
+        "The seven-county Twin Cities metro concentrates most of the state's ECNL, MLS NEXT, and GA presence, with the western suburbs (Edina, Tonka, EPSC, Salvo) forming the deepest competitive belt and the National Sports Center in Blaine anchoring the north-metro event calendar. Greater Minnesota clubs like Manitou FC and MapleBrook SC compete strongly at the state and regional level but typically travel into the Twin Cities or down into Iowa for top-flight events.",
     },
   ],
 
