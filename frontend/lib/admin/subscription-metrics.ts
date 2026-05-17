@@ -93,6 +93,21 @@ function getExcludedEmails(): Set<string> {
   return new Set([...HARDCODED_EXCLUDED_EMAILS, ...fromEnv]);
 }
 
+/**
+ * Normalize and deduplicate a list of email strings. Lowercased + trimmed.
+ * Non-string, empty, and whitespace-only values are dropped.
+ */
+export function dedupeEmails(emails: Array<string | null | undefined>): Set<string> {
+  const out = new Set<string>();
+  for (const raw of emails) {
+    if (typeof raw !== 'string') continue;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized.length === 0) continue;
+    out.add(normalized);
+  }
+  return out;
+}
+
 function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
   const recurring = sub.items.data[0]?.price?.recurring;
   if (recurring?.interval === 'month') return 'month';

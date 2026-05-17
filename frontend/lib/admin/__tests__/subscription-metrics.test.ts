@@ -9,6 +9,7 @@ import {
   buildTrialPipeline,
   buildPastDue,
   computeConversion,
+  dedupeEmails,
 } from '../subscription-metrics';
 
 const SECONDS_PER_DAY = 86_400;
@@ -284,5 +285,36 @@ describe('computeConversion', () => {
     expect(result.sample).toBe(9);
     expect(result.converted).toBe(9);
     expect(result.percent).toBe(100);
+  });
+});
+
+describe('dedupeEmails', () => {
+  it('returns lowercased distinct emails', () => {
+    const result = dedupeEmails(['A@b.com', 'a@B.com', 'c@d.com']);
+    expect(result.size).toBe(2);
+    expect(result.has('a@b.com')).toBe(true);
+    expect(result.has('c@d.com')).toBe(true);
+  });
+
+  it('trims surrounding whitespace', () => {
+    const result = dedupeEmails(['  user@example.com  ', 'user@example.com']);
+    expect(result.size).toBe(1);
+    expect(result.has('user@example.com')).toBe(true);
+  });
+
+  it('skips empty and non-string values', () => {
+    const result = dedupeEmails([
+      '',
+      '   ',
+      'real@example.com',
+      null as unknown as string,
+      undefined as unknown as string,
+    ]);
+    expect(result.size).toBe(1);
+    expect(result.has('real@example.com')).toBe(true);
+  });
+
+  it('returns empty set for empty input', () => {
+    expect(dedupeEmails([]).size).toBe(0);
   });
 });
