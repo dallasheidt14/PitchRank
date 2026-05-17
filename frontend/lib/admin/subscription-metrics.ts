@@ -108,6 +108,48 @@ export function dedupeEmails(emails: Array<string | null | undefined>): Set<stri
   return out;
 }
 
+/**
+ * Lead → paid conversion. Returns the share of unique lead emails that are
+ * currently paying Stripe customers (active or past_due — past_due means they
+ * paid at least once and a renewal failed).
+ *
+ * Excluded (test/internal) emails are removed from both numerator and
+ * denominator and reported separately. Percent is null when leads <
+ * MIN_COHORT_SAMPLE so the UI can show "not enough data yet".
+ *
+ * Reuses the active + past_due lists already fetched by getSubscriptionMetrics
+ * — no extra Stripe calls.
+ */
+export function computeLeadConversion(
+  leadEmails: Set<string>,
+  activeSubs: Stripe.Subscription[],
+  pastDueSubs: Stripe.Subscription[],
+  excludedEmails: Set<string> = getExcludedEmails()
+): { leads: number; converted: number; percent: number | null; excluded: number } {
+  // Build set of paying emails (lowercased).
+  const paying = new Set<string>();
+  for (const sub of [...activeSubs, ...pastDueSubs]) {
+    const email = getCustomerEmail(sub).toLowerCase();
+    paying.add(email);
+  }
+
+  let leads = 0;
+  let converted = 0;
+  let excluded = 0;
+  for (const raw of leadEmails) {
+    const email = raw.toLowerCase();
+    if (excludedEmails.has(email)) {
+      excluded += 1;
+      continue;
+    }
+    leads += 1;
+    if (paying.has(email)) converted += 1;
+  }
+
+  const percent = leads >= MIN_COHORT_SAMPLE ? Math.round((converted / leads) * 100) : null;
+  return { leads, converted, percent, excluded };
+}
+
 function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
   const recurring = sub.items.data[0]?.price?.recurring;
   if (recurring?.interval === 'month') return 'month';

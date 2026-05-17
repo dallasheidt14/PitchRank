@@ -10,6 +10,7 @@ import {
   buildPastDue,
   computeConversion,
   dedupeEmails,
+  computeLeadConversion,
 } from '../subscription-metrics';
 
 const SECONDS_PER_DAY = 86_400;
@@ -316,5 +317,62 @@ describe('dedupeEmails', () => {
 
   it('returns empty set for empty input', () => {
     expect(dedupeEmails([]).size).toBe(0);
+  });
+});
+
+describe('computeLeadConversion', () => {
+  const excluded = new Set<string>(['internal@pitchrank.io']);
+
+  it('counts leads found in active subs as converted', () => {
+    const leads = new Set(['paid@example.com', 'free@example.com']);
+    const active = [makeSub({ status: 'active', email: 'paid@example.com' })];
+    const result = computeLeadConversion(leads, active, [], excluded);
+    expect(result.leads).toBe(2);
+    expect(result.converted).toBe(1);
+    expect(result.percent).toBeNull(); // sample < 5
+    expect(result.excluded).toBe(0);
+  });
+
+  it('counts leads found in past_due subs as converted', () => {
+    const leads = new Set(['dunning@example.com']);
+    const pastDue = [makeSub({ status: 'past_due', email: 'dunning@example.com' })];
+    const result = computeLeadConversion(leads, [], pastDue, excluded);
+    expect(result.converted).toBe(1);
+  });
+
+  it('returns rounded percent once sample >= 5', () => {
+    const leads = new Set(['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com', 'e@example.com']);
+    const active = [
+      makeSub({ status: 'active', email: 'a@example.com' }),
+      makeSub({ status: 'active', email: 'b@example.com' }),
+    ];
+    const result = computeLeadConversion(leads, active, [], excluded);
+    expect(result.leads).toBe(5);
+    expect(result.converted).toBe(2);
+    expect(result.percent).toBe(40);
+  });
+
+  it('drops excluded emails from both numerator and denominator', () => {
+    const leads = new Set(['internal@pitchrank.io', 'real@example.com']);
+    const active = [
+      makeSub({ status: 'active', email: 'internal@pitchrank.io' }),
+      makeSub({ status: 'active', email: 'real@example.com' }),
+    ];
+    const result = computeLeadConversion(leads, active, [], excluded);
+    expect(result.leads).toBe(1);
+    expect(result.converted).toBe(1);
+    expect(result.excluded).toBe(1);
+  });
+
+  it('matches case-insensitively', () => {
+    const leads = new Set(['mixed@example.com']);
+    const active = [makeSub({ status: 'active', email: 'MIXED@Example.com' })];
+    const result = computeLeadConversion(leads, active, [], excluded);
+    expect(result.converted).toBe(1);
+  });
+
+  it('returns zero/null when no leads', () => {
+    const result = computeLeadConversion(new Set(), [], [], excluded);
+    expect(result).toEqual({ leads: 0, converted: 0, percent: null, excluded: 0 });
   });
 });
