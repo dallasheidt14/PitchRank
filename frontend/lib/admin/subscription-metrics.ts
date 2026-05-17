@@ -323,6 +323,13 @@ async function safeList(
 const REPORT_CARD_PAGE_CAP = 10_000;
 const REPORT_CARD_RECENT_LIMIT = 15;
 
+function formatSupabaseError(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    return (e as { message: string }).message;
+  }
+  return String(e);
+}
+
 type ReportCardFetchResult = {
   totalRequests: number;
   uniqueLeadEmails: Set<string>;
@@ -401,14 +408,14 @@ async function _fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetc
 
   let totalRequests = 0;
   if (totalRes.error) {
-    errors.push(`report card total: ${String(totalRes.error)}`);
+    errors.push(`report card total: ${formatSupabaseError(totalRes.error)}`);
   } else {
     totalRequests = totalRes.count ?? 0;
   }
 
   let uniqueLeadEmails = new Set<string>();
   if (emailsRes.error) {
-    errors.push(`report card unique emails: ${String(emailsRes.error)}`);
+    errors.push(`report card unique emails: ${formatSupabaseError(emailsRes.error)}`);
   } else {
     const rows = (emailsRes.data ?? []) as Array<{ email: string | null }>;
     uniqueLeadEmails = dedupeEmails(rows.map((r) => r.email));
@@ -419,21 +426,21 @@ async function _fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetc
 
   let last7Days = 0;
   if (last7Res.error) {
-    errors.push(`report card last 7d: ${String(last7Res.error)}`);
+    errors.push(`report card last 7d: ${formatSupabaseError(last7Res.error)}`);
   } else {
     last7Days = last7Res.count ?? 0;
   }
 
   let last30Days = 0;
   if (last30Res.error) {
-    errors.push(`report card last 30d: ${String(last30Res.error)}`);
+    errors.push(`report card last 30d: ${formatSupabaseError(last30Res.error)}`);
   } else {
     last30Days = last30Res.count ?? 0;
   }
 
   let recentLeads: ReportCardLead[] = [];
   if (recentRes.error) {
-    errors.push(`report card recent leads: ${String(recentRes.error)}`);
+    errors.push(`report card recent leads: ${formatSupabaseError(recentRes.error)}`);
   } else {
     const rows = (recentRes.data ?? []) as Array<{
       id: string;
