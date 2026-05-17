@@ -21,6 +21,19 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatRelative(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMo = Math.floor(diffDay / 30);
+  return `${diffMo}mo ago`;
+}
+
 export default async function SubscriptionsDashboardPage() {
   const metrics = await getSubscriptionMetrics();
 
@@ -194,6 +207,68 @@ export default async function SubscriptionsDashboardPage() {
                       ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                   </p>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Report Card Leads</h2>
+            <span className="text-sm text-muted-foreground">
+              latest {metrics.reportCard.recentLeads.length} of {metrics.reportCard.totalRequests.toLocaleString()}{' '}
+              requests
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <KpiCard label="Total Requests" value={metrics.reportCard.totalRequests.toLocaleString()} sub="all time" />
+            <KpiCard
+              label="Unique Emails"
+              value={metrics.reportCard.uniqueEmails.toLocaleString()}
+              sub="distinct addresses"
+            />
+            <KpiCard
+              label="Last 7 Days"
+              value={metrics.reportCard.last7Days.toLocaleString()}
+              sub={`${metrics.reportCard.last30Days.toLocaleString()} in last 30d`}
+            />
+            <KpiCard
+              label="Lead → Paid"
+              value={metrics.reportCard.conversion.percent === null ? '—' : `${metrics.reportCard.conversion.percent}%`}
+              sub={
+                metrics.reportCard.conversion.percent === null
+                  ? `not enough data yet (${metrics.reportCard.conversion.leads} lead${metrics.reportCard.conversion.leads === 1 ? '' : 's'}, need ≥5)`
+                  : `${metrics.reportCard.conversion.converted} of ${metrics.reportCard.conversion.leads} leads now paying${metrics.reportCard.conversion.excluded > 0 ? ` (${metrics.reportCard.conversion.excluded} excluded)` : ''}`
+              }
+            />
+          </div>
+
+          <Card variant="flat">
+            <CardContent className="p-0">
+              {metrics.reportCard.recentLeads.length === 0 ? (
+                <div className="p-6 text-sm text-muted-foreground">No report card requests yet.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Team</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>When</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {metrics.reportCard.recentLeads.map((lead) => (
+                      <TableRow key={lead.id}>
+                        <TableCell>{lead.email}</TableCell>
+                        <TableCell>{lead.teamName}</TableCell>
+                        <TableCell className="text-muted-foreground">{lead.role ?? '—'}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatRelative(lead.createdAt)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
             </CardContent>
           </Card>
