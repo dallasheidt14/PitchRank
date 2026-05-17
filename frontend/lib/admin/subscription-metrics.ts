@@ -343,7 +343,7 @@ type ReportCardFetchResult = {
  * individually so a single failure degrades that metric (returns 0 / empty)
  * rather than blowing up the dashboard. Failure messages land in `errors`.
  */
-async function _fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetchResult> {
+async function fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetchResult> {
   let supabase: ReturnType<typeof createServiceSupabase>;
   try {
     supabase = createServiceSupabase();
@@ -465,7 +465,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, cohort] = await Promise.all([
+  const [active, trialing, pastDue, cohort, reportCardData] = await Promise.all([
     safeList({ status: 'active' }, 'active subscriptions', errors),
     safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
     safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
@@ -474,6 +474,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       'conversion cohort',
       errors
     ),
+    fetchReportCardMetrics(errors),
   ]);
 
   const mrr = computeMrr(active);
@@ -481,6 +482,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const trialBuckets = buildTrialPipeline(trialing, nowSec);
   const pastDueOut = buildPastDue(pastDue);
   const conversion = computeConversion(cohort, nowSec);
+  const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active, pastDue);
 
   return {
     mrr,
@@ -495,12 +497,12 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     pastDue: pastDueOut,
     conversion,
     reportCard: {
-      totalRequests: 0,
-      uniqueEmails: 0,
-      last7Days: 0,
-      last30Days: 0,
-      conversion: { leads: 0, converted: 0, percent: null, excluded: 0 },
-      recentLeads: [],
+      totalRequests: reportCardData.totalRequests,
+      uniqueEmails: reportCardData.uniqueLeadEmails.size,
+      last7Days: reportCardData.last7Days,
+      last30Days: reportCardData.last30Days,
+      conversion: leadConversion,
+      recentLeads: reportCardData.recentLeads,
     },
     generatedAt: new Date().toISOString(),
     errors,
