@@ -2,8 +2,9 @@ name: Update Missing Club Names & State Codes
 
 on:
   schedule:
-    # Weekly on Monday at 10am Pacific (17:00 UTC PDT / 18:00 UTC PST).
-    - cron: '0 17 * * 1'
+    # Weekly on Monday at 4am Mountain Time (10:00 UTC MDT / 11:00 UTC MST).
+    # Anchored to MDT — runs at 3am MST in winter.
+    - cron: '0 10 * * 1'
   workflow_dispatch:
     inputs:
       dry_run:
