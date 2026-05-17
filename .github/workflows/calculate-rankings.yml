@@ -2,12 +2,10 @@ name: Calculate Rankings
 
 on:
   schedule:
-    # Run every Monday at 9:45 AM Mountain Time
-    # MST (UTC-7): 9:45 AM MST = 4:45 PM UTC (16:45)
-    # MDT (UTC-6): 9:45 AM MDT = 3:45 PM UTC (15:45)
-    # Using 16:45 UTC means: MST = 9:45 AM, MDT = 10:45 AM
-    # This runs after all scraping and data cleanup jobs are complete
-    - cron: '45 16 * * 1'
+    # Run every Monday at 6:30 AM Mountain Time (12:30 UTC MDT / 13:30 UTC MST).
+    # Anchored to MDT — runs at 5:30 AM MST in winter.
+    # Sequenced after the two Monday hygiene jobs (4 AM + 5 AM MT).
+    - cron: '30 12 * * 1'
   workflow_run:
     # Also trigger after Modular11 scrape+import workflows complete
     # This ensures HD/MLS NEXT games are ingested before rankings run

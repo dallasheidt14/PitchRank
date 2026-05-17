@@ -23,10 +23,7 @@ on:
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-
-    env:
-      DEFAULT_LEAGUE_URL: 'https://playmetricssports.com/g/leagues/1014-1514-8ccd4dbb/league_view.html'
+    timeout-minutes: 180
 
     steps:
       - name: Checkout repository
@@ -48,70 +45,125 @@ jobs:
           mkdir -p data/raw/playmetrics
           mkdir -p logs
 
-      - name: Resolve league URL
-        id: resolve
-        run: |
-          if [ "${{ github.event_name }}" == "schedule" ]; then
-            LEAGUE_URL="${DEFAULT_LEAGUE_URL}"
-            echo "Scheduled run: Using default league URL"
-          else
-            LEAGUE_URL="${{ inputs.league_url }}"
-            echo "Manual run: Using provided league URL"
-          fi
-          echo "league_url=$LEAGUE_URL" >> "$GITHUB_OUTPUT"
-          echo "League: $LEAGUE_URL"
-
-      - name: Scrape PlayMetrics League
-        env:
-          # Scraper only POSTs to the PlayMetrics public API and writes a local
-          # CSV — no Supabase access, so no service key is exposed here.
-          PYTHONPATH: ${{ github.workspace }}
-          LEAGUE_URL: ${{ steps.resolve.outputs.league_url }}
-        run: |
-          set -euo pipefail
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "Scraping PlayMetrics league: $LEAGUE_URL"
-          python scripts/scrape_playmetrics_league.py \
-            --league-url "$LEAGUE_URL" \
-            --output-dir data/raw/playmetrics \
-            2>&1 | tee logs/playmetrics_scrape.log
-
-      - name: Find scraped CSV file
-        id: find_csv
-        run: |
-          CSV_FILE=$(ls -t data/raw/playmetrics/playmetrics_*.csv 2>/dev/null | head -n 1)
-          if [ -z "$CSV_FILE" ]; then
-            echo "Error: Could not find scraped CSV file"
-            exit 1
-          fi
-          echo "Found CSV file: $CSV_FILE"
-          echo "csv_file=$CSV_FILE" >> "$GITHUB_OUTPUT"
-
-          LINE_COUNT=$(wc -l < "$CSV_FILE")
-          GAME_COUNT=$((LINE_COUNT - 1))
-          echo "game_count=$GAME_COUNT" >> "$GITHUB_OUTPUT"
-          if [ "$GAME_COUNT" -le 0 ]; then
-            echo "⚠️  CSV has 0 game records (headers only) — skipping import step"
-            echo "has_games=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "✅ CSV has $GAME_COUNT game records"
-            echo "has_games=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Import Games
-        if: ${{ steps.find_csv.outputs.has_games == 'true' && (github.event_name == 'schedule' || inputs.dry_run == false) }}
+      - name: Scrape and Import PlayMetrics Leagues
+        id: process
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
+          TRIGGER: ${{ github.event_name }}
+          MANUAL_URL: ${{ inputs.league_url }}
+          MANUAL_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          set -euo pipefail
+          # NB: no `set -e` — loop handles per-URL failures so one bad league
+          # doesn't shadow the others. pipefail kept so `tee` can't mask errors.
+          set -uo pipefail
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
-          echo "Importing games from: $CSV_FILE"
-          python scripts/import_games_enhanced.py "$CSV_FILE" playmetrics --stream --concurrency 8 --checkpoint \
-            2>&1 | tee logs/playmetrics_import.log
+
+          # Resolve URL list. Scheduled runs sweep all configured leagues
+          # sequentially; manual dispatch processes the single input URL.
+          if [ "$TRIGGER" = "schedule" ]; then
+            # NB: scrape_playmetrics_league.py parses only {gb}-{league}-{key}
+            # from the URL (regex in _parse_league_url) and iterates ALL
+            # divisions returned by the league endpoint. /divisions/<id>/ in
+            # the URL is silently discarded — passing a division_view.html
+            # URL is equivalent to passing the league_view.html URL. We use
+            # the league_view.html form here to make the whole-league intent
+            # explicit. League 1926 (~68 games/wk across 10 divisions) is
+            # intentionally fully imported.
+            URLS=(
+              "https://playmetricssports.com/g/leagues/1014-1514-8ccd4dbb/league_view.html"
+              "https://playmetricssports.com/g/leagues/1014-1926-7444e5c6/league_view.html"
+            )
+            SKIP_IMPORT="false"
+          else
+            URLS=("$MANUAL_URL")
+            if [ "$MANUAL_DRY_RUN" = "true" ]; then
+              SKIP_IMPORT="true"
+            else
+              SKIP_IMPORT="false"
+            fi
+          fi
+
+          TOTAL_GAMES=0
+          FAILED=0
+          PROCESSED=0
+          SUMMARY=""
+
+          for URL in "${URLS[@]}"; do
+            PROCESSED=$((PROCESSED + 1))
+            echo ""
+            echo "========================================================"
+            echo "[$PROCESSED/${#URLS[@]}] Scraping: $URL"
+            echo "========================================================"
+
+            BEFORE=$(ls -1 data/raw/playmetrics/playmetrics_*.csv 2>/dev/null | wc -l)
+
+            if ! python scripts/scrape_playmetrics_league.py \
+                --league-url "$URL" \
+                --output-dir data/raw/playmetrics \
+                2>&1 | tee -a logs/playmetrics_scrape.log; then
+              echo "❌ Scrape failed: $URL"
+              FAILED=$((FAILED + 1))
+              SUMMARY="${SUMMARY}- ❌ \`$URL\` — scrape failed\n"
+              continue
+            fi
+
+            AFTER=$(ls -1 data/raw/playmetrics/playmetrics_*.csv 2>/dev/null | wc -l)
+            if [ "$AFTER" -le "$BEFORE" ]; then
+              echo "❌ No new CSV produced for: $URL"
+              FAILED=$((FAILED + 1))
+              SUMMARY="${SUMMARY}- ❌ \`$URL\` — no CSV produced\n"
+              continue
+            fi
+
+            CSV_FILE=$(ls -t data/raw/playmetrics/playmetrics_*.csv | head -n 1)
+            LINE_COUNT=$(wc -l < "$CSV_FILE")
+            GAME_COUNT=$((LINE_COUNT - 1))
+            echo "✅ Scraped $GAME_COUNT games → $CSV_FILE"
+
+            if [ "$GAME_COUNT" -le 0 ]; then
+              echo "⚠️  0 games — skipping import for this URL"
+              SUMMARY="${SUMMARY}- ⚠️ \`$URL\` — 0 games (import skipped)\n"
+              continue
+            fi
+
+            if [ "$SKIP_IMPORT" = "true" ]; then
+              echo "Dry run — skipping import"
+              SUMMARY="${SUMMARY}- 🧪 \`$URL\` — $GAME_COUNT games (dry run)\n"
+              continue
+            fi
+
+            echo "--- Importing: $CSV_FILE ---"
+            if ! python scripts/import_games_enhanced.py "$CSV_FILE" playmetrics --stream --concurrency 8 --checkpoint \
+                2>&1 | tee -a logs/playmetrics_import.log; then
+              echo "❌ Import failed for: $URL"
+              FAILED=$((FAILED + 1))
+              SUMMARY="${SUMMARY}- ❌ \`$URL\` — $GAME_COUNT games scraped, import failed\n"
+              continue
+            fi
+
+            TOTAL_GAMES=$((TOTAL_GAMES + GAME_COUNT))
+            SUMMARY="${SUMMARY}- ✅ \`$URL\` — $GAME_COUNT games imported\n"
+          done
+
+          {
+            echo "total_games=$TOTAL_GAMES"
+            echo "failed_count=$FAILED"
+            echo "processed_count=$PROCESSED"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "summary<<EOF"
+            printf '%b' "$SUMMARY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::error::$FAILED of $PROCESSED URL(s) failed — see logs above"
+            exit 1
+          fi
 
       - name: Upload scraped data
         if: always()
@@ -137,14 +189,11 @@ jobs:
           {
             echo "## PlayMetrics Scrape Summary"
             echo ""
-            echo "- **League URL:** ${{ steps.resolve.outputs.league_url }}"
             echo "- **Trigger:** ${{ github.event_name }}"
-            echo "- **Games found:** ${{ steps.find_csv.outputs.game_count || '0' }}"
-            if [ "${{ steps.find_csv.outputs.has_games }}" == "false" ]; then
-              echo "- **Import:** Skipped (no games to import)"
-            elif [ "${{ github.event_name }}" == "schedule" ] || [ "${{ inputs.dry_run }}" == "false" ]; then
-              echo "- **Import:** Completed"
-            else
-              echo "- **Import:** Skipped (dry run)"
-            fi
+            echo "- **URLs processed:** ${{ steps.process.outputs.processed_count || '0' }}"
+            echo "- **URLs failed:** ${{ steps.process.outputs.failed_count || '0' }}"
+            echo "- **Total games imported:** ${{ steps.process.outputs.total_games || '0' }}"
+            echo ""
+            echo "### Per-URL results"
+            printf '%b' "${{ steps.process.outputs.summary }}"
           } >> "$GITHUB_STEP_SUMMARY"

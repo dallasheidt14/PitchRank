@@ -1,13 +1,11 @@
 name: Auto GotSport Event Scrape
 
 on:
-  schedule:
-    # Run twice weekly to catch more events with smaller batches
-    # Sunday night + Wednesday night Mountain Time
-    # GitHub Actions cron uses UTC timezone
-    - cron: '0 6 * * 1'  # Monday 6:00 AM UTC (≈11:00 PM Sunday MT)
-    - cron: '0 6 * * 4'  # Thursday 6:00 AM UTC (≈11:00 PM Wednesday MT)
-  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+  # Schedule disabled 2026-05-17 — run manually from the Actions tab.
+  # Prior cadence (kept for reference): Sun 11pm MT + Wed 11pm MT
+  #   - cron: '0 6 * * 1'
+  #   - cron: '0 6 * * 4'
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   scrape-events:

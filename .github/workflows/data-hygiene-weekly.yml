@@ -2,10 +2,9 @@ name: Weekly Data Hygiene
 
 on:
   schedule:
-    # Run every Tuesday at 10:00 AM MST (5:00 PM UTC)
-    # MST (UTC-7): 10:00 AM = 17:00 UTC
-    # MDT (UTC-6): 10:00 AM = 16:00 UTC  (will run at 11 AM MDT in summer)
-    - cron: '0 17 * * 2'
+    # Run every Monday at 5:00 AM Mountain Time (11:00 UTC MDT / 12:00 UTC MST).
+    # Anchored to MDT — runs at 4 AM MST in winter.
+    - cron: '0 11 * * 1'
   workflow_dispatch:
     inputs:
       gender:
