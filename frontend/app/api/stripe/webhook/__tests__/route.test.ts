@@ -15,6 +15,9 @@ vi.mock('@/lib/stripe/server', () => ({
     subscriptions: {
       retrieve: vi.fn(),
     },
+    customers: {
+      retrieve: vi.fn().mockResolvedValue({ id: 'cus_123', email: 'test@example.com' }),
+    },
   },
   WEBHOOK_EVENTS: {
     CHECKOUT_COMPLETED: 'checkout.session.completed',
@@ -22,6 +25,8 @@ vi.mock('@/lib/stripe/server', () => ({
     SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
     INVOICE_PAID: 'invoice.paid',
     INVOICE_PAYMENT_FAILED: 'invoice.payment_failed',
+    TRIAL_WILL_END: 'customer.subscription.trial_will_end',
+    CHARGE_REFUNDED: 'charge.refunded',
   },
   extractPeriodEnd: vi.fn(() => new Date().toISOString()),
   mapStatusToPlan: vi.fn((status: string) =>
@@ -30,22 +35,57 @@ vi.mock('@/lib/stripe/server', () => ({
   updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
 }));
 
-// Mock @supabase/supabase-js (used directly in webhook route for admin client)
+// Mock the Beehiiv client — assert lifecycle routing without hitting the API
+vi.mock('@/lib/beehiiv', () => ({
+  tagSubscriber: vi.fn().mockResolvedValue(true),
+  untagSubscriber: vi.fn().mockResolvedValue(true),
+  setLifecycle: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@/lib/notifications/admin', () => ({
+  notifyAdmin: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock('@/lib/email/password-setup', () => ({
+  sendPasswordSetupEmail: vi.fn().mockResolvedValue(true),
+}));
+
+// Mock @supabase/supabase-js (used directly in webhook route for admin client).
+// Builder supports both:
+//   - update(...).eq(...).select() → returns rows for updateUserProfile-style writes
+//   - select(...).eq(...).maybeSingle() → returns one row for getPriorState reads
+//
+// Tests override priorStateRow to control what getPriorState reads back.
+let priorStateRow: Record<string, unknown> | null = null;
+function setPriorState(row: Record<string, unknown> | null) {
+  priorStateRow = row;
+}
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
-    from: vi.fn(() => ({
-      update: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnValue({
+    from: vi.fn(() => {
+      const builder: Record<string, unknown> = {
+        update: vi.fn().mockReturnThis(),
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: priorStateRow, error: null })),
+        then: undefined,
+      };
+      // For .eq() chains that terminate in a second .select() (updateUserProfile pattern)
+      builder.eq = vi.fn().mockReturnValue({
         select: vi.fn().mockResolvedValue({ data: [{ id: '1' }], error: null }),
-      }),
-    })),
+        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: priorStateRow, error: null })),
+      });
+      return builder;
+    }),
+    auth: { admin: { createUser: vi.fn(), generateLink: vi.fn() } },
   })),
 }));
 
 import { POST } from '../route';
 import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
+import { setLifecycle } from '@/lib/beehiiv';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -235,5 +275,162 @@ describe('POST /api/stripe/webhook', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.received).toBe(true);
+  });
+});
+
+describe('Beehiiv lifecycle routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    setPriorState(null);
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+  });
+
+  function fireEvent(type: string, object: Record<string, unknown>): Promise<Response> {
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+      id: `evt_${type}`,
+      type,
+      data: { object },
+    } as unknown as Stripe.Event);
+    return POST(makeRequest('valid body'));
+  }
+
+  it('routes trial_canceled when subscription deleted from trialing state', async () => {
+    setPriorState({ subscription_status: 'trialing', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.deleted', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'trial_canceled');
+  });
+
+  it('routes paid_canceled when subscription deleted from active state', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.deleted', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid_canceled');
+  });
+
+  it('routes past_due when invoice payment fails', async () => {
+    await fireEvent('invoice.payment_failed', {
+      customer: 'cus_123',
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'past_due');
+  });
+
+  it('routes paid_canceled on charge.refunded', async () => {
+    await fireEvent('charge.refunded', {
+      id: 'ch_123',
+      customer: 'cus_123',
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid_canceled');
+  });
+
+  it('skips charge.refunded for guest checkouts without a customer', async () => {
+    await fireEvent('charge.refunded', { id: 'ch_guest', customer: null });
+
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges trial_will_end without writing lifecycle', async () => {
+    await fireEvent('customer.subscription.trial_will_end', {
+      id: 'sub_123',
+      customer: 'cus_123',
+    });
+
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+  });
+
+  it('routes canceling when cancel_at_period_end flips true', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.updated', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: true,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'canceling');
+  });
+
+  it('routes paid when cancel_at_period_end flips false (reactivation)', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: true });
+
+    await fireEvent('customer.subscription.updated', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
+  });
+
+  it('flips lifecycle to paid only on first invoice after trial', async () => {
+    setPriorState({ subscription_status: 'trialing', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('invoice.paid', {
+      customer: 'cus_123',
+      parent: { subscription_details: { subscription: 'sub_123' } },
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
+  });
+
+  it('does not flip lifecycle on renewal invoices (active → active)', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('invoice.paid', {
+      customer: 'cus_123',
+      parent: { subscription_details: { subscription: 'sub_123' } },
+    });
+
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+  });
+
+  it('recovers lifecycle to paid when past_due invoice succeeds on retry', async () => {
+    setPriorState({ subscription_status: 'past_due', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('invoice.paid', {
+      customer: 'cus_123',
+      parent: { subscription_details: { subscription: 'sub_123' } },
+    });
+
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
   });
 });

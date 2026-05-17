@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
-import { tagSubscriber, untagSubscriber } from '@/lib/beehiiv';
+import { tagSubscriber, untagSubscriber, setLifecycle, type Lifecycle } from '@/lib/beehiiv';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 
 /**
@@ -18,6 +18,51 @@ function isPermanentError(error: unknown): boolean {
     msg.includes('already been registered') ||
     msg.includes('already exists')
   );
+}
+
+/**
+ * Read current subscription_status + cancel_at_period_end from user_profiles
+ * BEFORE the webhook update overwrites them. Used to detect transitions
+ * (trialing → active, canceling → reactivated, etc.) for Beehiiv routing.
+ */
+async function getPriorState(customerId: string): Promise<{ status: string | null; canceling: boolean }> {
+  const { data } = await getSupabaseAdmin()
+    .from('user_profiles')
+    .select('subscription_status, cancel_at_period_end')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+  return {
+    status: data?.subscription_status ?? null,
+    canceling: data?.cancel_at_period_end ?? false,
+  };
+}
+
+/**
+ * Resolve a Stripe customer's email. Returns null if the customer was
+ * deleted or the API call fails.
+ */
+async function getCustomerEmail(customerId: string): Promise<string | null> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    return (customer as Stripe.Customer).email ?? null;
+  } catch (err) {
+    console.warn(`[webhook] Failed to retrieve customer ${customerId}: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Set the Beehiiv lifecycle field for a customer by email. Non-fatal —
+ * Beehiiv errors are logged but don't fail the webhook (Stripe shouldn't
+ * retry a successful state update just because an email tag failed).
+ */
+async function syncLifecycle(customerId: string, lifecycle: Lifecycle): Promise<void> {
+  try {
+    const email = await getCustomerEmail(customerId);
+    if (email) await setLifecycle(email, lifecycle);
+  } catch (err) {
+    console.error(`[webhook] syncLifecycle(${lifecycle}) failed (non-fatal):`, err);
+  }
 }
 
 export async function POST(req: Request) {
@@ -77,6 +122,18 @@ export async function POST(req: Request) {
       case WEBHOOK_EVENTS.INVOICE_PAYMENT_FAILED: {
         const invoice = event.data.object as Stripe.Invoice;
         await handleInvoicePaymentFailed(invoice);
+        break;
+      }
+
+      case WEBHOOK_EVENTS.TRIAL_WILL_END: {
+        const subscription = event.data.object as Stripe.Subscription;
+        await handleTrialWillEnd(subscription);
+        break;
+      }
+
+      case WEBHOOK_EVENTS.CHARGE_REFUNDED: {
+        const charge = event.data.object as Stripe.Charge;
+        await handleChargeRefunded(charge);
         break;
       }
 
@@ -240,13 +297,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       `<b>Status:</b> ${subscription.status}`
   );
 
-  // Set subscriber tier to premium in Beehiiv (gates welcome sequence pitch emails)
+  // Sync Beehiiv: set tier to premium (gates paywall content) and route into
+  // Trial Onboarding (status=trialing) or Paid Drip (direct-to-paid checkout).
   const rawEmail = (customer as Stripe.Customer).email;
   if (rawEmail) {
     try {
       await tagSubscriber(rawEmail);
+      await setLifecycle(rawEmail, subscription.status === 'trialing' ? 'trialing' : 'paid');
     } catch (tagError) {
-      console.error('[webhook] Beehiiv tagSubscriber failed (non-fatal):', tagError);
+      console.error('[webhook] Beehiiv sync failed (non-fatal):', tagError);
     }
   }
 }
@@ -264,6 +323,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const plan = mapStatusToPlan(status);
   const canceling = subscription.cancel_at_period_end ?? false;
 
+  const prior = await getPriorState(customerId);
+
   await updateUserProfile(getSupabaseAdmin(), customerId, {
     stripe_subscription_id: subscription.id,
     subscription_status: status,
@@ -271,6 +332,13 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     subscription_period_end: extractPeriodEnd(subscription),
     cancel_at_period_end: canceling,
   });
+
+  // Route Beehiiv on cancel-at-period-end / reactivation transitions
+  if (canceling && !prior.canceling) {
+    await syncLifecycle(customerId, 'canceling');
+  } else if (!canceling && prior.canceling && status === 'active') {
+    await syncLifecycle(customerId, 'paid');
+  }
 
   const label = canceling ? `${status} (canceling at period end)` : status;
   console.log(`[webhook] Subscription updated for customer ${customerId}: ${label}`);
@@ -281,6 +349,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
  */
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string;
+  const prior = await getPriorState(customerId);
 
   await updateUserProfile(getSupabaseAdmin(), customerId, {
     stripe_subscription_id: null,
@@ -290,17 +359,18 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     cancel_at_period_end: false,
   });
 
-  console.log(`[webhook] Subscription canceled for customer ${customerId}`);
+  console.log(`[webhook] Subscription canceled for customer ${customerId} (prior status: ${prior.status})`);
 
-  // Remove premium tag in Beehiiv so they re-enter the pitch funnel
+  // Remove premium tag in Beehiiv + route into Trial Cancel or Paid Win-Back
+  // based on whether they were trialing or actively paying when canceled.
   try {
-    const customer = await stripe.customers.retrieve(customerId);
-    const email = (customer as Stripe.Customer).email;
+    const email = await getCustomerEmail(customerId);
     if (email) {
       await untagSubscriber(email);
+      await setLifecycle(email, prior.status === 'trialing' ? 'trial_canceled' : 'paid_canceled');
     }
   } catch (err) {
-    console.warn(`[webhook] Failed to untag Beehiiv subscriber: ${err}`);
+    console.warn(`[webhook] Failed to sync Beehiiv on cancel: ${err}`);
   }
 }
 
@@ -326,6 +396,8 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     return;
   }
 
+  const prior = await getPriorState(customerId);
+
   // Fetch subscription to get updated period end
   const subscriptionData = await stripe.subscriptions.retrieve(subscriptionId);
   await updateUserProfile(getSupabaseAdmin(), customerId, {
@@ -334,6 +406,13 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     subscription_period_end: extractPeriodEnd(subscriptionData),
     cancel_at_period_end: subscriptionData.cancel_at_period_end ?? false,
   });
+
+  // Flip lifecycle to `paid` only on trial→paid or past_due→paid transitions.
+  // Renewals (active → active) are no-ops so subscribers stay in Paid Drip
+  // instead of re-entering it every billing cycle.
+  if (subscriptionData.status === 'active' && (prior.status === 'trialing' || prior.status === 'past_due')) {
+    await syncLifecycle(customerId, 'paid');
+  }
 
   console.log(`[webhook] Invoice paid for customer ${customerId}`);
 }
@@ -349,4 +428,30 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   });
 
   console.log(`[webhook] Payment failed for customer ${customerId}`);
+  await syncLifecycle(customerId, 'past_due');
+}
+
+/**
+ * Backup signal fired ~3 days before a trial ends. The Beehiiv Trial
+ * Onboarding automation handles day-5/6/7 reminder emails on its own
+ * clock; this is observability + a future hook for engagement-based
+ * routing if Beehiiv timing drifts.
+ */
+async function handleTrialWillEnd(subscription: Stripe.Subscription) {
+  const customerId = subscription.customer as string;
+  console.log(`[webhook] Trial will end for customer ${customerId} (subscription ${subscription.id})`);
+}
+
+/**
+ * Refund means money back to the customer — route into the Paid Win-Back
+ * sequence regardless of whether the underlying subscription was also canceled.
+ */
+async function handleChargeRefunded(charge: Stripe.Charge) {
+  const customerId = charge.customer as string;
+  if (!customerId) {
+    console.log('[webhook] Charge refunded without a customer (guest checkout); skipping');
+    return;
+  }
+  console.log(`[webhook] Charge refunded for customer ${customerId} (charge ${charge.id})`);
+  await syncLifecycle(customerId, 'paid_canceled');
 }

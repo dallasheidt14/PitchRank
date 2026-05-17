@@ -109,6 +109,65 @@ export async function untagSubscriber(email: string): Promise<boolean> {
   return setSubscriberTier(email, 'free');
 }
 
+/**
+ * Funnel stage. Source of truth is the Stripe webhook (+ report-card API
+ * for `lead`). Beehiiv automations route on this field; do not edit in
+ * the Beehiiv UI. Spec: docs/superpowers/specs/2026-05-17-lifecycle-automation-flow.md
+ */
+export type Lifecycle =
+  | 'lead'
+  | 'free_drip'
+  | 'trialing'
+  | 'past_due'
+  | 'canceling'
+  | 'paid'
+  | 'trial_canceled'
+  | 'paid_canceled';
+
+/**
+ * Set the `lifecycle` custom field on an existing Beehiiv subscriber.
+ * No-op if the subscriber doesn't exist yet — the caller is responsible
+ * for ensuring subscription (via tagSubscriber or subscribeFreeLead) first.
+ */
+export async function setLifecycle(email: string, lifecycle: Lifecycle): Promise<boolean> {
+  const { apiKey, pubId } = getConfig();
+  if (!apiKey || !pubId) {
+    console.warn('[beehiiv] API key or publication ID not configured, skipping setLifecycle');
+    return false;
+  }
+
+  try {
+    const subscriberId = await findSubscriberId(email);
+    if (!subscriberId) {
+      console.warn(`[beehiiv] setLifecycle: no subscriber found for ${email}`);
+      return false;
+    }
+
+    const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/${subscriberId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        custom_fields: [{ name: 'lifecycle', value: lifecycle }],
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      console.warn(`[beehiiv] setLifecycle failed (${resp.status}): ${body}`);
+      return false;
+    }
+
+    console.log(`[beehiiv] Set lifecycle="${lifecycle}"`);
+    return true;
+  } catch (err) {
+    console.error(`[beehiiv] Error setting lifecycle: ${err}`);
+    return false;
+  }
+}
+
 export interface ReportCardLeadAttrs {
   teamName?: string | null;
   clubName?: string | null;
@@ -135,6 +194,7 @@ export async function subscribeFreeLead(email: string, attrs: ReportCardLeadAttr
 
   const customFields = [
     { name: 'source', value: 'report-card' },
+    { name: 'lifecycle', value: 'lead' },
     { name: 'team_name', value: attrs.teamName ?? '' },
     { name: 'club_name', value: attrs.clubName ?? '' },
     { name: 'state', value: attrs.state ?? '' },
