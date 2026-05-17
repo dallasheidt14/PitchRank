@@ -16,6 +16,28 @@ export type PastDueEntry = {
   interval: 'month' | 'year';
 };
 
+export type ReportCardLead = {
+  id: string;
+  email: string;
+  teamName: string;
+  role: string | null;
+  createdAt: string; // ISO
+};
+
+export type ReportCardMetrics = {
+  totalRequests: number;
+  uniqueEmails: number;
+  last7Days: number;
+  last30Days: number;
+  conversion: {
+    leads: number;
+    converted: number;
+    percent: number | null;
+    excluded: number;
+  };
+  recentLeads: ReportCardLead[];
+};
+
 export type SubscriptionMetrics = {
   mrr: number; // dollars with cents preserved (e.g. 61.25)
   activePaid: {
@@ -41,6 +63,7 @@ export type SubscriptionMetrics = {
     percent: number | null;
     excluded: number; // test/internal users filtered from sample
   };
+  reportCard: ReportCardMetrics;
   generatedAt: string;
   errors: string[];
 };
@@ -272,6 +295,14 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     },
     pastDue: pastDueOut,
     conversion,
+    reportCard: {
+      totalRequests: 0,
+      uniqueEmails: 0,
+      last7Days: 0,
+      last30Days: 0,
+      conversion: { leads: 0, converted: 0, percent: null, excluded: 0 },
+      recentLeads: [],
+    },
     generatedAt: new Date().toISOString(),
     errors,
   };
