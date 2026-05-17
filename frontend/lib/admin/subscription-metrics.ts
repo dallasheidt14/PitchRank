@@ -20,6 +20,7 @@ export type PastDueEntry = {
 export type ReportCardLead = {
   id: string;
   email: string;
+  teamId: string;
   teamName: string;
   role: string | null;
   createdAt: string; // ISO
@@ -397,7 +398,7 @@ async function fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetch
       ),
     supabase
       .from('report_card_leads')
-      .select('id, email, team_name, role, created_at')
+      .select('id, email, team_id, team_name, role, created_at')
       .order('created_at', { ascending: false })
       .limit(REPORT_CARD_RECENT_LIMIT)
       .then(
@@ -445,6 +446,7 @@ async function fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetch
     const rows = (recentRes.data ?? []) as Array<{
       id: string;
       email: string;
+      team_id: string;
       team_name: string;
       role: string | null;
       created_at: string;
@@ -452,6 +454,7 @@ async function fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetch
     recentLeads = rows.map((r) => ({
       id: r.id,
       email: r.email,
+      teamId: r.team_id,
       teamName: r.team_name,
       role: r.role,
       createdAt: r.created_at,

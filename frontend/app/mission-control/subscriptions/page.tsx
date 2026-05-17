@@ -262,7 +262,11 @@ export default async function SubscriptionsDashboardPage() {
                     {metrics.reportCard.recentLeads.map((lead) => (
                       <TableRow key={lead.id}>
                         <TableCell>{lead.email}</TableCell>
-                        <TableCell>{lead.teamName}</TableCell>
+                        <TableCell>
+                          <Link href={`/teams/${lead.teamId}`} className="hover:underline">
+                            {lead.teamName}
+                          </Link>
+                        </TableCell>
                         <TableCell className="text-muted-foreground">{lead.role ?? '—'}</TableCell>
                         <TableCell className="text-muted-foreground">{formatRelative(lead.createdAt)}</TableCell>
                       </TableRow>
