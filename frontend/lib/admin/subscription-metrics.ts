@@ -1,6 +1,7 @@
 import 'server-only';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/server';
+import { createServiceSupabase } from '@/lib/supabase/service';
 
 export type TrialPipelineEntry = {
   id: string;
@@ -317,6 +318,140 @@ async function safeList(
     errors.push(`${label}: ${msg}`);
     return [];
   }
+}
+
+const REPORT_CARD_PAGE_CAP = 10_000;
+const REPORT_CARD_RECENT_LIMIT = 15;
+
+type ReportCardFetchResult = {
+  totalRequests: number;
+  uniqueLeadEmails: Set<string>;
+  last7Days: number;
+  last30Days: number;
+  recentLeads: ReportCardLead[];
+};
+
+/**
+ * Fetch raw report-card lead data from Supabase. Each sub-query is wrapped
+ * individually so a single failure degrades that metric (returns 0 / empty)
+ * rather than blowing up the dashboard. Failure messages land in `errors`.
+ */
+async function _fetchReportCardMetrics(errors: string[]): Promise<ReportCardFetchResult> {
+  let supabase: ReturnType<typeof createServiceSupabase>;
+  try {
+    supabase = createServiceSupabase();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`report card client: ${msg}`);
+    return {
+      totalRequests: 0,
+      uniqueLeadEmails: new Set(),
+      last7Days: 0,
+      last30Days: 0,
+      recentLeads: [],
+    };
+  }
+
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 86_400_000).toISOString();
+  const thirtyDaysAgo = new Date(now - 30 * 86_400_000).toISOString();
+
+  const [totalRes, emailsRes, last7Res, last30Res, recentRes] = await Promise.all([
+    supabase
+      .from('report_card_leads')
+      .select('id', { count: 'exact', head: true })
+      .then(
+        (r) => r,
+        (e) => ({ error: e, count: null }) as { error: unknown; count: null }
+      ),
+    supabase
+      .from('report_card_leads')
+      .select('email')
+      .limit(REPORT_CARD_PAGE_CAP)
+      .then(
+        (r) => r,
+        (e) => ({ error: e, data: null }) as { error: unknown; data: null }
+      ),
+    supabase
+      .from('report_card_leads')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', sevenDaysAgo)
+      .then(
+        (r) => r,
+        (e) => ({ error: e, count: null }) as { error: unknown; count: null }
+      ),
+    supabase
+      .from('report_card_leads')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', thirtyDaysAgo)
+      .then(
+        (r) => r,
+        (e) => ({ error: e, count: null }) as { error: unknown; count: null }
+      ),
+    supabase
+      .from('report_card_leads')
+      .select('id, email, team_name, role, created_at')
+      .order('created_at', { ascending: false })
+      .limit(REPORT_CARD_RECENT_LIMIT)
+      .then(
+        (r) => r,
+        (e) => ({ error: e, data: null }) as { error: unknown; data: null }
+      ),
+  ]);
+
+  let totalRequests = 0;
+  if (totalRes.error) {
+    errors.push(`report card total: ${String(totalRes.error)}`);
+  } else {
+    totalRequests = totalRes.count ?? 0;
+  }
+
+  let uniqueLeadEmails = new Set<string>();
+  if (emailsRes.error) {
+    errors.push(`report card unique emails: ${String(emailsRes.error)}`);
+  } else {
+    const rows = (emailsRes.data ?? []) as Array<{ email: string | null }>;
+    uniqueLeadEmails = dedupeEmails(rows.map((r) => r.email));
+    if (rows.length >= REPORT_CARD_PAGE_CAP) {
+      errors.push(`report card unique emails: hit ${REPORT_CARD_PAGE_CAP}-row cap; count is a lower bound`);
+    }
+  }
+
+  let last7Days = 0;
+  if (last7Res.error) {
+    errors.push(`report card last 7d: ${String(last7Res.error)}`);
+  } else {
+    last7Days = last7Res.count ?? 0;
+  }
+
+  let last30Days = 0;
+  if (last30Res.error) {
+    errors.push(`report card last 30d: ${String(last30Res.error)}`);
+  } else {
+    last30Days = last30Res.count ?? 0;
+  }
+
+  let recentLeads: ReportCardLead[] = [];
+  if (recentRes.error) {
+    errors.push(`report card recent leads: ${String(recentRes.error)}`);
+  } else {
+    const rows = (recentRes.data ?? []) as Array<{
+      id: string;
+      email: string;
+      team_name: string;
+      role: string | null;
+      created_at: string;
+    }>;
+    recentLeads = rows.map((r) => ({
+      id: r.id,
+      email: r.email,
+      teamName: r.team_name,
+      role: r.role,
+      createdAt: r.created_at,
+    }));
+  }
+
+  return { totalRequests, uniqueLeadEmails, last7Days, last30Days, recentLeads };
 }
 
 export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
