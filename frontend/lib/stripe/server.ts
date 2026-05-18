@@ -58,6 +58,8 @@ export const WEBHOOK_EVENTS = {
   SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
   INVOICE_PAID: 'invoice.paid',
   INVOICE_PAYMENT_FAILED: 'invoice.payment_failed',
+  TRIAL_WILL_END: 'customer.subscription.trial_will_end',
+  CHARGE_REFUNDED: 'charge.refunded',
 } as const;
 
 /**
