@@ -493,24 +493,27 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
   const prior = await getPriorState(customerId);
 
-  await updateUserProfile(getSupabaseAdmin(), customerId, {
-    subscription_status: 'past_due',
-  });
-
   console.log(`[webhook] Payment failed for customer ${customerId} (prior status: ${prior.status})`);
 
-  // Re-delivery: subscription_status is already 'past_due' from a prior run.
-  // Skip syncLifecycle to avoid duplicate Dunning enrollment.
+  // Re-delivery: prior subscription_status was already 'past_due' from an
+  // earlier successful run. Skip the entire side-effect chain to avoid
+  // duplicate Dunning enrollment.
   if (prior.status === 'past_due') {
     console.log(`[webhook] Skipping Dunning enrollment — already past_due (webhook re-delivery)`);
     return;
   }
-  await syncLifecycle(customerId, 'past_due');
 
-  // Pass Stripe's per-invoice "pay this invoice" URL into Beehiiv so dunning
-  // emails can deep-link straight to it instead of routing through the
-  // customer portal. Falls back to the portal login link in the email template
-  // if the field is empty.
+  // Order matters:
+  //   1. setSubscriberCustomField (last_failed_invoice_url) — must run BEFORE
+  //      enrollment because Beehiiv automations triggered by enrollment
+  //      render their first email at enrollment time. If the field is empty
+  //      the dunning email falls back to the generic portal link.
+  //   2. syncLifecycle — enrolls the subscriber in the Dunning automation.
+  //   3. updateUserProfile (subscription_status='past_due') — commit LAST so
+  //      it doubles as the dedup key for #797. If any earlier step fails or
+  //      the request times out, the DB stays in the prior state and Stripe's
+  //      retry runs the full flow again, instead of orphaning a `past_due`
+  //      record that never got enrolled.
   const hostedUrl = invoice.hosted_invoice_url;
   if (hostedUrl) {
     try {
@@ -520,6 +523,12 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
       console.error(`[webhook] Failed to set last_failed_invoice_url (non-fatal):`, err);
     }
   }
+
+  await syncLifecycle(customerId, 'past_due');
+
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    subscription_status: 'past_due',
+  });
 }
 
 /**
