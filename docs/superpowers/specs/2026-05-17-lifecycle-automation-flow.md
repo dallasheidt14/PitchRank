@@ -1,8 +1,8 @@
 # PitchRank Email Lifecycle Automation Spec
 
-**Date:** 2026-05-17
+**Date:** 2026-05-17 (last updated 2026-05-18)
 **Owner:** Dallas Heidt
-**Status:** Design — not yet implemented
+**Status:** Built — code shipped (#794, #796, #797), 9 Beehiiv automation shells live, email copy in progress
 
 ## 1. Goal
 
@@ -46,57 +46,49 @@ Keep the existing `tier` field (Free / Premium) — it's used by Beehiiv's nativ
 
 ## 4. Automation graph
 
+All 7 lifecycle automations use the **`Added by API`** trigger; the Stripe webhook (or `/api/reports/team-card` form for `lead`) calls Beehiiv's enrollment endpoint directly. Per-step gates use `lifecycle is <state>` to skip in-flight subscribers whose state changes mid-sequence.
+
 ```
-ENTRY 1: /report-card             ENTRY 2: Stripe checkout (trialing)
-  │                                 │
-  ▼                                 ▼
-┌────────────────────┐         ┌──────────────────────┐
-│ Report-Card        │         │ Trial Onboarding     │
-│ Nurture (7 emails) │         │ (7 emails, 7 days)   │
-│ trigger: API       │         │ trigger:             │
-│ per-step gate:     │         │   lifecycle becomes  │
-│   lifecycle=lead   │         │   trialing           │
-│ last step:         │         │ per-step gate:       │
-│   set lifecycle=   │         │   lifecycle=trialing │
-│   free_drip        │         │                      │
-└──────────┬─────────┘         └────┬───────────────┬─┘
-           │                        │               │
-           │ converts to trial      │ converts      │ cancels
-           │ (re-enters via         │ to paid       │ during trial
-           │  trialing trigger)     │               │
-           │                        ▼               ▼
-           ▼               ┌────────────────┐  ┌──────────────┐
-┌────────────────────┐     │ Paid Drip      │  │ Trial Cancel │
-│ Non-Premium Drip   │     │ trigger:       │  │ Drip         │
-│ trigger:           │     │   lifecycle    │  │ trigger:     │
-│   completes        │     │   becomes paid │  │   lifecycle  │
-│   Report-Card +    │     │ per-step gate: │  │   becomes    │
-│   lifecycle=       │     │   lifecycle in │  │   trial_     │
-│   free_drip        │     │   (paid,       │  │   canceled   │
-│ ongoing nurture    │     │   canceling)   │  │ 3-5 emails   │
-└──────────┬─────────┘     └───────┬────────┘  └──────┬───────┘
-           │                       │                  │ last step:
-           │                       │ cancels          │   set lifecycle
-           │                       ▼                  │   = free_drip
-           │              ┌──────────────────┐        │   (re-enters
-           │              │ Paid Win-Back    │        │    Non-Premium
-           │              │ trigger:         │        │    Drip via
-           │              │   lifecycle      │        │    its trigger)
-           │              │   becomes        │        │
-           │              │   paid_canceled  │        │
-           │              │ 5 emails over    │        │
-           │              │   30 days        │        │
-           │              └────────┬─────────┘        │
-           │                       │                  │
-           └───────────────────────┴──────────────────┘
-                                resub anywhere
-                                → Trial Onboarding
+ENTRY 1: /report-card form        ENTRY 2: Stripe checkout (trialing)
+  ↓                                 ↓
+┌──────────────────────┐          ┌──────────────────────┐
+│ Report-Card Lead     │          │ Trial Onboarding     │
+│ Nurture              │          │ 2 emails (Day 1, 3)  │
+│ trigger: Added by API│          │ trigger: Added by API│
+│ per-step gate:       │          │ per-step gate:       │
+│   lifecycle = lead   │          │   lifecycle=trialing │
+└──────────┬───────────┘          └─────────┬────────────┘
+           │                                │
+   completes nurture                 (Day 8 — Stripe acts)
+   (manual handoff today —           ┌──────┴────────────────────────────┐
+    see §10 #11)                     ▼          ▼            ▼           ▼
+           │                  invoice.paid  sub.deleted  sub.updated  invoice.
+           ▼                  (trialing→     (was        cancel_at_   payment_
+┌──────────────────────┐       active)       trialing)   period_end   failed
+│ Non-Premium Drip     │      ↓              ↓           =true        ↓
+│ 4 emails             │ ┌──────────┐ ┌────────────┐  ↓          ┌──────────┐
+│ trigger: Added by API│ │Paid Drip │ │Trial Cancel│ ┌──────────┐│ Dunning  │
+│ per-step gate:       │ │ 2 emails │ │   Drip     │ │Cancel-   ││ 3 emails │
+│   lifecycle=free_drip│ │ (Day 7,  │ │ 2 emails   │ │lation    ││ (Day 0,  │
+└──────────────────────┘ │  Day 21) │ │ (Day 1,7)  │ │ Save     ││  5, 14)  │
+                         └────┬─────┘ └────────────┘ │ 2 emails ││ recovers │
+                              │                      │ (Day 0,5)││ to paid  │
+                       sub.deleted /                 └──────────┘│ if       │
+                       charge.refunded                           │ invoice. │
+                              ↓                                  │ paid     │
+                         ┌──────────────┐                        └──────────┘
+                         │ Paid Win-Back│
+                         │ 3 emails     │
+                         │ (Day 3, 14,  │
+                         │  30)         │
+                         └──────────────┘
+
+  resubscribe anywhere → Stripe fires checkout.session.completed
+                      → webhook flips lifecycle=trialing
+                      → enrolls in Trial Onboarding again
 ```
 
-Plus two utility automations not on the main graph:
-
-- **Dunning / Update Card** — trigger: `lifecycle becomes past_due`. 3 emails over Stripe's ~21-day retry window. Exits on `lifecycle becomes paid`.
-- **Cancellation Save** — trigger: `lifecycle becomes canceling`. 1-2 emails before period ends. Exits on `lifecycle becomes paid`.
+Email counts shown reflect current build decisions (2026-05-18). They can scale up as data justifies — the per-step gate makes mid-sequence churn safe.
 
 ### How triggers actually fire (implementation note)
 
@@ -340,39 +332,110 @@ For existing subscribers, write `lifecycle` based on current state:
 
 Script lives in `scripts/backfill_beehiiv_lifecycle.py` — joins Supabase `user_profiles` to Beehiiv emails via API and writes `lifecycle` in batches.
 
-## 8. Trial Onboarding email cadence (Automation #3)
+## 8. Email cadence per automation
 
-Trigger: `lifecycle becomes trialing`. Per-step gate: `lifecycle = trialing` (so converters stop receiving trial-specific emails the moment they convert to `paid`).
+Full email copy lives alongside this spec — Trial Onboarding copy is at `docs/marketing/trial-onboarding-emails.md`. Other automations have copy briefs (no body text yet) in §11.
 
-| # | Day | Subject | Job |
-|---|-----|---------|-----|
-| 1 | 0 (immediate) | "You're in — here's where to start" | Welcome, set expectation (7-day trial), CTA to favorite first team |
-| 2 | Day 1 | "The 3 features most people miss in their first week" | Activation — drive feature adoption (Compare, Watchlist, Schedule view) |
-| 3 | Day 2 | "How [example club] uses PitchRank on game day" | Social proof — concrete use case, screenshots |
-| 4 | Day 3 | "Your team's biggest rivals, ranked" | Personalized — pulls watchlist data, drives re-engagement |
-| 5 | Day 5 | "2 days left on your trial — quick check-in" | Soft conversion nudge; explain what they'll lose; surface value used so far |
-| 6 | Day 6 | "Tomorrow your trial ends. Here's what changes" | Hard conversion CTA; price reminder; FAQ link |
-| 7 | Day 7 | "Last call — keep your access" | Final CTA before billing; includes "lock in annual for 20% off" if applicable |
+### 8.1 Report Card Lead Nurture (live, pre-existing)
 
-Notes:
-- Emails 5-7 should reference the day count dynamically using Beehiiv's custom-field merge tags or be hard-coded to absolute days.
-- Email 7 fires hours before the actual conversion. Anyone who's converted by then is filtered out by the per-step `lifecycle = trialing` gate.
-- After Day 7, the automation ends. Stripe handles the conversion. If they converted → `lifecycle becomes paid` triggers the Paid Drip automation. If they didn't (and didn't cancel) → they auto-converted, same path. If they canceled → Trial Cancel Drip.
+Already built before this spec. Original 7-email sequence. No changes required.
 
-## 9. Rollout plan
+### 8.2 Trial Onboarding (shell live, copy in progress)
 
-1. **Add `lifecycle` custom field in Beehiiv** (manual, UI). 2 min.
-2. **Backfill existing subscribers** (one-time script). 30 min including verification.
-3. **Ship code changes** (lib/beehiiv.ts + webhook handlers + tests) — single PR. ~1 hour with tests.
-4. **Build Trial Onboarding automation** in Beehiiv with the 7 emails. ~3 hours including copywriting.
-5. **Build Paid Drip automation** (lower priority; can launch later). ~2 hours.
-6. **Build Trial Cancel + Paid Win-Back + Non-Premium Drip + Dunning + Cancellation Save** — incremental, in priority order.
+Trigger: `Added by API` (webhook on `checkout.session.completed` with status=trialing). Per-step gate: `lifecycle is trialing`.
 
-Total to MVP (entries 1-4): ~4-5 hours of focused work.
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 1 | Activation — drive into Compare, Watchlist, AI Insights |
+| 2 | Day 3 | Personalized — "Who actually beats {{team_name}}?" using merge tags |
+
+Trial converts/cancels around Day 8 — Stripe events fire the appropriate downstream automation (Paid Drip, Trial Cancel Drip, or Dunning) automatically.
+
+### 8.3 Paid Drip
+
+Trigger: `Added by API` (webhook on `invoice.paid` after trial→active or past_due→active). Per-step gate: `lifecycle is paid`.
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 7 | AI Insights deep dive — most paying users never opened Season Truth/consistency/persona during trial |
+| 2 | Day 21 | Pre-renewal feedback check-in — hit-reply ask, ~9 days before first monthly renewal |
+
+### 8.4 Dunning / Update Card
+
+Trigger: `Added by API` (webhook on `invoice.payment_failed`). Per-step gate: `lifecycle is past_due`. Subscribers exit automatically when invoice succeeds on retry (lifecycle flips to `paid`).
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 0 (immediate) | Heads-up + 1-click update payment method link |
+| 2 | Day 5 | Reminder; concrete deadline if Stripe's retry window is ~21 days |
+| 3 | Day 14 | Last call before Stripe gives up and cancels the subscription |
+
+### 8.5 Cancellation Save
+
+Trigger: `Added by API` (webhook on `customer.subscription.updated` with cancel_at_period_end=true). Per-step gate: `lifecycle is canceling`. Subscribers exit if they reactivate (lifecycle flips back to `paid`).
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 0 (immediate) | "Heard you're leaving — here's what you'll lose. Reactivate in one click." |
+| 2 | Day 5 | "Last chance" — soft, not pushy |
+
+### 8.6 Trial Cancel Drip
+
+Trigger: `Added by API` (webhook on `customer.subscription.deleted` with prior status=trialing). Per-step gate: `lifecycle is trial_canceled`.
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 1 | "What stopped you?" — hit-reply ask, no CTA |
+| 2 | Day 7 | "Come back when you're ready" — soft re-trial invite |
+
+### 8.7 Paid Win-Back
+
+Trigger: `Added by API` (webhook on `customer.subscription.deleted` with prior status=active, OR `charge.refunded`). Per-step gate: `lifecycle is paid_canceled`.
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 3 | "Sorry to see you go — what would've kept you?" |
+| 2 | Day 14 | Reminder of what's changed in the product since they left |
+| 3 | Day 30 | Direct re-trial offer (consider a discount on annual) |
+
+### 8.8 Non-Premium Drip
+
+Trigger: `Added by API` (manual or batch enroll — see §10 #11). Per-step gate: `lifecycle is free_drip`.
+
+| # | Day | Job |
+|---|-----|-----|
+| 1 | Day 7 | Reintroduce the product with a fresh angle |
+| 2 | Day 14 | Concrete use case ("here's how to use it before tryouts") |
+| 3 | Day 28 | Soft trial nudge ("free 7-day look at Premium") |
+| 4 | Day 49 | Last reminder; after this they're on the regular newsletter only |
+
+## 9. Rollout plan & current status
+
+| Step | Status | Notes |
+|---|---|---|
+| 1. `lifecycle` custom field in Beehiiv | ✅ done | Text type |
+| 2. Stripe webhook subscribes to `charge.refunded` + `customer.subscription.trial_will_end` | ✅ done | |
+| 3. Code: `setLifecycle` + webhook routing | ✅ done | PR #794 merged |
+| 4. Code: `enrollInLifecycleAutomation` + env-var dispatch | ✅ done | PR #796 merged |
+| 5. Code: idempotency guards on Stripe re-delivery | ✅ done | PR #797 merged |
+| 6. Backfill existing subscribers | ✅ done | 30 writes (3 trialing, 14 paid, 16 free_drip via 2 passes) |
+| 7. Build all 9 automation shells in Beehiiv | ✅ done | 7 lifecycle + Report Card Lead + Trial Onboarding |
+| 8. Set 7 lifecycle env vars in Vercel | ✅ done | All `BEEHIIV_*_AUTOMATION_ID` vars live |
+| 9. Trial Onboarding copy + activate | 🛠️ in progress | 2 emails being written |
+| 10. Other 6 automations copy + activate | ⏳ pending | Copy briefs in §8; copywriter handoff in progress |
+| 11. Manual cleanup: 3 paying users not in Beehiiv | ⏳ pending | `ruddy_b@msn.com`, `roberto.ar456@yahoo.com`, `peacockpainters@gmail.com` |
+
+**Activate order matters:** automations are currently in **Draft**. Activating before copy is in means subscribers get placeholder emails. Activate each one only as its copy ships.
 
 ## 10. Risks / open questions
 
-- **Beehiiv API rate limits on backfill.** Batch with delays; expected to take 10-15 min for current subscriber count.
-- **Custom-field name collision.** Beehiiv lower-cases / normalizes custom field names — verify `lifecycle` lands as-expected before backfill.
-- **Stripe event ordering races.** Stripe fires `checkout.session.completed` then `customer.subscription.updated` back-to-back; our existing webhook already has a known race on user-profile reads (see Vercel logs May 16 18:21:22). Lifecycle writes will inherit this — non-fatal because lifecycle uses email lookup (works as soon as profile exists) but worth retest after fix.
-- **Tier vs lifecycle.** Some emails might want to gate on `tier = Premium` (paywall content) AND `lifecycle = paid` (not trialing). Document this in the brand voice guide.
+- **Beehiiv API rate limits on backfill.** Mitigated — backfill ran successfully with 0.25s sleeps between writes.
+- **Stripe event ordering races.** Stripe fires `checkout.session.completed` then `customer.subscription.updated` back-to-back; the existing webhook has a known race on user-profile reads (see Vercel logs May 16 18:21:22). Lifecycle writes inherit this but are non-fatal (email lookup is idempotent).
+- **Stripe webhook re-delivery → duplicate Beehiiv enrollment.** **OPEN.** Stripe is at-least-once. The current code in `main` enrolls unconditionally on every delivery of `checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`, and `charge.refunded`. PR #797 (open, not yet merged) adds prior-state guards covering checkout, payment_failed, and subscription.deleted; `charge.refunded` will still be vulnerable after that merge because refund events don't update `subscription_status`, so the standard prior-state check doesn't apply. Robust fix would be a Supabase table tracking processed Stripe event IDs — see #12. Until then, the highest-risk handler in production is `charge.refunded`.
+- **Tier vs lifecycle.** Some emails might want to gate on `tier = Premium` (paywall content) AND `lifecycle = paid` (not trialing). Document in the brand voice guide if/when relevant.
+- **#11 Trial Cancel → Non-Premium Drip handoff is no longer automatic.** Original design assumed `lifecycle becomes free_drip` would trigger Non-Premium Drip via segment. With `Added by API` triggers, that doesn't fire automatically. Trial-canceled subscribers complete the 2-email Trial Cancel Drip and then sit in `lifecycle=trial_canceled` indefinitely until they re-trial. Options when this becomes a problem:
+  - Add a Beehiiv "Add to Automation" node at end of Trial Cancel Drip to chain into Non-Premium Drip directly (if that node type exists on Scale plan)
+  - Add a "Beehiiv completion webhook" handler in our backend
+  - Accept the gap and re-enroll the segment manually on a quarterly cadence
+- **#12 charge.refunded idempotency weakness.** Refund webhooks don't update `subscription_status`, so re-delivery can't be detected via the standard prior-state check that covers other handlers. Rare event but real exposure — every re-delivery re-enrolls the customer in Paid Win-Back. A bulletproof fix is a small Supabase table (`processed_stripe_event_ids`) keyed by `event.id` with a uniqueness constraint — handler inserts before processing, swallows the duplicate-key error to short-circuit. Estimated <30 min of work whenever this becomes prioritized.
+- **#13 Direct-to-paid checkouts** would skip Trial Onboarding and route directly to Paid Drip. Current Paid Drip copy assumes the subscriber went through a trial. If a "skip trial" or annual-upfront option is ever added, Paid Drip needs a `came_from_trial` gate or a separate "direct-to-paid welcome" automation. Per Dallas 2026-05-18, all current checkouts include a trial — not a problem today.
