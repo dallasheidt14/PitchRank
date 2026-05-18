@@ -493,23 +493,27 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
   const prior = await getPriorState(customerId);
 
-  await updateUserProfile(getSupabaseAdmin(), customerId, {
-    subscription_status: 'past_due',
-  });
-
   console.log(`[webhook] Payment failed for customer ${customerId} (prior status: ${prior.status})`);
 
-  // Re-delivery: subscription_status is already 'past_due' from a prior run.
-  // Skip syncLifecycle to avoid duplicate Dunning enrollment.
+  // Re-delivery: prior subscription_status was already 'past_due' from an
+  // earlier successful run. Skip the entire side-effect chain to avoid
+  // duplicate Dunning enrollment.
   if (prior.status === 'past_due') {
     console.log(`[webhook] Skipping Dunning enrollment — already past_due (webhook re-delivery)`);
     return;
   }
 
-  // Order matters: write last_failed_invoice_url BEFORE syncLifecycle.
-  // Beehiiv automations triggered by enrollment render their first email at
-  // enrollment time, so the per-invoice URL must already be on the subscriber
-  // record or the dunning email falls back to the generic portal link.
+  // Order matters:
+  //   1. setSubscriberCustomField (last_failed_invoice_url) — must run BEFORE
+  //      enrollment because Beehiiv automations triggered by enrollment
+  //      render their first email at enrollment time. If the field is empty
+  //      the dunning email falls back to the generic portal link.
+  //   2. syncLifecycle — enrolls the subscriber in the Dunning automation.
+  //   3. updateUserProfile (subscription_status='past_due') — commit LAST so
+  //      it doubles as the dedup key for #797. If any earlier step fails or
+  //      the request times out, the DB stays in the prior state and Stripe's
+  //      retry runs the full flow again, instead of orphaning a `past_due`
+  //      record that never got enrolled.
   const hostedUrl = invoice.hosted_invoice_url;
   if (hostedUrl) {
     try {
@@ -521,6 +525,10 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   }
 
   await syncLifecycle(customerId, 'past_due');
+
+  await updateUserProfile(getSupabaseAdmin(), customerId, {
+    subscription_status: 'past_due',
+  });
 }
 
 /**

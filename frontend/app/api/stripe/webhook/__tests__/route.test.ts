@@ -603,4 +603,28 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
   });
+
+  it('pins payment_failed ordering: invoice URL → Dunning enroll → DB status', async () => {
+    // Regression guard for codex P1 review on PRs #800/#802:
+    //   - setSubscriberCustomField MUST run before enrollInAutomation so the
+    //     first dunning email renders the per-invoice URL (not portal fallback).
+    //   - updateUserProfile (subscription_status='past_due') MUST run AFTER
+    //     enrollInAutomation so a mid-flight timeout doesn't orphan a
+    //     past_due record that never enrolled (Stripe retry would early-return
+    //     on prior.status === 'past_due').
+    process.env.BEEHIIV_DUNNING_AUTOMATION_ID = 'aut_test_dunning';
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+
+    await fireEvent('invoice.payment_failed', {
+      customer: 'cus_123',
+      hosted_invoice_url: 'https://invoice.stripe.com/i/test_ordering',
+    });
+
+    const fieldOrder = vi.mocked(setSubscriberCustomField).mock.invocationCallOrder[0];
+    const enrollOrder = vi.mocked(enrollInAutomation).mock.invocationCallOrder[0];
+    const profileOrder = vi.mocked(updateUserProfile).mock.invocationCallOrder.at(-1) ?? 0;
+
+    expect(fieldOrder).toBeLessThan(enrollOrder);
+    expect(enrollOrder).toBeLessThan(profileOrder);
+  });
 });
