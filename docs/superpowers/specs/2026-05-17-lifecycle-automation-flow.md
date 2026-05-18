@@ -98,6 +98,33 @@ Plus two utility automations not on the main graph:
 - **Dunning / Update Card** — trigger: `lifecycle becomes past_due`. 3 emails over Stripe's ~21-day retry window. Exits on `lifecycle becomes paid`.
 - **Cancellation Save** — trigger: `lifecycle becomes canceling`. 1-2 emails before period ends. Exits on `lifecycle becomes paid`.
 
+### How triggers actually fire (implementation note)
+
+Beehiiv on Scale plan does NOT recalculate dynamic segments in real time
+(refreshes once daily). Segment-based triggers would delay Trial Onboarding's
+Email 1 by up to 24h — unacceptable for a 7-day trial. Instead, every
+lifecycle automation uses the **`Added by API`** trigger, and the Stripe
+webhook calls Beehiiv's automation-enrollment endpoint directly the moment
+state transitions, giving sub-second routing latency.
+
+Each lifecycle state maps to a Vercel env var holding the automation ID:
+
+| lifecycle | env var | required? |
+|---|---|---|
+| `lead` | `BEEHIIV_REPORT_CARD_AUTOMATION_ID` | already set |
+| `free_drip` | `BEEHIIV_FREE_DRIP_AUTOMATION_ID` | set when Non-Premium Drip is built |
+| `trialing` | `BEEHIIV_TRIAL_AUTOMATION_ID` | set when Trial Onboarding is built |
+| `past_due` | `BEEHIIV_DUNNING_AUTOMATION_ID` | set when Dunning is built |
+| `canceling` | `BEEHIIV_CANCELING_AUTOMATION_ID` | set when Cancellation Save is built |
+| `paid` | `BEEHIIV_PAID_AUTOMATION_ID` | set when Paid Drip is built |
+| `trial_canceled` | `BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID` | set when Trial Cancel Drip is built |
+| `paid_canceled` | `BEEHIIV_PAID_CANCEL_AUTOMATION_ID` | set when Paid Win-Back is built |
+
+The webhook's `enrollInLifecycleAutomation()` helper reads `LIFECYCLE_AUTOMATION_ENV[lifecycle]` and no-ops when the env var is unset — so new automations come online by setting an env var, no code change required.
+
+Per-step `Conditions` on every Send Email node (filter: `lifecycle is <state>`)
+remain the in-flight gate that skips subscribers whose state changes mid-sequence.
+
 ## 5. Gaps from prior sketch — addressed here
 
 | # | Gap | Solution |

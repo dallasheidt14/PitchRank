@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
-import { tagSubscriber, untagSubscriber, setLifecycle, type Lifecycle } from '@/lib/beehiiv';
+import { tagSubscriber, untagSubscriber, setLifecycle, enrollInAutomation, type Lifecycle } from '@/lib/beehiiv';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 
 /**
@@ -52,14 +52,49 @@ async function getCustomerEmail(customerId: string): Promise<string | null> {
 }
 
 /**
- * Set the Beehiiv lifecycle field for a customer by email. Non-fatal —
+ * Map each lifecycle state to the Vercel env var holding the Beehiiv
+ * automation ID that should auto-enroll the subscriber on transition.
+ * Missing env var = no enrollment (the automation hasn't been built yet);
+ * setLifecycle still runs so segments and per-step gates work in the UI.
+ */
+const LIFECYCLE_AUTOMATION_ENV: Record<Lifecycle, string> = {
+  lead: 'BEEHIIV_REPORT_CARD_AUTOMATION_ID',
+  free_drip: 'BEEHIIV_FREE_DRIP_AUTOMATION_ID',
+  trialing: 'BEEHIIV_TRIAL_AUTOMATION_ID',
+  past_due: 'BEEHIIV_DUNNING_AUTOMATION_ID',
+  canceling: 'BEEHIIV_CANCELING_AUTOMATION_ID',
+  paid: 'BEEHIIV_PAID_AUTOMATION_ID',
+  trial_canceled: 'BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID',
+  paid_canceled: 'BEEHIIV_PAID_CANCEL_AUTOMATION_ID',
+};
+
+/**
+ * Enroll the subscriber in the Beehiiv automation matching this lifecycle
+ * state, if one is configured. Non-fatal; safe to call before all the
+ * downstream automations have been built (no env var = no-op).
+ */
+async function enrollInLifecycleAutomation(email: string, lifecycle: Lifecycle): Promise<void> {
+  const automationId = process.env[LIFECYCLE_AUTOMATION_ENV[lifecycle]];
+  if (!automationId) return;
+  try {
+    await enrollInAutomation(email, automationId);
+  } catch (err) {
+    console.error(`[webhook] enrollInAutomation(${lifecycle}) failed (non-fatal):`, err);
+  }
+}
+
+/**
+ * Set the Beehiiv lifecycle field for a customer by email AND enroll them
+ * into the matching automation (if its env var is configured). Non-fatal —
  * Beehiiv errors are logged but don't fail the webhook (Stripe shouldn't
  * retry a successful state update just because an email tag failed).
  */
 async function syncLifecycle(customerId: string, lifecycle: Lifecycle): Promise<void> {
   try {
     const email = await getCustomerEmail(customerId);
-    if (email) await setLifecycle(email, lifecycle);
+    if (!email) return;
+    await setLifecycle(email, lifecycle);
+    await enrollInLifecycleAutomation(email, lifecycle);
   } catch (err) {
     console.error(`[webhook] syncLifecycle(${lifecycle}) failed (non-fatal):`, err);
   }
@@ -297,13 +332,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       `<b>Status:</b> ${subscription.status}`
   );
 
-  // Sync Beehiiv: set tier to premium (gates paywall content) and route into
-  // Trial Onboarding (status=trialing) or Paid Drip (direct-to-paid checkout).
+  // Sync Beehiiv: set tier to premium (gates paywall content), set lifecycle,
+  // and enroll in the matching automation (Trial Onboarding for trialing,
+  // Paid Drip for direct-to-paid). Each step is non-fatal.
   const rawEmail = (customer as Stripe.Customer).email;
   if (rawEmail) {
     try {
       await tagSubscriber(rawEmail);
-      await setLifecycle(rawEmail, subscription.status === 'trialing' ? 'trialing' : 'paid');
+      const lifecycle: Lifecycle = subscription.status === 'trialing' ? 'trialing' : 'paid';
+      await setLifecycle(rawEmail, lifecycle);
+      await enrollInLifecycleAutomation(rawEmail, lifecycle);
     } catch (tagError) {
       console.error('[webhook] Beehiiv sync failed (non-fatal):', tagError);
     }
@@ -367,7 +405,9 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
     const email = await getCustomerEmail(customerId);
     if (email) {
       await untagSubscriber(email);
-      await setLifecycle(email, prior.status === 'trialing' ? 'trial_canceled' : 'paid_canceled');
+      const lifecycle: Lifecycle = prior.status === 'trialing' ? 'trial_canceled' : 'paid_canceled';
+      await setLifecycle(email, lifecycle);
+      await enrollInLifecycleAutomation(email, lifecycle);
     }
   } catch (err) {
     console.warn(`[webhook] Failed to sync Beehiiv on cancel: ${err}`);

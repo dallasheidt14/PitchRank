@@ -17,6 +17,7 @@ vi.mock('@/lib/stripe/server', () => ({
     },
     customers: {
       retrieve: vi.fn().mockResolvedValue({ id: 'cus_123', email: 'test@example.com' }),
+      update: vi.fn().mockResolvedValue({ id: 'cus_123' }),
     },
   },
   WEBHOOK_EVENTS: {
@@ -40,6 +41,7 @@ vi.mock('@/lib/beehiiv', () => ({
   tagSubscriber: vi.fn().mockResolvedValue(true),
   untagSubscriber: vi.fn().mockResolvedValue(true),
   setLifecycle: vi.fn().mockResolvedValue(true),
+  enrollInAutomation: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/lib/notifications/admin', () => ({
@@ -78,14 +80,21 @@ vi.mock('@supabase/supabase-js', () => ({
       });
       return builder;
     }),
-    auth: { admin: { createUser: vi.fn(), generateLink: vi.fn() } },
+    auth: {
+      admin: {
+        createUser: vi
+          .fn()
+          .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null }),
+        generateLink: vi.fn().mockResolvedValue({ data: { properties: { action_link: 'https://example.com/setup' } } }),
+      },
+    },
   })),
 }));
 
 import { POST } from '../route';
 import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
-import { setLifecycle } from '@/lib/beehiiv';
+import { setLifecycle, enrollInAutomation } from '@/lib/beehiiv';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -432,5 +441,81 @@ describe('Beehiiv lifecycle routing', () => {
     });
 
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
+  });
+});
+
+describe('Beehiiv automation enrollment', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    // Clear all lifecycle automation env vars between tests
+    for (const key of [
+      'BEEHIIV_TRIAL_AUTOMATION_ID',
+      'BEEHIIV_PAID_AUTOMATION_ID',
+      'BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID',
+      'BEEHIIV_PAID_CANCEL_AUTOMATION_ID',
+      'BEEHIIV_DUNNING_AUTOMATION_ID',
+    ]) {
+      delete process.env[key];
+    }
+    setPriorState(null);
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+  });
+
+  function fireEvent(type: string, object: Record<string, unknown>): Promise<Response> {
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+      id: `evt_${type}`,
+      type,
+      data: { object },
+    } as unknown as Stripe.Event);
+    return POST(makeRequest('valid body'));
+  }
+
+  it('enrolls in trial automation when checkout completes with trialing status', async () => {
+    process.env.BEEHIIV_TRIAL_AUTOMATION_ID = 'aut_test_trial';
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'trialing',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.completed', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+    });
+
+    expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_trial');
+  });
+
+  it('skips enrollment when the automation env var is not set', async () => {
+    setPriorState({ subscription_status: 'trialing', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.deleted', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+    });
+
+    // lifecycle should still be written, but no enrollment without BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'trial_canceled');
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
+  it('enrolls in trial-cancel automation when set and trial canceled', async () => {
+    process.env.BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID = 'aut_test_trial_cancel';
+    setPriorState({ subscription_status: 'trialing', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.deleted', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+    });
+
+    expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_trial_cancel');
   });
 });
