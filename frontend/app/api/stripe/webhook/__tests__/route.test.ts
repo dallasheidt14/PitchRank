@@ -41,6 +41,7 @@ vi.mock('@/lib/beehiiv', () => ({
   tagSubscriber: vi.fn().mockResolvedValue(true),
   untagSubscriber: vi.fn().mockResolvedValue(true),
   setLifecycle: vi.fn().mockResolvedValue(true),
+  setSubscriberCustomField: vi.fn().mockResolvedValue(true),
   enrollInAutomation: vi.fn().mockResolvedValue(true),
 }));
 
@@ -94,7 +95,7 @@ vi.mock('@supabase/supabase-js', () => ({
 import { POST } from '../route';
 import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
-import { setLifecycle, enrollInAutomation } from '@/lib/beehiiv';
+import { setLifecycle, setSubscriberCustomField, enrollInAutomation } from '@/lib/beehiiv';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -335,9 +336,15 @@ describe('Beehiiv lifecycle routing', () => {
   it('routes past_due when invoice payment fails', async () => {
     await fireEvent('invoice.payment_failed', {
       customer: 'cus_123',
+      hosted_invoice_url: 'https://invoice.stripe.com/i/test_abc',
     });
 
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'past_due');
+    expect(vi.mocked(setSubscriberCustomField)).toHaveBeenCalledWith(
+      'test@example.com',
+      'last_failed_invoice_url',
+      'https://invoice.stripe.com/i/test_abc'
+    );
   });
 
   it('routes paid_canceled on charge.refunded', async () => {

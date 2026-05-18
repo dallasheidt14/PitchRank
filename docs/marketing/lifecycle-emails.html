@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PitchRank Lifecycle Emails — Copy-Paste Ready</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1.5rem; color: #1a1a1a; line-height: 1.55; }
+  h1 { border-bottom: 3px solid #0B5345; padding-bottom: .4rem; color: #0B5345; }
+  h2 { color: #0B5345; margin-top: 2.5rem; border-top: 1px solid #ddd; padding-top: 1.2rem; }
+  h3 { color: #0B5345; margin-top: 2rem; }
+  h4 { margin-top: 1.5rem; color: #444; text-transform: uppercase; letter-spacing: .04em; font-size: .85rem; }
+  .meta { background: #f4f6f5; border-left: 4px solid #0B5345; padding: .8rem 1rem; font-size: .9rem; border-radius: 4px; margin: .8rem 0 1.5rem; }
+  .meta p { margin: .25rem 0; }
+  .email-card { border: 1px solid #ddd; border-radius: 8px; padding: 1.2rem 1.5rem; margin: 1.5rem 0 2.5rem; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .email-card h3 { margin-top: 0; }
+  .field-label { font-weight: 700; color: #666; text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; margin-top: .8rem; }
+  .field-value { background: #fffbe6; border: 1px solid #f4d03f; padding: .5rem .8rem; border-radius: 4px; margin: .3rem 0 .8rem; }
+  .body-block { background: #fafafa; border: 1px dashed #aaa; border-radius: 6px; padding: 1.2rem 1.5rem; margin-top: .5rem; }
+  .body-block p:first-child { margin-top: 0; }
+  .body-block p:last-child { margin-bottom: 0; }
+  .copy-hint { background: #e8f4ea; border-left: 4px solid #0B5345; padding: .5rem .9rem; font-size: .85rem; margin-bottom: .4rem; border-radius: 4px; color: #0B5345; font-weight: 600; }
+  a { color: #0B5345; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: .88em; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  th, td { border: 1px solid #ddd; padding: .5rem .7rem; text-align: left; font-size: .92rem; }
+  th { background: #f4f6f5; }
+  ul { padding-left: 1.4rem; }
+  li { margin: .25rem 0; }
+  hr { border: none; border-top: 2px solid #ddd; margin: 3rem 0; }
+  .toc { background: #f9f9f9; padding: 1rem 1.5rem; border-radius: 6px; margin: 1rem 0 2rem; }
+  .toc ol { margin: .3rem 0; }
+  .nav-top { position: sticky; top: 0; background: rgba(255,255,255,.95); padding: .5rem 0; border-bottom: 1px solid #ddd; margin-bottom: 1rem; font-size: .85rem; }
+  .pricing { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="nav-top"><strong>How to use:</strong> Each email body lives in a dashed box. Triple-click inside it (or click-drag) to select, copy, then paste into Beehiiv's rich-text editor — bold, headers, bullets, and links all carry over.</div>
+
+<h1>PitchRank Lifecycle Emails — Copy</h1>
+
+<p>Companion to <code>docs/marketing/trial-onboarding-emails.md</code>. Covers the <strong>6 remaining automations</strong> in the lifecycle funnel. (Report Card Lead Nurture and Trial Onboarding are done.)</p>
+
+<p><strong>Architecture reference:</strong> <code>docs/superpowers/specs/2026-05-17-lifecycle-automation-flow.md</code></p>
+
+<div class="toc">
+<strong>Jump to automation:</strong>
+<ol>
+  <li><a href="#nonpremium">Non-Premium Drip — 4 emails</a></li>
+  <li><a href="#paid">Paid Drip — 2 emails</a></li>
+  <li><a href="#dunning">Dunning / Update Card — 3 emails</a></li>
+  <li><a href="#cancel-save">Cancellation Save — 2 emails</a></li>
+  <li><a href="#trial-cancel">Trial Cancel Drip — 2 emails</a></li>
+  <li><a href="#winback">Paid Win-Back — 3 emails</a></li>
+</ol>
+</div>
+
+<h2>Global voice + setup rules (read once)</h2>
+<ul>
+  <li><strong>Tone:</strong> expert peer, "the parent two years ahead." Direct, warm, data-backed. No hype, no soft-sell, no testimonials (we have none real).</li>
+  <li><strong>Never say "Glicko-2"</strong> → use <strong>rating engine</strong> or <strong>13-layer algorithm</strong>.</li>
+  <li><strong>Never say "cohort"</strong> → use <strong>group</strong>.</li>
+  <li><strong>No PowerScore tier thresholds</strong>, no college-outcome promises.</li>
+  <li><strong>Only reference real features:</strong> full rankings depth, <strong>Compare</strong> (head-to-head + win probability), <strong>Watchlist + rank-change alerts</strong>, <strong>AI Insights</strong> (Season Truth, consistency, persona), <strong>Edit access</strong> (merge dupes, fill missing games).</li>
+  <li><strong>Mobile-first:</strong> short paragraphs, bullets, bold the one phrase that matters per section.</li>
+  <li><strong>Merge tags — Beehiiv single-fallback syntax only:</strong> <code>{{ team_name | your team }}</code>, <code>{{ state | your state }}</code>, <code>{{ age_group | your age group }}</code>. <strong>No Liquid filter chains</strong> (<code>| default:</code>, <code>| prepend:</code>, <code>| append:</code> don't work on our Beehiiv plan).</li>
+  <li><strong>No first-name personalization.</strong> <code>first_name</code> isn't captured in PitchRank's funnel. Use plain "Hey —" or jump straight in.</li>
+  <li><strong>All links:</strong> <code>https://pitchrank.io/...</code></li>
+  <li><strong>Pricing:</strong> <span class="pricing">$6.99/mo or $69.99/yr (~17% off)</span>. Trial is 7 days.</li>
+</ul>
+
+<p><strong>Beehiiv setup tip:</strong> Paste the body from the dashed box below into Beehiiv's rich-text editor. Formatting transfers automatically.</p>
+
+<hr>
+
+<!-- ================= NON-PREMIUM DRIP ================= -->
+<h2 id="nonpremium">1. Non-Premium Drip — 4 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>free_drip</code></p>
+  <p><strong>Trigger:</strong> Report Card Lead Nurture finishes (final step sets <code>lifecycle = free_drip</code>, then enrolls via API).</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>free_drip</code></p>
+  <p><strong>Audience context:</strong> Already saw their team's Report Card + 7 nurture emails. Didn't start a trial. Job is to surface a use case they haven't tried yet, then offer a clean way to try Premium.</p>
+</div>
+
+<!-- 1.1 -->
+<div class="email-card">
+  <h3>1.1 Email 1 — Day 7</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">The one PitchRank habit that sticks</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Most parents use rankings wrong. Here's the move that actually pays off.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>A week ago you ran a report card on <strong>{{ team_name | your team }}</strong>. Useful — but a one-time check isn't where PitchRank earns its keep.</p>
+    <p>The parents who get the most out of it do one specific thing:</p>
+    <p><strong>They pick 3–5 teams that matter to them and watch all of them at once.</strong></p>
+    <p>Their kid's team. The rival across town. The club they're considering for next year's tryouts. The team they barely beat in September.</p>
+    <p>When all of those move week-to-week, you stop reading rankings as "who's #1" and start reading them as <strong>a map of your own corner of the soccer world</strong>.</p>
+    <p>That's a Watchlist. It's a Premium feature, but you can preview it with a free account:</p>
+    <p><strong><a href="https://pitchrank.io/rankings">Browse rankings →</a></strong></p>
+    <p>Tomorrow's Monday update will refresh every PowerScore in the country. If you're going to look anyway, look at the 5 teams that actually matter to your family.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<!-- 1.2 -->
+<div class="email-card">
+  <h3>1.2 Email 2 — Day 14</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">A use case for {{ team_name | your team }} you probably haven't tried</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Tryout season runs Apr–Jun. The data you'd want is already in PitchRank.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Quick one.</p>
+    <p>Most parents check rankings to validate the team they're on. But the highest-leverage use is the opposite — <strong>using rankings to evaluate teams you're considering</strong>.</p>
+    <p>Tryouts run April through June for most clubs. If you're even <em>thinking</em> about a switch (different club, playing up, different league), here's the 3-step workflow:</p>
+    <ol>
+      <li><strong>Open Compare.</strong> Put <strong>{{ team_name | your team }}</strong> on the left. Put the team you're considering on the right.</li>
+      <li><strong>Look at common opponents.</strong> Did they play the same teams? If yes — who got the better result?</li>
+      <li><strong>Look at strength of schedule.</strong> A 12-3 record against weak competition tells you less than 7-7 against monsters.</li>
+    </ol>
+    <p>That's the conversation you have with your spouse before you fill out another club's application. Numbers instead of forum opinions.</p>
+    <p>Compare is locked behind Premium, but you can poke around the rankings to get a feel for who's in the conversation:</p>
+    <p><strong><a href="https://pitchrank.io/rankings">See where {{ team_name | your team }} ranks today →</a></strong></p>
+    <p>If the tryout decision is real this year, I'd start a free trial in May. That's when the data is most useful.</p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<!-- 1.3 -->
+<div class="email-card">
+  <h3>1.3 Email 3 — Day 28</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Worth a week of your time?</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">7-day trial. No upfront charge. Cancel in one click.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Been a month since your report card. Wanted to put the trial offer on the table cleanly:</p>
+    <p><strong>7 days of full Premium.</strong> No charge until day 8. Cancel before then in one click — no email, no "are you sure" loop.</p>
+    <p>What unlocks during the trial:</p>
+    <ul>
+      <li><strong>Full rankings depth</strong> (instead of top 10 per state)</li>
+      <li><strong>Compare</strong> any two teams — common opponents, schedule strength, head-to-head win probability</li>
+      <li><strong>Watchlist</strong> — up to 5 teams with rank-change alerts</li>
+      <li><strong>AI Insights</strong> — Season Truth, consistency score, team persona for any team</li>
+      <li><strong>Edit access</strong> — flag a wrong game result or a duplicate team</li>
+    </ul>
+    <p>If you've been waiting for a reason to look harder at <strong>{{ team_name | your team }}</strong> or the teams around them, this is the cheapest possible way to do it. $0 for a week.</p>
+    <p><strong><a href="https://pitchrank.io/upgrade">Start your free trial →</a></strong></p>
+    <p>If you'd rather just keep the free version and the weekly newsletter, that's a fine answer too. The free tier stays useful.</p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<!-- 1.4 -->
+<div class="email-card">
+  <h3>1.4 Email 4 — Day 49</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Last note from me</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Keeping this short.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>I'll stop hassling you after this one.</p>
+    <p>You've seen the report card, you've seen the use cases, and you know the trial is risk-free. If now isn't the moment — totally fine. Lots of parents come back during tryout season or right after a tough loss.</p>
+    <p>Three doors from here:</p>
+    <ol>
+      <li><strong><a href="https://pitchrank.io/upgrade">Try Premium free for 7 days →</a></strong> — best moment is before a tryout, a tournament, or a club decision.</li>
+      <li><strong><a href="https://pitchrank.io">Keep getting the weekly newsletter</a></strong> — free, no further nudges. Just the Monday rankings + commentary.</li>
+      <li><strong>Unsubscribe entirely</strong> — link's in the footer. No hard feelings.</li>
+    </ol>
+    <p>Either way: thanks for trying PitchRank in the first place. If you ever want to send feedback or a feature request, hit reply — real inbox.</p>
+    <p>— Dallas<br>Founder, PitchRank<br>pitchrank.io</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ================= PAID DRIP ================= -->
+<h2 id="paid">2. Paid Drip — 2 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>paid</code></p>
+  <p><strong>Trigger:</strong> Webhook fires on first <code>invoice.paid</code> after trial→active (or past_due→active recovery).</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>paid</code></p>
+  <p><strong>Audience context:</strong> Just converted from the 7-day trial. Got the full Trial Onboarding sequence. Card was charged. They liked it enough to stay. Job: surface under-used features (AI Insights especially), then ask for feedback before first renewal.</p>
+</div>
+
+<!-- 2.1 -->
+<div class="email-card">
+  <h3>2.1 Email 1 — Day 7</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">The Premium feature you probably skipped</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Most trial users never opened it. It's the best one.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>You stuck with Premium — thank you.</p>
+    <p>Quick honest data point: most trial users spend their week in Rankings + Compare and never open the feature I'm most proud of. So I want to put it directly on your radar.</p>
+    <p><strong>AI Insights.</strong> It lives on every team page, below the games.</p>
+    <p>Three things it tells you about any team:</p>
+    <ul>
+      <li><strong>Season Truth.</strong> A plain-English read of whether the record matches the underlying play. Some 10-4 teams are actually struggling. Some 6-8 teams are quietly good.</li>
+      <li><strong>Consistency.</strong> Are they steady, or are they the team that beats #5 one weekend and loses to #45 the next?</li>
+      <li><strong>Persona.</strong> A read on the team's identity — high-scoring + leaky, defensive grinder, big-game team, etc.</li>
+    </ul>
+    <p>Easiest way to see it work: pull up the team you watch most.</p>
+    <p><strong><a href="https://pitchrank.io/rankings">Open AI Insights →</a></strong></p>
+    <p>Try it on a team you <em>know</em> well first — it's a faster way to calibrate whether the read matches reality. Then run it on a team you're scouting.</p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<!-- 2.2 -->
+<div class="email-card">
+  <h3>2.2 Email 2 — Day 21</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">3 weeks in — what's missing?</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Real question. Hit reply.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>You're about a week out from your first monthly renewal. Before that hits, I want to ask one question:</p>
+    <p><strong>What's missing from PitchRank that would make it noticeably more useful to you?</strong></p>
+    <p>A view we don't have. A stat that's hidden too many clicks deep. A league we cover badly. A use case you came in expecting and didn't find.</p>
+    <p>Hit reply — goes to a real inbox, I read every one. The roadmap moves based on what paying parents ask for, and 3-week-in feedback is the most useful kind.</p>
+    <p>A few that came in last quarter and are already shipping or shipped:</p>
+    <ul>
+      <li>Edit access for parents to flag duplicate teams (live)</li>
+      <li>Win probability in Compare (live)</li>
+      <li>Faster mobile load times (live)</li>
+      <li>Email alerts on Watchlist movement (live)</li>
+    </ul>
+    <p>If you've got nothing to flag and PitchRank's working for you — that's a useful data point too. Just say "all good."</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ================= DUNNING ================= -->
+<h2 id="dunning">3. Dunning / Update Card — 3 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>past_due</code></p>
+  <p><strong>Trigger:</strong> Webhook fires on <code>invoice.payment_failed</code>.</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>past_due</code></p>
+  <p><strong>Exit condition:</strong> When invoice succeeds on retry, webhook flips <code>lifecycle = paid</code> and per-step gate auto-skips remaining emails.</p>
+  <p><strong>Audience context:</strong> Card on file failed. Existing paying customer — no marketing, just the action.</p>
+  <p><strong>Payment link merge tag:</strong> All three Dunning emails use <code>{{ last_failed_invoice_url | https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00 }}</code>. The webhook writes Stripe's per-invoice "pay this invoice" URL to this custom field on enrollment — one-click, no portal navigation. Fallback is the static Stripe Customer Portal login link.</p>
+  <p><strong>Before activating:</strong></p>
+  <ol>
+    <li>Create <code>last_failed_invoice_url</code> custom field in Beehiiv (Settings → Custom Fields → Add → text type). Empty custom fields are hidden from dropdowns; the webhook will populate it from the first dunning event, but the field must exist first.</li>
+    <li>Grab the static Stripe Customer Portal login URL: Stripe Dashboard → Settings → Billing → Customer portal → enable "Login link" → copy URL (format <code>https://billing.stripe.com/p/login/&lt;key&gt;</code>).</li>
+    <li>Replace every <code>fZu7sM2PO4AfgSQcKjgUM00</code> in the three Dunning emails with that URL.</li>
+  </ol>
+</div>
+
+<!-- 3.1 -->
+<div class="email-card">
+  <h3>3.1 Email 1 — Day 0 (immediate)</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Your card on file just declined</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Fix it in one click. Your subscription stays active.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Heads up — your card on file just declined when we tried to renew your PitchRank Premium subscription.</p>
+    <p>Could be anything: expired card, new card number, bank fraud flag, low balance. We'll automatically retry over the next few days, but the fastest fix is updating it yourself:</p>
+    <p><strong><a href="{{ last_failed_invoice_url | https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00 }}">Update payment method →</a></strong></p>
+    <p>Takes about 60 seconds. Premium stays on the whole time.</p>
+    <p>If you've decided to cancel, that's a fine outcome too — just let it lapse and Stripe will close the subscription on its own. No action needed from you.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<!-- 3.2 -->
+<div class="email-card">
+  <h3>3.2 Email 2 — Day 5</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Still showing a payment issue</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">A few more retry attempts before the subscription closes.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Your card hasn't gone through yet. Stripe is still retrying — you've got roughly <strong>two more weeks</strong> before the subscription closes automatically.</p>
+    <p>If this is just a card-on-file issue:</p>
+    <p><strong><a href="{{ last_failed_invoice_url | https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00 }}">Update payment method →</a></strong></p>
+    <p>If you've moved to a new card or bank since signing up, that's almost always the cause.</p>
+    <p>If you're not sure you want to keep PitchRank, totally fine — let it lapse. You'll keep free-tier access (basic rankings, weekly newsletter). The only things that turn off are Compare, Watchlist, AI Insights, and full rankings depth.</p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<!-- 3.3 -->
+<div class="email-card">
+  <h3>3.3 Email 3 — Day 14</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Last automatic retry</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">A few days until your subscription closes.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Quick note: Stripe is on its <strong>final retry window</strong> for your Premium subscription. After this, the subscription closes and you'll drop back to the free tier.</p>
+    <p>If you want to keep Premium, here's the one-click fix:</p>
+    <p><strong><a href="{{ last_failed_invoice_url | https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00 }}">Update payment method →</a></strong></p>
+    <p>If you'd rather end Premium and stay on the free tier — that's the default outcome if you do nothing. No need to email me, no cancel button to find. Stripe just stops retrying.</p>
+    <p>Either way: thanks for the time you've been on Premium. If there's a reason you've let it lapse on purpose (price, missing feature, switched platforms), I'd genuinely like to know — hit reply.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ================= CANCELLATION SAVE ================= -->
+<h2 id="cancel-save">4. Cancellation Save — 2 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>canceling</code></p>
+  <p><strong>Trigger:</strong> Webhook fires on <code>customer.subscription.updated</code> with <code>cancel_at_period_end = true</code>.</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>canceling</code></p>
+  <p><strong>Exit condition:</strong> If they reactivate (toggle off), webhook flips <code>lifecycle = paid</code> and per-step gate auto-skips remaining emails.</p>
+  <p><strong>Audience context:</strong> Clicked cancel — Premium ends at period end. Still have full access until then. Soft check-in, surface what turns off, offer reactivation. Do not beg.</p>
+  <p><strong>Reactivation link:</strong> Both Cancellation Save emails link to the static Stripe Customer Portal login URL (same one used as the Dunning fallback). Replace every <code>fZu7sM2PO4AfgSQcKjgUM00</code> with your <code>https://billing.stripe.com/p/login/&lt;key&gt;</code> URL before activating.</p>
+</div>
+
+<!-- 4.1 -->
+<div class="email-card">
+  <h3>4.1 Email 1 — Day 0 (immediate)</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Got your cancel — quick note</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Premium runs until period end. Reactivate anytime.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Heard you canceled. No hard feelings — Premium stays on until the end of your current billing period, so use it while you've got it.</p>
+    <p>Two things worth knowing before then:</p>
+    <p><strong>1. What turns off when the period ends:</strong></p>
+    <ul>
+      <li>Full rankings depth (drops to top 10 per state)</li>
+      <li>Compare (head-to-head win probability)</li>
+      <li>Watchlist + rank-change alerts</li>
+      <li>AI Insights</li>
+      <li>Edit access</li>
+    </ul>
+    <p><strong>2. Reactivation is one click.</strong> No re-entering card info, no friction. If you change your mind any time before the period ends:</p>
+    <p><strong><a href="https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00">Reactivate Premium →</a></strong></p>
+    <p>And if there's a specific reason you canceled (price, missing feature, switched to something else, just don't use it enough), I'd genuinely like to hear it. <strong>Hit reply.</strong> Real inbox, every reply lands with me.</p>
+    <p>The roadmap moves because of what people tell us when they leave.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<!-- 4.2 -->
+<div class="email-card">
+  <h3>4.2 Email 2 — Day 5</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Premium ends soon — last chance to flip the switch</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">No pressure. Just making sure you saw the reactivation link.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Premium wraps in a few days for you. After that you're on the free tier — still useful for a quick rank check, but Compare, Watchlist, and AI Insights all go dark.</p>
+    <p>If you canceled because <strong>PitchRank wasn't worth $6.99/mo</strong> to you — fair. Use the free tier and the newsletter; that's what they're there for.</p>
+    <p>If you canceled because <strong>you weren't using it enough</strong> — that's the most common reason, and the fix is one feature, not the whole product. Pick one team you actually care about, add it to Watchlist, and you'll get a Monday email when its rank moves. That single thing keeps most parents engaged.</p>
+    <p><strong><a href="https://billing.stripe.com/p/login/fZu7sM2PO4AfgSQcKjgUM00">Reactivate Premium →</a></strong></p>
+    <p><strong><a href="https://pitchrank.io">Or just let it end</a></strong> — no further emails like this. You'll get the regular weekly newsletter on the free tier.</p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ================= TRIAL CANCEL DRIP ================= -->
+<h2 id="trial-cancel">5. Trial Cancel Drip — 2 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>trial_canceled</code></p>
+  <p><strong>Trigger:</strong> Webhook fires on <code>customer.subscription.deleted</code> while prior status was <code>trialing</code>.</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>trial_canceled</code></p>
+  <p><strong>Audience context:</strong> Bailed during the 7-day trial — never got billed. One honest "what stopped you?" email, then a soft "come back when you're ready" — no hard sell.</p>
+</div>
+
+<!-- 5.1 -->
+<div class="email-card">
+  <h3>5.1 Email 1 — Day 1</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">You canceled the trial — quick honest question</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">No pitch. One question.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>You canceled your trial yesterday. No charge, no hard feelings.</p>
+    <p>Before I let you go: <strong>what stopped you?</strong></p>
+    <p>Not asking to talk you out of it. Asking because trial-cancelers tell us what's broken faster than anyone else does, and I read every reply.</p>
+    <p>Useful answers are usually one of:</p>
+    <ul>
+      <li>"Couldn't figure out how to do X."</li>
+      <li>"You don't cover [my league / my state / my age group] well."</li>
+      <li>"Too expensive for what it does."</li>
+      <li>"I signed up at the wrong moment in the season."</li>
+      <li>"Couldn't find my team."</li>
+      <li>"Tried it once, forgot it existed."</li>
+    </ul>
+    <p>No reply is fine too. But if you've got 30 seconds — hit reply with even one sentence.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<!-- 5.2 -->
+<div class="email-card">
+  <h3>5.2 Email 2 — Day 7</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Come back when the timing's right</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Best moments to retry PitchRank.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>A week ago you tried PitchRank and decided it wasn't the right time. Totally fair — timing is a real thing in youth soccer.</p>
+    <p>If you ever want to retry, these are the three moments most parents say it actually clicks:</p>
+    <ul>
+      <li><strong>Before tryouts (Apr–Jun)</strong> — when you're deciding between clubs or leagues</li>
+      <li><strong>Before a big tournament</strong> — when you want to scout the bracket</li>
+      <li><strong>After a confusing result</strong> — when "wait, who is this team?" finally pushes you to look</li>
+    </ul>
+    <p>The trial doesn't expire. Same 7 days, same risk-free terms, whenever you want.</p>
+    <p><strong><a href="https://pitchrank.io/upgrade">Restart your trial →</a></strong></p>
+    <p>In the meantime, the <strong>weekly newsletter</strong> stays free and is genuinely useful on its own.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<hr>
+
+<!-- ================= PAID WIN-BACK ================= -->
+<h2 id="winback">6. Paid Win-Back — 3 emails</h2>
+
+<div class="meta">
+  <p><strong>Lifecycle state:</strong> <code>paid_canceled</code></p>
+  <p><strong>Trigger:</strong> Webhook fires on <code>customer.subscription.deleted</code> while prior status was <code>active</code>/<code>past_due</code>, OR on <code>charge.refunded</code>.</p>
+  <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>paid_canceled</code></p>
+  <p><strong>Audience context:</strong> Paid for a while, then left (or refunded). They <em>know</em> the product. Don't reintroduce it — acknowledge they left, ask why, surface what's changed, then offer a clean way back. Discount only in Email 3.</p>
+</div>
+
+<!-- 6.1 -->
+<div class="email-card">
+  <h3>6.1 Email 1 — Day 3</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">Sorry to see you go — one question</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">What would've kept you?</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>You canceled Premium a few days ago after being on the paid plan for a while. Wanted to ask one thing, honestly:</p>
+    <p><strong>What would've kept you?</strong></p>
+    <p>Most "why did you cancel?" surveys are pointless — multiple choice, the right answer isn't there. So I'm just going to ask in plain English.</p>
+    <p>Common ones I've heard from past cancelers:</p>
+    <ul>
+      <li>"Stopped using it after [the season ended / my kid switched sports / we picked a club]"</li>
+      <li>"The data on [my league / my age group] wasn't great"</li>
+      <li>"$6.99/mo adds up — too many subscriptions"</li>
+      <li>"I wanted [feature] and it wasn't there"</li>
+      <li>"It was great, just didn't need it anymore"</li>
+    </ul>
+    <p>Hit reply with whichever it was (or something I didn't list). I read every one — leavers' feedback shapes the roadmap more than current users'.</p>
+    <p>— Dallas<br>Founder, PitchRank</p>
+  </div>
+</div>
+
+<!-- 6.2 -->
+<div class="email-card">
+  <h3>6.2 Email 2 — Day 14</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">What's changed at PitchRank since you left</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Short list. No pitch yet.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Two weeks since you canceled. Couple of things have moved since then that might be relevant:</p>
+    <ul>
+      <li><strong>AI Insights</strong> got a refresh — Season Truth, consistency, and persona are now on every team page</li>
+      <li><strong>Watchlist alerts</strong> are now weekly emails, not in-app only</li>
+      <li><strong>Edit access</strong> lets you flag wrong game results or duplicate teams directly</li>
+      <li><strong>Compare</strong> added head-to-head win probability based on the full rating engine</li>
+    </ul>
+    <p>Not asking you to come back yet. Just making sure you know what you'd actually get if you did.</p>
+    <p>If you want to take a fresh look:</p>
+    <p><strong><a href="https://pitchrank.io">See what's live →</a></strong></p>
+    <p>— Dallas</p>
+  </div>
+</div>
+
+<!-- 6.3 -->
+<div class="email-card">
+  <h3>6.3 Email 3 — Day 30</h3>
+  <div class="field-label">Subject</div>
+  <div class="field-value">A way back if you want it</div>
+  <div class="field-label">Preview</div>
+  <div class="field-value">Yearly is now ~17% off — and you can re-trial first.</div>
+  <div class="field-label">Body</div>
+  <div class="copy-hint">↓ Copy everything below this line into Beehiiv ↓</div>
+  <div class="body-block">
+    <p>Last email from the win-back sequence.</p>
+    <p>If you want to give PitchRank another look, two paths:</p>
+    <p><strong>1. Free 7-day trial</strong> — same terms as before. No charge until day 8, cancel in one click.<br>
+    <strong><a href="https://pitchrank.io/upgrade">Restart your trial →</a></strong></p>
+    <p><strong>2. Switch to yearly and lock in the lower rate.</strong> $69.99/yr is <strong>~17% off</strong> versus monthly. If you canceled mostly because of recurring monthly billing fatigue, yearly is the cleaner answer.<br>
+    <strong><a href="https://pitchrank.io/upgrade?plan=yearly">Switch to yearly →</a></strong></p>
+    <p>That's it. After this email I'll stop nudging — you'll only hear from me through the regular newsletter (free) unless you re-trial.</p>
+    <p>Thanks for the time you spent on Premium. The product is better because of it.</p>
+    <p>— Dallas<br>Founder, PitchRank<br>pitchrank.io</p>
+  </div>
+</div>
+
+<hr>
+
+<h2>Metrics to watch after launch</h2>
+<table>
+  <thead>
+    <tr><th>Automation</th><th>Key metric</th><th>Target</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Non-Premium Drip</td><td>Trial start rate (any email click → /upgrade)</td><td>&gt;3%</td></tr>
+    <tr><td>Paid Drip</td><td>Email 2 reply rate</td><td>&gt;5/100</td></tr>
+    <tr><td>Dunning</td><td>Card-update rate by Day 14</td><td>&gt;40%</td></tr>
+    <tr><td>Cancellation Save</td><td>Reactivation rate by period end</td><td>&gt;5%</td></tr>
+    <tr><td>Trial Cancel Drip</td><td>Email 1 reply rate</td><td>&gt;8/100</td></tr>
+    <tr><td>Paid Win-Back</td><td>Email 3 → trial restart</td><td>&gt;2%</td></tr>
+  </tbody>
+</table>
+<p>Unsubscribe ceiling: <strong>&lt;2% per email</strong> across every automation. Above that → revisit cadence, not copy.</p>
+
+<h2>Activation order</h2>
+<p>Per spec §9: automations are in Draft. Activate each one <strong>only after</strong> its copy is reviewed and pasted in. Order suggestion (lowest-risk first):</p>
+<ol>
+  <li><strong>Dunning</strong> — pure transactional, hardest to get wrong</li>
+  <li><strong>Cancellation Save</strong> — small audience, immediate revenue impact</li>
+  <li><strong>Paid Drip</strong> — small audience (only post-trial converters), low risk</li>
+  <li><strong>Trial Cancel Drip</strong> — soft, hit-reply</li>
+  <li><strong>Paid Win-Back</strong> — has a discount lever in Email 3; activate after the three above are clean</li>
+  <li><strong>Non-Premium Drip</strong> — largest audience downstream of report-card form; activate last after others are calibrated</li>
+</ol>
+
+</body>
+</html>
