@@ -168,6 +168,51 @@ export async function setLifecycle(email: string, lifecycle: Lifecycle): Promise
   }
 }
 
+/**
+ * Write a single arbitrary custom field on an existing Beehiiv subscriber.
+ * Use for non-lifecycle fields like `last_failed_invoice_url`. Returns false
+ * if the subscriber doesn't exist or the write fails. Non-fatal — callers
+ * log and continue.
+ */
+export async function setSubscriberCustomField(email: string, fieldName: string, value: string): Promise<boolean> {
+  const { apiKey, pubId } = getConfig();
+  if (!apiKey || !pubId) {
+    console.warn(`[beehiiv] API key or publication ID not configured, skipping ${fieldName}`);
+    return false;
+  }
+
+  try {
+    const subscriberId = await findSubscriberId(email);
+    if (!subscriberId) {
+      console.warn(`[beehiiv] setSubscriberCustomField: no subscriber found for ${email}`);
+      return false;
+    }
+
+    const resp = await fetch(`${BEEHIIV_API_URL}/publications/${pubId}/subscriptions/${subscriberId}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        custom_fields: [{ name: fieldName, value }],
+      }),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      console.warn(`[beehiiv] setSubscriberCustomField(${fieldName}) failed (${resp.status}): ${body}`);
+      return false;
+    }
+
+    console.log(`[beehiiv] Set ${fieldName}`);
+    return true;
+  } catch (err) {
+    console.error(`[beehiiv] Error setting ${fieldName}: ${err}`);
+    return false;
+  }
+}
+
 export interface ReportCardLeadAttrs {
   teamName?: string | null;
   clubName?: string | null;

@@ -4,7 +4,14 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
-import { tagSubscriber, untagSubscriber, setLifecycle, enrollInAutomation, type Lifecycle } from '@/lib/beehiiv';
+import {
+  tagSubscriber,
+  untagSubscriber,
+  setLifecycle,
+  setSubscriberCustomField,
+  enrollInAutomation,
+  type Lifecycle,
+} from '@/lib/beehiiv';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 
 /**
@@ -499,6 +506,20 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     return;
   }
   await syncLifecycle(customerId, 'past_due');
+
+  // Pass Stripe's per-invoice "pay this invoice" URL into Beehiiv so dunning
+  // emails can deep-link straight to it instead of routing through the
+  // customer portal. Falls back to the portal login link in the email template
+  // if the field is empty.
+  const hostedUrl = invoice.hosted_invoice_url;
+  if (hostedUrl) {
+    try {
+      const email = await getCustomerEmail(customerId);
+      if (email) await setSubscriberCustomField(email, 'last_failed_invoice_url', hostedUrl);
+    } catch (err) {
+      console.error(`[webhook] Failed to set last_failed_invoice_url (non-fatal):`, err);
+    }
+  }
 }
 
 /**
