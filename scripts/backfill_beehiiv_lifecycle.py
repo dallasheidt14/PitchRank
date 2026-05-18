@@ -15,6 +15,12 @@ frontend/app/api/stripe/webhook/route.ts):
 | past_due                          | past_due  |
 | canceled / null                   | free_drip |
 
+Pass 1 covers everyone in user_profiles with a Stripe customer ID
+(paginated). Pass 2 sweeps Beehiiv directly to catch free-tier
+subscribers (report-card leads, newsletter signups) who never opened
+a Stripe checkout — they get lifecycle=free_drip unless they already
+have a lifecycle value from prior webhook activity.
+
 Spec: docs/superpowers/specs/2026-05-17-lifecycle-automation-flow.md
 
 Usage:
@@ -49,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 BEEHIIV_API_URL = "https://api.beehiiv.com/v2"
 RATE_LIMIT_SLEEP_S = 0.25  # be polite — ~4 req/s
+SUPABASE_PAGE_SIZE = 1000  # Supabase REST default cap
+BEEHIIV_PAGE_SIZE = 100  # Beehiiv list endpoint max
 
 
 def status_to_lifecycle(status: str | None) -> str:
@@ -63,16 +71,22 @@ def status_to_lifecycle(status: str | None) -> str:
 
 
 def fetch_paying_users(supabase):
-    """Pull every user_profile with a stripe_customer_id."""
-    response = (
-        supabase.table("user_profiles")
-        .select("email, subscription_status")
-        .not_.is_("stripe_customer_id", "null")
-        .execute()
-    )
-    rows = response.data or []
-    if len(rows) == 1000:
-        logger.warning("Fetched exactly 1000 rows — pagination may be needed")
+    """Pull every user_profile with a stripe_customer_id, paginated."""
+    rows = []
+    offset = 0
+    while True:
+        response = (
+            supabase.table("user_profiles")
+            .select("email, subscription_status")
+            .not_.is_("stripe_customer_id", "null")
+            .range(offset, offset + SUPABASE_PAGE_SIZE - 1)
+            .execute()
+        )
+        page = response.data or []
+        rows.extend(page)
+        if len(page) < SUPABASE_PAGE_SIZE:
+            break
+        offset += SUPABASE_PAGE_SIZE
     return rows
 
 
@@ -104,6 +118,44 @@ def beehiiv_set_lifecycle(api_key: str, pub_id: str, subscriber_id: str, lifecyc
     return True
 
 
+def iter_beehiiv_free_subscribers(api_key: str, pub_id: str):
+    """Yield every active free-tier Beehiiv subscriber (cursor-paginated).
+
+    Yields dicts with at least `id`, `email`, and `custom_fields` so the
+    caller can skip subscribers who already have a lifecycle value set.
+    """
+    cursor = None
+    while True:
+        params = {"status": "active", "tier": "free", "limit": BEEHIIV_PAGE_SIZE}
+        if cursor:
+            params["cursor"] = cursor
+        resp = requests.get(
+            f"{BEEHIIV_API_URL}/publications/{pub_id}/subscriptions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            params=params,
+            timeout=15,
+        )
+        if not resp.ok:
+            logger.warning("Beehiiv list failed (%s): %s", resp.status_code, resp.text[:200])
+            return
+        payload = resp.json()
+        for sub in payload.get("data") or []:
+            yield sub
+        if not payload.get("has_more"):
+            return
+        cursor = payload.get("next_cursor")
+        if not cursor:
+            return
+        time.sleep(RATE_LIMIT_SLEEP_S)
+
+
+def has_lifecycle(subscriber: dict) -> bool:
+    for field in subscriber.get("custom_fields") or []:
+        if (field.get("name") or "").lower() == "lifecycle" and field.get("value"):
+            return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dry-run", action="store_true", help="Report counts without writing to Beehiiv")
@@ -129,16 +181,29 @@ def main():
         sys.exit(1)
 
     supabase = create_client(supabase_url, supabase_key)
-    users = fetch_paying_users(supabase)
-    logger.info("Found %d users with a Stripe customer", len(users))
 
-    counts = {"trialing": 0, "paid": 0, "past_due": 0, "free_drip": 0, "missing_email": 0, "not_in_beehiiv": 0, "failed": 0}
+    counts = {
+        "trialing": 0,
+        "paid": 0,
+        "past_due": 0,
+        "free_drip": 0,
+        "missing_email": 0,
+        "not_in_beehiiv": 0,
+        "already_set": 0,
+        "failed": 0,
+    }
+    touched_emails: set[str] = set()
+
+    # --- Pass 1: Stripe customers → lifecycle from subscription_status ---
+    users = fetch_paying_users(supabase)
+    logger.info("Pass 1: found %d users with a Stripe customer", len(users))
 
     for row in users:
         email = (row.get("email") or "").strip().lower()
         if not email:
             counts["missing_email"] += 1
             continue
+        touched_emails.add(email)
 
         lifecycle = status_to_lifecycle(row.get("subscription_status"))
         counts[lifecycle] += 1
@@ -158,6 +223,30 @@ def main():
             counts["failed"] += 1
             continue
         logger.info("  %s → lifecycle=%s", email, lifecycle)
+        time.sleep(RATE_LIMIT_SLEEP_S)
+
+    # --- Pass 2: free-tier Beehiiv subscribers (report-card leads etc.)
+    #     not already touched in pass 1 and without an existing lifecycle ---
+    logger.info("")
+    logger.info("Pass 2: sweeping free-tier Beehiiv subscribers for free_drip backfill")
+
+    for sub in iter_beehiiv_free_subscribers(api_key, pub_id):
+        email = (sub.get("email") or "").strip().lower()
+        if not email or email in touched_emails:
+            continue
+        if has_lifecycle(sub):
+            counts["already_set"] += 1
+            continue
+
+        counts["free_drip"] += 1
+        if args.dry_run:
+            logger.info("[dry-run] %s → free_drip", email)
+            continue
+
+        if not beehiiv_set_lifecycle(api_key, pub_id, sub["id"], "free_drip"):
+            counts["failed"] += 1
+            continue
+        logger.info("  %s → lifecycle=free_drip", email)
         time.sleep(RATE_LIMIT_SLEEP_S)
 
     logger.info("")
