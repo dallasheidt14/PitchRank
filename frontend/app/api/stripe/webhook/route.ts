@@ -505,12 +505,11 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
     console.log(`[webhook] Skipping Dunning enrollment — already past_due (webhook re-delivery)`);
     return;
   }
-  await syncLifecycle(customerId, 'past_due');
 
-  // Pass Stripe's per-invoice "pay this invoice" URL into Beehiiv so dunning
-  // emails can deep-link straight to it instead of routing through the
-  // customer portal. Falls back to the portal login link in the email template
-  // if the field is empty.
+  // Order matters: write last_failed_invoice_url BEFORE syncLifecycle.
+  // Beehiiv automations triggered by enrollment render their first email at
+  // enrollment time, so the per-invoice URL must already be on the subscriber
+  // record or the dunning email falls back to the generic portal link.
   const hostedUrl = invoice.hosted_invoice_url;
   if (hostedUrl) {
     try {
@@ -520,6 +519,8 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
       console.error(`[webhook] Failed to set last_failed_invoice_url (non-fatal):`, err);
     }
   }
+
+  await syncLifecycle(customerId, 'past_due');
 }
 
 /**
