@@ -98,7 +98,11 @@ jobs:
             echo "[$PROCESSED/${#URLS[@]}] Scraping: $URL"
             echo "========================================================"
 
-            BEFORE=$(ls -1 data/raw/playmetrics/playmetrics_*.csv 2>/dev/null | wc -l)
+            # NB: use `find`, not `ls -1 *.csv`. On a fresh runner the dir is
+            # empty and `ls` exits 2 (no glob match); under GHA's default
+            # `bash -eo pipefail` that aborts the script before the scraper
+            # even runs. `find` returns 0 with empty output instead.
+            BEFORE=$(find data/raw/playmetrics -maxdepth 1 -name 'playmetrics_*.csv' 2>/dev/null | wc -l)
 
             if ! python scripts/scrape_playmetrics_league.py \
                 --league-url "$URL" \
@@ -110,7 +114,7 @@ jobs:
               continue
             fi
 
-            AFTER=$(ls -1 data/raw/playmetrics/playmetrics_*.csv 2>/dev/null | wc -l)
+            AFTER=$(find data/raw/playmetrics -maxdepth 1 -name 'playmetrics_*.csv' 2>/dev/null | wc -l)
             if [ "$AFTER" -le "$BEFORE" ]; then
               echo "❌ No new CSV produced for: $URL"
               FAILED=$((FAILED + 1))
