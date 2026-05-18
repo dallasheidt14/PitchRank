@@ -219,12 +219,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     cancel_at_period_end: false,
   };
 
-  // Check if a user profile already exists for this Stripe customer (authenticated checkout)
+  // Check if a user profile already exists for this Stripe customer (authenticated
+  // checkout). We also read subscription_status to detect webhook re-deliveries
+  // (Stripe is at-least-once) and skip duplicate Beehiiv automation enrollments.
   const { data: existingProfile } = await getSupabaseAdmin()
     .from('user_profiles')
-    .select('id')
+    .select('id, subscription_status')
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
+  const priorStatus: string | null = existingProfile?.subscription_status ?? null;
 
   let customer: Stripe.Customer | Stripe.DeletedCustomer;
 
@@ -335,13 +338,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Sync Beehiiv: set tier to premium (gates paywall content), set lifecycle,
   // and enroll in the matching automation (Trial Onboarding for trialing,
   // Paid Drip for direct-to-paid). Each step is non-fatal.
+  //
+  // Idempotency: tagSubscriber + setLifecycle are upserts (same value = no
+  // observable change), but enrollInAutomation creates a fresh journey on
+  // every call. Skip enrollment when prior subscription_status already
+  // matches the new one — that means this is a Stripe webhook re-delivery,
+  // not a genuine state change.
   const rawEmail = (customer as Stripe.Customer).email;
   if (rawEmail) {
     try {
       await tagSubscriber(rawEmail);
       const lifecycle: Lifecycle = subscription.status === 'trialing' ? 'trialing' : 'paid';
       await setLifecycle(rawEmail, lifecycle);
-      await enrollInLifecycleAutomation(rawEmail, lifecycle);
+      if (priorStatus !== subscription.status) {
+        await enrollInLifecycleAutomation(rawEmail, lifecycle);
+      } else {
+        console.log(`[webhook] Skipping enrollment — already in status=${priorStatus} (webhook re-delivery)`);
+      }
     } catch (tagError) {
       console.error('[webhook] Beehiiv sync failed (non-fatal):', tagError);
     }
@@ -398,6 +411,15 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   });
 
   console.log(`[webhook] Subscription canceled for customer ${customerId} (prior status: ${prior.status})`);
+
+  // Webhook re-delivery: prior.status is already 'canceled' from a previous
+  // run of this handler. Skip Beehiiv writes — otherwise we'd mis-route to
+  // paid_canceled (because the 'trialing' signal is gone) and re-enroll in
+  // the win-back automation.
+  if (prior.status === 'canceled' || prior.status === null) {
+    console.log(`[webhook] Skipping Beehiiv sync — already canceled (webhook re-delivery)`);
+    return;
+  }
 
   // Remove premium tag in Beehiiv + route into Trial Cancel or Paid Win-Back
   // based on whether they were trialing or actively paying when canceled.
@@ -462,12 +484,20 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
  */
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   const customerId = invoice.customer as string;
+  const prior = await getPriorState(customerId);
 
   await updateUserProfile(getSupabaseAdmin(), customerId, {
     subscription_status: 'past_due',
   });
 
-  console.log(`[webhook] Payment failed for customer ${customerId}`);
+  console.log(`[webhook] Payment failed for customer ${customerId} (prior status: ${prior.status})`);
+
+  // Re-delivery: subscription_status is already 'past_due' from a prior run.
+  // Skip syncLifecycle to avoid duplicate Dunning enrollment.
+  if (prior.status === 'past_due') {
+    console.log(`[webhook] Skipping Dunning enrollment — already past_due (webhook re-delivery)`);
+    return;
+  }
   await syncLifecycle(customerId, 'past_due');
 }
 

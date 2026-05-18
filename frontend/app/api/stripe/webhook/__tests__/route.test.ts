@@ -519,3 +519,81 @@ describe('Beehiiv automation enrollment', () => {
     expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_trial_cancel');
   });
 });
+
+describe('Idempotency on Stripe webhook re-delivery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    for (const key of [
+      'BEEHIIV_TRIAL_AUTOMATION_ID',
+      'BEEHIIV_PAID_AUTOMATION_ID',
+      'BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID',
+      'BEEHIIV_PAID_CANCEL_AUTOMATION_ID',
+      'BEEHIIV_DUNNING_AUTOMATION_ID',
+    ]) {
+      delete process.env[key];
+    }
+    setPriorState(null);
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+  });
+
+  function fireEvent(type: string, object: Record<string, unknown>): Promise<Response> {
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+      id: `evt_${type}`,
+      type,
+      data: { object },
+    } as unknown as Stripe.Event);
+    return POST(makeRequest('valid body'));
+  }
+
+  it('skips trial enrollment when checkout re-delivers and status is unchanged', async () => {
+    process.env.BEEHIIV_TRIAL_AUTOMATION_ID = 'aut_test_trial';
+    // Existing profile already in 'trialing' state → this is a re-delivery
+    setPriorState({ id: '1', subscription_status: 'trialing', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'trialing',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.completed', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+    });
+
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+    // Lifecycle write still fires (idempotent upsert)
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'trialing');
+  });
+
+  it('skips Beehiiv sync when subscription.deleted re-delivers (already canceled)', async () => {
+    process.env.BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID = 'aut_test_trial_cancel';
+    process.env.BEEHIIV_PAID_CANCEL_AUTOMATION_ID = 'aut_test_paid_cancel';
+    // Prior state already canceled — first delivery already ran
+    setPriorState({ subscription_status: 'canceled', cancel_at_period_end: false });
+
+    await fireEvent('customer.subscription.deleted', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+    });
+
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
+  it('skips Dunning enrollment when payment_failed re-delivers (already past_due)', async () => {
+    process.env.BEEHIIV_DUNNING_AUTOMATION_ID = 'aut_test_dunning';
+    setPriorState({ subscription_status: 'past_due', cancel_at_period_end: false });
+
+    await fireEvent('invoice.payment_failed', { customer: 'cus_123' });
+
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+  });
+});
