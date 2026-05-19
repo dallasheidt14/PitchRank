@@ -59,6 +59,11 @@ on:
         required: false
         type: string
         default: ''
+      use_zenrows:
+        description: 'Route gotsport API calls through ZenRows residential proxy (bypasses per-IP WAF budget; costs per request)'
+        required: false
+        type: boolean
+        default: false
       include_recent:
         description: 'Include teams scraped within last 7 days (override default filter)'
         required: false
@@ -306,6 +311,11 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
           PYTHONPATH:                ${{ github.workspace }}
+          # GotSportScraper reads ZENROWS_API_KEY at __init__ and routes API
+          # calls through the residential proxy when set. Gated on the
+          # use_zenrows workflow input so we can A/B without flipping the
+          # default. Schedule + chain links default to direct (use_zenrows=false).
+          ZENROWS_API_KEY: ${{ inputs.use_zenrows && secrets.ZENROWS_API_KEY || '' }}
         run: ${{ steps.build-command.outputs.command }}
 
       - name: Upload scraped data
