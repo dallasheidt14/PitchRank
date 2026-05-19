@@ -6,11 +6,13 @@ module into this file. The old file remains as a back-compat shim re-exporting
 continue to work with zero changes.
 """
 
+import asyncio
 import json
 import logging
 import os
 import random
 import re
+import threading
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -33,6 +35,7 @@ except ImportError:
 
 from src.base import GameData
 from src.scrapers._age_normalization import normalize_age
+from src.scrapers._http import RateLimitedError
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
 from src.scrapers.gotsport_tier_parser import (
@@ -59,9 +62,18 @@ __all__ = [
     "GotSportScraper",
     "GotsportScraper",
     "TeamNotFoundError",
+    "WAFBlockedError",
+    "get_waf_breaker",
 ]
 
 logger = logging.getLogger(__name__)
+
+# CloudFront WAF cooldown (seconds). GotSport fronted system.gotsport.com/api/v1/*
+# with a per-IP burst rate limiter ~2026-05-01; tripped IPs return 403 with
+# Server: CloudFront and stay locked out for multiple minutes. 300s matches the
+# empirically observed lockout duration (2026-05-18). Override via
+# GOTSPORT_WAF_COOLDOWN_SEC.
+_WAF_COOLDOWN_DEFAULT = 300
 
 
 class TeamNotFoundError(Exception):
@@ -71,6 +83,207 @@ class TeamNotFoundError(Exception):
         self.team_id = team_id
         self.provider = provider
         super().__init__(f"Team {team_id} not found on {provider} (404)")
+
+
+class WAFBlockedError(RateLimitedError):
+    """Raised when GotSport's CloudFront WAF trips a second time in one session.
+
+    Subclass of ``RateLimitedError`` so existing orchestrator rate-limit shapes
+    apply. Construction is keyword-only via the parent ctor — see
+    ``WAFBreaker.trip``.
+    """
+
+
+def _is_cloudfront_waf_block(response: requests.Response) -> bool:
+    """True iff response is a CloudFront WAF block (403 + Server: CloudFront).
+
+    Header-only check; body parse not required and would slow the hot path.
+    """
+    # NOTE: Detector is keyed on 403 only. CloudFront WAFs can also escalate
+    # to 503 for some throttle classes; today the urllib3 adapter at
+    # _init_http_session has status_forcelist=[429,500,502,503,504] which
+    # silently retries 503 three times and raises RetryError with
+    # e.response is None — invisible to this detector. If a future incident
+    # shows WAF 503s, both the urllib3 mount (drop 503 from forcelist, or
+    # move handling app-layer) and this detector must be widened in lockstep.
+    # Do NOT add 403 to the urllib3 status_forcelist without also updating
+    # this detector — that would mask trips.
+    return response.status_code == 403 and response.headers.get("Server") == "CloudFront"
+
+
+class WAFBreaker:
+    """IP-scoped circuit breaker shared across all GotSport workers.
+
+    Cross-worker pause/resume coordination via a ``threading.Lock`` (sync
+    waiters) and an ``asyncio.Event`` (async waiters in the orchestrator).
+    Module-level singleton because the WAF is per-IP, not per-scraper-instance.
+
+    Lifecycle for a single team's worst-case retry:
+        attempt 0 → 403 CloudFront → trip() (count=1) → continue
+        attempt 1 → wait_if_open_sync() blocks ~cooldown_sec
+        attempt 1 → either succeeds (done) OR 403 CloudFront → trip() raises
+        WAFBlockedError (count=2) → run aborts. Wall time = ~1 cooldown,
+        not max_retries × cooldown.
+    """
+
+    def __init__(self) -> None:
+        self._state: str = "closed"
+        self._trip_count: int = 0
+        self._cooldown_sec: int = 0
+        self._open_until: float = 0.0
+        self._lock = threading.Lock()
+        self._async_event = asyncio.Event()
+        self._async_event.set()  # closed state = workers proceed
+        self._resume_timer: Optional[threading.Timer] = None
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Thread the running event loop into the breaker.
+
+        Called once by the orchestrator at startup so ``call_soon_threadsafe``
+        can flip the async event from worker / Timer threads. Resets state
+        first so a new ``asyncio.run`` entry can't inherit trips from a prior
+        run (the singleton lives at module scope).
+        """
+        self.reset()
+        self._loop = loop
+
+    def _aborted_error(self, *, url: str = "", cooldown_sec: float = 0.0) -> "WAFBlockedError":
+        """Single-source the ``WAFBlockedError`` construction used by all abort sites."""
+        return WAFBlockedError(
+            provider="gotsport",
+            url=url,
+            last_retry_after=float(cooldown_sec),
+            reason="cloudfront-waf-second-trip",
+        )
+
+    def trip(self, cooldown_sec: int, *, url: str = "", team_id: str = "") -> None:
+        """Mark the breaker tripped on a CLOSED→OPEN transition.
+
+        States: closed → open → closed (cooldown) → aborted (terminal). Once
+        aborted, every subsequent ``trip``/``wait_if_open_*`` call raises
+        ``WAFBlockedError`` so the abort propagates through every concurrent
+        worker — ``asyncio.gather(return_exceptions=True)`` waits for the
+        whole queue to finish, so without sticky abort the remaining workers
+        would keep scraping past the fatal second trip.
+
+        No-op when already open — concurrent in-flight 403s from one WAF burst
+        must not each count as a separate trip.
+        """
+        with self._lock:
+            if self._state == "aborted":
+                raise self._aborted_error(url=url, cooldown_sec=cooldown_sec)
+            if self._state == "open":
+                return
+            self._trip_count += 1
+            current_count = self._trip_count
+            if current_count >= 2:
+                self._state = "aborted"
+                # Unblock async waiters so they re-check state and raise.
+                if self._loop is not None and not self._loop.is_closed():
+                    self._loop.call_soon_threadsafe(self._async_event.set)
+                else:
+                    self._async_event.set()
+                raise self._aborted_error(url=url, cooldown_sec=cooldown_sec)
+            self._state = "open"
+            self._cooldown_sec = cooldown_sec
+            self._open_until = time.monotonic() + cooldown_sec
+            if self._loop is not None and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(self._async_event.clear)
+            else:
+                self._async_event.clear()
+            self._resume_timer = threading.Timer(cooldown_sec, self._resume)
+            self._resume_timer.daemon = True
+            self._resume_timer.start()
+        logger.warning(
+            "gotsport waf-tripped: team=%s cooldown=%ds url=%s trip_count=%d",
+            team_id,
+            cooldown_sec,
+            url,
+            current_count,
+        )
+
+    def wait_if_open_sync(self) -> None:
+        """Block the calling (sync) thread until the breaker is closed.
+
+        Raises ``WAFBlockedError`` when the breaker is in the terminal
+        ``aborted`` state — propagates the fatal trip through every in-flight
+        worker so the orchestrator's gather drains quickly.
+        """
+        while True:
+            with self._lock:
+                if self._state == "aborted":
+                    raise self._aborted_error()
+                if self._state == "closed":
+                    return
+                remaining = self._open_until - time.monotonic()
+            time.sleep(min(max(remaining, 0.1), 1.0))
+            if time.monotonic() >= self._open_until:
+                self._resume()  # idempotent — belt-and-suspenders for Timer
+
+    async def wait_if_open_async(self) -> None:
+        """Async waiter for orchestrator workers before grabbing semaphore.
+
+        Raises ``WAFBlockedError`` if the breaker has transitioned to the
+        terminal ``aborted`` state — without this re-check, queued workers
+        would happily proceed once the event is re-set by the aborting trip.
+        """
+        await self._async_event.wait()
+        with self._lock:
+            if self._state == "aborted":
+                raise self._aborted_error()
+
+    def _resume(self) -> None:
+        """Flip state back to closed. Idempotent; never overrides ``aborted``."""
+        with self._lock:
+            if self._state != "open":
+                return
+            self._state = "closed"
+            elapsed = int(time.monotonic() - (self._open_until - self._cooldown_sec))
+            if self._loop is not None and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(self._async_event.set)
+            else:
+                self._async_event.set()
+            trip_count = self._trip_count
+        logger.info(
+            "gotsport waf-resumed: cooldown_elapsed=%ds trip_count=%d",
+            elapsed,
+            trip_count,
+        )
+
+    @property
+    def trip_count(self) -> int:
+        return self._trip_count
+
+    def reset(self) -> None:
+        """Wipe all state. Used by tests (conftest autouse) and ``bind_loop``.
+
+        Recreates ``_async_event`` so a fresh event loop (next ``asyncio.run``
+        or next pytest-asyncio function-scoped loop) can await it without
+        inheriting stale waiter futures bound to the previous loop.
+        """
+        with self._lock:
+            if self._resume_timer is not None:
+                self._resume_timer.cancel()
+                self._resume_timer = None
+            self._loop = None
+            self._state = "closed"
+            self._trip_count = 0
+            self._cooldown_sec = 0
+            self._open_until = 0.0
+            self._async_event = asyncio.Event()
+            self._async_event.set()
+
+
+_waf_breaker = WAFBreaker()
+
+
+def get_waf_breaker() -> WAFBreaker:
+    """Return the module-level WAF breaker singleton."""
+    return _waf_breaker
 
 
 class GotSportScraper(BaseScraper):
@@ -88,6 +301,7 @@ class GotSportScraper(BaseScraper):
         self.max_retries = int(os.getenv("GOTSPORT_MAX_RETRIES", "3"))
         self.timeout = int(os.getenv("GOTSPORT_TIMEOUT", "30"))
         self.retry_delay = float(os.getenv("GOTSPORT_RETRY_DELAY", "2.0"))
+        self.waf_cooldown_sec = int(os.getenv("GOTSPORT_WAF_COOLDOWN_SEC", str(_WAF_COOLDOWN_DEFAULT)))
 
         # ZenRows configuration (optional)
         self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
@@ -212,6 +426,8 @@ class GotSportScraper(BaseScraper):
 
         # Retry logic
         for attempt in range(self.max_retries):
+            # Pause if the cross-worker breaker is open (cooldown after a WAF trip).
+            _waf_breaker.wait_if_open_sync()
             try:
                 # Use ZenRows if configured
                 if self.use_zenrows:
@@ -284,6 +500,13 @@ class GotSportScraper(BaseScraper):
                     break
 
             except requests.exceptions.HTTPError as e:
+                # CloudFront WAF block: trip the cross-worker breaker so every
+                # in-flight worker pauses for one cooldown. Second trip in this
+                # run propagates WAFBlockedError to the orchestrator for abort.
+                if e.response is not None and _is_cloudfront_waf_block(e.response):
+                    _waf_breaker.trip(self.waf_cooldown_sec, url=api_url, team_id=str(normalized_team_id))
+                    continue
+
                 # Raise TeamNotFoundError on 404 so callers can handle it
                 if e.response is not None and e.response.status_code == 404:
                     logger.warning(f"Team {normalized_team_id} not found (404)")
@@ -1540,6 +1763,12 @@ class GotsportScraper(ProviderScraper):
                     if attempt < self.max_retries - 1:
                         time.sleep(self.retry_delay)
 
+            except WAFBlockedError:
+                # Defensive: not hooked into this method today, but the bare
+                # ``except Exception`` below would silently absorb a WAF abort
+                # if a future caller routes through here.
+                raise
+
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:
                     logger.error(f"Event {event_id} not found (404)")
@@ -1629,6 +1858,12 @@ class GotsportScraper(ProviderScraper):
                     logger.warning(f"No teams found in event {event_id} (attempt {attempt + 1})")
                     if attempt < self.max_retries - 1:
                         time.sleep(self.retry_delay)
+
+            except WAFBlockedError:
+                # Defensive: not hooked into this method today, but the bare
+                # ``except Exception`` below would silently absorb a WAF abort
+                # if a future caller routes through here.
+                raise
 
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 404:

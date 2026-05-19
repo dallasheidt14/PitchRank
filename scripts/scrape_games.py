@@ -25,7 +25,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
 from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
 from supabase import create_client
 
 console = Console()
@@ -165,6 +165,11 @@ async def _scrape_team_concurrent(
 ) -> Tuple[int, Optional[str], bool]:
     """Scrape a single team (runs in thread pool for concurrency)"""
     async with semaphore:
+        # Pause if the WAF breaker is open. Stops new work from grabbing the
+        # semaphore while a cooldown is in flight; in-flight requests inside
+        # scrape_team_games block on the sync waiter.
+        await get_waf_breaker().wait_if_open_async()
+
         team_id = team.get("provider_team_id")
         team_name = team.get("team_name", "Unknown")
         team_master_id = team.get("team_id_master")
@@ -243,6 +248,31 @@ async def _scrape_team_concurrent(
             progress.update(task_id, advance=1)
             return 0, None, True
 
+        except WAFBlockedError:
+            # Second WAF trip in this run — fatal. Re-raise so gather() captures
+            # it as a result; the post-gather scan in scrape_games() then
+            # sys.exit(2). Use status="error" — team_scrape_log.status CHECK
+            # only allows ('success','error','partial') and a fresh status would
+            # fail the bulk insert for the whole batch (500 rows at a time).
+            logger.error(
+                "gotsport waf-blocked, aborting run: trip_count=%d team=%s (%s)",
+                get_waf_breaker().trip_count,
+                team_id,
+                team_name,
+            )
+            with file_lock:
+                if team_master_id:
+                    log_buffer.append(
+                        {
+                            "team_id_master": team_master_id,
+                            "games_found": 0,
+                            "status": "error",
+                            "update_last_scraped_at": False,
+                        }
+                    )
+            progress.update(task_id, advance=1)
+            raise
+
         except Exception as e:
             error_msg = f"Team {team_id} ({team_name}): {str(e)}"
             logger.error(error_msg, exc_info=True)
@@ -259,7 +289,7 @@ async def scrape_games(
     include_recent: bool = False,
     since_date: date = None,
     auto_import: bool = False,
-    concurrency: int = 30,
+    concurrency: int = 5,
 ):
     """
     Scrape games from GotSport for all teams or specified teams
@@ -278,8 +308,13 @@ async def scrape_games(
         include_recent: Include teams scraped within last 7 days (override default filter)
         since_date: Override since_date for scraping (for NULL teams)
         auto_import: Automatically import scraped games after scraping completes
-        concurrency: Number of concurrent scrapes (default: 30)
+        concurrency: Number of concurrent scrapes (default: 5; CI workflow passes 20 per shard)
     """
+    # Bind the WAF breaker to this run's event loop. ``bind_loop`` resets
+    # singleton state first so trip counters from a prior ``asyncio.run`` in
+    # the same process don't leak into this run.
+    get_waf_breaker().bind_loop(asyncio.get_running_loop())
+
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
 
     # Initialize scraper
@@ -451,6 +486,9 @@ async def scrape_games(
             # Execute all tasks concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
+            # If any worker propagated a WAFBlockedError, abort the run cleanly.
+            waf_aborts = [r for r in results if isinstance(r, WAFBlockedError)]
+
             # Process results
             for result in results:
                 if isinstance(result, Exception):
@@ -476,13 +514,26 @@ async def scrape_games(
         # Always close the file
         output_file_handle.close()
 
+    waf_trip_count = get_waf_breaker().trip_count
     console.print("\n[bold green]✅ Scraping complete![/bold green]")
     console.print(f"  Games scraped: {games_saved_count:,}")
     console.print(f"  Teams processed: {len(teams)}")
     if not_found_count > 0:
         console.print(f"  Missing provider teams skipped: {not_found_count}")
     console.print(f"  Errors: {len(errors)}")
+    if waf_trip_count > 0:
+        console.print(f"  [yellow]CloudFront WAF trips: {waf_trip_count}[/yellow]")
     console.print(f"  Output file: {output_path}")
+
+    if waf_aborts:
+        completed_results = sum(1 for r in results if isinstance(r, tuple))
+        logger.error(
+            "aborting: gotsport CloudFront WAF tripped %d times this run; teams_completed=%d, teams_remaining=%d",
+            waf_trip_count,
+            completed_results,
+            len(teams) - completed_results,
+        )
+        sys.exit(2)
 
     if errors:
         console.print("\n[yellow]Errors encountered:[/yellow]")
@@ -541,7 +592,12 @@ def main():
     parser.add_argument(
         "--auto-import", action="store_true", help="Automatically import scraped games after scraping completes"
     )
-    parser.add_argument("--concurrency", type=int, default=30, help="Number of concurrent scrapes (default: 30)")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5,
+        help="Number of concurrent scrapes (default: 5; CI workflow overrides via explicit flag)",
+    )
 
     args = parser.parse_args()
 

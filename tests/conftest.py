@@ -3,6 +3,23 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_gotsport_waf_breaker():
+    """Reset the module-level GotSport WAF breaker between every test.
+
+    The breaker is a module-level singleton in ``src.scrapers.gotsport`` and
+    its trip counter is monotonic across a run. Without this reset, any test
+    that imports gotsport and trips the breaker would leak state into
+    unrelated tests later in the suite.
+    """
+    from src.scrapers.gotsport import get_waf_breaker
+
+    get_waf_breaker().reset()
+    yield
+    get_waf_breaker().reset()
 
 
 class FakeResponse:
