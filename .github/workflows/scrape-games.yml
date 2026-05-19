@@ -223,12 +223,24 @@ jobs:
 
           # Propagate validated delay overrides to the scraper via env. Regex
           # gates non-numeric input from reaching float() inside the scraper.
-          # Empty / invalid → fall through to GotSportScraper defaults (1.5/2.5).
-          if [[ "$DELAY_MIN_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            echo "GOTSPORT_DELAY_MIN=$DELAY_MIN_INPUT" >> "$GITHUB_ENV"
-          fi
-          if [[ "$DELAY_MAX_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            echo "GOTSPORT_DELAY_MAX=$DELAY_MAX_INPUT" >> "$GITHUB_ENV"
+          # Both must be set together — a partial override (e.g. min only) would
+          # leave the other at the scraper default and produce an unintended
+          # range from random.uniform(min, max). Empty / invalid / mismatched
+          # → fall through to GotSportScraper defaults (1.5 / 2.5).
+          DELAY_MIN_OK="false"
+          DELAY_MAX_OK="false"
+          [[ "$DELAY_MIN_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]] && DELAY_MIN_OK="true"
+          [[ "$DELAY_MAX_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]] && DELAY_MAX_OK="true"
+          if [ "$DELAY_MIN_OK" = "true" ] && [ "$DELAY_MAX_OK" = "true" ]; then
+            # awk handles float comparison ( [ ] / [[ ]] -lt is integer-only ).
+            if awk -v a="$DELAY_MIN_INPUT" -v b="$DELAY_MAX_INPUT" 'BEGIN { exit !(a <= b) }'; then
+              echo "GOTSPORT_DELAY_MIN=$DELAY_MIN_INPUT" >> "$GITHUB_ENV"
+              echo "GOTSPORT_DELAY_MAX=$DELAY_MAX_INPUT" >> "$GITHUB_ENV"
+            else
+              echo "::warning::delay_min ($DELAY_MIN_INPUT) > delay_max ($DELAY_MAX_INPUT); ignoring overrides"
+            fi
+          elif [ "$DELAY_MIN_OK" = "true" ] || [ "$DELAY_MAX_OK" = "true" ]; then
+            echo "::warning::delay_min and delay_max must be set together; ignoring partial override"
           fi
 
           # A chain link is either the cron seed OR a workflow_dispatch with
