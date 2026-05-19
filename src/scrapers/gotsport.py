@@ -227,14 +227,25 @@ class WAFBreaker:
     async def wait_if_open_async(self) -> None:
         """Async waiter for orchestrator workers before grabbing semaphore.
 
-        Raises ``WAFBlockedError`` if the breaker has transitioned to the
-        terminal ``aborted`` state — without this re-check, queued workers
-        would happily proceed once the event is re-set by the aborting trip.
+        Checks state under lock and waits on the event for resume/abort.
+        Handles the race where ``trip()`` flips state to ``open`` on a worker
+        thread and schedules ``event.clear`` via ``call_soon_threadsafe``: a
+        coroutine that enters this method before the scheduled clear runs
+        sees a stale-set event. The ``asyncio.sleep(0)`` yields the loop so
+        any pending threadsafe callbacks (the scheduled clear) run before
+        we await the event for the actual next signal.
         """
-        await self._async_event.wait()
-        with self._lock:
-            if self._state == "aborted":
+        while True:
+            with self._lock:
+                state = self._state
+            if state == "aborted":
                 raise self._aborted_error()
+            if state == "closed":
+                return
+            # state == "open". Yield to drain pending call_soon_threadsafe
+            # callbacks (the scheduled clear), then wait for the next signal.
+            await asyncio.sleep(0)
+            await self._async_event.wait()
 
     def _resume(self) -> None:
         """Flip state back to closed. Idempotent; never overrides ``aborted``."""
@@ -2208,10 +2219,7 @@ class GotsportScraper(ProviderScraper):
                 home_team = match.get("homeTeam") or {}
                 away_team = match.get("awayTeam") or {}
                 if str(home_team.get("team_id")) == queried_str or str(away_team.get("team_id")) == queried_str:
-                    logger.debug(
-                        f"Resolved API team ID {queried_str} from self-match "
-                        f"for {log_label}"
-                    )
+                    logger.debug(f"Resolved API team ID {queried_str} from self-match for {log_label}")
                     return queried_str
 
             # 200 + non-empty + no self-match — treat as unresolved. The API
@@ -2237,8 +2245,7 @@ class GotsportScraper(ProviderScraper):
             AttributeError,
         ) as e:
             logger.warning(
-                f"Error resolving API team ID for {log_label} "
-                f"(reg_id={registration_id}): {type(e).__name__}: {e}"
+                f"Error resolving API team ID for {log_label} (reg_id={registration_id}): {type(e).__name__}: {e}"
             )
             return None
 
@@ -2420,9 +2427,7 @@ class GotsportScraper(ProviderScraper):
                     team_reg_ids = set(re.findall(r"[?&]team=(\d+)", response.text))
                 max_team_pages = int(os.getenv("GOTSPORT_MAX_TEAM_PAGES", "200"))
                 if len(team_reg_ids) > max_team_pages:
-                    logger.warning(
-                        f"Event has {len(team_reg_ids)} team pages, limiting to {max_team_pages}"
-                    )
+                    logger.warning(f"Event has {len(team_reg_ids)} team pages, limiting to {max_team_pages}")
                     team_reg_ids = set(list(team_reg_ids)[:max_team_pages])
                 logger.info(f"Walking {len(team_reg_ids)} per-team schedule pages")
                 pre_team_walk_count = len(games)
@@ -2454,9 +2459,7 @@ class GotsportScraper(ProviderScraper):
             resolved_count = sum(1 for v in api_team_id_cache.values() if v is not None)
             unresolved_count = sum(1 for v in api_team_id_cache.values() if v is None)
             logger.info(f"Total games scraped from schedule pages: {len(games)}")
-            logger.info(
-                f"Team ID resolution: {resolved_count} resolved, {unresolved_count} unresolved"
-            )
+            logger.info(f"Team ID resolution: {resolved_count} resolved, {unresolved_count} unresolved")
             logger.info(f"Games dropped (unresolved teams): {drop_counter[0]}")
             if unresolved_count > 0:
                 logger.warning(

@@ -164,6 +164,40 @@ async def test_wait_if_open_async_raises_when_aborted():
 
 
 @pytest.mark.asyncio
+async def test_wait_if_open_async_handles_stale_set_event_race():
+    """Coroutines entering during the call_soon_threadsafe(clear) race must not proceed.
+
+    Regression: ``trip()`` flips ``_state = "open"`` synchronously on a worker
+    thread but schedules ``_async_event.clear`` via ``call_soon_threadsafe``.
+    A coroutine that enters ``wait_if_open_async`` in the window before the
+    scheduled clear runs would see the still-set event, return, and proceed
+    to scrape during the cooldown. The waiter must loop on state and yield
+    via ``asyncio.sleep(0)`` so the pending clear callback runs before it
+    awaits the next signal.
+    """
+    breaker = get_waf_breaker()
+    breaker.bind_loop(asyncio.get_running_loop())
+
+    # Simulate trip()'s race: flip state=open under lock, schedule the clear
+    # via call_soon_threadsafe (just like production), but don't run the
+    # timer. The clear callback is queued behind any currently-running task.
+    with breaker._lock:
+        breaker._state = "open"
+        breaker._cooldown_sec = 60
+        breaker._open_until = time.monotonic() + 60
+    asyncio.get_running_loop().call_soon_threadsafe(breaker._async_event.clear)
+
+    waiter = asyncio.create_task(breaker.wait_if_open_async())
+    await asyncio.sleep(0.05)
+    assert not waiter.done(), "wait_if_open_async returned during open state"
+
+    # Resume releases the waiter (state=closed, event set).
+    breaker._resume()
+    await asyncio.wait_for(waiter, timeout=1.0)
+    assert waiter.done()
+
+
+@pytest.mark.asyncio
 async def test_suspended_async_waiter_wakes_and_raises_on_abort():
     """A coroutine already awaiting wait_if_open_async must wake + raise on abort.
 
