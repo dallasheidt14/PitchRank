@@ -250,11 +250,13 @@ jobs:
             CMD="$CMD --include-recent"
           fi
 
-          # Adaptive concurrency: 50 single-shard, 20 per shard when sharded
-          # (20 × 5 = 100 aggregate in-flight, matches gotsport.py pool_maxsize).
+          # Adaptive concurrency: 10 single-shard, 20 per shard when sharded.
+          # Single-shard runs from one GHA IP trip the CloudFront WAF at ~15 req/s;
+          # 10 concurrent + 1.5-2.5s per-team delay stays comfortably under that.
+          # Sharded mode at 20 each is safe because every shard runs on a separate IP.
           # Manual concurrency input wins if explicitly set AND we're not sharding.
           if [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
-            CONCURRENCY=50
+            CONCURRENCY=10
           else
             CONCURRENCY=20
           fi
