@@ -525,16 +525,6 @@ async def scrape_games(
         console.print(f"  [yellow]CloudFront WAF trips: {waf_trip_count}[/yellow]")
     console.print(f"  Output file: {output_path}")
 
-    if waf_aborts:
-        completed_results = sum(1 for r in results if isinstance(r, tuple))
-        logger.error(
-            "aborting: gotsport CloudFront WAF tripped %d times this run; teams_completed=%d, teams_remaining=%d",
-            waf_trip_count,
-            completed_results,
-            len(teams) - completed_results,
-        )
-        sys.exit(2)
-
     if errors:
         console.print("\n[yellow]Errors encountered:[/yellow]")
         for error in errors[:10]:
@@ -542,7 +532,10 @@ async def scrape_games(
         if len(errors) > 10:
             console.print(f"  ... and {len(errors) - 10} more")
 
-    # Auto-import if requested
+    # Auto-import (incl. on WAF abort): per-team JSONL writes mean the file
+    # already contains every game scraped before the breaker fired. Importing
+    # here preserves that work; without it `sys.exit(2)` below would discard
+    # ~hours of successful scrapes alongside the failed teams.
     if auto_import and games_saved_count > 0:
         console.print("\n[bold cyan]🔄 Auto-importing games...[/bold cyan]")
         try:
@@ -567,6 +560,20 @@ async def scrape_games(
     elif games_saved_count > 0:
         console.print("\n[green]Next step: Import games[/green]")
         console.print(f"  python scripts/import_games_enhanced.py {output_path} {provider} --stream")
+
+    # Surface WAF abort to the workflow AFTER import, so the partial scrape is
+    # preserved but CI still fails loudly (exit 2) — the chain dispatcher in
+    # scrape-games.yml gates on `needs.scrape-and-import.result == 'success'`,
+    # so a non-zero exit here correctly stops the chain.
+    if waf_aborts:
+        completed_results = sum(1 for r in results if isinstance(r, tuple))
+        logger.error(
+            "aborting: gotsport CloudFront WAF tripped %d times this run; teams_completed=%d, teams_remaining=%d",
+            waf_trip_count,
+            completed_results,
+            len(teams) - completed_results,
+        )
+        sys.exit(2)
 
     return str(output_path)
 
