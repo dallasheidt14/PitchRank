@@ -1038,7 +1038,8 @@ class EnhancedETLPipeline:
     def _is_empty_score(score) -> bool:
         return score is None or score == "" or str(score).strip().lower() in ("none", "null")
 
-    def _is_future_game(self, game: Dict) -> bool:
+    @staticmethod
+    def _is_future_game(game: Dict) -> bool:
         """
         Return True if game_date is strictly in the future (game_date > today).
 
@@ -1051,7 +1052,7 @@ class EnhancedETLPipeline:
             return False
         try:
             game_date_obj = parse_game_date(game_date_raw)
-        except (ValueError, TypeError):
+        except ValueError:
             return False
         return game_date_obj > date.today()
 
