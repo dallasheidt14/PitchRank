@@ -6,7 +6,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1037,6 +1037,23 @@ class EnhancedETLPipeline:
     @staticmethod
     def _is_empty_score(score) -> bool:
         return score is None or score == "" or str(score).strip().lower() in ("none", "null")
+
+    def _is_future_game(self, game: Dict) -> bool:
+        """
+        Return True if game_date is strictly in the future (game_date > today).
+
+        Used by the scheduled-game carveout in score-validation filters: future-dated
+        rows with NULL scores are *scheduled*, not data quality issues, and must be
+        persisted so the daily enqueue can trigger off them.
+        """
+        game_date_raw = game.get("game_date", "")
+        if not game_date_raw:
+            return False
+        try:
+            game_date_obj = parse_game_date(game_date_raw)
+        except (ValueError, TypeError):
+            return False
+        return game_date_obj > date.today()
 
     async def _validate_and_dedup(
         self, games: List[Dict], *, run_validation: bool = True

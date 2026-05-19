@@ -1,7 +1,7 @@
 """Test suite for enhanced ETL pipeline"""
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
 from typing import List, Dict
 
@@ -475,6 +475,44 @@ class TestBackfillDuplicateTeamLinks:
         metrics.duplicate_links_backfilled = 5
         result = metrics.to_dict()
         assert result['duplicate_links_backfilled'] == 5
+
+
+class TestFutureDateHelper:
+    """Tests for the _is_future_game helper used by the scheduled-game carveout."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    def _make_pipeline(self, mock_supabase):
+        return EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+
+    def test_future_date_returns_true(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        future = (date.today() + timedelta(days=7)).isoformat()
+        assert pipeline._is_future_game({"game_date": future}) is True
+
+    def test_today_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        today = date.today().isoformat()
+        assert pipeline._is_future_game({"game_date": today}) is False
+
+    def test_past_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        past = (date.today() - timedelta(days=7)).isoformat()
+        assert pipeline._is_future_game({"game_date": past}) is False
+
+    def test_missing_game_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        assert pipeline._is_future_game({}) is False
+
+    def test_unparseable_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        assert pipeline._is_future_game({"game_date": "not-a-date"}) is False
 
 
 # Run with: pytest tests/test_enhanced_pipeline.py -v
