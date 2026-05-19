@@ -46,6 +46,32 @@ time.sleep(1.0)
 time.sleep(random.uniform(0.1, 2.5))
 ```
 
+## CloudFront WAF (gotsport)
+
+GotSport fronted `system.gotsport.com/api/v1/*` with a CloudFront WAF (per-IP
+burst rate limiter) circa 2026-05-01. A tripped IP returns **HTTP 403 with
+`Server: CloudFront`** and a CloudFront-branded HTML error body — distinct from
+a real "team not found" which is `HTTP 404` with `Server: nginx` and JSON body
+`{"error":"Team Not Found"}`. Lockout persists for multiple minutes; fresh
+sessions and cookies don't help.
+
+Coordination: the module-level `WAFBreaker` singleton in
+`src/scrapers/gotsport.py` detects the 403+CloudFront combination via
+`_is_cloudfront_waf_block`, then opens the breaker. All concurrent workers
+sharing the scraper pause on the `WAFBreaker._async_event` (orchestrator) and
+`WAFBreaker.wait_if_open_sync` (per-thread retry loop) until a `threading.Timer`
+fires `_resume()`. A second trip in the same run raises `WAFBlockedError`,
+which the orchestrator catches and exits with code 2.
+
+Cooldown defaults to 300 s (`_WAF_COOLDOWN_DEFAULT`), overridable via
+`GOTSPORT_WAF_COOLDOWN_SEC`.
+
+CLI default `--concurrency` is **5** for residential IPs in
+`scripts/scrape_games.py`. CI uses **20 per shard** (×5 shards = 100 aggregate)
+via the explicit `--concurrency` flag in `.github/workflows/scrape-games.yml`.
+Do not raise the local default without testing against a fresh IP — empirically
+~15 req/s sustained from one IP trips the WAF (measured 2026-05-18).
+
 ## GotSport Endpoint Quirks
 
 GotSport event pages expose three different schedule URLs with very different

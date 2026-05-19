@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.scrape_games import _bulk_log_team_scrapes, _is_placeholder_unknown_team, _scrape_team_concurrent
-from src.scrapers.gotsport import TeamNotFoundError
+from src.scrapers.gotsport import TeamNotFoundError, WAFBlockedError
 
 
 class FakeQuery:
@@ -76,6 +76,16 @@ class FakeProgress:
 class MissingTeamScraper:
     def scrape_team_games(self, team_id, since_date=None):
         raise TeamNotFoundError(team_id)
+
+
+class WAFAbortScraper:
+    def scrape_team_games(self, team_id, since_date=None):
+        raise WAFBlockedError(
+            provider="gotsport",
+            url=f"https://example/api/teams/{team_id}/matches",
+            last_retry_after=300.0,
+            reason="cloudfront-waf-second-trip",
+        )
 
 
 def test_is_placeholder_unknown_team_matches_exact_unknown_pattern():
@@ -159,3 +169,44 @@ async def test_scrape_team_concurrent_downgrades_team_not_found_to_skip():
         }
     ]
     assert progress.calls == [("task-1", 1)]
+
+
+@pytest.mark.asyncio
+async def test_scrape_team_concurrent_waf_blocked_reraises_and_logs_error_status():
+    """WAF-blocked workers must log a CHECK-constraint-compatible status and re-raise.
+
+    Regression: status was "aborted_waf" which violated
+    team_scrape_log.status CHECK ('success','error','partial') and would have
+    failed the entire 500-row bulk insert.
+    """
+    progress = FakeProgress()
+    log_buffer = []
+
+    with pytest.raises(WAFBlockedError):
+        await _scrape_team_concurrent(
+            semaphore=asyncio.Semaphore(1),
+            scraper=WAFAbortScraper(),
+            team={
+                "provider_team_id": "12345",
+                "team_name": "Test Team",
+                "team_id_master": "team-master-waf",
+            },
+            since_date=None,
+            scrape_dates_cache={},
+            file_lock=threading.Lock(),
+            output_file_handle=io.StringIO(),
+            log_buffer=log_buffer,
+            flush_counter=[0],
+            progress=progress,
+            task_id="task-waf",
+        )
+
+    assert log_buffer == [
+        {
+            "team_id_master": "team-master-waf",
+            "games_found": 0,
+            "status": "error",
+            "update_last_scraped_at": False,
+        }
+    ]
+    assert progress.calls == [("task-waf", 1)]
