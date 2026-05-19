@@ -64,6 +64,11 @@ on:
         required: false
         type: boolean
         default: false
+      zenrows_premium_proxy:
+        description: 'When use_zenrows=true: use residential IPs (counted as "protected" / 25x cost). Disable to test datacenter IPs (counted as "standard"). Ignored when use_zenrows=false.'
+        required: false
+        type: boolean
+        default: true
       include_recent:
         description: 'Include teams scraped within last 7 days (override default filter)'
         required: false
@@ -316,6 +321,10 @@ jobs:
           # use_zenrows workflow input so we can A/B without flipping the
           # default. Schedule + chain links default to direct (use_zenrows=false).
           ZENROWS_API_KEY: ${{ inputs.use_zenrows && secrets.ZENROWS_API_KEY || '' }}
+          # premium_proxy=true → ZenRows residential IPs ("protected" billing,
+          # ~25x more expensive). false → datacenter IPs ("standard" billing).
+          # Only read by the scraper when ZENROWS_API_KEY is set.
+          ZENROWS_PREMIUM_PROXY: ${{ inputs.zenrows_premium_proxy && 'true' || 'false' }}
         run: ${{ steps.build-command.outputs.command }}
 
       - name: Upload scraped data

@@ -317,6 +317,11 @@ class GotSportScraper(BaseScraper):
         # ZenRows configuration (optional)
         self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
         self.use_zenrows = bool(self.zenrows_api_key)
+        # premium_proxy=true uses residential IPs → counted as "protected"
+        # by ZenRows billing (~25x more expensive than datacenter "standard").
+        # Defaults to true to preserve prior behavior; set ZENROWS_PREMIUM_PROXY=false
+        # to test whether gotsport's CloudFront WAF tolerates datacenter IPs.
+        self.zenrows_premium_proxy = os.getenv("ZENROWS_PREMIUM_PROXY", "true").lower() == "true"
 
         # Session setup
         self.session = self._init_http_session()
@@ -324,7 +329,12 @@ class GotSportScraper(BaseScraper):
         # Club name cache
         self.club_cache: Dict[str, str] = {}
 
-        logger.info(f"Initialized GotSportScraper (ZenRows: {'enabled' if self.use_zenrows else 'disabled'})")
+        if self.use_zenrows:
+            logger.info(
+                f"Initialized GotSportScraper (ZenRows: enabled, premium_proxy={self.zenrows_premium_proxy})"
+            )
+        else:
+            logger.info("Initialized GotSportScraper (ZenRows: disabled)")
 
     def _init_http_session(self) -> requests.Session:
         """
@@ -607,7 +617,7 @@ class GotSportScraper(BaseScraper):
             "apikey": self.zenrows_api_key,
             "url": url,
             "js_render": "false",
-            "premium_proxy": "true",
+            "premium_proxy": "true" if self.zenrows_premium_proxy else "false",
             "proxy_country": "us",
         }
         # Merge original params into URL
