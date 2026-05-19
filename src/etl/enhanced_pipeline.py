@@ -1082,9 +1082,7 @@ class EnhancedETLPipeline:
             # Scoreless games: allow future-dated rows through (scheduled games —
             # daily enqueue uses them as scrape triggers). Skip past/today scoreless rows.
             if self._is_empty_score(game.get("goals_for")) and self._is_empty_score(game.get("goals_against")):
-                if self._is_future_game(game):
-                    pass  # Scheduled game — fall through to dedup/insert with NULL scores
-                else:
+                if not self._is_future_game(game):
                     skipped_empty_scores += 1
                     if skipped_empty_scores <= 5:
                         logger.debug(
@@ -1092,6 +1090,7 @@ class EnhancedETLPipeline:
                             f"{game.get('opponent_id')} on {game.get('game_date')}"
                         )
                     continue
+                # Scheduled game — falls through to dedup/insert with NULL scores
 
             # Schema validation (only when enabled)
             if run_validation:

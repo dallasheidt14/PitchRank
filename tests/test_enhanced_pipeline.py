@@ -516,6 +516,8 @@ class TestFutureDateHelper:
 
 
 class TestValidateAndDedupFutureCarveout:
+    """Verify the NULL-score filter carveout for future-dated (scheduled) games."""
+
     @pytest.fixture
     def mock_supabase(self):
         supabase = Mock()
