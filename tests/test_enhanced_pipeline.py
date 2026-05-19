@@ -515,7 +515,7 @@ class TestFutureDateHelper:
         assert pipeline._is_future_game({"game_date": "not-a-date"}) is False
 
 
-class TestHasValidScoresFutureCarveout:
+class TestShouldAcceptForInsert:
     """Tests for _should_accept_for_insert and its interaction with _has_valid_scores."""
 
     @pytest.fixture
@@ -526,8 +526,11 @@ class TestHasValidScoresFutureCarveout:
         supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
         return supabase
 
+    def _make_pipeline(self, mock_supabase):
+        return EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+
     def test_has_valid_scores_rejects_past_null(self, mock_supabase):
-        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        pipeline = self._make_pipeline(mock_supabase)
         past_game = {
             "game_uid": "past-null-001",
             "game_date": (date.today() - timedelta(days=7)).isoformat(),
@@ -537,7 +540,7 @@ class TestHasValidScoresFutureCarveout:
         assert pipeline._has_valid_scores(past_game) is False
 
     def test_should_accept_for_insert_keeps_future_null(self, mock_supabase):
-        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        pipeline = self._make_pipeline(mock_supabase)
         future_game = {
             "game_uid": "future-null-001",
             "game_date": (date.today() + timedelta(days=7)).isoformat(),
@@ -547,7 +550,7 @@ class TestHasValidScoresFutureCarveout:
         assert pipeline._should_accept_for_insert(future_game) is True
 
     def test_should_accept_for_insert_rejects_past_null(self, mock_supabase):
-        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        pipeline = self._make_pipeline(mock_supabase)
         past_game = {
             "game_uid": "past-null-002",
             "game_date": (date.today() - timedelta(days=7)).isoformat(),
@@ -557,7 +560,7 @@ class TestHasValidScoresFutureCarveout:
         assert pipeline._should_accept_for_insert(past_game) is False
 
     def test_should_accept_for_insert_keeps_played_game(self, mock_supabase):
-        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        pipeline = self._make_pipeline(mock_supabase)
         played = {
             "game_uid": "played-001",
             "game_date": (date.today() - timedelta(days=2)).isoformat(),
@@ -565,6 +568,17 @@ class TestHasValidScoresFutureCarveout:
             "away_score": 1,
         }
         assert pipeline._should_accept_for_insert(played) is True
+
+    def test_should_accept_for_insert_rejects_today_null(self, mock_supabase):
+        """Today's NULL-score games are score-entry lag, not scheduled — reject."""
+        pipeline = self._make_pipeline(mock_supabase)
+        today_game = {
+            "game_uid": "today-null-001",
+            "game_date": date.today().isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(today_game) is False
 
 
 class TestValidateAndDedupFutureCarveout:
