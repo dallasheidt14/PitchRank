@@ -1,12 +1,12 @@
 # Schedule-Driven Scraping
 
 **Date:** 2026-05-19
-**Status:** Draft (pending user review)
+**Status:** Draft (pending implementation)
 **Slug:** `schedule-driven-scraping`
 
 ## Scope
 
-GotSport teams only. PlayMetrics is explicitly out of scope for this spec — same idea may extend to it later, but no PlayMetrics wiring or testing in this work.
+GotSport teams only. PlayMetrics is explicitly out of scope.
 
 ## Problem
 
@@ -14,222 +14,236 @@ Every weekly scrape pulls each GotSport team's full schedule (past + future game
 
 Consequences:
 
-- We re-pay the scrape cost for the same teams every week, without using the data we already have to decide *which* teams need scraping.
-- Teams without recent games still get scraped on the same cadence as active teams, wasting ZenRows quota and adding WAF risk.
-- We have no record of upcoming fixtures, so we can't schedule scrapes against the day-after-game window where scores are most likely to be available.
+- The weekly chain brute-forces ~150K team-scrapes/week (6 links × 25K) regardless of whether teams have games to fetch. Most calls return nothing useful.
+- We have no record of upcoming fixtures, so we can't target scrapes at the day-after-game window where scores are most likely to be available.
+- The Sunday-night concentrated burst triggers GotSport WAF limits.
 
-Currently `teams.last_scraped_at` is the only signal we have for what to scrape next, and it isn't tied to whether the team actually has games to fetch.
+We currently use `teams.last_scraped_at` as the only signal for what to scrape next, and it's not tied to whether the team actually has games.
 
 ## Goal
 
-Persist future-dated games in the `games` table as NULL-score rows. Use those rows as the trigger for a per-team, day-after-game scrape so we collect scores precisely when they become available, instead of running broad weekly chains. ZenRows is reserved for the one-time bootstrap and the periodic safety-net rescrape; the daily ongoing work runs as direct provider hits, sized like `process_missing_games.py`.
+Persist future-dated games as NULL-score rows in `games`. Use them as triggers for an automated workflow that enqueues per-team scrape requests into the existing `scrape_requests` queue. The existing `process_missing_games` workflow drains that queue at a fixed rate (200 teams every 15 minutes, ~19,200/day), staying well below GotSport WAF limits regardless of how many games happen on any given day.
+
+The existing `scrape-games.yml` workflow is repurposed: scheduled cron removed, manual dispatch retained for ZenRows-powered bulk operations (bootstrap, large one-offs, queue-recovery).
 
 ## Non-goals
 
-- No new tables, RPCs, or storage abstractions for scheduled games. NULL scores in the existing `games` table are the representation.
-- No retry-window logic. If a score isn't posted by the day-after scrape, the row stays NULL; the team's next scheduled game will pull it eventually, and the discovery pass + 90-day safety net catch everything else.
-- No changes to the ranking engine, Glicko-2 inputs, or any consumer that already filters out scoreless rows. Consumers that don't filter are surfaced and patched, but no behavior change for scored games.
-- No UI feature work for showing scheduled games to users. (A `result IS NULL` row in game history will display as blank or "scheduled" — that's worth a follow-up but is out of scope here.)
+- No new tables for scheduled games. NULL scores in `games` are the representation.
+- No retry-window logic. NULL-score rows persist; the team's next scheduled game re-triggers a scrape, and the 90-day safety net catches everything else.
+- No ranking-engine changes. Consumers that already filter scoreless rows are left alone; consumers that don't get audited and patched.
+- No UI feature work for showing scheduled games.
 
-## Design
+## Architecture
 
 ### Storage model
 
-Future games live in the existing `games` table with:
+Future games live in the existing `games` table:
 
-- `home_score = NULL`, `away_score = NULL`
-- `result = NULL`
+- `home_score = NULL`, `away_score = NULL`, `result = NULL`
 - `game_date > CURRENT_DATE` at insert time
-- `is_immutable = false` (scheduled rows must be UPDATE-able when scores arrive)
+- `is_immutable = false` (must be UPDATE-able when scores arrive)
 - `scraped_at` set as usual
 
-When the score is later scraped, the row UPDATES via the existing `game_uid`-based dedup path. `game_uid` is symmetric on `(team_a, team_b, game_date)` and does not include scores (confirmed by inline comment at `src/etl/enhanced_pipeline.py:396`), so the scheduled row and the played row collide on the same uid and the played row's scores overwrite the NULLs.
+When a score is later scraped, the row UPDATES via the existing `game_uid`-based dedup. `game_uid` is symmetric on `(team_a, team_b, game_date)` and score-independent (confirmed by inline comment at `src/etl/enhanced_pipeline.py:396`).
 
-`games.scraped_at` serves as the row-level freshness marker; no new `updated_at` column is needed.
+`games.scraped_at` is the row-level freshness marker. No new `updated_at` column needed.
 
 ### Pipeline change
 
-`src/etl/enhanced_pipeline.py` has two filter sites that both drop scoreless rows. Both need the same carveout for future-dated games:
+Two filter sites in `src/etl/enhanced_pipeline.py` drop scoreless rows. Both need a future-date carveout:
 
-**Site 1: `_validate_and_dedup` (pre-dedup), line 1063-1072.**
-Currently increments `skipped_empty_scores` and `continue`s when both scores are empty. Change: if both scores are empty AND `parse_game_date(game_date) > CURRENT_DATE`, let the row through (do not increment, do not continue). Else, existing behavior (skip past-dated scoreless rows as data quality issues).
+**Site 1: `_validate_and_dedup` (pre-dedup), line 1063-1072.** Current behavior: increments `skipped_empty_scores` and continues. Change: if both scores empty AND `game_date > today`, fall through. Past-dated scoreless rows still skip.
 
-**Site 2: `_has_valid_scores` filter (post-match), line 885-909.**
-Currently filters rows by `self._has_valid_scores(g)` and shuffles failures into `skipped_games`. Change: extend the predicate so a row with `game_date > CURRENT_DATE` and NULL scores passes through to insertion. Past-dated rows with invalid scores continue to fail and get logged as data quality issues.
+**Site 2: `_has_valid_scores` filter (post-match), line 885-909.** Current behavior: `_has_valid_scores(g)` rejects scoreless. Change: wrap call site in a new `_should_accept_for_insert(g)` helper that allows scoreless rows when `game_date > today`. `_has_valid_scores` itself unchanged.
 
-The `_is_empty_score` helper (line 1038-1039) and `_has_valid_scores` (line 271) themselves do not change; only the call sites that branch on them. This keeps the helpers honest — "this score is empty" remains a true statement about the score — while the carveout becomes an explicit policy at the call sites.
+A new private helper `_is_future_game(game)` (near `_is_empty_score` at line 1038) encapsulates the date check.
 
-### Bootstrap (Phase 2)
+### Queue model
 
-One-shot scrape of every team in DB, using the existing ZenRows path, after the pipeline patch is deployed.
+ONE queue (`scrape_requests`), ONE drain workflow (`process-missing-games`), MANY thin enqueue sources.
 
-- Trigger: manual script invocation (`scripts/bootstrap_schedule_scrape.py`, new).
-- Source: `teams` table, all rows where `is_deprecated = false`.
-- Order: ascending `last_scraped_at` (oldest first, nulls first). Highest-value coverage gain comes from teams we haven't touched recently.
-- Chunking: ~500 teams per batch with a between-batch sanity check that logs (a) how many teams returned at least one future-dated game and (b) what fraction of all returned rows are future-dated. Early batches validate the premise before the full quota is burned.
-- Idempotency: bootstrap re-runs are safe. Scheduled rows dedup via `game_uid`; `last_scraped_at` updates each pass.
-
-### Daily cron (Phase 3)
-
-New script (`scripts/scrape_yesterdays_games.py`) and accompanying GitHub Actions workflow. Runs daily at 7am local (TBD what timezone — `America/Phoenix`/`UTC`, see Open Questions).
-
-**Trigger query:**
+**Schema change on `scrape_requests`:**
 
 ```sql
-SELECT DISTINCT g.home_team_master_id AS team_id_master
-FROM games g
-JOIN teams t ON t.team_id_master = g.home_team_master_id
-WHERE g.game_date = CURRENT_DATE - 1
-  AND g.home_score IS NULL
-  AND t.is_deprecated = false
-  AND (t.last_scraped_at IS NULL OR t.last_scraped_at < CURRENT_DATE)
+ALTER TABLE scrape_requests
+  ADD COLUMN IF NOT EXISTS priority smallint NOT NULL DEFAULT 5;
 
-UNION
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scrape_requests_pending_team
+  ON scrape_requests (team_id_master)
+  WHERE status = 'pending';
 
-SELECT DISTINCT g.away_team_master_id AS team_id_master
-FROM games g
-JOIN teams t ON t.team_id_master = g.away_team_master_id
-WHERE g.game_date = CURRENT_DATE - 1
-  AND g.home_score IS NULL
-  AND t.is_deprecated = false
-  AND (t.last_scraped_at IS NULL OR t.last_scraped_at < CURRENT_DATE)
+CREATE INDEX IF NOT EXISTS idx_scrape_requests_priority_pending
+  ON scrape_requests (priority ASC, requested_at ASC)
+  WHERE status = 'pending';
 ```
 
-Both teams in the matchup need to be scraped (each will return the same game with the score, but one team may have additional games we haven't seen). DISTINCT + the `last_scraped_at < CURRENT_DATE` gate prevents double-scrapes when a team plays multiple games in a tournament weekend.
+Priority convention (lower number = higher priority):
 
-**Per-team work:**
+| Priority | Source | Why |
+|---|---|---|
+| 1 | User-clicked "process missing games" | A real person is waiting |
+| 2 | Daily yesterday-game enqueue | Stale score collection; older `requested_at` drains first within priority |
+| 3 | Weekly discovery enqueue | Find newly-published schedules |
+| 4 | Weekly safety-net enqueue | 90-day stale catch-all |
+| 5 | Default | Fallback |
 
-1. Direct scrape of the team's full GotSport schedule via `GotSportScraper` (same scraper class `process_missing_games.py` already uses).
-2. Push results through the existing `enhanced_pipeline` import path (same code as the weekly chain — no parallel path).
-3. The pipeline's existing dedup will UPDATE the scheduled NULL-score row with the played score, INSERT any new future games, and ignore already-stored past games.
-4. Update `teams.last_scraped_at = NOW()`.
-
-**No retries.** If yesterday's score isn't posted yet, the row stays NULL. The team's next game will re-trigger the cron in a future window; that scrape will pick up the now-posted late score as a side effect of fetching the full schedule.
-
-**Volume estimate:** GotSport team count × ~1 game/week ÷ 7 days, smooth across the morning. Direct hits, no ZenRows. Actual number to confirm via `SELECT count(*) FROM teams WHERE provider = gotsport AND NOT is_deprecated` during plan-drafting.
-
-### Schedule-discovery pass (Phase 4)
-
-The daily cron only triggers on teams that already have future-dated rows in `games`. Teams with empty future schedules — either because their season is between sessions, the club hasn't published yet, or they were genuinely inactive at bootstrap time — drop out of daily-cron eligibility entirely. The 90-day safety net is too coarse to catch them in a useful window; a club that publishes a fall schedule in late August would have games slip by for weeks before the safety net touched them.
-
-This phase repurposes the existing weekly chain as a **discovery pass** for exactly this set of teams. Instead of scraping every team every week (current behavior), the weekly chain narrows to teams without visible future games:
+**Enqueue semantics: UPSERT with priority promotion.**
 
 ```sql
--- "Teams without visible future schedules"
+INSERT INTO scrape_requests (team_id_master, priority, request_type, status, requested_at)
+VALUES (...)
+ON CONFLICT (team_id_master) WHERE status = 'pending'
+DO UPDATE SET
+  priority = LEAST(scrape_requests.priority, EXCLUDED.priority);
+```
+
+This keeps one pending request per team. If a higher-priority enqueue arrives later, it bumps the priority (toward 1) without resetting `requested_at` — so a request that's been waiting maintains its FIFO position within its new priority tier.
+
+### Enqueue sources
+
+All are tiny cron scripts (~30-50 lines) that run a SELECT and INSERT into `scrape_requests`. None of them scrape anything.
+
+**Daily yesterday-game enqueue** (`scripts/enqueue_yesterday_games.py`, daily cron):
+
+```sql
+SELECT DISTINCT t.team_id_master
+FROM teams t
+JOIN games g ON (g.home_team_master_id = t.team_id_master OR g.away_team_master_id = t.team_id_master)
+WHERE t.is_deprecated = false
+  AND t.provider_id = '<gotsport_provider_id>'
+  AND g.game_date = CURRENT_DATE - 1
+  AND g.home_score IS NULL
+```
+
+Enqueues at priority 2. Volume: ~5-22K/day depending on what played the day before.
+
+**Weekly discovery enqueue** (`scripts/enqueue_discovery_teams.py`, weekly cron):
+
+```sql
 SELECT t.team_id_master
 FROM teams t
 WHERE t.is_deprecated = false
-  AND t.provider_id = (SELECT id FROM providers WHERE code = 'gotsport')
+  AND t.provider_id = '<gotsport_provider_id>'
   AND NOT EXISTS (
     SELECT 1 FROM games g
     WHERE (g.home_team_master_id = t.team_id_master OR g.away_team_master_id = t.team_id_master)
       AND g.game_date > CURRENT_DATE
   )
+ORDER BY t.last_scraped_at ASC NULLS FIRST
+LIMIT 1000;
 ```
 
-Direct scrape (or ZenRows if volume is high — TBD), same import path. Once the discovery pass finds future games for a team, the daily cron picks them up automatically from there.
+Enqueues 1,000 teams at priority 3. Slowly chips through teams with no visible future games — about 1,000/week sustained, ~50K teams covered per year.
 
-This is a meaningful behavior change to the weekly chain: it stops being the primary collection mechanism and becomes a low-frequency probe. Active teams (which the daily cron already covers) are excluded from the discovery query because they have future-dated rows.
-
-**Cadence assumption.** Weekly is a starting point. If clubs typically publish schedules with <1 week lead time, the discovery pass needs to be more frequent (e.g., every 3 days) to avoid missing the first 1-2 games. Empirical question — answered after bootstrap by measuring the gap between "team had no future games on day N" and "team had games on day N+M."
-
-### Safety net (Phase 5)
-
-A final low-frequency catch-all for teams that the discovery pass somehow misses (deprecated-then-undeprecated, provider re-link, etc.):
+**Weekly safety-net enqueue** (`scripts/enqueue_safety_net.py`, weekly cron):
 
 ```sql
-SELECT team_id_master
-FROM teams
-WHERE is_deprecated = false
-  AND (last_scraped_at IS NULL OR last_scraped_at < NOW() - INTERVAL '90 days')
+SELECT t.team_id_master
+FROM teams t
+WHERE t.is_deprecated = false
+  AND t.provider_id = '<gotsport_provider_id>'
+  AND (t.last_scraped_at IS NULL OR t.last_scraped_at < NOW() - INTERVAL '90 days')
+LIMIT 500;
 ```
 
-Direct scrape, same import path. In practice this should rarely match because the discovery pass updates `last_scraped_at` weekly for the subset it touches, but it's worth keeping as a backstop.
+Enqueues at priority 4. Backstop for stragglers.
 
-### New-team scrape hook (Phase 6)
+**New-team hook** (existing — verify, fix gaps): when `teams` gets a row inserted, an INSERT into `scrape_requests` should fire. Audit and patch if missing.
 
-When a new team is added to `teams`, fire a single direct scrape on insert so it joins the daily-cron eligibility set immediately. This already exists in some form (verify during implementation — see Open Questions).
+**User-clicked "process missing games":** existing flow, unchanged — UI inserts into `scrape_requests`. New: set priority=1 explicitly so user requests jump the queue.
 
-### Provider scoping
+### Drain processor
 
-GotSport only. The daily cron and bootstrap must filter the trigger query to GotSport teams:
+`scripts/process_missing_games.py` and `.github/workflows/process-missing-games.yml`:
 
-```sql
-... AND t.provider_id = (SELECT id FROM providers WHERE code = 'gotsport')
-```
+- **Frequency:** every 15 minutes (currently hourly).
+- **Per-run cap:** 200 teams max.
+- **Ordering:** `ORDER BY priority ASC, requested_at ASC`.
+- **Capacity:** 200 × 4/hr × 24hr = **19,200 teams/day**.
+- **Method:** direct GotSport scrapes (no ZenRows), same as current `process_missing_games`.
 
-(Exact provider lookup mechanism to confirm during implementation — see Open Questions.)
+**Peak-load math (worst case, tournament weekend):**
 
-`GotSportScraper` is already wired in `process_missing_games.py:56`; the new daily cron can reuse the same instantiation pattern. No PlayMetrics work in this spec.
+- Saturday: ~22K teams play.
+- Sunday morning enqueue: 22K rows into queue at priority 2.
+- Drain rate: 19,200/day.
+- Sunday's leftovers drain by Monday evening; Monday's enqueue (Sunday games) drains by Tuesday evening. Queue clears mid-week.
+- WAF risk: 200 req/15 min ≈ 0.22 req/sec sustained. Well below burst limits.
+
+### Repurposed `scrape-games.yml`
+
+The existing weekly chain workflow is **kept but neutered for automation**:
+
+- **Remove:** `schedule:` block (no more Sunday-night auto-trigger).
+- **Keep:** all `workflow_dispatch` inputs (limit_teams, null_teams_only, since_date, concurrency, batch_size, delay_min, delay_max, chain_remaining).
+- **Keep:** ZenRows integration.
+- **Use case:** manual operator tool for:
+  - Bootstrap (one-shot scrape of all teams to seed future schedules)
+  - Bulk one-offs (new state, large tournament results, recovery from queue backlog)
+  - Anything where direct scrapes via the queue would be too slow
+
+### Bootstrap (one-time)
+
+After the Phase 1 pipeline patch deploys:
+
+1. Manually dispatch `scrape-games.yml` with `null_teams_only=true` and a generous limit (or run the chain as today).
+2. Monitor sanity-check stats: % teams returning future games, % rows future-dated.
+3. Bootstrap is idempotent — `game_uid` dedup means re-runs are safe.
+
+No new bootstrap script. The repurposed `scrape-games.yml` IS the bootstrap mechanism.
 
 ## Consumer audit
 
-Before deploy, verify these consumers tolerate NULL-score rows in `games`:
+Same risks as before; verify each consumer tolerates NULL-score rows:
 
 | Consumer | Expected behavior | Risk |
 |---|---|---|
-| Ranking engine (Glicko-2 input) | Must skip rows where `home_score IS NULL OR away_score IS NULL` | High — corrupts ratings if leaked |
-| `rankings_view` / `rankings_full` | Should already filter via score predicate; verify | Medium |
-| `frontend/lib/api.ts` game history | Will render NULL rows as blank cells unless explicit "scheduled" handling exists | Low (cosmetic, not data) |
-| `GameHistoryTable` and team-detail components | Behind premium gate per [[gotcha_team_detail_premium_gated]]; verify NULL rows don't crash | Low |
-| Existing dedup logic | UPDATE-on-uid-collision path must not skip scheduled rows | High |
-| `is_immutable` enforcement | Scheduled rows must be `false`; verify no code defaults to `true` | High — would block score updates |
-| `result` column derivation | Must produce NULL for NULL scores (or be NULLABLE in schema) | Medium |
-| Analytics / exports (CHANGELOG, weekly reports) | Verify nothing assumes `count(*) from games` = played games | Low |
+| Ranking engine (Glicko-2 input) | Must filter `home_score IS NULL OR away_score IS NULL` | High |
+| `rankings_view` / `rankings_full` | Should filter via score predicate | Medium |
+| `frontend/lib/api.ts` game history | NULL rows render as blank/scheduled | Low (cosmetic) |
+| `GameHistoryTable` (premium-gated) | NULL rows don't crash | Low |
+| Existing dedup logic | UPDATE-on-uid-collision must not skip scheduled rows | High |
+| `is_immutable` enforcement | Scheduled rows must be `false` | High |
+| `result` column derivation | NULL for NULL scores | Medium |
+| Analytics / exports | `count(*) from games` may need a score filter | Low |
 
-Each row in this table is a separate verification task in the implementation plan.
+Each row is a verification task in the plan.
 
 ## Rollout
 
-1. **Pipeline patch** (one PR, ~5-20 lines + tests).
-   - Patch both filter sites in `enhanced_pipeline.py`.
-   - Add unit test: scoreless row with `game_date = today + 7` passes through; scoreless row with `game_date = today - 7` is still skipped.
-   - Add integration test: same team scheduled-then-played sequence dedups to a single row with scores filled.
-   - Deploy.
+Phases ship sequentially, each as its own PR:
 
-2. **Bootstrap script + dry-run** (one PR).
-   - `scripts/bootstrap_schedule_scrape.py` with `--dry-run` and `--limit N` flags.
-   - Run `--dry-run --limit 500` on a real batch; inspect logged sanity-check stats (% teams with future games, % rows future-dated).
-   - If stats confirm the premise, run for real, batched.
+1. **Pipeline patch** — `enhanced_pipeline.py` filter sites + tests + consumer audit + ranking guard.
+2. **Bootstrap** — manual dispatch of `scrape-games.yml`. No code change; operational only.
+3. **Queue infrastructure** — `scrape_requests` schema migration (priority column, unique index), `process_missing_games` bumps (15-min cron, 200 cap, priority ordering). User-click handler updated to set priority=1.
+4. **Daily yesterday enqueue** — new script + workflow.
+5. **Discovery enqueue** — new script + weekly workflow.
+6. **Safety-net enqueue** — new script + weekly workflow.
+7. **Deprecate `scrape-games.yml` automation** — remove `schedule:` block, leave `workflow_dispatch` for manual use.
+8. **New-team hook** — audit + patch if gap.
 
-3. **Daily cron** (one PR).
-   - `scripts/scrape_yesterdays_games.py` with the trigger query above.
-   - GitHub Actions workflow `daily-yesterday-scrape.yml`, schedule TBD.
-   - Shadow-mode flag: log what would be scraped without scraping, for one cycle.
-   - Cutover after one clean shadow run.
-
-4. **Schedule-discovery pass** (one PR — modifies existing weekly chain).
-   - Change the weekly chain's team-selection query from "all teams" to the `NOT EXISTS future games` subset.
-   - Verify cadence empirically after 2-3 cycles; consider tightening to 3-day if discovery latency is biting.
-
-5. **Safety net** (one PR or fold into discovery pass workflow).
-   - Add `last_scraped_at > 90 days` predicate as a second OR-branch on the discovery pass query, or run as a separate weekly workflow.
-
-6. **New-team hook** (verify or add).
-   - Audit existing team-insert path. If a direct scrape isn't already wired, add one.
-
-Order matters: pipeline patch first, then bootstrap, then daily cron. Daily cron is useless without scheduled rows to trigger on, and the bootstrap is wasted ZenRows budget if the patch isn't in.
+Phase 2 (bootstrap) depends on Phase 1 deploy. Phases 4-6 depend on Phase 3 (priority column exists). Phase 7 depends on Phases 4-6 stabilizing.
 
 ## Open questions
 
-These need answers during plan-drafting, not now:
-
-1. **Daily cron timezone.** `America/Phoenix` is the user's TZ but GotSport posts scores on local-game-time clocks. 7am UTC vs 7am Phoenix changes coverage by 7 hours. Consensus: run early enough that East Coast late-Sunday games have posted by Monday morning. Likely 11am-1pm UTC.
-2. **GotSport provider filter.** Confirm the exact predicate to scope the trigger query to GotSport teams (`teams.provider_id` join to `providers` table, or a direct code column on `teams`).
-3. **New-team scrape hook.** Does this already exist? Where? If not, where does it belong — backend insert hook, frontend submit handler, or the matcher pipeline?
-4. **`games.result` derivation.** Is `result` a generated column, a trigger-derived value, or set by the pipeline? If trigger-derived, confirm it gracefully handles NULL scores. If pipeline-set, confirm it sets NULL for NULL scores.
-5. **Bootstrap batch size and pacing.** ~500/batch is a guess. Real number depends on ZenRows concurrency and GotSport WAF. Set during dry-run.
+1. **Daily enqueue script timezone.** Run at 12:00 UTC so East Coast Sunday-night games have had time to post scores. Confirm at implementation.
+2. **`games.result` derivation.** Generated column? Trigger? Pipeline-set? Verify NULL handling.
+3. **New-team hook audit.** Does `teams` INSERT already trigger a `scrape_requests` INSERT anywhere? Likely yes via frontend or import path — verify.
+4. **Priority column on existing rows.** Backfill existing pending requests to priority=5? Or treat the new column as opt-in via DEFAULT?
+5. **Discovery cadence empirical check.** 1,000/week may be too slow or too fast. Tune after one cycle.
 
 ## Risks
 
-- **Silent NULL leak into rankings.** Highest risk. Mitigation: explicit assertion in the ranking engine entrypoint that no input row has NULL scores. Fail loud if violated.
-- **`game_uid` symmetry assumption is wrong somewhere.** Mitigation: integration test that proves a scheduled-then-played sequence produces exactly one row with both teams and the score filled.
-- **Bootstrap reveals low future-game density.** If most teams have empty future schedules at any moment, the daily cron has minimal coverage and we end up relying on the safety net. Not catastrophic (we still get the score-collection benefit for active teams), but worth knowing before declaring the design successful.
-- **GotSport behavior drift.** GotSport could start returning past games only when explicitly asked, or change its API to require an explicit `?future=true` parameter. Mitigation: contract test that scrapes a single known team and asserts at least N future-dated rows in the response, run weekly.
+- **Silent NULL leak into rankings.** Mitigation: hard assertion at ranking input entrypoint.
+- **`game_uid` symmetry assumption.** Mitigation: integration test in Phase 1 that proves scheduled-then-played dedups to one row.
+- **Unique-on-pending index conflicts with existing data.** Mitigation: pre-flight check for duplicate pending rows; resolve before applying the index.
+- **Process-missing-games at 15min cadence hits GitHub Actions concurrency limits.** Mitigation: workflow `concurrency:` block to ensure overlap doesn't stack.
+- **Bootstrap reveals low future-game density.** Not catastrophic; means daily enqueue is small and discovery does more work. Visible immediately from Phase 2 sanity-check logs.
 
 ## Out of scope (follow-ups)
 
-- UI surface for "scheduled" games in team history.
+- UI for "scheduled" games in team history.
 - Push notifications when a scheduled game posts a result.
-- Schedule-conflict detection (same team, two games same day, different sources).
-- Tournament event linkage (scheduled rows joining to `events` records).
+- Adaptive priority cap (e.g., bump per-run cap to 400 when queue depth > 5K).
+- Sharded enqueue scripts (currently all run as single processes).
+- PlayMetrics extension of this model.
