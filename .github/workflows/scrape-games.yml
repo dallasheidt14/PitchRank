@@ -250,16 +250,13 @@ jobs:
             CMD="$CMD --include-recent"
           fi
 
-          # Adaptive concurrency: 10 single-shard, 20 per shard when sharded.
-          # Single-shard runs from one GHA IP trip the CloudFront WAF at ~15 req/s;
-          # 10 concurrent + 1.5-2.5s per-team delay stays comfortably under that.
-          # Sharded mode at 20 each is safe because every shard runs on a separate IP.
-          # Manual concurrency input wins if explicitly set AND we're not sharding.
-          if [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
-            CONCURRENCY=10
-          else
-            CONCURRENCY=20
-          fi
+          # Concurrency: 10 per shard, single-shard or sharded.
+          # The CloudFront WAF on system.gotsport.com/api/v1/* trips at ~15 req/s
+          # sustained from one IP. The 2026-05-18 chain at 20 per shard had a 97%
+          # error rate from WAF blocks (silent failures pre-circuit-breaker). 10
+          # concurrent + 1.5-2.5s per-team delay stays comfortably under threshold.
+          # Sharded mode runs each shard on a separate IP so 10 × 5 = 50 aggregate.
+          CONCURRENCY=10
           if [[ "$CONCURRENCY_INPUT" =~ ^[0-9]+$ ]] && [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
             CONCURRENCY="$CONCURRENCY_INPUT"
           fi
