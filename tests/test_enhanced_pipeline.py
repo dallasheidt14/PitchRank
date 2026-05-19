@@ -515,5 +515,51 @@ class TestFutureDateHelper:
         assert pipeline._is_future_game({"game_date": "not-a-date"}) is False
 
 
+class TestValidateAndDedupFutureCarveout:
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    @pytest.mark.asyncio
+    async def test_future_scoreless_game_passes_filter(self, mock_supabase):
+        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        future_date = (date.today() + timedelta(days=14)).isoformat()
+        games = [{
+            "game_uid": "future-001",
+            "team_id": "team-a",
+            "opponent_id": "team-b",
+            "game_date": future_date,
+            "goals_for": None,
+            "goals_against": None,
+            "provider": "gotsport",
+            "home_away": "H",
+        }]
+        valid, invalid, stats = await pipeline._validate_and_dedup(games, run_validation=False)
+        assert stats["skipped_empty_scores"] == 0
+        assert len(valid) == 1
+
+    @pytest.mark.asyncio
+    async def test_past_scoreless_game_still_skipped(self, mock_supabase):
+        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        past_date = (date.today() - timedelta(days=7)).isoformat()
+        games = [{
+            "game_uid": "past-001",
+            "team_id": "team-a",
+            "opponent_id": "team-b",
+            "game_date": past_date,
+            "goals_for": None,
+            "goals_against": None,
+            "provider": "gotsport",
+            "home_away": "H",
+        }]
+        valid, invalid, stats = await pipeline._validate_and_dedup(games, run_validation=False)
+        assert stats["skipped_empty_scores"] == 1
+        assert len(valid) == 0
+
+
 # Run with: pytest tests/test_enhanced_pipeline.py -v
 

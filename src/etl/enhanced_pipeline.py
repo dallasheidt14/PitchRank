@@ -1079,15 +1079,19 @@ class EnhancedETLPipeline:
         from src.models.game_matcher import GameHistoryMatcher
 
         for game in games:
-            # Skip games with no scores
+            # Scoreless games: allow future-dated rows through (scheduled games —
+            # daily enqueue uses them as scrape triggers). Skip past/today scoreless rows.
             if self._is_empty_score(game.get("goals_for")) and self._is_empty_score(game.get("goals_against")):
-                skipped_empty_scores += 1
-                if skipped_empty_scores <= 5:
-                    logger.debug(
-                        f"Skipping game with no scores: {game.get('team_id')} vs "
-                        f"{game.get('opponent_id')} on {game.get('game_date')}"
-                    )
-                continue
+                if self._is_future_game(game):
+                    pass  # Scheduled game — fall through to dedup/insert with NULL scores
+                else:
+                    skipped_empty_scores += 1
+                    if skipped_empty_scores <= 5:
+                        logger.debug(
+                            f"Skipping game with no scores: {game.get('team_id')} vs "
+                            f"{game.get('opponent_id')} on {game.get('game_date')}"
+                        )
+                    continue
 
             # Schema validation (only when enabled)
             if run_validation:
