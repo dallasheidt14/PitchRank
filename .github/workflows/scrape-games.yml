@@ -49,6 +49,16 @@ on:
         required: false
         type: string
         default: '1000'
+      delay_min:
+        description: 'Per-team min delay seconds (sleeps AFTER each team; empty = scraper default 1.5)'
+        required: false
+        type: string
+        default: ''
+      delay_max:
+        description: 'Per-team max delay seconds (sleeps AFTER each team; empty = scraper default 2.5)'
+        required: false
+        type: string
+        default: ''
       include_recent:
         description: 'Include teams scraped within last 7 days (override default filter)'
         required: false
@@ -206,8 +216,20 @@ jobs:
           INCLUDE_RECENT:    ${{ inputs.include_recent }}
           CHAIN_REMAINING:   ${{ inputs.chain_remaining }}
           CONCURRENCY_INPUT: ${{ inputs.concurrency }}
+          DELAY_MIN_INPUT:   ${{ inputs.delay_min }}
+          DELAY_MAX_INPUT:   ${{ inputs.delay_max }}
         run: |
           CMD="python scripts/scrape_games.py --provider gotsport --auto-import"
+
+          # Propagate validated delay overrides to the scraper via env. Regex
+          # gates non-numeric input from reaching float() inside the scraper.
+          # Empty / invalid → fall through to GotSportScraper defaults (1.5/2.5).
+          if [[ "$DELAY_MIN_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "GOTSPORT_DELAY_MIN=$DELAY_MIN_INPUT" >> "$GITHUB_ENV"
+          fi
+          if [[ "$DELAY_MAX_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            echo "GOTSPORT_DELAY_MAX=$DELAY_MAX_INPUT" >> "$GITHUB_ENV"
+          fi
 
           # A chain link is either the cron seed OR a workflow_dispatch with
           # chain_remaining > 0. Both seed and links scrape 25000 teams
