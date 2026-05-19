@@ -318,6 +318,21 @@ class EnhancedETLPipeline:
             # Non-numeric values or conversion errors
             return False
 
+    def _should_accept_for_insert(self, game: Dict) -> bool:
+        """
+        Return True if a transformed game record should be inserted.
+
+        Accepts:
+          - Games with valid scores
+          - Future-dated games with NULL scores (scheduled — score arrives later)
+
+        Rejects:
+          - Past or today-dated games with NULL/invalid scores
+        """
+        if self._has_valid_scores(game):
+            return True
+        return self._is_future_game(game)
+
     def _make_composite_key(self, game: Dict) -> str:
         """
         Construct composite key matching the database unique constraint.
@@ -886,7 +901,7 @@ class EnhancedETLPipeline:
             valid_game_records = []
             skipped_games = []
             for g in game_records:
-                if self._has_valid_scores(g):
+                if self._should_accept_for_insert(g):
                     valid_game_records.append(g)
                 else:
                     skipped_games.append(g)
