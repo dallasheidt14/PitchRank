@@ -816,10 +816,14 @@ class GotSportScraper(BaseScraper):
         except Exception:
             return ""
 
-    def _determine_result(self, goals_for: Optional[int], goals_against: Optional[int]) -> str:
-        """Determine game result based on scores"""
+    def _determine_result(self, goals_for: Optional[int], goals_against: Optional[int]) -> Optional[str]:
+        """Determine game result based on scores.
+
+        Returns None for unplayed/scheduled games (NULL scores) so the database
+        column stays NULL rather than storing the placeholder "U".
+        """
         if goals_for is None or goals_against is None:
-            return "U"  # Unknown
+            return None  # Unplayed / scheduled — keep DB column NULL
 
         if goals_for > goals_against:
             return "W"  # Win

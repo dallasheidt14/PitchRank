@@ -229,7 +229,7 @@ def scrape_ecnl_365days(
             "home_away": game.home_away,
             "goals_for": game.goals_for,
             "goals_against": game.goals_against,
-            "result": game.result or "U",
+            "result": game.result if game.result in ("W", "L", "D") else None,
             "competition": game.competition or "",
             "venue": game.venue or "",
             "source_url": game.meta.get("source_url", "") if game.meta else "",
