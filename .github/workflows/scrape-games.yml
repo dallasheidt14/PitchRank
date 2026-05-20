@@ -1,8 +1,25 @@
 name: Scrape Games
-# Run title shown in the Actions list. Cleaner than the default (latest commit subject).
+# Manual-only operator tool for bulk ZenRows-backed scraping (bootstrap,
+# large one-offs, recovery from queue backlog). The Sunday-night automated
+# chain was removed as part of the schedule-driven-scraping migration —
+# ongoing scraping is now handled by the priority queue:
+#   - enqueue_yesterday_games.py    (daily, priority 2)
+#   - enqueue_discovery_teams.py    (weekly, priority 3)
+#   - enqueue_safety_net.py         (weekly, priority 4)
+# All three feed scrape_requests, drained by process_missing_games at
+# 200 teams every 15 minutes.
+#
+# This workflow remains as a manual escape hatch for cases the queue can't
+# handle in reasonable time (initial bootstrap, recovery, large one-off
+# imports). Dispatch with limit_teams≥5000 or chain_remaining>0 to engage
+# the 5-shard chain mode.
+#
+# Chain semantics (post-cron-removal): chain_remaining=N means "this run
+# plus N dispatched follow-ups." For the full 6-link sweep (150K teams,
+# enough to cover the ~137K gotsport pool) set chain_remaining=6. For a
+# shorter sweep, use any N from 1-5.
 run-name: >-
   Scrape Games · ${{
-    github.event_name == 'schedule' && '25000 (scheduled, chain start)' ||
     (inputs.chain_remaining != '' && inputs.chain_remaining != '0' && format('25000 (chain, {0} remaining)', inputs.chain_remaining)) ||
     (inputs.limit_teams != '' && format('{0} teams', inputs.limit_teams)) ||
     (inputs.null_teams_only == true && 'NULL bootstrap') ||
@@ -11,17 +28,6 @@ run-name: >-
   }}
 
 on:
-  schedule:
-    # Every Sunday at 11:00 PM Mountain Time = Monday 6:00 AM UTC.
-    # Seeds a 6-link chain: each completed run dispatches the next with
-    # chain_remaining decremented, until chain_remaining hits 0.
-    # 6 links × 25,000 teams = 150,000 teams/week, enough to sweep the
-    # full ~137K gotsport pool. Each link runs --include-recent so the
-    # 7-day staleness gate doesn't shadow last week's freshly-scraped
-    # teams; the RPC's ORDER BY last_scraped_at ASC NULLS FIRST + the
-    # 25K limit naturally picks the oldest 25K each link, and prior
-    # link's teams become "freshest" so the next link sees a new set.
-    - cron: '0 6 * * 1'
   workflow_dispatch:
     inputs:
       limit_teams:
@@ -75,7 +81,7 @@ on:
         type: boolean
         default: false
       chain_remaining:
-        description: 'Links remaining in the auto-chain after this run (cron sets this implicitly). 0 = do not chain.'
+        description: 'Total links in this chain INCLUDING this run. Set to 6 for a full 25K×6=150K sweep of the ~137K pool. Decrements by 1 each link until 0 (terminator).'
         required: false
         type: string
         default: '0'
@@ -130,14 +136,13 @@ jobs:
         # GitHub Actions parser, handles quoting. Regex validates the value
         # before any numeric comparison.
         env:
-          EVENT_NAME: ${{ github.event_name }}
           LIMIT_TEAMS: ${{ inputs.limit_teams }}
           CHAIN_REMAINING: ${{ inputs.chain_remaining }}
         run: |
-          # Schedule cron, in-flight chain link (chain_remaining > 0), and
-          # large manual runs all shard into 5. Small manual runs collapse
-          # to single-shard so the RPC's hash filter is a no-op.
-          if [ "$EVENT_NAME" = "schedule" ] || [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
+          # In-flight chain link (chain_remaining > 0) and large manual runs
+          # shard into 5. Small manual runs collapse to single-shard so the
+          # RPC's hash filter is a no-op.
+          if [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
             echo "should_shard=true"        >> "$GITHUB_OUTPUT"
             echo "shard_count=5"            >> "$GITHUB_OUTPUT"
             echo "shards=[0,1,2,3,4]"       >> "$GITHUB_OUTPUT"
@@ -219,7 +224,6 @@ jobs:
         # is not divisible by 5 (e.g. 5001/5=1000 → total 5000). Acceptable at
         # scraping scale.
         env:
-          EVENT_NAME:        ${{ github.event_name }}
           LIMIT_TEAMS:       ${{ inputs.limit_teams }}
           NULL_TEAMS_ONLY:   ${{ inputs.null_teams_only }}
           SINCE_DATE:        ${{ inputs.since_date }}
@@ -254,11 +258,15 @@ jobs:
             echo "::warning::delay_min and delay_max must be set together; ignoring partial override"
           fi
 
-          # A chain link is either the cron seed OR a workflow_dispatch with
-          # chain_remaining > 0. Both seed and links scrape 25000 teams
-          # (5000 per shard × 5 shards).
+          # A chain link is a workflow_dispatch with chain_remaining > 0.
+          # Chain links scrape 25000 teams (5000 per shard × 5 shards).
+          # The Sunday-night cron seed was removed; chains are now started
+          # manually by dispatching with chain_remaining=6 (for the documented
+          # 6-link / 150K-team sweep). Each subsequent link inherits a
+          # decremented value, runs as a full 5-shard 25K-team chain link, and
+          # dispatches the next until chain_remaining reaches 0 (terminator).
           IS_CHAIN_LINK="false"
-          if [ "$EVENT_NAME" = "schedule" ] || [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
+          if [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
             IS_CHAIN_LINK="true"
           fi
 
@@ -365,9 +373,7 @@ jobs:
           echo "===================="
           echo "Scrape shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT} completed"
           echo "===================="
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain seed)"
-          elif [ -n "${{ inputs.chain_remaining }}" ] && [ "${{ inputs.chain_remaining }}" != "0" ]; then
+          if [ -n "${{ inputs.chain_remaining }}" ] && [ "${{ inputs.chain_remaining }}" != "0" ]; then
             echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain link, ${{ inputs.chain_remaining }} remaining)"
           else
             echo "Teams limit input: ${{ inputs.limit_teams || 'empty (incremental mode)' }}"
@@ -393,8 +399,7 @@ jobs:
     steps:
       - name: Dispatch next chain link
         # Fires only when:
-        #   (a) this run was the scheduled Monday seed (event_name == 'schedule'),
-        #       OR an earlier link explicitly set chain_remaining > 0; AND
+        #   (a) an earlier dispatch set chain_remaining > 0; AND
         #   (b) every shard's scrape-and-import succeeded.
         # Manual one-off dispatches without chain_remaining stay non-chaining.
         #
@@ -402,22 +407,20 @@ jobs:
         # queues the next dispatched run behind this one, so links execute strictly
         # serially — link N+1 will not start until link N's run is fully complete.
         #
-        # Chain seeding: schedule fires the first link, then dispatches a follow-up
-        # with chain_remaining=5. That follow-up dispatches chain_remaining=4, and
-        # so on down to 1 (which dispatches chain_remaining=0, the terminator).
-        # Total: 1 seed + 5 chained = 6 links × 25,000 teams = 150,000 teams/week,
-        # enough to sweep the full ~137K gotsport pool.
-        if: ${{ (github.event_name == 'schedule' || (inputs.chain_remaining != '' && inputs.chain_remaining != '0')) && needs.scrape-and-import.result == 'success' }}
+        # Chain usage: dispatch with chain_remaining=N for an N-link chain
+        # totaling N × 25,000 teams. The originally-documented 150K full-sweep
+        # is chain_remaining=6 (this run + 5 dispatched follow-ups). Each link
+        # scrapes 25,000 teams (5,000 per shard × 5 shards). chain_remaining
+        # decrements by 1 each step until it reaches 0, which terminates the
+        # chain (the gate below blocks dispatching when chain_remaining ≤ 0).
+        # The Sunday-night automated seed was removed — chains are now
+        # operator-initiated.
+        if: ${{ inputs.chain_remaining != '' && inputs.chain_remaining != '0' && needs.scrape-and-import.result == 'success' }}
         env:
           GH_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
-          EVENT_NAME:      ${{ github.event_name }}
           CHAIN_REMAINING: ${{ inputs.chain_remaining }}
         run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            NEXT_REMAINING=5
-          else
-            NEXT_REMAINING=$(( CHAIN_REMAINING - 1 ))
-          fi
+          NEXT_REMAINING=$(( CHAIN_REMAINING - 1 ))
 
           if [ "$NEXT_REMAINING" -le 0 ]; then
             echo "Chain complete (next would be chain_remaining=$NEXT_REMAINING)."
