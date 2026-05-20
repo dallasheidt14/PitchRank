@@ -189,6 +189,31 @@ export async function POST(request: NextRequest) {
       // Don't fail - the main operation succeeded
     }
 
+    // 7. Schedule-driven-scraping hook: enqueue at priority 1 if this is a
+    //    GotSport team. Admin-initiated team creation deserves a near-immediate
+    //    scrape — process_missing_games drains the queue at 200/15min so the
+    //    new team's schedule should land within a single drain cycle.
+    //    Other providers are out of scope; the queue is GotSport-only for now.
+    if (game.provider_id) {
+      const { data: providerRow } = await supabase.from('providers').select('code').eq('id', game.provider_id).single();
+
+      if (providerRow?.code === 'gotsport') {
+        const { error: enqueueError } = await supabase.rpc('enqueue_scrape_request', {
+          p_team_id_master: teamIdMaster,
+          p_team_name: teamName.trim(),
+          p_provider_id: game.provider_id,
+          p_provider_team_id: providerTeamIdStr,
+          p_game_date: new Date().toISOString().slice(0, 10),
+          p_request_type: 'new_team',
+          p_priority: 1,
+        });
+        if (enqueueError) {
+          console.error('[create-team] Enqueue failed (non-fatal):', enqueueError);
+          // Non-fatal: safety-net sweep will pick this team up within a week.
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       teamIdMaster,

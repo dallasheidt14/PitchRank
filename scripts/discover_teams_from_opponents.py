@@ -37,7 +37,7 @@ import csv
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -236,9 +236,15 @@ def create_team_and_alias(
     provider_id: str,
     provider_team_id: str,
     meta: Dict[str, Optional[str]],
+    provider_code: Optional[str] = None,
 ) -> Tuple[str, str]:
     """
     Create a new team and alias mapping.
+
+    When provider_code == 'gotsport', also enqueue a scrape_requests row at
+    priority 3 (discovery) so the new team enters the queue and gets its
+    schedule scraped within ~15 minutes via process_missing_games. Other
+    providers are skipped — schedule-driven-scraping is GotSport-only.
 
     Returns (team_id_master, status) where status is one of:
     'created', 'exists_alias', 'exists_team', 'error'
@@ -310,6 +316,31 @@ def create_team_and_alias(
         error_str = str(e).lower()
         if "unique" not in error_str and "duplicate" not in error_str:
             print(f"  WARNING: Team created but alias failed: {e}")
+
+    # Schedule-driven-scraping hook: GotSport only.
+    # Enqueue at priority 3 (discovery) so the new team enters the priority
+    # queue and process_missing_games scrapes its schedule within ~15 min.
+    # Other providers are out of scope; the queue is GotSport-only for now.
+    if provider_code == "gotsport":
+        try:
+            _execute_with_retry(
+                lambda: supabase.rpc(
+                    "enqueue_scrape_request",
+                    {
+                        "p_team_id_master": team_id_master,
+                        "p_team_name": meta.get("team_name") or "",
+                        "p_provider_id": provider_id,
+                        "p_provider_team_id": provider_team_id,
+                        "p_game_date": date.today().isoformat(),
+                        "p_request_type": "new_team",
+                        "p_priority": 3,
+                    },
+                ).execute()
+            )
+        except Exception as e:
+            # Enqueue failure is non-fatal: the safety-net sweep (priority 4)
+            # will pick this team up within a week.
+            print(f"  WARNING: Team {team_id_master} created but enqueue failed: {e}")
 
     return team_id_master, "created"
 
@@ -536,7 +567,9 @@ def main() -> None:
             continue
 
         if args.execute:
-            team_id_master, status = create_team_and_alias(supabase, provider_id, unknown_pid, meta)
+            team_id_master, status = create_team_and_alias(
+                supabase, provider_id, unknown_pid, meta, provider_code=provider_code
+            )
             stats[status] = stats.get(status, 0) + 1
 
             home_bf, away_bf = 0, 0
