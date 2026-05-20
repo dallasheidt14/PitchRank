@@ -2,7 +2,10 @@ name: Process Missing Games
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # every 15 minutes
+    # Offset from :00/:15/:30/:45 to reduce GitHub scheduler contention.
+    # Scheduled workflows are best-effort and silently dropped under load;
+    # round-number minutes collide with every other repo using */15.
+    - cron: '7,22,37,52 * * * *'  # every 15 minutes, off-peak offsets
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
 
 concurrency:
