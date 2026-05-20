@@ -13,6 +13,11 @@ name: Scrape Games
 # handle in reasonable time (initial bootstrap, recovery, large one-off
 # imports). Dispatch with limit_teams≥5000 or chain_remaining>0 to engage
 # the 5-shard chain mode.
+#
+# Chain semantics (post-cron-removal): chain_remaining=N means "this run
+# plus N dispatched follow-ups." For the full 6-link sweep (150K teams,
+# enough to cover the ~137K gotsport pool) set chain_remaining=6. For a
+# shorter sweep, use any N from 1-5.
 run-name: >-
   Scrape Games · ${{
     (inputs.chain_remaining != '' && inputs.chain_remaining != '0' && format('25000 (chain, {0} remaining)', inputs.chain_remaining)) ||
@@ -76,7 +81,7 @@ on:
         type: boolean
         default: false
       chain_remaining:
-        description: 'Links remaining in the auto-chain after this run. Set to 5 to kick off a full 6-link sweep; chained runs decrement until 0 (terminator).'
+        description: 'Total links in this chain INCLUDING this run. Set to 6 for a full 25K×6=150K sweep of the ~137K pool. Decrements by 1 each link until 0 (terminator).'
         required: false
         type: string
         default: '0'
@@ -255,7 +260,10 @@ jobs:
           # A chain link is a workflow_dispatch with chain_remaining > 0.
           # Chain links scrape 25000 teams (5000 per shard × 5 shards).
           # The Sunday-night cron seed was removed; chains are now started
-          # manually by dispatching with chain_remaining>=5.
+          # manually by dispatching with chain_remaining=6 (for the documented
+          # 6-link / 150K-team sweep). Each subsequent link inherits a
+          # decremented value, runs as a full 5-shard 25K-team chain link, and
+          # dispatches the next until chain_remaining reaches 0 (terminator).
           IS_CHAIN_LINK="false"
           if [[ "$CHAIN_REMAINING" =~ ^[1-9][0-9]*$ ]]; then
             IS_CHAIN_LINK="true"
@@ -385,11 +393,14 @@ jobs:
         # queues the next dispatched run behind this one, so links execute strictly
         # serially — link N+1 will not start until link N's run is fully complete.
         #
-        # Chain usage: dispatch the workflow with chain_remaining=5 to kick off a
-        # 6-link chain (this run plus 5 dispatched follow-ups). Each link scrapes
-        # 25,000 teams (5,000 per shard × 5 shards). Total: 6 × 25,000 = 150,000
-        # teams, enough to sweep the full ~137K gotsport pool. The Sunday-night
-        # automated seed was removed — chains are now operator-initiated.
+        # Chain usage: dispatch with chain_remaining=N for an N-link chain
+        # totaling N × 25,000 teams. The originally-documented 150K full-sweep
+        # is chain_remaining=6 (this run + 5 dispatched follow-ups). Each link
+        # scrapes 25,000 teams (5,000 per shard × 5 shards). chain_remaining
+        # decrements by 1 each step until it reaches 0, which terminates the
+        # chain (the gate below blocks dispatching when chain_remaining ≤ 0).
+        # The Sunday-night automated seed was removed — chains are now
+        # operator-initiated.
         if: ${{ inputs.chain_remaining != '' && inputs.chain_remaining != '0' && needs.scrape-and-import.result == 'success' }}
         env:
           GH_TOKEN:        ${{ secrets.GITHUB_TOKEN }}
