@@ -5502,19 +5502,17 @@ elif section == "🔄 Scrape Queue":
     }
 
     # ── Refresh control ──────────────────────────────────────────────────
-    # NOTE: All four loaders below are wrapped in @st.cache_data with short
-    # TTLs (15s / 60s). st.rerun() alone re-runs the script but Streamlit
-    # still serves the cached values until TTL expires, so a plain rerun
-    # makes the Refresh button misleading. We explicitly clear each loader's
-    # cache before rerunning so the click always re-queries.
+    # All loaders below are wrapped in @st.cache_data with short TTLs
+    # (15s / 60s). st.rerun() alone re-runs the script but Streamlit still
+    # serves the cached values until TTL expires, so a plain rerun makes
+    # the Refresh button misleading. st.cache_data.clear() drops every
+    # cache_data entry app-wide — broader than necessary, but the
+    # individual loader handles are defined later in this script (some
+    # conditionally), so referencing them up here would NameError.
     refresh_col, _ = st.columns([1, 5])
     with refresh_col:
         if st.button("🔄 Refresh", help="Re-query the queue (clears 15s/60s caches)"):
-            queue_status_counts.clear()
-            fetch_pending.clear()
-            fetch_recent_failures.clear()
-            fetch_recent_completions.clear()
-            fetch_upcoming_games.clear()
+            st.cache_data.clear()
             st.rerun()
 
     now_utc = datetime.now(timezone.utc)
