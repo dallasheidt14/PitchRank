@@ -1,0 +1,53 @@
+"""Tests for the weekly safety-net enqueue script."""
+import os
+import sys
+from datetime import date
+from unittest.mock import Mock
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from scripts.enqueue_safety_net import (
+    DEFAULT_LIMIT,
+    PRIORITY_SAFETY_NET,
+    enqueue_team,
+    find_teams_to_enqueue,
+)
+
+
+def test_priority_constant_is_4():
+    assert PRIORITY_SAFETY_NET == 4
+
+
+def test_default_limit_is_500():
+    assert DEFAULT_LIMIT == 500
+
+
+def test_find_teams_to_enqueue_dedups_team_ids():
+    supabase = Mock()
+    supabase.rpc.return_value.execute.return_value.data = [
+        {"team_id_master": "t-1", "team_name": "A", "provider_team_id": "p-1"},
+        {"team_id_master": "t-2", "team_name": "B", "provider_team_id": "p-2"},
+        {"team_id_master": "t-1", "team_name": "A", "provider_team_id": "p-1"},
+    ]
+    teams = find_teams_to_enqueue(supabase, gotsport_provider_id="gp")
+    team_ids = [t["team_id_master"] for t in teams]
+    assert len(team_ids) == len(set(team_ids))
+
+
+def test_enqueue_team_uses_priority_4_and_today_game_date():
+    supabase = Mock()
+    supabase.rpc.return_value.execute.return_value.data = "test-id"
+    enqueue_team(
+        supabase,
+        team_id_master="t-1",
+        team_name="Team A",
+        provider_id="gp",
+        provider_team_id="p-1",
+    )
+    rpc_call = supabase.rpc.call_args
+    assert rpc_call.args[0] == "enqueue_scrape_request"
+    payload = rpc_call.args[1]
+    assert payload["p_priority"] == 4
+    assert payload["p_request_type"] == "safety_net"
+    assert payload["p_game_date"] == date.today().isoformat()
+    assert payload["p_team_id_master"] == "t-1"
