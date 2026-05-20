@@ -1036,7 +1036,7 @@ def scrape_new_events(
                 "home_away": game.home_away,
                 "goals_for": game.goals_for,
                 "goals_against": game.goals_against,
-                "result": game.result or "U",
+                "result": game.result if game.result in ("W", "L", "D") else None,
                 "competition": game.competition or "",
                 "division_name": game.meta.get("division_name", "") if game.meta else "",
                 "event_name": game.meta.get("event_name", "") if game.meta else "",

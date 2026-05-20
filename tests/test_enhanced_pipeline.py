@@ -1,7 +1,7 @@
 """Test suite for enhanced ETL pipeline"""
 import pytest
 import asyncio
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
 from typing import List, Dict
 
@@ -475,6 +475,158 @@ class TestBackfillDuplicateTeamLinks:
         metrics.duplicate_links_backfilled = 5
         result = metrics.to_dict()
         assert result['duplicate_links_backfilled'] == 5
+
+
+class TestFutureDateHelper:
+    """Tests for the _is_future_game helper used by the scheduled-game carveout."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    def _make_pipeline(self, mock_supabase):
+        return EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+
+    def test_future_date_returns_true(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        future = (date.today() + timedelta(days=7)).isoformat()
+        assert pipeline._is_future_game({"game_date": future}) is True
+
+    def test_today_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        today = date.today().isoformat()
+        assert pipeline._is_future_game({"game_date": today}) is False
+
+    def test_past_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        past = (date.today() - timedelta(days=7)).isoformat()
+        assert pipeline._is_future_game({"game_date": past}) is False
+
+    def test_missing_game_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        assert pipeline._is_future_game({}) is False
+
+    def test_unparseable_date_returns_false(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        assert pipeline._is_future_game({"game_date": "not-a-date"}) is False
+
+
+class TestShouldAcceptForInsert:
+    """Tests for _should_accept_for_insert and its interaction with _has_valid_scores."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    def _make_pipeline(self, mock_supabase):
+        return EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+
+    def test_has_valid_scores_rejects_past_null(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        past_game = {
+            "game_uid": "past-null-001",
+            "game_date": (date.today() - timedelta(days=7)).isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._has_valid_scores(past_game) is False
+
+    def test_should_accept_for_insert_keeps_future_null(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        future_game = {
+            "game_uid": "future-null-001",
+            "game_date": (date.today() + timedelta(days=7)).isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(future_game) is True
+
+    def test_should_accept_for_insert_rejects_past_null(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        past_game = {
+            "game_uid": "past-null-002",
+            "game_date": (date.today() - timedelta(days=7)).isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(past_game) is False
+
+    def test_should_accept_for_insert_keeps_played_game(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        played = {
+            "game_uid": "played-001",
+            "game_date": (date.today() - timedelta(days=2)).isoformat(),
+            "home_score": 2,
+            "away_score": 1,
+        }
+        assert pipeline._should_accept_for_insert(played) is True
+
+    def test_should_accept_for_insert_rejects_today_null(self, mock_supabase):
+        """Today's NULL-score games are score-entry lag, not scheduled — reject."""
+        pipeline = self._make_pipeline(mock_supabase)
+        today_game = {
+            "game_uid": "today-null-001",
+            "game_date": date.today().isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(today_game) is False
+
+
+class TestValidateAndDedupFutureCarveout:
+    """Verify the NULL-score filter carveout for future-dated (scheduled) games."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    @pytest.mark.asyncio
+    async def test_future_scoreless_game_passes_filter(self, mock_supabase):
+        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        future_date = (date.today() + timedelta(days=14)).isoformat()
+        games = [{
+            "game_uid": "future-001",
+            "team_id": "team-a",
+            "opponent_id": "team-b",
+            "game_date": future_date,
+            "goals_for": None,
+            "goals_against": None,
+            "provider": "gotsport",
+            "home_away": "H",
+        }]
+        valid, invalid, stats = await pipeline._validate_and_dedup(games, run_validation=False)
+        assert stats["skipped_empty_scores"] == 0
+        assert len(valid) == 1
+
+    @pytest.mark.asyncio
+    async def test_past_scoreless_game_still_skipped(self, mock_supabase):
+        pipeline = EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+        past_date = (date.today() - timedelta(days=7)).isoformat()
+        games = [{
+            "game_uid": "past-001",
+            "team_id": "team-a",
+            "opponent_id": "team-b",
+            "game_date": past_date,
+            "goals_for": None,
+            "goals_against": None,
+            "provider": "gotsport",
+            "home_away": "H",
+        }]
+        valid, invalid, stats = await pipeline._validate_and_dedup(games, run_validation=False)
+        assert stats["skipped_empty_scores"] == 1
+        assert len(valid) == 0
 
 
 # Run with: pytest tests/test_enhanced_pipeline.py -v

@@ -6,7 +6,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -317,6 +317,21 @@ class EnhancedETLPipeline:
         except (ValueError, TypeError):
             # Non-numeric values or conversion errors
             return False
+
+    def _should_accept_for_insert(self, game: Dict) -> bool:
+        """
+        Return True if a transformed game record should be inserted.
+
+        Accepts:
+          - Games with valid scores
+          - Future-dated games with NULL scores (scheduled — score arrives later)
+
+        Rejects:
+          - Past or today-dated games with NULL/invalid scores
+        """
+        if self._has_valid_scores(game):
+            return True
+        return self._is_future_game(game)
 
     def _make_composite_key(self, game: Dict) -> str:
         """
@@ -886,7 +901,7 @@ class EnhancedETLPipeline:
             valid_game_records = []
             skipped_games = []
             for g in game_records:
-                if self._has_valid_scores(g):
+                if self._should_accept_for_insert(g):
                     valid_game_records.append(g)
                 else:
                     skipped_games.append(g)
@@ -1038,6 +1053,24 @@ class EnhancedETLPipeline:
     def _is_empty_score(score) -> bool:
         return score is None or score == "" or str(score).strip().lower() in ("none", "null")
 
+    @staticmethod
+    def _is_future_game(game: Dict) -> bool:
+        """
+        Return True if game_date is strictly in the future (game_date > today).
+
+        Used by the scheduled-game carveout in score-validation filters: future-dated
+        rows with NULL scores are *scheduled*, not data quality issues, and must be
+        persisted so the daily enqueue can trigger off them.
+        """
+        game_date_raw = game.get("game_date", "")
+        if not game_date_raw:
+            return False
+        try:
+            game_date_obj = parse_game_date(game_date_raw)
+        except ValueError:
+            return False
+        return game_date_obj > date.today()
+
     async def _validate_and_dedup(
         self, games: List[Dict], *, run_validation: bool = True
     ) -> Tuple[List[Dict], List[Dict], Dict]:
@@ -1061,15 +1094,18 @@ class EnhancedETLPipeline:
         from src.models.game_matcher import GameHistoryMatcher
 
         for game in games:
-            # Skip games with no scores
+            # Scoreless games: allow future-dated rows through (scheduled games —
+            # daily enqueue uses them as scrape triggers). Skip past/today scoreless rows.
             if self._is_empty_score(game.get("goals_for")) and self._is_empty_score(game.get("goals_against")):
-                skipped_empty_scores += 1
-                if skipped_empty_scores <= 5:
-                    logger.debug(
-                        f"Skipping game with no scores: {game.get('team_id')} vs "
-                        f"{game.get('opponent_id')} on {game.get('game_date')}"
-                    )
-                continue
+                if not self._is_future_game(game):
+                    skipped_empty_scores += 1
+                    if skipped_empty_scores <= 5:
+                        logger.debug(
+                            f"Skipping game with no scores: {game.get('team_id')} vs "
+                            f"{game.get('opponent_id')} on {game.get('game_date')}"
+                        )
+                    continue
+                # Scheduled game — falls through to dedup/insert with NULL scores
 
             # Schema validation (only when enabled)
             if run_validation:
