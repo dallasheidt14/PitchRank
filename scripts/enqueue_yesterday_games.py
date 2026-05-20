@@ -17,13 +17,16 @@ import sys
 from datetime import date, timedelta
 
 # Windows SSL workaround (see project memory gotcha_python_supabase_ssl_truststore).
-# truststore must be injected BEFORE supabase is imported.
-import truststore
+# truststore must be injected BEFORE supabase is imported. Optional — CI runners
+# that use the system trust store don't need it; only Windows local runs do.
+try:
+    import truststore
 
-truststore.inject_into_ssl()
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
 
 from dotenv import load_dotenv  # noqa: E402
-
 from supabase import create_client  # noqa: E402
 
 load_dotenv(".env.local")
