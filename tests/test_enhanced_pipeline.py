@@ -182,8 +182,8 @@ class TestEnhancedValidator:
         assert not is_valid
         assert any('cannot be the same' in err.lower() for err in errors)
         
-        # Test future date (beyond 1 day)
-        future_date = (datetime.now() + timedelta(days=10)).strftime('%Y-%m-%d')
+        # Test future date beyond the 365-day scheduling window (typo guard).
+        future_date = (datetime.now() + timedelta(days=400)).strftime('%Y-%m-%d')
         is_valid, errors = validator.validate_game({
             'game_uid': 'edge-002',
             'home_team_id': 'team-a',
@@ -627,6 +627,125 @@ class TestValidateAndDedupFutureCarveout:
         valid, invalid, stats = await pipeline._validate_and_dedup(games, run_validation=False)
         assert stats["skipped_empty_scores"] == 1
         assert len(valid) == 0
+
+
+class TestScheduledGameValidatorCarveout:
+    """validate_game must accept future-dated NULL-score games (scheduled)
+    and still reject past-dated NULL-score games and partial-score games."""
+
+    def _validator(self):
+        return EnhancedDataValidator()
+
+    def _scheduled_source(self, future_days=7):
+        return {
+            "team_id": "team-a",
+            "opponent_id": "team-b",
+            "home_away": "H",
+            "goals_for": None,
+            "goals_against": None,
+            "game_date": (date.today() + timedelta(days=future_days)).isoformat(),
+            "game_uid": "sched-source-0001",
+        }
+
+    def _scheduled_transformed(self, future_days=7):
+        return {
+            "home_team_id": "team-a",
+            "away_team_id": "team-b",
+            "home_score": None,
+            "away_score": None,
+            "game_date": (date.today() + timedelta(days=future_days)).isoformat(),
+            "game_uid": "sched-trans-0001",
+        }
+
+    def test_source_format_scheduled_game_validates(self):
+        is_valid, errors = self._validator().validate_game(self._scheduled_source())
+        assert is_valid, f"Scheduled source-format game rejected: {errors}"
+
+    def test_transformed_format_scheduled_game_validates(self):
+        is_valid, errors = self._validator().validate_game(self._scheduled_transformed())
+        assert is_valid, f"Scheduled transformed-format game rejected: {errors}"
+
+    def test_past_dated_null_scores_still_rejected_source(self):
+        game = self._scheduled_source()
+        game["game_date"] = (date.today() - timedelta(days=7)).isoformat()
+        is_valid, errors = self._validator().validate_game(game)
+        assert not is_valid
+        assert any("goals_for" in e or "goals_against" in e for e in errors)
+
+    def test_past_dated_null_scores_still_rejected_transformed(self):
+        game = self._scheduled_transformed()
+        game["game_date"] = (date.today() - timedelta(days=7)).isoformat()
+        is_valid, errors = self._validator().validate_game(game)
+        assert not is_valid
+        assert any("home_score" in e or "away_score" in e for e in errors)
+
+    def test_partial_score_future_still_rejected_source(self):
+        """One score present, the other None — not a scheduled-game shape."""
+        game = self._scheduled_source()
+        game["goals_for"] = 2  # partial
+        is_valid, errors = self._validator().validate_game(game)
+        assert not is_valid
+        assert any("goals_against" in e for e in errors)
+
+    def test_partial_score_future_still_rejected_transformed(self):
+        game = self._scheduled_transformed()
+        game["home_score"] = 2  # partial
+        is_valid, errors = self._validator().validate_game(game)
+        assert not is_valid
+        assert any("away_score" in e for e in errors)
+
+
+class TestShouldAcceptForInsertStrictness:
+    """_should_accept_for_insert must reject partial-score or malformed
+    future-dated rows even though _has_valid_scores returns False on them."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        supabase = Mock()
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+        return supabase
+
+    def _make_pipeline(self, mock_supabase):
+        return EnhancedETLPipeline(mock_supabase, 'gotsport', dry_run=True)
+
+    def test_future_partial_score_rejected(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        game = {
+            "game_date": (date.today() + timedelta(days=7)).isoformat(),
+            "home_score": 2,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(game) is False
+
+    def test_future_malformed_score_rejected(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        game = {
+            "game_date": (date.today() + timedelta(days=7)).isoformat(),
+            "home_score": "abc",
+            "away_score": "xyz",
+        }
+        assert pipeline._should_accept_for_insert(game) is False
+
+    def test_future_both_null_accepted(self, mock_supabase):
+        pipeline = self._make_pipeline(mock_supabase)
+        game = {
+            "game_date": (date.today() + timedelta(days=7)).isoformat(),
+            "home_score": None,
+            "away_score": None,
+        }
+        assert pipeline._should_accept_for_insert(game) is True
+
+    def test_future_empty_string_scores_accepted(self, mock_supabase):
+        """Empty strings count as empty per _is_empty_score — treat as scheduled."""
+        pipeline = self._make_pipeline(mock_supabase)
+        game = {
+            "game_date": (date.today() + timedelta(days=7)).isoformat(),
+            "home_score": "",
+            "away_score": "",
+        }
+        assert pipeline._should_accept_for_insert(game) is True
 
 
 # Run with: pytest tests/test_enhanced_pipeline.py -v

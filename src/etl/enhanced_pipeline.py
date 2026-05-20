@@ -324,14 +324,22 @@ class EnhancedETLPipeline:
 
         Accepts:
           - Games with valid scores
-          - Future-dated games with NULL scores (scheduled — score arrives later)
+          - Future-dated games where BOTH scores are explicitly missing
+            (scheduled — score arrives later)
 
         Rejects:
           - Past or today-dated games with NULL/invalid scores
+          - Future-dated games with partial or malformed scores (one missing,
+            one present, or unparseable). Scheduled = both missing, period.
         """
         if self._has_valid_scores(game):
             return True
-        return self._is_future_game(game)
+        if not self._is_future_game(game):
+            return False
+        # Strict scheduled-game shape: both scores must be explicitly empty.
+        home_empty = self._is_empty_score(game.get("home_score"))
+        away_empty = self._is_empty_score(game.get("away_score"))
+        return home_empty and away_empty
 
     def _make_composite_key(self, game: Dict) -> str:
         """

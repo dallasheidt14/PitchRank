@@ -14,6 +14,23 @@ if _project_root not in sys.path:
 from config.settings import AGE_GROUPS  # noqa: E402
 
 
+def _is_future_game_date(date_str: Any) -> bool:
+    """
+    Return True if date_str parses to a date strictly after today.
+
+    Used by validate_game to skip the goals_for/goals_against required-field
+    checks for scheduled games (future-dated rows with both scores NULL).
+    Returns False on missing or unparseable input — scheduled-game carveout
+    only applies when we can prove the date is in the future.
+    """
+    if not date_str:
+        return False
+    try:
+        return parse_game_date(str(date_str)) > date.today()
+    except ValueError:
+        return False
+
+
 def parse_game_date(date_str: str) -> date:
     """
     Parse game date from multiple formats (handles GotSport CSVs and standard formats).
@@ -149,11 +166,20 @@ class EnhancedDataValidator:
             elif home_away.upper() not in ["H", "A"]:
                 errors.append(f"Invalid home_away value: '{home_away}' (must be 'H' or 'A')")
 
-            if goals_for is None:
-                errors.append("Missing required field: goals_for")
-
-            if goals_against is None:
-                errors.append("Missing required field: goals_against")
+            # Scheduled games (game_date > today AND both scores missing) are
+            # exempt from the score required-field check. Played games still need
+            # both scores; partial-score games on any date are still rejected by
+            # the integer validation below.
+            is_scheduled = (
+                goals_for is None
+                and goals_against is None
+                and _is_future_game_date(game.get("game_date"))
+            )
+            if not is_scheduled:
+                if goals_for is None:
+                    errors.append("Missing required field: goals_for")
+                if goals_against is None:
+                    errors.append("Missing required field: goals_against")
 
             if not game.get("game_date"):
                 errors.append("Missing required field: game_date")
@@ -210,10 +236,20 @@ class EnhancedDataValidator:
             elif not str(away_team_id).strip():
                 errors.append("Empty team ID: away_team_id")
 
-            if "home_score" not in game or game["home_score"] is None:
-                errors.append("Missing required field: home_score")
-            if "away_score" not in game or game["away_score"] is None:
-                errors.append("Missing required field: away_score")
+            home_score_missing = "home_score" not in game or game["home_score"] is None
+            away_score_missing = "away_score" not in game or game["away_score"] is None
+            # Scheduled games (game_date > today AND both scores missing) are
+            # exempt from the score required-field check.
+            is_scheduled = (
+                home_score_missing
+                and away_score_missing
+                and _is_future_game_date(game.get("game_date"))
+            )
+            if not is_scheduled:
+                if home_score_missing:
+                    errors.append("Missing required field: home_score")
+                if away_score_missing:
+                    errors.append("Missing required field: away_score")
 
             if not game.get("game_date"):
                 errors.append("Missing required field: game_date")
@@ -225,24 +261,25 @@ class EnhancedDataValidator:
             if str(home_team_id) == str(away_team_id):
                 errors.append(f"Home and away teams cannot be the same: '{home_team_id}'")
 
-            # Validate scores
-            try:
-                home_score = int(game["home_score"])
-                away_score = int(game["away_score"])
+            # Validate scores (skip for scheduled games — scores are NULL by design)
+            if not is_scheduled:
+                try:
+                    home_score = int(game["home_score"])
+                    away_score = int(game["away_score"])
 
-                if home_score < 0:
-                    errors.append(f"Home score cannot be negative: {home_score}")
-                if away_score < 0:
-                    errors.append(f"Away score cannot be negative: {away_score}")
+                    if home_score < 0:
+                        errors.append(f"Home score cannot be negative: {home_score}")
+                    if away_score < 0:
+                        errors.append(f"Away score cannot be negative: {away_score}")
 
-                if home_score > 50:
-                    errors.append(f"Unusually high home score detected: {home_score} (verify data accuracy)")
-                if away_score > 50:
-                    errors.append(f"Unusually high away score detected: {away_score} (verify data accuracy)")
-            except (ValueError, TypeError):
-                errors.append(
-                    f"Scores must be integers: home_score={game.get('home_score')}, away_score={game.get('away_score')}"
-                )
+                    if home_score > 50:
+                        errors.append(f"Unusually high home score detected: {home_score} (verify data accuracy)")
+                    if away_score > 50:
+                        errors.append(f"Unusually high away score detected: {away_score} (verify data accuracy)")
+                except (ValueError, TypeError):
+                    errors.append(
+                        f"Scores must be integers: home_score={game.get('home_score')}, away_score={game.get('away_score')}"
+                    )
         else:
             # Neither format found
             errors.append("Game must have either (team_id, opponent_id) or (home_team_id, away_team_id)")
@@ -269,9 +306,11 @@ class EnhancedDataValidator:
             if game_date.year < 2000:
                 errors.append(f"Game date too far in past: {game_date_str} (year must be >= 2000)")
             elif game_date > datetime.now().date():
-                # Allow up to 1 day in the future for scheduled games
-                if (game_date - datetime.now().date()).days > 1:
-                    errors.append(f"Game date too far in future: {game_date_str} (must be within 1 day of today)")
+                # Allow up to 365 days in the future for scheduled games (most club
+                # schedules publish 3-6 months ahead; tournament brackets can be longer).
+                # Beyond 1 year, likely a typo (e.g., 2099-12-31).
+                if (game_date - datetime.now().date()).days > 365:
+                    errors.append(f"Game date too far in future: {game_date_str} (must be within 365 days of today)")
 
         except ValueError as e:
             errors.append(f"Invalid date format: '{game_date_str}' - {str(e)}")
