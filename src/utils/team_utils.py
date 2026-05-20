@@ -61,6 +61,7 @@ def calculate_age_group_from_birth_year(birth_year: int, current_year: int = CUR
 
     Formula: age = current_year - birth_year + 1 → f"U{age}"
     Season year rolls over on Aug 1 (see _soccer_season_year).
+    Age 18 collapses into U19 to match AGE_GROUPS (config/settings.py).
 
     Args:
         birth_year: The birth year (e.g., 2014)
@@ -74,8 +75,12 @@ def calculate_age_group_from_birth_year(birth_year: int, current_year: int = CUR
         'U12'
         >>> calculate_age_group_from_birth_year(2013, 2025)
         'U13'
+        >>> calculate_age_group_from_birth_year(2008, 2025)
+        'U19'
     """
     age = current_year - birth_year + 1
     if 7 <= age <= 19:  # Valid youth soccer age range
+        if age == 18:
+            age = 19
         return f"U{age}"
     return None
