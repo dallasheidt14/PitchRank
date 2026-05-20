@@ -277,8 +277,10 @@ class EnhancedDataValidator:
                     if away_score > 50:
                         errors.append(f"Unusually high away score detected: {away_score} (verify data accuracy)")
                 except (ValueError, TypeError):
+                    home_raw = game.get("home_score")
+                    away_raw = game.get("away_score")
                     errors.append(
-                        f"Scores must be integers: home_score={game.get('home_score')}, away_score={game.get('away_score')}"
+                        f"Scores must be integers: home_score={home_raw}, away_score={away_raw}"
                     )
         else:
             # Neither format found
