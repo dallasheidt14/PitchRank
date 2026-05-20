@@ -16,7 +16,10 @@ interface UpcomingGamesTableProps {
 }
 
 export function UpcomingGamesTable({ teamId, limit }: UpcomingGamesTableProps) {
-  const gamesLimit = limit ?? 25;
+  // 50 is comfortable headroom — the busiest real team in current data
+  // has ~18 upcoming games. Avoids silent truncation without producing a
+  // 100-row scrolling card. Bump if real teams start hitting this cap.
+  const gamesLimit = limit ?? 50;
   const { data, isLoading, isError, error, refetch } = useTeamUpcomingGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
   const games: GameWithTeams[] | undefined = data?.games;
