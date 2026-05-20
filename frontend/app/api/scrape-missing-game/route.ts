@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
         game_date: gameDate,
         status: 'pending',
         request_type: 'missing_game',
+        priority: 1, // user-clicked requests jump ahead of auto-enqueued daily/discovery requests
       })
       .select('id')
       .single();
