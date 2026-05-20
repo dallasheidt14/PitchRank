@@ -70,3 +70,51 @@ Sample from production (5 rows + NULL-score query):
 --- NULL home_score rows ---
 (empty — no scheduled games in DB yet)
 ```
+
+---
+
+## Phase 8: New-team scrape hook audit (2026-05-20)
+
+### Team-insert sites found
+
+| File:Line | Category | Has scrape hook? | Notes |
+|---|---|---|---|
+| `src/models/affinity_wa_matcher.py:396` | Hot — runs inside enhanced_pipeline on every Affinity WA game import | No | Returns `team_id_master`; no enqueue/scrape after insert |
+| `src/models/modular11_matcher.py:1374` | Hot — runs inside enhanced_pipeline on every Modular11 (MLS NEXT) game import | No | Returns `team_id_master`; no enqueue/scrape after insert |
+| `src/models/playmetrics_matcher.py:505` | Hot — runs inside enhanced_pipeline and `scripts/scrape_playmetrics_tournament.py` | No | Returns `team_id_master`; no enqueue/scrape after insert |
+| `src/models/sincsports_matcher.py:741` | Hot — runs inside enhanced_pipeline, `discover_sincsports_teams.py`, and `discover_sincsports_via_tournament.py` | No | Returns `(team_id_master, True)`; no enqueue/scrape after insert |
+| `src/models/tgs_matcher.py:674` | Hot — runs inside enhanced_pipeline on every TGS game import | No | Returns `team_id_master`; no enqueue/scrape after insert |
+| `scripts/discover_teams_from_opponents.py:272` | Hot — weekly ops script creating new teams from unmatched opponents | No | Backfills game FKs after insert, but no enqueue |
+| `frontend/app/api/create-team/route.ts:75` | Hot — user-facing admin API for linking unknown opponents | No | Backfills games + writes audit log, but no `enqueue_scrape_request` call |
+| `scripts/extract_and_import_tgs_teams.py:413,422` | Maintenance — one-off bulk CSV import run before a new TGS game import batch | No | Batch inserts; designed to run before game import (which scrapes inline). Lower priority. |
+| `scripts/import_sincsports_teams.py:438` | Maintenance — one-off bulk import of SincSports teams | No | No enqueue; scraping done separately by import_games_enhanced pipeline |
+| `scripts/import_teams_enhanced.py:162` | Maintenance — one-off enhanced importer for new providers | No | No enqueue; pipeline caller handles scraping |
+| `scripts/migrate_modular11_aliases.py:483` | Maintenance — one-off migration to fix MLS NEXT division alias splits | No | Targeted correction script; runs rarely |
+
+**Un-deprecation paths:** No code path was found that updates `is_deprecated` to `False` on an existing team. `merge_teams.py` only sets deprecated→canonical (marks deprecated teams), never un-deprecates. No gap here.
+
+**Supabase stored procedures / triggers:** No migration function performs `INSERT INTO teams`. The only teams-related trigger is `update_teams_updated_at` (timestamp on UPDATE). No database-level gap.
+
+### Gaps identified
+
+All five hot-path matcher insert sites and both ops/UI scripts lack a scrape hook:
+
+1. `src/models/affinity_wa_matcher.py:396` — no enqueue after team creation
+2. `src/models/modular11_matcher.py:1374` — no enqueue after team creation
+3. `src/models/playmetrics_matcher.py:505` — no enqueue after team creation
+4. `src/models/sincsports_matcher.py:741` — no enqueue after team creation
+5. `src/models/tgs_matcher.py:674` — no enqueue after team creation
+6. `scripts/discover_teams_from_opponents.py:272` — no enqueue after team creation
+7. `frontend/app/api/create-team/route.ts:75` — no enqueue after team creation
+
+The three maintenance scripts (`extract_and_import_tgs_teams.py`, `import_sincsports_teams.py`, `import_teams_enhanced.py`) and the migration script are lower priority — they bulk-import known teams ahead of a game import run, which itself triggers scraping through the pipeline. Worth noting but not blocking.
+
+### Recommended action
+
+**For the 5 matcher sites (gaps 1–5):** After the `self.db.table("teams").insert(team_data).execute()` call in each matcher's `_create_team` (or equivalent) method, call `enqueue_scrape_request` at priority 3 (discovery). The `self.db` handle is already available; the `team_id_master`, `team_name`, `provider_id`, and `provider_team_id` values are all in scope at the insert site. Pass `today()` as the `game_date` placeholder.
+
+**For `discover_teams_from_opponents.py:272` (gap 6):** After the insert and alias write in `_create_or_get_team`, call `enqueue_scrape_request` at priority 3. The `supabase` client, `provider_id`, `provider_team_id`, `team_id_master`, and team metadata are all in scope.
+
+**For `frontend/app/api/create-team/route.ts:75` (gap 7):** After step 3 (team insert) succeeds, call the `enqueue_scrape_request` RPC via the Supabase client before returning the success response. Priority 1 (user-clicked) is appropriate since an admin just manually created the team. The `teamIdMaster`, `teamName`, `game.provider_id`, and `providerTeamIdStr` are all in scope.
+
+**For the 3 maintenance scripts:** Consider adding a post-import enqueue pass (a loop over newly created `team_id_master` values calling `enqueue_scrape_request` at priority 3), but this is a stretch goal — the pipeline-driven game import that follows these scripts effectively triggers schedule scraping through normal operation.
