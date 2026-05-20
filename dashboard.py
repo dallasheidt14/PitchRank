@@ -256,7 +256,7 @@ _nav_options = [
     "✏️ Manual Team Edit",
     "🔎 Team Discovery Review",
     "🛡️ Due Diligence Review",
-    "📸 Instagram Review",
+    "🔄 Scrape Queue",
     "🚫 Game Exclusion Manager"
 ]
 section = st.sidebar.radio(
@@ -5472,170 +5472,331 @@ elif section == "🛡️ Due Diligence Review":
             st.session_state.dd_decisions = {}
             st.rerun()
 
-elif section == "📸 Instagram Review":
-    st.header("📸 Instagram Handle Review Queue")
-    st.markdown("Review team-level Instagram handle matches discovered by Phase 2.")
+elif section == "🔄 Scrape Queue":
+    st.header("🔄 Scrape Queue")
+    st.markdown(
+        "Live view of `scrape_requests` — the priority queue drained by "
+        "`process_missing_games` (every 15 min, 200 teams per run). Lower priority "
+        "number = drained first."
+    )
 
     db = get_database()
     if not db:
         st.error("Database connection required.")
         st.stop()
 
-    # ── Filters ──────────────────────────────────────────────────────────
-    filter_cols = st.columns([1, 1, 1, 1])
-    with filter_cols[0]:
-        level_filter = st.selectbox("Profile Level", ["team", "club", "all"], index=0)
-    with filter_cols[1]:
-        status_filter = st.selectbox("Status", ["needs_review", "auto_approved", "confirmed", "rejected", "all"], index=0)
-    with filter_cols[2]:
-        ig_state_filter = st.text_input("State Code (e.g. AZ)", value="").strip().upper()
-    with filter_cols[3]:
-        ig_search = st.text_input("Search club/handle", value="").strip().lower()
+    # Priority + request_type labels for display
+    PRIORITY_LABELS = {
+        1: "1 · User click",
+        2: "2 · Yesterday game",
+        3: "3 · Discovery / new team",
+        4: "4 · Safety net",
+        5: "5 · Default",
+    }
+    REQUEST_TYPE_LABELS = {
+        "missing_game": "User click",
+        "yesterday_game": "Yesterday game",
+        "discovery": "Discovery",
+        "safety_net": "Safety net",
+        "new_team": "New team",
+    }
 
-    # ── Fetch records ────────────────────────────────────────────────────
-    def fetch_instagram_queue(_status, _level, _state):
-        query = db.table("team_social_profiles").select(
-            "id, team_id, handle, confidence_score, review_status, profile_level, query_used, match_details"
-        ).eq("platform", "instagram")
+    # ── Refresh control ──────────────────────────────────────────────────
+    # NOTE: All four loaders below are wrapped in @st.cache_data with short
+    # TTLs (15s / 60s). st.rerun() alone re-runs the script but Streamlit
+    # still serves the cached values until TTL expires, so a plain rerun
+    # makes the Refresh button misleading. We explicitly clear each loader's
+    # cache before rerunning so the click always re-queries.
+    refresh_col, _ = st.columns([1, 5])
+    with refresh_col:
+        if st.button("🔄 Refresh", help="Re-query the queue (clears 15s/60s caches)"):
+            queue_status_counts.clear()
+            fetch_pending.clear()
+            fetch_recent_failures.clear()
+            fetch_recent_completions.clear()
+            fetch_upcoming_games.clear()
+            st.rerun()
 
-        if _level != "all":
-            query = query.eq("profile_level", _level)
-        if _status != "all":
-            query = query.eq("review_status", _status)
+    now_utc = datetime.now(timezone.utc)
 
-        all_rows = []
-        offset = 0
-        page_size = 1000
-        while True:
-            rows = (execute_with_retry(
-                lambda o=offset: query.range(o, o + page_size - 1)
-            ).data) or []
-            all_rows.extend(rows)
-            if len(rows) < page_size:
-                break
-            offset += page_size
+    # ── Status counts (no .data fetch — just counts) ─────────────────────
+    @st.cache_data(ttl=15)
+    def queue_status_counts():
+        out = {}
+        for status in ("pending", "processing", "completed", "failed"):
+            r = execute_with_retry(
+                lambda s=status: db.table("scrape_requests")
+                .select("id", count="exact", head=True)
+                .eq("status", s)
+            )
+            out[status] = r.count or 0
+        return out
 
-        if not all_rows:
-            return []
+    status_counts = queue_status_counts()
 
-        # Fetch team info for display
-        team_ids = list({r["team_id"] for r in all_rows})
-        team_map = {}
-        for i in range(0, len(team_ids), 100):
-            batch = db.table("teams").select(
-                "team_id_master, team_name, club_name, state_code, birth_year, gender"
-            ).in_("team_id_master", team_ids[i:i+100]).execute().data or []
-            for t in batch:
-                team_map[t["team_id_master"]] = t
+    # ── Top metrics ──────────────────────────────────────────────────────
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Pending", f"{status_counts['pending']:,}")
+    m2.metric("Processing", f"{status_counts['processing']:,}")
+    m3.metric("Completed (all-time)", f"{status_counts['completed']:,}")
+    m4.metric("Failed (all-time)", f"{status_counts['failed']:,}")
 
-        enriched = []
-        for r in all_rows:
-            t = team_map.get(r["team_id"], {})
-            state = t.get("state_code", "")
-            if _state and state != _state:
-                continue
-            enriched.append({
-                "id": r["id"],
-                "team_id": r["team_id"],
-                "club_name": t.get("club_name", ""),
-                "team_name": t.get("team_name", ""),
-                "state": state,
-                "birth_year": t.get("birth_year", ""),
-                "gender": t.get("gender", ""),
-                "handle": r["handle"],
-                "confidence": r["confidence_score"],
-                "status": r["review_status"],
-                "level": r["profile_level"],
-                "query_used": r.get("query_used", ""),
-                "match_details": r.get("match_details", {}),
-            })
-
-        enriched.sort(key=lambda x: -x["confidence"])
-        return enriched
-
-    rows = fetch_instagram_queue(status_filter, level_filter, ig_state_filter)
-
-    if ig_search:
-        rows = [r for r in rows if ig_search in r["club_name"].lower() or ig_search in r["handle"].lower() or ig_search in r["team_name"].lower()]
-
-    st.metric("Records", len(rows))
-
-    if not rows:
-        st.info("No records match the current filters.")
+    drain_per_day = 200 * 4 * 24  # 19,200
+    pending = status_counts["pending"]
+    if pending > 0:
+        eta_hours = pending / (200 * 4)
+        if eta_hours < 24:
+            eta_str = f"~{eta_hours:.1f}h to drain at 200/15min"
+        else:
+            eta_str = f"~{eta_hours / 24:.1f}d to drain at 200/15min"
+        st.caption(f"Current backlog: {pending:,} pending · {eta_str} · max drain rate {drain_per_day:,}/day")
     else:
-        # ── Summary stats ────────────────────────────────────────────────
-        conf_bins = {"0.90+": 0, "0.85-0.89": 0, "0.75-0.84": 0, "0.60-0.74": 0, "<0.60": 0}
-        for r in rows:
-            c = r["confidence"]
-            if c >= 0.90: conf_bins["0.90+"] += 1
-            elif c >= 0.85: conf_bins["0.85-0.89"] += 1
-            elif c >= 0.75: conf_bins["0.75-0.84"] += 1
-            elif c >= 0.60: conf_bins["0.60-0.74"] += 1
-            else: conf_bins["<0.60"] += 1
+        st.success("Queue is empty.")
 
-        stat_cols = st.columns(5)
-        for i, (label, count) in enumerate(conf_bins.items()):
-            stat_cols[i].metric(label, count)
+    st.divider()
 
-        # ── Batch actions ────────────────────────────────────────────────
-        st.subheader("Batch Actions")
-        batch_cols = st.columns([2, 1, 1])
-        with batch_cols[0]:
-            batch_threshold = st.slider("Confidence threshold for batch approve", 0.60, 1.00, 0.85, 0.05)
-        with batch_cols[1]:
-            eligible = [r for r in rows if r["confidence"] >= batch_threshold and r["status"] == "needs_review"]
-            st.metric("Eligible", len(eligible))
-        with batch_cols[2]:
-            if st.button(f"✅ Approve {len(eligible)} above {batch_threshold}", type="primary", disabled=len(eligible) == 0):
-                progress = st.progress(0)
-                for idx, r in enumerate(eligible):
-                    db.table("team_social_profiles").update(
-                        {"review_status": "auto_approved"}
-                    ).eq("id", r["id"]).execute()
-                    progress.progress((idx + 1) / len(eligible))
-                st.success(f"Approved {len(eligible)} records!")
-                st.rerun()
+    # ── Pending detail ───────────────────────────────────────────────────
+    st.subheader("Pending requests")
 
-        # ── Individual review table ──────────────────────────────────────
-        st.subheader("Individual Review")
-        PAGE_SIZE = 50
-        total_pages = max(1, (len(rows) + PAGE_SIZE - 1) // PAGE_SIZE)
-        ig_page = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
-        page_rows = rows[(ig_page - 1) * PAGE_SIZE : ig_page * PAGE_SIZE]
+    if pending == 0:
+        st.info("Nothing pending right now. The queue is fully drained.")
+    else:
+        @st.cache_data(ttl=15)
+        def fetch_pending():
+            rows = fetch_all_rows(
+                db.table("scrape_requests")
+                .select(
+                    "id, team_id_master, team_name, request_type, priority, "
+                    "game_date, requested_at, provider_team_id"
+                )
+                .eq("status", "pending")
+                .order("priority", desc=False)
+                .order("requested_at", desc=False)
+            )
+            return rows
 
-        for r in page_rows:
-            with st.container():
-                cols = st.columns([3, 2, 1, 1, 1, 1])
-                with cols[0]:
-                    st.markdown(f"**{r['club_name']}** / {r['team_name']}")
-                    st.caption(f"{r['state']} | {r['birth_year']} {r['gender']} | {r['level']}")
-                with cols[1]:
-                    st.markdown(f"[@{r['handle']}](https://instagram.com/{r['handle']})")
-                with cols[2]:
-                    conf_pct = f"{r['confidence'] * 100:.0f}%"
-                    if r["confidence"] >= 0.85:
-                        st.success(conf_pct)
-                    elif r["confidence"] >= 0.70:
-                        st.warning(conf_pct)
-                    else:
-                        st.error(conf_pct)
-                with cols[3]:
-                    st.caption(r["status"])
-                with cols[4]:
-                    if st.button("✅", key=f"approve_{r['id']}", help="Approve"):
-                        db.table("team_social_profiles").update(
-                            {"review_status": "confirmed"}
-                        ).eq("id", r["id"]).execute()
-                        st.rerun()
-                with cols[5]:
-                    if st.button("❌", key=f"reject_{r['id']}", help="Reject"):
-                        db.table("team_social_profiles").update(
-                            {"review_status": "rejected"}
-                        ).eq("id", r["id"]).execute()
-                        st.rerun()
-                st.divider()
+        pending_rows = fetch_pending()
 
-        st.caption(f"Page {ig_page} of {total_pages} | {len(rows)} total records")
+        # Breakdown by priority
+        pri_counts = {}
+        type_counts = {}
+        for r in pending_rows:
+            pri = r.get("priority") or 5
+            pri_counts[pri] = pri_counts.get(pri, 0) + 1
+            rt = r.get("request_type") or "(none)"
+            type_counts[rt] = type_counts.get(rt, 0) + 1
+
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            st.markdown("**By priority**")
+            pri_df = pd.DataFrame(
+                [{"Priority": PRIORITY_LABELS.get(p, f"{p} · ?"), "Count": c} for p, c in sorted(pri_counts.items())]
+            )
+            st.dataframe(pri_df, hide_index=True, use_container_width=True)
+        with bc2:
+            st.markdown("**By request type**")
+            type_df = pd.DataFrame(
+                [
+                    {"Request type": REQUEST_TYPE_LABELS.get(t, t), "Count": c}
+                    for t, c in sorted(type_counts.items(), key=lambda x: -x[1])
+                ]
+            )
+            st.dataframe(type_df, hide_index=True, use_container_width=True)
+
+        # Filters for the detail table
+        st.markdown("**Filter pending rows**")
+        fc1, fc2, fc3 = st.columns([1, 1, 2])
+        with fc1:
+            pri_filter = st.selectbox(
+                "Priority",
+                ["All"] + [PRIORITY_LABELS.get(p, str(p)) for p in sorted(pri_counts.keys())],
+            )
+        with fc2:
+            type_filter = st.selectbox(
+                "Request type",
+                ["All"] + sorted([REQUEST_TYPE_LABELS.get(t, t) for t in type_counts.keys()]),
+            )
+        with fc3:
+            name_search = st.text_input("Search team name", value="").strip().lower()
+
+        # Apply filters
+        filtered = pending_rows
+        if pri_filter != "All":
+            pri_num = int(pri_filter.split(" · ")[0])
+            filtered = [r for r in filtered if (r.get("priority") or 5) == pri_num]
+        if type_filter != "All":
+            inverse = {v: k for k, v in REQUEST_TYPE_LABELS.items()}
+            target_type = inverse.get(type_filter, type_filter)
+            filtered = [r for r in filtered if r.get("request_type") == target_type]
+        if name_search:
+            filtered = [r for r in filtered if name_search in (r.get("team_name") or "").lower()]
+
+        # Render table
+        st.markdown(f"**{len(filtered):,} pending row(s)**")
+        if filtered:
+            display = []
+            for r in filtered:
+                requested_at = r.get("requested_at") or ""
+                age_str = ""
+                if requested_at:
+                    try:
+                        ts = datetime.fromisoformat(requested_at.replace("Z", "+00:00"))
+                        delta = now_utc - ts
+                        if delta.total_seconds() < 3600:
+                            age_str = f"{int(delta.total_seconds() / 60)}m"
+                        elif delta.total_seconds() < 86400:
+                            age_str = f"{int(delta.total_seconds() / 3600)}h"
+                        else:
+                            age_str = f"{delta.days}d"
+                    except Exception:
+                        pass
+                display.append(
+                    {
+                        "Priority": PRIORITY_LABELS.get(r.get("priority") or 5, str(r.get("priority"))),
+                        "Team": r.get("team_name") or "(unknown)",
+                        "Type": REQUEST_TYPE_LABELS.get(r.get("request_type") or "", r.get("request_type") or ""),
+                        "Game date": r.get("game_date") or "",
+                        "Age": age_str,
+                        "Provider team id": r.get("provider_team_id") or "",
+                        "team_id_master": r.get("team_id_master") or "",
+                    }
+                )
+            df = pd.DataFrame(display)
+            st.dataframe(df, hide_index=True, use_container_width=True)
+
+    st.divider()
+
+    # ── Recent failures ──────────────────────────────────────────────────
+    st.subheader("Recent failures (last 7 days)")
+
+    @st.cache_data(ttl=60)
+    def fetch_recent_failures():
+        since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        r = execute_with_retry(
+            lambda: db.table("scrape_requests")
+            .select(
+                "id, team_id_master, team_name, request_type, priority, "
+                "error_message, requested_at, completed_at"
+            )
+            .eq("status", "failed")
+            .gte("completed_at", since)
+            .order("completed_at", desc=True)
+            .limit(200)
+        )
+        return r.data or []
+
+    failures = fetch_recent_failures()
+    st.caption(f"{len(failures):,} failed request(s) in the last 7 days")
+
+    if failures:
+        fail_display = [
+            {
+                "Failed at": (r.get("completed_at") or "")[:19],
+                "Team": r.get("team_name") or "(unknown)",
+                "Type": REQUEST_TYPE_LABELS.get(r.get("request_type") or "", r.get("request_type") or ""),
+                "Priority": r.get("priority") or "",
+                "Error": (r.get("error_message") or "")[:140],
+                "team_id_master": r.get("team_id_master") or "",
+            }
+            for r in failures
+        ]
+        st.dataframe(pd.DataFrame(fail_display), hide_index=True, use_container_width=True)
+
+    # ── Recent completions ───────────────────────────────────────────────
+    st.subheader("Throughput (last 24 hours)")
+
+    @st.cache_data(ttl=60)
+    def fetch_recent_completions():
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        r = execute_with_retry(
+            lambda: db.table("scrape_requests")
+            .select("id", count="exact", head=True)
+            .eq("status", "completed")
+            .gte("completed_at", since)
+        )
+        return r.count or 0
+
+    completed_24h = fetch_recent_completions()
+    tc1, tc2 = st.columns(2)
+    tc1.metric("Completed last 24h", f"{completed_24h:,}")
+    tc2.metric("Drain capacity (24h)", f"{drain_per_day:,}")
+    if drain_per_day > 0:
+        utilization = (completed_24h / drain_per_day) * 100
+        st.caption(f"Drain utilization: {utilization:.1f}% of theoretical capacity")
+
+    st.divider()
+
+    # ── Upcoming games ───────────────────────────────────────────────────
+    st.subheader("Upcoming games")
+
+    @st.cache_data(ttl=60)
+    def fetch_upcoming_games(days_ahead: int = 30, limit: int = 500):
+        today = datetime.now(timezone.utc).date().isoformat()
+        horizon = (datetime.now(timezone.utc).date() + timedelta(days=days_ahead)).isoformat()
+        r = execute_with_retry(
+            lambda: db.table("games")
+            .select(
+                "id, game_date, competition, division_name, event_name, "
+                "home_team_master_id, away_team_master_id"
+            )
+            .eq("is_excluded", False)
+            .gte("game_date", today)
+            .lte("game_date", horizon)
+            .order("game_date", desc=False)
+            .limit(limit)
+        )
+        games = r.data or []
+
+        # Batch fetch team names
+        team_ids = set()
+        for g in games:
+            if g.get("home_team_master_id"):
+                team_ids.add(g["home_team_master_id"])
+            if g.get("away_team_master_id"):
+                team_ids.add(g["away_team_master_id"])
+        team_lookup = {}
+        team_ids_list = list(team_ids)
+        for i in range(0, len(team_ids_list), 500):
+            batch = team_ids_list[i:i + 500]
+            try:
+                res = db.table("teams").select(
+                    "team_id_master, team_name, club_name, age_group, gender"
+                ).in_("team_id_master", batch).execute()
+                for t in (res.data or []):
+                    team_lookup[t["team_id_master"]] = t
+            except Exception:
+                pass
+        return games, team_lookup
+
+    horizon_days = st.slider(
+        "Horizon (days ahead)", min_value=1, max_value=90, value=14, step=1,
+        key="scrape_queue_upcoming_horizon",
+    )
+    upcoming, team_lookup = fetch_upcoming_games(days_ahead=horizon_days)
+    st.caption(f"{len(upcoming):,} upcoming game(s) in the next {horizon_days} day(s)")
+
+    if upcoming:
+        def _team_label(tid):
+            if not tid:
+                return "(unknown)"
+            t = team_lookup.get(tid)
+            if not t:
+                return f"({str(tid)[:8]}…)"
+            name = t.get("team_name") or t.get("club_name") or "(unnamed)"
+            ag = t.get("age_group") or ""
+            return f"{name} {ag}".strip()
+
+        upcoming_display = [
+            {
+                "Date": g.get("game_date") or "",
+                "Home": _team_label(g.get("home_team_master_id")),
+                "Away": _team_label(g.get("away_team_master_id")),
+                "Competition": g.get("competition") or g.get("event_name") or "",
+                "Division": g.get("division_name") or "",
+            }
+            for g in upcoming
+        ]
+        st.dataframe(pd.DataFrame(upcoming_display), hide_index=True, use_container_width=True)
 
 elif section == "🚫 Game Exclusion Manager":
     st.header("🚫 Game Exclusion Manager")
