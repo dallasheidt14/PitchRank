@@ -5514,6 +5514,7 @@ elif section == "🔄 Scrape Queue":
             fetch_pending.clear()
             fetch_recent_failures.clear()
             fetch_recent_completions.clear()
+            fetch_upcoming_games.clear()
             st.rerun()
 
     now_utc = datetime.now(timezone.utc)
@@ -5722,6 +5723,80 @@ elif section == "🔄 Scrape Queue":
     if drain_per_day > 0:
         utilization = (completed_24h / drain_per_day) * 100
         st.caption(f"Drain utilization: {utilization:.1f}% of theoretical capacity")
+
+    st.divider()
+
+    # ── Upcoming games ───────────────────────────────────────────────────
+    st.subheader("Upcoming games")
+
+    @st.cache_data(ttl=60)
+    def fetch_upcoming_games(days_ahead: int = 30, limit: int = 500):
+        today = datetime.now(timezone.utc).date().isoformat()
+        horizon = (datetime.now(timezone.utc).date() + timedelta(days=days_ahead)).isoformat()
+        r = execute_with_retry(
+            lambda: db.table("games")
+            .select(
+                "id, game_date, competition, division_name, event_name, "
+                "home_team_master_id, away_team_master_id"
+            )
+            .eq("is_excluded", False)
+            .gte("game_date", today)
+            .lte("game_date", horizon)
+            .order("game_date", desc=False)
+            .limit(limit)
+        )
+        games = r.data or []
+
+        # Batch fetch team names
+        team_ids = set()
+        for g in games:
+            if g.get("home_team_master_id"):
+                team_ids.add(g["home_team_master_id"])
+            if g.get("away_team_master_id"):
+                team_ids.add(g["away_team_master_id"])
+        team_lookup = {}
+        team_ids_list = list(team_ids)
+        for i in range(0, len(team_ids_list), 500):
+            batch = team_ids_list[i:i + 500]
+            try:
+                res = db.table("teams").select(
+                    "team_id_master, team_name, club_name, age_group, gender"
+                ).in_("team_id_master", batch).execute()
+                for t in (res.data or []):
+                    team_lookup[t["team_id_master"]] = t
+            except Exception:
+                pass
+        return games, team_lookup
+
+    horizon_days = st.slider(
+        "Horizon (days ahead)", min_value=1, max_value=90, value=14, step=1,
+        key="scrape_queue_upcoming_horizon",
+    )
+    upcoming, team_lookup = fetch_upcoming_games(days_ahead=horizon_days)
+    st.caption(f"{len(upcoming):,} upcoming game(s) in the next {horizon_days} day(s)")
+
+    if upcoming:
+        def _team_label(tid):
+            if not tid:
+                return "(unknown)"
+            t = team_lookup.get(tid)
+            if not t:
+                return f"({str(tid)[:8]}…)"
+            name = t.get("team_name") or t.get("club_name") or "(unnamed)"
+            ag = t.get("age_group") or ""
+            return f"{name} {ag}".strip()
+
+        upcoming_display = [
+            {
+                "Date": g.get("game_date") or "",
+                "Home": _team_label(g.get("home_team_master_id")),
+                "Away": _team_label(g.get("away_team_master_id")),
+                "Competition": g.get("competition") or g.get("event_name") or "",
+                "Division": g.get("division_name") or "",
+            }
+            for g in upcoming
+        ]
+        st.dataframe(pd.DataFrame(upcoming_display), hide_index=True, use_container_width=True)
 
 elif section == "🚫 Game Exclusion Manager":
     st.header("🚫 Game Exclusion Manager")
