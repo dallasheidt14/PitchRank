@@ -19,6 +19,7 @@ import argparse
 import logging
 import os
 import sys
+from datetime import date
 
 # Windows SSL workaround. Optional — CI runners use the system trust store.
 try:
@@ -67,14 +68,19 @@ def find_teams_to_enqueue(supabase, gotsport_provider_id, limit=DEFAULT_LIMIT):
 
 
 def enqueue_team(supabase, team_id_master, team_name, provider_id, provider_team_id):
-    """Call enqueue_scrape_request RPC at priority 3. No game_date — discovery is
-    schedule-wide, not tied to a specific game."""
+    """Call enqueue_scrape_request RPC at priority 3.
+
+    scrape_requests.game_date is NOT NULL, so we pass today's date as a placeholder.
+    The processor scrapes the team's full schedule (±90 days from this anchor) which
+    covers everything discovery cares about. The RPC's UPDATE branch uses COALESCE,
+    so existing pending rows keep their original game_date when upserted.
+    """
     return supabase.rpc("enqueue_scrape_request", {
         "p_team_id_master": team_id_master,
         "p_team_name": team_name,
         "p_provider_id": provider_id,
         "p_provider_team_id": provider_team_id,
-        "p_game_date": None,
+        "p_game_date": date.today().isoformat(),
         "p_request_type": REQUEST_TYPE,
         "p_priority": PRIORITY_DISCOVERY,
     }).execute()
