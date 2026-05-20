@@ -429,7 +429,13 @@ class GotSportScraper(BaseScraper):
 
         # API endpoint
         api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
-        params = {"past": "true"}
+        # NOTE: do NOT pass `past=true` here. With that param the GotSport API
+        # returns past games only — which silently drops every scheduled fixture.
+        # Calling without it returns past + future together (verified empirically:
+        # active teams return 1-7 future fixtures alongside their played history).
+        # The /schedule-driven-scraping/ design requires future games to land in
+        # the games table so the daily enqueue can trigger off them.
+        params: Dict[str, str] = {}
 
         # Try to add date filtering at API level (if supported)
         # Common parameter names: since_date, from_date, date_from, since
