@@ -2,9 +2,12 @@ name: Process Missing Games
 
 on:
   schedule:
-    # Run every hour (at minute 0)
-    - cron: '0 * * * *'
+    - cron: '*/15 * * * *'  # every 15 minutes
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+
+concurrency:
+  group: process-missing-games
+  cancel-in-progress: false
 
 jobs:
   process:
@@ -33,7 +36,7 @@ jobs:
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           # Run with explicit error output
-          python scripts/process_missing_games.py --limit 10 || exit 1
+          python scripts/process_missing_games.py --limit 200 || exit 1
       
       - name: Report results
         if: always()

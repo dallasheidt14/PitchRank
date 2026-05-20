@@ -68,22 +68,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Team not found' }, { status: 400 });
     }
 
-    // Insert scrape request with the canonical provider_team_id from the teams table.
-    // If this ID returns 404, the backend processor will automatically check
-    // team_alias_map for alternative IDs (e.g., from link-opponent).
-    const { data: insertData, error: insertError } = await supabase
-      .from('scrape_requests')
-      .insert({
-        team_id_master: teamId,
-        team_name: teamName,
-        provider_id: team.provider_id,
-        provider_team_id: team.provider_team_id,
-        game_date: gameDate,
-        status: 'pending',
-        request_type: 'missing_game',
-      })
-      .select('id')
-      .single();
+    // Enqueue via RPC so repeated user clicks on the same team are idempotent
+    // (one pending row per team — partial unique index on team_id_master WHERE
+    // status='pending'). Priority 1 always wins via LEAST, so user clicks
+    // promote any existing pending row from a lower-priority auto-enqueue.
+    const { data: requestId, error: insertError } = await supabase.rpc('enqueue_scrape_request', {
+      p_team_id_master: teamId,
+      p_team_name: teamName,
+      p_provider_id: team.provider_id,
+      p_provider_team_id: team.provider_team_id,
+      p_game_date: gameDate,
+      p_request_type: 'missing_game',
+      p_priority: 1,
+    });
 
     if (insertError) {
       console.error('[scrape-missing-game] Database error:', insertError);
@@ -92,7 +89,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      requestId: insertData.id,
+      requestId,
     });
   } catch (error) {
     console.error('[scrape-missing-game] Unexpected error:', error);
