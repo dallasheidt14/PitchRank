@@ -1,6 +1,7 @@
 """PitchRank Settings Dashboard - Comprehensive Parameter Viewer"""
 import streamlit as st
 import pandas as pd
+import altair as alt
 import os
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -5724,11 +5725,12 @@ elif section == "🔄 Scrape Queue":
 
     st.divider()
 
-    # ── Upcoming games (by day) ──────────────────────────────────────────
-    st.subheader("Upcoming games by day")
+    # ── Upcoming games (by day, next 14 days) ────────────────────────────
+    UPCOMING_DAYS = 14
+    st.subheader(f"Upcoming games — next {UPCOMING_DAYS} days")
 
     @st.cache_data(ttl=60)
-    def fetch_upcoming_game_dates(days_ahead: int = 14):
+    def fetch_upcoming_game_dates(days_ahead: int = UPCOMING_DAYS):
         """Return only the game_date column for upcoming games — counts only,
         no team/competition detail. Paginates so the count isn't capped at 1k."""
         today = datetime.now(timezone.utc).date().isoformat()
@@ -5743,28 +5745,68 @@ elif section == "🔄 Scrape Queue":
         )
         return [r["game_date"] for r in rows if r.get("game_date")]
 
-    horizon_days = st.slider(
-        "Horizon (days ahead)", min_value=1, max_value=90, value=14, step=1,
-        key="scrape_queue_upcoming_horizon",
-    )
-    upcoming_dates = fetch_upcoming_game_dates(days_ahead=horizon_days)
-    st.caption(f"{len(upcoming_dates):,} upcoming game(s) in the next {horizon_days} day(s)")
+    upcoming_dates = fetch_upcoming_game_dates()
+    st.caption(f"{len(upcoming_dates):,} upcoming game(s) in the next {UPCOMING_DAYS} days")
 
     if upcoming_dates:
         today_date = datetime.now(timezone.utc).date()
-        # Build full date range so days with zero games still appear as gaps.
+        # Full date range so days with zero games still appear as bars.
         all_days = pd.date_range(
             start=today_date,
-            end=today_date + timedelta(days=horizon_days),
+            end=today_date + timedelta(days=UPCOMING_DAYS - 1),
             freq="D",
         )
         counts = pd.Series(upcoming_dates).value_counts()
         counts.index = pd.to_datetime(counts.index)
-        chart_df = (
-            pd.DataFrame({"date": all_days, "games": [counts.get(d, 0) for d in all_days]})
-            .set_index("date")
+        chart_df = pd.DataFrame(
+            {
+                "date": all_days,
+                "games": [int(counts.get(d, 0)) for d in all_days],
+                "weekday": [d.strftime("%a") for d in all_days],
+                "label": [d.strftime("%a %-m/%-d") if os.name != "nt" else d.strftime("%a %#m/%#d") for d in all_days],
+                "is_weekend": [d.weekday() >= 5 for d in all_days],
+            }
         )
-        st.bar_chart(chart_df, height=280, use_container_width=True)
+
+        bars = (
+            alt.Chart(chart_df)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                x=alt.X(
+                    "label:N",
+                    sort=list(chart_df["label"]),
+                    axis=alt.Axis(title=None, labelAngle=0, labelFontSize=12, labelPadding=6),
+                ),
+                y=alt.Y(
+                    "games:Q",
+                    axis=alt.Axis(title="Games", tickMinStep=1, labelFontSize=12, grid=True),
+                ),
+                color=alt.Color(
+                    "is_weekend:N",
+                    scale=alt.Scale(domain=[False, True], range=["#4F8AC9", "#F4A261"]),
+                    legend=alt.Legend(
+                        title=None,
+                        labelExpr="datum.value ? 'Weekend' : 'Weekday'",
+                        orient="top-right",
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("date:T", title="Date", format="%A, %b %-d" if os.name != "nt" else "%A, %b %#d"),
+                    alt.Tooltip("games:Q", title="Games"),
+                ],
+            )
+        )
+        labels = (
+            alt.Chart(chart_df)
+            .mark_text(dy=-8, fontSize=12, fontWeight="bold")
+            .encode(
+                x=alt.X("label:N", sort=list(chart_df["label"])),
+                y=alt.Y("games:Q"),
+                text=alt.condition("datum.games > 0", alt.Text("games:Q"), alt.value("")),
+            )
+        )
+        chart = (bars + labels).properties(height=320).configure_view(strokeWidth=0)
+        st.altair_chart(chart, use_container_width=True)
 
 elif section == "🚫 Game Exclusion Manager":
     st.header("🚫 Game Exclusion Manager")
