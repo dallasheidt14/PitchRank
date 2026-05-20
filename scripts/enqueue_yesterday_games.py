@@ -14,19 +14,22 @@ import argparse
 import logging
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
-# Windows SSL workaround (see project memory gotcha_python_supabase_ssl_truststore)
+# Windows SSL workaround (see project memory gotcha_python_supabase_ssl_truststore).
+# truststore must be injected BEFORE supabase is imported.
 import truststore
+
 truststore.inject_into_ssl()
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
+
+from supabase import create_client  # noqa: E402
+
 load_dotenv(".env.local")
 load_dotenv(".env")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from supabase import create_client
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
