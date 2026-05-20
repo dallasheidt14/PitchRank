@@ -24,7 +24,9 @@ export function UpcomingGamesTable({ teamId }: UpcomingGamesTableProps) {
 
   const { bars, total } = useMemo(() => {
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // getTeamUpcomingGames filters `game_date > today`, so buckets start at
+    // tomorrow. Today's games belong to Game History (which uses `<= today`).
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
     const buckets = Array.from({ length: DAYS_AHEAD }, (_, i) => {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
