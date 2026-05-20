@@ -226,6 +226,7 @@ jobs:
           INCLUDE_RECENT:    ${{ inputs.include_recent }}
           CHAIN_REMAINING:   ${{ inputs.chain_remaining }}
           CONCURRENCY_INPUT: ${{ inputs.concurrency }}
+          USE_ZENROWS:       ${{ inputs.use_zenrows }}
           DELAY_MIN_INPUT:   ${{ inputs.delay_min }}
           DELAY_MAX_INPUT:   ${{ inputs.delay_max }}
         run: |
@@ -294,13 +295,26 @@ jobs:
             CMD="$CMD --include-recent"
           fi
 
-          # Concurrency: 10 per shard, single-shard or sharded.
-          # The CloudFront WAF on system.gotsport.com/api/v1/* trips at ~15 req/s
-          # sustained from one IP. The 2026-05-18 chain at 20 per shard had a 97%
-          # error rate from WAF blocks (silent failures pre-circuit-breaker). 10
+          # Concurrency: 8 per shard with ZenRows on, 10 without.
+          #
+          # Direct (use_zenrows=false): The CloudFront WAF on system.gotsport.com
+          # /api/v1/* trips at ~15 req/s sustained from one IP. The 2026-05-18
+          # chain at 20 per shard had a 97% error rate from WAF blocks. 10
           # concurrent + 1.5-2.5s per-team delay stays comfortably under threshold.
-          # Sharded mode runs each shard on a separate IP so 10 × 5 = 50 aggregate.
-          CONCURRENCY=10
+          # Each shard runs on a separate runner IP, so 10 × 5 shards = 50 aggregate
+          # across 5 distinct egress IPs (each below the per-IP WAF limit).
+          #
+          # ZenRows (use_zenrows=true): All shards funnel through one ZenRows API
+          # key, so the shared parallel-request ceiling applies (Startup tier: 50).
+          # 5 shards × 8 concurrency = 40 parallel = 80% of cap, leaving 10 slots
+          # of headroom for retry surges and TLS keepalive churn. The 2026-05-20
+          # chain at 10 × 5 = 50 hit this ceiling and produced 53K RemoteDisconnect
+          # errors against api.zenrows.com mid-run.
+          if [[ "${USE_ZENROWS:-false}" == "true" ]]; then
+            CONCURRENCY=8
+          else
+            CONCURRENCY=10
+          fi
           if [[ "$CONCURRENCY_INPUT" =~ ^[0-9]+$ ]] && [ "$SCRAPE_SHARD_COUNT" = "1" ]; then
             CONCURRENCY="$CONCURRENCY_INPUT"
           fi
