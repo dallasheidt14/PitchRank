@@ -913,12 +913,16 @@ export const api = {
     }) as GameWithTeams[];
 
     // Dedup the same fixture scraped from both teams' schedules
-    const seen = new Set<string>();
+    // Dedup the same fixture scraped from both teams' schedules. game_uid is
+    // the canonical fixture identifier (UNIQUE in DB when set). Falling back
+    // to date+teams would collapse legitimate tournament doubleheaders, so
+    // rows without a game_uid are kept as-is — a possible duplicate display
+    // is better than hiding a real scheduled match.
+    const seenUids = new Set<string>();
     const deduped = enriched.filter((g) => {
-      const ids = [g.home_team_master_id, g.away_team_master_id].sort();
-      const key = `${g.game_date}|${ids[0]}|${ids[1]}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (!g.game_uid) return true;
+      if (seenUids.has(g.game_uid)) return false;
+      seenUids.add(g.game_uid);
       return true;
     });
 

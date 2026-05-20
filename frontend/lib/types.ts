@@ -37,6 +37,7 @@ export interface Game {
   event_name: string | null;
   venue: string | null;
   provider_id: string | null;
+  game_uid: string | null; // Canonical fixture identifier; UNIQUE in DB when set
   source_url: string | null;
   scraped_at: string | null;
   created_at: string;
