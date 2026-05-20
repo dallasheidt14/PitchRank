@@ -1,0 +1,48 @@
+name: Enqueue Yesterday-Game Teams
+run-name: >-
+  Enqueue yesterday teams · ${{
+    inputs.dry_run == true && 'DRY RUN' || 'live'
+  }}
+
+on:
+  schedule:
+    # 12:00 UTC = 5am Phoenix, 7am Central, 8am Eastern.
+    # East-Coast Sunday-night games have had ~12 hours to post scores by then.
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: log targets without enqueueing'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: enqueue-yesterday-games
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DRY_RUN_FLAG: ${{ inputs.dry_run == true && '--dry-run' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase python-dotenv truststore certifi
+
+      - name: Enqueue yesterday-game teams
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python scripts/enqueue_yesterday_games.py $DRY_RUN_FLAG
