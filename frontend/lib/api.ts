@@ -662,11 +662,16 @@ export const api = {
       .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
       .join(',');
 
+    // Exclude future games — they belong in the Upcoming Games view.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('*')
       .or(orConditions)
       .eq('is_excluded', false)
+      .lte('game_date', today)
       .order('game_date', { ascending: false })
       .limit(limit);
 
@@ -805,6 +810,123 @@ export const api = {
       games: finalGames,
       lastScrapedAt: mostRecentScrapedAt,
     };
+  },
+
+  /**
+   * Get upcoming (future) games for a team, sorted by date ascending.
+   * @param id - team_id_master UUID
+   * @param limit - Maximum number of games to return (default: 25)
+   */
+  async getTeamUpcomingGames(id: string, limit: number = 25): Promise<{ games: GameWithTeams[] }> {
+    // Resolve canonical team + merged deprecated IDs (mirrors getTeamGames)
+    let canonicalTeamId = id;
+    const { data: mergeData } = await supabase
+      .from('team_merge_map')
+      .select('canonical_team_id')
+      .eq('deprecated_team_id', id)
+      .maybeSingle();
+    if (mergeData?.canonical_team_id) canonicalTeamId = mergeData.canonical_team_id;
+
+    const { data: mergedTeams } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id')
+      .eq('canonical_team_id', canonicalTeamId);
+
+    const teamIdsToQuery = [canonicalTeamId];
+    if (mergedTeams && mergedTeams.length > 0) {
+      mergedTeams.forEach((m: { deprecated_team_id: string }) => {
+        if (m.deprecated_team_id) teamIdsToQuery.push(m.deprecated_team_id);
+      });
+    }
+    if (teamIdsToQuery.length === 0) return { games: [] };
+
+    const orConditions = teamIdsToQuery
+      .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
+      .join(',');
+
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    const { data: games, error: gamesError } = await supabase
+      .from('games')
+      .select('*')
+      .or(orConditions)
+      .eq('is_excluded', false)
+      .gt('game_date', today)
+      .order('game_date', { ascending: true })
+      .limit(limit);
+
+    if (gamesError) {
+      console.error('[api.getTeamUpcomingGames] Error:', gamesError.message);
+      throw gamesError;
+    }
+    if (!games || games.length === 0) return { games: [] };
+
+    // Resolve opponent IDs through merge map and fetch team names
+    const teamIds = new Set<string>();
+    games.forEach((g: Game) => {
+      if (g.home_team_master_id) teamIds.add(g.home_team_master_id);
+      if (g.away_team_master_id) teamIds.add(g.away_team_master_id);
+    });
+    const teamIdsArray = Array.from(teamIds);
+
+    const { data: mergeMaps } = await supabase
+      .from('team_merge_map')
+      .select('deprecated_team_id, canonical_team_id')
+      .in('deprecated_team_id', teamIdsArray);
+    const mergeMap = new Map<string, string>();
+    (mergeMaps || []).forEach((m: { deprecated_team_id: string; canonical_team_id: string }) => {
+      mergeMap.set(m.deprecated_team_id, m.canonical_team_id);
+    });
+
+    const resolvedTeamIds = new Set<string>();
+    teamIdsArray.forEach((tid) => resolvedTeamIds.add(mergeMap.get(tid) || tid));
+
+    const { data: teams } = await supabase
+      .from('teams')
+      .select('team_id_master, team_name, club_name')
+      .in('team_id_master', Array.from(resolvedTeamIds));
+
+    const teamNameMap = new Map<string, string>();
+    const teamClubMap = new Map<string, string | null>();
+    (teams || []).forEach((t: { team_id_master: string; team_name: string; club_name: string | null }) => {
+      teamNameMap.set(t.team_id_master, t.team_name);
+      teamClubMap.set(t.team_id_master, t.club_name);
+    });
+
+    const enriched = games.map((game: Game) => {
+      const homeCanonical = game.home_team_master_id
+        ? mergeMap.get(game.home_team_master_id) || game.home_team_master_id
+        : null;
+      const awayCanonical = game.away_team_master_id
+        ? mergeMap.get(game.away_team_master_id) || game.away_team_master_id
+        : null;
+      return {
+        ...game,
+        home_team_master_id: homeCanonical,
+        away_team_master_id: awayCanonical,
+        home_team_name: homeCanonical ? teamNameMap.get(homeCanonical) : undefined,
+        away_team_name: awayCanonical ? teamNameMap.get(awayCanonical) : undefined,
+        home_team_club_name: homeCanonical ? teamClubMap.get(homeCanonical) : undefined,
+        away_team_club_name: awayCanonical ? teamClubMap.get(awayCanonical) : undefined,
+      };
+    }) as GameWithTeams[];
+
+    // Dedup the same fixture scraped from both teams' schedules
+    // Dedup the same fixture scraped from both teams' schedules. game_uid is
+    // the canonical fixture identifier (UNIQUE in DB when set). Falling back
+    // to date+teams would collapse legitimate tournament doubleheaders, so
+    // rows without a game_uid are kept as-is — a possible duplicate display
+    // is better than hiding a real scheduled match.
+    const seenUids = new Set<string>();
+    const deduped = enriched.filter((g) => {
+      if (!g.game_uid) return true;
+      if (seenUids.has(g.game_uid)) return false;
+      seenUids.add(g.game_uid);
+      return true;
+    });
+
+    return { games: deduped };
   },
 
   /**

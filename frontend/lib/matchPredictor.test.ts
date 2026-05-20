@@ -60,6 +60,7 @@ function makeGame(overrides: Partial<Game>): Game {
     event_name: null,
     venue: null,
     provider_id: null,
+    game_uid: null,
     source_url: null,
     scraped_at: null,
     created_at: '2026-03-01T00:00:00.000Z',

@@ -2,6 +2,7 @@
 
 import { TeamHeader } from '@/components/TeamHeader';
 import { GameHistoryTable } from '@/components/GameHistoryTable';
+import { UpcomingGamesTable } from '@/components/UpcomingGamesTable';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -132,8 +133,11 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
             <SectionErrorBoundary fallbackTitle="Failed to load game history.">
               <GameHistoryTable teamId={id} />
             </SectionErrorBoundary>
-            {/* Right column: Rank History + Momentum + Insights stacked */}
+            {/* Right column: Upcoming + Rank History + Momentum + Insights stacked */}
             <div className="flex flex-col gap-4">
+              <SectionErrorBoundary fallbackTitle="Failed to load upcoming games.">
+                <UpcomingGamesTable teamId={id} />
+              </SectionErrorBoundary>
               <SectionErrorBoundary fallbackTitle="Failed to load ranking history.">
                 <LazyRankHistoryChart teamId={id} />
               </SectionErrorBoundary>

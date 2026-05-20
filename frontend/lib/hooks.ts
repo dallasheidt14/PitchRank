@@ -83,6 +83,21 @@ export function useTeamGames(id: string, limit: number = 50) {
 }
 
 /**
+ * Get upcoming (future) games for a team, sorted by date ascending.
+ */
+export function useTeamUpcomingGames(id: string, limit: number = 25) {
+  return useQuery<{ games: GameWithTeams[] }>({
+    queryKey: ['team-upcoming-games', id, limit],
+    queryFn: () => api.getTeamUpcomingGames(id, limit),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: 1,
+    throwOnError: false,
+  });
+}
+
+/**
  * Get persisted explainability rows for a team's visible games.
  * This uses a server route rather than direct browser-side Supabase.
  */
