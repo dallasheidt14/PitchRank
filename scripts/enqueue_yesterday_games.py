@@ -27,6 +27,7 @@ except ImportError:
     pass
 
 from dotenv import load_dotenv  # noqa: E402
+
 from supabase import create_client  # noqa: E402
 
 load_dotenv(".env.local")
