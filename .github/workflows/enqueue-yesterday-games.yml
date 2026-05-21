@@ -6,9 +6,10 @@ run-name: >-
 
 on:
   schedule:
-    # 12:00 UTC = 5am Phoenix, 7am Central, 8am Eastern.
-    # East-Coast Sunday-night games have had ~12 hours to post scores by then.
-    - cron: '0 12 * * *'
+    # 07:00 UTC = 1am MDT / midnight MST (Mountain). Runs overnight so the
+    # process-missing-games drain (every 15min) has hours to clear the queue
+    # before morning. GH Actions cron is UTC-only, so this drifts ±1h with DST.
+    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
