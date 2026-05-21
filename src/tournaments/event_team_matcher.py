@@ -383,7 +383,33 @@ def classify_match_result(matches: list[EventTeamMatch]) -> tuple[str, float | N
     if best.score >= 0.97 and (second_score is None or best.score - second_score >= 0.015):
         return "high_confidence", best.score, second_score, score_gap
 
+    # Tiebreak rules: when raw scores tie within 0.015, the existing rules above
+    # bail to review even though one candidate has a clearly distinguishing
+    # attribute. Apply two safe tiebreaks before falling to review.
     if best.score >= 0.90:
+        near_tied = [m for m in matches[1:] if (best.score - m.score) <= 0.015]
+
+        # A. best is the only near-tied candidate with normalized_name_exact.
+        # The post-normalization name is IDENTICAL between provider and master
+        # for this candidate alone, even though raw similarity scores match.
+        if (
+            best.normalized_name_exact
+            and (best.same_club or best.club_similarity == 0.0)
+            and near_tied
+            and not any(m.normalized_name_exact for m in near_tied)
+        ):
+            return "strict_exact", best.score, second_score, score_gap
+
+        # B. best is the only near-tied candidate with search_age_exact —
+        # competitors are play-up/play-down neighbors. The exact-age candidate
+        # is the unambiguous correct match.
+        if (
+            best.age_match_kind == "search_age_exact"
+            and near_tied
+            and not any(m.age_match_kind == "search_age_exact" for m in near_tied)
+        ):
+            return "high_confidence", best.score, second_score, score_gap
+
         return "review", best.score, second_score, score_gap
 
     return "none", best.score, second_score, score_gap

@@ -137,6 +137,99 @@ def test_classify_match_result_uses_margin_for_high_confidence():
     assert score_gap is not None and score_gap >= 0
 
 
+def _make_match(**overrides):
+    """Build an EventTeamMatch via SimpleNamespace for classifier tests."""
+    defaults = dict(
+        team_id_master="t",
+        team_name="Team",
+        club_name="Club",
+        state_code="AZ",
+        age_group="u14",
+        gender="Male",
+        provider_team_id="1",
+        is_deprecated=False,
+        score=0.0,
+        normalized_name_exact=False,
+        club_exact=False,
+        same_club=False,
+        club_similarity=0.0,
+        age_match_kind="search_age_exact",
+        variant=None,
+        program_tier=None,
+        score_reason="weekly_score",
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_classify_tiebreaks_search_age_exact_over_play_up():
+    """Best is u16/search_age_exact; competitor ties at 1.0 but is a play-up.
+
+    Reproduces the Alaska Rush / Dynamos SC pattern: two candidates score 1.0
+    on name+club similarity, but one is the exact-age match and the other is a
+    play-up/down neighbor. The exact-age candidate is the unambiguous winner.
+    """
+    best = _make_match(
+        team_id_master="exact",
+        score=1.0,
+        same_club=True,
+        club_similarity=1.0,
+        age_match_kind="search_age_exact",
+    )
+    play_up = _make_match(
+        team_id_master="play-up",
+        score=1.0,
+        same_club=True,
+        club_similarity=1.0,
+        age_match_kind="play_up_or_neighbor",
+    )
+    status, _, _, _ = classify_match_result([best, play_up])
+    assert status == "high_confidence"
+
+
+def test_classify_tiebreaks_normalized_name_exact_breaks_tie():
+    """Best uniquely has normalized_name_exact=true within the tied top tier.
+
+    Reproduces the Arizona Soccer Club DPL pattern: three candidates tie on
+    raw score, but only one normalizes to an exact name match.
+    """
+    best = _make_match(
+        team_id_master="exact-name",
+        score=1.0,
+        normalized_name_exact=True,
+        same_club=True,
+        club_similarity=1.0,
+        age_match_kind="search_age_exact",
+        score_reason="normalized_name_exact",
+    )
+    sibling = _make_match(
+        team_id_master="sibling-tier",
+        score=1.0,
+        normalized_name_exact=False,
+        same_club=True,
+        club_similarity=1.0,
+        age_match_kind="search_age_exact",
+    )
+    play_up = _make_match(
+        team_id_master="play-up",
+        score=1.0,
+        normalized_name_exact=False,
+        same_club=True,
+        club_similarity=1.0,
+        age_match_kind="play_up_or_neighbor",
+    )
+    status, _, _, _ = classify_match_result([best, sibling, play_up])
+    assert status == "strict_exact"
+
+
+def test_classify_no_tiebreak_when_all_share_attribute():
+    """When ALL near-tied candidates share search_age_exact, no winner emerges."""
+    best = _make_match(team_id_master="a", score=1.0, age_match_kind="search_age_exact", same_club=True)
+    twin = _make_match(team_id_master="b", score=1.0, age_match_kind="search_age_exact", same_club=True)
+    status, _, _, _ = classify_match_result([best, twin])
+    assert status == "review"
+
+
 class _FakeQueryBuilder:
     def __init__(self, pages, transient_failures=0, fatal_after=None):
         self._pages = pages
