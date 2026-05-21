@@ -893,7 +893,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
         state_result = (
             supabase.table("teams")
             .select("state_code")
-            .ilike("club_name", club_name)
+            .ilike("club_name", f"%{club_name}%")
             .not_.is_("state_code", "null")
             .limit(1)
             .execute()
@@ -902,7 +902,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
             state_code = state_result.data[0]["state_code"]
 
     if club_name:
-        query = query.ilike("club_name", club_name)
+        query = query.ilike("club_name", f"%{club_name}%")
         if state_code:
             query = query.eq("state_code", state_code)
         candidates = query.limit(50).execute().data
