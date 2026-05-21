@@ -23,6 +23,13 @@ from dotenv import load_dotenv
 
 from supabase import create_client
 
+# Shared structured-distinction logic (also used by find_fuzzy_duplicate_teams.py).
+# Path setup mirrors find_fuzzy_duplicate_teams.py — parent for siblings,
+# grandparent for src.utils.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _team_distinction import should_skip_pair  # noqa: E402
+
 # Load .env.local if it exists, otherwise fall back to .env
 env_path = Path(__file__).parent.parent / ".env.local"
 if env_path.exists():
@@ -69,13 +76,35 @@ def normalize_team_name(name):
     # Lowercase
     n = name.lower().strip()
 
+    # Handle gender tokens. GotSport puts "Boys"/"Girls" as a literal word in
+    # team names ("Alaska Rush 2010 Boys White"); masters almost never do.
+    # Order matters: catch year-shorthand combos first so "12 Boys" → "2012",
+    # then strip standalone "Boys"/"Girls".
+    def _expand_2digit(s):
+        n_int = int(s)
+        return str(2000 + n_int if n_int < 30 else 1900 + n_int)
+
+    n = re.sub(r"\b(\d{2})\s+(boys|girls)\b", lambda m: _expand_2digit(m.group(1)), n)
+    n = re.sub(r"\b(boys|girls)\s+(\d{2})\b", lambda m: _expand_2digit(m.group(2)), n)
+    n = re.sub(r"\b(boys|girls)\b", " ", n)
+
     # Remove common suffixes/prefixes
     n = re.sub(r"\s*(ecnl|ecnl-rl|rl|pre-ecnl|mls next|ga|academy)\s*", " ", n)
     n = re.sub(r"\s*-\s*", " ", n)  # Replace dashes with spaces
 
-    # Normalize age formats
-    n = re.sub(r"\b(b|g)\s*(\d{2,4})\b", r"\2", n)  # B2014 -> 2014
-    n = re.sub(r"\b(\d{2,4})\s*(b|g)\b", r"\1", n)  # 2014B -> 2014
+    # Normalize age formats — expand 2-digit shorthand to full birth year
+    # (GotSport: "14B"/"B14" → "2014") so "11G Aspire" can match "2011 Aspire".
+    def _expand_year(match_obj):
+        digits = next(g for g in match_obj.groups() if g and g.isdigit())
+        n_int = int(digits)
+        # 00-29 → 20xx, 30-99 → 19xx (covers all realistic youth-soccer birth years)
+        full = 2000 + n_int if n_int < 30 else 1900 + n_int
+        return str(full)
+
+    n = re.sub(r"\b([bg])\s*(\d{2})\b(?!\d)", _expand_year, n)  # B14 -> 2014
+    n = re.sub(r"\b(\d{2})\s*([bg])\b(?!\d)", _expand_year, n)  # 14B -> 2014
+    n = re.sub(r"\b([bg])\s*(\d{4})\b", r"\2", n)  # B2014 -> 2014
+    n = re.sub(r"\b(\d{4})\s*([bg])\b", r"\1", n)  # 2014B -> 2014
     n = re.sub(r"\bu\s*(\d+)\b", r"u\1", n)  # U 14 -> u14
     n = re.sub(r"\b(\d{1,2})u\b", r"u\1", n)  # 14u -> u14 (digit-then-U form)
 
@@ -698,6 +727,123 @@ def has_protected_division(name):
     return False
 
 
+# Tier tokens to look for in the provider team name. If the provider name
+# contains one of these and exactly one near-tied candidate has the matching
+# program_tier, that candidate wins the tiebreak.
+PROGRAM_TIER_TOKENS = {
+    "pre-academy": "pre-academy",
+    "pre academy": "pre-academy",
+    "academy": "academy",
+    "pre-dpl": "pre-dpl",
+    "pre dpl": "pre-dpl",
+    "dpl": "dpl",
+    "ecnl-rl": "ecnl-rl",
+    "ecnl rl": "ecnl-rl",
+    "pre-ecnl": "pre-ecnl",
+    "pre ecnl": "pre-ecnl",
+    "ecnl": "ecnl",
+    "mls next": "mls-next",
+    "mlsnext": "mls-next",
+    "elite": "elite",
+    "premier": "premier",
+    "select": "select",
+    "ga ": "ga",
+}
+
+
+def _provider_tier_token(provider_team_name):
+    """Return the canonical program_tier string a provider name carries, or None.
+
+    Longest-match first so 'pre-academy' wins over 'academy', etc.
+    """
+    if not provider_team_name:
+        return None
+    lname = " " + provider_team_name.lower() + " "
+    # Longest token first
+    for token, canonical in sorted(PROGRAM_TIER_TOKENS.items(), key=lambda kv: -len(kv[0])):
+        if token in lname:
+            return canonical
+    return None
+
+
+def resolve_via_stored_candidates(queue_entry):
+    """Resolve a queue row using the candidates JSON stored at scrape time.
+
+    Returns ``(match_dict, score, method)`` when stored candidates yield an
+    unambiguous winner via one of the tiebreak rules. Returns ``(None, 0, None)``
+    when no clear winner emerges and the caller should fall through to the
+    fuzzy matcher.
+
+    Tiebreaks (applied to candidates within 0.015 of the top score):
+    1. **Unique normalized_name_exact** — only one candidate normalizes to an
+       exact name match.
+    2. **Unique search_age_exact** — only one candidate is the exact age;
+       others are play-up/down neighbors.
+    3. **Unique state_code** matching the candidate's own state_code — when
+       multiple legitimate teams share a normalized name across states, pick
+       the one whose state matches the suggested master's state context.
+    4. **Unique program_tier** matching a tier token in the provider name —
+       e.g., provider has 'DPL' and only one candidate has program_tier='dpl'.
+
+    Pure resolution from already-stored data — no DB queries, no
+    normalization, no scoring. Safe to run on the full backlog.
+    """
+    details = queue_entry.get("match_details") or {}
+    candidates = details.get("candidates") or []
+    if not candidates:
+        return None, 0.0, None
+
+    # Drop deprecated masters and anything below 0.90 raw score
+    candidates = [c for c in candidates if not c.get("is_deprecated") and (c.get("score") or 0) >= 0.90]
+    if not candidates:
+        return None, 0.0, None
+
+    best = candidates[0]
+    best_score = best.get("score") or 0.0
+    near_tied = [c for c in candidates[1:] if (best_score - (c.get("score") or 0.0)) <= 0.015]
+
+    def _winner(rule):
+        return (
+            {
+                "team_id_master": best.get("team_id_master"),
+                "team_name": best.get("team_name"),
+                "club_name": best.get("club_name"),
+                "age_group": best.get("age_group"),
+                "gender": best.get("gender"),
+                "state_code": best.get("state_code"),
+            },
+            best_score,
+            f"stored_tiebreak:{rule}",
+        )
+
+    # Sole candidate above the floor → not a tiebreak case, just a strong match
+    if not near_tied:
+        if best_score >= 0.93 and best.get("age_match_kind") == "search_age_exact":
+            return _winner("sole_strong_candidate")
+        return None, 0.0, None
+
+    # Rule 1: unique normalized_name_exact
+    if best.get("normalized_name_exact") and not any(c.get("normalized_name_exact") for c in near_tied):
+        return _winner("normalized_name_exact")
+
+    # Rule 2: unique search_age_exact (vs play_up_or_neighbor)
+    if best.get("age_match_kind") == "search_age_exact" and not any(
+        c.get("age_match_kind") == "search_age_exact" for c in near_tied
+    ):
+        return _winner("search_age_exact")
+
+    # Rule 3: unique program_tier matching a tier token in the provider name
+    provider_tier = _provider_tier_token(queue_entry.get("provider_team_name"))
+    if provider_tier:
+        best_tier = (best.get("program_tier") or "").lower() or None
+        if best_tier == provider_tier and not any(
+            (c.get("program_tier") or "").lower() == provider_tier for c in near_tied
+        ):
+            return _winner("program_tier")
+
+    return None, 0.0, None
+
+
 def find_best_match(queue_entry, supabase, teams_cache):
     """Find the best matching team for a queue entry using Supabase client."""
     name = queue_entry["provider_team_name"]
@@ -707,6 +853,14 @@ def find_best_match(queue_entry, supabase, teams_cache):
     # Skip protected divisions - need manual review
     if has_protected_division(name):
         return None, 0.0, "protected_division"
+
+    # Try stored-candidates tiebreaks first — much cheaper than the DB
+    # fuzzy path and handles the cases the scrape-time matcher punted on
+    # because raw scores tied (Alaska Rush / Arizona SC DPL / Dynamos SC).
+    if not getattr(find_best_match, "_disable_tiebreaks", False):
+        tb_match, tb_score, tb_method = resolve_via_stored_candidates(queue_entry)
+        if tb_match is not None:
+            return tb_match, tb_score, tb_method
 
     # If club_name is empty, try to extract it from provider_team_name
     if not club_name:
@@ -781,6 +935,13 @@ def find_best_match(queue_entry, supabase, teams_cache):
         # CRITICAL: Program/tier must match if either side has one
         # e.g. "GA" != "PRE-ECNL", "Elite" != "Pre-DPLO"
         if queue_program != team_program:
+            continue
+
+        # Structured-distinction gate (shared with find_fuzzy_duplicate_teams.py):
+        # skip candidates whose colors, directions, programs, age tokens, etc.
+        # differ from the provider name. Catches the "looks similar but different
+        # team" cases that SequenceMatcher alone can't tell apart.
+        if should_skip_pair(name, team["team_name"], club_name=club_name or ""):
             continue
 
         # Calculate similarity
@@ -941,6 +1102,18 @@ def display_results(results, verbose=False):
     print(f"🟠 LOW (70-79%):    {len(results['low']):>5} - Manual review needed")
     print(f"❌ NO MATCH:        {len(results['no_match']):>5} - Need to create new team")
     print()
+
+    # Breakdown by resolution method — surfaces how many rows landed via the
+    # cheap stored-candidate tiebreaks vs the DB fuzzy-search fallback.
+    method_counts = {}
+    for bucket in ("exact", "high", "medium", "low", "no_match"):
+        for r in results.get(bucket, []):
+            method_counts[r.get("method") or "unknown"] = method_counts.get(r.get("method") or "unknown", 0) + 1
+    if method_counts:
+        print("Resolution method breakdown:")
+        for method, n in sorted(method_counts.items(), key=lambda kv: -kv[1]):
+            print(f"  {method:<40} {n:>6}")
+        print()
 
     # Show exact matches
     if results["exact"]:
