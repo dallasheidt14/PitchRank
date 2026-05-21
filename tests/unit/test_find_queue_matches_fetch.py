@@ -39,3 +39,79 @@ class TestStoredClubLooksWrong:
         # Stored has long tokens "Ventura" and "County"; provider has "County" in "Deptford Premier..."
         # Long token has overlap -> looks fine.
         assert _stored_club_looks_wrong("VENTURA COUNTY FC", "Deptford Premier County 13 Girls") is False
+
+
+from find_queue_matches import _cohort_fallback_candidates  # noqa: E402
+
+
+class _FakeQuery:
+    """Minimal supabase query-builder stub for cohort fallback tests."""
+
+    def __init__(self, rows):
+        self._rows = rows
+        self.filters = []
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def ilike(self, col, val):
+        self.filters.append(("ilike", col, val))
+        return self
+
+    def or_(self, clause):
+        self.filters.append(("or", clause))
+        return self
+
+    def eq(self, col, val):
+        self.filters.append(("eq", col, val))
+        return self
+
+    def limit(self, n):
+        self.filters.append(("limit", n))
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": self._rows})()
+
+
+class _FakeClient:
+    def __init__(self, rows):
+        self._rows = rows
+        self.last_query = None
+
+    def table(self, _name):
+        self.last_query = _FakeQuery(self._rows)
+        return self.last_query
+
+
+class TestCohortFallbackCandidates:
+    def test_filters_by_gender_age_and_state(self):
+        client = _FakeClient([])
+        _cohort_fallback_candidates(client, gender="male", age_group="u12", state_code="AZ")
+        filters = client.last_query.filters
+        assert any(f[0] == "ilike" and f[1] == "gender" for f in filters)
+        assert any(f[0] == "or" for f in filters)
+        assert any(f[0] == "eq" and f[1] == "state_code" and f[2] == "AZ" for f in filters)
+        assert any(f[0] == "limit" for f in filters)
+
+    def test_no_state_filter_when_state_is_none(self):
+        client = _FakeClient([])
+        _cohort_fallback_candidates(client, gender="female", age_group="u14", state_code=None)
+        filters = client.last_query.filters
+        assert not any(f[0] == "eq" and f[1] == "state_code" for f in filters)
+
+    def test_returns_query_results(self):
+        client = _FakeClient([
+            {"team_id_master": "abc", "team_name": "Sample 2012 White"},
+            {"team_id_master": "def", "team_name": "Sample 2012 Black"},
+        ])
+        rows = _cohort_fallback_candidates(client, gender="male", age_group="u14", state_code="AZ")
+        assert len(rows) == 2
+        assert rows[0]["team_id_master"] == "abc"
+
+    def test_returns_empty_list_when_no_gender_or_age(self):
+        client = _FakeClient([])
+        rows = _cohort_fallback_candidates(client, gender=None, age_group="u14", state_code=None)
+        assert rows == []
+        rows = _cohort_fallback_candidates(client, gender="male", age_group=None, state_code=None)
+        assert rows == []

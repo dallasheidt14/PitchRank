@@ -844,6 +844,31 @@ def resolve_via_stored_candidates(queue_entry):
     return None, 0.0, None
 
 
+def _cohort_fallback_candidates(supabase, gender, age_group, state_code, limit=200):
+    """Broad candidate fetch when club_name lookups have all failed.
+
+    Pulls up to ``limit`` teams matching gender + age_group (+ state_code
+    when available). Caller is expected to filter the result via
+    should_skip_pair to drop obvious mismatches before scoring. Returns
+    [] when gender or age_group is missing (cohort too broad to be useful).
+    """
+    if not gender or not age_group:
+        return []
+
+    query = supabase.table("teams").select(
+        "id, team_id_master, team_name, club_name, gender, age_group, state_code"
+    )
+    query = query.ilike("gender", gender)
+    age_clause = build_age_group_filter_clause(age_group)
+    if age_clause:
+        query = query.or_(age_clause)
+    if state_code:
+        query = query.eq("state_code", state_code)
+    query = query.limit(limit)
+    result = query.execute()
+    return result.data or []
+
+
 def _stored_club_looks_wrong(stored_club, provider_team_name):
     """Heuristic: does match_details.club_name appear to disagree with provider_team_name?
 
