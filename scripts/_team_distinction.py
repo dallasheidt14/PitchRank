@@ -372,12 +372,21 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
     }
 
 
-def should_skip_pair(name_a: str, name_b: str, club_name: str = "") -> bool:
+def should_skip_pair(name_a: str, name_b: str, club_name: str = "", *, require_age_token_match: bool = True) -> bool:
     """Return True when extracted distinctions differ — different teams.
 
     Colors, directions, programs, team numbers, location codes, squad words,
     and age tokens must all match. State codes only differentiate if BOTH
     sides carry them.
+
+    ``require_age_token_match`` controls how strict the age-token check is.
+    Default ``True`` (masters dedup): age tokens must match exactly. Pass
+    ``False`` when the caller has already filtered candidates by age via a
+    DB query — then we only treat differing age tokens as a mismatch when
+    both names actually carry one (mirrors the state-code rule). Without
+    this relaxation, queue rows like "CCV Stars 12 Girls North Orange"
+    (no AGE_PATTERN match) get wrongly skipped against valid masters that
+    carry "2012" in their names.
     """
     da = extract_distinctions(name_a, club_name=club_name)
     db = extract_distinctions(name_b, club_name=club_name)
@@ -394,8 +403,12 @@ def should_skip_pair(name_a: str, name_b: str, club_name: str = "") -> bool:
         return True
     if da["squad_words"] != db["squad_words"]:
         return True
-    if da["age_tokens"] != db["age_tokens"]:
-        return True
+    if require_age_token_match:
+        if da["age_tokens"] != db["age_tokens"]:
+            return True
+    else:
+        if da["age_tokens"] and db["age_tokens"] and da["age_tokens"] != db["age_tokens"]:
+            return True
     if da["secondary_nums"] != db["secondary_nums"]:
         return True
     if da["state_codes"] and db["state_codes"] and da["state_codes"] != db["state_codes"]:

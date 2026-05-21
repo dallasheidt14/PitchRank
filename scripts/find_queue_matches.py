@@ -938,10 +938,12 @@ def find_best_match(queue_entry, supabase, teams_cache):
             continue
 
         # Structured-distinction gate (shared with find_fuzzy_duplicate_teams.py):
-        # skip candidates whose colors, directions, programs, age tokens, etc.
-        # differ from the provider name. Catches the "looks similar but different
-        # team" cases that SequenceMatcher alone can't tell apart.
-        if should_skip_pair(name, team["team_name"], club_name=club_name or ""):
+        # skip candidates whose colors, directions, programs, etc. differ from
+        # the provider name. require_age_token_match=False because the Supabase
+        # query above already filtered by age_group — if the provider name
+        # itself omits an age token, valid masters with "2012" in their names
+        # shouldn't be rejected (Codex P1 on PR #827).
+        if should_skip_pair(name, team["team_name"], club_name=club_name or "", require_age_token_match=False):
             continue
 
         # Calculate similarity
