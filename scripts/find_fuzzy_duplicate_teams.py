@@ -16,33 +16,29 @@ import argparse
 import re
 import sys
 from collections import defaultdict
+from difflib import SequenceMatcher
 from pathlib import Path
 
 # Two-level path idiom: parent lets us import sibling scripts (find_queue_matches),
 # grandparent lets us import src.utils.team_name_utils (_canonicalize_age_token).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from difflib import SequenceMatcher
 
-from find_queue_matches import (
+from _team_distinction import (  # noqa: E402
+    NOISE_WORDS,
+    extract_distinctions,
+)
+from _team_distinction import (
+    should_skip_pair as _should_skip_pair,
+)
+from find_queue_matches import (  # noqa: E402
     extract_team_variant,
     get_supabase,
     has_protected_division,
     normalize_team_name,
 )
 
-from src.utils.team_name_utils import _canonicalize_age_token
-from _team_distinction import (
-    AGE_PATTERN,
-    DIRECTION_CANONICAL,
-    LOCATION_CODES,
-    NOISE_WORDS,
-    PROGRAM_WORDS,
-    TEAM_COLORS,
-    US_STATES,
-    extract_distinctions,
-    should_skip_pair as _should_skip_pair,
-)
+from src.utils.team_name_utils import _canonicalize_age_token  # noqa: E402
 
 # Structured-distinction logic moved to scripts/_team_distinction.py.
 
