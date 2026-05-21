@@ -908,11 +908,9 @@ def find_best_match(queue_entry, supabase, teams_cache):
         if tb_match is not None:
             return tb_match, tb_score, tb_method
 
-    # If club_name is empty, try to extract it from provider_team_name
-    if not club_name:
-        extracted_club = extract_club_from_name(name)
-        if extracted_club:
-            club_name = extracted_club
+    # Capture both club_name sources up front so we can try each independently.
+    extracted_club = extract_club_from_name(name)
+    stored_club = club_name  # may be ""
 
     norm_name = normalize_team_name(name)
     age_group = extract_age_group(name, details)
@@ -920,41 +918,71 @@ def find_best_match(queue_entry, supabase, teams_cache):
     queue_variant = extract_team_variant(name)
     queue_program = extract_program_tier(name)
 
-    # Build Supabase query for candidates
-    # NOTE: team_alias_map FK references team_id_master, NOT id
-    query = supabase.table("teams").select("id, team_id_master, team_name, club_name, gender, age_group, state_code")
+    # Build the per-attempt query factory so each lookup attempt gets a clean
+    # query (Supabase query builders are mutable and chained calls aren't safe to reuse).
+    def _build_base_query():
+        q = supabase.table("teams").select(
+            "id, team_id_master, team_name, club_name, gender, age_group, state_code"
+        )
+        if gender:
+            q = q.ilike("gender", gender)
+        if age_group:
+            age_clause = build_age_group_filter_clause(age_group)
+            if age_clause:
+                q = q.or_(age_clause)
+        return q
 
-    if gender:
-        query = query.ilike("gender", gender)
-
-    if age_group:
-        age_clause = build_age_group_filter_clause(age_group)
-        if age_clause:
-            query = query.or_(age_clause)
-
-    # Search by club name first if available
-    state_code = None
-    if club_name:
-        # Look up state from club
-        state_result = (
+    def _lookup_state(club):
+        if not club:
+            return None
+        r = (
             supabase.table("teams")
             .select("state_code")
-            .ilike("club_name", f"%{club_name}%")
+            .ilike("club_name", f"%{club}%")
             .not_.is_("state_code", "null")
             .limit(1)
             .execute()
         )
-        if state_result.data:
-            state_code = state_result.data[0]["state_code"]
+        return r.data[0]["state_code"] if r.data else None
 
-    if club_name:
-        query = query.ilike("club_name", f"%{club_name}%")
-        if state_code:
-            query = query.eq("state_code", state_code)
-        candidates = query.limit(50).execute().data
+    def _fetch_with_club(club, state):
+        if not club:
+            return []
+        q = _build_base_query().ilike("club_name", f"%{club}%")
+        if state:
+            q = q.eq("state_code", state)
+        return q.limit(50).execute().data or []
+
+    # Decide which club to try first. When the stored value looks wrong, prefer
+    # the extracted one — but always keep both as a fallback.
+    if stored_club and _stored_club_looks_wrong(stored_club, name) and extracted_club:
+        primary_club, secondary_club = extracted_club, stored_club
+        primary_method, secondary_method = "fuzzy_re_derived_club", "fuzzy"
     else:
-        # Fallback: search by normalized name similarity (needs gender+age to narrow)
-        candidates = query.limit(100).execute().data
+        primary_club = stored_club or extracted_club
+        secondary_club = extracted_club if (stored_club and extracted_club and stored_club != extracted_club) else None
+        primary_method = "fuzzy"
+        secondary_method = "fuzzy_re_derived_club"
+
+    state_code = _lookup_state(primary_club)
+    candidates = _fetch_with_club(primary_club, state_code)
+    method_used = primary_method if candidates else None
+
+    if not candidates and secondary_club:
+        state_code = _lookup_state(secondary_club)
+        candidates = _fetch_with_club(secondary_club, state_code)
+        if candidates:
+            method_used = secondary_method
+
+    # Cohort fallback — broad search filtered by should_skip_pair.
+    if not candidates:
+        cohort = _cohort_fallback_candidates(supabase, gender, age_group, state_code)
+        candidates = [
+            t for t in cohort
+            if not should_skip_pair(name, t["team_name"], club_name=primary_club or "", require_age_token_match=False)
+        ]
+        if candidates:
+            method_used = "fuzzy_cohort_fallback"
 
     if not candidates:
         return None, 0.0, "no_candidates"
@@ -1022,7 +1050,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
             }
 
     if best_score >= 0.7:
-        return best_match, best_score, "fuzzy"
+        return best_match, best_score, method_used or "fuzzy"
 
     return None, 0.0, "low_confidence"
 
