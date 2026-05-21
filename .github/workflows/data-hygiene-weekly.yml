@@ -216,7 +216,7 @@ jobs:
             EXECUTE_FLAG="--execute --yes"
           fi
 
-          python scripts/find_queue_matches.py --force $EXECUTE_FLAG 2>&1 | tee logs/step4_queue_matches.log
+          python scripts/find_queue_matches.py --limit 0 --force $EXECUTE_FLAG 2>&1 | tee logs/step4_queue_matches.log
 
           EXACT=$(grep -oP 'EXACT \(95%\+\):\s+\K\d+' logs/step4_queue_matches.log || echo "0")
           QUEUE_MERGED=$(grep -oP 'Approved: \K\d+' logs/step4_queue_matches.log || echo "0")

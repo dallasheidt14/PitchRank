@@ -1103,7 +1103,7 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
     """Analyze queue entries and find matches using Supabase client.
 
     Args:
-        limit: Max number of entries to analyze
+        limit: Max number of entries to analyze. 0 means no cap — process every pending entry.
         min_confidence: Minimum confidence score (unused, kept for compatibility)
         force: If True, ignore last_analyzed_at filter and reprocess all pending entries
     """
@@ -1113,9 +1113,10 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
     all_entries = []
     page_size = 1000
     offset = 0
+    unlimited = not limit  # limit=0 (or None) → drain entire queue
 
-    while len(all_entries) < limit:
-        fetch_size = min(page_size, limit - len(all_entries))
+    while unlimited or len(all_entries) < limit:
+        fetch_size = page_size if unlimited else min(page_size, limit - len(all_entries))
 
         query = (
             supabase.table("team_match_review_queue")
@@ -1141,7 +1142,7 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
         offset += fetch_size
         print(f"  Fetched {len(all_entries)} entries so far...")
 
-    entries = all_entries[:limit]
+    entries = all_entries if unlimited else all_entries[:limit]
 
     results = {
         "exact": [],  # 95%+ match
@@ -1348,7 +1349,7 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
 def main():
     parser = argparse.ArgumentParser(description="Find matches for queue entries")
-    parser.add_argument("--limit", type=int, default=200, help="Max entries to analyze (default: 200)")
+    parser.add_argument("--limit", type=int, default=200, help="Max entries to analyze (default: 200; 0 = no cap, drain all pending)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show more details")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Show what would be merged (default)")
     parser.add_argument("--execute", action="store_true", help="Actually execute merges")
