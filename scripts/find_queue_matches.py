@@ -747,21 +747,32 @@ PROGRAM_TIER_TOKENS = {
     "elite": "elite",
     "premier": "premier",
     "select": "select",
-    "ga ": "ga",
+    "ga": "ga",
 }
 
 
 def _provider_tier_token(provider_team_name):
     """Return the canonical program_tier string a provider name carries, or None.
 
-    Longest-match first so 'pre-academy' wins over 'academy', etc.
+    Longest-match first so 'pre-academy' wins over 'academy', etc. Word-boundary
+    matching so 'ga' doesn't match inside 'yoga' and 'elite' doesn't match
+    inside a longer word — false-positive tier detection would feed the
+    auto-resolve tiebreak path and could pick the wrong master.
     """
     if not provider_team_name:
         return None
-    lname = " " + provider_team_name.lower() + " "
-    # Longest token first
+    # Replace non-word non-space chars with spaces so hyphens act as boundaries
+    # ("pre-academy" → "pre academy"), then pad the whole string with spaces so
+    # each token check can require leading and trailing space alignment.
+    normalized = re.sub(r"[^\w\s]+", " ", provider_team_name.lower())
+    padded = f" {' '.join(normalized.split())} "
+    # Longest token first so 'pre-academy' / 'pre academy' wins over 'academy'.
     for token, canonical in sorted(PROGRAM_TIER_TOKENS.items(), key=lambda kv: -len(kv[0])):
-        if token in lname:
+        # Normalize the token the same way the input was normalized so the
+        # space-padded boundary check works consistently.
+        norm_token = re.sub(r"[^\w\s]+", " ", token)
+        norm_token = " ".join(norm_token.split())
+        if f" {norm_token} " in padded:
             return canonical
     return None
 
