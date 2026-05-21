@@ -844,6 +844,27 @@ def resolve_via_stored_candidates(queue_entry):
     return None, 0.0, None
 
 
+def _stored_club_looks_wrong(stored_club, provider_team_name):
+    """Heuristic: does match_details.club_name appear to disagree with provider_team_name?
+
+    Returns True when stored_club has at least one >=4-char token AND none of
+    those long tokens appear (case-insensitive substring) in provider_team_name.
+    Catches scraper bugs that wrote the wrong club_name (e.g. La Roca FC
+    tagged as "LOS ANGELES SC"). Short tokens are ignored — acronyms like
+    "EBU" can legitimately map to a full club name like "Elmbrook United"
+    and we don't want to misclassify those, but if we do, the calling code
+    will fall back to the stored value anyway, so a false positive just
+    costs one extra DB query.
+    """
+    if not stored_club or not provider_team_name:
+        return False
+    long_tokens = [t for t in stored_club.lower().split() if len(t) >= 4]
+    if not long_tokens:
+        return False
+    provider_lower = provider_team_name.lower()
+    return not any(tok in provider_lower for tok in long_tokens)
+
+
 def find_best_match(queue_entry, supabase, teams_cache):
     """Find the best matching team for a queue entry using Supabase client."""
     name = queue_entry["provider_team_name"]
