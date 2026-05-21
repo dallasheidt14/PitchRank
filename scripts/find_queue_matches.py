@@ -1123,6 +1123,7 @@ def analyze_queue(limit=100, min_confidence=0.90, force=False):
             .select("id, provider_id, provider_team_id, provider_team_name, match_details, confidence_score")
             .eq("status", "pending")
             .order("created_at")
+            .order("id")  # stable secondary key for offset pagination
         )
 
         if not force:
@@ -1349,7 +1350,12 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
 def main():
     parser = argparse.ArgumentParser(description="Find matches for queue entries")
-    parser.add_argument("--limit", type=int, default=200, help="Max entries to analyze (default: 200; 0 = no cap, drain all pending)")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="Max entries to analyze (default: 200; 0 = no cap, drain all pending)",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Show more details")
     parser.add_argument("--dry-run", action="store_true", default=True, help="Show what would be merged (default)")
     parser.add_argument("--execute", action="store_true", help="Actually execute merges")
