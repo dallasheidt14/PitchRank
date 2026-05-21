@@ -965,7 +965,10 @@ def find_best_match(queue_entry, supabase, teams_cache):
         return q.limit(50).execute().data or []
 
     # Decide which club to try first. When the stored value looks wrong, prefer
-    # the extracted one — but always keep both as a fallback.
+    # the extracted one — but always pull candidates from BOTH and merge them,
+    # so the scorer can pick the best across the union (avoids false-negative
+    # cases where the heuristic mis-flags stored data and the primary lookup
+    # produces only low-scoring candidates — Codex P1 on PR #829).
     if stored_club and _stored_club_looks_wrong(stored_club, name) and extracted_club:
         primary_club, secondary_club = extracted_club, stored_club
         primary_method, secondary_method = "fuzzy_re_derived_club", "fuzzy"
@@ -975,25 +978,47 @@ def find_best_match(queue_entry, supabase, teams_cache):
         primary_method = "fuzzy"
         secondary_method = "fuzzy_re_derived_club"
 
-    state_code = _lookup_state(primary_club)
-    candidates = _fetch_with_club(primary_club, state_code)
-    method_used = primary_method if candidates else None
+    # Use the chosen primary_club for downstream should_skip_pair / exact-club
+    # boost when stored_club was empty (Codex P2 on PR #829: club_name was
+    # never updated to reflect what extract_club_from_name found, so the
+    # exact-club boost and structured-distinction gate lost signal).
+    if not club_name and primary_club:
+        club_name = primary_club
 
-    if not candidates and secondary_club:
-        state_code = _lookup_state(secondary_club)
-        candidates = _fetch_with_club(secondary_club, state_code)
-        if candidates:
-            method_used = secondary_method
+    primary_state = _lookup_state(primary_club)
+    primary_candidates = _fetch_with_club(primary_club, primary_state)
+    secondary_state = None
+    secondary_candidates = []
+    if secondary_club:
+        secondary_state = _lookup_state(secondary_club)
+        secondary_candidates = _fetch_with_club(secondary_club, secondary_state)
+
+    # Merge with provenance so the scorer's winner can be attributed back to
+    # the primary or secondary path.
+    candidates = []
+    seen_ids = set()
+    for c in primary_candidates:
+        tid = c.get("team_id_master")
+        if tid and tid not in seen_ids:
+            c["_source"] = "primary"
+            candidates.append(c)
+            seen_ids.add(tid)
+    for c in secondary_candidates:
+        tid = c.get("team_id_master")
+        if tid and tid not in seen_ids:
+            c["_source"] = "secondary"
+            candidates.append(c)
+            seen_ids.add(tid)
+
+    state_code = primary_state or secondary_state
 
     # Cohort fallback — broad search filtered by should_skip_pair.
     if not candidates:
         cohort = _cohort_fallback_candidates(supabase, gender, age_group, state_code)
-        candidates = [
-            t for t in cohort
-            if not should_skip_pair(name, t["team_name"], club_name=primary_club or "", require_age_token_match=False)
-        ]
-        if candidates:
-            method_used = "fuzzy_cohort_fallback"
+        for c in cohort:
+            if not should_skip_pair(name, c["team_name"], club_name=club_name or "", require_age_token_match=False):
+                c["_source"] = "cohort"
+                candidates.append(c)
 
     if not candidates:
         return None, 0.0, "no_candidates"
@@ -1001,6 +1026,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
     # Score each candidate
     best_match = None
     best_score = 0.0
+    best_source = None
 
     # Check for league markers in queue name
     name_lower = name.lower()
@@ -1051,6 +1077,7 @@ def find_best_match(queue_entry, supabase, teams_cache):
 
         if score > best_score:
             best_score = score
+            best_source = team.get("_source")
             best_match = {
                 "id": team["id"],
                 "team_id_master": team["team_id_master"],
@@ -1061,7 +1088,13 @@ def find_best_match(queue_entry, supabase, teams_cache):
             }
 
     if best_score >= 0.7:
-        return best_match, best_score, method_used or "fuzzy"
+        if best_source == "cohort":
+            chosen_method = "fuzzy_cohort_fallback"
+        elif best_source == "secondary":
+            chosen_method = secondary_method
+        else:
+            chosen_method = primary_method
+        return best_match, best_score, chosen_method
 
     return None, 0.0, "low_confidence"
 
