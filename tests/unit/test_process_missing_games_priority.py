@@ -68,11 +68,10 @@ def test_get_pending_requests_does_not_filter_by_request_type():
     )
 
 
-def test_get_pending_requests_default_limit_is_200():
-    """The method signature default and argparse default should both be 200."""
-    import argparse
+def test_get_pending_requests_default_limit_is_40():
+    """The method signature default should be 40 (lowered in PR #838)."""
     import inspect
 
     sig = inspect.signature(MissingGamesProcessor.get_pending_requests)
     default_limit = sig.parameters["limit"].default
-    assert default_limit == 200, f"Default limit should be 200, got {default_limit}"
+    assert default_limit == 40, f"Default limit should be 40, got {default_limit}"
