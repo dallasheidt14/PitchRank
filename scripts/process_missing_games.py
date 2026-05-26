@@ -60,7 +60,7 @@ class MissingGamesProcessor:
         # Stats tracking
         self.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
 
-    def get_pending_requests(self, limit: int = 200) -> List[Dict]:
+    def get_pending_requests(self, limit: int = 150) -> List[Dict]:
         """Fetch pending scrape requests from database, ordered by priority then age."""
         try:
             result = (
@@ -562,7 +562,7 @@ class MissingGamesProcessor:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Process missing game scrape requests")
-    parser.add_argument("--limit", type=int, default=200, help="Maximum number of requests to process")
+    parser.add_argument("--limit", type=int, default=150, help="Maximum number of requests to process")
     parser.add_argument("--dry-run", action="store_true", help="Run without making any changes")
     parser.add_argument("--continuous", action="store_true", help="Run continuously, checking every 30 seconds")
     parser.add_argument("--interval", type=int, default=30, help="Interval in seconds for continuous mode")

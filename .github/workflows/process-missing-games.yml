@@ -39,7 +39,7 @@ jobs:
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           # Run with explicit error output
-          python scripts/process_missing_games.py --limit 200 || exit 1
+          python scripts/process_missing_games.py --limit 150 || exit 1
       
       - name: Report results
         if: always()
