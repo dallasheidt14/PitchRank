@@ -30,10 +30,6 @@ on:
         type: string
         default: ''
 
-concurrency:
-  group: clear-queue
-  cancel-in-progress: false
-
 jobs:
   clear-queue:
     runs-on: ubuntu-latest

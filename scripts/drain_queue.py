@@ -352,6 +352,16 @@ async def _scrape_team_concurrent(
         except Exception as e:
             error_msg = f"Team {team_id} ({team_name}): {str(e)}"
             logger.error(error_msg, exc_info=True)
+            with file_lock:
+                if team_master_id:
+                    log_buffer.append(
+                        {
+                            "team_id_master": team_master_id,
+                            "games_found": 0,
+                            "status": "error",
+                            "update_last_scraped_at": False,
+                        }
+                    )
             progress.update(task_id, advance=1)
             return 0, error_msg, False
 
@@ -372,6 +382,10 @@ async def drain_queue(
     Clone of scrape_games() with one change: teams come from the
     scrape_requests queue instead of the teams table RPC.
     """
+    if concurrency < 1:
+        console.print("[red]--concurrency must be at least 1[/red]")
+        sys.exit(1)
+
     get_waf_breaker().bind_loop(asyncio.get_running_loop())
 
     supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
