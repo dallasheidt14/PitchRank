@@ -18,87 +18,64 @@ const PERFORMANCE_THRESHOLD = 2.0;
 
 interface MomentumResult {
   score: number;
-  greens: number;
-  reds: number;
-  neutrals: number;
   totalGames: number;
 }
 
-/**
- * Get color based on momentum score
- * Uses shades of green for positive momentum, red for negative
- */
 function interpolateMomentumColor(score: number): string {
-  if (score < 25) {
-    // Dark red for slumping
-    return 'hsl(0, 70%, 35%)';
-  } else if (score < 50) {
-    // Light red for struggling
-    return 'hsl(0, 65%, 50%)';
-  } else if (score < 60) {
-    // Gray for as expected
-    return 'hsl(0, 0%, 50%)';
-  } else if (score < 80) {
-    // Light green for building momentum
-    return 'hsl(120, 50%, 45%)';
-  } else {
-    // Dark green for hot streak
-    return 'hsl(120, 70%, 32%)';
-  }
+  if (score < 22) return 'hsl(0, 70%, 35%)';
+  if (score < 42) return 'hsl(0, 65%, 50%)';
+  if (score < 58) return 'hsl(0, 0%, 50%)';
+  if (score < 78) return 'hsl(120, 50%, 45%)';
+  return 'hsl(120, 70%, 32%)';
 }
 
-/**
- * Calculate momentum from recent games using ml_overperformance from game data
- * Uses the same data as GameHistoryTable for consistency
- */
+// Per-game score lookup: [result][overperformance category]
+// Result drives the sign; overperformance shifts magnitude within it.
+// A win is always net-positive (min +0.2), a loss always net-negative (max -0.2).
+const PER_GAME_SCORE: Record<string, Record<string, number>> = {
+  W: { green: 1.0, neutral: 0.5, red: 0.2 },
+  D: { green: 0.15, neutral: 0.0, red: -0.15 },
+  L: { green: -0.2, neutral: -0.5, red: -1.0 },
+};
+
 function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames: number = 8): MomentumResult {
   const recentGames = games.slice(0, numberOfGames);
 
   if (recentGames.length === 0) {
-    return { score: 50, greens: 0, reds: 0, neutrals: 0, totalGames: 0 };
+    return { score: 50, totalGames: 0 };
   }
 
-  // Count greens, reds, neutrals based on ml_overperformance
-  let greens = 0;
-  let reds = 0;
-  let neutrals = 0;
+  let totalPoints = 0;
+  let counted = 0;
 
   for (const game of recentGames) {
     const isHome = game.home_team_master_id === teamId;
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const oppScore = isHome ? game.away_score : game.home_score;
 
-    // Get ml_overperformance from team's perspective (same as GameHistoryTable)
-    // Database stores from home team's perspective, so flip sign for away team
-    let performanceDelta = 0;
+    if (teamScore === null || oppScore === null) continue;
+
+    const result = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'D';
+
+    let perfCat = 'neutral';
     if (game.ml_overperformance !== null && game.ml_overperformance !== undefined) {
-      performanceDelta = isHome ? game.ml_overperformance : -game.ml_overperformance;
+      const delta = isHome ? game.ml_overperformance : -game.ml_overperformance;
+      if (delta >= PERFORMANCE_THRESHOLD) perfCat = 'green';
+      else if (delta <= -PERFORMANCE_THRESHOLD) perfCat = 'red';
     }
 
-    // Categorize based on performance threshold (same as GameHistoryTable: ±2)
-    if (performanceDelta >= PERFORMANCE_THRESHOLD) {
-      greens++;
-    } else if (performanceDelta <= -PERFORMANCE_THRESHOLD) {
-      reds++;
-    } else {
-      neutrals++;
-    }
+    totalPoints += PER_GAME_SCORE[result][perfCat];
+    counted++;
   }
 
-  // Calculate points: green = +1, red = -1, neutral = 0
-  const points = greens - reds;
+  if (counted === 0) {
+    return { score: 50, totalGames: 0 };
+  }
 
-  // Cap at ±4 for realistic scoring
-  const cappedPoints = Math.max(-4, Math.min(4, points));
+  const avg = totalPoints / counted;
+  const score = Math.max(0, Math.min(100, 50 + avg * 50));
 
-  // Convert to 0-100 scale: 50 + (points × 12.5)
-  const score = Math.max(0, Math.min(100, 50 + cappedPoints * 12.5));
-
-  return {
-    score,
-    greens,
-    reds,
-    neutrals,
-    totalGames: greens + reds + neutrals,
-  };
+  return { score, totalGames: counted };
 }
 
 /**
@@ -183,10 +160,10 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
   const momentumLabel = useMemo(() => {
     if (!momentumData) return 'As Expected';
     const score = momentumData.score;
-    if (score >= 80) return 'Hot Streak';
-    if (score >= 60) return 'Building Momentum';
-    if (score >= 50) return 'As Expected';
-    if (score >= 25) return 'Struggling';
+    if (score >= 78) return 'Hot Streak';
+    if (score >= 58) return 'Building Momentum';
+    if (score >= 42) return 'As Expected';
+    if (score >= 22) return 'Struggling';
     return 'Slumping';
   }, [momentumData]);
 
@@ -268,18 +245,14 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
               <p className="font-semibold mb-1">How Momentum is Calculated:</p>
-              <p className="text-xs mb-2">Based on performance vs expectations in recent games.</p>
+              <p className="text-xs mb-2">
+                Blends recent results (wins, losses, draws) with how the team performed relative to expectations.
+              </p>
               <div className="text-xs space-y-1">
+                <p>Wins push momentum up, losses pull it down.</p>
                 <p>
-                  <span className="text-green-600 font-semibold">Green</span> = Overperformed (beat expectations by 2+
-                  goals)
-                </p>
-                <p>
-                  <span className="text-red-600 font-semibold">Red</span> = Underperformed (missed expectations by 2+
-                  goals)
-                </p>
-                <p>
-                  <span className="text-muted-foreground">Neutral</span> = Performed as expected
+                  <span className="text-green-600 font-semibold">Dominant</span> wins boost it further;{' '}
+                  <span className="text-red-600 font-semibold">close</span> wins still count positively.
                 </p>
               </div>
             </TooltipContent>
