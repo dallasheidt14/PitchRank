@@ -222,7 +222,11 @@ def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[
         try:
             (
                 supabase.table("scrape_requests")
-                .update({"status": "failed", "completed_at": now_iso, "error_message": "Team not found or scrape error"})
+                .update({
+                    "status": "failed",
+                    "completed_at": now_iso,
+                    "error_message": "Team not found or scrape error",
+                })
                 .in_("id", failed_ids)
                 .execute()
             )
