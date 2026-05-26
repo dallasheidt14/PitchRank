@@ -97,6 +97,38 @@ export function FAQSchema() {
           text: "One of PitchRank's biggest strengths is how quickly the system builds connections. Tournaments across different states, national events, and cross-regional play all tie together to create a nationally interconnected ranking ecosystem.",
         },
       },
+      {
+        '@type': 'Question',
+        name: 'How does PitchRank compare teams across different leagues?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'PitchRank calibrates league strength automatically using cross-league game results. When teams from different leagues (ECNL, GA, state leagues, independent clubs) meet at tournaments, those head-to-head results anchor cross-league comparisons. The more inter-league games played, the more accurate these comparisons become across the entire ranking network.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'How accurate are rankings for teams that have only played a few games?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: "Rankings for newer teams carry wider uncertainty. PitchRank requires a minimum number of verified games before a team appears in official rankings. Even after that threshold, a team's rating stabilizes further with each additional game against rated opponents. Early-season rankings should be treated as directional rather than definitive.",
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Where does PitchRank get its game data?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'PitchRank collects verified game results from tournaments, leagues, showcases, and cross-state events across all 50 states. The data pipeline pulls from multiple sources and is not locked to any single tournament platform, providing broader coverage than platform-specific ranking systems. Results are ingested daily and rankings recalculate every Monday.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can teams from different states be compared fairly?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: "Yes. Cross-state tournaments and national events create direct connections between state ecosystems. When an Arizona team plays in a California tournament, that result bridges both states' rankings. The more cross-state play occurs, the more accurate interstate comparisons become throughout the season.",
+        },
+      },
     ],
   };
 

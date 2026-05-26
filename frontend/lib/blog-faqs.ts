@@ -622,6 +622,31 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  /* ─── Comparison / Resource Posts ─────────────────────────────── */
+
+  'best-youth-soccer-ranking-websites-2026': [
+    {
+      question: 'Which youth soccer ranking site is most accurate?',
+      answer:
+        'Accuracy depends on data breadth and methodology. Sites that use head-to-head game results and strength-of-schedule weighting (like PitchRank) tend to be more predictive than placement-based systems. The most reliable approach is to cross-reference multiple ranking sources — if a team ranks well across independent systems, that signal is stronger than any single ranking.',
+    },
+    {
+      question: 'Are youth soccer rankings free?',
+      answer:
+        'Most youth soccer ranking sites offer free access to team rankings. PitchRank, GotSport, SoccerWire, and USARank are all free to view. TopDrawerSoccer offers free team rankings but charges $99/year for detailed player rankings and recruiting tools.',
+    },
+    {
+      question: 'Why do different ranking sites show different results?',
+      answer:
+        'Each ranking site uses a different methodology and data source. GotSport only counts its own tournaments, SoccerWire ranks clubs not teams, and TopDrawerSoccer covers only the national Top 25. Different inputs and algorithms produce different outputs. This is why cross-referencing multiple sources gives a more complete picture.',
+    },
+    {
+      question: 'Should I choose a club based on rankings?',
+      answer:
+        'Rankings should be one factor among many. They can tell you about competitive strength and schedule quality, but they cannot measure coaching philosophy, player development culture, playing time, or whether a club is the right fit for your child. Use rankings to narrow your search, then visit practices, talk to coaches, and speak with other families.',
+    },
+  ],
+
   /* ─── Informational / Educational Posts ──────────────────────── */
 
   'how-pitchrank-rankings-work': [
