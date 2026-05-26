@@ -2615,6 +2615,20 @@ async def compute_all_cohorts(
             pd.concat(all_game_explainability, ignore_index=True) if all_game_explainability else pd.DataFrame()
         )
 
+    # ========== Deduplicate cross-cohort teams ==========
+    # Play-up teams appear in multiple (age, gender) cohorts. Keep the row
+    # from the team's primary cohort (most games_played).
+    if not teams_combined.empty and teams_combined["team_id"].duplicated().any():
+        before_count = len(teams_combined)
+        sort_col = "games_played" if "games_played" in teams_combined.columns else "power_score_final"
+        teams_combined = (
+            teams_combined.sort_values(sort_col, ascending=False, na_position="last")
+            .drop_duplicates(subset=["team_id"], keep="first")
+            .reset_index(drop=True)
+        )
+        dedup_count = before_count - len(teams_combined)
+        logger.info(f"🔀 Deduplicated {dedup_count} cross-cohort team entries (kept primary cohort by {sort_col})")
+
     # ========== Filter deprecated teams ==========
     # Remove any deprecated teams that slipped through game-level merge resolution.
     # Check BOTH the merge resolver (team_merge_map) AND the teams.is_deprecated field

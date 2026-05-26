@@ -299,6 +299,15 @@ async def fetch_games_for_rankings(
     team_ids.update(games_df["home_team_master_id"].dropna().tolist())
     team_ids.update(games_df["away_team_master_id"].dropna().tolist())
 
+    # Include canonical team IDs from merge map so their metadata is available
+    # for age/gender remapping after merge resolution (prevents cross-cohort dupes)
+    if merge_resolver is not None and merge_resolver.has_merges:
+        canonical_ids = set(merge_resolver._merge_map.values())
+        added = canonical_ids - team_ids
+        if added:
+            logger.info(f"  [MERGE-DIAG] Adding {len(added)} canonical team IDs to metadata fetch")
+        team_ids.update(canonical_ids)
+
     if not team_ids:
         logger.warning("⚠️  No team IDs found in games")
         return pd.DataFrame()

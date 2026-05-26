@@ -148,6 +148,21 @@ async def save_ranking_snapshot(
         logger.warning("⚠️ No valid records to save in snapshot")
         return 0
 
+    # Guard: deduplicate by team_id (constraint is UNIQUE(team_id, snapshot_date))
+    seen_team_ids: set = set()
+    unique_records = []
+    for rec in snapshot_records:
+        tid = rec["team_id"]
+        if tid not in seen_team_ids:
+            seen_team_ids.add(tid)
+            unique_records.append(rec)
+    if len(unique_records) < len(snapshot_records):
+        logger.warning(
+            f"⚠️ Removed {len(snapshot_records) - len(unique_records)} duplicate team_id entries "
+            f"before snapshot upsert"
+        )
+    snapshot_records = unique_records
+
     # Batch upsert with exponential backoff retries to handle Supabase timeouts
     try:
         import time
