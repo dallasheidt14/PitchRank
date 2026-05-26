@@ -792,10 +792,10 @@ def _extract_birth_year_token(name):
     """
     if not name:
         return None
-    # 4-digit year first — most reliable, covers '2013', 'B2009', 'G2010',
-    # '2014B' (no right-boundary because letter follows digit). Negative
-    # lookahead on the right rejects 5+-digit numbers.
-    m = re.search(r"\b(20\d{2})(?!\d)", name)
+    # 4-digit year first — most reliable. Covers '2013', '2014B' (right-side
+    # letter), 'B2009' and 'G2010' (left-side letter). `\b` would not match
+    # between B and 2 (both word chars), so use explicit non-digit lookarounds.
+    m = re.search(r"(?<!\d)(20\d{2})(?!\d)", name)
     if m:
         return m.group(1)
     # 2-digit age token, must be flanked by B or G to distinguish from jersey numbers, etc.
@@ -1347,11 +1347,6 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
     # Cache provider lookups
     provider_cache = {}
-    # Cache teams.id lookups by team_id_master. Stored-tiebreak match dicts
-    # (from resolve_via_stored_candidates) carry team_id_master but no `id`;
-    # the fuzzy-fallback path selects both, so its dicts have `id` and skip
-    # this lookup. See age_token_birth_year_convention / PR #831 follow-up.
-    master_id_cache = {}
 
     approved = 0
     failed = 0
@@ -1373,25 +1368,6 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                     provider_cache[provider_code] = provider_result.data[0]["id"]
                 provider_uuid = provider_cache[provider_code]
 
-                # Resolve teams.id for the queue update. Fuzzy-fallback matches
-                # carry `id` directly; stored-tiebreak matches don't — look up
-                # via team_id_master (cached).
-                team_pk = m.get("id")
-                if not team_pk:
-                    master_key = m["team_id_master"]
-                    if master_key not in master_id_cache:
-                        lookup = (
-                            supabase.table("teams")
-                            .select("id")
-                            .eq("team_id_master", master_key)
-                            .limit(1)
-                            .execute()
-                        )
-                        if not lookup.data:
-                            raise ValueError(f"No teams row for team_id_master={master_key}")
-                        master_id_cache[master_key] = lookup.data[0]["id"]
-                    team_pk = master_id_cache[master_key]
-
                 # Cap score at 0.99 for alias table
                 db_score = min(0.99, r["score"])
 
@@ -1409,13 +1385,15 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                     ignore_duplicates=True,
                 ).execute()
 
-                # Update queue - suggested_master_team_id uses teams.id
+                # Update queue. suggested_master_team_id holds team_id_master,
+                # not teams.id — the review view joins ON teams.team_id_master =
+                # q.suggested_master_team_id (see 20240201000003_add_match_review_queue.sql).
                 from datetime import datetime, timezone
 
                 supabase.table("team_match_review_queue").update(
                     {
                         "status": "approved",
-                        "suggested_master_team_id": team_pk,
+                        "suggested_master_team_id": m["team_id_master"],
                         "reviewed_by": "auto-merge-script",
                         "reviewed_at": datetime.now(timezone.utc).isoformat(),
                     }
