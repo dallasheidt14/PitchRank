@@ -14,9 +14,9 @@ export function MethodologySchema({ datePublished, dateModified }: MethodologySc
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'Article',
-    headline: 'PitchRank Ranking Methodology',
+    headline: 'How PitchRank Youth Soccer Rankings Work',
     description:
-      'How PitchRank calculates youth soccer team rankings and PowerScores using opponent quality, schedule strength, and machine-learning trend detection.',
+      'How PitchRank calculates youth soccer team rankings using opponent quality, cross-league strength calibration, schedule strength, and machine-learning trend detection. Updated weekly with verified game data from all 50 states.',
     url: pageUrl,
     datePublished,
     dateModified,

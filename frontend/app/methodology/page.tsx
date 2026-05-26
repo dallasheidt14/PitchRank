@@ -6,16 +6,16 @@ import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
 
 export const metadata: Metadata = {
-  title: 'Methodology',
+  title: 'How Our Rankings Work',
   description:
-    'Learn how PitchRank calculates youth soccer team rankings and power scores using cross-age game support, unified scoring, and data-driven analytics.',
+    'How PitchRank calculates youth soccer team rankings using opponent quality, cross-league strength calibration, and machine-learning trend detection. Updated weekly with game data from all 50 states.',
   alternates: {
     canonical: `${BASE_URL}/methodology`,
   },
   openGraph: {
-    title: 'Ranking Methodology | PitchRank',
+    title: 'How PitchRank Youth Soccer Rankings Work',
     description:
-      'Learn how PitchRank calculates youth soccer team rankings and power scores using data-driven analytics.',
+      'How PitchRank calculates youth soccer team rankings using data-driven analytics, cross-league calibration, and ML trend detection.',
     url: `${BASE_URL}/methodology`,
     siteName: 'PitchRank',
     type: 'website',
@@ -24,14 +24,14 @@ export const metadata: Metadata = {
         url: '/logos/pitchrank-wordmark.svg',
         width: 1200,
         height: 630,
-        alt: 'PitchRank Methodology',
+        alt: 'How PitchRank Rankings Work',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Ranking Methodology | PitchRank',
-    description: 'Learn how PitchRank calculates youth soccer team rankings and power scores.',
+    title: 'How PitchRank Youth Soccer Rankings Work',
+    description: 'How PitchRank calculates youth soccer rankings with cross-league calibration and ML trend detection.',
     images: ['/logos/pitchrank-wordmark.svg'],
   },
 };
@@ -40,9 +40,9 @@ export default function MethodologyPage() {
   return (
     <div className="container mx-auto py-8 px-4">
       <BreadcrumbSchema items={[{ name: 'Methodology', href: '/methodology' }]} />
-      <MethodologySchema datePublished="2026-04-30T00:00:00Z" dateModified="2026-04-30T00:00:00Z" />
+      <MethodologySchema datePublished="2026-04-30T00:00:00Z" dateModified="2026-05-26T00:00:00Z" />
       <PageHeader
-        title="Ranking Methodology"
+        title="How Our Rankings Work"
         description="Understanding how PitchRank calculates team rankings and power scores"
         showBackButton
         backHref="/"
