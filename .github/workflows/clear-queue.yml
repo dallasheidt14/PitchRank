@@ -1,0 +1,108 @@
+name: Help Clear Queue
+run-name: >-
+  Clear Queue · ${{
+    format('{0} items', inputs.queue_limit || '2000')
+  }}${{
+    inputs.use_zenrows == true && ' · ZenRows' || ''
+  }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      queue_limit:
+        description: 'Number of queue items to claim and process (default 2000). Safe to dispatch multiple runs — each claims its own batch via FOR UPDATE SKIP LOCKED.'
+        required: false
+        type: string
+        default: '2000'
+      use_zenrows:
+        description: 'Route gotsport API calls through ZenRows residential proxy (bypasses per-IP WAF budget; costs per request)'
+        required: false
+        type: boolean
+        default: false
+      zenrows_premium_proxy:
+        description: 'When use_zenrows=true: use residential IPs (25x cost). Disable to test datacenter IPs. Ignored when use_zenrows=false.'
+        required: false
+        type: boolean
+        default: true
+      concurrency:
+        description: 'Number of concurrent scrapes (default: 30 direct, 8 with ZenRows)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  clear-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p logs data/raw data/cache
+
+      - name: Build command
+        id: build-command
+        env:
+          QUEUE_LIMIT: ${{ inputs.queue_limit }}
+          USE_ZENROWS: ${{ inputs.use_zenrows }}
+          CONCURRENCY_INPUT: ${{ inputs.concurrency }}
+        run: |
+          CMD="python scripts/drain_queue.py"
+
+          # Queue limit (validated)
+          if [[ "$QUEUE_LIMIT" =~ ^[0-9]+$ ]]; then
+            CMD="$CMD --limit $QUEUE_LIMIT"
+          else
+            CMD="$CMD --limit 2000"
+          fi
+
+          # Concurrency: 8 with ZenRows (shared 50-slot ceiling), 30 without
+          if [[ "${USE_ZENROWS:-false}" == "true" ]]; then
+            CONCURRENCY=8
+          else
+            CONCURRENCY=30
+          fi
+          if [[ "$CONCURRENCY_INPUT" =~ ^[0-9]+$ ]]; then
+            CONCURRENCY="$CONCURRENCY_INPUT"
+          fi
+          CMD="$CMD --concurrency $CONCURRENCY"
+
+          echo "Command: $CMD"
+          echo "command=$CMD" >> "$GITHUB_OUTPUT"
+
+      - name: Drain queue
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          PYTHONPATH:                ${{ github.workspace }}
+          ZENROWS_API_KEY: ${{ inputs.use_zenrows && secrets.ZENROWS_API_KEY || '' }}
+          ZENROWS_PREMIUM_PROXY: ${{ inputs.zenrows_premium_proxy && 'true' || 'false' }}
+        run: ${{ steps.build-command.outputs.command }}
+
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: queue-drain-${{ github.run_number }}
+          path: data/raw/scraped_games_*.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: queue-drain-logs-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 30
+          if-no-files-found: ignore
