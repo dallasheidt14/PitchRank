@@ -777,6 +777,52 @@ def _provider_tier_token(provider_team_name):
     return None
 
 
+def _extract_birth_year_token(name):
+    """Extract the birth year a team name encodes, as a 4-digit string.
+
+    Recognized forms (in priority order):
+      - 4-digit year: '2013', 'B2009', 'G2010'
+      - 2-digit token with B/G affix: '13B', '14G', 'B14', 'G09', '09G'
+
+    Returns None when no year-like token is present (e.g. 'Palatine Celtic U19 Black').
+    Caller uses None as "year unknown — don't apply year guard".
+
+    Note: PitchRank's convention is BIRTH YEAR, not USYS cohort. '14B' means born
+    2014 (U12 in 2025-26 season), NOT U14. See age_token_birth_year_convention memory.
+    """
+    if not name:
+        return None
+    # 4-digit year first — most reliable. Covers '2013', '2014B' (right-side
+    # letter), 'B2009' and 'G2010' (left-side letter). `\b` would not match
+    # between B and 2 (both word chars), so use explicit non-digit lookarounds.
+    m = re.search(r"(?<!\d)(20\d{2})(?!\d)", name)
+    if m:
+        return m.group(1)
+    # 2-digit age token, must be flanked by B or G to distinguish from jersey numbers, etc.
+    m = re.search(r"(?:^|[\s\-/])(?:[BG](\d{2})|(\d{2})[BG])(?=[\s\-/]|$)", name)
+    if m:
+        token = m.group(1) or m.group(2)
+        n = int(token)
+        if 7 <= n <= 19:  # plausible birth-year range: 2007-2019
+            return f"20{token}"
+    return None
+
+
+def _has_club_anchor(name):
+    """Heuristic gate against bare-name matches like 'Warriors', 'Inter', '12G GA'.
+
+    Stored-tiebreak resolution operates without DB-side club_name validation, so
+    when the provider name is just an age/program token (no proper noun anchor)
+    the resolver can confidently merge two unrelated 'Warriors' teams. Require
+    at least 3 whitespace-separated tokens — every legitimate match in the
+    2026-05-25 failure sample has ≥3 tokens, every bad one has ≤2.
+    """
+    if not name:
+        return False
+    tokens = [t for t in re.split(r"\s+", name.strip()) if t]
+    return len(tokens) >= 3
+
+
 def resolve_via_stored_candidates(queue_entry):
     """Resolve a queue row using the candidates JSON stored at scrape time.
 
@@ -804,6 +850,12 @@ def resolve_via_stored_candidates(queue_entry):
     if not candidates:
         return None, 0.0, None
 
+    # Guard: stored tiebreaks bypass DB-side club_name validation. Refuse to
+    # resolve provider names without a club anchor (bare 'Warriors', '12G GA').
+    provider_name = queue_entry.get("provider_team_name") or ""
+    if not _has_club_anchor(provider_name):
+        return None, 0.0, None
+
     # Drop deprecated masters and anything below 0.90 raw score
     candidates = [c for c in candidates if not c.get("is_deprecated") and (c.get("score") or 0) >= 0.90]
     if not candidates:
@@ -812,6 +864,14 @@ def resolve_via_stored_candidates(queue_entry):
     best = candidates[0]
     best_score = best.get("score") or 0.0
     near_tied = [c for c in candidates[1:] if (best_score - (c.get("score") or 0.0)) <= 0.015]
+
+    # Guard: when both names carry a birth-year token, require agreement.
+    # Catches off-by-year drift (e.g. 'Dynamos SC 14B SC' → 'Dynamos SC 2013 SC')
+    # where the resolver picked a sibling-year team in the same club.
+    provider_year = _extract_birth_year_token(provider_name)
+    best_year = _extract_birth_year_token(best.get("team_name"))
+    if provider_year and best_year and provider_year != best_year:
+        return None, 0.0, None
 
     def _winner(rule):
         return (
@@ -1325,13 +1385,15 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                     ignore_duplicates=True,
                 ).execute()
 
-                # Update queue - suggested_master_team_id uses teams.id
+                # Update queue. suggested_master_team_id holds team_id_master,
+                # not teams.id — the review view joins ON teams.team_id_master =
+                # q.suggested_master_team_id (see 20240201000003_add_match_review_queue.sql).
                 from datetime import datetime, timezone
 
                 supabase.table("team_match_review_queue").update(
                     {
                         "status": "approved",
-                        "suggested_master_team_id": m["id"],
+                        "suggested_master_team_id": m["team_id_master"],
                         "reviewed_by": "auto-merge-script",
                         "reviewed_at": datetime.now(timezone.utc).isoformat(),
                     }
