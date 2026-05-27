@@ -58,6 +58,7 @@ class ImportMetrics:
     skipped_empty_scores: int = 0  # Games skipped due to missing both scores
     duplicate_key_violations: int = 0  # Games rejected due to unique constraint (already in DB)
     duplicate_links_backfilled: int = 0  # Duplicate games where missing master IDs were healed
+    scores_backfilled: int = 0  # Null-score games updated with actual scores
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
@@ -83,6 +84,7 @@ class ImportMetrics:
             "skipped_empty_scores": self.skipped_empty_scores,
             "duplicate_key_violations": self.duplicate_key_violations,
             "duplicate_links_backfilled": self.duplicate_links_backfilled,
+            "scores_backfilled": self.scores_backfilled,
         }
 
 
@@ -718,8 +720,39 @@ class EnhancedETLPipeline:
                 if regen_existing_uids:
                     pre_count = len(game_records)
                     regen_dupes_list = [g for g in game_records if g.get("game_uid") in regen_existing_uids]
+
+                    # Separate null-score duplicates (scheduled games needing score backfill)
+                    # from true duplicates (already have scores in DB)
+                    null_score_updates = []
+                    true_dupes = []
+                    for g in regen_dupes_list:
+                        uid = g.get("game_uid")
+                        existing_info = regen_uid_master_ids.get(uid, {})
+                        existing_has_scores = (
+                            existing_info.get("home_score") is not None
+                            and existing_info.get("away_score") is not None
+                        )
+                        incoming_has_scores = (
+                            g.get("home_score") is not None
+                            and g.get("away_score") is not None
+                        )
+                        if not existing_has_scores and incoming_has_scores:
+                            null_score_updates.append(g)
+                        else:
+                            true_dupes.append(g)
+
                     game_records = [g for g in game_records if g.get("game_uid") not in regen_existing_uids]
-                    regen_dupes = pre_count - len(game_records)
+
+                    if null_score_updates:
+                        score_bf = await self._update_null_score_games(
+                            null_score_updates, regen_uid_master_ids
+                        )
+                        batch_metrics.scores_backfilled = (
+                            getattr(batch_metrics, "scores_backfilled", 0) + score_bf
+                        )
+                        self.metrics.scores_backfilled += score_bf
+
+                    regen_dupes = len(true_dupes)
                     if regen_dupes > 0:
                         batch_metrics.duplicates_found = getattr(batch_metrics, "duplicates_found", 0) + regen_dupes
                         self.metrics.duplicates_found += regen_dupes
@@ -728,7 +761,7 @@ class EnhancedETLPipeline:
                             f"(master-ID UIDs matched existing records)"
                         )
                         # Backfill missing master IDs on the duplicates we just filtered out
-                        bf = await self._backfill_duplicate_team_links(regen_dupes_list)
+                        bf = await self._backfill_duplicate_team_links(true_dupes)
                         batch_metrics.duplicate_links_backfilled += bf
                         self.metrics.duplicate_links_backfilled += bf
                     # Merge for downstream use
@@ -1332,10 +1365,10 @@ class EnhancedETLPipeline:
         batch_size = 200  # Conservative batch size to stay well under URL length limit
         for chunk in self._chunks(game_uids, batch_size):
             try:
-                # Query Supabase for existing game_uid values AND master team IDs
+                # Query Supabase for existing game_uid values, master team IDs, and scores
                 result = (
                     self.supabase.table("games")
-                    .select("game_uid, home_team_master_id, away_team_master_id")
+                    .select("game_uid, home_team_master_id, away_team_master_id, home_score, away_score")
                     .in_("game_uid", chunk)
                     .execute()
                 )
@@ -1348,6 +1381,8 @@ class EnhancedETLPipeline:
                             game_uid_to_master_ids[game_uid] = {
                                 "home_team_master_id": row.get("home_team_master_id"),
                                 "away_team_master_id": row.get("away_team_master_id"),
+                                "home_score": row.get("home_score"),
+                                "away_score": row.get("away_score"),
                             }
             except Exception as e:
                 logger.error(f"CRITICAL: Error checking duplicates for batch of {len(chunk)} UIDs: {e}")
@@ -1553,6 +1588,48 @@ class EnhancedETLPipeline:
                 # Non-fatal: continue without this check rather than block the import
 
         return duplicates_found
+
+    async def _update_null_score_games(
+        self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict]
+    ) -> int:
+        """Update existing games that have null scores with actual scores from a re-scrape."""
+        if not games_to_update:
+            return 0
+
+        updated = 0
+        for game in games_to_update:
+            game_uid = game.get("game_uid")
+            home_score = game.get("home_score")
+            away_score = game.get("away_score")
+            result = game.get("result")
+
+            if not game_uid or home_score is None or away_score is None:
+                continue
+
+            try:
+                home_score_int = int(float(home_score))
+                away_score_int = int(float(away_score))
+            except (ValueError, TypeError):
+                continue
+
+            try:
+                self.supabase.table("games").update({
+                    "home_score": home_score_int,
+                    "away_score": away_score_int,
+                    "result": result,
+                    "scraped_at": game.get("scraped_at"),
+                }).eq("game_uid", game_uid).execute()
+                updated += 1
+                logger.info(
+                    f"[Pipeline] Backfilled scores on {game_uid}: "
+                    f"{home_score_int}-{away_score_int} (result={result})"
+                )
+            except Exception as e:
+                logger.error(f"[Pipeline] Failed to backfill scores on {game_uid}: {e}")
+
+        if updated:
+            logger.info(f"[Pipeline] Backfilled scores on {updated} previously null-score games")
+        return updated
 
     async def _backfill_duplicate_team_links(self, duplicate_games: List[Dict]) -> int:
         """
