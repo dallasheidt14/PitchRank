@@ -345,6 +345,15 @@ def _same_age_evidence_policy(age_num: int) -> dict[str, float | int]:
         "quality_result_void_max_top500": 3,
         "quality_result_void_max_avg_opp_power": 0.60,
         "quality_result_void_severe_max_avg_opp_power": 0.52,
+        "thin_quality_results_min_unique_opponents": 18,
+        "thin_quality_results_max_top100": 1,
+        "thin_quality_results_max_top500": 5,
+        "thin_quality_results_max_top500_non_loss": 1,
+        "thin_quality_results_max_top1000_non_loss": 2,
+        "thin_quality_results_max_avg_opp_power": 0.65,
+        "thin_quality_results_min_repeat_share": 0.30,
+        "thin_quality_results_publish_penalty_bonus": 0.018,
+        "thin_quality_results_raw_shrink_bonus": 0.012,
         "local_loop_max_top500": 1,
         "local_loop_max_avg_opp_power": 0.52,
         "local_loop_repeat_share": 0.60,
@@ -1182,6 +1191,34 @@ def _has_weak_field_connectivity_overtrust_profile(
     )
 
 
+def _has_thin_quality_results_profile(row: pd.Series, policy: dict[str, float | int]) -> bool:
+    """Flag thin schedules whose few quality looks are mostly losses.
+
+    These teams can still post strong raw ratings in Glicko, but they have not
+    produced enough same-age quality results to justify that raw strength.
+    """
+    top100 = _safe_int(row.get("same_age_top100_opp_count"))
+    top100_non_loss = _safe_int(row.get("same_age_top100_non_loss_opp_count"))
+    top500 = _safe_int(row.get("same_age_top500_opp_count"))
+    top500_non_loss = _safe_int(row.get("same_age_top500_non_loss_opp_count"))
+    top1000_non_loss = _safe_int(row.get("same_age_top1000_non_loss_opp_count"))
+    unique_opponents = _safe_int(row.get("same_age_unique_opponents"))
+    avg_opp_power = _effective_same_age_avg_opp_power(row, policy)
+    repeat_share = _safe_float(row.get("repeat_opponent_share")) or 0.0
+
+    return bool(
+        unique_opponents >= int(policy["thin_quality_results_min_unique_opponents"])
+        and top100 <= int(policy["thin_quality_results_max_top100"])
+        and top100_non_loss == 0
+        and top500 <= int(policy["thin_quality_results_max_top500"])
+        and top500_non_loss <= int(policy["thin_quality_results_max_top500_non_loss"])
+        and top1000_non_loss <= int(policy["thin_quality_results_max_top1000_non_loss"])
+        and avg_opp_power is not None
+        and avg_opp_power < float(policy["thin_quality_results_max_avg_opp_power"])
+        and repeat_share >= float(policy["thin_quality_results_min_repeat_share"])
+    )
+
+
 def _effective_same_age_avg_opp_power(row: pd.Series, policy: dict[str, float | int]) -> float | None:
     broad_avg_opp_power = _safe_float(row.get("same_age_avg_opp_power_adj"))
     if broad_avg_opp_power is None:
@@ -1389,6 +1426,7 @@ def _same_age_publish_penalty(row: pd.Series) -> float:
     strong_broad_profile = _has_strong_broad_profile(row, policy)
     elite_repetitive_release = _has_elite_repetitive_release_profile(row, policy)
     weak_field_connectivity_profile = _has_weak_field_connectivity_overtrust_profile(row, policy)
+    thin_quality_results_profile = _has_thin_quality_results_profile(row, policy)
     quality_field_strength = _unit_interval(
         quality_avg_opp_power,
         float(policy["quality_bridge_min_avg_opp_power"]),
@@ -1443,6 +1481,10 @@ def _same_age_publish_penalty(row: pd.Series) -> float:
         penalty += float(policy["weak_field_connectivity_publish_penalty_bonus"]) * (
             0.40 + 0.60 * exposure_pressure
         )
+    if thin_quality_results_profile:
+        penalty += float(policy["thin_quality_results_publish_penalty_bonus"]) * (
+            0.45 + 0.55 * max(field_shortfall, 1.0 - quality_support)
+        )
     if thin_recent:
         penalty += 0.008
     if stale_recent:
@@ -1484,13 +1526,14 @@ def _same_age_raw_shrink(row: pd.Series) -> float:
     )
     quality_bridge = _has_quality_bridge_support(row, policy)
     weak_field_connectivity_profile = _has_weak_field_connectivity_overtrust_profile(row, policy)
+    thin_quality_results_profile = _has_thin_quality_results_profile(row, policy)
 
     weak_field_shortfall = _unit_interval(
         float(policy["raw_shrink_max_avg_opp_power"]) - broad_avg_opp_power,
         0.0,
         float(policy["raw_shrink_max_avg_opp_power"]) - float(policy["severe_min_avg_opp_power"]),
     )
-    if weak_field_shortfall <= 0.0:
+    if weak_field_shortfall <= 0.0 and not thin_quality_results_profile:
         return 0.0
 
     exposure_pressure = (
@@ -1510,6 +1553,11 @@ def _same_age_raw_shrink(row: pd.Series) -> float:
     if weak_field_connectivity_profile:
         shrink += float(policy["weak_field_connectivity_raw_shrink_bonus"]) * weak_field_shortfall * (
             0.50 + 0.50 * exposure_pressure
+        )
+    if thin_quality_results_profile:
+        profile_shortfall = max(weak_field_shortfall, 0.30 + 0.40 * max(0.0, 1.0 - quality_support))
+        shrink += float(policy["thin_quality_results_raw_shrink_bonus"]) * (
+            0.45 + 0.55 * profile_shortfall
         )
     if top100 == 0 and top500 <= 2:
         shrink *= 0.70
