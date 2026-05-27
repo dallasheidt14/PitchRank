@@ -1596,6 +1596,10 @@ class EnhancedETLPipeline:
         if not games_to_update:
             return 0
 
+        if self.dry_run:
+            logger.info(f"[Pipeline] Dry run: would backfill scores on {len(games_to_update)} null-score games")
+            return 0
+
         updated = 0
         for game in games_to_update:
             game_uid = game.get("game_uid")
