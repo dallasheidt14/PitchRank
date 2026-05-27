@@ -93,11 +93,11 @@ class TestEnhancedPipeline:
         
         # Mock existing games
         mock_result = Mock()
-        mock_result.data = [{'game_uid': 'test-001'}]
+        mock_result.data = [{'game_uid': 'test-001', 'home_team_master_id': None, 'away_team_master_id': None, 'home_score': None, 'away_score': None}]
         mock_supabase.table.return_value.select.return_value.in_.return_value.execute.return_value = mock_result
-        
-        duplicates = await pipeline._check_duplicates(sample_games)
-        
+
+        duplicates, uid_map = await pipeline._check_duplicates(sample_games)
+
         assert len(duplicates) == 1
         assert 'test-001' in duplicates
     
