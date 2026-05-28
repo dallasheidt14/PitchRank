@@ -73,9 +73,10 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           PITCHRANK_URL: 'https://pitchrank.io'
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
           python scripts/marketing_pipeline.py $DRY_RUN_FLAG

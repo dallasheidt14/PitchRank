@@ -80,17 +80,20 @@ jobs:
 
       - name: Export unknown opponents
         id: export
+        env:
+          MAX_ROWS: ${{ github.event.inputs.max_rows }}
+          PROVIDER: ${{ github.event.inputs.provider || 'gotsport' }}
         run: |
           mkdir -p data/exports logs
           TS="$(date +%Y%m%d_%H%M%S)"
           PREFIX="data/exports/unknown_opponents_weekly_${TS}"
           MAX_ROWS_FLAG=""
-          if [ -n "${{ github.event.inputs.max_rows }}" ]; then
-            MAX_ROWS_FLAG="--max-rows ${{ github.event.inputs.max_rows }}"
+          if [ -n "$MAX_ROWS" ]; then
+            MAX_ROWS_FLAG="--max-rows $MAX_ROWS"
           fi
 
           python3 scripts/export_unknown_opponents.py \
-            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --provider "$PROVIDER" \
             --resolve-gotsport-details \
             --output-prefix "$PREFIX" \
             $MAX_ROWS_FLAG | tee logs/unknown_export.log
@@ -102,16 +105,21 @@ jobs:
 
       - name: Auto-match unknown opponents (dry run)
         id: match
+        env:
+          EXPORT_TIMESTAMP: ${{ steps.export.outputs.timestamp }}
+          EXPORT_AGGREGATE_CSV: ${{ steps.export.outputs.aggregate_csv }}
+          LIMIT: ${{ github.event.inputs.limit }}
+          PROVIDER: ${{ github.event.inputs.provider || 'gotsport' }}
         run: |
-          MATCH_CSV="data/exports/unknown_opponent_match_report_weekly_${{ steps.export.outputs.timestamp }}.csv"
+          MATCH_CSV="data/exports/unknown_opponent_match_report_weekly_${EXPORT_TIMESTAMP}.csv"
           LIMIT_FLAG=""
-          if [ -n "${{ github.event.inputs.limit }}" ]; then
-            LIMIT_FLAG="--limit ${{ github.event.inputs.limit }}"
+          if [ -n "$LIMIT" ]; then
+            LIMIT_FLAG="--limit $LIMIT"
           fi
 
           python3 scripts/auto_match_unknown_opponents.py \
-            --input "${{ steps.export.outputs.aggregate_csv }}" \
-            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --input "$EXPORT_AGGREGATE_CSV" \
+            --provider "$PROVIDER" \
             --auto-threshold 0.95 \
             --review-threshold 0.90 \
             --max-candidates 160 \
@@ -122,10 +130,13 @@ jobs:
 
       - name: Due diligence gate
         id: due
+        env:
+          EXPORT_TIMESTAMP: ${{ steps.export.outputs.timestamp }}
+          MATCH_CSV: ${{ steps.match.outputs.match_csv }}
         run: |
-          DD_PREFIX="data/exports/unknown_opponent_due_diligence_weekly_${{ steps.export.outputs.timestamp }}"
+          DD_PREFIX="data/exports/unknown_opponent_due_diligence_weekly_${EXPORT_TIMESTAMP}"
           python3 scripts/due_diligence_unknown_opponents.py \
-            --match-report "${{ steps.match.outputs.match_csv }}" \
+            --match-report "$MATCH_CSV" \
             --output-prefix "$DD_PREFIX" | tee logs/unknown_due_diligence.log
 
           python3 - <<'PY'
@@ -156,34 +167,46 @@ jobs:
 
       - name: Execute approved matches
         if: ${{ steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' }}
+        env:
+          APPROVED_CSV: ${{ steps.due.outputs.approved_csv }}
         run: |
           python3 scripts/apply_unknown_opponent_matches.py \
-            --approved-csv "${{ steps.due.outputs.approved_csv }}" \
+            --approved-csv "$APPROVED_CSV" \
             --require-approved-rows | tee logs/unknown_apply.log
 
       - name: Skip execution note
         if: ${{ steps.due.outputs.approved_count == '0' || github.event.inputs.dry_run == 'true' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          APPROVED_COUNT: ${{ steps.due.outputs.approved_count }}
+          REVIEW_COUNT: ${{ steps.due.outputs.review_count }}
         run: |
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
-            echo "Execution skipped: dry_run=true (approved_count=${{ steps.due.outputs.approved_count }} would have executed)"
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Execution skipped: dry_run=true (approved_count=$APPROVED_COUNT would have executed)"
           else
-            echo "Execution skipped: no approved matches (approved=0, review=${{ steps.due.outputs.review_count }})"
+            echo "Execution skipped: no approved matches (approved=0, review=$REVIEW_COUNT)"
           fi
 
       - name: Discover new teams from no_match opponents
         id: discover
         if: ${{ github.event.inputs.discover_teams != 'false' }}
+        env:
+          EXPORT_TIMESTAMP: ${{ steps.export.outputs.timestamp }}
+          MATCH_CSV: ${{ steps.match.outputs.match_csv }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          DISCOVER_MIN_GAMES: ${{ github.event.inputs.discover_min_games || '1' }}
+          PROVIDER: ${{ github.event.inputs.provider || 'gotsport' }}
         run: |
-          DISCOVER_CSV="data/exports/team_discovery_report_weekly_${{ steps.export.outputs.timestamp }}.csv"
+          DISCOVER_CSV="data/exports/team_discovery_report_weekly_${EXPORT_TIMESTAMP}.csv"
           EXECUTE_FLAG=""
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" != "true" ]; then
+          if [ "$DRY_RUN" != "true" ]; then
             EXECUTE_FLAG="--execute"
           fi
-          MIN_GAMES="${{ github.event.inputs.discover_min_games || '1' }}"
+          MIN_GAMES="$DISCOVER_MIN_GAMES"
 
           python3 scripts/discover_teams_from_opponents.py \
-            --match-report "${{ steps.match.outputs.match_csv }}" \
-            --provider "${{ github.event.inputs.provider || 'gotsport' }}" \
+            --match-report "$MATCH_CSV" \
+            --provider "$PROVIDER" \
             --min-games "$MIN_GAMES" \
             --output "$DISCOVER_CSV" \
             $EXECUTE_FLAG | tee logs/unknown_discover.log
@@ -233,27 +256,40 @@ jobs:
 
       - name: Workflow summary
         if: always()
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          PROVIDER: ${{ github.event.inputs.provider || 'gotsport' }}
+          AUTO_LINK_COUNT: ${{ steps.due.outputs.auto_link_count || '0' }}
+          APPROVED_COUNT: ${{ steps.due.outputs.approved_count || '0' }}
+          REVIEW_COUNT: ${{ steps.due.outputs.review_count || '0' }}
+          ALL_PASS: ${{ steps.due.outputs.all_pass || 'false' }}
+          DISCOVER_TEAMS: ${{ github.event.inputs.discover_teams || 'true' }}
+          DISCOVERY_TOTAL: ${{ steps.discover.outputs.discovery_total || '0' }}
+          DISCOVERY_CREATED: ${{ steps.discover.outputs.discovery_created || '0' }}
+          DISCOVERY_BACKFILLED: ${{ steps.discover.outputs.discovery_backfilled || '0' }}
+          DISCOVERY_SKIPPED: ${{ steps.discover.outputs.discovery_skipped || '0' }}
+          DISCOVERY_ERRORS: ${{ steps.discover.outputs.discovery_errors || '0' }}
         run: |
           MODE="AUTO-EXECUTE"
-          if [ "${{ github.event.inputs.dry_run || 'false' }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             MODE="DRY-RUN"
           fi
 
           echo "## Unknown Opponent Hygiene Weekly" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Mode: **$MODE**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Provider: **${{ github.event.inputs.provider || 'gotsport' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Auto-link candidates: **${{ steps.due.outputs.auto_link_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Due diligence approved: **${{ steps.due.outputs.approved_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Due diligence needs review: **${{ steps.due.outputs.review_count || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- All pass gate: **${{ steps.due.outputs.all_pass || 'false' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Provider: **$PROVIDER**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Auto-link candidates: **$AUTO_LINK_COUNT**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Due diligence approved: **$APPROVED_COUNT**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Due diligence needs review: **$REVIEW_COUNT**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- All pass gate: **$ALL_PASS**" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Team Discovery (no_match opponents)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Discover teams enabled: **${{ github.event.inputs.discover_teams || 'true' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- No-match processed: **${{ steps.discover.outputs.discovery_total || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Teams created: **${{ steps.discover.outputs.discovery_created || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Games backfilled: **${{ steps.discover.outputs.discovery_backfilled || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Skipped (metadata): **${{ steps.discover.outputs.discovery_skipped || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Errors: **${{ steps.discover.outputs.discovery_errors || '0' }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Discover teams enabled: **$DISCOVER_TEAMS**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- No-match processed: **$DISCOVERY_TOTAL**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Teams created: **$DISCOVERY_CREATED**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Games backfilled: **$DISCOVERY_BACKFILLED**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Skipped (metadata): **$DISCOVERY_SKIPPED**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Errors: **$DISCOVERY_ERRORS**" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Execution runs for all approved rows, even if some need review." >> "$GITHUB_STEP_SUMMARY"

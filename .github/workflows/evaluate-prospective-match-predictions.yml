@@ -54,6 +54,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           OUTPUT_DIR="$RUNNER_TEMP/prospective_evaluation"
@@ -65,8 +66,8 @@ jobs:
             --summary-path "$SUMMARY_PATH"
           )
 
-          if [ -n "${{ github.event.inputs.limit }}" ]; then
-            CMD+=(--limit "${{ github.event.inputs.limit }}")
+          if [ -n "$LIMIT_INPUT" ]; then
+            CMD+=(--limit "$LIMIT_INPUT")
           fi
 
           printf 'Running command:\n'

@@ -45,9 +45,10 @@ jobs:
         if: ${{ github.event_name == 'schedule' }}
         env:
           TZ: America/Los_Angeles
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
-          CRON="${{ github.event.schedule }}"
+          CRON="$EVENT_SCHEDULE"
           ZONE="$(date +%Z)"   # PDT or PST
           echo "Trigger cron: ${CRON}  |  Current TZ: ${ZONE}  |  Local: $(date)"
 
@@ -68,10 +69,11 @@ jobs:
         if: ${{ steps.guard.outputs.should_run != 'false' }}
         env:
           PYTHONPATH: ${{ github.workspace }}
+          DAYS_BACK_INPUT: ${{ github.event.inputs.days_back }}
         run: |
           set -euo pipefail
 
-          DAYS_BACK="${{ github.event.inputs.days_back || '7' }}"
+          DAYS_BACK="${DAYS_BACK_INPUT:-7}"
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
           OUT_DIR="data/raw/affinity_wa"
           MERGED="${OUT_DIR}/affinity_wa_all_ranked_ages_last${DAYS_BACK}d_${TIMESTAMP}.csv"
@@ -147,15 +149,19 @@ jobs:
 
       - name: Report results
         if: always()
+        env:
+          SHOULD_RUN: ${{ steps.guard.outputs.should_run }}
+          DAYS_BACK_INPUT: ${{ github.event.inputs.days_back }}
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
         run: |
           echo "===================="
-          if [ "${{ steps.guard.outputs.should_run }}" = "false" ]; then
+          if [ "$SHOULD_RUN" = "false" ]; then
             echo "Affinity WA Scraper SKIPPED (redundant DST cron)"
           else
             echo "Affinity WA Scraper completed"
           fi
           echo "===================="
-          echo "Days back: ${{ github.event.inputs.days_back || '7' }}"
-          echo "Dry run: ${{ github.event.inputs.dry_run || 'false' }}"
+          echo "Days back: ${DAYS_BACK_INPUT:-7}"
+          echo "Dry run: ${DRY_RUN_INPUT:-false}"
           echo "Output rows: ${ROW_COUNT:-unknown}"
           echo "Merged file: ${MERGED_FILE:-not-set}"

@@ -58,13 +58,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          EVALUATION_STATUS: ${{ github.event.inputs.evaluation_status }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           SUMMARY_PATH="$RUNNER_TEMP/prospective_settlement_summary.json"
 
           python scripts/settle_prospective_match_predictions.py \
-            --status "${{ github.event.inputs.evaluation_status }}" \
-            --limit "${{ github.event.inputs.limit }}" \
+            --status "$EVALUATION_STATUS" \
+            --limit "$LIMIT_INPUT" \
             --summary-path "$SUMMARY_PATH"
 
           echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"

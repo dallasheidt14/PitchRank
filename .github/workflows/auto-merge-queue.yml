@@ -64,19 +64,22 @@ jobs:
 
       - name: Run queue auto-merge
         id: merge
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
         run: |
           cd scripts
-          
+
           # Determine execution mode
           EXECUTE_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+          if [ "$DRY_RUN" != "true" ]; then
             EXECUTE_FLAG="--execute --yes"
           fi
-          
+
           # Set limit
-          LIMIT="${{ github.event.inputs.limit || '2000' }}"
-          
-          echo "🔍 Running queue auto-merge with limit=$LIMIT, dry_run=${{ github.event.inputs.dry_run || 'false' }}"
+          LIMIT="${LIMIT_INPUT:-2000}"
+
+          echo "🔍 Running queue auto-merge with limit=$LIMIT, dry_run=${DRY_RUN:-false}"
           
           # Run the script and capture output
           python3 find_queue_matches.py --limit "$LIMIT" $EXECUTE_FLAG 2>&1 | tee ../auto-merge-output.log
@@ -101,16 +104,27 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          EXACT_MATCHES: ${{ steps.merge.outputs.exact_matches }}
+          HIGH_MATCHES: ${{ steps.merge.outputs.high_matches }}
+          TEAMS_MERGED: ${{ steps.merge.outputs.teams_merged }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            MODE="Dry Run"
+          else
+            MODE="Live"
+          fi
           echo "## 🔗 Queue Auto-Merge Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Exact Matches (95%+) | ${{ steps.merge.outputs.exact_matches }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| High Confidence (90-94%) | ${{ steps.merge.outputs.high_matches }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Teams Merged | ${{ steps.merge.outputs.teams_merged }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Limit | ${{ github.event.inputs.limit || '2000' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'Dry Run' || 'Live' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Exact Matches (95%+) | $EXACT_MATCHES |" >> $GITHUB_STEP_SUMMARY
+          echo "| High Confidence (90-94%) | $HIGH_MATCHES |" >> $GITHUB_STEP_SUMMARY
+          echo "| Teams Merged | $TEAMS_MERGED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Limit | ${LIMIT_INPUT:-2000} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mode | $MODE |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Protection Notes" >> $GITHUB_STEP_SUMMARY
           echo "- Excludes AD/HD/MLS NEXT/EA teams (require manual review)" >> $GITHUB_STEP_SUMMARY

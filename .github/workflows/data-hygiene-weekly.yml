@@ -102,13 +102,15 @@ jobs:
       - name: 'Step 1: Normalize Team Names'
         id: step1
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',1,') }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 1: NORMALIZE TEAM NAMES"
           echo "═══════════════════════════════════════════════════"
 
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
 
@@ -121,13 +123,15 @@ jobs:
       - name: 'Step 1b: Backfill Team Distinction'
         id: step1b
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',1b,') }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 1b: BACKFILL TEAM DISTINCTION"
           echo "═══════════════════════════════════════════════════"
 
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
 
@@ -140,13 +144,15 @@ jobs:
       - name: 'Step 2: Fix Age Year Discrepancies'
         id: step2
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 2: FIX AGE YEAR DISCREPANCIES"
           echo "═══════════════════════════════════════════════════"
 
           AGE_FLAGS=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             AGE_FLAGS="--dry-run"
           fi
 
@@ -159,13 +165,16 @@ jobs:
       - name: 'Step 3: Fuzzy Duplicate Merge'
         id: step3
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          GENDER_RAW: ${{ github.event.inputs.gender }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 5: FUZZY DUPLICATE MERGE"
           echo "═══════════════════════════════════════════════════"
 
           # Determine which genders to run (scheduled runs default to male)
-          GENDER_INPUT="${{ github.event.inputs.gender || 'male' }}"
+          GENDER_INPUT="${GENDER_RAW:-male}"
           if [ "$GENDER_INPUT" == "both" ]; then
             GENDERS="male female"
           else
@@ -181,7 +190,7 @@ jobs:
               echo ""
               echo "── $AGE $GENDER ──"
 
-              if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+              if [ "$DRY_RUN" == "true" ]; then
                 python scripts/find_fuzzy_duplicate_teams.py \
                   --age-group "$AGE" --gender "$GENDER" --dry-run --min-score 0.90 \
                   2>&1 | tee -a logs/step3_fuzzy_merge.log
@@ -206,13 +215,15 @@ jobs:
       - name: 'Step 4: Match Review Queue'
         id: step4
         if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 4: MATCH REVIEW QUEUE"
           echo "═══════════════════════════════════════════════════"
 
           EXECUTE_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" != "true" ]; then
+          if [ "$DRY_RUN" != "true" ]; then
             EXECUTE_FLAG="--execute --yes"
           fi
 
@@ -236,21 +247,29 @@ jobs:
       # ── Summary ───────────────────────────────────────────
       - name: Pipeline Summary
         if: always()
+        env:
+          MODE: ${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}
+          GENDER_RAW: ${{ github.event.inputs.gender }}
+          STEP1_TEAMS_NORMALIZED: ${{ steps.step1.outputs.teams_normalized || 'skipped' }}
+          STEP1B_DISTINCTION_UPDATED: ${{ steps.step1b.outputs.distinction_updated || 'skipped' }}
+          STEP2_AGE_FIXED: ${{ steps.step2.outputs.age_fixed || 'skipped' }}
+          STEP3_FUZZY_SUGGESTED: ${{ steps.step3.outputs.fuzzy_suggested || 'skipped' }}
+          STEP3_FUZZY_MERGED: ${{ steps.step3.outputs.fuzzy_merged || '0' }}
+          STEP4_EXACT_MATCHES: ${{ steps.step4.outputs.exact_matches || 'skipped' }}
+          STEP4_QUEUE_MERGED: ${{ steps.step4.outputs.queue_merged || '0' }}
         run: |
-          MODE="${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}"
-
           echo "## 🧹 Weekly Data Hygiene Pipeline" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          GENDER="${{ github.event.inputs.gender || 'male' }}"
+          GENDER="${GENDER_RAW:-male}"
           echo "**Mode:** $MODE | **Gender:** $GENDER" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | Normalize Team Names | ${{ steps.step1.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
-          echo "| 1b | Backfill Distinction | ${{ steps.step1b.outputs.distinction_updated || 'skipped' }} updated |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2 | Fix Age Year | ${{ steps.step2.outputs.age_fixed || 'skipped' }} fixed |" >> $GITHUB_STEP_SUMMARY
-          echo "| 3 | Fuzzy Duplicate Merge | ${{ steps.step3.outputs.fuzzy_suggested || 'skipped' }} suggested, ${{ steps.step3.outputs.fuzzy_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
-          echo "| 4 | Match Review Queue | ${{ steps.step4.outputs.exact_matches || 'skipped' }} exact, ${{ steps.step4.outputs.queue_merged || '0' }} merged |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Normalize Team Names | $STEP1_TEAMS_NORMALIZED normalized |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1b | Backfill Distinction | $STEP1B_DISTINCTION_UPDATED updated |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Fix Age Year | $STEP2_AGE_FIXED fixed |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | Fuzzy Duplicate Merge | $STEP3_FUZZY_SUGGESTED suggested, $STEP3_FUZZY_MERGED merged |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | Match Review Queue | $STEP4_EXACT_MATCHES exact, $STEP4_QUEUE_MERGED merged |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pipeline Order" >> $GITHUB_STEP_SUMMARY
           echo "1. Normalize → 1b. Distinction → 2. Fix age → 3. Fuzzy merge → 4. Queue" >> $GITHUB_STEP_SUMMARY

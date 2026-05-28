@@ -189,15 +189,21 @@ jobs:
 
       - name: Report results
         if: always()
+        env:
+          TRIGGER: ${{ github.event_name }}
+          PROCESSED_COUNT: ${{ steps.process.outputs.processed_count || '0' }}
+          FAILED_COUNT: ${{ steps.process.outputs.failed_count || '0' }}
+          TOTAL_GAMES: ${{ steps.process.outputs.total_games || '0' }}
+          SUMMARY: ${{ steps.process.outputs.summary }}
         run: |
           {
             echo "## PlayMetrics Scrape Summary"
             echo ""
-            echo "- **Trigger:** ${{ github.event_name }}"
-            echo "- **URLs processed:** ${{ steps.process.outputs.processed_count || '0' }}"
-            echo "- **URLs failed:** ${{ steps.process.outputs.failed_count || '0' }}"
-            echo "- **Total games imported:** ${{ steps.process.outputs.total_games || '0' }}"
+            echo "- **Trigger:** $TRIGGER"
+            echo "- **URLs processed:** $PROCESSED_COUNT"
+            echo "- **URLs failed:** $FAILED_COUNT"
+            echo "- **Total games imported:** $TOTAL_GAMES"
             echo ""
             echo "### Per-URL results"
-            printf '%b' "${{ steps.process.outputs.summary }}"
+            printf '%b' "$SUMMARY"
           } >> "$GITHUB_STEP_SUMMARY"

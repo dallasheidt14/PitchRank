@@ -108,27 +108,32 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          ARTIFACT_DIR_INPUT: ${{ steps.artifact.outputs.artifact_dir }}
+          SHADOW_STATUS: ${{ github.event.inputs.shadow_status }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          APPLY_CALIBRATION: ${{ github.event.inputs.apply_calibration }}
+          SHADOW_MODEL_VERSION: ${{ github.event.inputs.shadow_model_version }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
 
-          ARTIFACT_DIR="${{ steps.artifact.outputs.artifact_dir }}"
+          ARTIFACT_DIR="$ARTIFACT_DIR_INPUT"
           MODEL_ARTIFACT="$ARTIFACT_DIR/point_in_time_match_model.pkl"
           SUMMARY_PATH="$RUNNER_TEMP/match_prediction_shadow_summary.json"
 
           CMD=(
             python scripts/process_match_prediction_shadow.py
             --model-artifact "$MODEL_ARTIFACT"
-            --shadow-status "${{ github.event.inputs.shadow_status }}"
-            --limit "${{ github.event.inputs.limit }}"
+            --shadow-status "$SHADOW_STATUS"
+            --limit "$LIMIT_INPUT"
             --summary-path "$SUMMARY_PATH"
           )
 
-          if [ "${{ github.event.inputs.apply_calibration }}" = "true" ]; then
+          if [ "$APPLY_CALIBRATION" = "true" ]; then
             CMD+=(--calibration-artifact "$ARTIFACT_DIR/point_in_time_model_calibration.pkl")
           fi
 
-          if [ -n "${{ github.event.inputs.shadow_model_version }}" ]; then
-            CMD+=(--shadow-model-version "${{ github.event.inputs.shadow_model_version }}")
+          if [ -n "$SHADOW_MODEL_VERSION" ]; then
+            CMD+=(--shadow-model-version "$SHADOW_MODEL_VERSION")
           fi
 
           printf 'Running command:\n'
