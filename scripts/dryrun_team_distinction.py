@@ -29,7 +29,7 @@ load_dotenv("C:/PitchRank/.env")
 
 # Importable from the repo
 sys.path.insert(0, "C:/PitchRank")
-from src.utils.team_name_utils import extract_distinctions  # noqa: E402
+from src.utils.team_name_utils import extract_distinctions, resolve_distinction  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 _CLUB_NOISE = {
@@ -38,23 +38,8 @@ _CLUB_NOISE = {
     "the", "of", "and", "association",
 }
 
-# Programs that legitimately distinguish squads (Premier vs Select etc.)
-# Exclude league-equivalents — those are captured in the `league` column.
-_LEAGUE_EQUIVS = {
-    "ecnl", "ecnl-rl", "ecrl", "rl", "ga", "npl", "dpl", "dplo",
-    "scdsl", "nal", "mlsnext", "mls-next", "next", "ea", "ea2",
-    "pre-ecnl", "aspire",
-}
-_PROGRAM_DISTINCTIONS = {
-    "premier", "select", "elite", "classic", "competitive", "comp",
-    "recreational", "development", "showcase", "challenge",
-    "division", "reserve", "copa", "tal", "stxcl", "fdl", "sccl",
-}
-
-# NOTE: `_LEAGUE_EQUIVS` above belongs to the legacy local resolve_distinction
-# (removed in the next task); this `_LEAGUE_TOKENS` set is the diagnostic's own.
-# They intentionally differ (this one flags `mls`/`nl`, omits `aspire`). The
-# duplication goes away when the legacy resolver is deleted.
+# NOTE: `_LEAGUE_TOKENS` is the diagnostic's own token set used by
+# classify_distinction_problems to flag league-redundant distinctions.
 # League-equivalent tokens that are redundant with the `league` column.
 # Deliberately EXCLUDES "ad"/"hd" — those are load-bearing for Modular11
 # (MLS NEXT) display and must never be flagged. See the cleanup design spec.
@@ -130,105 +115,6 @@ def classify_distinction_problems(distinction: Optional[str], club_name: Optiona
     return problems
 
 
-def resolve_distinction(name: str, club_name: Optional[str] = None) -> Optional[str]:
-    """Composite distinction: ordered concat of every distinguisher.
-
-    Order (deterministic): coach | number | colors(sorted) | directions(sorted) | squad_words(sorted, club-stripped)
-    Joined with '|'. NULL when no distinguishers remain.
-
-    Club-token strip: any squad_word that matches a token of the team's own
-    club_name is dropped (the club extractor sometimes leaves the club bleeding
-    into team_name; we don't want that fragment counted as a distinction).
-    """
-    if not name:
-        return None
-    d = extract_distinctions(name)
-    parts: list[str] = []
-
-    if d.get("coach_name"):
-        parts.append(d["coach_name"].lower())
-
-    if d.get("team_number"):
-        parts.append(str(d["team_number"]).lower())
-
-    colors = sorted(d.get("colors") or [])
-    parts.extend(c.lower() for c in colors)
-
-    directions = sorted(d.get("directions") or [])
-    parts.extend(dr.lower() for dr in directions)
-
-    club_toks = _club_tokens(club_name)
-    squad_words = sorted(d.get("squad_words") or [])
-    for sw in squad_words:
-        sw_l = sw.lower()
-        if sw_l in club_toks:
-            continue  # club leakage — drop
-        parts.append(sw_l)
-
-    # Programs that distinguish squads (Premier / Select / Elite / Classic / Copa / SCCL / ...)
-    # Skip league-equivalents (those live in the `league` column).
-    programs = sorted(p.lower() for p in (d.get("programs") or []))
-    for p in programs:
-        if p in _LEAGUE_EQUIVS:
-            continue
-        if p in _PROGRAM_DISTINCTIONS:
-            parts.append(p)
-
-    # Recover length-3 alpha tokens that extract_distinctions misclassifies as
-    # location_codes (Pass 4 dumps anything 2-3 chars there). Pull from the
-    # original name; only keep tokens not already accounted for, not in the
-    # *real* LOCATION_CODES set, not US states, not noise, not league markers.
-    import re as _re
-
-    from src.utils.team_name_utils import (
-        DIRECTION_CANONICAL,
-        LOCATION_CODES,
-        NOISE_WORDS,
-        PROGRAM_WORDS,
-        TEAM_COLORS,
-        US_STATES,
-    )
-    raw_toks = _re.split(r"[\s\-_./]+", (name or "").lower())
-    raw_toks = [t.strip("()[]'*.,") for t in raw_toks if t.strip("()[]'*.,")]
-    seen_so_far = set(parts)
-    for tok in raw_toks:
-        # Length 2 OR 3, alpha-only — extract_distinctions dumps these in
-        # location_codes (Pass 4) but most are real distinguishers (coach
-        # initials like 'KH', 'CV', 'NT'; or short squad words like 'Ace').
-        if len(tok) not in (2, 3) or not tok.isalpha():
-            continue
-        if tok in club_toks:
-            continue
-        if (
-            tok in LOCATION_CODES
-            or tok in US_STATES
-            or tok in NOISE_WORDS
-            or tok in TEAM_COLORS
-            or tok in DIRECTION_CANONICAL
-            or tok in PROGRAM_WORDS
-            or tok in _LEAGUE_EQUIVS
-        ):
-            continue
-        if tok in seen_so_far:
-            continue
-        if tok in {"the", "and", "for"}:
-            continue
-        parts.append(tok)
-        seen_so_far.add(tok)
-
-    if not parts:
-        return None
-
-    # Dedup while preserving order
-    seen = set()
-    out = []
-    for p in parts:
-        if p not in seen:
-            seen.add(p)
-            out.append(p)
-    return "|".join(out)
-
-
 def main():
     url = os.getenv("SUPABASE_URL")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
@@ -264,12 +150,14 @@ def main():
     by_source = collections.Counter()
     samples_resolved = []
     samples_null = []
+    problem_buckets = collections.Counter()
+    problem_samples = collections.defaultdict(list)
 
     for t in teams:
         name = t.get("team_name") or ""
         club = t.get("club_name") or ""
         d = extract_distinctions(name)
-        dist = resolve_distinction(name, club)
+        dist = resolve_distinction(name, club, t.get("state_code"))
 
         # Track which categories contributed (composite — count all that fired)
         contributed = False
@@ -304,6 +192,10 @@ def main():
                 samples_null.append((t.get("club_name"), name))
 
         t["_distinction"] = dist
+        for bucket in classify_distinction_problems(dist, club):
+            problem_buckets[bucket] += 1
+            if len(problem_samples[bucket]) < 10 and not t.get("is_deprecated"):
+                problem_samples[bucket].append((club, name, dist))
 
     # 2. Coverage
     print("\n=== COVERAGE ===")
@@ -354,6 +246,16 @@ def main():
     random.seed(42)
     for club, name, dist in random.sample(samples_resolved, min(15, len(samples_resolved))):
         print(f"  club={club!r:35.35} name={name!r:55.55} → distinction={dist!r}")
+
+    print("\n=== PROBLEM BUCKETS (resolved distinctions only) ===")
+    print(f"  {'bucket':16} {'count':>8}  {'% of resolved':>14}")
+    for bucket, n in problem_buckets.most_common():
+        pct = (100 * n / resolved) if resolved else 0.0
+        print(f"  {bucket:16} {n:>8,}  {pct:>13.1f}%")
+    for bucket, _ in problem_buckets.most_common():
+        print(f"\n--- sample: {bucket} ---")
+        for club, name, dist in problem_samples[bucket][:10]:
+            print(f"  club={club!r:30.30} name={name!r:45.45} dist={dist!r}")
 
     # 6. Show NULL samples — sanity check NULL is right (or whether we're missing distinguishers)
     print("\n=== NULL SAMPLES (random 15 of 25) ===")
