@@ -13,7 +13,7 @@ From the repo root:
 
 ```bash
 mkdir -p .turbo
-python C:/PitchRank/.claude/skills/review-workflows/scripts/audit_workflows.py \
+python .claude/skills/review-workflows/scripts/audit_workflows.py \
     --repo-root . \
     --fail-on never \
     --format markdown \
