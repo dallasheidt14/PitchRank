@@ -51,6 +51,10 @@ _PROGRAM_DISTINCTIONS = {
     "division", "reserve", "copa", "tal", "stxcl", "fdl", "sccl",
 }
 
+# NOTE: `_LEAGUE_EQUIVS` above belongs to the legacy local resolve_distinction
+# (removed in the next task); this `_LEAGUE_TOKENS` set is the diagnostic's own.
+# They intentionally differ (this one flags `mls`/`nl`, omits `aspire`). The
+# duplication goes away when the legacy resolver is deleted.
 # League-equivalent tokens that are redundant with the `league` column.
 # Deliberately EXCLUDES "ad"/"hd" — those are load-bearing for Modular11
 # (MLS NEXT) display and must never be flagged. See the cleanup design spec.
@@ -80,7 +84,7 @@ def _club_tokens(club_name: Optional[str]) -> set:
     return out
 
 
-def _club_acronym(club_name):
+def _club_acronym(club_name: Optional[str]) -> str:
     """First-letter acronym of all words in the club name (>=3 words required).
 
     'California Odyssey Soccer Club' -> 'cosc'. Returns '' when the club has
@@ -100,7 +104,7 @@ def _club_acronym(club_name):
     return "".join(t[0] for t in words)
 
 
-def classify_distinction_problems(distinction, club_name):
+def classify_distinction_problems(distinction: Optional[str], club_name: Optional[str]) -> set:
     """Return the set of problem buckets a resolved distinction falls into.
 
     Buckets: 'unknown', 'league_token', 'club_acronym', 'multi_token',
