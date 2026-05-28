@@ -51,6 +51,15 @@ _PROGRAM_DISTINCTIONS = {
     "division", "reserve", "copa", "tal", "stxcl", "fdl", "sccl",
 }
 
+# League-equivalent tokens that are redundant with the `league` column.
+# Deliberately EXCLUDES "ad"/"hd" — those are load-bearing for Modular11
+# (MLS NEXT) display and must never be flagged. See the cleanup design spec.
+_LEAGUE_TOKENS = {
+    "ecnl", "ecnl-rl", "ecrl", "rl", "ga", "npl", "dpl", "dplo",
+    "scdsl", "nal", "mlsnext", "mls-next", "next", "ea", "ea2",
+    "pre-ecnl", "mls", "nl",
+}
+
 
 def _club_tokens(club_name: Optional[str]) -> set:
     """Lowercase tokens of the club name, minus generic noise.
@@ -69,6 +78,52 @@ def _club_tokens(club_name: Optional[str]) -> set:
             continue
         out.add(t)
     return out
+
+
+def _club_acronym(club_name):
+    """First-letter acronym of all words in the club name (>=3 words required).
+
+    'California Odyssey Soccer Club' -> 'cosc'. Returns '' when the club has
+    fewer than 3 words (acronyms shorter than that are too collision-prone to
+    flag).
+    """
+    if not club_name:
+        return ""
+    import re as _re
+    raw_tokens = [
+        t.strip("()[]'*.,")
+        for t in _re.split(r"[\s\-_./]+", club_name.lower())
+    ]
+    words = [t for t in raw_tokens if t]
+    if len(words) < 3:
+        return ""
+    return "".join(t[0] for t in words)
+
+
+def classify_distinction_problems(distinction, club_name):
+    """Return the set of problem buckets a resolved distinction falls into.
+
+    Buckets: 'unknown', 'league_token', 'club_acronym', 'multi_token',
+    'single_char'. Empty set means the distinction looks clean. Pure function.
+    """
+    problems = set()
+    if not distinction:
+        return problems
+    tokens = [t for t in distinction.split("|") if t]
+    if len(tokens) >= 2:
+        problems.add("multi_token")
+    acronym = _club_acronym(club_name)
+    for t in tokens:
+        tl = t.lower()
+        if tl == "unknown":
+            problems.add("unknown")
+        if tl in _LEAGUE_TOKENS:
+            problems.add("league_token")
+        if len(tl) == 1:
+            problems.add("single_char")
+        if acronym and tl == acronym:
+            problems.add("club_acronym")
+    return problems
 
 
 def resolve_distinction(name: str, club_name: Optional[str] = None) -> Optional[str]:
