@@ -86,10 +86,12 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
+          # Hoist step output into env so it cannot inject shell metacharacters
+          # into the run block (see gha_inputs_shell_injection memory).
+          CSV_FILE: ${{ steps.find_csv.outputs.csv_file }}
         run: |
           set -euo pipefail
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          CSV_FILE="${{ steps.find_csv.outputs.csv_file }}"
           echo "Importing games from: $CSV_FILE"
           python scripts/import_games_enhanced.py "$CSV_FILE" playmetrics_tournament --stream --concurrency 8 --checkpoint \
             2>&1 | tee logs/playmetrics_tournament_import.log
@@ -115,17 +117,23 @@ jobs:
       - name: Report results
         if: always()
         env:
+          # Hoist inputs/outputs/context into env so they cannot inject shell
+          # metacharacters into the run block (see gha_inputs_shell_injection memory).
           TOURNAMENT_URL: ${{ inputs.tournament_url }}
+          EVENT_NAME: ${{ github.event_name }}
+          GAME_COUNT: ${{ steps.find_csv.outputs.game_count || '0' }}
+          HAS_GAMES: ${{ steps.find_csv.outputs.has_games }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           {
             echo "## PlayMetrics Tournament Scrape Summary"
             echo ""
             echo "- **Tournament URL:** $TOURNAMENT_URL"
-            echo "- **Trigger:** ${{ github.event_name }}"
-            echo "- **Games found:** ${{ steps.find_csv.outputs.game_count || '0' }}"
-            if [ "${{ steps.find_csv.outputs.has_games }}" == "false" ]; then
+            echo "- **Trigger:** $EVENT_NAME"
+            echo "- **Games found:** $GAME_COUNT"
+            if [ "$HAS_GAMES" == "false" ]; then
               echo "- **Import:** Skipped (no games to import)"
-            elif [ "${{ inputs.dry_run }}" == "false" ]; then
+            elif [ "$DRY_RUN" == "false" ]; then
               echo "- **Import:** Completed"
             else
               echo "- **Import:** Skipped (dry run)"

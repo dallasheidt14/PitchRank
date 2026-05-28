@@ -140,27 +140,34 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          MODEL_DIR: ${{ github.event.inputs.model_dir }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          TEST_SLICE_STATE: ${{ github.event.inputs.test_slice_state }}
+          TEST_SLICE_AGE_GROUP: ${{ github.event.inputs.test_slice_age_group }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+          TEST_RATIO: ${{ github.event.inputs.test_ratio }}
+          PROBABILITY_STRATEGY: ${{ github.event.inputs.probability_strategy }}
+          MIN_DRAW_RECALL: ${{ github.event.inputs.min_draw_recall }}
+          MAX_DRAW_RATE_GAP: ${{ github.event.inputs.max_draw_rate_gap }}
+          WINNER_ACCURACY_TOLERANCE: ${{ github.event.inputs.winner_accuracy_tolerance }}
+          LOG_LOSS_TOLERANCE: ${{ github.event.inputs.log_loss_tolerance }}
+          MIN_EXAMPLES: ${{ github.event.inputs.min_examples }}
+          SAVE_DATASET: ${{ github.event.inputs.save_dataset }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-
-          MODEL_DIR="${{ github.event.inputs.model_dir }}"
-          LIMIT_INPUT="${{ github.event.inputs.limit }}"
-          TEST_SLICE_STATE="${{ github.event.inputs.test_slice_state }}"
-          TEST_SLICE_AGE_GROUP="${{ github.event.inputs.test_slice_age_group }}"
 
           mkdir -p "$MODEL_DIR"
 
           CMD=(
             python scripts/train_point_in_time_match_model.py
-            --lookback-days "${{ github.event.inputs.lookback_days }}"
-            --test-ratio "${{ github.event.inputs.test_ratio }}"
-            --probability-strategy "${{ github.event.inputs.probability_strategy }}"
-            --min-draw-recall "${{ github.event.inputs.min_draw_recall }}"
-            --max-draw-rate-gap "${{ github.event.inputs.max_draw_rate_gap }}"
-            --winner-accuracy-tolerance "${{ github.event.inputs.winner_accuracy_tolerance }}"
-            --log-loss-tolerance "${{ github.event.inputs.log_loss_tolerance }}"
-            --min-examples "${{ github.event.inputs.min_examples }}"
-            --probability-strategy "${{ github.event.inputs.probability_strategy }}"
+            --lookback-days "$LOOKBACK_DAYS"
+            --test-ratio "$TEST_RATIO"
+            --probability-strategy "$PROBABILITY_STRATEGY"
+            --min-draw-recall "$MIN_DRAW_RECALL"
+            --max-draw-rate-gap "$MAX_DRAW_RATE_GAP"
+            --winner-accuracy-tolerance "$WINNER_ACCURACY_TOLERANCE"
+            --log-loss-tolerance "$LOG_LOSS_TOLERANCE"
+            --min-examples "$MIN_EXAMPLES"
             --model-dir "$MODEL_DIR"
           )
 
@@ -172,7 +179,7 @@ jobs:
             CMD+=(--test-slice "$TEST_SLICE_STATE" "$TEST_SLICE_AGE_GROUP")
           fi
 
-          if [ "${{ github.event.inputs.save_dataset }}" = "true" ]; then
+          if [ "$SAVE_DATASET" = "true" ]; then
             CMD+=(--save-dataset)
           fi
 
@@ -186,10 +193,12 @@ jobs:
         if: ${{ github.event.inputs.calibrate == 'true' }}
         env:
           PYTHONUNBUFFERED: "1"
+          MODEL_DIR: ${{ github.event.inputs.model_dir }}
+          CALIBRATION_METHOD: ${{ github.event.inputs.calibration_method }}
+          DRAW_CALIBRATION_METHOD: ${{ github.event.inputs.draw_calibration_method }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
 
-          MODEL_DIR="${{ github.event.inputs.model_dir }}"
           EVALUATION_CSV="$MODEL_DIR/point_in_time_model_evaluation.csv"
 
           if [ ! -f "$EVALUATION_CSV" ]; then
@@ -200,8 +209,8 @@ jobs:
           python scripts/calibrate_point_in_time_match_model.py \
             --evaluation-csv "$EVALUATION_CSV" \
             --output-dir "$MODEL_DIR" \
-            --method "${{ github.event.inputs.calibration_method }}" \
-            --draw-method "${{ github.event.inputs.draw_calibration_method }}" \
+            --method "$CALIBRATION_METHOD" \
+            --draw-method "$DRAW_CALIBRATION_METHOD" \
             --prefix "point_in_time_model_calibration"
 
       - name: Write run summary
@@ -278,10 +287,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          MODEL_DIR: ${{ github.event.inputs.model_dir }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          TEST_RATIO: ${{ github.event.inputs.test_ratio }}
+          MIN_EXAMPLES: ${{ github.event.inputs.min_examples }}
+          PROBABILITY_STRATEGY: ${{ github.event.inputs.probability_strategy }}
+          CALIBRATE: ${{ github.event.inputs.calibrate }}
+          CALIBRATION_METHOD: ${{ github.event.inputs.calibration_method }}
+          DRAW_CALIBRATION_METHOD: ${{ github.event.inputs.draw_calibration_method }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
 
-          MODEL_DIR="${{ github.event.inputs.model_dir }}"
           if [ ! -f "$MODEL_DIR/training_metrics.json" ]; then
             echo "training_metrics.json not found in $MODEL_DIR; skipping mission control record"
             exit 0
@@ -293,18 +310,18 @@ jobs:
             --workflow-run-attempt "${{ github.run_attempt }}"
             --git-sha "${{ github.sha }}"
             --model-dir "$MODEL_DIR"
-            --lookback-days "${{ github.event.inputs.lookback_days }}"
-            --limit "${{ github.event.inputs.limit }}"
-            --test-ratio "${{ github.event.inputs.test_ratio }}"
-            --min-examples "${{ github.event.inputs.min_examples }}"
-            --requested-probability-strategy "${{ github.event.inputs.probability_strategy }}"
+            --lookback-days "$LOOKBACK_DAYS"
+            --limit "$LIMIT_INPUT"
+            --test-ratio "$TEST_RATIO"
+            --min-examples "$MIN_EXAMPLES"
+            --requested-probability-strategy "$PROBABILITY_STRATEGY"
           )
 
-          if [ "${{ github.event.inputs.calibrate }}" = "true" ]; then
+          if [ "$CALIBRATE" = "true" ]; then
             CMD+=(
               --calibration-enabled
-              --calibration-method "${{ github.event.inputs.calibration_method }}"
-              --draw-calibration-method "${{ github.event.inputs.draw_calibration_method }}"
+              --calibration-method "$CALIBRATION_METHOD"
+              --draw-calibration-method "$DRAW_CALIBRATION_METHOD"
             )
           fi
 

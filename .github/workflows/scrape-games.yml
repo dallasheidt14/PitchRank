@@ -347,7 +347,9 @@ jobs:
           # ~25x more expensive). false → datacenter IPs ("standard" billing).
           # Only read by the scraper when ZENROWS_API_KEY is set.
           ZENROWS_PREMIUM_PROXY: ${{ inputs.zenrows_premium_proxy && 'true' || 'false' }}
-        run: ${{ steps.build-command.outputs.command }}
+          SCRAPE_COMMAND: ${{ steps.build-command.outputs.command }}
+        run: |
+          eval "$SCRAPE_COMMAND"
 
       - name: Upload scraped data
         if: always()
@@ -369,18 +371,24 @@ jobs:
 
       - name: Report results
         if: always()
+        env:
+          CHAIN_REMAINING:  ${{ inputs.chain_remaining }}
+          LIMIT_TEAMS:      ${{ inputs.limit_teams }}
+          NULL_TEAMS_ONLY:  ${{ inputs.null_teams_only }}
+          INCLUDE_RECENT:   ${{ inputs.include_recent }}
+          CONCURRENCY:      ${{ inputs.concurrency }}
         run: |
           echo "===================="
           echo "Scrape shard ${SCRAPE_SHARD_INDEX}/${SCRAPE_SHARD_COUNT} completed"
           echo "===================="
-          if [ -n "${{ inputs.chain_remaining }}" ] && [ "${{ inputs.chain_remaining }}" != "0" ]; then
-            echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain link, ${{ inputs.chain_remaining }} remaining)"
+          if [ -n "$CHAIN_REMAINING" ] && [ "$CHAIN_REMAINING" != "0" ]; then
+            echo "Teams limit: 5000 per shard × 5 shards = 25000 (chain link, $CHAIN_REMAINING remaining)"
           else
-            echo "Teams limit input: ${{ inputs.limit_teams || 'empty (incremental mode)' }}"
+            echo "Teams limit input: ${LIMIT_TEAMS:-empty (incremental mode)}"
           fi
-          echo "Null teams only: ${{ inputs.null_teams_only }}"
-          echo "Include recent (override 7-day filter): ${{ inputs.include_recent }}"
-          echo "Concurrency input: ${{ inputs.concurrency }}"
+          echo "Null teams only: $NULL_TEAMS_ONLY"
+          echo "Include recent (override 7-day filter): $INCLUDE_RECENT"
+          echo "Concurrency input: $CONCURRENCY"
           echo "Check artifacts for scraped data and logs"
 
   finalize:

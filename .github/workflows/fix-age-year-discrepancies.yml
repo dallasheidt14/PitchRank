@@ -86,13 +86,15 @@ jobs:
       - name: 'Step 1: Normalize Team Names'
         id: step1
         if: ${{ github.event.inputs.run_normalization_first != 'false' }}
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 1: NORMALIZE TEAM NAMES"
           echo "═══════════════════════════════════════════════════"
 
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
 
@@ -104,22 +106,25 @@ jobs:
       # ── Step 2: Fix Age Group Discrepancies ─────────────────
       - name: 'Step 2: Fix age group discrepancies'
         id: step2
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TEAM_NAME: ${{ github.event.inputs.team_name }}
         run: |
           echo "═══════════════════════════════════════════════════"
           echo "STEP 2: FIX AGE GROUP DISCREPANCIES"
           echo "═══════════════════════════════════════════════════"
 
           DRY_RUN_FLAG=""
-          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          if [ "$DRY_RUN" == "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
 
-          TEAM_NAME_ARG=""
-          if [ -n "${{ github.event.inputs.team_name }}" ]; then
-            TEAM_NAME_ARG="--team-name '${{ github.event.inputs.team_name }}'"
+          EXTRA_ARGS=()
+          if [ -n "$TEAM_NAME" ]; then
+            EXTRA_ARGS+=(--team-name "$TEAM_NAME")
           fi
 
-          python scripts/fix_team_age_groups.py $DRY_RUN_FLAG $TEAM_NAME_ARG 2>&1 | tee logs/step2_fix_age.log || {
+          python scripts/fix_team_age_groups.py $DRY_RUN_FLAG "${EXTRA_ARGS[@]}" 2>&1 | tee logs/step2_fix_age.log || {
             echo "❌ Age group fix script failed with exit code $?"
             exit 1
           }
@@ -139,8 +144,16 @@ jobs:
       # ── Summary ───────────────────────────────────────────
       - name: Pipeline Summary
         if: always()
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          TEAMS_NORMALIZED: ${{ steps.step1.outputs.teams_normalized }}
+          TEAMS_FIXED: ${{ steps.step2.outputs.teams_fixed }}
         run: |
-          MODE="${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}"
+          if [ "$DRY_RUN" == "true" ]; then
+            MODE="🔍 Dry Run"
+          else
+            MODE="⚡ Live"
+          fi
 
           echo "## 🔧 Fix Age Year Discrepancies" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -148,12 +161,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Step | Task | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 1 | Normalize Team Names | ${{ steps.step1.outputs.teams_normalized || 'skipped' }} normalized |" >> $GITHUB_STEP_SUMMARY
-          echo "| 2 | Fix Age Groups | ${{ steps.step2.outputs.teams_fixed || '0' }} fixed |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Normalize Team Names | ${TEAMS_NORMALIZED:-skipped} normalized |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Fix Age Groups | ${TEAMS_FIXED:-0} fixed |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Integration" >> $GITHUB_STEP_SUMMARY
           echo "Step 1 converts 14B→2014 so Step 2 can extract birth year from team names." >> $GITHUB_STEP_SUMMARY
-          if [ "${{ github.event.inputs.dry_run }}" != "true" ] && [ "${{ steps.step2.outputs.teams_fixed }}" != "0" ]; then
+          if [ "$DRY_RUN" != "true" ] && [ "$TEAMS_FIXED" != "0" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ **Recalculate rankings** for affected teams after merge." >> $GITHUB_STEP_SUMMARY
           fi

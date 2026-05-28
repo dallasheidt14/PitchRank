@@ -56,23 +56,28 @@ jobs:
           GOTSPORT_DELAY_MAX: '2.5'
           GOTSPORT_MAX_RETRIES: '3'
           GOTSPORT_TIMEOUT: '30'
+          EVENT_ID: ${{ inputs.event_id }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days }}
+          AUTO_IMPORT: ${{ inputs.auto_import }}
         run: |
           # Set Python path to include project root
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          
+
           # Build command with optional parameters
-          CMD="python scripts/scrape_specific_event.py ${{ inputs.event_id }} --force"
-          
-          if [ -n "${{ inputs.lookback_days }}" ]; then
-            CMD="$CMD --lookback-days ${{ inputs.lookback_days }}"
+          CMD=(python scripts/scrape_specific_event.py "$EVENT_ID" --force)
+
+          if [ -n "$LOOKBACK_DAYS" ]; then
+            CMD+=(--lookback-days "$LOOKBACK_DAYS")
           fi
-          
-          if [ "${{ inputs.auto_import }}" == "false" ]; then
-            CMD="$CMD --no-auto-import"
+
+          if [ "$AUTO_IMPORT" = "false" ]; then
+            CMD+=(--no-auto-import)
           fi
-          
-          echo "Running: $CMD"
-          $CMD || exit 1
+
+          printf 'Running:'
+          printf ' %q' "${CMD[@]}"
+          printf '\n'
+          "${CMD[@]}" || exit 1
       
       - name: Upload scraped data
         if: always()
@@ -96,8 +101,10 @@ jobs:
       
       - name: Report results
         if: always()
+        env:
+          EVENT_ID: ${{ inputs.event_id }}
         run: |
-          echo "Specific event scraper workflow completed for event ID: ${{ inputs.event_id }}"
+          echo "Specific event scraper workflow completed for event ID: $EVENT_ID"
           echo "Check the artifacts above for scraped data and logs."
 
 

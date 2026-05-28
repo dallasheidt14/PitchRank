@@ -179,39 +179,48 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          FIXTURE_FILE: ${{ steps.fixtures.outputs.fixture_file }}
+          FIXTURE_ARTIFACT_NAME: ${{ steps.fixtures.outputs.artifact_name }}
+          MODEL_ARTIFACT: ${{ steps.model.outputs.model_artifact }}
+          CALIBRATION_ARTIFACT: ${{ steps.model.outputs.calibration_artifact }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          OFFLINE_MODEL_VERSION: ${{ github.event.inputs.offline_model_version }}
+          FORCE_OFFLINE_REFRESH: ${{ github.event.inputs.force_offline_refresh }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           SUMMARY_PATH="$RUNNER_TEMP/prospective_prepare_summary.json"
 
           CMD=(
             python scripts/prepare_prospective_match_predictions.py
-            --fixtures-file "${{ steps.fixtures.outputs.fixture_file }}"
-            --source-artifact-path "${{ steps.fixtures.outputs.artifact_name }}"
-            --lookback-days "${{ github.event.inputs.lookback_days }}"
+            --fixtures-file "$FIXTURE_FILE"
+            --source-artifact-path "$FIXTURE_ARTIFACT_NAME"
+            --lookback-days "$LOOKBACK_DAYS"
             --summary-path "$SUMMARY_PATH"
           )
 
-          if [ -n "${{ github.event.inputs.limit }}" ]; then
-            CMD+=(--limit "${{ github.event.inputs.limit }}")
+          if [ -n "$LIMIT_INPUT" ]; then
+            CMD+=(--limit "$LIMIT_INPUT")
           fi
 
-          if [ -n "${{ steps.model.outputs.model_artifact }}" ]; then
-            CMD+=(--model-artifact "${{ steps.model.outputs.model_artifact }}")
+          if [ -n "$MODEL_ARTIFACT" ]; then
+            CMD+=(--model-artifact "$MODEL_ARTIFACT")
           fi
 
-          if [ -n "${{ steps.model.outputs.calibration_artifact }}" ]; then
-            CMD+=(--calibration-artifact "${{ steps.model.outputs.calibration_artifact }}")
+          if [ -n "$CALIBRATION_ARTIFACT" ]; then
+            CMD+=(--calibration-artifact "$CALIBRATION_ARTIFACT")
           fi
 
-          if [ -n "${{ github.event.inputs.offline_model_version }}" ]; then
-            CMD+=(--offline-model-version "${{ github.event.inputs.offline_model_version }}")
+          if [ -n "$OFFLINE_MODEL_VERSION" ]; then
+            CMD+=(--offline-model-version "$OFFLINE_MODEL_VERSION")
           fi
 
-          if [ "${{ github.event.inputs.force_offline_refresh }}" = "true" ]; then
+          if [ "$FORCE_OFFLINE_REFRESH" = "true" ]; then
             CMD+=(--force-offline-refresh)
           fi
 
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             CMD+=(--dry-run)
           fi
 

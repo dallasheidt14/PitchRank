@@ -59,18 +59,21 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HEURISTIC_STATUS: ${{ github.event.inputs.heuristic_status }}
+          LIMIT_INPUT: ${{ github.event.inputs.limit }}
+          HEURISTIC_MODEL_VERSION: ${{ github.event.inputs.heuristic_model_version }}
         run: |
           SUMMARY_PATH="$RUNNER_TEMP/prospective_heuristic_summary.json"
 
           CMD=(
             npm run process:prospective:heuristic --
-            --status "${{ github.event.inputs.heuristic_status }}"
-            --limit "${{ github.event.inputs.limit }}"
+            --status "$HEURISTIC_STATUS"
+            --limit "$LIMIT_INPUT"
             --summary-path "$SUMMARY_PATH"
           )
 
-          if [ -n "${{ github.event.inputs.heuristic_model_version }}" ]; then
-            CMD+=(--heuristic-model-version "${{ github.event.inputs.heuristic_model_version }}")
+          if [ -n "$HEURISTIC_MODEL_VERSION" ]; then
+            CMD+=(--heuristic-model-version "$HEURISTIC_MODEL_VERSION")
           fi
 
           printf 'Running command:\n'

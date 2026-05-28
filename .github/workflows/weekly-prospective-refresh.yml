@@ -180,6 +180,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          FIXTURE_FILE: ${{ steps.scrape.outputs.fixture_file }}
+          MODEL_ARTIFACT: ${{ steps.model.outputs.model_artifact }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           LOOKBACK_DAYS="${INPUT_LOOKBACK_DAYS:-365}"
@@ -187,10 +189,10 @@ jobs:
           SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_prepare_summary.json"
 
           python scripts/prepare_prospective_match_predictions.py \
-            --fixtures-file "${{ steps.scrape.outputs.fixture_file }}" \
+            --fixtures-file "$FIXTURE_FILE" \
             --source-artifact-path "weekly-prospective-refresh:${GITHUB_RUN_ID}" \
             --lookback-days "$LOOKBACK_DAYS" \
-            --model-artifact "${{ steps.model.outputs.model_artifact }}" \
+            --model-artifact "$MODEL_ARTIFACT" \
             --offline-model-version "$OFFLINE_MODEL_VERSION" \
             --summary-path "$SUMMARY_PATH"
 

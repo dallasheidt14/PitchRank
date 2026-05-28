@@ -87,7 +87,9 @@ jobs:
           PYTHONPATH:                ${{ github.workspace }}
           ZENROWS_API_KEY: ${{ inputs.use_zenrows && secrets.ZENROWS_API_KEY || '' }}
           ZENROWS_PREMIUM_PROXY: ${{ inputs.zenrows_premium_proxy && 'true' || 'false' }}
-        run: ${{ steps.build-command.outputs.command }}
+          DRAIN_COMMAND: ${{ steps.build-command.outputs.command }}
+        run: |
+          eval "$DRAIN_COMMAND"
 
       - name: Upload scraped data
         if: always()

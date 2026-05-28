@@ -123,12 +123,27 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+          CADENCE: ${{ github.event.inputs.cadence }}
+          WEEKDAY: ${{ github.event.inputs.weekday }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+          PROVIDER: ${{ github.event.inputs.provider }}
+          ENGINE: ${{ github.event.inputs.engine }}
+          DISABLE_ML: ${{ github.event.inputs.disable_ml }}
+          FORCE_REBUILD: ${{ github.event.inputs.force_rebuild }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          CHUNK_INDEX_INPUT: ${{ github.event.inputs.chunk_index }}
+          CHUNK_SIZE_INPUT: ${{ github.event.inputs.chunk_size }}
+          OVERWRITE_EXISTING: ${{ github.event.inputs.overwrite_existing }}
+          MAX_SNAPSHOTS: ${{ github.event.inputs.max_snapshots }}
+          STOP_ON_ERROR: ${{ github.event.inputs.stop_on_error }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
 
-          CHUNK_INDEX="${{ github.event.inputs.chunk_index }}"
-          CHUNK_SIZE="${{ github.event.inputs.chunk_size }}"
-          RUN_MAX_SNAPSHOTS="${{ github.event.inputs.max_snapshots }}"
+          CHUNK_INDEX="$CHUNK_INDEX_INPUT"
+          CHUNK_SIZE="$CHUNK_SIZE_INPUT"
+          RUN_MAX_SNAPSHOTS="$MAX_SNAPSHOTS"
           if [ -z "$RUN_MAX_SNAPSHOTS" ] && [ -n "$CHUNK_SIZE" ]; then
             RUN_MAX_SNAPSHOTS="$CHUNK_SIZE"
           fi
@@ -141,32 +156,32 @@ jobs:
 
           CMD=(
             python scripts/backfill_prediction_feature_history.py
-            --start-date "${{ github.event.inputs.start_date }}"
-            --end-date "${{ github.event.inputs.end_date }}"
-            --cadence "${{ github.event.inputs.cadence }}"
-            --weekday "${{ github.event.inputs.weekday }}"
-            --lookback-days "${{ github.event.inputs.lookback_days }}"
-            --engine "${{ github.event.inputs.engine }}"
+            --start-date "$START_DATE"
+            --end-date "$END_DATE"
+            --cadence "$CADENCE"
+            --weekday "$WEEKDAY"
+            --lookback-days "$LOOKBACK_DAYS"
+            --engine "$ENGINE"
             --skip-snapshots "$SKIP_SNAPSHOTS"
           )
 
-          if [ -n "${{ github.event.inputs.provider }}" ]; then
-            CMD+=(--provider "${{ github.event.inputs.provider }}")
+          if [ -n "$PROVIDER" ]; then
+            CMD+=(--provider "$PROVIDER")
           fi
 
-          if [ "${{ github.event.inputs.disable_ml }}" = "true" ]; then
+          if [ "$DISABLE_ML" = "true" ]; then
             CMD+=(--disable-ml)
           fi
 
-          if [ "${{ github.event.inputs.force_rebuild }}" = "true" ]; then
+          if [ "$FORCE_REBUILD" = "true" ]; then
             CMD+=(--force-rebuild)
           fi
 
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             CMD+=(--dry-run)
           fi
 
-          if [ "${{ github.event.inputs.overwrite_existing }}" = "true" ]; then
+          if [ "$OVERWRITE_EXISTING" = "true" ]; then
             CMD+=(--overwrite-existing)
           fi
 
@@ -174,7 +189,7 @@ jobs:
             CMD+=(--max-snapshots "$RUN_MAX_SNAPSHOTS")
           fi
 
-          if [ "${{ github.event.inputs.stop_on_error }}" = "true" ]; then
+          if [ "$STOP_ON_ERROR" = "true" ]; then
             CMD+=(--stop-on-error)
           fi
 

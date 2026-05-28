@@ -268,9 +268,11 @@ jobs:
         # Gate matches the Import Games step exactly: same has_games + skip_import
         # conditions, so the marker exists iff `import_games_enhanced.py` ran.
         if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' }}
+        env:
+          GAME_COUNT: ${{ steps.find_csv.outputs.game_count }}
         run: |
           mkdir -p import-marker
-          echo "shard=${TGS_SHARD_INDEX} games=${{ steps.find_csv.outputs.game_count }}" > "import-marker/shard-${TGS_SHARD_INDEX}.txt"
+          echo "shard=${TGS_SHARD_INDEX} games=${GAME_COUNT}" > "import-marker/shard-${TGS_SHARD_INDEX}.txt"
 
       - name: Upload import marker
         if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' }}
@@ -388,6 +390,7 @@ jobs:
       - name: Report results
         if: always()
         env:
+          EVENT_NAME:         ${{ github.event_name }}
           START_EVENT:        ${{ needs.prepare.outputs.start_event }}
           END_EVENT:          ${{ needs.prepare.outputs.end_event }}
           TOTAL_EVENTS:       ${{ needs.prepare.outputs.total_events }}
@@ -400,7 +403,7 @@ jobs:
           echo "===================="
           echo "TGS event scrape and import workflow completed"
           echo "===================="
-          echo "Trigger:           ${{ github.event_name }}"
+          echo "Trigger:           ${EVENT_NAME}"
           echo "Range:             ${START_EVENT} - ${END_EVENT} (${TOTAL_EVENTS} events)"
           echo "Shard count:       ${SHARD_COUNT}"
           echo "Shards result:     ${SHARDS_RESULT}"
