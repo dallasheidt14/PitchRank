@@ -27,6 +27,9 @@ from dotenv import load_dotenv
 load_dotenv("C:/PitchRank/.env.local")
 load_dotenv("C:/PitchRank/.env")
 
+import truststore
+truststore.inject_into_ssl()
+
 # Importable from the repo
 sys.path.insert(0, "C:/PitchRank")
 from src.utils.team_name_utils import extract_distinctions, resolve_distinction  # noqa: E402
