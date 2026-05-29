@@ -18,10 +18,10 @@ def test_drops_club_acronym_long():
     assert got is None
 
 
-def test_drops_stray_single_char():
-    # "c" left over from "F.C" is not a squad tag
-    got = resolve_distinction("MIDWEST GLADIATORS F.C", "MIDWEST GLADIATORS F.C", "TX")
-    assert got is None
+def test_preserves_team_letter():
+    # "A" after the age token is a real Team-A designator, not noise — keep it.
+    got = resolve_distinction("Washington Rush 2015 A", "Washington Rush", "WA")
+    assert got == "a"
 
 
 def test_drops_leftover_league_token():

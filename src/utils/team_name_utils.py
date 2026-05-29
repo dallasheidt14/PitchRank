@@ -985,8 +985,6 @@ def resolve_distinction(
         sw_l = sw.lower()
         if sw_l in club_toks:
             continue  # club or state leakage — drop
-        if len(sw_l) == 1:
-            continue  # stray single letter (e.g. "C" from "F.C") — not a squad tag
         if club_acronym and sw_l == club_acronym:
             continue  # club's own initials — identifies the club, not the squad
         parts.append(sw_l)
