@@ -1,0 +1,337 @@
+Scanned 170,134 teams
+
+=== COVERAGE ===
+  resolved : 146,890  (86.3%)
+  null     : 23,244  (13.7%)
+
+=== SOURCE WINNER ===
+  squad_word    95,753  (56.3%)
+  color         49,702  (29.2%)
+  coach         40,740  (23.9%)
+  NULL          31,383  (18.4%)
+  direction     12,840  (7.5%)
+  number         6,722  (4.0%)
+
+=== UNIQUENESS CHECK ===
+Live teams: 159,833
+Unique keys: 140,417
+Collision keys (>=2 teams sharing identity): 3,623
+Collision team count: 7,488
+
+--- Sample collisions (first 15) ---
+
+KEY: club='ole fc'  age=u15  league='NL'  gender=Female  state=CT  distinction='cfc'
+  - id=ca46f76b team_name='CFC Ole 2011 NAL'  orig='CFC Ole G2011 NAL'
+  - id=112283cc team_name='CFC Ole 2011 Academy NL'  orig='CFC Ole G2011 Academy NL'
+
+KEY: club='lakewood soccer club'  age=u13  league=''  gender=Male  state=MI  distinction=''
+  - id=155ec0fc team_name='Lakewood 2013/14B'  orig=None
+  - id=098ba46e team_name='Lakewood 2013 B'  orig=None
+
+KEY: club='hoosier futbol club'  age=u19  league=''  gender=Male  state=IN  distinction='ii|wolves|elite'
+  - id=74601f63 team_name='Hoosier Futbol Club - Hoosier FC 2007/08B Elite Wolves II'  orig=None
+  - id=9eb384b9 team_name='Hoosier FC 2008 Elite Wolves II'  orig='Hoosier FC 2008B Elite Wolves II'
+
+KEY: club='valley united sc'  age=u12  league=''  gender=Male  state=CA  distinction='armas'
+  - id=c0660c27 team_name='2014 Armas'  orig='B2014 Armas'
+  - id=c7bc4e0c team_name='Armas'  orig=None
+
+KEY: club='la surf soccer club'  age=u8  league=''  gender=Male  state=CA  distinction='socal|lc'
+  - id=132b81aa team_name='LC 2018 - SOCAL'  orig='LC B2018 - SOCAL'
+  - id=107b6e3c team_name='LC U9 - SOCAL'  orig='LC BU9 - SOCAL'
+
+KEY: club='laingsburg soccer club'  age=u11  league=''  gender=Male  state=MI  distinction=''
+  - id=c84e351e team_name='Laingsburg Soccer Club - Laingsburg U11'  orig='Laingsburg Soccer Club - Laingsburg u11 Boys'
+  - id=ad304aab team_name='Laingsburg U10'  orig='Laingsburg u10 boys'
+
+KEY: club='socal elite fc'  age=u11  league=''  gender=Male  state=CA  distinction='gold'
+  - id=0146d961 team_name='2015 Gold'  orig='B15 Gold'
+  - id=448efce3 team_name='U8 Gold'  orig='BU8 Gold'
+
+KEY: club='lonestar'  age=u17  league='ECNL_RL'  gender=Female  state=TX  distinction='south|stxcl'
+  - id=32146304 team_name='ECNL RL STXCL 2009 STH'  orig='ECNL RL STXCL G09 STH'
+  - id=9d372839 team_name='Lonestar SC STH ECNL RL STXCL 2009'  orig='Lonestar SC STH ECNL RL STXCL G09'
+
+KEY: club='oklahoma energy fc'  age=u19  league='ECNL'  gender=Male  state=OK  distinction=''
+  - id=8c8dbe22 team_name='OK Energy FC 2007 ECNL'  orig='OK Energy FC 08/07B ECNL'
+  - id=799be661 team_name='OK Energy FC ECNL B07/06'  orig=None
+
+KEY: club='st. louis scott gallagher'  age=u12  league=''  gender=Female  state=IL  distinction='black|elite'
+  - id=6952c139 team_name='SLSG IL G 2014 Elite Black'  orig=None
+  - id=3c39fdb4 team_name='SLSG - SLSG IL G 2014 Elite Black'  orig=None
+
+KEY: club='real colorado'  age=u19  league=''  gender=Male  state=CO  distinction='olympico'
+  - id=21c0172c team_name='2008 Olympico'  orig='2008 Boys Olympico'
+  - id=2f7185e2 team_name='Real Colorado - 2006/2007 Olympico'  orig='Real Colorado - 2006/2007 Boys Olympico'
+  - id=6bd0a66f team_name='2007/2008 Olympico'  orig='2007/2008 Boys Olympico'
+
+KEY: club='washington east surf'  age=u9  league=''  gender=Male  state=WA  distinction='royal|elite'
+  - id=888a64e8 team_name='2017 Elite ROYAL'  orig='B17 ELITE ROYAL'
+  - id=403d3f73 team_name='2017 Elite Royal'  orig='B17 Elite Royal'
+
+KEY: club='mechanicville-stillwater'  age=u15  league=''  gender=Female  state=NY  distinction='msusc'
+  - id=60a4638d team_name='MSUSC U14'  orig='MSUSC U14G'
+  - id=5d5e1846 team_name='MSUSC U12'  orig='MSUSC Girls U12'
+
+KEY: club='christiansburg sc'  age=u12  league=''  gender=Male  state=VA  distinction='csc'
+  - id=8991a6c8 team_name='CSC 2014/2015/2016'  orig='CSC 2014/2015/2016 Boys'
+  - id=1c615465 team_name='Christiansburg SC - CSC 2014'  orig='Christiansburg SC - CSC 2014 Boys'
+
+KEY: club='ovid-elsie'  age=u10  league=''  gender=Male  state=MI  distinction='oe'
+  - id=687abfaa team_name='OE U10'  orig='OE u10 Boys'
+  - id=fd4de662 team_name='OE U9'  orig='OE U9 Boys'
+
+=== RESOLVED SAMPLES (random 15 of 25) ===
+  club='Tournament Team'                   name='Tournament Team - Skyline FC 2015'                     → distinction='skyline'
+  club='Classics Elite SA'                 name='CE 2008 USC TX RL'                                     → distinction='usc|ce'
+  club='Virginia Soccer Assocation'        name='VSA 2014 Premier Red'                                  → distinction='red|premier'
+  club='Central Washington Sounders'       name='CWS 2009 ECNL RL Cuevas'                               → distinction='cuevas'
+  club='Lake Jackson SC'                   name='United'                                                → distinction='united'
+  club='Salvo SC'                          name='Salvo SC - Salvo SC 2013 Navy'                         → distinction='navy'
+  club='Ccv Stars'                         name='CCV Stars 2011 East Navy'                              → distinction='navy|east'
+  club='Wichita Regional Soccer Associatio name='FC VICTORIA 2013'                                      → distinction='victoria'
+  club='Ntx United FC'                     name='NTX United FC 2016 Fannin'                             → distinction='fannin'
+  club='Beach FC'                          name='Beach FC 2015 Pre-NPL Current'                         → distinction='current|pre'
+  club='Boilers FC'                        name='Boilers FC 2013 Black'                                 → distinction='black'
+  club='Houston Surf Soccer Club'          name='2015 Blue'                                             → distinction='blue'
+  club='Yardley Makefield Soccer'          name='Yardley Makefield Soccer 2014 Milan'                   → distinction='milan'
+  club='Cottage Grove United SC'           name='Cottage Grove United SC - 2014 State'                  → distinction='state'
+  club='Greater Randolph Area YSA'         name='Greater Randolph Area YSA - ROADRUNNERS PETERSON'      → distinction='peterson|roadrunners'
+
+=== PROBLEM BUCKETS (resolved distinctions only) ===
+  bucket              count   % of resolved
+  multi_token        72,280           49.2%
+  unknown             8,475            5.8%
+  single_char         7,435            5.1%
+  club_acronym          459            0.3%
+  league_token          310            0.2%
+
+--- sample: multi_token ---
+  club='Virginia Soccer Assocation'   name='VSA 2014 Premier Red'                        dist='red|premier'
+  club='Classics Elite SA'            name='CE 2008 USC TX RL'                           dist='usc|ce'
+  club='Ccv Stars'                    name='CCV Stars 2011 East Navy'                    dist='navy|east'
+  club='Tennessee United SC'          name='TUSC 2010 DPLO'                              dist='dplo|tusc'
+  club='Greater Randolph Area YSA'    name='Greater Randolph Area YSA - ROADRUNNERS PETE dist='peterson|roadrunners'
+  club='Beach FC'                     name='Beach FC 2015 Pre-NPL Current'               dist='current|pre'
+  club='United Soccer Club'           name='AFCHSV 2015 SCCL'                            dist='sccl|afchsv'
+  club='West Side Alliance SC'        name='West Side Alliance SC - WSA 2015 Black Xande dist='black|west|xander|wsa'
+  club='AC Delray, Inc.'              name='AC Delray, Inc. - 2014 Elite'                dist='delray,|elite'
+  club='Arizona Soccer Club'          name='AZSC 2014 Pre-NL Premier 2'                  dist='2|azsc|premier|pre'
+
+--- sample: unknown ---
+  club=''                             name='unknown_3594392'                             dist='unknown'
+  club=''                             name='unknown_3838670'                             dist='unknown'
+  club=''                             name='unknown_3639511'                             dist='unknown'
+  club=''                             name='unknown_3926123'                             dist='unknown'
+  club=''                             name='unknown_3960794'                             dist='unknown'
+  club=''                             name='unknown_3902642'                             dist='unknown'
+  club=''                             name='unknown_3660178'                             dist='unknown'
+  club=''                             name='unknown_3943225'                             dist='unknown'
+  club=''                             name='unknown_3718962'                             dist='unknown'
+  club=''                             name='unknown_3686555'                             dist='unknown'
+
+--- sample: single_char ---
+  club='MIDWEST GLADIATORS F.C'       name='MIDWEST GLADIATORS F.C'                      dist='c'
+  club='Arizona Soccer Club'          name='AZSC 2014 Pre-NL Premier 2'                  dist='2|azsc|premier|pre'
+  club='Alabama FC'                   name='Alabama FC 2010 SCCL 1'                      dist='sccl|1'
+  club='Frisco Soccer Association'    name='FSA Frisco Fire 2015BR A Queen'              dist='queen|2015br|a|fire'
+  club='Beach Futbol Club'            name='Beach Futbol Club - U11 ES A. Lopez'         dist='lopez|a|es'
+  club='Delaware County Futbol Club'  name='Delaware County FC 2013 2'                   dist='2'
+  club='WW Surf'                      name='Western Washington Surf - 2016 Puyallup A'   dist='puyallup|a|western'
+  club='Worthington United'           name='Worthington United U94 2015 Navy 1'          dist='1|navy|u94'
+  club='Minnesota Rush'               name='2014 EDT 2'                                  dist='edt|2'
+  club='Orlando City Youth Soccer'    name='OPSS-Seminole 2014 PRE ECNL - C'             dist='c|opss|seminole|pre'
+
+--- sample: club_acronym ---
+  club='Wesley Chapel Weddington Athl name='2014 U12 WCWAA Premier G'                    dist='wcwaa|premier'
+  club='Auburn Soccer Club'           name='Auburn Soccer Club - 2016 ASC Wolverines'    dist='asc|wolverines'
+  club='St. Petersburg Football Club' name='St Petersburg FC 2011 SPFC'                  dist='spfc'
+  club='St. Anthony Village Soccer Cl name='2010 SAVSC'                                  dist='savsc'
+  club='Sierra Gold Soccer Club'      name='2025 SGSC Gladiators'                        dist='sgsc|gladiators'
+  club='Southern Soccer Academy'      name='Southern Soccer Academy - 2025 SSA Marietta  dist='ssa|leon|lions|marietta|mudcreek'
+  club='Charlotte Soccer Academy'     name='2013 CSA Huntersville King G'                dist='csa|huntersville|king'
+  club='Charlotte Soccer Academy'     name='2015 CSA HV Roma Elite'                      dist='csa|roma|elite|hv'
+  club='Charlotte Soccer Academy'     name='2013 13U CSA Charlotte King G'               dist='csa|king'
+  club='Sierra Gold Soccer Club'      name='2025 SGSC Strikers'                          dist='sgsc|strikers'
+
+--- sample: league_token ---
+  club='Tennessee United SC'          name='TUSC 2010 DPLO'                              dist='dplo|tusc'
+  club='RSL Arizona South'            name='2013 Sanchez Royals DPLO'                    dist='sanchez|dplo|royals'
+  club='Albion SC Atlanta'            name='ALBION SC Atlanta G06/07 DPLO'               dist='dplo'
+  club='Real Salt Lake-AZ (RSL-AZ)'   name='RSL-AZ North 2012 Tomasevic Royals DPLO'     dist='north|dplo|royals|tomasevic'
+  club='AFC Lightning'                name='AFC Lightning Middle GA 2009 DPLO'           dist='dplo|middle'
+  club=''                             name='FC Premier VALENCIA 2012 EA2'                dist='ea2|valencia|premier'
+  club='Phoenix Rising FC North Valle name='PRFC North Valley 2009 DPLO'                 dist='north|dplo|prfc'
+  club='Central Cal Aztecs'           name='Central Cal Aztecs 2013 EA2'                 dist='central|ea2'
+  club='Pima County Surf Soccer Club' name='Pima 2013 G DPLO'                            dist='dplo'
+  club='Albion SC Central Valley'     name='Albion SC CV 2012 DPLO'                      dist='dplo|cv'
+
+=== NULL SAMPLES (random 15 of 25) ===
+  club='HS ELEV8'                          name='HS ELEV8 - ELEV8 2015'
+  club='Delaware Football Club'            name='Delaware FC ECNL RL 2012'
+  club='Mount Pleasant Soccer Club'        name='MPSC 2007'
+  club='Mount Pleasant Soccer Club'        name='MPSC 2016'
+  club='San Diego Surf Soccer Club'        name='ECNL 2013'
+  club='Cleveland Football Academy'        name='Cleveland Football Academy 2012'
+  club='Oxford United FC(OH)'              name='Oxford United FC(OH - Oxford United 2016'
+  club='San Diego Surf Soccer Club'        name='ECNL 2012'
+  club='Laingsburg Soccer Club'            name='Laingsburg Soccer Club - Laingsburg U11'
+  club='City SC Southwest'                 name='City SC Southwest 2018'
+  club='Spartak Academy'                   name='Spartak Academy 2014'
+  club='ODA'                               name='ODA - 2009'
+  club='Sporting Wichita'                  name='SPORTING WICHITA 2013 DPL Academy'
+  club='FC Copa Academy'                   name='ECNL RL 2011'
+  club='Oklahoma Energy FC'                name='OK Energy FC 2007 ECNL'
+
+=== COLLISION ANALYSIS ===
+  Collisions where all teams share team_name (likely already-known dupes): 119
+  Collisions where team_names differ (priority rule may be lossy): 3504
+  Collisions where distinction is NULL for the whole group (Bucket 4): 1268
+  → Bucket 4 CSV written: C:/PitchRank/logs/distinction_bucket4_likely_merges.csv  (2,661 teams across 1,268 groups)
+
+--- Bucket 4 (top 25 groups by size) ---
+
+[12] club='next 11 academy'  age=u15  league=''  gender=Male  state=IN
+    id=8291f04b  team_name='Next 2011 Academy U11'  orig='Next 11 Academy U11 Boys'
+    id=2726c3f6  team_name='Next 2011 Academy - Next 11 Academy 15U'  orig='Next 11 Academy - Next 11 Academy 15U'
+    id=a49ace6c  team_name='Next 2011 Academy - Next 11 Academy 11U'  orig='Next 11 Academy - Next 11 Academy 11U'
+    id=a5c5cb33  team_name='Next 2011 Academy - Next 11 Academy 9U'  orig='Next 11 Academy - Next 11 Academy 9U'
+    id=c53328f7  team_name='Next 2011 Academy - Next 11 Academy 10U'  orig='Next 11 Academy - Next 11 Academy 10U'
+    id=edb5ff0e  team_name='Next 2011 Academy 14U'  orig='Next 11 Academy 14U'
+    … +6 more
+
+[5] club='charlotte soccer academy'  age=u19  league='ECNL'  gender=Male  state=NC
+    id=418bd018  team_name='Charlotte SA Academy ECNL B07/06'  orig=None
+    id=01005d1c  team_name='Charlotte SA ECNL 2008'  orig='Charlotte SA ECNL B08'
+    id=20c5eb32  team_name='Charlotte Soccer Academy - Charlotte SA ECNL B08/07'  orig=None
+    id=5e8fa5a4  team_name='Charlotte SA ECNL B07/06'  orig=None
+    id=50787da5  team_name='Charlotte SA Academy ECNL 2008'  orig='Charlotte SA Academy ECNL B08'
+
+[5] club='total futbol academy'  age=u10  league=''  gender=Male  state=CA
+    id=49084e61  team_name='Total Futbol Academy - TFA-AV 2016'  orig='Total Futbol Academy - TFA-AV B2016'
+    id=ecdee1aa  team_name='Total Futbol Academy - TFA-IE 2016'  orig='Total Futbol Academy - TFA-IE B2016'
+    id=bd9b1b80  team_name='TFA-OC 2016'  orig='TFA-OC B2016'
+    id=87a9291b  team_name='TFA-IE 2016'  orig='TFA-IE B2016'
+    id=ec209f40  team_name='TFA-AV U9'  orig='TFA-AV BU9'
+
+[4] club='pateadores soccer club'  age=u19  league='ECNL_RL'  gender=Male  state=CA
+    id=ec282a32  team_name='Pateadores ECNL RL 2008'  orig='Pateadores ECNL RL B08'
+    id=0620d025  team_name='Pateadores ECNL RL B06/07'  orig=None
+    id=ff832b49  team_name='ECNL RL 2008 NB'  orig='ECNL RL B08 NB'
+    id=b9e97b33  team_name='Pateadores ECNL RL B07/06 NB'  orig=None
+
+[4] club='total futbol academy'  age=u14  league=''  gender=Male  state=CA
+    id=a9b38af0  team_name='TFA-IE 2012'  orig='TFA-IE B2012'
+    id=9269ed92  team_name='Total Futbol Academy - TFA IE'  orig=None
+    id=9cb6591a  team_name='TFA-AV 2012'  orig='TFA-AV B2012'
+    id=0e3f4983  team_name='TFA-SFV 2012'  orig='TFA-SFV B2012'
+
+[4] club='possible fc'  age=u10  league=''  gender=Male  state=CA
+    id=cf97ebf6  team_name='2016 Academy'  orig=None
+    id=c312ab8b  team_name='U8 Academy'  orig=None
+    id=c1758dbc  team_name='POSSIBLE FC 2016'  orig='POSSIBLE FC B2016'
+    id=9c3a9296  team_name='U9 Academy'  orig=None
+
+[4] club='charlotte independence sc'  age=u19  league='ECNL'  gender=Male  state=NC
+    id=32dd5a4c  team_name='Charlotte Independence Academy ECNL B07/06'  orig=None
+    id=c1dd3db3  team_name='Charlotte Independence ECNL 2008'  orig='Charlotte Independence ECNL B08'
+    id=03cc5a41  team_name='Charlotte Independence ECNL B07/06'  orig=None
+    id=b456662e  team_name='Charlotte Independence Academy ECNL 2008'  orig='Charlotte Independence Academy ECNL B08'
+
+[4] club='dallas texans'  age=u19  league='ECNL_RL'  gender=Male  state=TX
+    id=99a28fa2  team_name='Dallas Texans RL 2007'  orig='Dallas Texans RL B07'
+    id=bef91b1b  team_name='Dallas Texans ECNL RL NTX B07/08'  orig=None
+    id=d810df49  team_name='Dallas Texans ECNL RL NTX B07/06'  orig=None
+    id=101b50cd  team_name='Dallas Texans - Dallas Texans ECRL 2007'  orig='Dallas Texans - Dallas Texans ECRL 07/08B'
+
+[4] club='san diego force fc'  age=u11  league=''  gender=Female  state=CA
+    id=66e101db  team_name='U12 Academy'  orig='GU12 Academy'
+    id=afa5af6c  team_name='2015 Academy'  orig='2015 Girls Academy'
+    id=df1f760c  team_name='U11 Academy'  orig='GU11 Academy'
+    id=b776b0ad  team_name='SD Force FC 2015 Academy'  orig='SD Force FC G2015 Academy'
+
+[4] club='charlotte soccer academy'  age=u16  league='ECNL'  gender=Male  state=NC
+    id=69f2dcfc  team_name='Charlotte SA Academy ECNL 2010'  orig='Charlotte SA Academy ECNL B10'
+    id=416b97fa  team_name='Charlotte SA ECNL 2010'  orig='Charlotte SA ECNL B10'
+    id=7c3a0e5f  team_name='ECNL 2010'  orig='ECNL B10'
+    id=bb42ef44  team_name='Academy ECNL 2010'  orig='Academy ECNL B10'
+
+[4] club='charlotte eagles soccer club'  age=u19  league=''  gender=Male  state=NC
+    id=7da46268  team_name='CESC 2007 Academy'  orig='CESC 07/08 Academy'
+    id=f85289cb  team_name='Charlotte Eagles Soccer Club - CESC Academy 2008'  orig='Charlotte Eagles Soccer Club - CESC Academy 08'
+    id=e8a5d593  team_name='Charlotte Eagles Soccer Club - 2008 Academy'  orig='Charlotte Eagles Soccer Club - B08 Academy'
+    id=afa4066d  team_name='Charlotte Eagles Soccer Club - 2006 Academy'  orig='Charlotte Eagles Soccer Club - B06 Academy'
+
+[4] club='total futbol academy'  age=u13  league=''  gender=Male  state=CA
+    id=6ff677d8  team_name='Total Futbol Academy - TFA-IE 2013'  orig='Total Futbol Academy - TFA-IE B2013'
+    id=40828191  team_name='TFA-AV B2013/14'  orig=None
+    id=5df0f68b  team_name='TFA-IE 2013'  orig='TFA-IE B2013'
+    id=c2c57f1d  team_name='TFA-SFV 2013'  orig='TFA-SFV B2013'
+
+[4] club='rebels soccer club'  age=u11  league=''  gender=Male  state=CA
+    id=d8f717c6  team_name='U7 Academy'  orig='BU07 Academy'
+    id=378bb614  team_name='2015'  orig=None
+    id=803543de  team_name='U8 Academy B18'  orig='BU08 Academy (B18)'
+    id=f0ff377a  team_name='U8 Academy'  orig='GU08 Academy'
+
+[4] club='charlotte soccer academy'  age=u17  league='ECNL'  gender=Male  state=NC
+    id=f06920b0  team_name='Charlotte SA ECNL 2009'  orig='Charlotte SA ECNL B09'
+    id=042cab2a  team_name='Academy ECNL 2009'  orig='Academy ECNL B09'
+    id=95d88e3d  team_name='ECNL 2009'  orig='ECNL B09'
+    id=7eedddf8  team_name='Charlotte SA Academy ECNL 2009'  orig='Charlotte SA Academy ECNL B09'
+
+[4] club='total futbol academy'  age=u19  league=''  gender=Male  state=CA
+    id=4ca4971b  team_name='Total Futbol Academy MLS 2008'  orig=None
+    id=0242f2f6  team_name='TFA-SFV 2008'  orig='TFA-SFV B2008'
+    id=0b26062b  team_name='TFA AV 2008'  orig='TFA AV B2008'
+    id=554fe3b5  team_name='TFA 2008'  orig='TFA 08B'
+
+[3] club='legends fc (ca)'  age=u19  league=''  gender=Female  state=CA
+    id=0c699365  team_name='Legends FC CA - AV 2008 FC'  orig='Legends FC (CA) - AV G08 FC'
+    id=4326cd6e  team_name='2008 FC'  orig='G08 FC'
+    id=5aa15162  team_name='Legends FC CA - LA 2008 FC'  orig='Legends FC (CA) - LA G08 FC'
+
+[3] club='steel city fc'  age=u19  league='ECNL_RL'  gender=Male  state=PA
+    id=e01a708d  team_name='Steel City FC ECNL RL 2008'  orig='Steel City FC ECNL RL B08'
+    id=2b9a9006  team_name='Steel City FC ECNL RL B07/06'  orig=None
+    id=925fc2c1  team_name='Steel City FC 2007/08B Academy ECNL-RL'  orig=None
+
+[3] club='legends fc (ca)'  age=u19  league='ECNL'  gender=Female  state=CA
+    id=6a0c1fa4  team_name='ECNL G07/08'  orig=None
+    id=b805c8c8  team_name='Legends FC U19 ECNL'  orig='Legends FC GU19 ECNL'
+    id=2cf6e86e  team_name='ECNL G07/06'  orig=None
+
+[3] club='eastside fc'  age=u19  league='ECNL_RL'  gender=Male  state=WA
+    id=6d4ca1df  team_name='Eastside FC RL 2007'  orig='Eastside FC RL B07'
+    id=2d1405d9  team_name='Eastside FC ECNL RL B07/06'  orig=None
+    id=95b01e16  team_name='Eastside FC ECNL RL B07/08'  orig=None
+
+[3] club='lonestar'  age=u19  league='ECNL_RL'  gender=Female  state=TX
+    id=32744f2c  team_name='Lonestar Soccer Club - Lonestar 2006 ECRL'  orig='Lonestar Soccer Club - Lonestar 06/07 ECRL'
+    id=90041633  team_name='Lonestar SC ECNL RL G06/07'  orig=None
+    id=1141c98a  team_name='Lonestar SC ECNL-RL 2008'  orig='Lonestar SC ECNL-RL G08'
+
+[3] club='sporting queen city'  age=u19  league=''  gender=Female  state=OH
+    id=e1846b0b  team_name='Sporting Queen City 2007'  orig='Sporting Queen City G07'
+    id=b73b2741  team_name='Sporting Queen City - Sporting Queen City G07/G08'  orig=None
+    id=1773070d  team_name='Sporting Queen City - Sporting Queen City U18/U19'  orig=None
+
+[3] club='fc united iowa'  age=u14  league=''  gender=Male  state=IA
+    id=7d3d60df  team_name='FC United U13/14B'  orig=None
+    id=29419296  team_name='FC United U14'  orig='FC United U14B'
+    id=358eb6bd  team_name='FC United Iowa - FC United 2012'  orig='FC United (Iowa) - FC United 2012B'
+
+[3] club='pittsburgh riverhounds'  age=u19  league='ECNL_RL'  gender=Male  state=PA
+    id=12ff79de  team_name='Pittsburgh Riverhounds Academy RL 2008'  orig='Pittsburgh Riverhounds Academy RL 2008 Boys'
+    id=5995cdc1  team_name='Pittsburgh Riverhounds - RL 2007'  orig='Pittsburgh Riverhounds - RL B07'
+    id=6eb788e0  team_name='Pittsburgh Riverhounds - Pittsburgh Riverhounds 2008/2007 ECNL RL'  orig='Pittsburgh Riverhounds - Pittsburgh Riverhounds 2008/2007 ECNL RL Boys'
+
+[3] club='nc fusion'  age=u19  league='ECNL'  gender=Female  state=NC
+    id=1925d96c  team_name='NC Fusion ECNL G07/08'  orig=None
+    id=682ad2bb  team_name='NC Fusion ECNL G07/06'  orig=None
+    id=f563d53a  team_name='NC Fusion ECNL 2008'  orig='NC Fusion ECNL (08G)'
+
+[3] club='lenawee united fc'  age=u10  league=''  gender=Male  state=MI
+    id=bbb4d99a  team_name='Lenawee United FC U9/U10 - 2016/2017'  orig='Lenawee United FC Boys U9/U10 - 2016/2017'
+    id=b4cf29d2  team_name='Lenawee United FC U10 - 2016'  orig='Lenawee United FC Boys U10 - 2016'
+    id=741c160e  team_name='Lenawee United FC - Lenawee United FC - U9 2016'  orig='Lenawee United FC - Lenawee United FC - BU9 2016'
