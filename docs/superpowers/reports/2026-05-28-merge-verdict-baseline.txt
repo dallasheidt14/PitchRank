@@ -1,0 +1,182 @@
+Fetching merge history...
+Total merges: 10370
+
+Pre-fetching team data (this avoids rate limits)...
+  Need 19542 unique teams...
+  Fetched 0/19542 teams...
+  Fetched 1000/19542 teams...
+  Fetched 2000/19542 teams...
+  Fetched 3000/19542 teams...
+  Fetched 4000/19542 teams...
+  Fetched 5000/19542 teams...
+  Fetched 6000/19542 teams...
+  Fetched 7000/19542 teams...
+  Fetched 8000/19542 teams...
+  Fetched 9000/19542 teams...
+  Fetched 10000/19542 teams...
+  Fetched 11000/19542 teams...
+  Fetched 12000/19542 teams...
+  Fetched 13000/19542 teams...
+  Fetched 14000/19542 teams...
+  Fetched 15000/19542 teams...
+  Fetched 16000/19542 teams...
+  Fetched 17000/19542 teams...
+  Fetched 18000/19542 teams...
+  Fetched 19000/19542 teams...
+  Cached 19542 teams
+
+Replaying merges through the production dedup gate...
+  Processing 0/10370...
+  Processing 500/10370...
+  Processing 1000/10370...
+  Processing 1500/10370...
+  Processing 2000/10370...
+  Processing 2500/10370...
+  Processing 3000/10370...
+  Processing 3500/10370...
+  Processing 4000/10370...
+  Processing 4500/10370...
+  Processing 5000/10370...
+  Processing 5500/10370...
+  Processing 6000/10370...
+  Processing 6500/10370...
+  Processing 7000/10370...
+  Processing 7500/10370...
+  Processing 8000/10370...
+  Processing 8500/10370...
+  Processing 9000/10370...
+  Processing 9500/10370...
+  Processing 10000/10370...
+
+============================================================
+MERGE-VERDICT BASELINE (production gate: should_skip_pair)
+============================================================
+
+Historical merges replayed: 10,370
+  allowed (gate keeps merge reachable): 8,010  (77.24% of evaluable)
+  false_skip (gate would BLOCK this merge): 2,360  (22.76% of evaluable)
+  no_data (missing team rows): 0
+
+------------------------------------------------------------
+SAMPLE FALSE-SKIPS (first 40)
+------------------------------------------------------------
+
+  deprecated: 'Chattanooga FC - 2011 Navy'  (club='Chattanooga Football Club Academy')
+  canonical : 'Chattanooga FC U15 HD'  (club='Chattanooga Football Club Academy')
+
+  deprecated: 'ALBION SC Denver 2013 MLS next 2'  (club='ALBION SC Denver')
+  canonical : 'ALBION SC Denver U13 AD'  (club='ALBION SC Denver')
+
+  deprecated: 'West Covina F.C.'  (club='West Covina SC')
+  canonical : 'West Covina FC'  (club='West Covina SC')
+
+  deprecated: 'Phoenix Premier FC 2014 Black'  (club='Phoenix Premier FC')
+  canonical : 'Phoenix Premier FC 2014 SW Black'  (club='Phoenix Premier FC')
+
+  deprecated: 'Dothan Shockers FC 2013'  (club='Dothan Shockers FC')
+  canonical : 'Dothan Shockers FC 13/14GC'  (club='Dothan Shockers FC')
+
+  deprecated: 'FLYTE SC IE- 2013 DPL'  (club='Flyte SC Ie')
+  canonical : 'FLYTE SC IE- 2013 DPLO'  (club='Flyte SC Ie')
+
+  deprecated: 'LCPFC 2012 NPL'  (club='Florida Premier FC')
+  canonical : 'LPFC 2012 NPL'  (club='Florida Premier FC')
+
+  deprecated: 'FLYTE SC IE- 2012 DPL'  (club='Flyte SC Ie')
+  canonical : 'FLYTE SC IE- 2012 DPLO'  (club='Flyte SC Ie')
+
+  deprecated: '2012 FPFC WC Elite'  (club='Florida Premier FC')
+  canonical : '2012 G FPFC WC Elite'  (club='Florida Premier FC')
+
+  deprecated: 'Fall Select U12 - Mahe1'  (club='Walnut Creek Surf Soccer Club')
+  canonical : 'Fall Select U12 - Mahe'  (club='Walnut Creek Surf Soccer Club')
+
+  deprecated: 'Utah Royals FC-AZ ECNL 2012'  (club='Utah Royals FC - AZ')
+  canonical : 'Utah Royals FC-AZ RL 2012'  (club='Utah Royals FC - AZ')
+
+  deprecated: 'LWPFC White Payaras 2011'  (club='Lake Washington Premier Football Club')
+  canonical : 'LWPFC White Piranhas 2011'  (club='Lake Washington Premier Football Club')
+
+  deprecated: 'Worldwide Soccer Club B2015B'  (club='Worldwide FC')
+  canonical : 'Worldwide Soccer Club 2015'  (club='Worldwide FC')
+
+  deprecated: 'SD Surf Academy 2015 Jaewoo'  (club='San Diego Surf Soccer Club')
+  canonical : 'SD Surf Academy 2015 Jaewoo K.'  (club='San Diego Surf Soccer Club')
+
+  deprecated: 'PRE-ECNL 2014 I'  (club='San Diego Surf Soccer Club')
+  canonical : 'San Diego Surf PRE-ECNL 2014 I Garton'  (club='San Diego Surf Soccer Club')
+
+  deprecated: 'Connecticut FC United ECNL RL 2011'  (club='Connecticut FC')
+  canonical : 'Connecticut FC United ECNL 2011'  (club='Connecticut FC')
+
+  deprecated: 'Real Atletico FC 2013-B'  (club='Real Atletico Futbol Club')
+  canonical : 'Real Atletico FC 2013'  (club='Real Atletico Futbol Club')
+
+  deprecated: 'INLAND SURF 2014'  (club='Inland Surf')
+  canonical : 'Inland Surf - 2014 EA - 2'  (club='Inland Surf')
+
+  deprecated: 'Greenbush SC 2009/2010 Green'  (club='Greenbush Soccer Club')
+  canonical : 'Greenbush SC 2009/10 Green'  (club='Greenbush Soccer Club')
+
+  deprecated: 'Eclipse 2013 ECNL'  (club='Eclipse Select Soccer Club')
+  canonical : 'Eclipse 2013 PRE-ECNL'  (club='Eclipse Select Soccer Club')
+
+  deprecated: 'LA Surf - MLS 2013'  (club='LA Surf Soccer Club')
+  canonical : 'Los Angeles Surf U13 HD'  (club='LA Surf Soccer Club')
+
+  deprecated: 'FC Central Illinois 2012 Select'  (club='FC Central Illinois')
+  canonical : 'FC Central Illinois 2012 B Select'  (club='FC Central Illinois')
+
+  deprecated: 'ECNL RL 2013'  (club='Playmaker Futbol Academy')
+  canonical : 'Playmaker Futbol Academy ECNL-RL 2013'  (club='Playmaker Futbol Academy')
+
+  deprecated: 'ECNL RL 2010'  (club='Playmaker Futbol Academy')
+  canonical : 'Playmaker Futbol Academy ECNL-RL 2010'  (club='Playmaker Futbol Academy')
+
+  deprecated: 'Greenbush SC 2013-2014 Green'  (club='Greenbush Soccer Club')
+  canonical : 'Greenbush SC 2013/14 Green'  (club='Greenbush Soccer Club')
+
+  deprecated: 'Phoenix Rising FC U13 MLS Next HD'  (club='Phoenix Rising FC')
+  canonical : 'Phoenix Rising FC U13 HD'  (club='Phoenix Rising FC')
+
+  deprecated: 'Phoenix Rising FC U13 MLS Next AD'  (club='Phoenix Rising FC')
+  canonical : 'Phoenix Rising FC U13 AD'  (club='Phoenix Rising FC')
+
+  deprecated: 'RSL AZ 2010 MLS Next AD'  (club='RSL Arizona')
+  canonical : 'RSL Arizona U16 AD'  (club='RSL Arizona')
+
+  deprecated: 'RSL AZ Mesa 2013 MLS Next AD'  (club='RSL Arizona Mesa')
+  canonical : 'RSL Arizona Mesa U13 AD'  (club='RSL Arizona Mesa')
+
+  deprecated: 'Barca Residency Academy U16 MLS NEXT AD'  (club='Barca Residency Academy')
+  canonical : 'Barca Residency Academy U16 AD'  (club='Barca Residency Academy')
+
+  deprecated: 'Phoenix Rising U16 MLS Next AD'  (club='Phoenix Rising FC')
+  canonical : 'Phoenix Rising FC U16 AD'  (club='Phoenix Rising FC')
+
+  deprecated: 'RSL AZ North 2010 MLS Next New Tier'  (club='RSL Arizona North')
+  canonical : 'RSL Arizona U16 AD'  (club='RSL Arizona')
+
+  deprecated: 'SC DEL SOL U16 MLS Next AD'  (club='SC del Sol')
+  canonical : 'SC Del Sol U16 AD'  (club='SC del Sol')
+
+  deprecated: 'Phoenix Premier FC 2009 MLS NEXT AD'  (club='Phoenix Premier FC')
+  canonical : 'Phoenix Premier FC U17 AD'  (club='Phoenix Premier FC')
+
+  deprecated: 'U17 MLS NEXT AD'  (club='Phoenix Rising FC')
+  canonical : 'Phoenix Rising FC U17 AD'  (club='Phoenix Rising FC')
+
+  deprecated: 'RSL AZ Mesa 2009 MLS Next New Tier'  (club='RSL Arizona South')
+  canonical : 'RSL Arizona Mesa U17 AD'  (club='RSL Arizona Mesa')
+
+  deprecated: 'U17 2009 MLS NEXT'  (club='SC del Sol')
+  canonical : 'SC Del Sol U17 HD'  (club='SC del Sol')
+
+  deprecated: 'U17 2009 MLS NEXT Academy'  (club='SC del Sol')
+  canonical : 'SC Del Sol U17 HD'  (club='SC del Sol')
+
+  deprecated: 'FC Tucson U13 MLS NEXT AD'  (club='FC Tucson Youth Soccer')
+  canonical : 'FC Tucson Youth Soccer Club U13 AD'  (club='FC Tucson Youth Soccer')
+
+  deprecated: 'Phoenix Premier FC 2013 MLS NEXT AD'  (club='Phoenix Premier FC')
+  canonical : 'Phoenix Rising FC U13 AD'  (club='Phoenix Rising FC')
