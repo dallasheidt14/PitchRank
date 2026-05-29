@@ -511,7 +511,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               rank_in_state_final: team.rank_in_state_final ?? undefined,
                             })
                           }
-                          aria-label={`View ${team.team_name} team details`}
+                          aria-label={`View ${composeTeamDisplay(team)} team details`}
                           className={`
                             rankings-row-link touch-auto
                             grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
