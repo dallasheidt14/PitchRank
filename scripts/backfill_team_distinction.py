@@ -40,6 +40,10 @@ from rich.table import Table
 from src.utils.team_name_utils import resolve_distinction
 from supabase import create_client
 
+import truststore
+
+truststore.inject_into_ssl()
+
 console = Console()
 
 env_local = Path(__file__).resolve().parent.parent / ".env.local"
