@@ -1,20 +1,50 @@
 #!/usr/bin/env python3
 """
 Validate team name normalizer against historical merges.
-Tests if the normalizer would have correctly identified the same merges.
+Replays every historical merge through the production dedup gate
+(should_skip_pair) and reports false_skip rate as a baseline.
 """
 
 import os
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 
 from dotenv import load_dotenv
-from team_name_normalizer import parse_team_name, teams_match
-
 from supabase import create_client
 
-load_dotenv("/Users/pitchrankio-dev/Projects/PitchRank/.env")
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+load_dotenv("C:/PitchRank/.env.local")
+load_dotenv("C:/PitchRank/.env")
+
+import truststore  # noqa: E402
+truststore.inject_into_ssl()
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/ for _team_distinction
+from _team_distinction import should_skip_pair  # production masters-dedup gate  # noqa: E402
+
+
+def replay_merge_verdict(dep, can):
+    """Replay one historical merge through the production dedup gate.
+
+    dep/can are team rows (dicts) with 'team_name' and 'club_name', or None.
+    Returns:
+      'no_data'    - a row is missing or has a blank team_name
+      'allowed'    - gate would NOT skip the pair (a real merge stays reachable)
+      'false_skip' - gate WOULD skip the pair (it would block this real merge)
+
+    Uses require_age_token_match=True to mirror find_fuzzy_duplicate_teams.py
+    (the path that produces masters merges).
+    """
+    if not dep or not can:
+        return "no_data"
+    dep_name = (dep.get("team_name") or "").strip()
+    can_name = (can.get("team_name") or "").strip()
+    if not dep_name or not can_name:
+        return "no_data"
+    club = (can.get("club_name") or dep.get("club_name") or "")
+    skipped = should_skip_pair(dep_name, can_name, club_name=club, require_age_token_match=True)
+    return "false_skip" if skipped else "allowed"
 
 
 def safe_query(query_fn, retries=3, delay=2):
