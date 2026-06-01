@@ -112,6 +112,38 @@ export function abbreviateClubName(clubName: string | null | undefined): string 
 }
 
 /**
+ * Detects a `distinction` that still carries league/tier leakage the resolver
+ * did not strip. These designators belong in the `league` column, not the squad
+ * distinction; when one leaks in (e.g. "Pre-ECNL" leaves an orphaned "pre", or a
+ * smushed "preecnl"/"premls"/"b08ecnl"), the composed name reads badly, so we
+ * fall back to the raw team_name.
+ *
+ * Two layers, because the leakage appears in many affixed forms:
+ *  - exact tokens for short/ambiguous designators — substring-matching these
+ *    would wrongly flag legitimate squad words ("pre" → "premier", "nl" →
+ *    "national", "ga" → a surname).
+ *  - substring stems for longer, unambiguous league names that also show up with
+ *    age/gender/numeric affixes ("preecnl", "ecnlrl", "mls2", "g08dpl", "edpl").
+ *
+ * "ad"/"hd" are intentionally excluded: they are load-bearing for MLS NEXT teams,
+ * which are already short-circuited upstream via has_modular11_alias. A false
+ * positive here is harmless (it just shows the raw team_name), so we err toward
+ * catching leakage.
+ */
+const DISTINCTION_LEAK_EXACT = new Set(['pre', 'rl', 'nl', 'ga', 'ea', 'ea2', 'nal', 'next']);
+const DISTINCTION_LEAK_STEMS = ['ecnl', 'ecrl', 'npl', 'mls', 'dpl', 'aspire', 'scdsl'];
+
+function distinctionHasLeakage(distinction?: string | null): boolean {
+  if (!distinction) return false;
+  return distinction.split('|').some((raw) => {
+    const token = raw.trim().toLowerCase();
+    if (!token) return false;
+    if (DISTINCTION_LEAK_EXACT.has(token)) return true;
+    return DISTINCTION_LEAK_STEMS.some((stem) => token.includes(stem));
+  });
+}
+
+/**
  * Compose a clean display name from structured team fields.
  * Format: "{club_name (abbreviated)} {league} {distinction}" — age is intentionally
  * dropped because it's already in the page's URL filter. Pieces are skipped when null.
@@ -132,6 +164,10 @@ export function composeTeamDisplay(team: {
 }): string {
   if (!team.club_name) return team.team_name;
   if (team.has_modular11_alias) return team.team_name;
+  // Dirty-data safety net: if the distinction still carries league/tier leakage
+  // (e.g. an orphaned "pre" from "Pre-ECNL"), the composed name reads badly, so
+  // show the raw team_name instead until the underlying data is cleaned.
+  if (distinctionHasLeakage(team.distinction)) return team.team_name;
   const parts: string[] = [abbreviateClubName(team.club_name)];
   const league = formatLeague(team.league);
   if (league) parts.push(league);
