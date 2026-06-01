@@ -27,6 +27,7 @@ tqdm==4.67.1
 # Web scraping
 requests==2.32.5
 certifi==2025.8.3
+truststore==0.10.4
 beautifulsoup4==4.14.2
 lxml==6.0.2
 Scrapy==2.13.4

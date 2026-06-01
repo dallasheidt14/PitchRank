@@ -11,14 +11,15 @@ import time
 from collections import Counter
 from pathlib import Path
 
+import truststore
 from dotenv import load_dotenv
+
 from supabase import create_client
+
+truststore.inject_into_ssl()
 
 load_dotenv("C:/PitchRank/.env.local")
 load_dotenv("C:/PitchRank/.env")
-
-import truststore  # noqa: E402
-truststore.inject_into_ssl()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/ for _team_distinction
 from _team_distinction import should_skip_pair  # production masters-dedup gate  # noqa: E402
@@ -143,7 +144,10 @@ def main():
     print(f"\nHistorical merges replayed: {total:,}")
     if evaluable:
         print(f"  allowed (gate keeps merge reachable): {allowed:,}  ({100*allowed/evaluable:.2f}% of evaluable)")
-        print(f"  false_skip (gate would BLOCK this merge): {false_skip:,}  ({100*false_skip/evaluable:.2f}% of evaluable)")
+        print(
+            f"  false_skip (gate would BLOCK this merge): {false_skip:,}  "
+            f"({100 * false_skip / evaluable:.2f}% of evaluable)"
+        )
     else:
         print("  (no evaluable rows)")
     print(f"  no_data (missing team rows): {no_data:,}")

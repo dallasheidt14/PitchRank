@@ -31,18 +31,18 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
-
+import truststore
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from src.utils.team_name_utils import resolve_distinction
 from supabase import create_client
 
-import truststore
-
 truststore.inject_into_ssl()
+
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from src.utils.team_name_utils import resolve_distinction  # noqa: E402
 
 console = Console()
 

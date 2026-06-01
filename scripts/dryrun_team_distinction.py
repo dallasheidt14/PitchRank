@@ -21,19 +21,20 @@ import random
 import sys
 from typing import Optional
 
+import truststore
 from dotenv import load_dotenv
+
+from supabase import create_client
+
+truststore.inject_into_ssl()
 
 # Load env
 load_dotenv("C:/PitchRank/.env.local")
 load_dotenv("C:/PitchRank/.env")
 
-import truststore
-truststore.inject_into_ssl()
-
 # Importable from the repo
 sys.path.insert(0, "C:/PitchRank")
 from src.utils.team_name_utils import extract_distinctions, resolve_distinction  # noqa: E402
-from supabase import create_client  # noqa: E402
 
 _CLUB_NOISE = {
     "fc", "sc", "sa", "ac", "cf", "cd", "fcs", "ysa",
