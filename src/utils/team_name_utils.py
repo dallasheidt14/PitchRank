@@ -869,7 +869,7 @@ _CLUB_NOISE = frozenset({
 _LEAGUE_DISTINCTION_BLOCKLIST = frozenset({
     "ecnl", "ecnl-rl", "ecrl", "rl", "ga", "npl", "dpl", "dplo",
     "scdsl", "nal", "mlsnext", "mls-next", "next", "ea", "ea2",
-    "pre-ecnl", "aspire",
+    "pre-ecnl", "aspire", "mls", "nl",
 })
 
 # Programs that legitimately distinguish squads within the same cohort
@@ -898,6 +898,27 @@ def _club_tokens(club_name: Optional[str]) -> set:
             continue
         out.add(t)
     return out
+
+
+def _club_acronym(club_name: Optional[str]) -> str:
+    """First-letter acronym of a club's words (>=3 words), else ''.
+
+    'California Odyssey Soccer Club' -> 'cosc'. Used to drop a club's own
+    initials from its distinction — those identify the club, not the squad,
+    so they are noise in the composite. Includes noise words (soccer/club) so
+    the acronym matches how clubs actually abbreviate themselves. Returns ''
+    for <3-word clubs (short acronyms collide too easily to drop safely).
+    """
+    if not club_name:
+        return ""
+    words = [
+        w.strip("()[]'*.,")
+        for w in re.split(r"[\s\-_./]+", club_name.lower())
+        if w.strip("()[]'*.,")
+    ]
+    if len(words) < 3:
+        return ""
+    return "".join(w[0] for w in words)
 
 
 def resolve_distinction(
@@ -957,11 +978,15 @@ def resolve_distinction(
         except ImportError:
             pass
 
+    club_acronym = _club_acronym(club_name)
+
     squad_words = sorted(d.get("squad_words") or [])
     for sw in squad_words:
         sw_l = sw.lower()
         if sw_l in club_toks:
             continue  # club or state leakage — drop
+        if club_acronym and sw_l == club_acronym:
+            continue  # club's own initials — identifies the club, not the squad
         parts.append(sw_l)
 
     # Programs that distinguish squads (Premier / Select / Elite / Classic / Copa / SCCL / ...).
@@ -989,6 +1014,8 @@ def resolve_distinction(
             continue
         if tok in club_toks:
             continue
+        if club_acronym and tok == club_acronym:
+            continue  # club's own initials — drop
         if (
             tok in LOCATION_CODES
             or tok in US_STATES

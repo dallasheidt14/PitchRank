@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore } from '@/lib/utils';
+import { formatPowerScore, composeTeamDisplay, formatLeague, formatDistinction } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -137,8 +137,8 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
           bValue = getDisplayRank(b) ?? Infinity;
           break;
         case 'team':
-          aValue = a.team_name.toLowerCase();
-          bValue = b.team_name.toLowerCase();
+          aValue = composeTeamDisplay(a).toLowerCase();
+          bValue = composeTeamDisplay(b).toLowerCase();
           break;
         case 'powerScore':
           aValue = a.power_score_final ?? 0;
@@ -189,7 +189,9 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     const tokens = normalize(deferredQuery).split(' ').filter(Boolean);
     if (tokens.length === 0) return sortedRankings;
     return sortedRankings.filter((team) => {
-      const haystack = normalize(`${team.team_name ?? ''} ${team.club_name ?? ''}`);
+      const haystack = normalize(
+        `${team.team_name ?? ''} ${team.club_name ?? ''} ${formatLeague(team.league) ?? ''} ${(team.distinction ?? '').replace(/\|/g, ' ')} ${formatDistinction(team.distinction) ?? ''}`
+      );
       return tokens.every((t) => haystack.includes(t));
     });
   }, [sortedRankings, deferredQuery]);
@@ -321,7 +323,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     .filter((team) => getDisplayRank(team) != null)
     .slice(0, 10)
     .map((team) => ({
-      teamName: team.team_name,
+      teamName: composeTeamDisplay(team),
       clubName: team.club_name ?? undefined,
       rank: getDisplayRank(team)!,
       powerScore: team.power_score_final ?? undefined,
@@ -509,7 +511,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                               rank_in_state_final: team.rank_in_state_final ?? undefined,
                             })
                           }
-                          aria-label={`View ${team.team_name} team details`}
+                          aria-label={`View ${composeTeamDisplay(team)} team details`}
                           className={`
                             rankings-row-link touch-auto
                             grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
@@ -566,7 +568,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
                           </div>
                           <div className="px-1 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
-                              {team.team_name}
+                              {composeTeamDisplay(team)}
                             </span>
                             {(team.club_name || team.state) && (
                               <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">

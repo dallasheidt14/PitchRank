@@ -1,20 +1,51 @@
 #!/usr/bin/env python3
 """
 Validate team name normalizer against historical merges.
-Tests if the normalizer would have correctly identified the same merges.
+Replays every historical merge through the production dedup gate
+(should_skip_pair) and reports false_skip rate as a baseline.
 """
 
 import os
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 
+import truststore
 from dotenv import load_dotenv
-from team_name_normalizer import parse_team_name, teams_match
 
 from supabase import create_client
 
-load_dotenv("/Users/pitchrankio-dev/Projects/PitchRank/.env")
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+truststore.inject_into_ssl()
+
+load_dotenv("C:/PitchRank/.env.local")
+load_dotenv("C:/PitchRank/.env")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/ for _team_distinction
+from _team_distinction import should_skip_pair  # production masters-dedup gate  # noqa: E402
+
+
+def replay_merge_verdict(dep, can):
+    """Replay one historical merge through the production dedup gate.
+
+    dep/can are team rows (dicts) with 'team_name' and 'club_name', or None.
+    Returns:
+      'no_data'    - a row is missing or has a blank team_name
+      'allowed'    - gate would NOT skip the pair (a real merge stays reachable)
+      'false_skip' - gate WOULD skip the pair (it would block this real merge)
+
+    Uses require_age_token_match=True to mirror find_fuzzy_duplicate_teams.py
+    (the path that produces masters merges).
+    """
+    if not dep or not can:
+        return "no_data"
+    dep_name = (dep.get("team_name") or "").strip()
+    can_name = (can.get("team_name") or "").strip()
+    if not dep_name or not can_name:
+        return "no_data"
+    club = (can.get("club_name") or dep.get("club_name") or "")
+    skipped = should_skip_pair(dep_name, can_name, club_name=club, require_age_token_match=True)
+    return "false_skip" if skipped else "allowed"
 
 
 def safe_query(query_fn, retries=3, delay=2):
@@ -32,14 +63,25 @@ def safe_query(query_fn, retries=3, delay=2):
 
 
 def main():
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+    if not (url and key):
+        print("Missing Supabase creds (need SUPABASE_URL + a service key)")
+        return
+    supabase = create_client(url, key)
+
     # Get all merges
     print("Fetching merge history...")
     all_merges = []
-    for start in range(0, 10000, 1000):
+    start = 0
+    while True:
         batch = safe_query(lambda s=start: supabase.table("team_merge_map").select("*").range(s, s + 999).execute())
         if not batch.data:
             break
         all_merges.extend(batch.data)
+        if len(batch.data) < 1000:
+            break
+        start += 1000
 
     print(f"Total merges: {len(all_merges)}")
 
@@ -57,125 +99,65 @@ def main():
 
     for i in range(0, len(team_ids_list), 50):
         batch_ids = team_ids_list[i : i + 50]
-        if i % 200 == 0:
+        if i % 1000 == 0:
             print(f"  Fetched {i}/{len(team_ids_list)} teams...")
-
-        for tid in batch_ids:
-            try:
-                result = safe_query(
-                    lambda t=tid: (
-                        supabase.table("teams")
-                        .select("team_name, club_name, state_code, gender, age_group")
-                        .eq("team_id_master", t)
-                        .limit(1)
-                        .execute()
-                    )
+        try:
+            result = safe_query(
+                lambda b=batch_ids: (
+                    supabase.table("teams")
+                    .select("team_id_master, team_name, club_name, state_code, gender, age_group")
+                    .in_("team_id_master", b)
+                    .execute()
                 )
-                if result.data:
-                    teams_cache[tid] = result.data[0]
-            except Exception as e:
-                print(f"    Failed to fetch team {tid}: {e}")
-
-        # Small delay to avoid rate limiting
-        time.sleep(0.1)
+            )
+            for row in (result.data or []):
+                teams_cache[row["team_id_master"]] = row
+        except Exception as e:
+            print(f"    Failed to fetch batch at {i}: {e}")
+        time.sleep(0.05)
 
     print(f"  Cached {len(teams_cache)} teams")
 
-    # Track results
-    results = {
-        "correct_match": [],  # Normalizer agrees these should merge
-        "missed_match": [],  # Normalizer says don't merge (but human did)
-        "no_parse": [],  # Couldn't parse one or both teams
-    }
+    verdicts = Counter()
+    false_skips = []
 
-    reasons = Counter()
-
-    print("\nValidating merges...")
-
+    print("\nReplaying merges through the production dedup gate...")
     for i, merge in enumerate(all_merges):
-        if i % 200 == 0:
+        if i % 500 == 0:
             print(f"  Processing {i}/{len(all_merges)}...")
-
-        dep_id = merge["deprecated_team_id"]
-        can_id = merge["canonical_team_id"]
-
-        dep = teams_cache.get(dep_id)
-        can = teams_cache.get(can_id)
-
-        if not dep or not can:
-            results["no_parse"].append({"merge_id": merge["id"], "reason": "Team not found in database"})
-            continue
-
-        # Parse team names
-        parsed_dep = parse_team_name(dep["team_name"], dep["club_name"])
-        parsed_can = parse_team_name(can["team_name"], can["club_name"])
-
-        # Check if normalizer would match
-        match, reason = teams_match(parsed_dep, parsed_can)
-
-        merge_info = {
-            "merge_id": merge["id"],
-            "deprecated_name": dep["team_name"],
-            "deprecated_club": dep["club_name"],
-            "canonical_name": can["team_name"],
-            "canonical_club": can["club_name"],
-            "state": dep.get("state_code"),
-            "parsed_dep": parsed_dep,
-            "parsed_can": parsed_can,
-            "reason": reason,
-        }
-
-        if match:
-            results["correct_match"].append(merge_info)
-        else:
-            if parsed_dep["age"] is None or parsed_can["age"] is None:
-                results["no_parse"].append(merge_info)
-            else:
-                results["missed_match"].append(merge_info)
-                reasons[reason] += 1
-
-    # Print summary
-    print("\n" + "=" * 60)
-    print("VALIDATION RESULTS")
-    print("=" * 60)
+        dep = teams_cache.get(merge["deprecated_team_id"])
+        can = teams_cache.get(merge["canonical_team_id"])
+        verdict = replay_merge_verdict(dep, can)
+        verdicts[verdict] += 1
+        if verdict == "false_skip" and len(false_skips) < 40:
+            false_skips.append((dep, can))
 
     total = len(all_merges)
-    correct = len(results["correct_match"])
-    missed = len(results["missed_match"])
-    no_parse = len(results["no_parse"])
+    allowed = verdicts["allowed"]
+    false_skip = verdicts["false_skip"]
+    no_data = verdicts["no_data"]
+    evaluable = total - no_data
 
-    print(f"\nTotal merges tested: {total}")
-    print(f"  ✅ Correctly matched:  {correct} ({100 * correct / total:.1f}%)")
-    print(f"  ❌ Missed (need human): {missed} ({100 * missed / total:.1f}%)")
-    print(f"  ⚠️  Could not parse:   {no_parse} ({100 * no_parse / total:.1f}%)")
-
-    print("\n" + "-" * 60)
-    print("REASONS FOR MISSED MATCHES")
-    print("-" * 60)
-    for reason, count in reasons.most_common(20):
-        print(f"  {count:4d} | {reason}")
-
-    print("\n" + "-" * 60)
-    print("SAMPLE MISSED MATCHES (first 30)")
-    print("-" * 60)
-    for m in results["missed_match"][:30]:
-        print(f"\n  Deprecated: {m['deprecated_name']}")
-        print(f"    Parsed: {m['parsed_dep']['normalized']}")
-        print(f"  Canonical: {m['canonical_name']}")
-        print(f"    Parsed: {m['parsed_can']['normalized']}")
-        print(f"  Reason: {m['reason']}")
+    print("\n" + "=" * 60)
+    print("MERGE-VERDICT BASELINE (production gate: should_skip_pair)")
+    print("=" * 60)
+    print(f"\nHistorical merges replayed: {total:,}")
+    if evaluable:
+        print(f"  allowed (gate keeps merge reachable): {allowed:,}  ({100*allowed/evaluable:.2f}% of evaluable)")
+        print(
+            f"  false_skip (gate would BLOCK this merge): {false_skip:,}  "
+            f"({100 * false_skip / evaluable:.2f}% of evaluable)"
+        )
+    else:
+        print("  (no evaluable rows)")
+    print(f"  no_data (missing team rows): {no_data:,}")
 
     print("\n" + "-" * 60)
-    print("SAMPLE UNPARSED (first 10)")
+    print(f"SAMPLE FALSE-SKIPS (first {len(false_skips)})")
     print("-" * 60)
-    for m in results["no_parse"][:10]:
-        if "deprecated_name" in m:
-            print(f"\n  Deprecated: {m.get('deprecated_name')} ({m.get('deprecated_club')})")
-            print(f"    Parsed age: {m['parsed_dep']['age']}")
-            print(f"  Canonical: {m.get('canonical_name')} ({m.get('canonical_club')})")
-            print(f"    Parsed age: {m['parsed_can']['age']}")
-        else:
-            print(f"\n  {m['reason']}")
+    for dep, can in false_skips:
+        print(f"\n  deprecated: {dep.get('team_name')!r}  (club={dep.get('club_name')!r})")
+        print(f"  canonical : {can.get('team_name')!r}  (club={can.get('club_name')!r})")
 
 
 if __name__ == "__main__":

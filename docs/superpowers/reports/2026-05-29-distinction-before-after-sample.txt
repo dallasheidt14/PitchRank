@@ -1,0 +1,36 @@
+Phase 1 distinction cleanup — post-backfill verification (2026-05-29)
+
+Backfill result: Updated 11,705 rows, 0 errors (see 2026-05-29-backfill.log).
+Logic change: resolve_distinction now drops (a) a club's own first-letter
+acronym (>=3-word clubs), and (b) leftover league tokens (mls, nl). Single-char
+tokens are KEPT (real Team A/B). Modular11 ad/hd untouched.
+
+Bucket movement (full reports: 2026-05-28-distinction-quality.txt vs
+2026-05-29-distinction-quality-after.txt):
+  club_acronym  7.2% -> 0.3%
+  league_token  1.9% -> 0.2%
+  single_char   5.0% -> 5.1%  (kept by design)
+  multi_token  52.4% -> 49.2% (composites shrank)
+Identity-key collisions: 6,907 -> 7,488 teams (read-only diagnostic only; the
+distinction column is written but never read to link/merge teams).
+
+--- LIVE post-backfill sample (random active teams) ---
+New Canaan FC                "New Canaan FC 2015 Black"                -> black
+FC ATLETICO                  "FC ATLETICO 2015 Red"                    -> red
+Holmdel FC                   "Holmdel FC 2010 Bayern"                  -> bayern
+Lawrenceburg Greendale SC    "LGSC G16/17 Thunder"                     -> thunder        (lgsc acronym dropped)
+Parsippany SC                "PSC Academy 2009 NL Premier"             -> premier|psc     (nl dropped; psc kept - 2-word club)
+Crystal Lake Soccer Fed.     "FORCE 2006 Elite Pool"                   -> pool|force|elite
+Hunter SC                    "Yellow Jackets"                          -> yellow|jackets
+Cheverly Soccer Club         "LIONS 2014 TRVL"                         -> trvl|lions
+
+--- Modular11 AD/HD (must be preserved) ---
+VA Rush Soccer Club          "Virginia Rush U17 AD"                    -> ad
+Miami Futbol Academy Rush    "...2009 U17 MLS AD"                      -> ad   (mls dropped, ad kept)
+San Francisco Glens          "San Francisco Glens SC U16 HD"           -> hd
+FC Dallas                    "FC Dallas U13 HD"                        -> hd
+San Francisco Seals          "San Francisco Seals U14 AD"              -> ad
+Modesto Ajax United          "Modesto Ajax United U17 HD"             -> hd
+
+Next step (separate follow-up): re-enable composeTeamDisplay on the rankings
+table + global search (un-revert PR #743), with a visual smoke test.
