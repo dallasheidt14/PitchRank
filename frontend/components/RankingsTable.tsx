@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore, composeTeamDisplay, formatLeague } from '@/lib/utils';
+import { formatPowerScore, composeTeamDisplay, formatLeague, formatDistinction } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -190,7 +190,7 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
     if (tokens.length === 0) return sortedRankings;
     return sortedRankings.filter((team) => {
       const haystack = normalize(
-        `${team.team_name ?? ''} ${team.club_name ?? ''} ${formatLeague(team.league) ?? ''} ${(team.distinction ?? '').replace(/\|/g, ' ')}`
+        `${team.team_name ?? ''} ${team.club_name ?? ''} ${formatLeague(team.league) ?? ''} ${(team.distinction ?? '').replace(/\|/g, ' ')} ${formatDistinction(team.distinction) ?? ''}`
       );
       return tokens.every((t) => haystack.includes(t));
     });
