@@ -25,11 +25,11 @@ Full example:
 import re
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Generator, Any
+from typing import Dict, List, Optional, Generator, AsyncGenerator, Any
 from urllib.parse import urlencode
 
 import scrapy
-from scrapy.http import FormRequest, Response
+from scrapy.http import Response
 
 from modular11_scraper.items import Modular11GameItem
 
@@ -148,53 +148,6 @@ class Modular11ScheduleSpider(scrapy.Spider):
         logger.info(f"  Age group IDs: {self.age_group_ids}")
         logger.info(f"  Date range: {self.start_date.strftime('%Y-%m-%d')} to {self.end_date.strftime('%Y-%m-%d')}")
     
-    def start_requests(self) -> Generator[FormRequest, None, None]:
-        """Generate initial request to the API."""
-        yield self._build_request(page=0)
-    
-    def _build_request(self, page: int = 0) -> FormRequest:
-        """
-        Build a FormRequest for the API.
-        
-        Args:
-            page: Page number (0-indexed)
-            
-        Returns:
-            FormRequest to the API endpoint
-        """
-        # Build form data
-        formdata = {
-            'open_page': str(page),
-            'academy': '0',  # All academies
-            'tournament': '12',  # MLS NEXT tournament ID
-            'gender': '0',  # All genders (though MLS NEXT is boys-only)
-            'brackets': '',
-            'groups': '',
-            'group': '',
-            'match_number': '0',
-            'status': 'all',  # Get all matches including completed
-            'match_type': '2',  # League matches
-            'schedule': '0',
-            'team': '0',
-            'teamPlayer': '0',
-            'location': '0',
-            'as_referee': '0',
-            'start_date': self.start_date.strftime('%Y-%m-%d %H:%M:%S'),
-            'end_date': self.end_date.strftime('%Y-%m-%d %H:%M:%S'),
-        }
-        
-        # Add age group IDs (as array)
-        # Note: We need to pass multiple age[] params
-        # FormRequest handles this by passing a list
-        
-        return FormRequest(
-            url=self.API_URL,
-            formdata=formdata,
-            callback=self.parse,
-            meta={'page': page, 'age_ids': self.age_group_ids},
-            dont_filter=True,
-        )
-    
     def _build_request_for_age(self, age_id: str, division: str, page: int = 0) -> scrapy.Request:
         """
         Build a GET Request for a specific age group and division.
@@ -240,7 +193,7 @@ class Modular11ScheduleSpider(scrapy.Spider):
             dont_filter=True,
         )
     
-    def start_requests(self) -> Generator[FormRequest, None, None]:
+    async def start(self) -> AsyncGenerator[scrapy.Request, None]:
         """Generate initial requests - one per division/age group combination."""
         for division in self.divisions_to_scrape:
             for age_id in self.age_group_ids:
