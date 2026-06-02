@@ -99,6 +99,27 @@ class TestDivisionConflictRejected:
 
         assert result is None, "AD incoming must not match HD-named candidate even with empty alias division"
 
+    def test_ad_does_not_match_hd_when_alias_division_is_stale(self):
+        """A stale/mis-assigned alias claiming an HD-named team is 'AD' must not
+        disguise it: the canonical team-name suffix is authoritative over the
+        alias-map division (the data class this fix guards against)."""
+        m = _make_matcher()
+        _program_candidate_fetch(m, [_FC_DALLAS_HD])
+
+        with (
+            patch.object(m, "_get_candidate_divisions", return_value={"hd-team-1": "AD"}),
+            patch.object(m, "_calculate_match_score", return_value=_HIGH_BASE_SCORE),
+        ):
+            result = m.fuzzy_match_modular11_team(
+                incoming_name="FC Dallas U13 AD",
+                age_group="U13",
+                gender="Male",
+                division="AD",
+                club_name="FC Dallas",
+            )
+
+        assert result is None, "stale alias division must not override the HD team-name suffix"
+
 
 class TestSameDivisionStillMatches:
     """The gate must not over-correct: a matching division still resolves."""

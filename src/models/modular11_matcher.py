@@ -878,10 +878,17 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 # (e.g. an A-team vs its academy/B-team) — never the same roster.
                 # Hard-reject such a candidate so it can never be auto-merged,
                 # honoring the module contract: "Division matches or absent (not
-                # conflicting)". Candidate division falls back to its name suffix
-                # when the alias map has none, so the gate holds even for
-                # candidates with no recorded division.
-                effective_candidate_division = candidate_division or self._extract_division_from_name(cand_name)
+                # conflicting)".
+                #
+                # The candidate's canonical team-name suffix is AUTHORITATIVE for
+                # its division; the alias-map value is only a fallback when the
+                # name carries no suffix. The alias row can be stale or
+                # mis-assigned (the audit behind this fix found alias rows whose
+                # `division` contradicts the team name), so trusting it over the
+                # name would let a corrupt alias disguise an HD team as AD and
+                # re-open the very merge this gate blocks.
+                name_division = self._extract_division_from_name(cand_name)
+                effective_candidate_division = name_division or candidate_division
                 division_match = False
                 division_adjustment = 0.0
                 if division and effective_candidate_division:
