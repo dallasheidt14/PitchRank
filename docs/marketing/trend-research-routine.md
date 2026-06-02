@@ -81,9 +81,12 @@ Steps:
 
 9. Commit on the new branch, push, and open a PR titled
    "trend research: <WEEK_ISO>" with body summarizing the topic picked and a
-   one-line preview of each tweet. Use [skip ci] in the commit message so the
-   marketing pipeline doesn't fire twice. Label the PR `auto-merge` if that
-   label exists; otherwise leave it for manual merge.
+   one-line preview of each tweet. Do NOT use [skip ci] — `.github/workflows/ci.yml`
+   runs on both push and pull_request, and skipping it leaves the required check
+   pending, which blocks auto-merge and branch protection. The marketing pipeline
+   does not fire on pushes (it's `workflow_dispatch`-only or chained to Calculate
+   Rankings), so [skip ci] gains nothing. Label the PR `auto-merge` if that label
+   exists; otherwise leave it for manual merge.
 
 10. Auto-merge if all checks pass and the auto-merge label is set. If anything
     blocks merge, leave the PR open and ping the operator with a one-line
