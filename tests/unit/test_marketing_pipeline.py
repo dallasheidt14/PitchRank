@@ -64,21 +64,32 @@ def test_to_postiz_payload_x_single_no_thread_parts():
     assert payload["posts"][0]["value"] == [{"content": "single tweet", "image": []}]
 
 
-def test_to_postiz_payload_instagram_fb_linked_with_media():
-    payload = _to_postiz_payload(_ig_post(), "ig_int_1", "instagram")
+def test_to_postiz_payload_instagram_fb_linked_with_uploaded_media():
+    post = _ig_post()
+    post["_uploaded_media"] = {"id": "u_abc", "path": "https://uploads.postiz.com/x.png"}
+    payload = _to_postiz_payload(post, "ig_int_1", "instagram")
     settings = payload["posts"][0]["settings"]
     assert settings["__type"] == "instagram"
     assert settings["post_type"] == "post"
     assert settings["is_trial_reel"] is False
     assert settings["collaborators"] == []
     assert payload["posts"][0]["value"] == [
-        {"content": "ig caption", "image": [{"path": "https://example.com/img.png"}]}
+        {"content": "ig caption", "image": [{"id": "u_abc", "path": "https://uploads.postiz.com/x.png"}]}
     ]
 
 
 def test_to_postiz_payload_instagram_standalone_uses_identifier_as_type():
-    payload = _to_postiz_payload(_ig_post(), "ig_int_1", "instagram-standalone")
+    post = _ig_post()
+    post["_uploaded_media"] = {"id": "u_abc", "path": "https://uploads.postiz.com/x.png"}
+    payload = _to_postiz_payload(post, "ig_int_1", "instagram-standalone")
     assert payload["posts"][0]["settings"]["__type"] == "instagram-standalone"
+
+
+def test_to_postiz_payload_instagram_raw_media_url_is_ignored_without_upload():
+    # Regression guard: Postiz rejects raw URLs in the image array. Without
+    # _uploaded_media set by the caller, image must be empty even when media_url is present.
+    payload = _to_postiz_payload(_ig_post(media_url="https://example.com/img.png"), "ig_int_1", "instagram")
+    assert payload["posts"][0]["value"][0]["image"] == []
 
 
 def test_to_postiz_payload_instagram_without_media_emits_empty_image():

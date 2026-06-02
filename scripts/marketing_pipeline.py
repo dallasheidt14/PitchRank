@@ -951,18 +951,65 @@ def get_postiz_integrations() -> dict[str, dict[str, str]]:
     return found
 
 
+def _upload_to_postiz(media_url: str, api_key: str) -> dict | None:
+    """Fetch a public media URL and upload it to Postiz, returning {"id", "path"}.
+
+    Postiz's POST /posts endpoint does NOT accept arbitrary public URLs in the
+    image array — it requires a pre-uploaded media object from POST /upload.
+    Returns None on any failure; caller should treat that as a draft failure.
+    """
+    try:
+        media_resp = requests.get(media_url, timeout=60)
+    except Exception as e:
+        log.error(f"Media fetch failed for {media_url}: {e}")
+        return None
+
+    if media_resp.status_code != 200:
+        log.error(f"Media fetch failed for {media_url} ({media_resp.status_code})")
+        return None
+
+    filename = media_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+    content_type = media_resp.headers.get("Content-Type", "image/png")
+
+    try:
+        upload_resp = requests.post(
+            f"{POSTIZ_API_URL}/upload",
+            headers={"Authorization": api_key},
+            files={"file": (filename, media_resp.content, content_type)},
+            timeout=120,
+        )
+    except Exception as e:
+        log.error(f"Postiz upload exception: {e}")
+        return None
+
+    if upload_resp.status_code not in (200, 201):
+        log.error(f"Postiz upload failed ({upload_resp.status_code}): {upload_resp.text[:500]}")
+        return None
+
+    data = upload_resp.json()
+    if not data.get("id") or not data.get("path"):
+        log.error(f"Postiz upload returned unexpected shape: {str(data)[:300]}")
+        return None
+    return {"id": data["id"], "path": data["path"]}
+
+
 def _to_postiz_payload(post: dict, integration_id: str, settings_type: str) -> dict:
     """Translate a canonical post dict into a Postiz POST /posts request envelope.
 
     `settings_type` is the Postiz integration identifier ("x", "instagram", "instagram-standalone").
     It becomes the post settings `__type`, and also selects which platform branch to build.
+
+    For IG posts, the caller is responsible for uploading media via _upload_to_postiz first
+    and stashing the result in post["_uploaded_media"]. We do NOT pass raw media_url through
+    here — Postiz rejects arbitrary URLs in the image array.
     """
     if settings_type == "x":
         parts = post.get("thread_parts") or [post["text"]]
         value = [{"content": t, "image": []} for t in parts]
         settings = {"__type": "x", "who_can_reply_post": "everyone"}
     elif settings_type in _IG_IDENTIFIERS:
-        image = [{"path": post["media_url"]}] if post.get("media_url") else []
+        uploaded = post.get("_uploaded_media")
+        image = [{"id": uploaded["id"], "path": uploaded["path"]}] if uploaded else []
         value = [{"content": post["text"], "image": image}]
         settings = {
             "__type": settings_type,
@@ -1004,6 +1051,15 @@ def draft_to_postiz(posts: list[dict], integrations: dict[str, dict[str, str]], 
             log.error(f"No Postiz integration for routed platform; skipping [{post['type']}]")
             results.append(False)
             continue
+
+        # IG posts must upload media to Postiz first; raw URLs are rejected by POST /posts.
+        if not dry_run and platform == "instagram" and post.get("media_url"):
+            uploaded = _upload_to_postiz(post["media_url"], api_key)
+            if not uploaded:
+                log.error(f"IG media upload failed; skipping draft [{post['type']}]")
+                results.append(False)
+                continue
+            post["_uploaded_media"] = uploaded
 
         payload = _to_postiz_payload(post, integration["id"], integration["__type"])
 

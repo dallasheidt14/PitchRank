@@ -78,3 +78,10 @@ AS $$
     END ASC NULLS LAST
   LIMIT p_limit;
 $$;
+
+-- Re-grant execute to authenticated and anon roles. DROP wiped the explicit
+-- grants from 20260206000001_create_get_biggest_movers_rpc.sql; Supabase's
+-- default privileges happen to re-add them, but the migration should be
+-- self-contained so a fresh deploy doesn't depend on env-level defaults.
+-- Frontend infographic routes call this RPC with NEXT_PUBLIC_SUPABASE_ANON_KEY.
+GRANT EXECUTE ON FUNCTION get_biggest_movers TO authenticated, anon;
