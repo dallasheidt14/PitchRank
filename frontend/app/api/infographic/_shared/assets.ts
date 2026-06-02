@@ -15,4 +15,6 @@ export async function loadBrandFonts() {
   ];
 }
 
-export const LOGO_URL = `${ORIGIN}/logos/logo-primary.svg`;
+// PNG, not SVG: Satori (the @vercel/og renderer) does not support SVG inside <img>.
+// SVG logos render as a blank box and the entire ImageResponse returns 0 bytes.
+export const LOGO_URL = `${ORIGIN}/logos/logo-primary.png`;
