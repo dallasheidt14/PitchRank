@@ -36,6 +36,12 @@ BEGIN
     WHERE game_uid = ANY(v_targets);
 
     -- Statement 2: write scores while mutable, capturing rows actually changed.
+    -- The home_score/away_score IS NULL re-check here (not only at v_targets
+    -- resolution) makes the no-clobber guard hold under concurrency: if another
+    -- worker committed a score for this game after we built v_targets, READ
+    -- COMMITTED re-evaluates this predicate against the latest row version and
+    -- skips it, so a stale v_targets cannot overwrite a score another worker
+    -- already landed (both teams in a matchup can be scraped concurrently).
     -- result is CHAR(1) with CHECK (result IN ('W','L','D','U')). LEFT(u.result, 1)
     -- guards only the length error ("value too long for character(1)"); a single
     -- char outside the CHECK set (e.g. 'X') would still abort the whole chunk.
@@ -47,7 +53,10 @@ BEGIN
         scraped_at = COALESCE(u.scraped_at, now())
     FROM jsonb_to_recordset(updates)
         AS u(game_uid TEXT, home_score INTEGER, away_score INTEGER, result TEXT, scraped_at TIMESTAMPTZ)
-    WHERE g.game_uid = u.game_uid AND g.game_uid = ANY(v_targets);
+    WHERE g.game_uid = u.game_uid
+      AND g.game_uid = ANY(v_targets)
+      AND g.home_score IS NULL
+      AND g.away_score IS NULL;
 
     GET DIAGNOSTICS v_count = ROW_COUNT;
 
