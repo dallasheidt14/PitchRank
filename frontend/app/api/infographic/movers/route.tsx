@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
-import { loadBrandFonts, LOGO_URL } from '../_shared/assets';
+import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT } from '../_shared/assets';
 
 export const runtime = 'edge';
 
@@ -90,7 +90,12 @@ export async function GET(request: Request) {
       {/* Header */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 30 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={LOGO_URL} width={isStory ? 360 : 280} height="auto" alt="" />
+        <img
+          src={LOGO_URL}
+          width={isStory ? LOGO_WIDTH.story : LOGO_WIDTH.default}
+          height={isStory ? LOGO_HEIGHT.story : LOGO_HEIGHT.default}
+          alt=""
+        />
         <div
           style={{
             fontSize: isStory ? 48 : isSquare ? 42 : 36,
