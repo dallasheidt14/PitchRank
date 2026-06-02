@@ -975,8 +975,25 @@ def _upload_to_postiz(media_url: str, api_key: str) -> dict | None:
         log.error(f"Media fetch failed for {media_url} ({media_resp.status_code})")
         return None
 
-    filename = media_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
-    content_type = media_resp.headers.get("Content-Type", "image/png")
+    # Postiz validates by file extension, not Content-Type. Our @vercel/og infographic
+    # URLs have no extension (e.g. "/api/infographic/movers?platform=instagram"), so we
+    # derive one from the response Content-Type and append it to the filename.
+    content_type = media_resp.headers.get("Content-Type", "image/png").split(";")[0].strip().lower()
+    ext_by_type = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/gif": ".gif",
+        "image/webp": ".webp",
+        "image/avif": ".avif",
+        "image/bmp": ".bmp",
+        "image/tiff": ".tiff",
+        "video/mp4": ".mp4",
+    }
+    ext = ext_by_type.get(content_type, ".png")
+
+    raw_name = media_url.rsplit("/", 1)[-1].split("?")[0] or "image"
+    filename = raw_name if "." in raw_name else f"{raw_name}{ext}"
 
     try:
         upload_resp = requests.post(
@@ -1353,11 +1370,21 @@ def save_artifacts(newsletter_html: str, drafts: list[dict], data: dict):
 def main():
     parser = argparse.ArgumentParser(description="PitchRank Marketing Pipeline")
     parser.add_argument("--dry-run", action="store_true", help="Generate content without publishing")
+    parser.add_argument(
+        "--postiz-only",
+        action="store_true",
+        help="Live mode but skip Beehiiv newsletter send and blog post commit. "
+        "Use this to smoke-test Postiz drafting without firing the other side effects.",
+    )
     args = parser.parse_args()
+
+    if args.dry_run and args.postiz_only:
+        log.warning("--postiz-only is ignored in --dry-run mode")
 
     log.info("=" * 60)
     log.info("PitchRank Marketing Pipeline")
-    log.info(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
+    mode = "DRY RUN" if args.dry_run else ("LIVE (Postiz-only)" if args.postiz_only else "LIVE")
+    log.info(f"Mode: {mode}")
     log.info("=" * 60)
 
     # Step 1: Fetch data
@@ -1456,18 +1483,24 @@ def main():
 
     # Step 6: Publish newsletter to Beehiiv
     newsletter_ok = False
-    try:
-        newsletter_ok = publish_to_beehiiv(newsletter_html, subject)
-    except Exception as e:
-        log.error(f"Newsletter publishing failed: {e}")
+    if args.postiz_only:
+        log.info("--postiz-only: skipping Beehiiv newsletter send")
+    else:
+        try:
+            newsletter_ok = publish_to_beehiiv(newsletter_html, subject)
+        except Exception as e:
+            log.error(f"Newsletter publishing failed: {e}")
 
     # Step 7: Publish blog post (commit + push)
     blog_ok = False
-    try:
-        if blog_filename and blog_content:
-            blog_ok = commit_and_push_blog_post(blog_filename, blog_content)
-    except Exception as e:
-        log.error(f"Blog publishing failed: {e}")
+    if args.postiz_only:
+        log.info("--postiz-only: skipping blog post commit")
+    else:
+        try:
+            if blog_filename and blog_content:
+                blog_ok = commit_and_push_blog_post(blog_filename, blog_content)
+        except Exception as e:
+            log.error(f"Blog publishing failed: {e}")
 
     # Step 8: Draft all social posts to Postiz (X thread + Instagram + trend)
     draft_results: list[bool] = []
