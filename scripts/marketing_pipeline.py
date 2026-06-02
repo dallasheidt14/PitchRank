@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Marketing Pipeline — Automated newsletter + social posting after rankings update
+Marketing Pipeline — Automated newsletter + social drafts after rankings update
 
 Chains to Calculate Rankings workflow. Fetches ranking highlights from Supabase,
-generates a newsletter, publishes to Beehiiv, and schedules social posts to Buffer.
+generates a newsletter, publishes to Beehiiv, and drafts X + Instagram + trend
+social posts to Postiz for operator approval before publish.
 
 Run: python3 scripts/marketing_pipeline.py [--dry-run]
 """
@@ -33,7 +34,6 @@ if env_local.exists():
 if env_path.exists():
     load_dotenv(env_path, override=True)
 
-import markdown as md_lib  # noqa: E402
 import requests  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -48,8 +48,8 @@ PITCHRANK_URL = os.getenv("PITCHRANK_URL", "https://pitchrank.io")
 # Use -6 during daylight saving (March-November)
 MT_OFFSET = timezone(timedelta(hours=-6))
 
-# Buffer API
-BUFFER_API_URL = "https://api.bufferapp.com/1"
+# Postiz API
+POSTIZ_API_URL = "https://api.postiz.com/public/v1"
 
 # Beehiiv API
 BEEHIIV_API_URL = "https://api.beehiiv.com/v2"
@@ -244,7 +244,15 @@ def fetch_ranking_highlights(supabase) -> dict:
 
 
 def _markdown_to_email_html(md_text: str) -> str:
-    """Convert markdown to email-safe HTML with inline styles."""
+    """Convert markdown to email-safe HTML with inline styles.
+
+    `markdown` is imported lazily: the package is only listed in the GHA workflow's
+    explicit pip install line for the marketing pipeline, not in requirements.lock,
+    so the CI test runner doesn't have it. Tests cover the post-translation helpers
+    only and don't reach this path.
+    """
+    import markdown as md_lib
+
     raw_html = md_lib.markdown(md_text, extensions=["tables"])
 
     # Add inline styles for email clients
@@ -798,7 +806,7 @@ def generate_social_posts(data: dict) -> list[dict]:
         posts.append(
             {
                 "text": text,
-                "media_url": f"{PITCHRANK_URL}/api/infographic/spotlight?platform=twitter",
+                "media_url": f"{PITCHRANK_URL}/api/infographic/spotlight?platform=instagram",
                 "scheduled_at": wednesday,
                 "type": "mover_spotlight",
             }
@@ -835,106 +843,369 @@ def generate_social_posts(data: dict) -> list[dict]:
     return posts
 
 
-# ---------------------------------------------------------------------------
-# Buffer scheduling
-# ---------------------------------------------------------------------------
+def generate_trend_posts(week_iso: str, data: dict) -> list[dict]:
+    """Generate up to 3 trend-reaction X posts from brand/trend-research/<week>.json.
 
-
-def get_buffer_profiles() -> list[dict]:
-    """Get connected Buffer profiles."""
-    token = os.getenv("BUFFER_ACCESS_TOKEN")
-    if not token:
-        log.error("BUFFER_ACCESS_TOKEN not set")
+    User runs /last30days manually and writes the JSON each week. Schema:
+        {"week": "2026-W23", "posts": [{"topic": ..., "hook": ..., "suggested_tweet": ..., "source_url": ...}]}
+    """
+    path = PROJECT_ROOT / "brand" / "trend-research" / f"{week_iso}.json"
+    if not path.exists():
+        log.error(f"Trend research file missing for {week_iso}: brand/trend-research/{week_iso}.json")
         return []
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        log.error(f"Trend research file malformed ({path.name}): {e}")
+        return []
+
+    if payload.get("week") != week_iso:
+        log.error(f"Trend research week mismatch: expected {week_iso}, got {payload.get('week')}")
+        return []
+
+    entries = payload.get("posts") or []
+    valid: list[dict] = []
+    for entry in entries:
+        tweet = entry.get("suggested_tweet")
+        if not isinstance(tweet, str) or not tweet.strip():
+            log.warning(f"Skipping trend entry without suggested_tweet: {entry.get('topic', '?')}")
+            continue
+        valid.append(entry)
+
+    if not valid:
+        log.error(f"No valid trend entries in {path.name}")
+        return []
+
+    if len(valid) > 3:
+        log.warning(f"Trend research has {len(valid)} valid entries; using first 3")
+        valid = valid[:3]
+
+    # Schedule across the week (MT)
+    monday = data["date"].replace(hour=0, minute=0, second=0, microsecond=0)
+    while monday.weekday() != 0:
+        monday += timedelta(days=1)
+    slots = [
+        monday + timedelta(days=2, hours=12, minutes=30),  # Wed 12:30 PM MT
+        monday + timedelta(days=4, hours=9),  # Fri 9:00 AM MT
+        monday + timedelta(days=5, hours=11),  # Sat 11:00 AM MT
+    ]
+
+    posts = []
+    for entry, when in zip(valid, slots):
+        posts.append(
+            {
+                "text": entry["suggested_tweet"],
+                "media_url": None,
+                "scheduled_at": when,
+                "type": "trend",
+            }
+        )
+
+    log.info(f"Generated {len(posts)} trend posts for {week_iso}")
+    return posts
+
+
+# ---------------------------------------------------------------------------
+# Postiz drafting
+# ---------------------------------------------------------------------------
+
+
+_IG_IDENTIFIERS = ("instagram", "instagram-standalone")
+
+
+def get_postiz_integrations() -> dict[str, dict[str, str]]:
+    """Fetch Postiz integrations and return {platform: {"id", "__type"}} for the platforms we use.
+
+    `platform` is the logical name ("x" or "instagram"); `__type` carries the actual Postiz
+    identifier ("instagram" for FB-linked, "instagram-standalone" for Instagram Login).
+    Hardcoding `__type: "instagram"` would break drafts when the connected IG channel is
+    the standalone variant — carry the identifier through to the payload to stay in sync.
+
+    Fail-loud: returns {} on non-200, and only-found-platforms on partial discovery
+    so the router can log per-post errors and exit-code reflects the partial outage.
+    """
+    api_key = os.getenv("POSTIZ_API_KEY")
+    if not api_key:
+        log.error("POSTIZ_API_KEY not set")
+        return {}
 
     resp = requests.get(
-        f"{BUFFER_API_URL}/profiles.json",
-        params={"access_token": token},
-        timeout=30,
+        f"{POSTIZ_API_URL}/integrations",
+        headers={"Authorization": api_key},
+        timeout=60,
     )
+
     if resp.status_code != 200:
-        log.error(f"Buffer profiles error ({resp.status_code}): {resp.text[:300]}")
-        return []
+        log.error(f"Postiz integrations fetch failed ({resp.status_code}): {resp.text[:500]}")
+        return {}
 
-    return resp.json()
+    found: dict[str, dict[str, str]] = {}
+    for row in resp.json() or []:
+        ident = row.get("identifier")
+        rid = row.get("id")
+        if not ident or not rid:
+            continue
+        if ident == "x" and "x" not in found:
+            found["x"] = {"id": rid, "__type": "x"}
+        elif ident in _IG_IDENTIFIERS and "instagram" not in found:
+            found["instagram"] = {"id": rid, "__type": ident}
+
+    missing = [p for p in ("x", "instagram") if p not in found]
+    if missing:
+        log.error(f"Postiz integrations missing required platform(s): {missing}")
+
+    return found
 
 
-def schedule_to_buffer(posts: list[dict]) -> list[bool]:
-    """Schedule social posts to all connected Buffer profiles."""
-    token = os.getenv("BUFFER_ACCESS_TOKEN")
-    if not token:
-        log.error("BUFFER_ACCESS_TOKEN not set, skipping social posts")
+def _upload_to_postiz(media_url: str, api_key: str) -> dict | None:
+    """Fetch a public media URL and upload it to Postiz, returning {"id", "path"}.
+
+    Postiz's POST /posts endpoint does NOT accept arbitrary public URLs in the
+    image array — it requires a pre-uploaded media object from POST /upload.
+    Returns None on any failure; caller should treat that as a draft failure.
+    """
+    try:
+        media_resp = requests.get(media_url, timeout=60)
+    except Exception as e:
+        log.error(f"Media fetch failed for {media_url}: {e}")
+        return None
+
+    if media_resp.status_code != 200:
+        log.error(f"Media fetch failed for {media_url} ({media_resp.status_code})")
+        return None
+
+    filename = media_url.rsplit("/", 1)[-1].split("?")[0] or "image.png"
+    content_type = media_resp.headers.get("Content-Type", "image/png")
+
+    try:
+        upload_resp = requests.post(
+            f"{POSTIZ_API_URL}/upload",
+            headers={"Authorization": api_key},
+            files={"file": (filename, media_resp.content, content_type)},
+            timeout=120,
+        )
+    except Exception as e:
+        log.error(f"Postiz upload exception: {e}")
+        return None
+
+    if upload_resp.status_code not in (200, 201):
+        log.error(f"Postiz upload failed ({upload_resp.status_code}): {upload_resp.text[:500]}")
+        return None
+
+    data = upload_resp.json()
+    if not data.get("id") or not data.get("path"):
+        log.error(f"Postiz upload returned unexpected shape: {str(data)[:300]}")
+        return None
+    return {"id": data["id"], "path": data["path"]}
+
+
+def _to_postiz_payload(post: dict, integration_id: str, settings_type: str) -> dict:
+    """Translate a canonical post dict into a Postiz POST /posts request envelope.
+
+    `settings_type` is the Postiz integration identifier ("x", "instagram", "instagram-standalone").
+    It becomes the post settings `__type`, and also selects which platform branch to build.
+
+    For IG posts, the caller is responsible for uploading media via _upload_to_postiz first
+    and stashing the result in post["_uploaded_media"]. We do NOT pass raw media_url through
+    here — Postiz rejects arbitrary URLs in the image array.
+    """
+    if settings_type == "x":
+        parts = post.get("thread_parts") or [post["text"]]
+        value = [{"content": t, "image": []} for t in parts]
+        settings = {"__type": "x", "who_can_reply_post": "everyone"}
+    elif settings_type in _IG_IDENTIFIERS:
+        uploaded = post.get("_uploaded_media")
+        image = [{"id": uploaded["id"], "path": uploaded["path"]}] if uploaded else []
+        value = [{"content": post["text"], "image": image}]
+        settings = {
+            "__type": settings_type,
+            "post_type": "post",
+            "is_trial_reel": False,
+            "collaborators": [],
+        }
+    else:
+        raise ValueError(f"Unsupported Postiz platform: {settings_type}")
+
+    return {
+        "type": "draft",
+        "date": post["scheduled_at"].isoformat(),
+        "shortLink": False,
+        "tags": [],
+        "posts": [
+            {
+                "integration": {"id": integration_id},
+                "value": value,
+                "settings": settings,
+            }
+        ],
+    }
+
+
+def draft_to_postiz(posts: list[dict], integrations: dict[str, dict[str, str]], dry_run: bool) -> list[bool]:
+    """Create Postiz drafts for each post; return per-post success list."""
+    api_key = os.getenv("POSTIZ_API_KEY") if not dry_run else None
+    if not dry_run and not api_key:
+        log.error("POSTIZ_API_KEY not set, skipping Postiz drafts")
         return [False] * len(posts)
-
-    profiles = get_buffer_profiles()
-    if not profiles:
-        log.error("No Buffer profiles found")
-        return [False] * len(posts)
-
-    profile_ids = [p["id"] for p in profiles]
-    profile_names = ", ".join(f"{p.get('service', '?')}:{p.get('formatted_username', '?')}" for p in profiles)
-    log.info(f"Buffer profiles: {profile_names}")
 
     results = []
     for post in posts:
-        scheduled_utc = post["scheduled_at"].astimezone(timezone.utc)
+        # Trend posts and X threads route to X; everything else to Instagram.
+        platform = "x" if post["type"] in ("x_thread", "trend") else "instagram"
+        integration = integrations.get(platform)
+        if not integration:
+            log.error(f"No Postiz integration for routed platform; skipping [{post['type']}]")
+            results.append(False)
+            continue
 
-        # Buffer API expects repeated profile_ids[] params as form data tuples
-        form_data = [
-            ("access_token", token),
-            ("text", post["text"]),
-            ("scheduled_at", scheduled_utc.strftime("%Y-%m-%dT%H:%M:%SZ")),
-        ]
-        for pid in profile_ids:
-            form_data.append(("profile_ids[]", pid))
+        # IG posts must upload media to Postiz first; raw URLs are rejected by POST /posts.
+        if not dry_run and platform == "instagram" and post.get("media_url"):
+            uploaded = _upload_to_postiz(post["media_url"], api_key)
+            if not uploaded:
+                log.error(f"IG media upload failed; skipping draft [{post['type']}]")
+                results.append(False)
+                continue
+            post["_uploaded_media"] = uploaded
 
-        if post.get("media_url"):
-            form_data.append(("media[photo]", post["media_url"]))
+        payload = _to_postiz_payload(post, integration["id"], integration["__type"])
+
+        if dry_run:
+            results.append(True)
+            continue
 
         resp = requests.post(
-            f"{BUFFER_API_URL}/updates/create.json",
-            data=form_data,
-            timeout=30,
+            f"{POSTIZ_API_URL}/posts",
+            headers={"Authorization": api_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=60,
         )
 
-        if resp.status_code == 200:
-            log.info(f"Scheduled [{post['type']}] for {post['scheduled_at'].strftime('%A %I:%M %p MT')}")
+        if resp.status_code in (200, 201):
+            log.info(
+                f"Drafted [{post['type']}] to Postiz ({integration['__type']}) "
+                f"for {post['scheduled_at'].strftime('%A %I:%M %p MT')}"
+            )
             results.append(True)
         else:
-            log.error(f"Buffer error for [{post['type']}] ({resp.status_code}): {resp.text[:300]}")
+            log.error(f"Postiz draft failed [{post['type']}] ({resp.status_code}): {resp.text[:500]}")
             results.append(False)
 
     return results
 
 
-# ---------------------------------------------------------------------------
-# X thread posting
-# ---------------------------------------------------------------------------
+def enrich_post_with_handles(post: dict, supabase, target_team_ids: list[str]) -> dict:
+    """Append `\\n\\nTagging: @h1 @h2 ...` to post['text'] using confirmed IG handles.
 
+    Mutates post in place and writes post['_tag_stats'] for downstream visibility.
+    Picks one handle per team (team-level preferred, club-level fallback). Note:
+    this differs from the site's caption builder in
+    frontend/hooks/useInstagramHandles.ts:collectHandlesForCaption, which pushes
+    both team AND club handles when both exist — Postiz drafts stay lean.
+    """
+    target_count = len(target_team_ids)
+    if not target_team_ids:
+        post["_tag_stats"] = {"tagged_count": 0, "target_count": 0, "missing_team_ids": []}
+        return post
 
-def get_x_client():
-    """Initialize tweepy Client for X API v2. Returns None if not configured."""
+    statuses = ["confirmed"]
+    if os.getenv("POSTIZ_TAG_INCLUDE_AUTO_APPROVED", "false").lower() == "true":
+        statuses.append("auto_approved")
+
     try:
-        import tweepy  # noqa: E402 — optional dependency
-    except ImportError:
-        log.warning("tweepy not installed, skipping X thread")
-        return None
+        resp = (
+            supabase.from_("team_instagram_handles")
+            .select("team_id, handle, profile_level")
+            .in_("team_id", target_team_ids)
+            .in_("review_status", statuses)
+            .execute()
+        )
+        rows = resp.data or []
+    except Exception as e:
+        log.warning(f"IG handle lookup failed for [{post['type']}]: {e}")
+        post["_tag_stats"] = {
+            "tagged_count": 0,
+            "target_count": target_count,
+            "missing_team_ids": list(target_team_ids),
+            "error": str(e),
+        }
+        return post
 
-    consumer_key = os.getenv("X_CONSUMER_KEY")
-    consumer_secret = os.getenv("X_CONSUMER_SECRET")
-    access_token = os.getenv("X_ACCESS_TOKEN")
-    access_token_secret = os.getenv("X_ACCESS_TOKEN_SECRET")
+    # Bucket by team_id: prefer team-level, fall back to club-level
+    per_team: dict[str, dict[str, str]] = {}
+    for row in rows:
+        bucket = per_team.setdefault(row["team_id"], {"team": None, "club": None})
+        bucket[row["profile_level"]] = row["handle"]
 
-    if not all([consumer_key, consumer_secret, access_token, access_token_secret]):
-        log.warning("X API credentials not configured, skipping X thread")
-        return None
+    seen: set[str] = set()
+    handles: list[str] = []
+    tagged_ids: set[str] = set()
+    for tid in target_team_ids:
+        bucket = per_team.get(tid)
+        if not bucket:
+            continue
+        chosen = bucket.get("team") or bucket.get("club")
+        if not chosen:
+            continue
+        key = chosen.lower()
+        if key in seen:
+            tagged_ids.add(tid)
+            continue
+        seen.add(key)
+        handles.append(f"@{chosen}")
+        tagged_ids.add(tid)
 
-    return tweepy.Client(
-        consumer_key=consumer_key,
-        consumer_secret=consumer_secret,
-        access_token=access_token,
-        access_token_secret=access_token_secret,
-    )
+    if not handles:
+        post["_tag_stats"] = {
+            "tagged_count": 0,
+            "target_count": target_count,
+            "missing_team_ids": list(target_team_ids),
+        }
+        return post
+
+    # Cap mentions at 10 for naturalness (IG hard limit is 20)
+    if len(handles) > 10:
+        handles = handles[:10]
+
+    # IG caption hard limit is 2,200 chars
+    suffix = "\n\nTagging: " + " ".join(handles)
+    dropped = 0
+    while handles and len(post["text"]) + len(suffix) > 2200:
+        handles.pop()
+        dropped += 1
+        suffix = "\n\nTagging: " + " ".join(handles)
+    if dropped:
+        log.warning(f"Truncated {dropped} IG @-mentions to stay under 2,200 chars [{post['type']}]")
+
+    if handles:
+        post["text"] = post["text"] + suffix
+
+    missing = [tid for tid in target_team_ids if tid not in tagged_ids]
+    post["_tag_stats"] = {
+        "tagged_count": len(handles),
+        "target_count": target_count,
+        "missing_team_ids": missing,
+    }
+    return post
+
+
+def _resolve_tag_targets(post_type: str, data: dict) -> list[str]:
+    """Pick which team_ids to tag for a given post type."""
+    if post_type == "rankings_live":
+        return [c["team_id"] for c in data["climbers"][:3] if c.get("team_id")]
+    if post_type == "mover_spotlight":
+        target = (
+            data["climbers"][1] if len(data["climbers"]) > 1 else (data["climbers"][0] if data["climbers"] else None)
+        )
+        return [target["team_id"]] if target and target.get("team_id") else []
+    if post_type == "state_spotlight":
+        return [t["team_id"] for t in (data.get("spotlight_teams") or [])[:3] if t.get("team_id")]
+    return []  # data_flex, x_thread, trend — no tagging
+
+
+# ---------------------------------------------------------------------------
+# X thread composition
+# ---------------------------------------------------------------------------
 
 
 def _format_cohort(team: dict) -> str:
@@ -955,11 +1226,15 @@ def _milestone_line(m: dict) -> str:
     return f"• {name} ({label}) → now #{rank}"
 
 
-def generate_thread_tweets(data: dict) -> list[str]:
-    """Generate a 4-tweet thread focused on milestone crossings (top 10/25/50/100 in cohort)."""
+def generate_x_thread_posts(data: dict) -> dict:
+    """Compose a 4-tweet thread (milestone-driven) into the canonical post-dict shape.
+
+    Returns a single dict with `thread_parts` carrying the per-tweet split; downstream
+    Postiz translation reads `thread_parts` for chained replies.
+    """
     milestones = data.get("milestones", [])
     total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
-    tweets = []
+    tweets: list[str] = []
 
     # Group milestones by tier
     by_tier: dict[int, list[dict]] = {}
@@ -975,7 +1250,6 @@ def generate_thread_tweets(data: dict) -> list[str]:
 
     # Tweet 1: Hook
     if milestone_count > 0:
-        # Lead with the most impressive milestone
         if top10:
             lead = top10[0]
             tweets.append(
@@ -1028,35 +1302,20 @@ def generate_thread_tweets(data: dict) -> list[str]:
     # Tweet 4 (final): CTA
     tweets.append(f"{total} teams ranked every Monday.\n\npitchrank.io/rankings")
 
+    # Scheduled at Monday noon MT (same as the rankings_live post)
+    monday = data["date"].replace(hour=12, minute=0, second=0, microsecond=0)
+    while monday.weekday() != 0:
+        monday += timedelta(days=1)
+
+    joined = "\n---\n".join(tweets)
     log.info(f"Generated {len(tweets)}-tweet thread ({milestone_count} milestones)")
-    return tweets
-
-
-def post_thread_to_x(tweets: list[str], dry_run: bool = False) -> bool:
-    """Post a thread to X by chaining tweets with in_reply_to_tweet_id."""
-    if dry_run:
-        for i, tweet in enumerate(tweets):
-            log.info(f"[DRY RUN] Thread tweet {i + 1}/{len(tweets)}: {tweet}")
-        return True
-
-    client = get_x_client()
-    if not client:
-        return False
-
-    previous_tweet_id = None
-    for i, tweet_text in enumerate(tweets):
-        try:
-            response = client.create_tweet(
-                text=tweet_text,
-                in_reply_to_tweet_id=previous_tweet_id,
-            )
-            previous_tweet_id = response.data["id"]
-            log.info(f"Posted thread tweet {i + 1}/{len(tweets)} (id={previous_tweet_id})")
-        except Exception as e:
-            log.error(f"Failed to post thread tweet {i + 1}: {e}")
-            return False
-
-    return True
+    return {
+        "text": joined,
+        "media_url": None,
+        "scheduled_at": monday,
+        "type": "x_thread",
+        "thread_parts": tweets,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1064,7 +1323,7 @@ def post_thread_to_x(tweets: list[str], dry_run: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def save_artifacts(newsletter_html: str, social_posts: list[dict], data: dict):
+def save_artifacts(newsletter_html: str, drafts: list[dict], data: dict):
     """Save generated content as artifacts for debugging."""
     ARTIFACTS_DIR.mkdir(exist_ok=True)
     date_str = data["date"].strftime("%Y%m%d")
@@ -1075,15 +1334,18 @@ def save_artifacts(newsletter_html: str, social_posts: list[dict], data: dict):
 
     posts_path = ARTIFACTS_DIR / f"social_posts_{date_str}.json"
     serializable = []
-    for p in social_posts:
-        serializable.append(
-            {
-                "type": p["type"],
-                "text": p["text"],
-                "media_url": p.get("media_url"),
-                "scheduled_at": p["scheduled_at"].isoformat(),
-            }
-        )
+    for p in drafts:
+        entry = {
+            "type": p["type"],
+            "text": p["text"],
+            "media_url": p.get("media_url"),
+            "scheduled_at": p["scheduled_at"].isoformat(),
+        }
+        if p.get("thread_parts"):
+            entry["thread_parts"] = p["thread_parts"]
+        if p.get("_tag_stats"):
+            entry["_tag_stats"] = p["_tag_stats"]
+        serializable.append(entry)
     posts_path.write_text(json.dumps(serializable, indent=2), encoding="utf-8")
     log.info(f"Saved social posts JSON: {posts_path}")
 
@@ -1133,18 +1395,34 @@ def main():
     subject = generate_newsletter_subject(data, blog_title)
     log.info(f"Subject: {subject}")
 
-    # Step 4: Generate social posts
-    social_posts = generate_social_posts(data)
-
-    # Step 5: Generate X thread
-    thread_tweets = []
-    try:
-        thread_tweets = generate_thread_tweets(data)
-    except Exception as e:
-        log.error(f"Thread generation failed: {e}")
+    # Step 4-5: Generate all social drafts (kill-switch gated)
+    drafts_enabled = os.getenv("POSTIZ_DRAFTS_ENABLED", "true").lower() == "true"
+    current_iso_week = data["date"].strftime("%G-W%V")
+    social_posts: list[dict] = []
+    x_thread_post: dict = {"thread_parts": []}
+    all_drafts: list[dict] = []
+    if drafts_enabled:
+        social_posts = generate_social_posts(data)
+        # Enrich IG-bound posts with team handles (post-pass; keeps generators platform-agnostic)
+        for post in social_posts:
+            targets = _resolve_tag_targets(post["type"], data)
+            if targets:
+                enrich_post_with_handles(post, supabase, targets)
+        try:
+            x_thread_post = generate_x_thread_posts(data)
+        except Exception as e:
+            log.error(f"X thread generation failed: {e}")
+            x_thread_post = {"thread_parts": []}
+        trend_posts = generate_trend_posts(current_iso_week, data)
+        all_drafts = list(social_posts)
+        if x_thread_post.get("thread_parts"):
+            all_drafts.append(x_thread_post)
+        all_drafts.extend(trend_posts)
+    else:
+        log.warning("POSTIZ_DRAFTS_ENABLED=false — skipping social drafts entirely")
 
     # Save artifacts (always, for debugging)
-    save_artifacts(newsletter_html, social_posts, data)
+    save_artifacts(newsletter_html, all_drafts, data)
 
     if args.dry_run:
         log.info("")
@@ -1161,12 +1439,19 @@ def main():
                 log.info(f"  Image: {post['media_url']}")
             log.info(post["text"])
             log.info("")
-        if thread_tweets:
+        if x_thread_post.get("thread_parts"):
             log.info("--- X THREAD ---")
-            for i, tweet in enumerate(thread_tweets):
-                log.info(f"Tweet {i + 1}/{len(thread_tweets)}: {tweet}")
+            for i, tweet in enumerate(x_thread_post["thread_parts"]):
+                log.info(f"Tweet {i + 1}/{len(x_thread_post['thread_parts'])}: {tweet}")
                 log.info("")
-        log.info("Artifacts saved. No API calls made.")
+        if drafts_enabled:
+            stub_integrations = {
+                "x": {"id": "DRY_RUN_X_ID", "__type": "x"},
+                "instagram": {"id": "DRY_RUN_IG_ID", "__type": "instagram"},
+            }
+            dry_draft_results = draft_to_postiz(all_drafts, stub_integrations, dry_run=True)
+            log.info(f"DRY RUN: {sum(dry_draft_results)}/{len(dry_draft_results)} would be drafted to Postiz")
+        log.info("Artifacts saved. No Postiz API calls made (Supabase reads ran for data fetch + handle enrichment).")
         return
 
     # Step 6: Publish newsletter to Beehiiv
@@ -1184,20 +1469,14 @@ def main():
     except Exception as e:
         log.error(f"Blog publishing failed: {e}")
 
-    # Step 8: Schedule social posts to Buffer
-    buffer_results = []
+    # Step 8: Draft all social posts to Postiz (X thread + Instagram + trend)
+    draft_results: list[bool] = []
     try:
-        buffer_results = schedule_to_buffer(social_posts)
+        if drafts_enabled and all_drafts:
+            integrations = get_postiz_integrations()
+            draft_results = draft_to_postiz(all_drafts, integrations, dry_run=False)
     except Exception as e:
-        log.error(f"Social scheduling failed: {e}")
-
-    # Step 9: Post X thread
-    thread_ok = False
-    try:
-        if thread_tweets:
-            thread_ok = post_thread_to_x(thread_tweets)
-    except Exception as e:
-        log.error(f"X thread posting failed: {e}")
+        log.error(f"Postiz drafting failed: {e}")
 
     # Summary
     log.info("")
@@ -1205,13 +1484,13 @@ def main():
     log.info("PIPELINE COMPLETE")
     log.info(f"  Newsletter: {'SENT' if newsletter_ok else 'FAILED'}")
     log.info(f"  Blog: {'PUBLISHED' if blog_ok else 'SKIPPED'}")
-    log.info(f"  Social: {sum(buffer_results)}/{len(buffer_results)} posts scheduled")
-    log.info(f"  X Thread: {'POSTED' if thread_ok else 'SKIPPED'}")
+    log.info(f"  Social Drafts: {sum(draft_results)}/{len(draft_results)} drafted to Postiz")
     log.info("=" * 60)
 
-    # Exit 0 even with partial failures — the workflow should show as success
-    # with logged warnings, not block the next run
-    if not newsletter_ok and not any(buffer_results):
+    # Exit 1 only if newsletter AND every draft failed — partial outages surface via non-zero
+    # entries in draft_results (collapsed from old Buffer + tweepy split, so X-thread failures
+    # now contribute to the exit code).
+    if not newsletter_ok and not any(draft_results):
         sys.exit(1)
 
 

@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
+import { loadBrandFonts, LOGO_URL } from '../_shared/assets';
 
 export const runtime = 'edge';
 
@@ -76,19 +77,19 @@ export async function GET(request: Request) {
         justifyContent: 'center',
         background: `linear-gradient(135deg, ${BRAND_COLORS.forestGreen} 0%, ${BRAND_COLORS.darkGreen} 100%)`,
         padding: isStory ? 60 : 50,
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: 'DM Sans, sans-serif',
       }}
     >
       {/* Header */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: isStory ? 50 : 30 }}>
-        <div style={{ fontSize: isStory ? 28 : 24, color: BRAND_COLORS.gold, fontWeight: 'bold', letterSpacing: 4 }}>
-          PITCHRANK
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={LOGO_URL} width={isStory ? 360 : 280} height="auto" alt="" />
         <div
           style={{
             fontSize: isStory ? 36 : isSquare ? 30 : 26,
             color: 'rgba(255,255,255,0.8)',
             fontWeight: 'bold',
+            fontFamily: 'Oswald',
             marginTop: 8,
             letterSpacing: 2,
           }}
@@ -192,6 +193,7 @@ export async function GET(request: Request) {
     {
       width: dimensions.width,
       height: dimensions.height,
+      fonts: await loadBrandFonts(),
     }
   );
 }
