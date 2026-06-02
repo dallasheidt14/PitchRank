@@ -1,6 +1,5 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
-import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT } from '../_shared/assets';
 
 export const runtime = 'edge';
 
@@ -91,23 +90,18 @@ export async function GET(request: Request) {
         flexDirection: 'column',
         background: `linear-gradient(135deg, ${BRAND_COLORS.forestGreen} 0%, ${BRAND_COLORS.darkGreen} 100%)`,
         padding: isStory ? 60 : 50,
-        fontFamily: 'DM Sans, sans-serif',
+        fontFamily: 'Arial, sans-serif',
       }}
     >
       {/* Header */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: isStory ? 50 : 30 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={LOGO_URL}
-          width={isStory ? LOGO_WIDTH.story : LOGO_WIDTH.default}
-          height={isStory ? LOGO_HEIGHT.story : LOGO_HEIGHT.default}
-          alt=""
-        />
+        <div style={{ fontSize: isStory ? 28 : 24, color: BRAND_COLORS.gold, fontWeight: 'bold', letterSpacing: 4 }}>
+          PITCHRANK
+        </div>
         <div
           style={{
             fontSize: isStory ? 52 : isSquare ? 46 : 38,
             fontWeight: 'bold',
-            fontFamily: 'Oswald',
             color: BRAND_COLORS.brightWhite,
             marginTop: 10,
           }}
@@ -185,7 +179,6 @@ export async function GET(request: Request) {
     {
       width: dimensions.width,
       height: dimensions.height,
-      fonts: await loadBrandFonts(),
     }
   );
 }
