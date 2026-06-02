@@ -1,0 +1,86 @@
+[
+  {
+    "key": "ecnl-news",
+    "label": "ECNL news and storylines",
+    "search_prompt": "ECNL youth soccer news, controversies, results, expansion, and roster movement in the last 30 days. Look on Reddit (r/youthsoccer, r/USsoccer), X, YouTube, and youth soccer media. Focus on what parents and coaches are actually arguing about, not press releases.",
+    "voice_angle": "PitchRank tracks every ECNL team on the same scale as state-league teams. When ECNL teams over- or under-perform their reputation, the data shows it.",
+    "fallback_cta": "See how ECNL teams stack up: pitchrank.io/rankings"
+  },
+  {
+    "key": "mls-next-news",
+    "label": "MLS NEXT news and storylines",
+    "search_prompt": "MLS NEXT youth soccer news, results, club changes, controversies, and roster moves in the last 30 days. Reddit, X, YouTube, youth soccer media. What are parents debating?",
+    "voice_angle": "MLS NEXT and ECNL get treated as tiers, but the data shows enormous variance inside each. PitchRank ranks them apples-to-apples.",
+    "fallback_cta": "Compare MLS NEXT vs ECNL teams head to head: pitchrank.io/rankings"
+  },
+  {
+    "key": "youth-tournament-results",
+    "label": "Major youth tournament results and aftermath",
+    "search_prompt": "Recent youth soccer tournament results and post-event chatter from the last 30 days. Surf Cup, Disney Showcase, Generation adidas Cup, Jefferson Cup, Players College Showcase, ECNL national events, MLS NEXT Cup, state cups. Focus on standout teams, upsets, and recruiting narratives. Reddit, X, club Instagrams, soccer media.",
+    "voice_angle": "Tournament champions get the headlines. PitchRank shows whether they're actually that good or just rode a soft bracket. Margins, strength of schedule, season-long signal.",
+    "fallback_cta": "See if tournament winners hold up over a full season: pitchrank.io/rankings"
+  },
+  {
+    "key": "college-recruiting",
+    "label": "College soccer recruiting and commitments",
+    "search_prompt": "Youth soccer college recruiting and commitment news in the last 30 days. Class of 2026-2028 commitments, NIL, transfer portal trickle-down to youth, recruiting controversies. Reddit, X, TopDrawerSoccer-style coverage, Instagram, YouTube.",
+    "voice_angle": "Recruiting follows reputation as much as performance. PitchRank surfaces under-the-radar teams whose data outpaces their visibility — the kind college coaches should be tracking.",
+    "fallback_cta": "Find teams that out-perform their reputation: pitchrank.io/rankings"
+  },
+  {
+    "key": "girls-youth-soccer",
+    "label": "Girls youth soccer storylines",
+    "search_prompt": "Girls youth soccer news, results, recruiting, and parent-side debates in the last 30 days. ECNL Girls, GA, NWSL Academy news, women's college pipeline. Reddit (r/youthsoccer, r/USWNT), X, Instagram, soccer media.",
+    "voice_angle": "Girls youth rankings get a fraction of the coverage boys do. PitchRank ranks both with the same algorithm — girls teams move on the same leaderboard, no separate-but-equal disclaimer.",
+    "fallback_cta": "See the top girls teams nationally: pitchrank.io/rankings"
+  },
+  {
+    "key": "tryout-season",
+    "label": "Tryout season and club selection",
+    "search_prompt": "Youth soccer tryout season debates, club-switching stories, parent decision-making about where to play, fees and travel concerns, last 30 days. Reddit (r/youthsoccer), X, parent Facebook groups (via search), club Instagrams.",
+    "voice_angle": "Parents pick clubs on logos, friends, and word of mouth. PitchRank lets them check whether the team actually performs against the alternatives in their area.",
+    "fallback_cta": "Compare clubs before tryouts: pitchrank.io/rankings"
+  },
+  {
+    "key": "fees-travel-costs",
+    "label": "Youth soccer costs, fees, and travel debates",
+    "search_prompt": "Youth soccer cost-of-play debates in the last 30 days: club fees, tournament travel, ECNL/MLS NEXT pricing, pay-to-play criticism, financial accessibility. Reddit (r/youthsoccer, r/USsoccer), X, podcast clips, news coverage.",
+    "voice_angle": "Parents are spending $5K-$15K a year. PitchRank gives them one of the few objective ways to tell whether the team's actually delivering performance for the price.",
+    "fallback_cta": "See if your club's results match its fees: pitchrank.io/rankings"
+  },
+  {
+    "key": "rankings-controversy",
+    "label": "Youth soccer rankings methodology debates",
+    "search_prompt": "Debates and complaints about how youth soccer teams get ranked in the last 30 days. GotSoccer rankings, USClubSoccer rankings, TopDrawerSoccer rankings, ECNL/MLS NEXT power rankings, tournament seeding controversies. Reddit, X, coaching forums.",
+    "voice_angle": "Most ranking systems are reputation or tournament points. PitchRank uses actual game results, opponent strength, and margins. When other systems get it wrong, the data points to why.",
+    "fallback_cta": "See rankings that show their work: pitchrank.io/rankings"
+  },
+  {
+    "key": "coaching-development",
+    "label": "Coaching, training methodology, player development",
+    "search_prompt": "Youth soccer coaching debates, training methodology, player development pipeline news in the last 30 days. US Soccer policy, DOC moves, coaching education, club philosophies. Reddit (r/bootroom, r/youthsoccer), X, coaching podcasts.",
+    "voice_angle": "Good coaching shows up in results over time. PitchRank surfaces clubs whose teams consistently outperform — usually the development stories worth studying.",
+    "fallback_cta": "See clubs whose results compound year over year: pitchrank.io/rankings"
+  },
+  {
+    "key": "regional-powerhouses",
+    "label": "Regional youth soccer powerhouse storylines",
+    "search_prompt": "Stories about which states, regions, or specific clubs are dominating youth soccer right now, last 30 days. SoCal vs East Coast debates, Texas surge, Florida, Mid-Atlantic, Midwest. Reddit, X, regional soccer media, club Instagrams.",
+    "voice_angle": "Geography drives a lot of strength-of-schedule. PitchRank's cross-region calibration lets parents see whether their local 'top team' would hold up against the national field.",
+    "fallback_cta": "See your state's top teams against the national field: pitchrank.io/rankings"
+  },
+  {
+    "key": "pro-pathway-academy",
+    "label": "Pre-Academy, MLS NEXT Pro, pro pathway stories",
+    "search_prompt": "Youth-to-pro pathway news in the last 30 days: MLS NEXT Pro signings, academy contracts, homegrown players, USL Academy, USYNT call-ups, European trial trips. Reddit, X, soccer media, club press.",
+    "voice_angle": "The pro pathway is narrow and lopsided. PitchRank shows which youth teams are genuinely producing — not which clubs hire the best PR.",
+    "fallback_cta": "See which youth clubs actually produce: pitchrank.io/rankings"
+  },
+  {
+    "key": "youth-soccer-discourse",
+    "label": "Open-ended youth soccer parent and coach discourse",
+    "search_prompt": "Open-ended chatter and debates among youth soccer parents and coaches in the last 30 days. Anything trending — could be a viral X post, a Reddit thread that blew up, a podcast clip, a viral coach quote. Cast a wide net on Reddit, X, YouTube, TikTok.",
+    "voice_angle": "Whatever's trending, PitchRank's angle is always the same: data over vibes, results over reputation, every team on the same scale.",
+    "fallback_cta": "Settle the argument with data: pitchrank.io/rankings"
+  }
+]
