@@ -34,7 +34,6 @@ if env_local.exists():
 if env_path.exists():
     load_dotenv(env_path, override=True)
 
-import markdown as md_lib  # noqa: E402
 import requests  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
@@ -245,7 +244,15 @@ def fetch_ranking_highlights(supabase) -> dict:
 
 
 def _markdown_to_email_html(md_text: str) -> str:
-    """Convert markdown to email-safe HTML with inline styles."""
+    """Convert markdown to email-safe HTML with inline styles.
+
+    `markdown` is imported lazily: the package is only listed in the GHA workflow's
+    explicit pip install line for the marketing pipeline, not in requirements.lock,
+    so the CI test runner doesn't have it. Tests cover the post-translation helpers
+    only and don't reach this path.
+    """
+    import markdown as md_lib
+
     raw_html = md_lib.markdown(md_text, extensions=["tables"])
 
     # Add inline styles for email clients
