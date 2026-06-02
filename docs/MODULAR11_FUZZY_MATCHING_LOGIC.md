@@ -141,7 +141,8 @@ Final Score = Team Name Score + Club Name Score + Location Score + Age Score
 
 **Division Logic:**
 - Modular11 teams have divisions: `HD` (Homegrown) or `AD` (Academy)
-- Division info is stored in `team_alias_map.division` column
+- Division info is stored in `team_alias_map.division` column, falling back to
+  the `HD`/`AD` suffix in the candidate's team name when the alias has none
 
 **Adjustments:**
 1. **Both have same division (HD=HD or AD=AD):**
@@ -149,8 +150,9 @@ Final Score = Team Name Score + Club Name Score + Location Score + Age Score
    - `division_match = True`
 
 2. **Different divisions (HD vs AD):**
-   - **Penalty:** -0.10 from score
-   - `division_match = False`
+   - **Hard reject:** the candidate is dropped before scoring (see §3.4) — a
+     confirmed conflict means two genuinely different teams (A-team vs B-team),
+     so it can never be auto-merged regardless of name similarity
 
 3. **One has division, other doesn't:**
    - **Small penalty:** -0.02
@@ -406,7 +408,7 @@ The system is working as designed - it's being **ultra-conservative** and creati
 MODULAR11_MIN_CONFIDENCE = 0.93      # Minimum score to accept (vs 0.90 for GotSport)
 MODULAR11_MIN_GAP = 0.07             # Minimum gap between best and second-best
 MODULAR11_DIVISION_MATCH_BONUS = 0.05 # Bonus for matching division
-MODULAR11_DIVISION_MISMATCH_PENALTY = 0.10 # Penalty for mismatched division
+# (A confirmed HD/AD conflict is a hard reject during scoring, not a penalty — see §2.4/§3.4)
 ```
 
 ---
