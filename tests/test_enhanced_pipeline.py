@@ -477,6 +477,136 @@ class TestBackfillDuplicateTeamLinks:
         assert result['duplicate_links_backfilled'] == 5
 
 
+class TestUpdateNullScoreGames:
+    """_update_null_score_games must route through the batch_backfill_null_scores
+    RPC (toggle-based) instead of the immutable-blocked raw .update()."""
+
+    @pytest.fixture
+    def mock_supabase(self):
+        """Mock Supabase client sufficient for pipeline construction."""
+        supabase = Mock()
+
+        provider_result = Mock()
+        provider_result.data = {'id': 'test-provider-uuid'}
+        supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = provider_result
+
+        supabase.table.return_value.insert.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.in_.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.limit.return_value.execute.return_value.data = []
+        supabase.table.return_value.select.return_value.eq.return_value.eq.return_value.range.return_value.execute.return_value.data = []
+
+        return supabase
+
+    def _build_pipeline(self, supabase, dry_run=False):
+        return EnhancedETLPipeline(supabase, 'gotsport', dry_run=dry_run)
+
+    @pytest.mark.asyncio
+    async def test_calls_rpc_with_payload_not_raw_update(self, mock_supabase):
+        """Builds the JSONB payload and calls the RPC; the raw .update() is gone."""
+        pipeline = self._build_pipeline(mock_supabase)
+
+        rpc_result = Mock()
+        rpc_result.data = 1
+        mock_supabase.rpc.return_value.execute.return_value = rpc_result
+
+        games = [{
+            'game_uid': 'gs:2026-05-31:111:222',
+            'home_score': 2,
+            'away_score': 1,
+            'result': 'W',
+            'scraped_at': '2026-06-01T22:54:00+00:00',
+        }]
+
+        updated = await pipeline._update_null_score_games(games, {})
+
+        assert updated == 1
+        mock_supabase.rpc.assert_called_once_with(
+            'batch_backfill_null_scores',
+            {'updates': [{
+                'game_uid': 'gs:2026-05-31:111:222',
+                'home_score': 2,
+                'away_score': 1,
+                'result': 'W',
+                'scraped_at': '2026-06-01T22:54:00+00:00',
+            }]},
+        )
+        mock_supabase.table.return_value.update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_coerces_float_scores_and_skips_invalid_rows(self, mock_supabase):
+        """Float/string scores are coerced to int; rows missing uid or scores are dropped."""
+        pipeline = self._build_pipeline(mock_supabase)
+
+        rpc_result = Mock()
+        rpc_result.data = 1
+        mock_supabase.rpc.return_value.execute.return_value = rpc_result
+
+        games = [
+            {'game_uid': 'g-ok', 'home_score': '3.0', 'away_score': 2.0, 'result': 'W', 'scraped_at': None},
+            {'game_uid': 'g-null', 'home_score': None, 'away_score': None, 'result': None},
+            {'game_uid': None, 'home_score': 1, 'away_score': 0, 'result': 'W'},
+            {'game_uid': 'g-bad', 'home_score': 'abc', 'away_score': 'xyz', 'result': 'U'},
+        ]
+
+        updated = await pipeline._update_null_score_games(games, {})
+
+        assert updated == 1
+        mock_supabase.rpc.assert_called_once_with(
+            'batch_backfill_null_scores',
+            {'updates': [{
+                'game_uid': 'g-ok',
+                'home_score': 3,
+                'away_score': 2,
+                'result': 'W',
+                'scraped_at': None,
+            }]},
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_valid_rows_skips_rpc(self, mock_supabase):
+        """An all-invalid batch makes no RPC call and returns 0."""
+        pipeline = self._build_pipeline(mock_supabase)
+
+        games = [{'game_uid': 'g-null', 'home_score': None, 'away_score': None, 'result': None}]
+        updated = await pipeline._update_null_score_games(games, {})
+
+        assert updated == 0
+        mock_supabase.rpc.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_shortfall_does_not_raise(self, mock_supabase):
+        """RPC writing fewer rows than submitted (no-clobber/race) is reported, not fatal."""
+        pipeline = self._build_pipeline(mock_supabase)
+
+        rpc_result = Mock()
+        rpc_result.data = 0  # No-clobber guard skipped an already-scored row
+        mock_supabase.rpc.return_value.execute.return_value = rpc_result
+
+        games = [{'game_uid': 'g1', 'home_score': 2, 'away_score': 1, 'result': 'W', 'scraped_at': None}]
+        updated = await pipeline._update_null_score_games(games, {})
+
+        assert updated == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_writes_nothing(self, mock_supabase):
+        """Dry-run mode must not call the RPC."""
+        pipeline = self._build_pipeline(mock_supabase, dry_run=True)
+
+        games = [{'game_uid': 'g1', 'home_score': 2, 'away_score': 1, 'result': 'W'}]
+        updated = await pipeline._update_null_score_games(games, {})
+
+        assert updated == 0
+        mock_supabase.rpc.assert_not_called()
+
+    def test_metrics_includes_scores_backfill_failed(self):
+        """ImportMetrics.to_dict() must include scores_backfill_failed."""
+        metrics = ImportMetrics()
+        metrics.scores_backfill_failed = 3
+        result = metrics.to_dict()
+        assert result['scores_backfill_failed'] == 3
+
+
 class TestFutureDateHelper:
     """Tests for the _is_future_game helper used by the scheduled-game carveout."""
 

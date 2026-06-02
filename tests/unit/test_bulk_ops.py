@@ -10,6 +10,7 @@ from src.etl.bulk_ops import (
     BULK_UPDATE_CHUNK_SIZE,
     BULK_UPDATE_MIN_CHUNK,
     RPC_RESULT_LIMIT,
+    bulk_backfill_null_scores,
     bulk_update_last_scraped_at,
     call_rpc_with_fallback,
 )
@@ -174,6 +175,106 @@ def test_non_int_response_data_falls_back_to_chunk_length():
     sb = StubSupabase([SimpleNamespace(data=None)])
     payload = [{"team_id_master": f"t{i}", "last_scraped_at": "2026-04-22T00:00:00"} for i in range(4)]
     assert bulk_update_last_scraped_at(sb, payload) == 4
+
+
+# ---------- bulk_backfill_null_scores ----------
+
+
+def _score_updates(n: int):
+    return [
+        {"game_uid": f"g{i}", "home_score": 1, "away_score": 0, "result": "W", "scraped_at": None} for i in range(n)
+    ]
+
+
+def test_backfill_empty_payload_short_circuits_without_calling_supabase():
+    sb = StubSupabase()
+    assert bulk_backfill_null_scores(sb, []) == 0
+    assert sb.calls == []
+
+
+def test_backfill_single_chunk_happy_path_returns_rpc_rowcount():
+    sb = StubSupabase([SimpleNamespace(data=10)])
+    assert bulk_backfill_null_scores(sb, _score_updates(10)) == 10
+    assert len(sb.calls) == 1
+    assert sb.calls[0][0] == "batch_backfill_null_scores"
+    assert len(sb.calls[0][1]["updates"]) == 10
+
+
+def test_backfill_multiple_chunks_sum_returned_counts():
+    sb = StubSupabase([SimpleNamespace(data=10), SimpleNamespace(data=5)])
+    total = bulk_backfill_null_scores(sb, _score_updates(15), chunk_size=10)
+    assert total == 15
+    assert [len(call[1]["updates"]) for call in sb.calls] == [10, 5]
+
+
+def test_backfill_partial_rowcount_warns_but_still_accumulates(caplog):
+    # RPC writes 8 of 10 — the no-clobber guard skipped 2 already-scored rows.
+    sb = StubSupabase([SimpleNamespace(data=8)])
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="src.etl.bulk_ops")
+    assert bulk_backfill_null_scores(sb, _score_updates(10)) == 8
+    assert any("8 of 10 rows updated" in rec.message for rec in caplog.records)
+
+
+def test_backfill_42883_without_fallback_reraises():
+    sb = StubSupabase([_api_error(code="42883")])
+    with pytest.raises(APIError) as excinfo:
+        bulk_backfill_null_scores(sb, _score_updates(1))
+    assert getattr(excinfo.value, "code", None) == "42883"
+
+
+def test_backfill_42883_with_fallback_invokes_fallback_and_returns_its_count():
+    sb = StubSupabase([_api_error(code="42883")])
+    fallback_invocations = []
+
+    def fallback():
+        fallback_invocations.append(True)
+        return 7
+
+    total = bulk_backfill_null_scores(sb, _score_updates(3), on_missing_function=fallback)
+    assert total == 7
+    assert len(fallback_invocations) == 1
+    # Only one RPC attempt — the helper gives up immediately on 42883.
+    assert len(sb.calls) == 1
+
+
+def test_backfill_413_halves_chunk_and_retries():
+    sb = StubSupabase(
+        [
+            _api_error(code=413, message="payload too large 413"),
+            SimpleNamespace(data=125),
+            SimpleNamespace(data=75),
+        ]
+    )
+    total = bulk_backfill_null_scores(sb, _score_updates(200), chunk_size=200)
+    assert total == 200
+    assert [len(c[1]["updates"]) for c in sb.calls] == [200, 125, 75]
+
+
+def test_backfill_413_halving_floors_at_min_chunk():
+    # A 413 at the floor chunk size must skip the chunk, not infinite-loop.
+    sb = StubSupabase([_api_error(code=413, message="413 still too big")])
+    total = bulk_backfill_null_scores(sb, _score_updates(125), chunk_size=125)
+    assert total == 0
+    assert len(sb.calls) == 1
+
+
+def test_backfill_non_413_api_error_skips_chunk_and_continues():
+    sb = StubSupabase(
+        [
+            _api_error(code="23505", message="unique violation"),  # chunk 1 fails
+            SimpleNamespace(data=5),  # chunk 2 succeeds
+        ]
+    )
+    total = bulk_backfill_null_scores(sb, _score_updates(10), chunk_size=5)
+    assert total == 5
+    assert len(sb.calls) == 2
+
+
+def test_backfill_non_int_response_data_falls_back_to_chunk_length():
+    sb = StubSupabase([SimpleNamespace(data=None)])
+    assert bulk_backfill_null_scores(sb, _score_updates(4)) == 4
 
 
 # ---------- call_rpc_with_fallback ----------
