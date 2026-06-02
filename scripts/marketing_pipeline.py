@@ -1520,9 +1520,18 @@ def main():
     log.info(f"  Social Drafts: {sum(draft_results)}/{len(draft_results)} drafted to Postiz")
     log.info("=" * 60)
 
-    # Exit 1 only if newsletter AND every draft failed — partial outages surface via non-zero
-    # entries in draft_results (collapsed from old Buffer + tweepy split, so X-thread failures
-    # now contribute to the exit code).
+    # --postiz-only is a smoke-test mode: any draft failure (or no drafts at all) is a
+    # validation failure and must exit non-zero so CI / operator notices. Don't fall through
+    # to the lenient newsletter check below — newsletter is intentionally skipped in this mode.
+    if args.postiz_only:
+        if not draft_results or not all(draft_results):
+            log.error(f"--postiz-only smoke test failed: {sum(draft_results)}/{len(draft_results)} drafts succeeded")
+            sys.exit(1)
+        return
+
+    # Live mode: exit 1 only if newsletter AND every draft failed — partial outages surface
+    # via non-zero entries in draft_results (collapsed from old Buffer + tweepy split, so
+    # X-thread failures now contribute to the exit code).
     if not newsletter_ok and not any(draft_results):
         sys.exit(1)
 
