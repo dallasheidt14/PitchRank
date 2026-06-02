@@ -1,0 +1,11 @@
+{
+  "week": "2026-W23",
+  "posts": [
+    {
+      "topic": "ECNL national rankings drop",
+      "hook": "Rankings dropped — what the data actually shows.",
+      "suggested_tweet": "ECNL just released their national rankings. We ran the same 25K teams through PitchRank's algorithm and got a very different top 50. Receipts > vibes.\n\npitchrank.io/rankings",
+      "source_url": "https://example.com/ecnl-rankings"
+    }
+  ]
+}
