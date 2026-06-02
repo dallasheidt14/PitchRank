@@ -16,7 +16,11 @@ if _project_root not in sys.path:
     sys.path.append(_project_root)
 
 from config.settings import BUILD_ID, MATCHING_CONFIG, SUPABASE_KEY, SUPABASE_URL  # noqa: E402
-from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback  # noqa: E402
+from src.etl.bulk_ops import (  # noqa: E402
+    bulk_backfill_null_scores,
+    bulk_update_last_scraped_at,
+    call_rpc_with_fallback,
+)
 from src.models.game_matcher import GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
@@ -59,6 +63,12 @@ class ImportMetrics:
     duplicate_key_violations: int = 0  # Games rejected due to unique constraint (already in DB)
     duplicate_links_backfilled: int = 0  # Duplicate games where missing master IDs were healed
     scores_backfilled: int = 0  # Null-score games updated with actual scores
+    # Shortfall on the above. Conflates three causes: the immutable-block bug,
+    # the transient missing-RPC deploy window (42883), and benign races where
+    # another worker scored the row first (no-clobber guard skips it). A
+    # non-zero value is a signal to investigate, not a definitive error, and
+    # should trend toward ~0 in steady state post-deploy.
+    scores_backfill_failed: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
@@ -85,6 +95,7 @@ class ImportMetrics:
             "duplicate_key_violations": self.duplicate_key_violations,
             "duplicate_links_backfilled": self.duplicate_links_backfilled,
             "scores_backfilled": self.scores_backfilled,
+            "scores_backfill_failed": self.scores_backfill_failed,
         }
 
 
@@ -751,6 +762,11 @@ class EnhancedETLPipeline:
                             getattr(batch_metrics, "scores_backfilled", 0) + score_bf
                         )
                         self.metrics.scores_backfilled += score_bf
+                        failed = len(null_score_updates) - score_bf
+                        batch_metrics.scores_backfill_failed = (
+                            getattr(batch_metrics, "scores_backfill_failed", 0) + failed
+                        )
+                        self.metrics.scores_backfill_failed += failed
 
                     regen_dupes = len(true_dupes)
                     if regen_dupes > 0:
@@ -1055,6 +1071,8 @@ class EnhancedETLPipeline:
                     f"  Quarantined:     {self.metrics.games_quarantined:,} games\n"
                     f"  Duplicates:      {self.metrics.duplicates_found:,} games (already in DB)\n"
                     f"  Links backfilled:{self.metrics.duplicate_links_backfilled:,} healed\n"
+                    f"  Scores backfilled:{self.metrics.scores_backfilled:,} "
+                    f"({self.metrics.scores_backfill_failed:,} failed)\n"
                     f"  Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
                     f"  Processing rate: {games_per_sec:.1f} games/sec\n"
                     f"  Elapsed time:    {elapsed_time / 60:.1f} minutes\n"
@@ -1592,7 +1610,13 @@ class EnhancedETLPipeline:
     async def _update_null_score_games(
         self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict]
     ) -> int:
-        """Update existing games that have null scores with actual scores from a re-scrape."""
+        """Update existing games that have null scores with actual scores from a re-scrape.
+
+        Routes through the ``batch_backfill_null_scores`` RPC, which toggles
+        is_immutable off -> writes scores (only on rows still NULL) -> on. A raw
+        ``.update()`` is rejected by the prevent_game_updates trigger because
+        scheduled rows are inserted with is_immutable=True.
+        """
         if not games_to_update:
             return 0
 
@@ -1600,7 +1624,7 @@ class EnhancedETLPipeline:
             logger.info(f"[Pipeline] Dry run: would backfill scores on {len(games_to_update)} null-score games")
             return 0
 
-        updated = 0
+        payload = []
         for game in games_to_update:
             game_uid = game.get("game_uid")
             home_score = game.get("home_score")
@@ -1616,21 +1640,32 @@ class EnhancedETLPipeline:
             except (ValueError, TypeError):
                 continue
 
-            try:
-                self.supabase.table("games").update({
+            payload.append(
+                {
+                    "game_uid": game_uid,
                     "home_score": home_score_int,
                     "away_score": away_score_int,
                     "result": result,
                     "scraped_at": game.get("scraped_at"),
-                }).eq("game_uid", game_uid).execute()
-                updated += 1
-                logger.info(
-                    f"[Pipeline] Backfilled scores on {game_uid}: "
-                    f"{home_score_int}-{away_score_int} (result={result})"
-                )
-            except Exception as e:
-                logger.error(f"[Pipeline] Failed to backfill scores on {game_uid}: {e}")
+                }
+            )
 
+        if not payload:
+            return 0
+
+        updated = bulk_backfill_null_scores(self.supabase, payload, on_missing_function=lambda: 0)
+
+        # Surface, don't swallow: a shortfall is the immutable-block bug, the
+        # transient missing-RPC deploy window (42883 -> 0), or a benign race
+        # where another worker scored the row first (no-clobber guard skips it).
+        failed = len(payload) - updated
+        if failed > 0:
+            logger.warning(
+                "[Pipeline] %d/%d null-score backfills did not land "
+                "(immutable-block, missing RPC, or already-scored by a concurrent scrape)",
+                failed,
+                len(payload),
+            )
         if updated:
             logger.info(f"[Pipeline] Backfilled scores on {updated} previously null-score games")
         return updated
@@ -1951,6 +1986,9 @@ class EnhancedETLPipeline:
                 "provider_id": self.provider_id,
                 "source_url": game.get("source_url"),
                 "scraped_at": game.get("scraped_at"),
+                # Scheduled null-score rows are intentionally immutable; final
+                # scores are written via the batch_backfill_null_scores RPC
+                # (toggle off/on), not by flipping this to False.
                 "is_immutable": True,
                 "original_import_id": None,  # Can be set to build_id if needed
                 # CRITICAL: Include age_group and mls_division for Modular11 unique constraint

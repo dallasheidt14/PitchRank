@@ -16,6 +16,7 @@ from postgrest.exceptions import APIError
 logger = logging.getLogger(__name__)
 
 BULK_UPDATE_RPC = "bulk_update_last_scraped_at"
+BACKFILL_SCORES_RPC = "batch_backfill_null_scores"
 BULK_UPDATE_CHUNK_SIZE = 2000
 BULK_UPDATE_MIN_CHUNK = 125
 PG_UNDEFINED_FUNCTION = "42883"
@@ -119,6 +120,75 @@ def bulk_update_last_scraped_at(
                 continue
             logger.warning(
                 "Error bulk updating last_scraped_at (chunk %d-%d): %s",
+                i,
+                i + len(chunk),
+                err,
+            )
+            # Advance by the chunk we actually attempted, not the pre-shrink
+            # `size`, so a non-413 error mid-halving doesn't skip rows.
+            i += len(chunk)
+            size = chunk_size
+
+    return total_updated
+
+
+def bulk_backfill_null_scores(
+    supabase,
+    updates: List[Dict[str, Any]],
+    *,
+    chunk_size: int = BULK_UPDATE_CHUNK_SIZE,
+    on_missing_function: Optional[Callable[[], int]] = None,
+    missing_function_log: str = "PERF REGRESSION: batch_backfill_null_scores RPC missing: %s",
+) -> int:
+    """Call `batch_backfill_null_scores` in chunks, halving on HTTP 413.
+
+    Returns total rows whose scores were written (may be < len(updates) when
+    the RPC's no-clobber guard skips rows that already have scores or that no
+    longer exist — logged as a warning).
+
+    If the RPC is missing (SQLSTATE 42883) and `on_missing_function` is
+    provided, it is invoked and its return value is returned as the count.
+    Without a fallback, 42883 re-raises.
+    """
+    if not updates:
+        return 0
+
+    total_updated = 0
+    i = 0
+    size = chunk_size
+    while i < len(updates):
+        chunk = updates[i : i + size]
+        try:
+            res = supabase.rpc(BACKFILL_SCORES_RPC, {"updates": chunk}).execute()
+            returned = res.data if isinstance(res.data, int) else len(chunk)
+            total_updated += returned
+            if returned < len(chunk):
+                logger.warning(
+                    "bulk_backfill_null_scores: %d of %d rows updated",
+                    returned,
+                    len(chunk),
+                )
+            i += len(chunk)
+            size = chunk_size
+        except APIError as err:
+            code = getattr(err, "code", None)
+            msg = str(err)
+            if code == PG_UNDEFINED_FUNCTION:
+                if on_missing_function is not None:
+                    logger.error(missing_function_log, err)
+                    return on_missing_function()
+                raise
+            if (code in HTTP_PAYLOAD_TOO_LARGE_CODES or "413" in msg) and size > BULK_UPDATE_MIN_CHUNK:
+                new_size = max(size // 2, BULK_UPDATE_MIN_CHUNK)
+                logger.warning(
+                    "bulk_backfill_null_scores: 413 on chunk size %d, halving to %d",
+                    size,
+                    new_size,
+                )
+                size = new_size
+                continue
+            logger.warning(
+                "Error backfilling null scores (chunk %d-%d): %s",
                 i,
                 i + len(chunk),
                 err,
