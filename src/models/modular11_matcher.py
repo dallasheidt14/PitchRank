@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 MODULAR11_MIN_CONFIDENCE = 0.93  # vs 0.90 for GotSport
 MODULAR11_MIN_GAP = 0.07  # Gap between best and second-best
 MODULAR11_DIVISION_MATCH_BONUS = 0.05
-MODULAR11_DIVISION_MISMATCH_PENALTY = 0.10
+# A confirmed division conflict (e.g. HD vs AD) is a hard reject in
+# fuzzy_match_modular11_team, not a score penalty — see the division gate there.
 
 # Major tokens for token overlap requirement
 MAJOR_TOKENS = {
@@ -871,21 +872,33 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     # Birth year determined but no tokens generated (shouldn't happen, but safe)
                     self._dlog(f"[BY] Warning: birth_year={birth_year} but no tokens generated")
 
-                # Apply division bonus/penalty
+                # Apply division gate + bonus.
+                # Modular11 reuses one club_id across every division, so a
+                # confirmed HD-vs-AD conflict marks two genuinely different teams
+                # (e.g. an A-team vs its academy/B-team) — never the same roster.
+                # Hard-reject such a candidate so it can never be auto-merged,
+                # honoring the module contract: "Division matches or absent (not
+                # conflicting)". Candidate division falls back to its name suffix
+                # when the alias map has none, so the gate holds even for
+                # candidates with no recorded division.
+                effective_candidate_division = candidate_division or self._extract_division_from_name(cand_name)
                 division_match = False
                 division_adjustment = 0.0
-                if division and candidate_division:
-                    if division.upper() == candidate_division.upper():
+                if division and effective_candidate_division:
+                    if division.upper() == effective_candidate_division.upper():
                         division_match = True
                         division_adjustment = MODULAR11_DIVISION_MATCH_BONUS
                         base_score += division_adjustment
                     else:
-                        division_adjustment = -MODULAR11_DIVISION_MISMATCH_PENALTY
-                        base_score += division_adjustment
-                elif not division and not candidate_division:
+                        self._dlog(
+                            f"Division conflict: incoming {division} vs candidate "
+                            f"{effective_candidate_division} ({cand_name}) — REJECTED"
+                        )
+                        continue
+                elif not division and not effective_candidate_division:
                     # Both absent - neutral
                     division_match = True
-                elif division or candidate_division:
+                elif division or effective_candidate_division:
                     # One has division, other doesn't - slight penalty but not fatal
                     division_adjustment = -0.02
                     base_score += division_adjustment
@@ -930,8 +943,9 @@ class Modular11GameMatcher(GameHistoryMatcher):
             )
 
             # Apply ultra-conservative thresholds
-            # Auto-approve if score >= 0.93, gap >= 0.07, and token overlap exists
-            # Division mismatch is no longer a hard requirement (still affects scoring via bonus/penalty)
+            # Auto-approve if score >= 0.93, gap >= 0.07, and token overlap exists.
+            # Division conflicts were already hard-rejected during scoring above, so
+            # every surviving candidate matches the incoming division or is unscored.
             if best["score"] >= MODULAR11_MIN_CONFIDENCE and score_gap >= MODULAR11_MIN_GAP and best["token_overlap"]:
                 self._dlog(
                     f"Fuzzy match ACCEPTED: {incoming_name} -> {best['team_name']} "
@@ -974,7 +988,8 @@ class Modular11GameMatcher(GameHistoryMatcher):
                     reasons.append(f"score gap too small (need >= {MODULAR11_MIN_GAP}, got {score_gap:.4f})")
                 if not best["token_overlap"]:
                     reasons.append("no token overlap")
-                # Division mismatch is no longer a rejection reason - it only affects scoring
+                # Division conflicts are filtered out during scoring (hard reject),
+                # so they never reach this best-candidate rejection summary.
 
                 rejection_reason = " | ".join(reasons) if reasons else "unknown reason"
                 self._dlog(f"Reject fuzzy match: {rejection_reason}")
