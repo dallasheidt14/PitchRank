@@ -66,6 +66,15 @@ class Modular11EventsSpider(scrapy.Spider):
     
     # Reverse mapping for parsing
     AGE_ID_TO_GROUP = {v: f"U{k}" for k, v in AGE_GROUP_IDS.items()}
+
+    # Curated event -> MLS NEXT division. The events feed carries NO HD/AD signal
+    # (only club name, age, bracket, stage), so the division must be stated per event.
+    # "HD"/"AD" stamp every game in the event; "MIXED" marks events that contain both
+    # divisions (e.g. MLS NEXT Fest) and cannot be classified from the feed. Events that
+    # are "MIXED" or absent from this map are skipped (classify before importing).
+    EVENT_DIVISIONS = {
+        "87": "HD",   # 2026 MLS NEXT Cup - Homegrown Division only (verified)
+    }
     
     def __init__(
         self,
@@ -105,6 +114,8 @@ class Modular11EventsSpider(scrapy.Spider):
             'events_found': 0,
             'events_in_range': 0,
             'events_scraped': 0,
+            'events_skipped_unclassified': 0,
+            'events_skipped_mixed': 0,
             'games_scraped': 0,
             'games_skipped_no_score': 0,
             'games_skipped_date_filter': 0,
@@ -223,7 +234,25 @@ class Modular11EventsSpider(scrapy.Spider):
             
             events_in_range += 1
             logger.info(f"Found event: {event_name} (ID: {event_id}, Date: {event_date})")
-            
+
+            # Division comes from the curated EVENT_DIVISIONS map (the events feed has no
+            # HD/AD signal). Skip events we cannot classify rather than guessing.
+            event_division = self.EVENT_DIVISIONS.get(event_id)
+            if event_division is None:
+                logger.warning(
+                    f"Skipping event '{event_name}' (ID: {event_id}) - not in EVENT_DIVISIONS; "
+                    f"classify it before importing"
+                )
+                self.stats['events_skipped_unclassified'] += 1
+                continue
+            if event_division == 'MIXED':
+                logger.warning(
+                    f"Skipping event '{event_name}' (ID: {event_id}) - MIXED division; the events "
+                    f"feed cannot determine per-team HD/AD"
+                )
+                self.stats['events_skipped_mixed'] += 1
+                continue
+
             # Update stats
             self.stats['events_scraped'] += 1
             
@@ -416,9 +445,10 @@ class Modular11EventsSpider(scrapy.Spider):
         competition = comp_div_texts[0] if len(comp_div_texts) > 0 else event_name
         division_text = comp_div_texts[1] if len(comp_div_texts) > 1 else match_bracket or 'Event'
         
-        # Derive MLS NEXT division (HD or AD) from bracket/competition
-        # Use bracket first, then competition name, then division text
-        mls_division = self._derive_tier_from_bracket(match_bracket, competition, division_text)
+        # Division comes from the curated EVENT_DIVISIONS map, not the bracket - the events
+        # feed has no HD/AD signal and the bracket (Championship/Premier) is not a division.
+        # Unclassified/MIXED events are skipped upstream, so this resolves to HD or AD.
+        mls_division = self.EVENT_DIVISIONS.get(event_id, '')
         
         # Extract teams
         teams_container = row.xpath('.//div[contains(@class, "col-sm-6")]//div[contains(@class, "container-teams-info")]')
@@ -563,85 +593,6 @@ class Modular11EventsSpider(scrapy.Spider):
         slug = re.sub(r"[^a-z0-9]+", "-", slug)
         slug = slug.strip("-")
         return f"name:{slug}" if slug else "unknown"
-    
-    def _derive_tier_from_bracket(self, bracket: str, competition: str, division_text: str) -> str:
-        """
-        Derive MLS NEXT division (HD or AD) from event bracket/competition.
-        
-        Event bracket structure:
-        - Championship = HD (top tier, best teams)
-        - Best Of = HD (top tier)
-        - HD Showcase = HD (top tier showcase)
-        - Premier = AD (second tier)
-        - Showcase = AD (second tier, developmental)
-        - AD Showcase = AD (second tier showcase)
-        - Flex = AD (second tier)
-        
-        Args:
-            bracket: Bracket type from js-match-bracket attribute (Championship, Premier, Showcase, Best Of)
-            competition: Competition text from page (may include "HD Showcase", "AD Showcase", etc.)
-            division_text: Division text from page
-            
-        Returns:
-            "HD", "AD", or empty string if cannot determine
-        """
-        # Combine all text for analysis
-        all_text = f"{bracket} {competition} {division_text}".upper()
-        comp_upper = competition.upper() if competition else ''
-        bracket_upper = bracket.upper() if bracket else ''
-        
-        # Explicit HD indicators (top tier)
-        # Check for "HD Showcase" or competition starting with "HD"
-        if 'HD SHOWCASE' in all_text or (comp_upper.startswith('HD ') and 'SHOWCASE' in comp_upper):
-            return 'HD'
-        if comp_upper == 'HD' or comp_upper.startswith('HD '):
-            return 'HD'
-        if 'CHAMPIONSHIP' in bracket_upper or 'CHAMPIONSHIP' in comp_upper:
-            return 'HD'
-        if 'BEST OF' in all_text or 'BESTOF' in all_text:
-            return 'HD'
-        if 'PRO PLAYER PATHWAY' in all_text:
-            return 'HD'
-        
-        # Explicit AD indicators (second tier)
-        # Check for "AD Showcase" or competition starting with "AD"
-        if 'AD SHOWCASE' in all_text or (comp_upper.startswith('AD ') and 'SHOWCASE' in comp_upper):
-            return 'AD'
-        if comp_upper == 'AD' or comp_upper.startswith('AD '):
-            return 'AD'
-        if 'PREMIER' in bracket_upper or 'PREMIER' in comp_upper:
-            return 'AD'
-        if 'FLEX' in comp_upper:
-            return 'AD'
-        
-        # Showcase without prefix - typically AD (second tier)
-        if 'SHOWCASE' in comp_upper and 'HD' not in all_text:
-            return 'AD'
-        
-        # Playoffs - derive from bracket or competition context
-        # If bracket is "Championship" with "Playoff" division, it's HD
-        # If bracket is "Premier" with "Playoff" division, it's AD
-        if 'PLAYOFF' in division_text.upper() or 'PLAYOFF' in comp_upper:
-            if 'CHAMPIONSHIP' in bracket_upper or 'CHAMPIONSHIP' in comp_upper:
-                return 'HD'
-            if 'PREMIER' in bracket_upper or 'PREMIER' in comp_upper:
-                return 'AD'
-            # If just "Playoffs" without context, check if competition has clues
-            if 'CHAMPIONSHIP' in all_text:
-                return 'HD'
-            if 'PREMIER' in all_text:
-                return 'AD'
-        
-        # Group Play - typically AD (second tier, group stage)
-        if 'GROUP PLAY' in all_text or 'GROUP' in comp_upper:
-            return 'AD'
-        
-        # Consolation - typically AD (second tier)
-        if 'CONSOLATION' in all_text:
-            return 'AD'
-        
-        # Default - cannot determine (use empty string like league spider)
-        return ''
     
     def _extract_club_and_team_name(self, full_name: str) -> tuple:
         """
