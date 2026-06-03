@@ -54,6 +54,20 @@ POSTIZ_API_URL = "https://api.postiz.com/public/v1"
 # Beehiiv API
 BEEHIIV_API_URL = "https://api.beehiiv.com/v2"
 
+# State spotlight infographic — rotate the featured cohort each week so the Thursday
+# graphic cycles through age/gender groups (u14 boys, u14 girls, u15 boys, ...).
+# Ages limited to cohorts with enough ranked teams nationally to be worth posting.
+STATE_COHORT_ROTATION = [(age, gender) for age in (10, 11, 12, 13, 14, 15, 16, 17, 19) for gender in ("male", "female")]
+# Fixed Monday epoch so the rotation advances exactly one cohort per week with no
+# year-boundary jump.
+STATE_COHORT_EPOCH = datetime(2026, 1, 5)
+
+
+def weekly_state_cohort(monday: datetime) -> tuple[int, str]:
+    """Return the (age, gender) cohort to feature for the week of the given Monday."""
+    weeks_since = (monday.date() - STATE_COHORT_EPOCH.date()).days // 7
+    return STATE_COHORT_ROTATION[weeks_since % len(STATE_COHORT_ROTATION)]
+
 
 # ---------------------------------------------------------------------------
 # Supabase
@@ -813,6 +827,7 @@ def generate_social_posts(data: dict) -> list[dict]:
         )
 
     # Post 3: Thursday — State spotlight or data flex
+    cohort_age, cohort_gender = weekly_state_cohort(monday)
     if data["spotlight_state"] and data["spotlight_teams"]:
         mover_list = "\n".join(
             f"{i + 1}. {t.get('team_name', '')} (+{abs(t.get('rank_change', 0))})"
@@ -832,7 +847,8 @@ def generate_social_posts(data: dict) -> list[dict]:
         {
             "text": text,
             "media_url": (
-                f"{PITCHRANK_URL}/api/infographic/state?state={data.get('spotlight_state', 'TX')}&platform=instagram"
+                f"{PITCHRANK_URL}/api/infographic/state?state={data.get('spotlight_state', 'TX')}"
+                f"&age=u{cohort_age}&gender={cohort_gender}&platform=instagram"
             ),
             "scheduled_at": thursday,
             "type": "state_spotlight" if data["spotlight_state"] else "data_flex",
