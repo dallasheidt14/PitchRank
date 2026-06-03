@@ -93,6 +93,7 @@ export async function GET(request: Request) {
   const limit = Math.min(parseInt(searchParams.get('limit') || '5') || 5, 10);
 
   const isStory = platform === 'story';
+  const isLandscape = platform === 'twitter';
   const d = platformDims(platform);
 
   const [{ climbers, fallers }, fonts] = await Promise.all([
@@ -112,7 +113,14 @@ export async function GET(request: Request) {
         title="BIGGEST MOVERS"
         subtitle={`${ageLabel} ${genderLabel} • Week of ${dateStr}`}
       />
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: isStory ? 28 : 20 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isLandscape ? 'row' : 'column',
+          flex: 1,
+          gap: isLandscape ? 24 : isStory ? 28 : 20,
+        }}
+      >
         <MoverSection title="CLIMBERS" color={COLORS.climber} teams={climbers} isStory={isStory} climber={true} />
         <MoverSection title="FALLERS" color={COLORS.faller} teams={fallers} isStory={isStory} climber={false} />
       </div>
