@@ -29,20 +29,26 @@ async function getStateTopTeams(state: string, age: string, gender: string, limi
   // get_state_rankings filters to the (state, age, gender) cohort and computes a
   // clean per-cohort rank (rank_in_state_final) before limiting — the same RPC the
   // rankings pages use. rankings_full alone has no team_name, so don't query it directly.
+  // It also returns provisional 'Not Enough Ranked Games' teams (rank null) interleaved
+  // by power; over-fetch and keep only ranked ('Active') teams so a provisional/unmatched
+  // team never appears in a public Top 5 with a fabricated rank.
   const { data } = await supabase.rpc('get_state_rankings', {
     p_state: state.toUpperCase(),
     p_age: age,
     p_gender: gender,
-    p_limit: limit,
+    p_limit: limit + 45,
     p_offset: 0,
   });
 
-  return ((data || []) as Array<Record<string, unknown>>).map((row, i) => ({
-    team_name: (row.team_name as string) ?? '',
-    club_name: (row.club_name as string) ?? '',
-    power_score: (row.power_score_final as number) ?? 0,
-    rank: (row.rank_in_state_final as number) ?? i + 1,
-  }));
+  return ((data || []) as Array<Record<string, unknown>>)
+    .filter((row) => row.status === 'Active' && row.rank_in_state_final != null)
+    .slice(0, limit)
+    .map((row) => ({
+      team_name: (row.team_name as string) ?? '',
+      club_name: (row.club_name as string) ?? '',
+      power_score: (row.power_score_final as number) ?? 0,
+      rank: row.rank_in_state_final as number,
+    }));
 }
 
 // Map state codes to full names
@@ -59,6 +65,7 @@ const STATE_NAMES: Record<string, string> = {
   VA: 'VIRGINIA',
   PA: 'PENNSYLVANIA',
   OH: 'OHIO',
+  OK: 'OKLAHOMA',
   NC: 'NORTH CAROLINA',
   MI: 'MICHIGAN',
   AZ: 'ARIZONA',

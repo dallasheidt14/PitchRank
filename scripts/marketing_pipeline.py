@@ -58,6 +58,10 @@ BEEHIIV_API_URL = "https://api.beehiiv.com/v2"
 # graphic cycles through age/gender groups (u14 boys, u14 girls, u15 boys, ...).
 # Ages limited to cohorts with enough ranked teams nationally to be worth posting.
 STATE_COHORT_ROTATION = [(age, gender) for age in (10, 11, 12, 13, 14, 15, 16, 17, 19) for gender in ("male", "female")]
+# Restrict the weekly state spotlight to deep states, where every age/gender cohort
+# has enough ranked teams to fill a clean Top 5. Small states surface provisional
+# ("Not Enough Ranked Games") teams, which we don't want in a public graphic.
+SPOTLIGHT_STATES = ("CA", "TX", "AZ", "FL", "PA", "NJ", "OK", "OH")
 # Fixed Monday epoch so the rotation advances exactly one cohort per week with no
 # year-boundary jump.
 STATE_COHORT_EPOCH = datetime(2026, 1, 5)
@@ -205,7 +209,7 @@ def fetch_ranking_highlights(supabase) -> dict:
             state_movement: dict[str, int] = {}
             for team in state_resp.data:
                 st = team.get("state_code") or team.get("state", "")
-                if st:
+                if st and st in SPOTLIGHT_STATES:
                     state_movement[st] = state_movement.get(st, 0) + abs(team.get("rank_change", 0))
             if state_movement:
                 spotlight_state = max(state_movement, key=state_movement.get)
