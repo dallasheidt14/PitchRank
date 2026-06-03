@@ -72,7 +72,9 @@ def main() -> int:
             failures.append(f"{path} -> 200 but content-type '{ctype}' (expected an image)")
             continue
         if size < args.min_bytes:
-            failures.append(f"{path} -> 200 image but only {size} bytes (< {args.min_bytes}; 0-byte Satori regression?)")
+            failures.append(
+                f"{path} -> 200 image but only {size} bytes (< {args.min_bytes}; 0-byte Satori regression?)"
+            )
             continue
 
         print(f"OK   {size:>8,} bytes       {path}")
