@@ -1,0 +1,23 @@
+{
+  "week": "2026-W24",
+  "posts": [
+    {
+      "topic": "Pay-to-play cost backlash",
+      "hook": "React to the recurring pay-to-play cost story; flip it to whether results match the spend.",
+      "suggested_tweet": "Pay-to-play is back in the headlines: $5K to $20K a year per kid for club soccer. The question no club will answer - are you paying for results, or for the logo? Put your team next to the alternatives and see.\n\npitchrank.io/rankings",
+      "source_url": "https://phys.org/news/2026-05-pay-play-prices-young-soccer.html"
+    },
+    {
+      "topic": "ECNL vs MLS NEXT league debate",
+      "hook": "The perennial 'which league is better' debate; PitchRank ranks teams, not leagues, and the intra-league gap is the story.",
+      "suggested_tweet": "Every 'ECNL vs MLS NEXT, which is better' guide ranks the leagues. None rank the teams. The gap inside each league is bigger than the gap between them. We put every team on one scale, whatever the badge.\n\npitchrank.io/rankings",
+      "source_url": "https://myclubscout.com/blog/mls-next-vs-ecnl"
+    },
+    {
+      "topic": "Tryout season club selection",
+      "hook": "June tryout season; chase results over reputation, compare clubs before committing.",
+      "suggested_tweet": "Tryout season advice that holds up: stop chasing the league name. A state-league team can outplay an ECNL team at the same age - the results show it, the logo doesn't. Compare before you commit.\n\npitchrank.io/rankings",
+      "source_url": "https://www.sparkplayerdevelopment.com/articles/before-you-chase-ecnl-or-mls-next-read-this-a-guide-for-parents"
+    }
+  ]
+}
