@@ -134,7 +134,7 @@ export async function GET(request: Request) {
         {team.team_name}
       </div>
       <div style={{ fontSize: isStory ? 24 : 20, color: 'rgba(255,255,255,0.7)', marginBottom: 10 }}>
-        {`${team.club_name} • ${team.state_code}`}
+        {[team.club_name, team.state_code].filter(Boolean).join(' • ')}
       </div>
 
       {/* Change Badge */}

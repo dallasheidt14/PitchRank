@@ -157,7 +157,9 @@ export async function GET(request: Request) {
                   {team.team_name}
                 </div>
                 <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                  {`${team.club_name} • ${team.state_code} • #${team.current_rank}`}
+                  {[team.club_name, team.state_code, team.current_rank != null ? `#${team.current_rank}` : null]
+                    .filter(Boolean)
+                    .join(' • ')}
                 </div>
               </div>
             </div>
@@ -207,7 +209,9 @@ export async function GET(request: Request) {
                   {team.team_name}
                 </div>
                 <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                  {`${team.club_name} • ${team.state_code} • #${team.current_rank}`}
+                  {[team.club_name, team.state_code, team.current_rank != null ? `#${team.current_rank}` : null]
+                    .filter(Boolean)
+                    .join(' • ')}
                 </div>
               </div>
             </div>
