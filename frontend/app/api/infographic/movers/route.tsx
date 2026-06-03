@@ -108,7 +108,7 @@ export async function GET(request: Request) {
           BIGGEST MOVERS
         </div>
         <div style={{ fontSize: isStory ? 22 : 18, color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
-          {ageLabel} {genderLabel} • Week of {dateStr}
+          {`${ageLabel} ${genderLabel} • Week of ${dateStr}`}
         </div>
       </div>
 
@@ -150,14 +150,14 @@ export async function GET(request: Request) {
                   minWidth: 70,
                 }}
               >
-                +{team.rank_change}
+                {`+${team.rank_change}`}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
                   {team.team_name}
                 </div>
                 <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                  {team.club_name} • {team.state_code} • #{team.current_rank}
+                  {`${team.club_name} • ${team.state_code} • #${team.current_rank}`}
                 </div>
               </div>
             </div>
@@ -200,14 +200,14 @@ export async function GET(request: Request) {
                   minWidth: 70,
                 }}
               >
-                {team.rank_change}
+                {`${team.rank_change}`}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ fontSize: isStory ? 18 : 16, color: BRAND_COLORS.brightWhite, fontWeight: 'bold' }}>
                   {team.team_name}
                 </div>
                 <div style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.7)' }}>
-                  {team.club_name} • {team.state_code} • #{team.current_rank}
+                  {`${team.club_name} • ${team.state_code} • #${team.current_rank}`}
                 </div>
               </div>
             </div>

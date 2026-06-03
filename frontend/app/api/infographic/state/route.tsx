@@ -112,10 +112,10 @@ export async function GET(request: Request) {
             marginTop: 10,
           }}
         >
-          {stateName} RANKINGS
+          {`${stateName} RANKINGS`}
         </div>
         <div style={{ fontSize: isStory ? 24 : 20, color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
-          Top 5 Teams • Week of {dateStr}
+          {`Top 5 Teams • Week of ${dateStr}`}
         </div>
       </div>
 
@@ -142,7 +142,7 @@ export async function GET(request: Request) {
                 minWidth: isStory ? 60 : 50,
               }}
             >
-              {i + 1}
+              {`${i + 1}`}
             </div>
 
             {/* Team Info */}
@@ -151,7 +151,7 @@ export async function GET(request: Request) {
                 {team.team_name}
               </div>
               <div style={{ fontSize: isStory ? 16 : 14, color: 'rgba(255,255,255,0.6)' }}>
-                {team.club_name} • National #{team.current_rank}
+                {`${team.club_name} • National #${team.current_rank}`}
               </div>
             </div>
 
@@ -178,7 +178,7 @@ export async function GET(request: Request) {
       {/* Footer */}
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: isStory ? 40 : 20 }}>
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
-          pitchrank.io/rankings • #{stateName.toLowerCase().replace(' ', '')}soccer
+          {`pitchrank.io/rankings • #${stateName.toLowerCase().replace(' ', '')}soccer`}
         </div>
       </div>
     </div>,

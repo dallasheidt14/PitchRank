@@ -117,7 +117,7 @@ export async function GET(request: Request) {
         }}
       >
         <div style={{ fontSize: isStory ? 64 : 56, fontWeight: 'bold', color: BRAND_COLORS.darkGreen }}>
-          #{team.current_rank}
+          {`#${team.current_rank}`}
         </div>
       </div>
 
@@ -134,7 +134,7 @@ export async function GET(request: Request) {
         {team.team_name}
       </div>
       <div style={{ fontSize: isStory ? 24 : 20, color: 'rgba(255,255,255,0.7)', marginBottom: 10 }}>
-        {team.club_name} • {team.state_code}
+        {`${team.club_name} • ${team.state_code}`}
       </div>
 
       {/* Change Badge */}
@@ -149,7 +149,7 @@ export async function GET(request: Request) {
         }}
       >
         <div style={{ fontSize: isStory ? 28 : 24, fontWeight: 'bold', color: BRAND_COLORS.climberGreen }}>
-          ↑ {Math.abs(team.rank_change)} spots this week
+          {`↑ ${Math.abs(team.rank_change)} spots this week`}
         </div>
       </div>
 
@@ -192,7 +192,7 @@ export async function GET(request: Request) {
 
       {/* Footer */}
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: isStory ? 50 : 30 }}>
-        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>pitchrank.io • Week of {dateStr}</div>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>{`pitchrank.io • Week of ${dateStr}`}</div>
       </div>
     </div>,
     {
