@@ -51,3 +51,8 @@ export const LOGO_URL = `${ORIGIN}/logos/logo-primary.png`;
 // Satori rejects `height="auto"` and silently fails the entire ImageResponse.
 export const LOGO_WIDTH = { default: 280, story: 360 } as const;
 export const LOGO_HEIGHT = { default: 49, story: 63 } as const;
+
+// Cache the rendered PNGs at the CDN. The underlying rankings data changes weekly,
+// so a 1h shared cache (with day-long stale-while-revalidate) avoids a cold RPC +
+// font fetch + Satori render on every Postiz/Beehiiv/link-preview fetch of the same URL.
+export const INFOGRAPHIC_CACHE_CONTROL = 'public, s-maxage=3600, stale-while-revalidate=86400';

@@ -1,0 +1,37 @@
+name: Smoke — Infographics
+
+# Catches the @vercel/og "0-byte" Satori regression (route returns HTTP 200 with an
+# empty body) before it silently breaks the Postiz social drafts. Read-only GETs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to smoke test (e.g. a Vercel preview URL)'
+        required: false
+        default: 'https://pitchrank.io'
+  schedule:
+    # Daily; offset minute to avoid GitHub's top-of-hour cron congestion.
+    - cron: '17 13 * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Smoke test infographic endpoints
+        env:
+          # Hoist the input into env (never interpolate ${{ }} into a run block).
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://pitchrank.io' }}
+        run: python scripts/smoke_infographics.py --base-url "$BASE_URL"

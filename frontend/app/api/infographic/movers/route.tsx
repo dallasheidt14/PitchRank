@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
-import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT } from '../_shared/assets';
+import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 
 export const runtime = 'edge';
 
@@ -224,6 +224,9 @@ export async function GET(request: Request) {
       width: dimensions.width,
       height: dimensions.height,
       fonts: await loadBrandFonts(),
+      headers: {
+        'Cache-Control': INFOGRAPHIC_CACHE_CONTROL,
+      },
     }
   );
 }
