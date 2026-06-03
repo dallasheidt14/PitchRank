@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
-import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT } from '../_shared/assets';
+import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 
 export const runtime = 'edge';
 
@@ -17,24 +17,38 @@ interface StateTeam {
   team_name: string;
   club_name: string;
   power_score: number;
-  current_rank: number;
+  rank: number;
 }
 
-async function getStateTopTeams(state: string, limit: number = 5): Promise<StateTeam[]> {
+async function getStateTopTeams(state: string, age: string, gender: string, limit: number = 5): Promise<StateTeam[]> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { data } = await supabase
-    .from('rankings_full')
-    .select('team_name, club_name, power_score, current_rank')
-    .eq('state_code', state)
-    .neq('status', 'Not Enough Ranked Games')
-    .order('power_score', { ascending: false })
-    .limit(limit);
+  // get_state_rankings filters to the (state, age, gender) cohort and computes a
+  // clean per-cohort rank (rank_in_state_final) before limiting — the same RPC the
+  // rankings pages use. rankings_full alone has no team_name, so don't query it directly.
+  // It also returns provisional 'Not Enough Ranked Games' teams (rank null) interleaved
+  // by power; over-fetch and keep only ranked ('Active') teams so a provisional/unmatched
+  // team never appears in a public Top 5 with a fabricated rank.
+  const { data } = await supabase.rpc('get_state_rankings', {
+    p_state: state.toUpperCase(),
+    p_age: age,
+    p_gender: gender,
+    p_limit: limit + 45,
+    p_offset: 0,
+  });
 
-  return (data || []) as StateTeam[];
+  return ((data || []) as Array<Record<string, unknown>>)
+    .filter((row) => row.status === 'Active' && row.rank_in_state_final != null)
+    .slice(0, limit)
+    .map((row) => ({
+      team_name: (row.team_name as string) ?? '',
+      club_name: (row.club_name as string) ?? '',
+      power_score: (row.power_score_final as number) ?? 0,
+      rank: row.rank_in_state_final as number,
+    }));
 }
 
 // Map state codes to full names
@@ -51,6 +65,7 @@ const STATE_NAMES: Record<string, string> = {
   VA: 'VIRGINIA',
   PA: 'PENNSYLVANIA',
   OH: 'OHIO',
+  OK: 'OKLAHOMA',
   NC: 'NORTH CAROLINA',
   MI: 'MICHIGAN',
   AZ: 'ARIZONA',
@@ -68,7 +83,15 @@ const STATE_NAMES: Record<string, string> = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const state = searchParams.get('state') || 'TX';
+  const ageParam = searchParams.get('age') || 'u14';
+  const genderParam = searchParams.get('gender') || 'male';
   const platform = searchParams.get('platform') || 'instagram';
+
+  // Normalize cohort inputs: age -> digits ("u14" | "14" -> "14"), gender -> 'M' | 'F'
+  // (get_state_rankings maps 'M'/'F' to Male/Female internally).
+  const age = ageParam.replace(/[^0-9]/g, '');
+  const isGirls = /^(f|g)/i.test(genderParam);
+  const gender = isGirls ? 'F' : 'M';
 
   const dimensions = {
     instagram: { width: 1080, height: 1080 },
@@ -76,8 +99,10 @@ export async function GET(request: Request) {
     story: { width: 1080, height: 1920 },
   }[platform] || { width: 1080, height: 1080 };
 
-  const teams = await getStateTopTeams(state);
+  const teams = await getStateTopTeams(state, age, gender);
   const stateName = STATE_NAMES[state] || state;
+  const ageLabel = `U${age}`;
+  const genderLabel = isGirls ? 'GIRLS' : 'BOYS';
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const isStory = platform === 'story';
   const isSquare = platform === 'instagram';
@@ -112,10 +137,10 @@ export async function GET(request: Request) {
             marginTop: 10,
           }}
         >
-          {stateName} RANKINGS
+          {`${stateName} RANKINGS`}
         </div>
         <div style={{ fontSize: isStory ? 24 : 20, color: 'rgba(255,255,255,0.8)', marginTop: 8 }}>
-          Top 5 Teams • Week of {dateStr}
+          {`${ageLabel} ${genderLabel} • Top 5 • Week of ${dateStr}`}
         </div>
       </div>
 
@@ -142,7 +167,7 @@ export async function GET(request: Request) {
                 minWidth: isStory ? 60 : 50,
               }}
             >
-              {i + 1}
+              {`${team.rank}`}
             </div>
 
             {/* Team Info */}
@@ -150,9 +175,7 @@ export async function GET(request: Request) {
               <div style={{ fontSize: isStory ? 22 : 18, fontWeight: 'bold', color: BRAND_COLORS.brightWhite }}>
                 {team.team_name}
               </div>
-              <div style={{ fontSize: isStory ? 16 : 14, color: 'rgba(255,255,255,0.6)' }}>
-                {team.club_name} • National #{team.current_rank}
-              </div>
+              <div style={{ fontSize: isStory ? 16 : 14, color: 'rgba(255,255,255,0.6)' }}>{team.club_name}</div>
             </div>
 
             {/* PowerScore Badge */}
@@ -178,7 +201,7 @@ export async function GET(request: Request) {
       {/* Footer */}
       <div style={{ display: 'flex', justifyContent: 'center', marginTop: isStory ? 40 : 20 }}>
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>
-          pitchrank.io/rankings • #{stateName.toLowerCase().replace(' ', '')}soccer
+          {`pitchrank.io/rankings • #${stateName.toLowerCase().replace(' ', '')}soccer`}
         </div>
       </div>
     </div>,
@@ -186,6 +209,9 @@ export async function GET(request: Request) {
       width: dimensions.width,
       height: dimensions.height,
       fonts: await loadBrandFonts(),
+      headers: {
+        'Cache-Control': INFOGRAPHIC_CACHE_CONTROL,
+      },
     }
   );
 }
