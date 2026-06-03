@@ -1,16 +1,10 @@
 import { ImageResponse } from 'next/og';
 import { createClient } from '@supabase/supabase-js';
-import { loadBrandFonts, LOGO_URL, LOGO_WIDTH, LOGO_HEIGHT, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
+import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
+import { COLORS, platformDims, formatScore, formatRecord } from '../_shared/theme';
+import { Frame, Header, StatBlock } from '../_shared/components';
 
 export const runtime = 'edge';
-
-const BRAND_COLORS = {
-  forestGreen: '#1B4D3E',
-  darkGreen: '#0D2818',
-  brightWhite: '#FFFFFF',
-  gold: '#FFD700',
-  climberGreen: '#4CAF50',
-};
 
 interface SpotlightTeam {
   team_name: string;
@@ -26,11 +20,7 @@ interface SpotlightTeam {
 }
 
 async function getSpotlightTeam(): Promise<SpotlightTeam | null> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
-
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   const { data } = await supabase.rpc('get_biggest_movers', {
     p_days: 7,
     p_limit: 1,
@@ -38,170 +28,157 @@ async function getSpotlightTeam(): Promise<SpotlightTeam | null> {
     p_age_group: null,
     p_gender: null,
   });
-
   if (!data || data.length === 0) return null;
-  return data[0] as SpotlightTeam;
+  const top = data[0] as Pick<
+    SpotlightTeam,
+    'team_name' | 'club_name' | 'state_code' | 'rank_change' | 'current_rank'
+  > & {
+    team_id: string;
+  };
+
+  // get_biggest_movers returns only rank fields — enrich record / score / win% from the
+  // view by team_id. win_percentage arrives as a 0-100 numeric string (PostgREST).
+  const { data: statsRows } = await supabase
+    .from('state_rankings_view')
+    .select('power_score_final, total_wins, total_losses, total_draws, win_percentage')
+    .eq('team_id_master', top.team_id)
+    .limit(1);
+  const s = (statsRows?.[0] as Record<string, unknown> | undefined) ?? undefined;
+
+  return {
+    team_name: top.team_name,
+    club_name: top.club_name,
+    state_code: top.state_code,
+    rank_change: top.rank_change,
+    current_rank: top.current_rank,
+    power_score: (s?.power_score_final as number | undefined) ?? undefined,
+    wins: (s?.total_wins as number | undefined) ?? undefined,
+    losses: (s?.total_losses as number | undefined) ?? undefined,
+    draws: (s?.total_draws as number | undefined) ?? undefined,
+    win_pct: s?.win_percentage != null ? Number(s.win_percentage) : undefined, // 0-100
+  };
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+  const { origin, searchParams } = new URL(request.url);
   const platform = searchParams.get('platform') || 'instagram';
-
-  const dimensions = {
-    instagram: { width: 1080, height: 1080 },
-    twitter: { width: 1200, height: 675 },
-    story: { width: 1080, height: 1920 },
-  }[platform] || { width: 1080, height: 1080 };
-
-  const team = await getSpotlightTeam();
-
-  if (!team) {
-    return new Response('No team data available', { status: 404 });
-  }
-
-  const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const isStory = platform === 'story';
-  const isSquare = platform === 'instagram';
-  const record = `${team.wins ?? 0}-${team.losses ?? 0}-${team.draws ?? 0}`;
-  const powerScore = team.power_score ? team.power_score.toFixed(1) : '--';
-  const winPct = team.win_pct ? `${(team.win_pct * 100).toFixed(0)}%` : '--';
+  const d = platformDims(platform);
+
+  const [team, fonts] = await Promise.all([getSpotlightTeam(), loadBrandFonts(origin)]);
+  if (!team) return new Response('No team data available', { status: 404 });
+
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const clubLine = [team.club_name, team.state_code].filter(Boolean).join(' • ');
+  const record = team.wins != null ? formatRecord(team.wins, team.losses, team.draws) : '--';
+  const winPct = team.win_pct != null ? `${Math.round(team.win_pct)}%` : '--';
 
   return new ImageResponse(
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: `linear-gradient(135deg, ${BRAND_COLORS.forestGreen} 0%, ${BRAND_COLORS.darkGreen} 100%)`,
-        padding: isStory ? 60 : 50,
-        fontFamily: 'DM Sans, sans-serif',
-      }}
-    >
-      {/* Header */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: isStory ? 50 : 30 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={LOGO_URL}
-          width={isStory ? LOGO_WIDTH.story : LOGO_WIDTH.default}
-          height={isStory ? LOGO_HEIGHT.story : LOGO_HEIGHT.default}
-          alt=""
-        />
+    <Frame isStory={isStory}>
+      <Header origin={origin} isStory={isStory} title="TEAM OF THE WEEK" subtitle={`Week of ${dateStr}`} />
+
+      <div
+        style={{ display: 'flex', flexDirection: 'column', flex: 1, alignItems: 'center', justifyContent: 'center' }}
+      >
+        {/* Rank badge */}
         <div
           style={{
-            fontSize: isStory ? 36 : isSquare ? 30 : 26,
-            color: 'rgba(255,255,255,0.8)',
-            fontWeight: 'bold',
-            fontFamily: 'Oswald',
-            marginTop: 8,
-            letterSpacing: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: isStory ? 180 : 150,
+            height: isStory ? 180 : 150,
+            borderRadius: '50%',
+            background: COLORS.electricYellow,
+            marginBottom: 28,
           }}
         >
-          TEAM OF THE WEEK
-        </div>
-      </div>
-
-      {/* Rank Badge */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: isStory ? 160 : 140,
-          height: isStory ? 160 : 140,
-          borderRadius: '50%',
-          background: BRAND_COLORS.gold,
-          marginBottom: 30,
-        }}
-      >
-        <div style={{ fontSize: isStory ? 64 : 56, fontWeight: 'bold', color: BRAND_COLORS.darkGreen }}>
-          {`#${team.current_rank}`}
-        </div>
-      </div>
-
-      {/* Team Name */}
-      <div
-        style={{
-          fontSize: isStory ? 44 : isSquare ? 40 : 34,
-          fontWeight: 'bold',
-          color: BRAND_COLORS.brightWhite,
-          textAlign: 'center',
-          marginBottom: 8,
-        }}
-      >
-        {team.team_name}
-      </div>
-      <div style={{ fontSize: isStory ? 24 : 20, color: 'rgba(255,255,255,0.7)', marginBottom: 10 }}>
-        {[team.club_name, team.state_code].filter(Boolean).join(' • ')}
-      </div>
-
-      {/* Change Badge */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          background: 'rgba(76, 175, 80, 0.2)',
-          borderRadius: 20,
-          padding: '8px 24px',
-          marginBottom: isStory ? 50 : 30,
-        }}
-      >
-        <div style={{ fontSize: isStory ? 28 : 24, fontWeight: 'bold', color: BRAND_COLORS.climberGreen }}>
-          {`↑ ${Math.abs(team.rank_change)} spots this week`}
-        </div>
-      </div>
-
-      {/* Stats Row */}
-      <div style={{ display: 'flex', gap: isStory ? 40 : 30 }}>
-        {[
-          { label: 'RECORD', value: record },
-          { label: 'POWERSCORE', value: powerScore, highlight: true },
-          { label: 'WIN %', value: winPct },
-        ].map((stat, i) => (
           <div
-            key={i}
             style={{
               display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              background: stat.highlight ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255,255,255,0.1)',
-              borderRadius: 12,
-              padding: isStory ? '20px 30px' : '16px 24px',
-              minWidth: isStory ? 140 : 120,
+              fontFamily: 'Oswald',
+              fontWeight: 700,
+              fontSize: isStory ? 76 : 64,
+              color: COLORS.darkGreen,
             }}
           >
-            <div
-              style={{
-                fontSize: isStory ? 32 : 28,
-                fontWeight: 'bold',
-                color: stat.highlight ? BRAND_COLORS.gold : BRAND_COLORS.brightWhite,
-              }}
-            >
-              {stat.value}
-            </div>
-            <div
-              style={{ fontSize: isStory ? 14 : 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, letterSpacing: 1 }}
-            >
-              {stat.label}
-            </div>
+            {`#${team.current_rank}`}
           </div>
-        ))}
+        </div>
+
+        {/* Team name */}
+        <div
+          style={{
+            display: 'flex',
+            fontFamily: 'Oswald',
+            fontWeight: 700,
+            fontSize: isStory ? 54 : 44,
+            color: COLORS.brightWhite,
+            textAlign: 'center',
+            maxWidth: '92%',
+          }}
+        >
+          {team.team_name.toUpperCase()}
+        </div>
+        <div style={{ display: 'flex', fontSize: isStory ? 26 : 22, color: COLORS.club, marginTop: 8 }}>{clubLine}</div>
+
+        {/* Change pill */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: 'rgba(123,227,139,0.18)',
+            borderRadius: 999,
+            padding: '10px 26px',
+            marginTop: 26,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              fontWeight: 700,
+              fontSize: isStory ? 26 : 22,
+              color: COLORS.climber,
+              letterSpacing: 1,
+            }}
+          >
+            {`+${Math.abs(team.rank_change)} SPOTS THIS WEEK`}
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div style={{ display: 'flex', gap: isStory ? 56 : 44, marginTop: 40 }}>
+          <StatBlock
+            value={record}
+            label="RECORD"
+            color={COLORS.brightWhite}
+            isStory={isStory}
+            width={isStory ? 150 : 130}
+          />
+          <StatBlock
+            value={formatScore(team.power_score)}
+            label="SCORE"
+            color={COLORS.electricYellow}
+            isStory={isStory}
+            width={isStory ? 150 : 130}
+          />
+          <StatBlock
+            value={winPct}
+            label="WIN %"
+            color={COLORS.brightWhite}
+            isStory={isStory}
+            width={isStory ? 150 : 130}
+          />
+        </div>
       </div>
 
-      {/* Footer */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: isStory ? 50 : 30 }}>
-        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)' }}>{`pitchrank.io • Week of ${dateStr}`}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: isStory ? 28 : 18 }}>
+        <div style={{ display: 'flex', height: 2, background: COLORS.divider, marginBottom: 16 }} />
+        <div style={{ display: 'flex', justifyContent: 'center', fontSize: isStory ? 20 : 17, color: COLORS.club }}>
+          pitchrank.io/rankings
+        </div>
       </div>
-    </div>,
-    {
-      width: dimensions.width,
-      height: dimensions.height,
-      fonts: await loadBrandFonts(),
-      headers: {
-        'Cache-Control': INFOGRAPHIC_CACHE_CONTROL,
-      },
-    }
+    </Frame>,
+    { width: d.width, height: d.height, fonts, headers: { 'Cache-Control': INFOGRAPHIC_CACHE_CONTROL } }
   );
 }
