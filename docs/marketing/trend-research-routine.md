@@ -60,6 +60,18 @@ Steps:
      to pitchrank.io/rankings.
    - Match PitchRank brand voice (see Brand Voice section below).
    - Have a real `source_url` from the /last30days research output.
+   - SOURCE MUST BE RECENT (non-negotiable). The `source_url` must be published
+     within the last ~30 days - open it and verify the article's publish date,
+     don't just confirm the link resolves. A "just / now / this week" framing on
+     an older announcement reads as a stale reaction. (Codex caught this on W23:
+     a Mar 9 expansion announcement cited on a June post.)
+   - EVERY STAT MUST BE IN THE SOURCE (non-negotiable). Every number,
+     percentage, date, or factual claim in the tweet must appear in that entry's
+     single `source_url`. Do NOT blend figures pulled from different search
+     results into one post that cites only one of them. If a stat isn't in the
+     source you're citing, drop it, soften it, or cite the source that carries
+     it. (Codex caught a "70% of refs cite abuse" stat absent from the attached
+     source.)
 
 6. If you can't produce 3 distinct, on-brand posts from the picked topic (rare
    topic, slow week), fall back: ask yourself "what's the single most-discussed
@@ -123,6 +135,9 @@ Apply all PitchRank brand rules:
 
 - Never commit research that fabricates engagement numbers or invents source URLs.
 - Never invent quotes or attribute statements to real people.
+- Never cite a `source_url` published outside the last ~30 days (see Step 5).
+- Never put a stat/number in a tweet that isn't in that entry's `source_url`
+  (see Step 5). Don't blend figures from multiple results under one citation.
 - Never let a post's subject be senior/pro soccer. Pro news is a hook only;
   the post must land on youth (see Step 5). If a story has no honest youth
   angle, drop it and pick another.
