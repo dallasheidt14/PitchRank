@@ -47,6 +47,15 @@ Steps:
    - Be a single X post under 280 chars (no thread).
    - Reference what people are actually saying or arguing about this week,
      not a generic evergreen take.
+   - CENTER A YOUTH ANGLE (non-negotiable). PitchRank ranks youth soccer, so
+     every post's subject must be a youth team, youth league, age group, youth
+     national team, or youth rankings. Pro/senior storylines (the World Cup,
+     senior transfers, MLS first-team signings) may be used ONLY as the opening
+     hook - never the subject. Always pivot to the youth teams/players behind
+     the story and land on pitchrank.io/rankings. Practical test: the post
+     should contain a youth signal ("youth", an age group like U-15/U-19,
+     "club", a youth league/national team). If the only honest angle is pro,
+     pick a different story.
    - End with the topic's `fallback_cta` or a tighter brand-on CTA pointing
      to pitchrank.io/rankings.
    - Match PitchRank brand voice (see Brand Voice section below).
@@ -114,6 +123,9 @@ Apply all PitchRank brand rules:
 
 - Never commit research that fabricates engagement numbers or invents source URLs.
 - Never invent quotes or attribute statements to real people.
+- Never let a post's subject be senior/pro soccer. Pro news is a hook only;
+  the post must land on youth (see Step 5). If a story has no honest youth
+  angle, drop it and pick another.
 - If /last30days returns nothing useful for the topic, fall back per Step 6
   instead of padding with generic evergreen content.
 - If the fallback also fails, leave the file uncreated. The pipeline handles

@@ -71,9 +71,9 @@
   },
   {
     "key": "pro-pathway-academy",
-    "label": "Pre-Academy, MLS NEXT Pro, pro pathway stories",
-    "search_prompt": "Youth-to-pro pathway news in the last 30 days: MLS NEXT Pro signings, academy contracts, homegrown players, USL Academy, USYNT call-ups, European trial trips. Reddit, X, soccer media, club press.",
-    "voice_angle": "The pro pathway is narrow and lopsided. PitchRank shows which youth teams are genuinely producing — not which clubs hire the best PR.",
+    "label": "Pro pathway stories, told from the youth side",
+    "search_prompt": "Youth-to-pro pathway news in the last 30 days, focused on the YOUTH end: MLS NEXT and academy prospects, U-15/U-17/U-19 academy standouts, youth national team (U-17/U-19/U-20) call-ups and camps, teenage homegrown signings, youth players earning trials abroad. Use any senior/pro milestone (the World Cup, first-team transfers) ONLY as a hook to talk about the youth teams that produced them. Reddit (r/youthsoccer), X, soccer media, club press. What are parents and coaches debating about how kids actually reach the next level?",
+    "voice_angle": "The pro pathway is narrow and lopsided, and it starts in youth leagues. PitchRank shows which YOUTH teams are genuinely producing the players who reach academies and national teams — not which clubs hire the best PR.",
     "fallback_cta": "See which youth clubs actually produce: pitchrank.io/rankings"
   },
   {
