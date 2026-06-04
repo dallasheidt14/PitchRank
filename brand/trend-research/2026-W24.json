@@ -2,22 +2,22 @@
   "week": "2026-W24",
   "posts": [
     {
-      "topic": "Pay-to-play cost backlash",
-      "hook": "React to the recurring pay-to-play cost story; flip it to whether results match the spend.",
-      "suggested_tweet": "Pay-to-play is back in the headlines: $5K to $20K a year per kid for club soccer. The question no club will answer - are you paying for results, or for the logo? Put your team next to the alternatives and see.\n\npitchrank.io/rankings",
-      "source_url": "https://phys.org/news/2026-05-pay-play-prices-young-soccer.html"
+      "topic": "MLS NEXT Cup 2026 results",
+      "hook": "MLS NEXT Cup just concluded (May 23-31, Salt Lake City). Brand opinion, not a sourced stat: did winners earn it or ride a soft bracket - margin, SOS, season-long signal.",
+      "suggested_tweet": "MLS NEXT Cup just crowned its 2026 champions. Trophies grab the headlines - but did the winners actually outplay the field, or ride a soft bracket? Margin, strength of schedule, and season-long results tell you who's really elite.\n\npitchrank.io/rankings",
+      "source_url": "https://www.mlssoccer.com/mlsnext/news/2026-mls-next-cup-presented-by-allstate-kicks-off-may-23-with-top-clubs-battling-for-titles"
     },
     {
-      "topic": "ECNL vs MLS NEXT league debate",
-      "hook": "The perennial 'which league is better' debate; PitchRank ranks teams, not leagues, and the intra-league gap is the story.",
-      "suggested_tweet": "Every 'ECNL vs MLS NEXT, which is better' guide ranks the leagues. None rank the teams. The gap inside each league is bigger than the gap between them. We put every team on one scale, whatever the badge.\n\npitchrank.io/rankings",
-      "source_url": "https://myclubscout.com/blog/mls-next-vs-ecnl"
+      "topic": "ECNL National Finals preview",
+      "hook": "ECNL National Playoffs/Finals run late June (Girls U18/19 Jun 24-27; Boys Jun 25-Jul 2). Brand opinion: brackets seeded on reputation, season-long data may disagree.",
+      "suggested_tweet": "ECNL National Finals kick off in late June. The brackets are seeded on conference reputation - but the season-long results don't always agree. See which teams the data ranks highest heading into Finals.\n\npitchrank.io/rankings",
+      "source_url": "https://theecnl.com/sports/2026/3/7/26%20G%20PLAYOFFS.aspx"
     },
     {
-      "topic": "Tryout season club selection",
-      "hook": "June tryout season; chase results over reputation, compare clubs before committing.",
-      "suggested_tweet": "Tryout season advice that holds up: stop chasing the league name. A state-league team can outplay an ECNL team at the same age - the results show it, the logo doesn't. Compare before you commit.\n\npitchrank.io/rankings",
-      "source_url": "https://www.sparkplayerdevelopment.com/articles/before-you-chase-ecnl-or-mls-next-read-this-a-guide-for-parents"
+      "topic": "Referee shortage and sideline abuse",
+      "hook": "Trust/community 'good of the game' post (lighter rankings tie). Claims align with the US Soccer abuse-prevention policy source; no precise stat attributed. Soft brand sign-off.",
+      "suggested_tweet": "Summer tournaments are here, and youth soccer is short on refs - sideline abuse is a big reason they quit, which is why US Soccer rolled out a referee abuse-prevention policy. Be the sideline that keeps them in the game.\n\npitchrank.io",
+      "source_url": "https://www.soccerparenting.com/blog/referee-abuse-prevention-policy/"
     }
   ]
 }
