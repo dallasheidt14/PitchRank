@@ -169,17 +169,10 @@ export function computeLeadConversion(
  * denominator and reported separately. Percent is null when leads <
  * MIN_COHORT_SAMPLE so the UI can show "not enough data yet".
  *
- * Reuses the subscription lists already fetched by getSubscriptionMetrics
- * (active + trialing + past_due + cohort) — no extra Stripe calls.
- *
- * Coverage caveat: the "trialed" set is only as complete as the passed lists.
- * Currently-trialing and converted-to-paid trials are caught by the unbounded
- * active/trialing/past_due lists, but a trial that was started AND fully
- * cancelled lives only in `cohort`, which is bounded to the last
- * COHORT_LOOKBACK_DAYS of subscription creations. So a cancelled trial older
- * than that window is missed from the numerator while still counting in the
- * denominator (lead emails are unbounded). Same window limitation as
- * computeConversion.
+ * The caller passes the unbounded status lists that cover every bucket a
+ * trialer can land in — active + trialing + past_due + canceled — so the
+ * "trialed" set is date-complete: a lead who trialed and cancelled long ago is
+ * still counted, with no time-window blind spot.
  */
 export function computeLeadToTrial(
   leadEmails: Set<string>,
@@ -526,10 +519,11 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, cohort, reportCardData] = await Promise.all([
+  const [active, trialing, pastDue, canceled, cohort, reportCardData] = await Promise.all([
     safeList({ status: 'active' }, 'active subscriptions', errors),
     safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
     safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
+    safeList({ status: 'canceled' }, 'canceled subscriptions', errors),
     safeList(
       { status: 'all', created: { gte: nowSec - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY } },
       'conversion cohort',
@@ -544,15 +538,15 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const pastDueOut = buildPastDue(pastDue);
   const conversion = computeConversion(cohort, nowSec);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active, pastDue);
-  // Union all four lists so "ever trialed" catches currently-trialing,
-  // converted-to-paid, AND cancelled trials. cohort overlaps the others but the
-  // Set dedup makes that harmless; it's the only list that surfaces cancelled
-  // trials (within COHORT_LOOKBACK_DAYS — see computeLeadToTrial caveat).
+  // Union the unbounded status lists so "ever trialed" is date-complete:
+  // currently-trialing (trialing), trialed-then-paid (active + past_due), and
+  // trialed-then-cancelled (canceled). No 90-day window, so a lead who trialed
+  // and cancelled long ago is still counted. Set dedup makes overlap harmless.
   const leadToTrial = computeLeadToTrial(reportCardData.uniqueLeadEmails, [
     ...active,
     ...trialing,
     ...pastDue,
-    ...cohort,
+    ...canceled,
   ]);
 
   return {
