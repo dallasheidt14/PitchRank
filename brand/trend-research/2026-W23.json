@@ -2,10 +2,22 @@
   "week": "2026-W23",
   "posts": [
     {
-      "topic": "ECNL national rankings drop",
-      "hook": "Rankings dropped — what the data actually shows.",
-      "suggested_tweet": "ECNL just released their national rankings. We ran the same 25K teams through PitchRank's algorithm and got a very different top 50. Receipts > vibes.\n\npitchrank.io/rankings",
-      "source_url": "https://example.com/ecnl-rankings"
+      "topic": "MLS NEXT 2026-27 expansion",
+      "hook": "Anchor = official MLS NEXT 2026-27 expansion announcement (47 new Academy + 7 new Homegrown clubs = 54; 4 new conferences; now 318 clubs / 53,000+ players / 40 states). Angle: more teams = harder to tell who's actually good; one cross-conference scale is the fix. Pure rankings tie-in.",
+      "suggested_tweet": "MLS NEXT just added 54 clubs for 2026-27 - now 318 clubs and 53,000+ players across 40 states. The bigger it gets, the harder it is to tell who's actually good. We rank every team on one scale, conference and reputation aside.\n\npitchrank.io/rankings",
+      "source_url": "https://www.mlssoccer.com/mlsnext/news/mls-next-announces-new-clubs-and-conferences-ahead-of-2026-27-season"
+    },
+    {
+      "topic": "MLS academy pipeline in the 2026 World Cup roster",
+      "hook": "Anchor = USMNT 2026 World Cup roster breakdown (MLSsoccer): 21 of 26 (81%) have MLS roots; 13 (50%) are MLS homegrown/academy products. Home World Cup this summer. Angle: the pipeline pays off and it starts in youth leagues we already rank. Ties the pro dream to youth rankings.",
+      "suggested_tweet": "The USMNT's 2026 World Cup roster: 21 of 26 players have MLS roots, and half came up through an MLS academy. The next ones are in a youth league near you right now. We rank those teams on the same scale as everyone else.\n\npitchrank.io/rankings",
+      "source_url": "https://www.mlssoccer.com/news/aaronson-to-zendejas-every-mls-export-on-usmnt-2026-world-cup-roster-squad-usa"
+    },
+    {
+      "topic": "MLS prospects linked with Europe this summer",
+      "hook": "Anchor = FootballTransfers 'MLS players who could move to Europe this summer' (May 2026), 10 named candidates. Framed as 'linked' (speculative), not confirmed deals, to avoid fabricating transfers. Angle: transfers/recruiting follow hype; results show who earned it. Classic results-over-reputation.",
+      "suggested_tweet": "The MLS-to-Europe pipeline is back this summer - 10 players already linked with moves abroad on reputation and highlight reels. Buzz gets you the trial; results tell you who earned it. We rank youth teams on what they do on the field.\n\npitchrank.io/rankings",
+      "source_url": "https://www.footballtransfers.com/en/transfer-news/us-united-states-mls/2026/05/mls-players-europe-summer-2026"
     }
   ]
 }
