@@ -221,7 +221,7 @@ export default async function SubscriptionsDashboardPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <KpiCard label="Total Requests" value={metrics.reportCard.totalRequests.toLocaleString()} sub="all time" />
             <KpiCard
               label="Unique Emails"
@@ -232,6 +232,19 @@ export default async function SubscriptionsDashboardPage() {
               label="Last 7 Days"
               value={metrics.reportCard.last7Days.toLocaleString()}
               sub={`${metrics.reportCard.last30Days.toLocaleString()} in last 30d`}
+            />
+            <KpiCard
+              label="Lead → Trial"
+              value={
+                metrics.reportCard.trialConversion.percent === null
+                  ? '—'
+                  : `${metrics.reportCard.trialConversion.percent}%`
+              }
+              sub={
+                metrics.reportCard.trialConversion.percent === null
+                  ? `not enough data yet (${metrics.reportCard.trialConversion.leads} lead${metrics.reportCard.trialConversion.leads === 1 ? '' : 's'}, need ≥5)`
+                  : `${metrics.reportCard.trialConversion.trialed} of ${metrics.reportCard.trialConversion.leads} leads started a trial${metrics.reportCard.trialConversion.excluded > 0 ? ` (${metrics.reportCard.trialConversion.excluded} excluded)` : ''}`
+              }
             />
             <KpiCard
               label="Lead → Paid"

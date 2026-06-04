@@ -37,6 +37,12 @@ export type ReportCardMetrics = {
     percent: number | null;
     excluded: number;
   };
+  trialConversion: {
+    leads: number;
+    trialed: number;
+    percent: number | null;
+    excluded: number;
+  };
   recentLeads: ReportCardLead[];
 };
 
@@ -150,6 +156,58 @@ export function computeLeadConversion(
 
   const percent = leads >= MIN_COHORT_SAMPLE ? Math.round((converted / leads) * 100) : null;
   return { leads, converted, percent, excluded };
+}
+
+/**
+ * Lead → trial conversion. Returns the share of unique lead emails that have
+ * EVER started a trial — currently trialing, already converted to paid, or
+ * cancelled. A subscription counts as "started a trial" when it has a
+ * `trial_start` set, regardless of its current status, so a lead who trialed
+ * and later cancelled still counts.
+ *
+ * Excluded (test/internal) emails are removed from both numerator and
+ * denominator and reported separately. Percent is null when leads <
+ * MIN_COHORT_SAMPLE so the UI can show "not enough data yet".
+ *
+ * Reuses the subscription lists already fetched by getSubscriptionMetrics
+ * (active + trialing + past_due + cohort) — no extra Stripe calls.
+ *
+ * Coverage caveat: the "trialed" set is only as complete as the passed lists.
+ * Currently-trialing and converted-to-paid trials are caught by the unbounded
+ * active/trialing/past_due lists, but a trial that was started AND fully
+ * cancelled lives only in `cohort`, which is bounded to the last
+ * COHORT_LOOKBACK_DAYS of subscription creations. So a cancelled trial older
+ * than that window is missed from the numerator while still counting in the
+ * denominator (lead emails are unbounded). Same window limitation as
+ * computeConversion.
+ */
+export function computeLeadToTrial(
+  leadEmails: Set<string>,
+  subs: Stripe.Subscription[],
+  excludedEmails: Set<string> = getExcludedEmails()
+): { leads: number; trialed: number; percent: number | null; excluded: number } {
+  // Build set of emails that ever started a trial (lowercased).
+  const trialedEmails = new Set<string>();
+  for (const sub of subs) {
+    if (sub.trial_start == null) continue;
+    trialedEmails.add(getCustomerEmail(sub).toLowerCase());
+  }
+
+  let leads = 0;
+  let trialed = 0;
+  let excluded = 0;
+  for (const raw of leadEmails) {
+    const email = raw.toLowerCase();
+    if (excludedEmails.has(email)) {
+      excluded += 1;
+      continue;
+    }
+    leads += 1;
+    if (trialedEmails.has(email)) trialed += 1;
+  }
+
+  const percent = leads >= MIN_COHORT_SAMPLE ? Math.round((trialed / leads) * 100) : null;
+  return { leads, trialed, percent, excluded };
 }
 
 function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
@@ -486,6 +544,16 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const pastDueOut = buildPastDue(pastDue);
   const conversion = computeConversion(cohort, nowSec);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active, pastDue);
+  // Union all four lists so "ever trialed" catches currently-trialing,
+  // converted-to-paid, AND cancelled trials. cohort overlaps the others but the
+  // Set dedup makes that harmless; it's the only list that surfaces cancelled
+  // trials (within COHORT_LOOKBACK_DAYS — see computeLeadToTrial caveat).
+  const leadToTrial = computeLeadToTrial(reportCardData.uniqueLeadEmails, [
+    ...active,
+    ...trialing,
+    ...pastDue,
+    ...cohort,
+  ]);
 
   return {
     mrr,
@@ -505,6 +573,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       last7Days: reportCardData.last7Days,
       last30Days: reportCardData.last30Days,
       conversion: leadConversion,
+      trialConversion: leadToTrial,
       recentLeads: reportCardData.recentLeads,
     },
     generatedAt: new Date().toISOString(),
