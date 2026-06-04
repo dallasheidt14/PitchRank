@@ -37,6 +37,12 @@ export type ReportCardMetrics = {
     percent: number | null;
     excluded: number;
   };
+  trialConversion: {
+    leads: number;
+    trialed: number;
+    percent: number | null;
+    excluded: number;
+  };
   recentLeads: ReportCardLead[];
 };
 
@@ -150,6 +156,51 @@ export function computeLeadConversion(
 
   const percent = leads >= MIN_COHORT_SAMPLE ? Math.round((converted / leads) * 100) : null;
   return { leads, converted, percent, excluded };
+}
+
+/**
+ * Lead → trial conversion. Returns the share of unique lead emails that have
+ * EVER started a trial — currently trialing, already converted to paid, or
+ * cancelled. A subscription counts as "started a trial" when it has a
+ * `trial_start` set, regardless of its current status, so a lead who trialed
+ * and later cancelled still counts.
+ *
+ * Excluded (test/internal) emails are removed from both numerator and
+ * denominator and reported separately. Percent is null when leads <
+ * MIN_COHORT_SAMPLE so the UI can show "not enough data yet".
+ *
+ * The caller passes the unbounded status lists that cover every bucket a
+ * trialer can land in — active + trialing + past_due + canceled — so the
+ * "trialed" set is date-complete: a lead who trialed and cancelled long ago is
+ * still counted, with no time-window blind spot.
+ */
+export function computeLeadToTrial(
+  leadEmails: Set<string>,
+  subs: Stripe.Subscription[],
+  excludedEmails: Set<string> = getExcludedEmails()
+): { leads: number; trialed: number; percent: number | null; excluded: number } {
+  // Build set of emails that ever started a trial (lowercased).
+  const trialedEmails = new Set<string>();
+  for (const sub of subs) {
+    if (sub.trial_start == null) continue;
+    trialedEmails.add(getCustomerEmail(sub).toLowerCase());
+  }
+
+  let leads = 0;
+  let trialed = 0;
+  let excluded = 0;
+  for (const raw of leadEmails) {
+    const email = raw.toLowerCase();
+    if (excludedEmails.has(email)) {
+      excluded += 1;
+      continue;
+    }
+    leads += 1;
+    if (trialedEmails.has(email)) trialed += 1;
+  }
+
+  const percent = leads >= MIN_COHORT_SAMPLE ? Math.round((trialed / leads) * 100) : null;
+  return { leads, trialed, percent, excluded };
 }
 
 function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
@@ -468,10 +519,11 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, cohort, reportCardData] = await Promise.all([
+  const [active, trialing, pastDue, canceled, cohort, reportCardData] = await Promise.all([
     safeList({ status: 'active' }, 'active subscriptions', errors),
     safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
     safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
+    safeList({ status: 'canceled' }, 'canceled subscriptions', errors),
     safeList(
       { status: 'all', created: { gte: nowSec - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY } },
       'conversion cohort',
@@ -486,6 +538,16 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const pastDueOut = buildPastDue(pastDue);
   const conversion = computeConversion(cohort, nowSec);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active, pastDue);
+  // Union the unbounded status lists so "ever trialed" is date-complete:
+  // currently-trialing (trialing), trialed-then-paid (active + past_due), and
+  // trialed-then-cancelled (canceled). No 90-day window, so a lead who trialed
+  // and cancelled long ago is still counted. Set dedup makes overlap harmless.
+  const leadToTrial = computeLeadToTrial(reportCardData.uniqueLeadEmails, [
+    ...active,
+    ...trialing,
+    ...pastDue,
+    ...canceled,
+  ]);
 
   return {
     mrr,
@@ -505,6 +567,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       last7Days: reportCardData.last7Days,
       last30Days: reportCardData.last30Days,
       conversion: leadConversion,
+      trialConversion: leadToTrial,
       recentLeads: reportCardData.recentLeads,
     },
     generatedAt: new Date().toISOString(),

@@ -11,6 +11,7 @@ import {
   computeConversion,
   dedupeEmails,
   computeLeadConversion,
+  computeLeadToTrial,
 } from '../subscription-metrics';
 
 const SECONDS_PER_DAY = 86_400;
@@ -374,5 +375,84 @@ describe('computeLeadConversion', () => {
   it('returns zero/null when no leads', () => {
     const result = computeLeadConversion(new Set(), [], [], excluded);
     expect(result).toEqual({ leads: 0, converted: 0, percent: null, excluded: 0 });
+  });
+});
+
+describe('computeLeadToTrial', () => {
+  const excluded = new Set<string>(['internal@pitchrank.io']);
+  const start = 1_700_000_000;
+
+  it('counts a lead whose email ever started a trial', () => {
+    const leads = new Set(['trialer@example.com', 'never@example.com']);
+    const subs = [makeSub({ status: 'trialing', email: 'trialer@example.com', trialStart: start })];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.leads).toBe(2);
+    expect(result.trialed).toBe(1);
+    expect(result.percent).toBeNull(); // sample < 5
+    expect(result.excluded).toBe(0);
+  });
+
+  it('counts a lead who trialed and later cancelled', () => {
+    // marina case: started a trial, then cancelled → sub is now canceled but
+    // still has trial_start, so she counts as having trialed.
+    const leads = new Set(['marina@example.com']);
+    const subs = [makeSub({ status: 'canceled', email: 'marina@example.com', trialStart: start })];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.trialed).toBe(1);
+  });
+
+  it('does not count a paid lead who never trialed', () => {
+    const leads = new Set(['direct@example.com']);
+    const subs = [makeSub({ status: 'active', email: 'direct@example.com', trialStart: null })];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.trialed).toBe(0);
+  });
+
+  it('returns rounded percent once sample >= 5', () => {
+    const leads = new Set(['a@example.com', 'b@example.com', 'c@example.com', 'd@example.com', 'e@example.com']);
+    const subs = [
+      makeSub({ status: 'trialing', email: 'a@example.com', trialStart: start }),
+      makeSub({ status: 'canceled', email: 'b@example.com', trialStart: start }),
+    ];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.leads).toBe(5);
+    expect(result.trialed).toBe(2);
+    expect(result.percent).toBe(40);
+  });
+
+  it('drops excluded emails from both numerator and denominator', () => {
+    const leads = new Set(['internal@pitchrank.io', 'real@example.com']);
+    const subs = [
+      makeSub({ status: 'trialing', email: 'internal@pitchrank.io', trialStart: start }),
+      makeSub({ status: 'trialing', email: 'real@example.com', trialStart: start }),
+    ];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.leads).toBe(1);
+    expect(result.trialed).toBe(1);
+    expect(result.excluded).toBe(1);
+  });
+
+  it('matches case-insensitively', () => {
+    const leads = new Set(['mixed@example.com']);
+    const subs = [makeSub({ status: 'canceled', email: 'MIXED@Example.com', trialStart: start })];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.trialed).toBe(1);
+  });
+
+  it('an excluded email trial sub does not bleed into another lead', () => {
+    // The trialed set is built before exclusion, so an excluded email's trial
+    // sub lands in it — but matching is by exact email, so it must not inflate
+    // a different, non-trialing lead's count.
+    const leads = new Set(['internal@pitchrank.io', 'real@example.com']);
+    const subs = [makeSub({ status: 'trialing', email: 'internal@pitchrank.io', trialStart: start })];
+    const result = computeLeadToTrial(leads, subs, excluded);
+    expect(result.leads).toBe(1); // only real@ counts toward denominator
+    expect(result.trialed).toBe(0); // real@ never trialed; excluded sub doesn't bleed over
+    expect(result.excluded).toBe(1);
+  });
+
+  it('returns zero/null when no leads', () => {
+    const result = computeLeadToTrial(new Set(), [], excluded);
+    expect(result).toEqual({ leads: 0, trialed: 0, percent: null, excluded: 0 });
   });
 });
