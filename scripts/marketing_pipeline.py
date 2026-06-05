@@ -102,31 +102,35 @@ MILESTONE_THRESHOLDS = [10, 25, 50, 100]
 def fetch_milestone_movers(supabase) -> list[dict]:
     """Find teams that crossed into top 10/25/50/100 in their cohort this week.
 
-    Uses rank_in_cohort (current) and rank_change_7d to compute previous rank.
+    Uses the published final rank (current) and rank_change_7d to compute previous rank.
     A milestone crossing means: current <= threshold AND previous > threshold.
     """
     log.info("Fetching milestone movers from Supabase...")
 
-    # All teams in top 100 that improved this week
+    # All teams in top 100 that improved this week, with >= 8 games (matches the
+    # get_biggest_movers reliability gate). rank_in_cohort_final is the published rank
+    # and the basis rank_change_7d is computed against (ranking_history.py), so
+    # `previous = current + change` only holds when current is the final rank.
     resp = (
         supabase.table("rankings_full")
-        .select("team_id, age_group, gender, state_code, rank_in_cohort, rank_change_7d")
-        .lte("rank_in_cohort", max(MILESTONE_THRESHOLDS))
+        .select("team_id, age_group, gender, state_code, rank_in_cohort_final, rank_change_7d")
+        .lte("rank_in_cohort_final", max(MILESTONE_THRESHOLDS))
         .gt("rank_change_7d", 0)
+        .gte("games_played", 8)
         .neq("status", "Not Enough Ranked Games")
-        .order("rank_in_cohort")
+        .order("rank_in_cohort_final")
         .execute()
     )
 
     # Detect milestone crossings — assign highest threshold crossed
     milestones = []
     for team in resp.data or []:
-        current = team.get("rank_in_cohort") or 0
+        current = team.get("rank_in_cohort_final") or 0
         change = team.get("rank_change_7d") or 0
         previous = current + change  # rank_change_7d = previous - current (positive = improved)
         for threshold in MILESTONE_THRESHOLDS:
             if current <= threshold < previous:
-                milestones.append({**team, "milestone": threshold, "previous_rank": previous})
+                milestones.append({**team, "rank_in_cohort": current, "milestone": threshold, "previous_rank": previous})
                 break  # Only count the highest (most impressive) milestone
 
     if not milestones:
