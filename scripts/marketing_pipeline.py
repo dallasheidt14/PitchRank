@@ -130,7 +130,9 @@ def fetch_milestone_movers(supabase) -> list[dict]:
         previous = current + change  # rank_change_7d = previous - current (positive = improved)
         for threshold in MILESTONE_THRESHOLDS:
             if current <= threshold < previous:
-                milestones.append({**team, "rank_in_cohort": current, "milestone": threshold, "previous_rank": previous})
+                milestones.append(
+                    {**team, "rank_in_cohort": current, "milestone": threshold, "previous_rank": previous}
+                )
                 break  # Only count the highest (most impressive) milestone
 
     if not milestones:
