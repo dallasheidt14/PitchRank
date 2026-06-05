@@ -175,6 +175,9 @@ supabase.table('teams').select('*').in_('id', batch_of_100).execute()
 
 # RPC for bulk operations
 supabase.rpc('batch_update_ml_overperformance', {'updates': data}).execute()
+
+# Querying team data directly: resolve merges first (team_id_master) —
+# deprecated team_id values yield duplicate or missing rows
 ```
 
 ---
@@ -390,6 +393,7 @@ const { user, supabase } = auth;
 
 - Never commit directly to main. Always create a feature branch, make changes there, and open a PR unless explicitly told otherwise.
 - When the user asks for git operations (commit, push, merge), do them immediately without requiring a second ask.
+- Keep the working tree clean — stage selectively (`git add <paths>`), not `git add -A`.
 
 ---
 
@@ -402,6 +406,13 @@ const { user, supabase } = auth;
 ## Editing Rules
 
 - After editing files, re-read them to confirm changes persisted. External processes (linters, pre-commit hooks, ruff) may silently revert edits.
+
+---
+
+## Code Quality
+
+- Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
+- Run `ruff check` before committing Python changes; a Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 
 ---
 
