@@ -21,6 +21,28 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 
 ---
 
+## Git Discipline
+- Always verify you are on the correct branch before committing. Never commit to main directly.
+- When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
+- After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+
+## Verification & Regeneration
+- After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
+- When running verification/audit scripts, ensure the script does not match its own output files (exclude report files from scans).
+
+## Scope & Approach Discipline
+- Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
+- When diagnosing issues, verify your initial hypothesis with data before proposing or implementing a fix. Do not jump to implementation.
+- If the user redirects or corrects your diagnosis, fully abandon the prior theory and start fresh from their correction.
+- When estimating data sizes (row counts, backfill scope), query the actual database for counts rather than estimating.
+
+## Data Accuracy
+- Never fabricate or guess external identifiers (Wikidata Q-numbers, API entity IDs, etc.). Always look them up.
+- When querying analytics APIs (GSC, GA4), be aware of privacy thresholds and dimension limitations. If numbers seem low, check whether the query dimension is causing undercounting and try aggregate queries.
+- When referencing project status from memory, verify against actual current state before reporting. Flag if your info may be stale.
+
+---
+
 ## Repository Structure
 
 ```
@@ -105,6 +127,14 @@ PitchRank/
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
 
+### Adding a new scraper
+
+When planning a new provider, audit what per-team metadata the source exposes (state_code, club_name, coach, gender, age) BEFORE locking in match/create policy. `state_code` availability is load-bearing — without it, auto-created canonical teams land with NULL state and cannot benefit from location-scoped fuzzy matching downstream.
+
+- If state is only on a per-team detail page (not on the index/flight pages), a two-pass scrape (flights → unique team enrichment) is acceptable when the team count is bounded (~hundreds, not tens of thousands).
+- Default to auto-create with full metadata (mirrors SincSports/Affinity-WA/PlayMetrics matchers). Strict review-queue-only is only appropriate when meaningful canonical fields cannot be sourced.
+- The matcher subclass writes the alias in its overridden `_match_team` via `self._create_alias(...)`, NOT in the `_create_new_<provider>_team` helper. See `src/models/sincsports_matcher.py:555-640` for the canonical pattern.
+
 ---
 
 ## Ranking Algorithm (v53e + ML)
@@ -175,6 +205,9 @@ supabase.table('teams').select('*').in_('id', batch_of_100).execute()
 
 # RPC for bulk operations
 supabase.rpc('batch_update_ml_overperformance', {'updates': data}).execute()
+
+# Querying team data directly: resolve merges first (team_id_master) —
+# deprecated team_id values yield duplicate or missing rows
 ```
 
 ---
@@ -390,6 +423,7 @@ const { user, supabase } = auth;
 
 - Never commit directly to main. Always create a feature branch, make changes there, and open a PR unless explicitly told otherwise.
 - When the user asks for git operations (commit, push, merge), do them immediately without requiring a second ask.
+- Keep the working tree clean — stage selectively (`git add <paths>`), not `git add -A`.
 
 ---
 
@@ -402,6 +436,13 @@ const { user, supabase } = auth;
 ## Editing Rules
 
 - After editing files, re-read them to confirm changes persisted. External processes (linters, pre-commit hooks, ruff) may silently revert edits.
+
+---
+
+## Code Quality
+
+- Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
+- Run `ruff check` before committing Python changes; a Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 
 ---
 
