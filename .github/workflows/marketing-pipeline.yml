@@ -80,7 +80,25 @@ jobs:
           python scripts/marketing_pipeline.py $DRY_RUN_FLAG
 
       # ---------------------------------------------------------------
-      # 5. UPLOAD ARTIFACTS
+      # 5. TRIGGER VERCEL DEPLOY
+      # The blog commit is pushed with GITHUB_TOKEN, which does not fire
+      # Vercel's git webhook — the post would not go live until the next
+      # deploy. POST the deploy hook to ship it. No-ops if the secret is
+      # not configured, and is skipped on dry runs.
+      # ---------------------------------------------------------------
+      - name: Trigger Vercel deploy
+        if: success() && github.event.inputs.dry_run != 'true'
+        env:
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$VERCEL_DEPLOY_HOOK_URL" ]; then
+            curl -fsS -X POST "$VERCEL_DEPLOY_HOOK_URL" && echo "Vercel deploy triggered"
+          else
+            echo "VERCEL_DEPLOY_HOOK_URL not set — skipping deploy trigger"
+          fi
+
+      # ---------------------------------------------------------------
+      # 6. UPLOAD ARTIFACTS
       # ---------------------------------------------------------------
       - name: Upload marketing artifacts
         if: always()
