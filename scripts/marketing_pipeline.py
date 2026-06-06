@@ -599,11 +599,29 @@ def _build_blog_body(data: dict, topic: dict) -> str:
     )
 
 
-def generate_blog_post(data: dict) -> tuple[str, str]:
+def fetch_age_group_movers(supabase, age_group: str, limit: int = 5) -> dict:
+    """Fetch climbers/fallers scoped to one age group via get_biggest_movers.
+
+    The age_group template labels its tables "Top {age_group} Movers", so the
+    movers must be age-scoped — the global data["climbers"]/["fallers"] mix ages.
+    """
+
+    def _movers(direction: str) -> list[dict]:
+        resp = supabase.rpc(
+            "get_biggest_movers",
+            {"p_days": 7, "p_limit": limit, "p_direction": direction, "p_age_group": age_group},
+        ).execute()
+        return resp.data or []
+
+    return {"climbers": _movers("up"), "fallers": _movers("down")}
+
+
+def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     """Generate a weekly SEO-targeted blog post from ranking data.
 
     Reads the topic queue from brand/blog-topics.json and picks the next
     topic based on ISO week number. Returns (filename, markdown_content).
+    age_group topics scope their movers to that age via Supabase when available.
     """
     dt = data["date"]
     week_num = dt.isocalendar()[1]
@@ -617,8 +635,13 @@ def generate_blog_post(data: dict) -> tuple[str, str]:
     tags = topic.get("tags", ["Rankings"])
     target_keyword = topic.get("target_keyword", "youth soccer rankings")
 
+    # Age-group posts label their movers by age, so scope the movers to that age.
+    body_data = data
+    if topic.get("type") == "age_group" and supabase is not None:
+        body_data = {**data, **fetch_age_group_movers(supabase, topic["age_group"])}
+
     # Build body using the topic type's template
-    body = _build_blog_body(data, topic)
+    body = _build_blog_body(body_data, topic)
 
     # Estimate reading time
     word_count = len(body.split())
@@ -1422,7 +1445,7 @@ def main():
     # Step 2: Generate blog post (newsletter uses the same content)
     blog_filename, blog_content, blog_body_md, blog_title = "", "", "", ""
     try:
-        blog_filename, blog_content = generate_blog_post(data)
+        blog_filename, blog_content = generate_blog_post(data, supabase)
         # Extract the markdown body (after frontmatter) for the newsletter
         parts = blog_content.split("---", 2)
         if len(parts) >= 3:
