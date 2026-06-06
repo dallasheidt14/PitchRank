@@ -45,7 +45,7 @@
     "tags": ["Rankings", "Methodology", "Algorithm"],
     "pillar": 5,
     "faq": [
-      {"q": "How are youth soccer teams ranked?", "a": "PitchRank uses a 13-layer algorithm (v53e + ML) that analyzes real game results, strength of schedule, margin of victory, and opponent quality. Rankings update every Monday."},
+      {"q": "How are youth soccer teams ranked?", "a": "PitchRank uses a 13-layer algorithm that analyzes real game results, strength of schedule, margin of victory, and opponent quality. Rankings update every Monday."},
       {"q": "Are GotSoccer rankings accurate?", "a": "GotSoccer rankings are based primarily on tournament points, which rewards quantity of tournaments played over quality of results. PitchRank uses actual match outcomes across all leagues for a more accurate picture."}
     ]
   },
@@ -150,6 +150,252 @@
     "faq": [
       {"q": "When should my child start competitive soccer?", "a": "Most competitive club programs begin at U10-U12. PitchRank tracks U12 teams so you can see how your child's team compares regionally and nationally."},
       {"q": "How do youth soccer age groups work?", "a": "Youth soccer uses birth-year age groups (U10 through U19). Starting 2026-2027, the age cutoff shifts to August 1 - July 31. PitchRank ranks every age group."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "OH",
+    "title": "Ohio Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "ohio-youth-soccer-rankings",
+    "target_keyword": "ohio youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Ohio"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Ohio?", "a": "Ohio's strongest programs cluster around Columbus, Cleveland, and Cincinnati. PitchRank ranks every Ohio team weekly across all leagues."},
+      {"q": "How are youth soccer teams ranked in Ohio?", "a": "PitchRank uses real game results, strength of schedule, and margin of victory — not tournament points. Ohio teams are ranked on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "MD",
+    "title": "Maryland Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "maryland-youth-soccer-rankings",
+    "target_keyword": "maryland youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Maryland"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Maryland?", "a": "Maryland's top clubs sit around Baltimore and the DC suburbs and regularly place teams in the national top 50. PitchRank ranks every Maryland team weekly."},
+      {"q": "How does Maryland compare nationally in youth soccer?", "a": "Maryland punches above its size — several age groups have nationally ranked teams. PitchRank lets you compare Maryland teams against any state on the same scale."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "IL",
+    "title": "Illinois Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "illinois-youth-soccer-rankings",
+    "target_keyword": "illinois youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Illinois"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Illinois?", "a": "The Chicago metro drives Illinois rankings, with strong ECNL and MLS NEXT representation. PitchRank tracks every Illinois team across all leagues."},
+      {"q": "How are Illinois youth soccer teams ranked?", "a": "PitchRank uses actual match results and strength of schedule, updated every Monday, so Illinois teams are compared fairly against the rest of the country."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "MI",
+    "title": "Michigan Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "michigan-youth-soccer-rankings",
+    "target_keyword": "michigan youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Michigan"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Michigan?", "a": "Michigan's top programs are concentrated around the Detroit metro and Grand Rapids. PitchRank ranks every Michigan team weekly."},
+      {"q": "How does Michigan compare nationally in youth soccer?", "a": "Michigan regularly produces nationally competitive teams in the older age groups. PitchRank ranks them on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "NC",
+    "title": "North Carolina Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "north-carolina-youth-soccer-rankings",
+    "target_keyword": "north carolina youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "North Carolina"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in North Carolina?", "a": "Charlotte and the Raleigh-Durham area anchor North Carolina's competitive scene. PitchRank tracks every NC team across all leagues."},
+      {"q": "How are North Carolina youth soccer teams ranked?", "a": "PitchRank uses real game data — strength of schedule, margin of victory, and opponent quality — updated every Monday."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "AZ",
+    "title": "Arizona Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "arizona-youth-soccer-rankings",
+    "target_keyword": "arizona youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Arizona"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Arizona?", "a": "Arizona's top clubs are concentrated in the Phoenix metro and Tucson. PitchRank ranks every Arizona team weekly across all leagues."},
+      {"q": "How does Arizona compare nationally in youth soccer?", "a": "Arizona's best teams compete nationally in several age groups. PitchRank ranks Arizona teams on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "IN",
+    "title": "Indiana Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "indiana-youth-soccer-rankings",
+    "target_keyword": "indiana youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Indiana"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Indiana?", "a": "Indianapolis anchors Indiana's competitive youth soccer scene. PitchRank ranks every Indiana team weekly across all leagues."},
+      {"q": "How are Indiana youth soccer teams ranked?", "a": "PitchRank uses actual match results and strength of schedule, so Indiana teams are compared fairly against the rest of the country."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "WA",
+    "title": "Washington Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "washington-youth-soccer-rankings",
+    "target_keyword": "washington youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Washington"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Washington?", "a": "The Seattle metro drives Washington's competitive scene. PitchRank ranks every Washington team weekly across all leagues."},
+      {"q": "How does Washington compare nationally in youth soccer?", "a": "Washington's top teams compete nationally in multiple age groups. PitchRank ranks them on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "PA",
+    "title": "Pennsylvania Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "pennsylvania-youth-soccer-rankings",
+    "target_keyword": "pennsylvania youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Pennsylvania"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Pennsylvania?", "a": "Philadelphia and Pittsburgh anchor Pennsylvania's competitive youth soccer scene. PitchRank ranks every PA team weekly."},
+      {"q": "How are Pennsylvania youth soccer teams ranked?", "a": "PitchRank uses real game results, strength of schedule, and opponent quality, updated every Monday across all leagues."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "SC",
+    "title": "South Carolina Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "south-carolina-youth-soccer-rankings",
+    "target_keyword": "south carolina youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "South Carolina"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in South Carolina?", "a": "Greenville, Charleston, and Columbia anchor South Carolina's competitive scene. PitchRank ranks every SC team weekly."},
+      {"q": "How does South Carolina compare nationally in youth soccer?", "a": "South Carolina's top teams are increasingly competitive nationally. PitchRank ranks them on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "VA",
+    "title": "Virginia Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "virginia-youth-soccer-rankings",
+    "target_keyword": "virginia youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Virginia"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Virginia?", "a": "Northern Virginia (the DC area) and Richmond anchor Virginia's competitive scene. PitchRank ranks every Virginia team weekly."},
+      {"q": "How are Virginia youth soccer teams ranked?", "a": "PitchRank uses actual match results and strength of schedule, updated every Monday across all leagues."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "MN",
+    "title": "Minnesota Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "minnesota-youth-soccer-rankings",
+    "target_keyword": "minnesota youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Minnesota"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Minnesota?", "a": "The Minneapolis-St. Paul metro anchors Minnesota's competitive youth soccer scene. PitchRank ranks every Minnesota team weekly."},
+      {"q": "How does Minnesota compare nationally in youth soccer?", "a": "Minnesota's top teams compete nationally in several age groups. PitchRank ranks them on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "NY",
+    "title": "New York Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "new-york-youth-soccer-rankings",
+    "target_keyword": "new york youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "New York"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in New York?", "a": "Long Island, New York City, and Westchester drive New York's competitive scene. PitchRank ranks every New York team weekly across all leagues."},
+      {"q": "How are New York youth soccer teams ranked?", "a": "PitchRank uses real game results and strength of schedule, updated every Monday, so New York teams are compared fairly against the rest of the country."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "MA",
+    "title": "Massachusetts Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "massachusetts-youth-soccer-rankings",
+    "target_keyword": "massachusetts youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Massachusetts"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Massachusetts?", "a": "The Greater Boston area anchors Massachusetts's competitive youth soccer scene. PitchRank ranks every Massachusetts team weekly."},
+      {"q": "How does Massachusetts compare nationally in youth soccer?", "a": "Massachusetts produces nationally competitive teams in the older age groups. PitchRank ranks them on the same scale as every other state."}
+    ]
+  },
+  {
+    "type": "state_rankings",
+    "state": "CT",
+    "title": "Connecticut Youth Soccer Rankings: This Week's Top Movers",
+    "slug_prefix": "connecticut-youth-soccer-rankings",
+    "target_keyword": "connecticut youth soccer rankings",
+    "tags": ["Rankings", "State Guide", "Connecticut"],
+    "pillar": 1,
+    "faq": [
+      {"q": "What are the best youth soccer clubs in Connecticut?", "a": "Fairfield County and the Hartford area anchor Connecticut's competitive scene. PitchRank ranks every Connecticut team weekly."},
+      {"q": "How are Connecticut youth soccer teams ranked?", "a": "PitchRank uses actual match results and strength of schedule, updated every Monday across all leagues."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U13",
+    "title": "Best U13 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u13-soccer-teams",
+    "target_keyword": "best u13 soccer teams",
+    "tags": ["Rankings", "U13", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "What changes at U13 in youth soccer?", "a": "U13 is when most players move to full 11v11 on a full-size field, and the competitive gap between teams widens. PitchRank tracks every U13 team so you can see where yours stands."},
+      {"q": "How are U13 soccer teams ranked?", "a": "PitchRank ranks U13 teams using real game results, strength of schedule, and opponent quality — updated every Monday, nationally and by state."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U11",
+    "title": "Best U11 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u11-soccer-teams",
+    "target_keyword": "best u11 soccer teams",
+    "tags": ["Rankings", "U11", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "Is it worth ranking U11 soccer teams?", "a": "At U11 most teams play 9v9 and results are noisier, so use rankings for context rather than conclusions. PitchRank still tracks every U11 team so you can see how yours compares regionally."},
+      {"q": "When should my child start competitive soccer?", "a": "Most competitive club programs begin around U10-U11. PitchRank ranks U11 teams so you can gauge the level of play before committing."}
+    ]
+  },
+  {
+    "type": "age_group",
+    "age_group": "U15",
+    "title": "Best U15 Soccer Teams: This Week's Rankings",
+    "slug_prefix": "best-u15-soccer-teams",
+    "target_keyword": "best u15 soccer teams",
+    "tags": ["Rankings", "U15", "Age Group"],
+    "pillar": 6,
+    "faq": [
+      {"q": "Why does U15 matter for recruiting?", "a": "U15 is when college recruiting attention begins to ramp up and the top leagues separate from the rest. PitchRank's strength of schedule data helps put a U15 team's results in context."},
+      {"q": "How are U15 soccer teams ranked?", "a": "PitchRank ranks U15 teams using real game results across all leagues — strength of schedule, margin of victory, and opponent quality — updated every Monday."}
+    ]
+  },
+  {
+    "type": "league_comparison",
+    "title": "Youth Soccer Leagues Ranked: ECNL, MLS NEXT, GA, NAL & NPL",
+    "slug_prefix": "youth-soccer-leagues-ranked",
+    "target_keyword": "best youth soccer leagues",
+    "tags": ["Rankings", "Cross-League", "ECNL", "MLS NEXT", "NAL", "NPL"],
+    "pillar": 2,
+    "faq": [
+      {"q": "What are the top youth soccer leagues in the US?", "a": "ECNL and MLS NEXT sit at the top tier, with GA, NAL, and NPL forming strong competitive layers beneath. PitchRank ranks teams from every league on one scale, so league labels don't tell the whole story."},
+      {"q": "Which youth soccer league is the most competitive?", "a": "It varies by age group and region. PitchRank's cross-league calibration regularly shows top teams from NAL or NPL outperforming lower ECNL or MLS NEXT teams at the same age."}
     ]
   }
 ]
