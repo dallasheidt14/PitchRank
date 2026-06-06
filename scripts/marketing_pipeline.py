@@ -213,10 +213,8 @@ def fetch_ranking_highlights(supabase) -> dict:
                     state_movement[st] = state_movement.get(st, 0) + abs(team.get("rank_change", 0))
             if state_movement:
                 spotlight_state = max(state_movement, key=state_movement.get)
-                # Top 3 teams from that state
-                spotlight_teams = [
-                    t for t in state_resp.data if (t.get("state_code") or t.get("state", "")) == spotlight_state
-                ][:3]
+                # Top movers within the spotlight state's cohorts (believable deltas)
+                spotlight_teams = fetch_state_movers(supabase, spotlight_state)["climbers"][:3]
     except Exception as e:
         log.warning(f"Could not determine state spotlight: {e}")
 
@@ -616,6 +614,23 @@ def fetch_age_group_movers(supabase, age_group: str, limit: int = 5) -> dict:
     return {"climbers": _movers("up"), "fallers": _movers("down")}
 
 
+def fetch_state_movers(supabase, state: str, limit: int = 5) -> dict:
+    """Fetch climbers/fallers scoped to one state cohort via get_biggest_state_movers.
+
+    State cohorts are far smaller than national ones, so the deltas are believable
+    and current_rank is the team's rank within its state, not nationally.
+    """
+
+    def _movers(direction: str) -> list[dict]:
+        resp = supabase.rpc(
+            "get_biggest_state_movers",
+            {"p_state": state, "p_limit": limit, "p_direction": direction},
+        ).execute()
+        return resp.data or []
+
+    return {"climbers": _movers("up"), "fallers": _movers("down")}
+
+
 def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     """Generate a weekly SEO-targeted blog post from ranking data.
 
@@ -635,10 +650,13 @@ def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     tags = topic.get("tags", ["Rankings"])
     target_keyword = topic.get("target_keyword", "youth soccer rankings")
 
-    # Age-group posts label their movers by age, so scope the movers to that age.
+    # State and age posts label their movers by that scope, so fetch scoped movers.
     body_data = data
-    if topic.get("type") == "age_group" and supabase is not None:
-        body_data = {**data, **fetch_age_group_movers(supabase, topic["age_group"])}
+    if supabase is not None:
+        if topic.get("type") == "age_group":
+            body_data = {**data, **fetch_age_group_movers(supabase, topic["age_group"])}
+        elif topic.get("type") == "state_rankings":
+            body_data = {**data, **fetch_state_movers(supabase, topic["state"])}
 
     # Build body using the topic type's template
     body = _build_blog_body(body_data, topic)
