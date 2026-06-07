@@ -219,8 +219,16 @@ def fetch_ranking_highlights(supabase) -> dict:
                     state_movement[st] = state_movement.get(st, 0) + abs(team.get("rank_change", 0))
             if state_movement:
                 spotlight_state = max(state_movement, key=state_movement.get)
-                # Top movers within the spotlight state's cohorts (believable deltas)
-                spotlight_teams = fetch_state_movers(supabase, spotlight_state)["climbers"][:3]
+                # Prefer state-cohort movers (believable deltas); fall back to the
+                # national movers filtered by state if the state RPC isn't available yet,
+                # so the spotlight stays populated instead of emitting a mismatched post.
+                try:
+                    spotlight_teams = fetch_state_movers(supabase, spotlight_state)["climbers"][:3]
+                except Exception as e:
+                    log.warning(f"State movers RPC unavailable for spotlight; using national movers: {e}")
+                    spotlight_teams = [
+                        t for t in state_resp.data if (t.get("state_code") or t.get("state", "")) == spotlight_state
+                    ][:3]
     except Exception as e:
         log.warning(f"Could not determine state spotlight: {e}")
 
