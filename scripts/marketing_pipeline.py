@@ -659,10 +659,13 @@ def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     # State and age posts label their movers by that scope, so fetch scoped movers.
     body_data = data
     if supabase is not None:
-        if topic.get("type") == "age_group":
-            body_data = {**data, **fetch_age_group_movers(supabase, topic["age_group"])}
-        elif topic.get("type") == "state_rankings":
-            body_data = {**data, **fetch_state_movers(supabase, topic["state"])}
+        try:
+            if topic.get("type") == "age_group":
+                body_data = {**data, **fetch_age_group_movers(supabase, topic["age_group"])}
+            elif topic.get("type") == "state_rankings":
+                body_data = {**data, **fetch_state_movers(supabase, topic["state"])}
+        except Exception as e:
+            log.warning(f"Scoped movers fetch failed ({topic.get('type')}); falling back to national movers: {e}")
 
     # Build body using the topic type's template
     body = _build_blog_body(body_data, topic)

@@ -35,17 +35,23 @@ AS $$
   WITH state_ranked AS (
     SELECT
       rf.team_id,
+      t.team_name,
+      t.club_name,
       rf.state_code,
       rf.games_played,
-      rf.status,
       CASE WHEN p_days <= 7 THEN rf.rank_change_state_7d ELSE rf.rank_change_state_30d END AS rank_change,
       RANK() OVER (
         PARTITION BY rf.state_code, rf.age_group, rf.gender
         ORDER BY rf.rank_in_cohort_final ASC
       )::INT AS state_rank
     FROM rankings_full rf
+    JOIN teams t ON t.team_id_master = rf.team_id
+    -- Eligibility that affects the rank basis must be applied before RANK():
+    -- rank_in_cohort_final IS NOT NULL already excludes non-Active teams, and
+    -- excluding deprecated teams here keeps state_rank from being padded by them.
     WHERE rf.state_code = p_state
       AND rf.rank_in_cohort_final IS NOT NULL
+      AND t.is_deprecated IS NOT TRUE
       AND (
         p_age_group IS NULL
         OR LOWER(rf.age_group) = LOWER(p_age_group)
@@ -62,17 +68,14 @@ AS $$
   )
   SELECT
     sr.team_id,
-    t.team_name,
-    t.club_name,
+    sr.team_name,
+    sr.club_name,
     sr.state_code,
     sr.rank_change,
     sr.state_rank AS current_rank
   FROM state_ranked sr
-  JOIN teams t ON t.team_id_master = sr.team_id
   WHERE sr.rank_change IS NOT NULL
-    AND t.is_deprecated IS NOT TRUE
     AND COALESCE(sr.games_played, 0) >= 8
-    AND COALESCE(sr.status, '') <> 'Not Enough Ranked Games'
     AND (p_max_state_rank IS NULL OR sr.state_rank <= p_max_state_rank)
     AND (
       (p_direction = 'up' AND sr.rank_change > 0)
