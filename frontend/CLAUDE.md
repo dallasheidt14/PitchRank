@@ -69,7 +69,6 @@ frontend/
 ├── components/             # React components
 │   ├── ui/                 # shadcn/ui primitives
 │   ├── mission-control/    # Admin panel components
-│   ├── agent-hq/           # AI agent interface
 │   ├── infographics/       # Canvas-rendered infographics
 │   ├── insights/           # AI insights (premium)
 │   ├── subscription/       # Paywall/upgrade UI
@@ -77,7 +76,6 @@ frontend/
 ├── hooks/                  # Custom React hooks
 ├── lib/                    # Utilities, API client, types
 │   ├── api/                # Shared route utilities (requirePremium, validatePagination, parseJsonBody, rateLimit)
-│   ├── agents/             # Agent config (schedules, roles) + utils (formatRelativeTime, calculateNextRun)
 │   ├── supabase/           # Supabase client (client.ts, server.ts, admin.ts)
 │   ├── stripe/             # Stripe client + server
 │   ├── insights/           # AI insight generators
@@ -119,9 +117,6 @@ frontend/
 ### Admin (requireAdmin)
 
 - `GET|POST /api/mission-control/*`
-- `GET|POST|PUT|DELETE /api/tasks/*`
-- `POST /api/chat`
-- `GET /api/agent-status` / `GET|POST /api/agent-activity`
 - `GET /api/team-aliases/[teamId]`
 - `GET|POST|DELETE /api/team-merge/*`
 
@@ -155,7 +150,7 @@ const supabase = await createServerSupabase();
 ### API Route Auth
 
 ```typescript
-// Admin-only routes (mission control, tasks, agent endpoints)
+// Admin-only routes (mission control, team management)
 import { requireAdmin } from '@/lib/supabase/admin';
 const auth = await requireAdmin();
 if (auth.error) return auth.error;
