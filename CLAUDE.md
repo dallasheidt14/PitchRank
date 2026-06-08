@@ -64,7 +64,6 @@ PitchRank/
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
 │   │   ├── api/            # Shared route utilities (requirePremium, validatePagination, parseJsonBody)
-│   │   ├── agents/         # Agent config + utils (schedules, formatRelativeTime)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
@@ -78,7 +77,7 @@ PitchRank/
 ├── supabase/               # Database migrations (70+ files)
 ├── tests/                  # Python test suite
 ├── docs/                   # 110+ documentation files
-├── memory/                 # Agent working memory files
+├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # SEO sub-agent definitions
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
@@ -355,7 +354,7 @@ Required variables are documented in `.env.example`. Key groups:
 All routes under `/api` are excluded from middleware auth (middleware.ts line 128), so each route must self-enforce authentication. Two shared helpers:
 
 ```typescript
-// Admin-only routes (mission control, tasks, agent endpoints, team management)
+// Admin-only routes (mission control, team management)
 import { requireAdmin } from '@/lib/supabase/admin';
 const auth = await requireAdmin();
 if (auth.error) return auth.error;
@@ -452,25 +451,6 @@ const { user, supabase } = auth;
 
 ---
 
-## Agent System
-
-PitchRank uses a multi-agent system with specialized personas:
-
-| Agent | Role | Memory File |
-|-------|------|-------------|
-| **Codey** | Development, bug fixes | `memory/WORKING-codey.md` |
-| **Ranky** | Ranking calculations | `memory/WORKING-ranky.md` |
-| **Scrappy** | Data scraping | `memory/WORKING-scrappy.md` |
-| **Cleany** | Data hygiene, cleanup | `memory/WORKING-cleany.md` |
-| **Movy** | Data movement, imports | `memory/WORKING-movy.md` |
-| **Compy** | Computation, analysis | `memory/WORKING-compy.md` |
-| **Watchy** | Monitoring, health checks | `memory/WORKING-watchy.md` |
-| **Socialy** | SEO, content, marketing | `memory/WORKING-socialy.md` |
-
-Skills are defined in `.claude/skills/` and provide domain-specific knowledge for ranking algorithms, scraping patterns, database operations, and more.
-
----
-
 ## Common Pitfalls
 
 1. **Supabase 1000-row limit** — Always paginate queries; a single `.select()` returns max 1000 rows
@@ -503,8 +483,6 @@ Skills are defined in `.claude/skills/` and provide domain-specific knowledge fo
 | Ranking calculation script | `scripts/calculate_rankings.py` |
 | Frontend API client | `frontend/lib/api.ts` |
 | Shared route utilities | `frontend/lib/api/` (requirePremium, validatePagination, parseJsonBody) |
-| Agent config (operational) | `frontend/lib/agents/config.ts` |
-| Agent config (RPG cards) | `frontend/lib/agent-config.ts` |
 | Frontend types | `frontend/lib/types.ts` |
 | Supabase migrations | `supabase/migrations/` |
 | GH Actions workflows | `.github/workflows/` |
