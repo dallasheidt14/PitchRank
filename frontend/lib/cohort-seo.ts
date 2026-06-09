@@ -27,6 +27,7 @@ function getPositioningHook(count: number): string {
 
 export function computeCohortModules(
   teams: RankingRow[],
+  activeCount: number | null,
   locationText: string,
   ageGroupDisplay: string,
   genderDisplay: string,
@@ -34,7 +35,10 @@ export function computeCohortModules(
   region: string,
   genderSlug: string
 ): CohortModuleData {
-  const totalTeams = teams.length;
+  // activeCount is the true Active cohort size; `teams` is only the top-2,000
+  // fetch, so teams.length undercounts large cohorts. null means the count
+  // lookup failed → fall back to teams.length; a genuine 0 is preserved.
+  const totalTeams = activeCount ?? teams.length;
   const positioningHook = getPositioningHook(totalTeams);
 
   // Top clubs by team count in this cohort
