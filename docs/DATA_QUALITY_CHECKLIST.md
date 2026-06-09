@@ -65,7 +65,5 @@ WHERE t.id IS NULL;
 - Division markers: "Academy" vs "ECNL" vs "MLS Next"
 
 ## Automation Scripts
-- `scripts/run_weekly_cleany.py` — Full weekly cleanup
-- `scripts/club_name_normalizer.py` — Club case fixes
 - `scripts/team_name_normalizer.py` — Team name parsing
 - `scripts/find_duplicates.py` — Duplicate detection
