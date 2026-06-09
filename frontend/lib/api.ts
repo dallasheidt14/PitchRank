@@ -245,6 +245,47 @@ export const api = {
   },
 
   /**
+   * Count Active teams in a cohort (excludes 'Not Enough Ranked Games').
+   * Used for the cohort "active teams" figure, which would otherwise be the
+   * page's top-2,000 fetch cap rather than the true cohort size.
+   */
+  async getActiveRankingsCount(
+    region?: string | null,
+    ageGroup?: string,
+    gender?: 'M' | 'F' | 'B' | 'G' | null
+  ): Promise<number> {
+    let normalizedAge: number | null = null;
+    if (ageGroup) {
+      normalizedAge = normalizeAgeGroup(ageGroup);
+    }
+
+    if (region) {
+      const { data, error } = await supabase.rpc('get_state_active_count', {
+        p_state: region.toUpperCase(),
+        p_age: normalizedAge !== null ? String(normalizedAge) : '',
+        p_gender: gender || '',
+      });
+
+      if (error) {
+        console.error('Error fetching state active count via RPC:', error);
+        return 0;
+      }
+      return (data as number) ?? 0;
+    }
+
+    const { data, error } = await supabase.rpc('get_national_active_count', {
+      p_age: normalizedAge !== null ? String(normalizedAge) : '',
+      p_gender: gender || '',
+    });
+
+    if (error) {
+      console.error('Error fetching national active count via RPC:', error);
+      return 0;
+    }
+    return (data as number) ?? 0;
+  },
+
+  /**
    * Get a single team by team_id_master UUID with ranking data
    * @param id - team_id_master UUID
    * @returns TeamWithRanking object (Team + Ranking data from rankings_view)

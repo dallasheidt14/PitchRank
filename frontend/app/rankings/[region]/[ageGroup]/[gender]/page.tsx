@@ -117,8 +117,12 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const genderForAPI = (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | null;
   const regionForAPI = region.toLowerCase() === 'national' ? null : region;
   let allTeams: Awaited<ReturnType<typeof api.getRankings>> = [];
+  let activeCount = 0;
   try {
-    allTeams = await api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 2000 });
+    [allTeams, activeCount] = await Promise.all([
+      api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 2000 }),
+      api.getActiveRankingsCount(regionForAPI, ageGroup, genderForAPI),
+    ]);
   } catch (e) {
     console.warn(`[ISR] Failed to fetch teams for ${region}/${ageGroup}/${gender}:`, e);
   }
@@ -148,7 +152,16 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   // Compute programmatic SEO content modules from the full team set
   const cohortData =
     allTeams.length > 0
-      ? computeCohortModules(allTeams, locationText, formattedAgeGroup, formattedGender, isNational, safeRegion, gender)
+      ? computeCohortModules(
+          allTeams,
+          activeCount,
+          locationText,
+          formattedAgeGroup,
+          formattedGender,
+          isNational,
+          safeRegion,
+          gender
+        )
       : null;
 
   // Build breadcrumb trail
