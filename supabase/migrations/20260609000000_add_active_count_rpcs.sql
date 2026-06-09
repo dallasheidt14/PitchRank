@@ -29,26 +29,18 @@ RETURNS BIGINT LANGUAGE sql STABLE AS $$
     WHERE rf.status = 'Active'
       AND t.is_deprecated IS NOT TRUE
       AND rf.power_score_final IS NOT NULL
+      -- Sargable age filter so the planner uses idx_rankings_full_age_gender
+      -- (mirrors get_national_rankings_count after 20260603000000; an.age_val
+      -- already folds u18->19). A non-sargable regex CASE here reintroduces the
+      -- 57014 timeouts that migration fixed.
       AND (
           an.age_val IS NULL
-          OR
-          CASE
-              WHEN (
-                  CASE
-                      WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-                      WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-                      WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-                      ELSE NULL
-                  END
-              ) = 18 THEN 19
-              ELSE
-                  CASE
-                      WHEN rf.age_group ~ '^[0-9]+$' THEN rf.age_group::INTEGER
-                      WHEN rf.age_group ~ '^[uU][0-9]+$' THEN (regexp_replace(rf.age_group, '^[uU]', ''))::INTEGER
-                      WHEN rf.age_group ~ '[0-9]+' THEN (regexp_replace(rf.age_group, '[^0-9]', '', 'g'))::INTEGER
-                      ELSE NULL
-                  END
-          END = an.age_val
+          OR rf.age_group = ANY (
+               CASE WHEN an.age_val = 19
+                    THEN ARRAY['u19','U19','19','u18','U18','18']
+                    ELSE ARRAY['u'||an.age_val::text, 'U'||an.age_val::text, an.age_val::text]
+               END
+             )
       )
       AND (
           NULLIF(p_gender, '') IS NULL

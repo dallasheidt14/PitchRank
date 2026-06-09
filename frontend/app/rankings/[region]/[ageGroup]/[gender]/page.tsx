@@ -117,7 +117,7 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const genderForAPI = (gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | null;
   const regionForAPI = region.toLowerCase() === 'national' ? null : region;
   let allTeams: Awaited<ReturnType<typeof api.getRankings>> = [];
-  let activeCount = 0;
+  let activeCount: number | null = null;
   try {
     [allTeams, activeCount] = await Promise.all([
       api.getRankings(regionForAPI, ageGroup, genderForAPI, { limit: 2000 }),

@@ -248,12 +248,14 @@ export const api = {
    * Count Active teams in a cohort (excludes 'Not Enough Ranked Games').
    * Used for the cohort "active teams" figure, which would otherwise be the
    * page's top-2,000 fetch cap rather than the true cohort size.
+   * Returns null when the lookup fails, so callers can distinguish a failed
+   * lookup from a genuine zero-active cohort.
    */
   async getActiveRankingsCount(
     region?: string | null,
     ageGroup?: string,
     gender?: 'M' | 'F' | 'B' | 'G' | null
-  ): Promise<number> {
+  ): Promise<number | null> {
     let normalizedAge: number | null = null;
     if (ageGroup) {
       normalizedAge = normalizeAgeGroup(ageGroup);
@@ -268,7 +270,7 @@ export const api = {
 
       if (error) {
         console.error('Error fetching state active count via RPC:', error);
-        return 0;
+        return null;
       }
       return (data as number) ?? 0;
     }
@@ -280,7 +282,7 @@ export const api = {
 
     if (error) {
       console.error('Error fetching national active count via RPC:', error);
-      return 0;
+      return null;
     }
     return (data as number) ?? 0;
   },
