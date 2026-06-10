@@ -259,15 +259,35 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     // Check if a user already exists with this email (signed up but checked out anonymously)
     const { data: profileByEmail } = await getSupabaseAdmin()
       .from('user_profiles')
-      .select('id, stripe_customer_id')
+      .select('id, stripe_customer_id, stripe_subscription_id')
       .eq('email', email)
       .maybeSingle();
 
     if (profileByEmail) {
-      // Existing user — link Stripe subscription to their account
+      // Existing user — link Stripe subscription to their account.
+      // Anonymous checkout always starts a 7-day trial (the email isn't known
+      // until Stripe collects it), so a returning subscriber could recycle
+      // trials by checking out logged-out. If this account already has billing
+      // history, end the trial now — Stripe invoices the first period
+      // immediately and the profile gets the post-trial status.
+      let linkUpdates = anonymousUpdates;
+      const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
+      if (subscription.status === 'trialing' && hasBillingHistory) {
+        const endedTrial = await stripe.subscriptions.update(subscriptionId, { trial_end: 'now' });
+        linkUpdates = {
+          ...anonymousUpdates,
+          subscription_status: endedTrial.status,
+          plan: mapStatusToPlan(endedTrial.status),
+          subscription_period_end: extractPeriodEnd(endedTrial),
+        };
+        console.log(
+          `[webhook] Ended trial for returning subscriber ${profileByEmail.id} (anonymous checkout with billing history)`
+        );
+      }
+
       await getSupabaseAdmin()
         .from('user_profiles')
-        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
+        .update({ ...linkUpdates, updated_at: new Date().toISOString() })
         .eq('id', profileByEmail.id);
 
       await stripe.customers.update(customerId, {

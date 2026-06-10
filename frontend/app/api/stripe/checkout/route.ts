@@ -1,4 +1,5 @@
 import { stripe, getStripePriceIds } from '@/lib/stripe/server';
+import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
@@ -76,8 +77,10 @@ export async function POST(req: Request) {
 
         customerId = customer.id;
 
-        // Save customer ID to profile - this MUST succeed for webhooks to work
-        const { error: updateError } = await supabase
+        // Save customer ID to profile - this MUST succeed for webhooks to work.
+        // API roles no longer have UPDATE on user_profiles; write via the admin
+        // client (user identity comes from the validated session above).
+        const { error: updateError } = await getSupabaseAdmin()
           .from('user_profiles')
           .update({ stripe_customer_id: customerId })
           .eq('id', user.id);
