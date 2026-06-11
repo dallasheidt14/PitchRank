@@ -215,8 +215,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Fetch subscription details to get period end and status (may be "trialing" for free trials)
-  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  // Fetch subscription details to get period end and status (may be "trialing" for
+  // free trials). Reassigned below if the trial is stripped for a returning
+  // subscriber, so the admin notification and Beehiiv routing see the real status.
+  let subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
   const baseUpdates = {
     stripe_subscription_id: subscriptionId,
@@ -273,12 +275,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       let linkUpdates = anonymousUpdates;
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
       if (subscription.status === 'trialing' && hasBillingHistory) {
-        const endedTrial = await stripe.subscriptions.update(subscriptionId, { trial_end: 'now' });
+        subscription = await stripe.subscriptions.update(subscriptionId, { trial_end: 'now' });
         linkUpdates = {
           ...anonymousUpdates,
-          subscription_status: endedTrial.status,
-          plan: mapStatusToPlan(endedTrial.status),
-          subscription_period_end: extractPeriodEnd(endedTrial),
+          subscription_status: subscription.status,
+          plan: mapStatusToPlan(subscription.status),
+          subscription_period_end: extractPeriodEnd(subscription),
         };
         console.log(
           `[webhook] Ended trial for returning subscriber ${profileByEmail.id} (anonymous checkout with billing history)`
