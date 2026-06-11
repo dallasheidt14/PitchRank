@@ -47,6 +47,9 @@ class _FakeQuery:
         self.in_values = list(values)
         return self
 
+    def maybe_single(self):
+        return self
+
     def range(self, start, end):
         clone = _FakeQuery(self.client, self.table_name)
         clone.select_columns = self.select_columns
@@ -63,15 +66,28 @@ class _FakeQuery:
             return _FakeResult(page or [])
 
         if self.table_name == "teams":
-            return _FakeResult([self.client.team_rows[team_id] for team_id in self.in_values if team_id in self.client.team_rows])
+            return _FakeResult(
+                [self.client.team_rows[team_id] for team_id in self.in_values if team_id in self.client.team_rows]
+            )
+
+        if self.table_name == "providers":
+            row = self.client.provider_row
+            if isinstance(row, Exception):
+                raise row
+            # Real maybe_single().execute() returns bare None on zero rows,
+            # not a response object with data=None
+            if row is None:
+                return None
+            return _FakeResult(row)
 
         raise AssertionError(f"Unexpected table {self.table_name}")
 
 
 class _FakeSupabase:
-    def __init__(self, games_pages=None, team_rows=None):
+    def __init__(self, games_pages=None, team_rows=None, provider_row=None):
         self.games_pages = games_pages or {}
         self.team_rows = team_rows or {}
+        self.provider_row = provider_row
         self.last_games_select = None
 
     def table(self, table_name: str):
@@ -154,3 +170,108 @@ async def test_fetch_games_for_rankings_uses_id_when_game_uid_is_not_selected(mo
     assert len(result) == 2
     assert set(result["game_id"]) == {"game-1"}
     assert "game_uid" not in fake_db.last_games_select
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_raises_when_provider_lookup_fails(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(games_pages={0: []}, provider_row=RuntimeError("connection reset"))
+
+    with pytest.raises(RuntimeError, match="refusing to fall back"):
+        await data_adapter.fetch_games_for_rankings(
+            fake_db,
+            provider_filter="gotsport",
+            today=pd.Timestamp("2026-04-14", tz="UTC"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_raises_when_provider_filter_matches_nothing(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(games_pages={0: []}, provider_row=None)
+
+    with pytest.raises(RuntimeError, match="matched no provider"):
+        await data_adapter.fetch_games_for_rankings(
+            fake_db,
+            provider_filter="gotsport",
+            today=pd.Timestamp("2026-04-14", tz="UTC"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_drops_self_games(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                {
+                    "id": "game-self",
+                    "game_date": "2026-04-01",
+                    "home_team_master_id": "team-a",
+                    "away_team_master_id": "team-a",
+                    "home_score": 1,
+                    "away_score": 1,
+                    "provider_id": "provider-1",
+                },
+                {
+                    "id": "game-real",
+                    "game_date": "2026-04-02",
+                    "home_team_master_id": "team-a",
+                    "away_team_master_id": "team-b",
+                    "home_score": 2,
+                    "away_score": 0,
+                    "provider_id": "provider-1",
+                },
+            ]
+        },
+        team_rows={
+            "team-a": {
+                "team_id_master": "team-a",
+                "age_group": "u12",
+                "gender": "Male",
+                "is_deprecated": False,
+                "league": None,
+            },
+            "team-b": {
+                "team_id_master": "team-b",
+                "age_group": "u12",
+                "gender": "Male",
+                "is_deprecated": False,
+                "league": None,
+            },
+        },
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert set(result["game_id"]) == {"game-real"}
+    assert len(result) == 2
+
+
+def test_batch_fetch_rows_raises_after_exhausted_retries(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_retry(query_func, **_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("server disconnected")
+        return _FakeResult([{"team_id_master": "team-1"}])
+
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", fake_retry)
+
+    # 150 values -> two batches of 100; the second batch fails and must
+    # propagate instead of returning the partial first batch
+    with pytest.raises(RuntimeError, match="server disconnected"):
+        data_adapter.batch_fetch_rows(
+            _FakeSupabase(),
+            "teams",
+            "team_id_master",
+            "team_id_master",
+            [f"team-{idx}" for idx in range(150)],
+        )

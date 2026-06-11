@@ -878,5 +878,62 @@ class TestShouldAcceptForInsertStrictness:
         assert pipeline._should_accept_for_insert(game) is True
 
 
+class _RecordingInsertClient:
+    """Fake Supabase client that records insert chunk sizes and fails once."""
+
+    def __init__(self, fail_first_with: str):
+        self.insert_sizes: List[int] = []
+        self._fail_first_with = fail_first_with
+        self._calls = 0
+        self._pending: List[Dict] = []
+
+    def table(self, name):
+        assert name == 'games'
+        return self
+
+    def insert(self, chunk, returning=None):
+        self._pending = chunk if isinstance(chunk, list) else [chunk]
+        return self
+
+    def execute(self):
+        self._calls += 1
+        self.insert_sizes.append(len(self._pending))
+        if self._calls == 1:
+            raise Exception(self._fail_first_with)
+        return Mock(data=[])
+
+
+class TestAdaptiveBatchSizing:
+    """The insert loop must re-chunk remaining records after a batch-size reduction."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_reduction_rechunks_remaining_records(self, monkeypatch):
+        monkeypatch.setattr('src.etl.enhanced_pipeline.time.sleep', lambda _s: None)
+
+        client = _RecordingInsertClient(fail_first_with='429 Too Many Requests')
+        pipeline = EnhancedETLPipeline(client, 'gotsport', dry_run=False)
+        pipeline.batch_size = 2000
+
+        records = [
+            {
+                'game_uid': f'uid-{idx}',
+                'home_provider_id': f'home-{idx}',
+                'away_provider_id': f'away-{idx}',
+                'home_score': 1,
+                'away_score': 0,
+                'game_date': '2026-01-15',
+                'age_group': 'u14',
+            }
+            for idx in range(6000)
+        ]
+
+        inserted = await pipeline._bulk_insert_games(records)
+
+        assert inserted == 6000
+        # After the 429 halves the batch size to 1000, the remaining records
+        # must re-slice at 1000, not the original 2000
+        assert client.insert_sizes == [2000, 2000, 1000, 1000, 1000, 1000]
+
+
 # Run with: pytest tests/test_enhanced_pipeline.py -v
 

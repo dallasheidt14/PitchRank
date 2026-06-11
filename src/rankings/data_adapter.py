@@ -100,6 +100,11 @@ def batch_fetch_rows(
 
     Returns:
         Flat list of row dicts from all batches.
+
+    Raises:
+        Exception: If any batch still fails after retries. Callers feed the
+            rankings universe, so returning partial rows would silently shrink
+            the dataset instead of surfacing the failure.
     """
     rows: list[dict] = []
     for i in range(0, len(filter_values), batch_size):
@@ -111,11 +116,11 @@ def batch_fetch_rows(
                 initial_delay=2.0,
                 description=f"Fetching {table} batch {i}-{i + batch_size}",
             )
-            if getattr(result, "data", None):
-                rows.extend(result.data)
         except Exception as e:
-            logger.warning(f"⚠️  {table} batch failed ({i}-{i + batch_size}) after retries: {str(e)[:100]}")
-            continue
+            logger.error(f"❌ {table} batch failed ({i}-{i + batch_size}) after retries: {str(e)[:100]}")
+            raise
+        if getattr(result, "data", None):
+            rows.extend(result.data)
     return rows
 
 
@@ -213,19 +218,27 @@ async def fetch_games_for_rankings(
     )  # Order for consistent pagination
 
     if provider_filter:
-        # Get provider ID with retry logic
+        # Get provider ID with retry logic. A failed lookup must abort rather
+        # than degrade to unfiltered all-provider rankings.
         try:
+            # maybe_single returns None on no match instead of raising PGRST116
+            # like single() would, so the no-provider case reaches the explicit
+            # check below rather than the retry/except path
             provider_result = retry_supabase_query(
-                lambda: db.table("providers").select("id").eq("code", provider_filter).single().execute(),
+                lambda: db.table("providers").select("id").eq("code", provider_filter).maybe_single().execute(),
                 max_retries=4,
                 initial_delay=2.0,
                 description=f"Fetching provider filter '{provider_filter}'",
             )
-            if getattr(provider_result, "data", None):
-                base_query = base_query.eq("provider_id", provider_result.data["id"])
         except Exception as e:
-            logger.warning(f"⚠️  Failed to fetch provider filter '{provider_filter}' after retries: {str(e)[:100]}")
-            # Continue without provider filter
+            logger.error(f"❌ Failed to fetch provider filter '{provider_filter}' after retries: {str(e)[:100]}")
+            raise RuntimeError(
+                f"Provider filter '{provider_filter}' could not be resolved; "
+                "refusing to fall back to unfiltered all-provider rankings"
+            ) from e
+        if not getattr(provider_result, "data", None):
+            raise RuntimeError(f"Provider filter '{provider_filter}' matched no provider")
+        base_query = base_query.eq("provider_id", provider_result.data["id"])
 
     # Paginate to fetch all games (Supabase max is 1000 per query)
     games_data = []
@@ -494,6 +507,14 @@ async def fetch_games_for_rankings(
                 f"(all {len(deprecated_team_ids)} deprecated teams properly merged)"
             )
 
+    # Filter out self-games (team_id == opp_id). These arise when merge
+    # resolution maps both sides of an alias-vs-alias game onto the same
+    # canonical team, leaving a team playing itself.
+    self_game_mask = v53e_df["team_id"].astype(str) == v53e_df["opp_id"].astype(str)
+    if self_game_mask.any():
+        logger.warning(f"🚫 Removed {int(self_game_mask.sum()):,} self-game perspective rows (alias-vs-alias merges)")
+        v53e_df = v53e_df[~self_game_mask]
+
     # Filter out rows with missing scores
     before_filter = len(v53e_df)
     v53e_df = v53e_df.dropna(subset=["gf", "ga"])
@@ -530,7 +551,11 @@ def supabase_to_v53e_format(games_df: pd.DataFrame, teams_df: pd.DataFrame) -> p
     # Normalize gender values
     teams_df["gender"] = normalize_gender(teams_df["gender"])
     team_age_map = dict(zip(teams_df["team_id_master"], teams_df["age"]))
-    team_gender_map = dict(zip(teams_df["team_id_master"], teams_df["gender"]))
+    # Exclude null genders so the falsy guard below drops those teams' games —
+    # a mapped NaN would slip through it, since bool(nan) is True
+    team_gender_map = {
+        tid: gender for tid, gender in zip(teams_df["team_id_master"], teams_df["gender"]) if pd.notna(gender)
+    }
 
     # Convert to v53e format (perspective-based)
     v53e_rows = []
