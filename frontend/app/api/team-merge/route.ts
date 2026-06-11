@@ -60,25 +60,36 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceSupabase();
 
-    // Execute the merge via PostgreSQL function
-    const { data: mergeId, error } = await supabase.rpc('execute_team_merge', {
+    // Execute the merge via PostgreSQL function. It returns jsonb:
+    // { success: true, merge_id, ... } on success, or { success: false, error }
+    // for business failures, which arrive without a PostgREST error.
+    const { data, error } = await supabase.rpc('execute_team_merge', {
       p_deprecated_team_id: deprecatedTeamId,
       p_canonical_team_id: canonicalTeamId,
       p_merged_by: mergedBy,
       p_merge_reason: mergeReason || null,
+      p_confidence_score: confidenceScore ?? null,
+      p_suggestion_signals: suggestionSignals ?? null,
     });
 
-    if (error) {
-      console.error('[team-merge] Merge failed:', error);
+    const mergeResult = data as {
+      success?: boolean;
+      merge_id?: string;
+      already_merged?: boolean;
+      message?: string;
+      error?: string;
+    } | null;
+
+    if (error || !mergeResult?.success) {
+      const message = error?.message || mergeResult?.error || 'Unknown error';
+      console.error('[team-merge] Merge failed:', message);
 
       // Parse PostgreSQL error messages for user-friendly responses
-      const message = error.message || 'Unknown error';
-
       if (message.includes('already deprecated') || message.includes('already merged')) {
         return NextResponse.json({ error: 'This team has already been merged' }, { status: 409 });
       }
 
-      if (message.includes('circular merge') || message.includes('chain')) {
+      if (message.includes('circular merge') || message.includes('chain') || message.includes('marked as deprecated')) {
         return NextResponse.json(
           { error: 'Cannot create circular or chain merges. The canonical team is already deprecated.' },
           { status: 400 }
@@ -92,16 +103,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Merge failed due to an internal error' }, { status: 500 });
     }
 
-    // If confidence score and signals were provided (from Option 8), update the merge record
-    if (mergeId && (confidenceScore !== undefined || suggestionSignals)) {
-      await supabase
-        .from('team_merge_map')
-        .update({
-          confidence_score: confidenceScore || null,
-          suggestion_signals: suggestionSignals || null,
-        })
-        .eq('id', mergeId);
-    }
+    const mergeId = mergeResult.merge_id ?? null;
 
     // Fetch both team names for the response
     const { data: teams } = await supabase
@@ -169,17 +171,35 @@ export async function DELETE(request: NextRequest) {
       .eq('team_id_master', deprecatedTeamId)
       .single();
 
-    // Execute the revert via PostgreSQL function
-    const { error } = await supabase.rpc('revert_team_merge', {
-      p_deprecated_team_id: deprecatedTeamId,
+    // revert_team_merge takes the merge record ID, so resolve it from the team
+    const { data: mergeRecord, error: mergeLookupError } = await supabase
+      .from('team_merge_map')
+      .select('id')
+      .eq('deprecated_team_id', deprecatedTeamId)
+      .maybeSingle();
+
+    if (mergeLookupError) {
+      console.error('[team-merge] Merge lookup failed:', mergeLookupError);
+      return NextResponse.json({ error: 'Revert failed due to an internal error' }, { status: 500 });
+    }
+
+    if (!mergeRecord) {
+      return NextResponse.json({ error: 'This team is not currently merged' }, { status: 404 });
+    }
+
+    // Execute the revert via PostgreSQL function. It returns jsonb:
+    // { success: true, ... } or { success: false, error } for business failures.
+    const { data, error } = await supabase.rpc('revert_team_merge', {
+      p_merge_id: mergeRecord.id,
       p_reverted_by: revertedBy,
       p_revert_reason: revertReason || null,
     });
 
-    if (error) {
-      console.error('[team-merge] Revert failed:', error);
+    const revertResult = data as { success?: boolean; error?: string } | null;
 
-      const message = error.message || 'Unknown error';
+    if (error || !revertResult?.success) {
+      const message = error?.message || revertResult?.error || 'Unknown error';
+      console.error('[team-merge] Revert failed:', message);
 
       if (message.includes('not found') || message.includes('not merged')) {
         return NextResponse.json({ error: 'This team is not currently merged' }, { status: 404 });

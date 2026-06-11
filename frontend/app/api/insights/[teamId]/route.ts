@@ -157,6 +157,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       console.error('Error fetching ranking history:', historyError);
     }
 
+    // PostgREST caps un-ranged selects at 1,000 rows, which silently truncates
+    // large cohorts and skews totals/percentiles/medians — page through the set
+    const cohortPageSize = 1000;
+    async function fetchAllRows<T>(
+      buildPage: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>
+    ): Promise<T[] | null> {
+      const rows: T[] = [];
+      for (let offset = 0; ; offset += cohortPageSize) {
+        const { data, error } = await buildPage(offset, offset + cohortPageSize - 1);
+        if (error) {
+          console.error('Error fetching cohort page:', error);
+          return null;
+        }
+        const batch = (data ?? []) as T[];
+        rows.push(...batch);
+        if (batch.length < cohortPageSize) break;
+      }
+      return rows;
+    }
+
     // Get cohort statistics for context
     let cohortStats = {
       totalTeams: 100,
@@ -167,15 +187,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     if (ranking?.age && ranking?.gender) {
       // Only include Active teams in cohort stats to match v53e ranking logic
       // v53e only assigns rank_in_cohort to Active teams (8+ games in 180 days)
-      const { data: cohortData, error: cohortError } = await supabase
-        .from('rankings_view')
-        .select('power_score_final')
-        .eq('age', ranking.age)
-        .eq('gender', ranking.gender)
-        .eq('status', 'Active')
-        .order('power_score_final', { ascending: false });
+      const cohortData = await fetchAllRows<CohortRow>((from, to) =>
+        supabase
+          .from('rankings_view')
+          .select('power_score_final')
+          .eq('age', ranking.age)
+          .eq('gender', ranking.gender)
+          .eq('status', 'Active')
+          .order('power_score_final', { ascending: false })
+          .range(from, to)
+      );
 
-      if (!cohortError && cohortData && cohortData.length > 0) {
+      if (cohortData && cohortData.length > 0) {
         const scores = (cohortData as CohortRow[])
           .map((d: CohortRow) => d.power_score_final)
           .filter((s: number | null): s is number => s !== null);
@@ -198,19 +221,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     // State-cohort rank (for state-leaderboard persona trait)
     let stateCohort: InsightInputData['stateCohort'] = null;
     if (team.state_code && ranking?.age && ranking?.gender) {
-      const { data: stateCohortData, error: stateCohortError } = await supabase
-        .from('rankings_view')
-        .select('team_id_master, power_score_final')
-        .eq('age', ranking.age)
-        .eq('gender', ranking.gender)
-        .eq('state', team.state_code)
-        .eq('status', 'Active')
-        .order('power_score_final', { ascending: false });
+      const stateCohortData = await fetchAllRows<{ team_id_master: string; power_score_final: number | null }>(
+        (from, to) =>
+          supabase
+            .from('rankings_view')
+            .select('team_id_master, power_score_final')
+            .eq('age', ranking.age)
+            .eq('gender', ranking.gender)
+            .eq('state', team.state_code)
+            .eq('status', 'Active')
+            .order('power_score_final', { ascending: false })
+            .range(from, to)
+      );
 
-      if (!stateCohortError && stateCohortData && stateCohortData.length >= 5) {
-        const idx = (stateCohortData as Array<{ team_id_master: string }>).findIndex(
-          (r) => r.team_id_master === teamId
-        );
+      if (stateCohortData && stateCohortData.length >= 5) {
+        const idx = stateCohortData.findIndex((r) => r.team_id_master === teamId);
         if (idx >= 0) {
           stateCohort = { rank: idx + 1, totalTeams: stateCohortData.length };
         }

@@ -24,25 +24,31 @@ export type Ga4UpgradeSourcesRow = {
 async function fetchRaw(range: DateRange, limit: number) {
   try {
     const client = getAnalyticsDataClient();
-    const res = await client.properties.runReport({
-      property: `properties/${GA4_PROPERTY_ID}`,
-      requestBody: {
-        dateRanges: [{ startDate: range.start, endDate: range.end }],
-        dimensions: [{ name: 'customEvent:source' }, { name: 'eventName' }],
-        metrics: [{ name: 'eventCount' }],
-        dimensionFilter: {
-          filter: {
-            fieldName: 'eventName',
-            inListFilter: {
-              values: ['upgrade_page_viewed', 'subscription_completed'],
+    // One report per event type: a single globally-sorted report truncates at
+    // its row limit, and view rows dwarf subscription rows, so subscription
+    // counts near the cutoff silently vanish
+    const reportFor = (eventName: string) =>
+      client.properties.runReport({
+        property: `properties/${GA4_PROPERTY_ID}`,
+        requestBody: {
+          dateRanges: [{ startDate: range.start, endDate: range.end }],
+          dimensions: [{ name: 'customEvent:source' }, { name: 'eventName' }],
+          metrics: [{ name: 'eventCount' }],
+          dimensionFilter: {
+            filter: {
+              fieldName: 'eventName',
+              stringFilter: { matchType: 'EXACT', value: eventName },
             },
           },
+          orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
+          limit: String(limit),
         },
-        orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-        limit: String(limit * 2), // 2 event types per source
-      },
-    });
-    return res.data;
+      });
+    const [views, subscriptions] = await Promise.all([
+      reportFor('upgrade_page_viewed'),
+      reportFor('subscription_completed'),
+    ]);
+    return { rows: [...(views.data.rows ?? []), ...(subscriptions.data.rows ?? [])] };
   } catch (e) {
     const err = e as { code?: number; status?: number };
     if (err?.code === 400 || err?.status === 400) {

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
     const [overviewRes, referralsRes, pagesRes] = await Promise.all([
       client.properties.runReport({
-        property: propertyId,
+        property: `properties/${propertyId}`,
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           metrics: [
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
         },
       }),
       client.properties.runReport({
-        property: propertyId,
+        property: `properties/${propertyId}`,
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           dimensions: [{ name: 'sessionSource' }],
@@ -44,7 +44,7 @@ export async function GET(req: Request) {
         },
       }),
       client.properties.runReport({
-        property: propertyId,
+        property: `properties/${propertyId}`,
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           dimensions: [{ name: 'pagePath' }],

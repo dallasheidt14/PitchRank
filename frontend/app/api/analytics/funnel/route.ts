@@ -28,7 +28,7 @@ export async function GET(req: Request) {
 
     const [eventsRes, pageViewsRes] = await Promise.all([
       client.properties.runReport({
-        property: propertyId,
+        property: `properties/${propertyId}`,
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           dimensions: [{ name: 'eventName' }],
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
         },
       }),
       client.properties.runReport({
-        property: propertyId,
+        property: `properties/${propertyId}`,
         requestBody: {
           dateRanges: [{ startDate, endDate }],
           metrics: [{ name: 'screenPageViews' }],
