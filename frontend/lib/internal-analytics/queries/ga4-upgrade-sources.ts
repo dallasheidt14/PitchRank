@@ -27,7 +27,7 @@ async function fetchRaw(range: DateRange, limit: number) {
     // One report per event type: a single globally-sorted report truncates at
     // its row limit, and view rows dwarf subscription rows, so subscription
     // counts near the cutoff silently vanish
-    const reportFor = (eventName: string) =>
+    const reportFor = (eventName: string, rowLimit: number) =>
       client.properties.runReport({
         property: `properties/${GA4_PROPERTY_ID}`,
         requestBody: {
@@ -41,12 +41,15 @@ async function fetchRaw(range: DateRange, limit: number) {
             },
           },
           orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }],
-          limit: String(limit),
+          limit: String(rowLimit),
         },
       });
+    // Subscriptions get a high cap: the displayed set is the top `limit`
+    // sources by views, and a converting source whose subscription count
+    // ranks below `limit` would otherwise show a false 0% conversion
     const [views, subscriptions] = await Promise.all([
-      reportFor('upgrade_page_viewed'),
-      reportFor('subscription_completed'),
+      reportFor('upgrade_page_viewed', limit),
+      reportFor('subscription_completed', 10000),
     ]);
     return { rows: [...(views.data.rows ?? []), ...(subscriptions.data.rows ?? [])] };
   } catch (e) {
