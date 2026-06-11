@@ -620,7 +620,7 @@ def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
     """Look up the calibrated anchor for a given age and gender.
 
     Args:
-        age: Age as an int (14) or string like 'U14' / 'u14'.
+        age: Age as an int (14) or string like 'U14' / 'u14' / '14.0'.
         gender: Gender string — anything starting with 'M' (case-insensitive)
                 or equal to 'Male' is treated as male; all others as female.
         cfg: GlickoConfig containing MALE_ANCHORS and FEMALE_ANCHORS.
@@ -628,9 +628,13 @@ def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
     Returns:
         Anchor float from the config, or 1.0 for unknown ages.
     """
-    # Normalise age to int
+    # Normalise age to int. Parse via float so stringified floats ('14.0')
+    # resolve instead of crashing; unparseable ages take the unknown-age anchor.
     if isinstance(age, str):
-        age = int(age.lstrip("Uu"))
+        try:
+            age = int(float(age.lstrip("Uu")))
+        except ValueError:
+            return 1.0
 
     # Choose anchor dict by gender
     if gender.upper().startswith("M"):

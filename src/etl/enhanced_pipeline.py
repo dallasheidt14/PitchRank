@@ -2079,7 +2079,13 @@ class EnhancedETLPipeline:
         ssl_error_count = 0
         current_batch_size = self.batch_size
 
-        for chunk in self._chunks(insert_records, current_batch_size):
+        # current_batch_size shrinks adaptively under 429/SSL pressure;
+        # re-slice each iteration so the reduction applies to the chunks
+        # still to come
+        chunk_offset = 0
+        while chunk_offset < len(insert_records):
+            chunk = insert_records[chunk_offset : chunk_offset + current_batch_size]
+            chunk_offset += len(chunk)
             # Enhanced retry logic: more retries for SSL errors, fewer for other errors
             max_retries = 5  # Increased from 3 for SSL errors
             retry_delay = 1.0

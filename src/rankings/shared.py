@@ -26,8 +26,12 @@ def sos_ml_blend(ps_adj: float, ps_ml: float, sos_norm: float) -> float:
 
 
 def normalize_gender(series: pd.Series) -> pd.Series:
-    """Normalize gender labels: boys/girls → male/female."""
-    return (
+    """Normalize gender labels: boys/girls → male/female.
+
+    Nulls stay null — ``astype(str)`` would stringify them to ``"nan"``/
+    ``"none"``, leaking unknown-gender rows into phantom cohorts.
+    """
+    normalized = (
         series.astype(str)
         .str.lower()
         .str.strip()
@@ -40,6 +44,7 @@ def normalize_gender(series: pd.Series) -> pd.Series:
             }
         )
     )
+    return normalized.mask(series.isna())
 
 
 # --------------------------------------------------------------------

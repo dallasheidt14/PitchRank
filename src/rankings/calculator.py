@@ -510,12 +510,14 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
     pre_cap_df["pre_cap_base"] = pd.to_numeric(base_scores, errors="coerce")
 
     age_cap_lookup: dict[int, float] = {}
-    for cap_rank in sorted(cap_rank_series.dropna().astype(int).unique()):
-        age_cap_lookup[int(cap_rank)] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", cap_rank)
 
-    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(
-        lambda val: age_cap_lookup[int(val)]
-    )
+    def _cap_for_rank(val: float) -> float:
+        rank = int(val)
+        if rank not in age_cap_lookup:
+            age_cap_lookup[rank] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", rank)
+        return age_cap_lookup[rank]
+
+    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(_cap_for_rank)
     return result
 
 
@@ -2122,8 +2124,12 @@ async def compute_rankings_with_ml(
                 if cache_file_games.exists():
                     try:
                         cached_games_used = pd.read_parquet(cache_file_games)
-                    except Exception:
-                        pass  # games_used cache failed, use empty
+                    except Exception as error:
+                        # A partial hit (cached ratings + freshly fetched ML inputs)
+                        # would mix two game universes, so a failed games_used load
+                        # invalidates the entire cached set
+                        logger.warning("games_used cache load failed; rebuilding rankings: %s", error)
+                        raise
                 if use_glicko:
                     if cache_file_explain.exists():
                         try:
