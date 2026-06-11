@@ -167,7 +167,7 @@ describe('POST /api/stripe/sync', () => {
       metadata: { supabase_user_id: 'user-real' },
     });
     const update = updateChain({ error: null });
-    mockServerFrom.mockReturnValue(update.client);
+    mockAdminFrom.mockReturnValue(update.client);
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
@@ -178,7 +178,9 @@ describe('POST /api/stripe/sync', () => {
     // Critical: must update the profile keyed by user.id from the verified
     // session, never by stripe_customer_id directly (otherwise a forged session
     // pointing at another user's customer_id would mutate that user's row).
-    expect(mockServerFrom).toHaveBeenCalledWith('user_profiles');
+    // The write goes through the admin client — API roles have no UPDATE
+    // privilege on user_profiles since the P0 lockdown.
+    expect(mockAdminFrom).toHaveBeenCalledWith('user_profiles');
     expect(update.eq).toHaveBeenCalledWith('id', 'user-real');
   });
 

@@ -14,6 +14,7 @@ vi.mock('@/lib/stripe/server', () => ({
     },
     subscriptions: {
       retrieve: vi.fn(),
+      cancel: vi.fn().mockResolvedValue({ id: 'sub_123', status: 'canceled' }),
     },
     customers: {
       retrieve: vi.fn().mockResolvedValue({ id: 'cus_123', email: 'test@example.com' }),
@@ -53,6 +54,10 @@ vi.mock('@/lib/email/password-setup', () => ({
   sendPasswordSetupEmail: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('@/lib/email/returning-subscriber', () => ({
+  sendReturningSubscriberEmail: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock @supabase/supabase-js (used directly in webhook route for admin client).
 // Builder supports both:
 //   - update(...).eq(...).select() → returns rows for updateUserProfile-style writes
@@ -64,6 +69,17 @@ function setPriorState(row: Record<string, unknown> | null) {
   priorStateRow = row;
 }
 
+// When set, successive .maybeSingle() calls consume this queue instead of
+// priorStateRow — lets a test return different rows for the customer-ID
+// lookup vs the email lookup in handleCheckoutCompleted.
+let maybeSingleQueue: Array<Record<string, unknown> | null> | null = null;
+function queueMaybeSingle(rows: Array<Record<string, unknown> | null>) {
+  maybeSingleQueue = rows;
+}
+function nextMaybeSingle() {
+  return maybeSingleQueue && maybeSingleQueue.length > 0 ? maybeSingleQueue.shift()! : priorStateRow;
+}
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: vi.fn(() => {
@@ -71,13 +87,13 @@ vi.mock('@supabase/supabase-js', () => ({
         update: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
-        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: priorStateRow, error: null })),
+        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: nextMaybeSingle(), error: null })),
         then: undefined,
       };
       // For .eq() chains that terminate in a second .select() (updateUserProfile pattern)
       builder.eq = vi.fn().mockReturnValue({
         select: vi.fn().mockResolvedValue({ data: [{ id: '1' }], error: null }),
-        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: priorStateRow, error: null })),
+        maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: nextMaybeSingle(), error: null })),
       });
       return builder;
     }),
@@ -96,6 +112,8 @@ import { POST } from '../route';
 import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
 import { setLifecycle, setSubscriberCustomField, enrollInAutomation } from '@/lib/beehiiv';
+import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
+import { notifyAdmin } from '@/lib/notifications/admin';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -107,6 +125,7 @@ function makeRequest(body = ''): Request {
 describe('POST /api/stripe/webhook', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    maybeSingleQueue = null;
     // Reset env vars
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -268,6 +287,52 @@ describe('POST /api/stripe/webhook', () => {
     );
   });
 
+  it('cancels anonymous trial checkout for a returning subscriber instead of charging', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+
+    const fakeEvent = {
+      id: 'evt_returning_trial',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_returning',
+          customer: 'cus_new',
+          subscription: 'sub_new',
+        } as unknown as Stripe.Checkout.Session,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_new',
+      status: 'trialing',
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    // First maybeSingle: lookup by new stripe_customer_id → no profile (anonymous path).
+    // Second maybeSingle: lookup by email → existing account WITH billing history.
+    queueMaybeSingle([
+      null,
+      { id: 'user-returning', stripe_customer_id: 'cus_old', stripe_subscription_id: 'sub_old' },
+    ]);
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    // The trial subscription is canceled — never converted to a charge.
+    expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_new');
+    // User is told to log in and re-subscribe; admin is notified.
+    expect(vi.mocked(sendReturningSubscriberEmail)).toHaveBeenCalledWith('test@example.com');
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Returning subscriber'));
+    // The profile keeps its existing billing state, and no lifecycle
+    // routing fires for the canceled checkout.
+    expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
   it('returns 200 for unknown event types (acknowledge receipt)', async () => {
     vi.mocked(headers).mockResolvedValue(
       new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
@@ -291,6 +356,7 @@ describe('POST /api/stripe/webhook', () => {
 describe('Beehiiv lifecycle routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    maybeSingleQueue = null;
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
@@ -454,6 +520,7 @@ describe('Beehiiv lifecycle routing', () => {
 describe('Beehiiv automation enrollment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    maybeSingleQueue = null;
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
@@ -530,6 +597,7 @@ describe('Beehiiv automation enrollment', () => {
 describe('Idempotency on Stripe webhook re-delivery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    maybeSingleQueue = null;
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';

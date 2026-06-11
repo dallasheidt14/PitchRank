@@ -45,13 +45,15 @@ function LoginForm() {
         throw signInError;
       }
 
-      // Session is automatically established by Supabase client
-      // The middleware will refresh it on the next request
-      // Redirect to rankings page (accessible to all users)
-      // Premium users can navigate to their watchlist from there
-      // This avoids the confusing redirect chain for free users:
-      // login -> /watchlist -> middleware redirect -> /upgrade
-      router.push('/rankings');
+      // Session is automatically established by Supabase client; the
+      // middleware will refresh it on the next request.
+      // Honor a same-origin ?next= target (e.g. the returning-subscriber
+      // email links to /login?next=/upgrade). Default to /rankings, which is
+      // accessible to all tiers — avoids the confusing redirect chain for
+      // free users: login -> /watchlist -> middleware redirect -> /upgrade
+      const rawNext = searchParams.get('next');
+      const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/rankings';
+      router.push(nextPath);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Login failed. Please try again.');

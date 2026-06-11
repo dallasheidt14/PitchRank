@@ -74,7 +74,9 @@ export async function POST(req: Request) {
         }
       }
 
-      const { error: updateError } = await supabase.from('user_profiles').update(updates).eq('id', user.id);
+      // Ownership verified above; API roles no longer have UPDATE on user_profiles,
+      // so billing writes go through the admin client.
+      const { error: updateError } = await getSupabaseAdmin().from('user_profiles').update(updates).eq('id', user.id);
 
       if (updateError) {
         console.error('Sync: error updating profile:', updateError);
