@@ -13,6 +13,10 @@ import {
   type Lifecycle,
 } from '@/lib/beehiiv';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
+import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
+
+// Escape HTML to prevent injection via Stripe-sourced strings (customer name/email)
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
  * Permanent errors that won't resolve on retry — return 200 so Stripe
@@ -215,10 +219,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Fetch subscription details to get period end and status (may be "trialing" for
-  // free trials). Reassigned below if the trial is stripped for a returning
-  // subscriber, so the admin notification and Beehiiv routing see the real status.
-  let subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  // Fetch subscription details to get period end and status (may be "trialing" for free trials)
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
   const baseUpdates = {
     stripe_subscription_id: subscriptionId,
@@ -266,30 +268,38 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       .maybeSingle();
 
     if (profileByEmail) {
-      // Existing user — link Stripe subscription to their account.
       // Anonymous checkout always starts a 7-day trial (the email isn't known
-      // until Stripe collects it), so a returning subscriber could recycle
-      // trials by checking out logged-out. If this account already has billing
-      // history, end the trial now — Stripe invoices the first period
-      // immediately and the profile gets the post-trial status.
-      let linkUpdates = anonymousUpdates;
+      // until Stripe collects it), but trials are for first-time subscribers
+      // only. Don't silently convert the promised trial into an immediate
+      // charge — cancel the subscription (no invoice exists during a trial,
+      // so nothing is charged), leave the profile untouched, and email them
+      // to log in, where checkout offers monthly/annual without a trial.
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
       if (subscription.status === 'trialing' && hasBillingHistory) {
-        subscription = await stripe.subscriptions.update(subscriptionId, { trial_end: 'now' });
-        linkUpdates = {
-          ...anonymousUpdates,
-          subscription_status: subscription.status,
-          plan: mapStatusToPlan(subscription.status),
-          subscription_period_end: extractPeriodEnd(subscription),
-        };
+        await stripe.subscriptions.cancel(subscriptionId);
         console.log(
-          `[webhook] Ended trial for returning subscriber ${profileByEmail.id} (anonymous checkout with billing history)`
+          `[webhook] Canceled anonymous trial for returning subscriber ${profileByEmail.id} (trial already used); sent re-subscribe email`
         );
+
+        try {
+          await sendReturningSubscriberEmail(email);
+        } catch (emailError) {
+          console.error('[webhook] Returning-subscriber email failed (non-fatal):', emailError);
+        }
+
+        await notifyAdmin(
+          `<b>Returning subscriber blocked from second trial</b>\n` +
+            `<b>Email:</b> ${escapeHtml(email)}\n` +
+            `Anonymous trial checkout canceled (no charge); emailed log-in-and-resubscribe link.`
+        );
+        return;
       }
 
+      // Existing account with no billing history (signed up but never
+      // subscribed) — first trial is legitimate; link the subscription.
       await getSupabaseAdmin()
         .from('user_profiles')
-        .update({ ...linkUpdates, updated_at: new Date().toISOString() })
+        .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
         .eq('id', profileByEmail.id);
 
       await stripe.customers.update(customerId, {
@@ -348,7 +358,6 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   console.log(`[webhook] Subscription activated for customer ${customerId}`);
 
   // Notify admin of new signup — escape HTML to prevent injection via Stripe customer name
-  const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const displayName = escapeHtml((customer as Stripe.Customer).name ?? 'Unknown');
   const displayEmail = escapeHtml((customer as Stripe.Customer).email ?? 'N/A');
   const statusLabel = subscription.status === 'trialing' ? '🆓 Free Trial' : '💳 Paid';
