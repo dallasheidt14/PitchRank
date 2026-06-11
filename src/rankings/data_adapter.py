@@ -551,7 +551,11 @@ def supabase_to_v53e_format(games_df: pd.DataFrame, teams_df: pd.DataFrame) -> p
     # Normalize gender values
     teams_df["gender"] = normalize_gender(teams_df["gender"])
     team_age_map = dict(zip(teams_df["team_id_master"], teams_df["age"]))
-    team_gender_map = dict(zip(teams_df["team_id_master"], teams_df["gender"]))
+    # Exclude null genders so the falsy guard below drops those teams' games —
+    # a mapped NaN would slip through it, since bool(nan) is True
+    team_gender_map = {
+        tid: gender for tid, gender in zip(teams_df["team_id_master"], teams_df["gender"]) if pd.notna(gender)
+    }
 
     # Convert to v53e format (perspective-based)
     v53e_rows = []
