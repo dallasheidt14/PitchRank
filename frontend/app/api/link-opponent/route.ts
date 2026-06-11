@@ -92,27 +92,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Create or update alias mapping (upsert)
-
-    const { error: aliasError } = await supabase.from('team_alias_map').upsert(
-      {
-        provider_id: game.provider_id,
-        provider_team_id: providerTeamIdStr,
-        team_id_master: teamIdMaster,
-        match_method: 'manual', // Valid values: auto, manual, import, direct_id, fuzzy_auto, fuzzy_review
-        match_confidence: 1.0,
-        review_status: 'approved',
-      },
-      {
-        onConflict: 'provider_id,provider_team_id',
-      }
-    );
-
-    if (aliasError) {
-      console.error('[link-opponent] Failed to create alias:', aliasError);
-      return NextResponse.json({ error: 'Failed to create team alias mapping' }, { status: 500 });
-    }
-
     let gamesUpdated = 0;
     let homeUpdated = 0;
     let awayUpdated = 0;
@@ -122,7 +101,7 @@ export async function POST(request: NextRequest) {
     // Note: isOpponentHome, isOpponentAway are already defined above
     // At this point, we know the opponent needs linking (validated in early check)
 
-    // 4. FIRST: Always update the specific game the user clicked on (by ID)
+    // 3. FIRST: Always update the specific game the user clicked on (by ID)
     // This ensures the clicked game gets updated regardless of any type issues with provider_id matching
     if (isOpponentHome) {
       // Try using RPC function first (handles immutability properly)
@@ -272,6 +251,28 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
+    }
+
+    // 4. Create or update alias mapping — only after the specific game link is
+    // proven, so a failed link can't leave behind a permanent approved alias
+    // that future imports would auto-apply
+    const { error: aliasError } = await supabase.from('team_alias_map').upsert(
+      {
+        provider_id: game.provider_id,
+        provider_team_id: providerTeamIdStr,
+        team_id_master: teamIdMaster,
+        match_method: 'manual', // Valid values: auto, manual, import, direct_id, fuzzy_auto, fuzzy_review
+        match_confidence: 1.0,
+        review_status: 'approved',
+      },
+      {
+        onConflict: 'provider_id,provider_team_id',
+      }
+    );
+
+    if (aliasError) {
+      console.error('[link-opponent] Failed to create alias:', aliasError);
+      return NextResponse.json({ error: 'Game linked, but creating the team alias mapping failed' }, { status: 500 });
     }
 
     // 5. Backfill OTHER games with this provider_team_id (only the unknown side)

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { getSearchConsoleClient } from '@/lib/google-auth';
 import { getDateRange } from '@/lib/analytics-utils';
-import type { SearchConsoleData, SearchConsoleRow, SearchConsolePageRow } from '@/types/analytics';
+import type { SearchConsoleData, SearchConsoleRow, SearchConsolePageRow, SearchConsoleTotals } from '@/types/analytics';
 
 export async function GET(req: Request) {
   const auth = await requireAdmin();
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 
     const client = getSearchConsoleClient();
 
-    const [queriesRes, pagesRes] = await Promise.all([
+    const [queriesRes, pagesRes, totalsRes] = await Promise.all([
       client.searchanalytics.query({
         siteUrl,
         requestBody: {
@@ -37,6 +37,18 @@ export async function GET(req: Request) {
           endDate,
           dimensions: ['page'],
           rowLimit: 25,
+        },
+      }),
+      // Totals need their own date-dimension query: query/page rows are
+      // privacy-thresholded (and capped at 25 here), so summing them
+      // materially understates clicks and impressions
+      client.searchanalytics.query({
+        siteUrl,
+        requestBody: {
+          startDate,
+          endDate,
+          dimensions: ['date'],
+          rowLimit: 1000,
         },
       }),
     ]);
@@ -57,10 +69,11 @@ export async function GET(req: Request) {
       position: row.position || 0,
     }));
 
-    const totals = topQueries.reduce(
+    const totalRows = totalsRes.data.rows || [];
+    const totals = totalRows.reduce<SearchConsoleTotals>(
       (acc, row) => ({
-        clicks: acc.clicks + row.clicks,
-        impressions: acc.impressions + row.impressions,
+        clicks: acc.clicks + (row.clicks || 0),
+        impressions: acc.impressions + (row.impressions || 0),
         ctr: 0,
         position: 0,
       }),
@@ -70,7 +83,8 @@ export async function GET(req: Request) {
     // Compute weighted averages for CTR and position
     if (totals.impressions > 0) {
       totals.ctr = totals.clicks / totals.impressions;
-      totals.position = topQueries.reduce((sum, row) => sum + row.position * row.impressions, 0) / totals.impressions;
+      totals.position =
+        totalRows.reduce((sum, row) => sum + (row.position || 0) * (row.impressions || 0), 0) / totals.impressions;
     }
 
     const data: SearchConsoleData = {

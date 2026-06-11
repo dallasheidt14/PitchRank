@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
       .eq('team_id_master', teamId)
       .single();
 
-    if (rankingError || !ranking || ranking.power_score_final == null) {
+    // rank_in_cohort_final is null for non-Active teams; without it the
+    // percentile math below degenerates to "top 100% nationally"
+    if (rankingError || !ranking || ranking.power_score_final == null || ranking.rank_in_cohort_final == null) {
       return NextResponse.json(
         { error: 'Not enough ranking data for this team. Check back after they have played more games.' },
         { status: 400 }
