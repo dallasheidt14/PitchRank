@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted so mock fns are available inside vi.mock factories (which are hoisted)
-const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate } = vi.hoisted(() => ({
-  mockGetUser: vi.fn(),
-  mockFrom: vi.fn(),
-  mockCustomersCreate: vi.fn(),
-  mockCheckoutSessionsCreate: vi.fn(),
-}));
+const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate, mockCheckRateLimit } = vi.hoisted(
+  () => ({
+    mockGetUser: vi.fn(),
+    mockFrom: vi.fn(),
+    mockCustomersCreate: vi.fn(),
+    mockCheckoutSessionsCreate: vi.fn(),
+    mockCheckRateLimit: vi.fn(() => true),
+  })
+);
 
 // Mock next/headers (needed by supabase/server)
 vi.mock('next/headers', () => ({
@@ -17,6 +20,14 @@ vi.mock('next/headers', () => ({
 }));
 
 // Mock supabase server
+// Mock the rate limiter so tests are deterministic — the real limiter keys all
+// requests on the 'unknown' IP (no x-real-ip/x-forwarded-for here) and caps at 5,
+// so the 6th request in a run would otherwise flake to a 429.
+vi.mock('@/lib/api/rateLimit', () => ({
+  checkRateLimit: mockCheckRateLimit,
+  getClientIp: vi.fn(() => '203.0.113.1'),
+}));
+
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabase: vi.fn().mockResolvedValue({
     auth: {
@@ -61,7 +72,18 @@ function makeRequest(body: Record<string, unknown> = {}): Request {
 describe('POST /api/stripe/checkout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCheckRateLimit.mockReturnValue(true);
     process.env.NEXT_PUBLIC_SITE_URL = 'https://pitchrank.io';
+  });
+
+  it('returns 429 when the rate limiter denies the request', async () => {
+    mockCheckRateLimit.mockReturnValue(false);
+
+    const res = await POST(makeRequest({ priceId: 'price_monthly' }));
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.error).toMatch(/too many requests/i);
   });
 
   it('creates anonymous checkout session when not authenticated', async () => {

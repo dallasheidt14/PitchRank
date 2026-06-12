@@ -1,4 +1,11 @@
-import { stripe, WEBHOOK_EVENTS, extractPeriodEnd, mapStatusToPlan, updateUserProfile } from '@/lib/stripe/server';
+import {
+  stripe,
+  WEBHOOK_EVENTS,
+  extractPeriodEnd,
+  mapStatusToPlan,
+  updateUserProfile,
+  isSessionPaymentSettled,
+} from '@/lib/stripe/server';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -147,6 +154,26 @@ export async function POST(req: Request) {
         break;
       }
 
+      // Async payment methods complete checkout with payment_status='unpaid';
+      // fulfillment is skipped then and happens here once the payment settles
+      case WEBHOOK_EVENTS.CHECKOUT_ASYNC_PAYMENT_SUCCEEDED: {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await handleCheckoutCompleted(session);
+        break;
+      }
+
+      // Terminal failure of a delayed payment. Nothing was provisioned (the
+      // unpaid completed event was skipped), so no profile write is needed —
+      // Stripe emails the customer; surface it for ops visibility
+      case WEBHOOK_EVENTS.CHECKOUT_ASYNC_PAYMENT_FAILED: {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.warn(`[webhook] Async payment failed for session ${session.id} (customer ${session.customer})`);
+        await notifyAdmin(
+          `<b>Async payment failed</b>\nCheckout session ${escapeHtml(session.id)} — no access was granted.`
+        );
+        break;
+      }
+
       case WEBHOOK_EVENTS.SUBSCRIPTION_UPDATED: {
         const subscription = event.data.object as Stripe.Subscription;
         await handleSubscriptionUpdated(subscription);
@@ -216,6 +243,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   if (!customerId || !subscriptionId) {
     console.error('[webhook] Missing customer or subscription ID in checkout session');
+    return;
+  }
+
+  // checkout.session.completed also fires for unpaid async payment methods;
+  // only paid (or trialing, no_payment_required) sessions may activate premium
+  if (!isSessionPaymentSettled(session)) {
+    console.log(
+      `[webhook] Checkout session ${session.id} completed with payment_status=${session.payment_status}; skipping fulfillment`
+    );
     return;
   }
 
@@ -407,18 +443,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
  * dashboard can show the user as "canceling" rather than misleadingly "active".
  */
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  const customerId = subscription.customer as string;
-  const status = subscription.status;
+  // Stripe delivers events at-least-once and out of order: a stale
+  // subscription.updated (status=active) replayed after cancellation would
+  // restore premium. Re-fetch so the write reflects the subscription's
+  // current state, not the event payload's snapshot.
+  const current = await stripe.subscriptions.retrieve(subscription.id);
+  const customerId = current.customer as string;
+  const status = current.status;
   const plan = mapStatusToPlan(status);
-  const canceling = subscription.cancel_at_period_end ?? false;
+  const canceling = current.cancel_at_period_end ?? false;
 
   const prior = await getPriorState(customerId);
 
   await updateUserProfile(getSupabaseAdmin(), customerId, {
-    stripe_subscription_id: subscription.id,
+    stripe_subscription_id: current.id,
     subscription_status: status,
     plan,
-    subscription_period_end: extractPeriodEnd(subscription),
+    subscription_period_end: extractPeriodEnd(current),
     cancel_at_period_end: canceling,
   });
 
@@ -581,6 +622,12 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
   const customerId = charge.customer as string;
   if (!customerId) {
     console.log('[webhook] Charge refunded without a customer (guest checkout); skipping');
+    return;
+  }
+  // charge.refunded fires for partial refunds too, but is only true when the
+  // charge is fully refunded — a partial refund leaves the subscriber active
+  if (!charge.refunded) {
+    console.log(`[webhook] Partial refund for customer ${customerId} (charge ${charge.id}); lifecycle unchanged`);
     return;
   }
   console.log(`[webhook] Charge refunded for customer ${customerId} (charge ${charge.id})`);

@@ -1,6 +1,7 @@
 import { stripe, getStripePriceIds } from '@/lib/stripe/server';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 
@@ -17,6 +18,13 @@ function baseSessionParams(priceId: string): Partial<Stripe.Checkout.SessionCrea
 
 export async function POST(req: Request) {
   try {
+    // Unauthenticated endpoint that creates Stripe customers/sessions —
+    // throttle to blunt cost/DoS amplification
+    const ip = getClientIp(req);
+    if (!checkRateLimit(`stripe-checkout:${ip}`, 5, 60_000)) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
+
     const { user, supabase } = await optionalAuth();
 
     const { priceId } = await req.json();

@@ -24,13 +24,18 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
       return;
     }
 
-    // Construct full URL with search params
-    const url = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    // Construct full URL with search params. session_id is the bearer secret
+    // for /api/stripe/sync — never report it off-origin.
+    const params = new URLSearchParams(searchParams);
+    params.delete('session_id');
+    const url = params.toString() ? `${pathname}?${params.toString()}` : pathname;
 
-    // Send pageview event to GA4
+    // Send pageview event to GA4. page_location must be pinned too — GA4
+    // otherwise derives it from document.location, re-leaking stripped params
     if (window.gtag) {
       window.gtag('config', measurementId, {
         page_path: url,
+        page_location: `${window.location.origin}${url}`,
       });
     }
   }, [pathname, searchParams, measurementId]);
@@ -49,8 +54,13 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
+          // Strip session_id (the /api/stripe/sync bearer secret) before the
+          // initial pageview — GA4 derives page_location from document.location
+          var sanitized = new URL(window.location.href);
+          sanitized.searchParams.delete('session_id');
           gtag('config', '${measurementId}', {
             page_path: window.location.pathname,
+            page_location: sanitized.toString(),
           });
         `}
       </Script>

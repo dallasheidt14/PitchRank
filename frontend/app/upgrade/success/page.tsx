@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,7 @@ export default function UpgradeSuccessPage() {
 }
 
 function UpgradeSuccessContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: userLoading } = useUser();
   const [shareStatus, setShareStatus] = useState<string | null>(null);
@@ -56,6 +57,13 @@ function UpgradeSuccessContent() {
     if (!sessionId || syncStarted.current) return;
 
     syncStarted.current = true;
+
+    // The session_id is the bearer secret for /api/stripe/sync — scrub it from
+    // the URL immediately (before the sync round-trip) so history, referrers,
+    // and analytics pageviews don't carry it. The captured value keeps this
+    // in-flight sync working; the webhook remains the primary fulfillment path.
+    router.replace('/upgrade/success', { scroll: false });
+
     fetch('/api/stripe/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -77,7 +85,7 @@ function UpgradeSuccessContent() {
       .catch((err) => {
         console.error('Sync fetch error:', err);
       });
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   const handleShare = async () => {
     const shareData = {

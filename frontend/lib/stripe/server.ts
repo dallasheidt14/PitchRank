@@ -54,6 +54,8 @@ export function getStripePriceIds() {
  */
 export const WEBHOOK_EVENTS = {
   CHECKOUT_COMPLETED: 'checkout.session.completed',
+  CHECKOUT_ASYNC_PAYMENT_SUCCEEDED: 'checkout.session.async_payment_succeeded',
+  CHECKOUT_ASYNC_PAYMENT_FAILED: 'checkout.session.async_payment_failed',
   SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
   SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
   INVOICE_PAID: 'invoice.paid',
@@ -61,6 +63,15 @@ export const WEBHOOK_EVENTS = {
   TRIAL_WILL_END: 'customer.subscription.trial_will_end',
   CHARGE_REFUNDED: 'charge.refunded',
 } as const;
+
+/**
+ * A checkout session may drive fulfillment only once payment is settled
+ * ('paid') or no payment is due (trial). Unpaid sessions from async payment
+ * methods settle later via checkout.session.async_payment_succeeded.
+ */
+export function isSessionPaymentSettled(session: Stripe.Checkout.Session): boolean {
+  return session.payment_status === 'paid' || session.payment_status === 'no_payment_required';
+}
 
 /**
  * Extract subscription period end as an ISO string, handling both item-level

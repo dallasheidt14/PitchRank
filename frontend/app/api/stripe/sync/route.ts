@@ -1,6 +1,7 @@
-import { stripe, extractPeriodEnd, mapStatusToPlan } from '@/lib/stripe/server';
+import { stripe, extractPeriodEnd, mapStatusToPlan, isSessionPaymentSettled } from '@/lib/stripe/server';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { NextResponse } from 'next/server';
 
 /**
@@ -16,6 +17,13 @@ import { NextResponse } from 'next/server';
  */
 export async function POST(req: Request) {
   try {
+    // Unauthenticated endpoint that fans out to Stripe — throttle to blunt
+    // cost amplification and session-ID replay probing
+    const ip = getClientIp(req);
+    if (!checkRateLimit(`stripe-sync:${ip}`, 5, 60_000)) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
+
     const { user, supabase } = await optionalAuth();
 
     const { sessionId } = await req.json();
@@ -27,6 +35,20 @@ export async function POST(req: Request) {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['subscription'],
     });
+
+    // Only completed, paid (or trial) sessions may drive profile writes —
+    // open/expired/unpaid sessions must not grant a plan
+    if (session.status !== 'complete') {
+      return NextResponse.json({ error: 'Checkout session is not complete' }, { status: 400 });
+    }
+    if (!isSessionPaymentSettled(session)) {
+      // Async payment methods settle after checkout completes; the webhook
+      // fulfills on async_payment_succeeded and flags async_payment_failed.
+      // A failed delayed payment also reads 'unpaid' here — subscription-mode
+      // sessions expose no field to tell the two apart, so this stays 202 and
+      // the webhook owns the terminal outcome.
+      return NextResponse.json({ synced: false, error: 'Payment still processing' }, { status: 202 });
+    }
 
     if (!session.customer || !session.subscription) {
       return NextResponse.json({ error: 'Session has no subscription' }, { status: 400 });
@@ -56,6 +78,22 @@ export async function POST(req: Request) {
       if (sessionUserId) {
         if (sessionUserId !== user.id) {
           return NextResponse.json({ error: 'Session does not belong to you' }, { status: 403 });
+        }
+        // A profile already linked to a different Stripe customer must not be
+        // re-pointed by a session sync — that would de-link the live billing row.
+        // Fail closed if the lookup errors: writing without completing the
+        // verification would reopen exactly that hole.
+        const { data: profile, error: profileLookupError } = await supabase
+          .from('user_profiles')
+          .select('stripe_customer_id')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (profileLookupError) {
+          console.error('Sync: error verifying billing profile:', profileLookupError);
+          return NextResponse.json({ error: 'Failed to sync' }, { status: 500 });
+        }
+        if (profile?.stripe_customer_id && profile.stripe_customer_id !== customerId) {
+          return NextResponse.json({ error: 'Session does not match your billing profile' }, { status: 403 });
         }
       } else {
         const { data: profile } = await supabase

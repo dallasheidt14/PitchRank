@@ -22,6 +22,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'teamIdMaster is required' }, { status: 400 });
     }
 
+    // Validate UUID — teamIdMaster is interpolated into the .or() filter below,
+    // so reject anything that could carry PostgREST filter syntax
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(teamIdMaster)) {
+      return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
+    }
+
     // Get user's default watchlist
     const { data: watchlist, error: watchlistError } = await supabase
       .from('watchlists')

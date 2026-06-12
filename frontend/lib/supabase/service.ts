@@ -1,4 +1,15 @@
+import 'server-only';
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+function getServiceConfig(): { supabaseUrl: string; serviceRoleKey: string } {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(`Missing Supabase service environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
+  }
+  return { supabaseUrl, serviceRoleKey };
+}
 
 /**
  * Create a Supabase client with the service-role key for admin operations.
@@ -7,12 +18,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
  * Throws if environment variables are missing (caught by route-level try/catch).
  */
 export function createServiceSupabase(): SupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error(`Missing Supabase service environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
-  }
+  const { supabaseUrl, serviceRoleKey } = getServiceConfig();
 
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: {
@@ -36,11 +42,7 @@ let _adminSingleton: SupabaseClient | null = null;
 
 export function getSupabaseAdmin(): SupabaseClient {
   if (!_adminSingleton) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(`Missing Supabase environment variables (url=${!!supabaseUrl}, key=${!!serviceRoleKey})`);
-    }
+    const { supabaseUrl, serviceRoleKey } = getServiceConfig();
     _adminSingleton = createClient(supabaseUrl, serviceRoleKey);
   }
   return _adminSingleton;
