@@ -1,6 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { sendReportCardEmail } from '@/lib/email';
-import { checkRateLimit } from '@/lib/api/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { subscribeFreeLead, enrollInAutomation } from '@/lib/beehiiv';
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,7 +14,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const ip = getClientIp(request);
     if (!checkRateLimit(ip, 3, 60000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }

@@ -1,21 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Hoisted mock fns so they're available inside vi.mock factories
-const { mockGetUser, mockServerFrom, mockAdminFrom, mockSessionsRetrieve, mockSubscriptionsRetrieve } = vi.hoisted(
-  () => ({
-    mockGetUser: vi.fn(),
-    mockServerFrom: vi.fn(),
-    mockAdminFrom: vi.fn(),
-    mockSessionsRetrieve: vi.fn(),
-    mockSubscriptionsRetrieve: vi.fn(),
-  })
-);
+const {
+  mockGetUser,
+  mockServerFrom,
+  mockAdminFrom,
+  mockSessionsRetrieve,
+  mockSubscriptionsRetrieve,
+  mockCheckRateLimit,
+} = vi.hoisted(() => ({
+  mockGetUser: vi.fn(),
+  mockServerFrom: vi.fn(),
+  mockAdminFrom: vi.fn(),
+  mockSessionsRetrieve: vi.fn(),
+  mockSubscriptionsRetrieve: vi.fn(),
+  mockCheckRateLimit: vi.fn(() => true),
+}));
 
 vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({
     getAll: vi.fn().mockReturnValue([]),
     set: vi.fn(),
   }),
+}));
+
+vi.mock('@/lib/api/rateLimit', () => ({
+  checkRateLimit: mockCheckRateLimit,
+  getClientIp: vi.fn(() => '203.0.113.1'),
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -36,6 +47,8 @@ vi.mock('@/lib/stripe/server', () => ({
   },
   extractPeriodEnd: vi.fn(() => '2026-12-31T00:00:00.000Z'),
   mapStatusToPlan: vi.fn((status: string) => (status === 'active' ? 'premium' : 'free')),
+  isSessionPaymentSettled: (s: { payment_status?: string }) =>
+    s.payment_status === 'paid' || s.payment_status === 'no_payment_required',
 }));
 
 import { POST } from '../route';
@@ -46,6 +59,20 @@ function makeRequest(body: unknown): Request {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Build a retrieved Stripe checkout session for the happy path
+ * (complete + paid + active subscription). Override any field per test.
+ */
+function makeSession(overrides: Record<string, unknown> = {}) {
+  return {
+    status: 'complete',
+    payment_status: 'paid',
+    customer: 'cus_123',
+    subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
+    ...overrides,
+  };
 }
 
 /**
@@ -76,6 +103,7 @@ function updateChain(final: { error?: unknown } = { error: null }) {
 describe('POST /api/stripe/sync', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCheckRateLimit.mockReturnValue(true);
   });
 
   it('returns 400 when sessionId is missing', async () => {
@@ -97,7 +125,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('returns 400 when session has no subscription', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    mockSessionsRetrieve.mockResolvedValue({ customer: 'cus_123', subscription: null });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ subscription: null }));
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
@@ -107,11 +135,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('authenticated: returns 403 when session metadata user does not match', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_123',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-      metadata: { supabase_user_id: 'user-attacker' },
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ metadata: { supabase_user_id: 'user-attacker' } }));
 
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
@@ -121,11 +145,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('authenticated: returns 403 when no metadata and customer_id mismatch on profile', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_attacker',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-      metadata: {},
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ customer: 'cus_attacker', metadata: {} }));
     const chain = selectChain({ data: { stripe_customer_id: 'cus_real' }, error: null });
     mockServerFrom.mockReturnValue(chain.client);
 
@@ -143,11 +163,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('authenticated: returns 403 when profile has no customer_id (cannot verify)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_123',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-      metadata: {},
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ metadata: {} }));
     const chain = selectChain({ data: { stripe_customer_id: null }, error: null });
     mockServerFrom.mockReturnValue(chain.client);
 
@@ -161,11 +177,10 @@ describe('POST /api/stripe/sync', () => {
 
   it('authenticated: syncs profile by user.id when metadata matches', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_123',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-      metadata: { supabase_user_id: 'user-real' },
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ metadata: { supabase_user_id: 'user-real' } }));
+    // Metadata path also cross-checks the stored customer ID
+    const profileChain = selectChain({ data: { stripe_customer_id: 'cus_123' }, error: null });
+    mockServerFrom.mockReturnValue(profileChain.client);
     const update = updateChain({ error: null });
     mockAdminFrom.mockReturnValue(update.client);
 
@@ -186,10 +201,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('anonymous: returns 202 when no profile exists yet (webhook pending)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_anon',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ customer: 'cus_anon' }));
     const chain = selectChain({ data: null, error: null });
     mockAdminFrom.mockReturnValue(chain.client);
 
@@ -209,10 +221,7 @@ describe('POST /api/stripe/sync', () => {
 
   it('anonymous: syncs by stripe_customer_id when profile exists', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    mockSessionsRetrieve.mockResolvedValue({
-      customer: 'cus_anon',
-      subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
-    });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ customer: 'cus_anon' }));
     const lookup = selectChain({ data: { id: 'profile-99' }, error: null });
     const update = updateChain({ error: null });
     mockAdminFrom
@@ -239,5 +248,85 @@ describe('POST /api/stripe/sync', () => {
     const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
 
     expect(res.status).toBe(500);
+  });
+
+  it('returns 400 when the checkout session is not complete', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockSessionsRetrieve.mockResolvedValueOnce(makeSession({ status: 'open', payment_status: 'unpaid' }));
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_open' }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/not complete/i);
+  });
+
+  it('returns 202 when payment is still processing (async method)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockSessionsRetrieve.mockResolvedValueOnce(makeSession({ payment_status: 'unpaid' }));
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_unpaid' }));
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ synced: false });
+  });
+
+  it('authenticated: returns 403 when metadata matches but stored customer differs', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
+    mockSessionsRetrieve.mockResolvedValueOnce(
+      makeSession({ customer: 'cus_other', metadata: { supabase_user_id: 'user-real' } })
+    );
+    // Profile already linked to a different Stripe customer — must not be re-pointed
+    const profileChain = selectChain({ data: { stripe_customer_id: 'cus_real' }, error: null });
+    mockServerFrom.mockReturnValue(profileChain.client);
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_mismatch' }));
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/billing profile/i);
+    expect(mockAdminFrom).not.toHaveBeenCalled();
+  });
+
+  it('anonymous: trial checkout (no_payment_required) passes the paid guard and syncs', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    // A trial checkout settles with payment_status 'no_payment_required' — the
+    // guard must treat it like 'paid' so trials can sync, not reject as unpaid.
+    mockSessionsRetrieve.mockResolvedValueOnce(
+      makeSession({ customer: 'cus_anon', payment_status: 'no_payment_required' })
+    );
+    const lookup = selectChain({ data: { id: 'profile-99' }, error: null });
+    const update = updateChain({ error: null });
+    mockAdminFrom
+      .mockReturnValueOnce(lookup.client) // SELECT to find profile by customer
+      .mockReturnValueOnce(update.client); // UPDATE that profile
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_trial' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ synced: true });
+    expect(lookup.eq).toHaveBeenCalledWith('stripe_customer_id', 'cus_anon');
+    expect(update.eq).toHaveBeenCalledWith('id', 'profile-99');
+  });
+
+  it('returns 429 when the rate limiter denies', async () => {
+    mockCheckRateLimit.mockReturnValue(false);
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
+
+    expect(res.status).toBe(429);
+  });
+
+  it('returns 500 when the billing-profile verification lookup fails', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-real' } } });
+    mockSessionsRetrieve.mockResolvedValue(makeSession({ metadata: { supabase_user_id: 'user-real' } }));
+    // The ownership-verification lookup errors — fail closed (writing without
+    // completing verification would reopen the de-link hole).
+    const chain = selectChain({ data: null, error: { message: 'boom' } });
+    mockServerFrom.mockReturnValue(chain.client);
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_abc' }));
+
+    expect(res.status).toBe(500);
+    // Must never reach the admin write when verification couldn't complete.
+    expect(mockAdminFrom).not.toHaveBeenCalled();
   });
 });

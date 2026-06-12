@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
-import { checkRateLimit } from '@/lib/api/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { sendFeedbackEmail, type FeedbackCategory, type FeedbackIdentity } from '@/lib/email';
 
@@ -56,7 +56,7 @@ function isStringWithLen(v: unknown, min: number, max: number): v is string {
 
 export async function POST(request: NextRequest) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const ip = getClientIp(request);
 
     const parsed = await parseJsonBody<IncomingBody>(request);
     if (parsed.error) return parsed.error;

@@ -120,7 +120,8 @@ export async function middleware(request: NextRequest) {
     }
 
     if (isAdminRoute) {
-      if (!profile || profile.plan !== 'admin') {
+      // Fail closed on lookup errors, matching the premium branch above
+      if (profileError || !profile || profile.plan !== 'admin') {
         return NextResponse.redirect(new URL('/', request.url));
       }
     }

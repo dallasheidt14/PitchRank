@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, MEDAL, platformDims, formatScore, formatRecord } from '../_shared/theme';
@@ -75,6 +76,11 @@ const STATE_NAMES: Record<string, string> = {
 };
 
 export async function GET(request: Request) {
+  // CPU-heavy public image rendering - throttle to limit denial-of-wallet
+  if (!checkRateLimit(getClientIp(request), 10, 60_000)) {
+    return new Response('Too many requests', { status: 429 });
+  }
+
   const { searchParams, origin } = new URL(request.url);
   const state = searchParams.get('state') || 'TX';
   const ageParam = searchParams.get('age') || 'u14';

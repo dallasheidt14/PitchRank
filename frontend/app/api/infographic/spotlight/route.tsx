@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, platformDims, formatScore, formatRecord } from '../_shared/theme';
@@ -60,6 +61,11 @@ async function getSpotlightTeam(): Promise<SpotlightTeam | null> {
 }
 
 export async function GET(request: Request) {
+  // CPU-heavy public image rendering - throttle to limit denial-of-wallet
+  if (!checkRateLimit(getClientIp(request), 10, 60_000)) {
+    return new Response('Too many requests', { status: 429 });
+  }
+
   const { origin, searchParams } = new URL(request.url);
   const platform = searchParams.get('platform') || 'instagram';
   const isStory = platform === 'story';

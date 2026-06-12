@@ -54,7 +54,7 @@ export async function GET() {
 
       if (error) {
         console.error('[instagram-review] GET error:', error.message);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to load review queue' }, { status: 500 });
       }
 
       if (!data || data.length === 0) break;
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
     const { handle, action } = body;
 
-    if (!handle || !action || !['approve', 'reject'].includes(action)) {
+    if (!handle || typeof handle !== 'string' || !action || !['approve', 'reject'].includes(action)) {
       return NextResponse.json(
         { error: 'Required: { handle: string, action: "approve" | "reject" }' },
         { status: 400 }
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('[instagram-review] POST error:', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to update review status' }, { status: 500 });
     }
 
     return NextResponse.json({

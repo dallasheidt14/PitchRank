@@ -17,6 +17,7 @@ vi.mock('@/lib/api/requirePremium', () => ({
 
 vi.mock('@/lib/api/rateLimit', () => ({
   checkRateLimit: mockCheckRateLimit,
+  getClientIp: (request: Request) => request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
 }));
 
 vi.mock('@/lib/matchPredictionService', () => ({

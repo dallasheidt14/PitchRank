@@ -26,8 +26,10 @@ export function Navigation() {
       router.refresh();
     } catch (error) {
       console.error('Sign out error:', error);
-      // Fallback to logout route if signOut fails
-      router.push('/logout');
+      // Fallback to the logout endpoint if client signOut fails (POST only —
+      // GET logout is not exposed, to prevent forced-logout CSRF)
+      await fetch('/logout', { method: 'POST' });
+      router.push('/');
       router.refresh();
     } finally {
       setIsSigningOut(false);

@@ -24,8 +24,11 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
       return;
     }
 
-    // Construct full URL with search params
-    const url = searchParams?.toString() ? `${pathname}?${searchParams.toString()}` : pathname;
+    // Construct full URL with search params. session_id is the bearer secret
+    // for /api/stripe/sync — never report it off-origin.
+    const params = new URLSearchParams(searchParams);
+    params.delete('session_id');
+    const url = params.toString() ? `${pathname}?${params.toString()}` : pathname;
 
     // Send pageview event to GA4
     if (window.gtag) {

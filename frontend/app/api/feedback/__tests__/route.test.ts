@@ -15,6 +15,7 @@ vi.mock('@/lib/email', () => ({
 
 vi.mock('@/lib/api/rateLimit', () => ({
   checkRateLimit: mockCheckRateLimit,
+  getClientIp: (request: Request) => request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown',
 }));
 
 vi.mock('@/lib/supabase/server', () => ({

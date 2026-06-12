@@ -1,5 +1,5 @@
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
-import { checkRateLimit } from '@/lib/api/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { requirePremium } from '@/lib/api/requirePremium';
 import { AppError } from '@/lib/errors';
 import { buildMatchPredictionWithShadowContext } from '@/lib/matchPredictionService';
@@ -15,7 +15,7 @@ interface MatchPredictionRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    const ip = getClientIp(request);
     if (!checkRateLimit(ip, 10, 60_000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }

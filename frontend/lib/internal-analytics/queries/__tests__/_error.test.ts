@@ -22,10 +22,11 @@ describe('toTaxonomyError', () => {
     expect(t.retryable).toBe(false);
   });
 
-  it('maps 400 to VALIDATION with the original message', () => {
-    const t = toTaxonomyError({ code: 400, message: 'Invalid metric' });
+  it('maps 400 to VALIDATION without echoing the upstream message', () => {
+    const t = toTaxonomyError({ code: 400, message: 'Invalid metric: secret-internal-detail' });
     expect(t.type).toBe('VALIDATION');
-    expect(t.message).toContain('Invalid metric');
+    // Raw Google error text stays in server logs, never in the client payload
+    expect(t.message).not.toContain('secret-internal-detail');
     expect(t.retryable).toBe(false);
   });
 

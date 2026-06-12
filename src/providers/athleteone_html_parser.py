@@ -135,11 +135,21 @@ DATE_PATTERN_MONTH_NAME = re.compile(r"([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})", re.I
 TIME_PATTERN = re.compile(r"(\d{1,2}):(\d{2})\s*(AM|PM)", re.IGNORECASE)
 
 
-def _normalize_text(text: str) -> str:
-    """Normalize text: strip whitespace and collapse spaces"""
+# Scraped free-text flows into DB inserts unmodified; the cap keeps a
+# malformed or hostile page from producing unbounded field values
+_MAX_TEXT_LENGTH = 256
+
+
+def _normalize_text(text: str, max_length: Optional[int] = _MAX_TEXT_LENGTH) -> str:
+    """Normalize text: strip whitespace, collapse spaces, and cap length.
+
+    Pass ``max_length=None`` for intermediate text that is searched rather
+    than stored — a full row's concatenated text legitimately exceeds the cap.
+    """
     if not text:
         return ""
-    return " ".join(text.strip().split())
+    normalized = " ".join(text.strip().split())
+    return normalized if max_length is None else normalized[:max_length]
 
 
 def _find_game_rows(soup: BeautifulSoup) -> List[Tag]:
@@ -245,8 +255,9 @@ def _extract_score(row: Tag) -> Tuple[Optional[int], Optional[int]]:
         except (ValueError, AttributeError):
             pass
 
-    # Fallback: Search entire row text for score pattern
-    row_text = _normalize_text(row.get_text())
+    # Fallback: Search entire row text for score pattern (uncapped — the score
+    # often sits at the end of a long concatenated row)
+    row_text = _normalize_text(row.get_text(), max_length=None)
     match = SCORE_PATTERN.search(row_text)
     if match:
         try:

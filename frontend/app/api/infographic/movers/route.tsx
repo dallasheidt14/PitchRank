@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og';
+import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, platformDims } from '../_shared/theme';
@@ -86,6 +87,11 @@ function MoverSection({
 }
 
 export async function GET(request: Request) {
+  // CPU-heavy public image rendering - throttle to limit denial-of-wallet
+  if (!checkRateLimit(getClientIp(request), 10, 60_000)) {
+    return new Response('Too many requests', { status: 429 });
+  }
+
   const { searchParams, origin } = new URL(request.url);
   const platform = searchParams.get('platform') || 'instagram';
   const ageGroup = searchParams.get('age_group') || undefined;

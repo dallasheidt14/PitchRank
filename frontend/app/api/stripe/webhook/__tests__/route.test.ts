@@ -23,6 +23,8 @@ vi.mock('@/lib/stripe/server', () => ({
   },
   WEBHOOK_EVENTS: {
     CHECKOUT_COMPLETED: 'checkout.session.completed',
+    CHECKOUT_ASYNC_PAYMENT_SUCCEEDED: 'checkout.session.async_payment_succeeded',
+    CHECKOUT_ASYNC_PAYMENT_FAILED: 'checkout.session.async_payment_failed',
     SUBSCRIPTION_UPDATED: 'customer.subscription.updated',
     SUBSCRIPTION_DELETED: 'customer.subscription.deleted',
     INVOICE_PAID: 'invoice.paid',
@@ -35,6 +37,8 @@ vi.mock('@/lib/stripe/server', () => ({
     status === 'active' || status === 'trialing' || status === 'past_due' ? 'premium' : 'free'
   ),
   updateUserProfile: vi.fn().mockResolvedValue([{ id: '1' }]),
+  isSessionPaymentSettled: (s: { payment_status?: string }) =>
+    s.payment_status === 'paid' || s.payment_status === 'no_payment_required',
 }));
 
 // Mock the Beehiiv client — assert lifecycle routing without hitting the API
@@ -275,6 +279,14 @@ describe('POST /api/stripe/webhook', () => {
     } as Stripe.Event;
 
     vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    // The handler re-fetches current state instead of trusting the payload
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: true,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
     vi.mocked(updateUserProfile).mockResolvedValueOnce([{ id: '1' }]);
 
     const res = await POST(makeRequest('valid body'));
@@ -300,6 +312,7 @@ describe('POST /api/stripe/webhook', () => {
           id: 'cs_returning',
           customer: 'cus_new',
           subscription: 'sub_new',
+          payment_status: 'no_payment_required',
         } as unknown as Stripe.Checkout.Session,
       },
     } as Stripe.Event;
@@ -417,13 +430,20 @@ describe('Beehiiv lifecycle routing', () => {
     await fireEvent('charge.refunded', {
       id: 'ch_123',
       customer: 'cus_123',
+      refunded: true,
     });
 
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid_canceled');
   });
 
   it('skips charge.refunded for guest checkouts without a customer', async () => {
-    await fireEvent('charge.refunded', { id: 'ch_guest', customer: null });
+    await fireEvent('charge.refunded', { id: 'ch_guest', customer: null, refunded: true });
+
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+  });
+
+  it('ignores partial refunds (charge.refunded false)', async () => {
+    await fireEvent('charge.refunded', { id: 'ch_partial', customer: 'cus_123', refunded: false });
 
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
   });
@@ -439,6 +459,13 @@ describe('Beehiiv lifecycle routing', () => {
 
   it('routes canceling when cancel_at_period_end flips true', async () => {
     setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: true,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
 
     await fireEvent('customer.subscription.updated', {
       id: 'sub_123',
@@ -453,6 +480,13 @@ describe('Beehiiv lifecycle routing', () => {
 
   it('routes paid when cancel_at_period_end flips false (reactivation)', async () => {
     setPriorState({ subscription_status: 'active', cancel_at_period_end: true });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
 
     await fireEvent('customer.subscription.updated', {
       id: 'sub_123',
@@ -463,6 +497,32 @@ describe('Beehiiv lifecycle routing', () => {
     });
 
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
+  });
+
+  it('writes current subscription state when a stale update event replays', async () => {
+    setPriorState({ subscription_status: 'canceled', cancel_at_period_end: false });
+    // The replayed event claims active, but Stripe's current truth is canceled
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('customer.subscription.updated', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    });
+
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ subscription_status: 'canceled', plan: 'free' })
+    );
   });
 
   it('flips lifecycle to paid only on first invoice after trial', async () => {
@@ -561,6 +621,7 @@ describe('Beehiiv automation enrollment', () => {
     await fireEvent('checkout.session.completed', {
       customer: 'cus_123',
       subscription: 'sub_123',
+      payment_status: 'paid',
     });
 
     expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_trial');
@@ -591,6 +652,61 @@ describe('Beehiiv automation enrollment', () => {
     });
 
     expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_trial_cancel');
+  });
+
+  it('flags async payment failure without provisioning anything', async () => {
+    await fireEvent('checkout.session.async_payment_failed', {
+      id: 'cs_failed',
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'unpaid',
+    });
+
+    expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Async payment failed'));
+  });
+
+  it('skips fulfillment when checkout session is unpaid', async () => {
+    await fireEvent('checkout.session.completed', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'unpaid',
+    });
+
+    // An async payment method completed checkout but hasn't settled yet — the
+    // route must defer activation entirely (no profile write, no Beehiiv routing,
+    // and no subscription fetch) until checkout.session.async_payment_succeeded.
+    expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+    expect(vi.mocked(stripe.subscriptions.retrieve)).not.toHaveBeenCalled();
+  });
+
+  it('fulfills async payments via checkout.session.async_payment_succeeded', async () => {
+    process.env.BEEHIIV_PAID_AUTOMATION_ID = 'aut_test_paid';
+    // A profile already exists for this customer (authenticated checkout path)
+    setPriorState({ id: '1', subscription_status: null });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.async_payment_succeeded', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'paid',
+    });
+
+    // The async-success event runs the same fulfillment handler as a synchronous
+    // checkout — the existing profile is activated to premium.
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ plan: 'premium' })
+    );
   });
 });
 
@@ -639,6 +755,7 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
     await fireEvent('checkout.session.completed', {
       customer: 'cus_123',
       subscription: 'sub_123',
+      payment_status: 'paid',
     });
 
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
