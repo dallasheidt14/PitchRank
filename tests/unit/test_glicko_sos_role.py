@@ -188,7 +188,8 @@ class TestGlickoSOSAblations:
         assert _max_abs_diff(teams_baseline, teams_altered, "sos_norm") > 1e-6
         assert _max_abs_diff(teams_baseline, teams_altered, "power_score_final") > 1e-6
 
-    def test_scf_is_post_convergence_mu_and_sos_dampening(self):
+    def test_scf_is_post_convergence_sos_and_publish_dampening(self):
+        """Default SCF_PUBLISH_ONLY: SCF dampens SOS and the published score; mu stays pure."""
         games, state_map = _build_isolated_bubble_fixture()
         scf_on = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=True)
         scf_off = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=False)
@@ -204,8 +205,23 @@ class TestGlickoSOSAblations:
         off_row = _align(teams_off).loc["bubble_star"]
         neutral = scf_on.INITIAL_MU
         assert abs(on_row["sos_raw"] - neutral) < abs(off_row["sos_raw"] - neutral)
-        assert abs(on_row["mu"] - neutral) < abs(off_row["mu"] - neutral)
+        assert on_row["mu"] == pytest.approx(off_row["mu"], abs=1e-9)
+        assert _max_abs_diff(teams_on, teams_off, "powerscore_core") > 1e-6
         assert _max_abs_diff(teams_on, teams_off, "sos_norm") > 1e-6
+
+    def test_scf_legacy_mode_dampens_mu(self):
+        """SCF_PUBLISH_ONLY=False: SCF dampens the isolated team's mu itself."""
+        games, state_map = _build_isolated_bubble_fixture()
+        scf_on = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=True, SCF_PUBLISH_ONLY=False)
+        scf_off = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=False)
+
+        teams_on = _run_glicko(games, scf_on, team_state_map=state_map)
+        teams_off = _run_glicko(games, scf_off, team_state_map=state_map)
+
+        on_row = _align(teams_on).loc["bubble_star"]
+        off_row = _align(teams_off).loc["bubble_star"]
+        neutral = scf_on.INITIAL_MU
+        assert abs(on_row["mu"] - neutral) < abs(off_row["mu"] - neutral)
 
 
 class _DummySupabaseQuery:
