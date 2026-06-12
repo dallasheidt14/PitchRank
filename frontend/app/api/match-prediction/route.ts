@@ -16,7 +16,7 @@ interface MatchPredictionRequest {
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    if (!checkRateLimit(ip, 10, 60_000)) {
+    if (!checkRateLimit(`match-prediction:${ip}`, 10, 60_000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
 

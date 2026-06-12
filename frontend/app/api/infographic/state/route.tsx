@@ -77,7 +77,7 @@ const STATE_NAMES: Record<string, string> = {
 
 export async function GET(request: Request) {
   // CPU-heavy public image rendering - throttle to limit denial-of-wallet
-  if (!checkRateLimit(getClientIp(request), 10, 60_000)) {
+  if (!checkRateLimit(`infographic:${getClientIp(request)}`, 10, 60_000)) {
     return new Response('Too many requests', { status: 429 });
   }
 

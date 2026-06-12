@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
-    if (!checkRateLimit(ip)) {
+    if (!checkRateLimit(`newsletter:${ip}`)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
 

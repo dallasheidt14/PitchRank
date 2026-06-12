@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     // Unauthenticated endpoint that creates Stripe customers/sessions —
     // throttle to blunt cost/DoS amplification
     const ip = getClientIp(req);
-    if (!checkRateLimit(ip, 5, 60_000)) {
+    if (!checkRateLimit(`stripe-checkout:${ip}`, 5, 60_000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
 

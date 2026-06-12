@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Rate limit by IP
-    if (!checkRateLimit(ip, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
+    if (!checkRateLimit(`feedback:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
       return NextResponse.json(
         { error: 'rate_limited' },
         { status: 429, headers: { 'Retry-After': String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)) } }

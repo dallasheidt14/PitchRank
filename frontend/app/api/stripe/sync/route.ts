@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     // Unauthenticated endpoint that fans out to Stripe — throttle to blunt
     // cost amplification and session-ID replay probing
     const ip = getClientIp(req);
-    if (!checkRateLimit(ip, 5, 60_000)) {
+    if (!checkRateLimit(`stripe-sync:${ip}`, 5, 60_000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
 
