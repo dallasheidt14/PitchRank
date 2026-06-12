@@ -1787,6 +1787,9 @@ def compute_rankings_v2(
     team_df["sample_flag"] = np.where(team_df["games_played"] < cfg.MIN_GAMES_PROVISIONAL, "LOW_SAMPLE", "OK")
 
     active_mask = team_df["status"] == "Active"
+    # Mu-ordered intermediate only — under SCF_PUBLISH_ONLY it carries no isolation
+    # dampening. The published rank (rank_in_cohort_final) is recomputed downstream
+    # from power_score_true, which does.
     team_df["rank_in_cohort"] = np.nan
     team_df.loc[active_mask, "rank_in_cohort"] = team_df.loc[active_mask, "mu"].rank(ascending=False, method="min")
     team_df["national_rank"] = team_df["rank_in_cohort"]
