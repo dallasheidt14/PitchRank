@@ -13,6 +13,7 @@ rank_in_cohort_final=1, rank_in_cohort_ml=23, historical 7d ago = 7. Correct
 delta is 7 - 1 = +6. The bug produced 7 - 23 = -16.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pandas as pd
@@ -241,9 +242,25 @@ async def test_compute_all_cohorts_invokes_calculate_rank_changes_after_final_ra
         ]
     )
 
+    class _DummySupabaseQuery:
+        def select(self, *_args, **_kwargs):
+            return self
+
+        def in_(self, *_args, **_kwargs):
+            return self
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
     class _DummySupabase:
         def __init__(self):
             self.client = None
+
+        def table(self, _name: str):
+            return _DummySupabaseQuery()
 
     await calculator.compute_all_cohorts(
         supabase_client=_DummySupabase(),
