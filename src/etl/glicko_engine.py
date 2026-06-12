@@ -349,6 +349,14 @@ def _selection_quality_weight(opp_mu: float, cfg: GlickoConfig) -> float:
     return max(cfg.SCF_BRIDGE_QUALITY_FLOOR, scaled)
 
 
+def _apply_tier_mult(opp_mu: float, mult: float, cfg: GlickoConfig) -> float:
+    if mult == 1.0:
+        return opp_mu
+    if cfg.TIER_MULT_CENTERED:
+        return cfg.INITIAL_MU + (opp_mu - cfg.INITIAL_MU) * mult
+    return opp_mu * mult
+
+
 def _effective_selection_opponent_mu(
     row: pd.Series,
     rating_lookup: Dict[str, Tuple[float, float, float]],
@@ -383,7 +391,7 @@ def _effective_selection_opponent_mu(
         opp_mu = cfg.INITIAL_MU
 
     if tier_mult_fn is not None:
-        opp_mu *= float(tier_mult_fn(opp_id))
+        opp_mu = _apply_tier_mult(opp_mu, float(tier_mult_fn(opp_id)), cfg)
     return opp_mu
 
 
@@ -806,7 +814,9 @@ def compute_sos(
 
         # Vectorized opponent mu lookup
         opp_ids = tg["opp_id"].values
-        opp_mus_all = np.array([team_ratings.get(o, (cfg.INITIAL_MU,))[0] * _tier_mult(o) for o in opp_ids])
+        opp_mus_all = np.array(
+            [_apply_tier_mult(team_ratings.get(o, (cfg.INITIAL_MU,))[0], _tier_mult(o), cfg) for o in opp_ids]
+        )
 
         # Apply repeat cap
         opp_counts: Dict[str, int] = {}
@@ -1346,8 +1356,10 @@ def apply_scf_dampening(
     df["sos_raw"] = neutral + df["scf"] * (df["sos_raw"] - neutral)
 
     # Dampen mu toward neutral for isolated teams (Shelopugin & Sirotkin 2023:
-    # Glicko-2 ratings inflate in isolated ecosystems without cross-references)
-    if "mu" in df.columns:
+    # Glicko-2 ratings inflate in isolated ecosystems without cross-references).
+    # Under SCF_PUBLISH_ONLY, mu stays pure for prediction/SOS/cross-age use and
+    # only the published score is dampened.
+    if "mu" in df.columns and not cfg.SCF_PUBLISH_ONLY:
         df["mu"] = neutral + df["scf"] * (df["mu"] - neutral)
 
     return df
@@ -1520,7 +1532,7 @@ def run_glicko2_cohort(
                     opp_mu = cfg.INITIAL_MU
                     opp_sigma = cfg.INITIAL_SIGMA
                 # Apply tier discount: beating a Tier 2 opponent = beating a weaker opponent
-                opp_mu *= _tier_mult_conv(opp_id)
+                opp_mu = _apply_tier_mult(opp_mu, _tier_mult_conv(opp_id), cfg)
                 opponents_list.append((opp_mu, opp_sigma))
 
             # Update rating
@@ -1726,6 +1738,8 @@ def compute_rankings_v2(
             1.0 + cfg.SOS_ADJ_STRONG_MAX,
         )
         mu_sos = cfg.INITIAL_MU + (team_df["mu"] - cfg.INITIAL_MU) * sos_scale
+        if cfg.SCF_PUBLISH_ONLY and "scf" in team_df.columns:
+            mu_sos = cfg.INITIAL_MU + (mu_sos - cfg.INITIAL_MU) * team_df["scf"]
         evidence_scale = _compute_base_evidence_scale(
             team_df,
             team_games,
@@ -1738,6 +1752,8 @@ def compute_rankings_v2(
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_sos)
     else:
         mu_publish = team_df["mu"]
+        if cfg.SCF_PUBLISH_ONLY and "scf" in team_df.columns:
+            mu_publish = cfg.INITIAL_MU + (mu_publish - cfg.INITIAL_MU) * team_df["scf"]
         evidence_scale = _compute_base_evidence_scale(
             team_df,
             team_games,

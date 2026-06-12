@@ -84,6 +84,11 @@ class GlickoConfig:
 
     # SCF
     SCF_ENABLED: bool = True
+    # Apply SCF dampening only to the published score, never to mu.
+    # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
+    # cross-age global map); publish-only SCF won log-loss in every backtested
+    # cohort/cutoff cell while keeping isolated teams out of the top ranks.
+    SCF_PUBLISH_ONLY: bool = True
     SCF_MIN_UNIQUE_STATES: int = 2
     SCF_DIVERSITY_DIVISOR: float = 4.0
     SCF_FLOOR: float = 0.4
@@ -105,6 +110,11 @@ class GlickoConfig:
     SCF_LEAGUE_CONCENTRATION_THRESHOLD: float = 0.65  # >65% same family → penalty kicks in
     SCF_LEAGUE_CONCENTRATION_SCALE: float = 2.0  # Steepness: penalty = scale * (share - threshold)
     SCF_MIN_UNIQUE_LEAGUES: int = 2  # Below this unique families → league-isolated
+
+    # Tier multiplier application. Centered keeps the intended discount relative to
+    # the 1500 neutral rating (effective_mu = 1500 + (mu - 1500) * mult) instead of
+    # scaling the raw rating, which over-discounts strong lower-league opponents.
+    TIER_MULT_CENTERED: bool = True
 
     # SOS post-hoc adjustment (asymmetric scaling of mu before normalization)
     # Weak schedules get a larger shrinkage than strong schedules get a reward.

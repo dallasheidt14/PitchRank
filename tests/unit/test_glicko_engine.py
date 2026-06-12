@@ -6,6 +6,7 @@ import pytest
 
 from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import (
+    _apply_tier_mult,
     _compute_base_evidence_scale,
     _from_glicko2_scale,
     _to_glicko2_scale,
@@ -808,6 +809,26 @@ class TestSigmoidZscoreNormalize:
         assert all(abs(v - 0.5) < 0.001 for v in result)
 
 
+class TestApplyTierMult:
+    def test_centered_discount_is_relative_to_neutral(self):
+        """Default centered mode: discount scales the distance from 1500, not the raw rating."""
+        cfg = GlickoConfig()
+        assert abs(_apply_tier_mult(1700.0, 0.95, cfg) - 1690.0) < 0.001
+        assert abs(_apply_tier_mult(1300.0, 0.95, cfg) - 1310.0) < 0.001
+        assert abs(_apply_tier_mult(1500.0, 0.95, cfg) - 1500.0) < 0.001
+
+    def test_full_multiplier_is_identity(self):
+        cfg = GlickoConfig()
+        assert _apply_tier_mult(1700.0, 1.0, cfg) == 1700.0
+
+    def test_legacy_multiplicative_mode(self):
+        """TIER_MULT_CENTERED=False preserves the raw multiplicative discount."""
+        cfg = GlickoConfig()
+        cfg.TIER_MULT_CENTERED = False
+        assert abs(_apply_tier_mult(1700.0, 0.95, cfg) - 1615.0) < 0.001
+        assert abs(_apply_tier_mult(1500.0, 0.95, cfg) - 1425.0) < 0.001
+
+
 class TestSCF:
     def _make_games(self, team_id: str, opp_ids: list[str]) -> pd.DataFrame:
         """Helper: one game row per opponent for *team_id*."""
@@ -971,12 +992,7 @@ class TestSCF:
         assert isolated_sos < raw_sos
         assert abs(connected_sos - (neutral + 1.0 * (raw_sos - neutral))) < 0.01
 
-    def test_scf_dampens_mu_for_isolated_teams(self):
-        """Isolated team (low scf) has mu dampened toward 1500; connected team unchanged."""
-        cfg = GlickoConfig()
-        neutral = cfg.INITIAL_MU
-        high_mu = 1700.0
-
+    def _scf_mu_dampening_fixture(self, high_mu: float, cfg: GlickoConfig):
         team_df = pd.DataFrame(
             [
                 {"team_id": "isolated", "sos_raw": 1500.0, "mu": high_mu},
@@ -999,6 +1015,29 @@ class TestSCF:
                 "quality_boosted": False,
             },
         }
+        return team_df, scf_data
+
+    def test_scf_publish_only_leaves_mu_pure(self):
+        """Default SCF_PUBLISH_ONLY: mu is never dampened; dampening moves to the publish path."""
+        cfg = GlickoConfig()
+        high_mu = 1700.0
+        team_df, scf_data = self._scf_mu_dampening_fixture(high_mu, cfg)
+
+        result = apply_scf_dampening(team_df, scf_data, cfg)
+        isolated_mu = result[result["team_id"] == "isolated"]["mu"].iloc[0]
+        connected_mu = result[result["team_id"] == "connected"]["mu"].iloc[0]
+
+        assert abs(isolated_mu - high_mu) < 0.01
+        assert abs(connected_mu - high_mu) < 0.01
+
+    def test_scf_dampens_mu_for_isolated_teams_legacy(self):
+        """SCF_PUBLISH_ONLY=False: isolated team (low scf) has mu dampened toward 1500."""
+        cfg = GlickoConfig()
+        cfg.SCF_PUBLISH_ONLY = False
+        neutral = cfg.INITIAL_MU
+        high_mu = 1700.0
+        team_df, scf_data = self._scf_mu_dampening_fixture(high_mu, cfg)
+
         result = apply_scf_dampening(team_df, scf_data, cfg)
         isolated_mu = result[result["team_id"] == "isolated"]["mu"].iloc[0]
         connected_mu = result[result["team_id"] == "connected"]["mu"].iloc[0]
@@ -1278,6 +1317,69 @@ class TestComputeRankingsV2:
             expected = row["powerscore_core"] * row["provisional_mult"]
             assert row["powerscore_adj"] == pytest.approx(expected, abs=1e-9)
             assert row["power_presos"] == pytest.approx(row["powerscore_core"], abs=1e-9)
+
+    def _isolated_vs_connected_games(self):
+        """Two symmetric winners: ISO sweeps in-state opponents, CON sweeps cross-state ones."""
+        rows = []
+        state_map = {"ISO": "ID", "CON": "TX"}
+        for i, (date, opp_state) in enumerate(
+            [
+                ("2026-03-01", "OK"),
+                ("2026-03-05", "CA"),
+                ("2026-03-10", "CO"),
+                ("2026-03-15", "NM"),
+                ("2026-03-20", "UT"),
+            ]
+        ):
+            rows += make_game("ISO", f"O{i}", 2, 0, date)
+            rows += make_game("CON", f"P{i}", 2, 0, date)
+            state_map[f"O{i}"] = "ID"
+            state_map[f"P{i}"] = opp_state
+        return pd.DataFrame(rows), state_map
+
+    @pytest.mark.parametrize("sos_adj_enabled", [True, False])
+    def test_scf_publish_only_dampens_score_not_mu(self, sos_adj_enabled):
+        """Publish-only SCF: identical results give identical mu, but the isolated
+        team's published score is pulled toward neutral. Covers both publish branches."""
+        games, state_map = self._isolated_vs_connected_games()
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
+        teams = result["teams"].set_index("team_id")
+
+        assert teams.loc["ISO", "scf"] < teams.loc["CON", "scf"]
+        assert teams.loc["ISO", "mu"] == pytest.approx(teams.loc["CON", "mu"], abs=1.0)
+        assert teams.loc["ISO", "powerscore_core"] < teams.loc["CON", "powerscore_core"]
+
+    def test_scf_legacy_dampens_mu(self):
+        """SCF_PUBLISH_ONLY=False: the isolated team's mu itself is dampened toward 1500."""
+        games, state_map = self._isolated_vs_connected_games()
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_PUBLISH_ONLY=False)
+        result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
+        teams = result["teams"].set_index("team_id")
+
+        assert teams.loc["ISO", "mu"] < teams.loc["CON", "mu"]
+
+    @pytest.mark.parametrize("sos_adj_enabled", [True, False])
+    def test_scf_publish_only_score_matches_legacy(self, sos_adj_enabled):
+        """The published score is mode-invariant: publish-only applies the same scf
+        factor in the publish path that legacy mode bakes into mu, so powerscore_core
+        must match exactly between modes while the isolated team's mu stays pure."""
+        games, state_map = self._isolated_vs_connected_games()
+        results = {}
+        for publish_only in (True, False):
+            cfg = GlickoConfig(
+                MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=publish_only
+            )
+            results[publish_only] = compute_rankings_v2(
+                games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map
+            )["teams"].set_index("team_id")
+        pub, legacy = results[True], results[False]
+
+        assert pub.loc["ISO", "mu"] > legacy.loc["ISO", "mu"]
+        for team_id in pub.index:
+            assert pub.loc[team_id, "powerscore_core"] == pytest.approx(
+                legacy.loc[team_id, "powerscore_core"], abs=1e-9
+            )
 
 
 class TestGameExplainability:
