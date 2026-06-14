@@ -92,13 +92,6 @@ export async function GET() {
 
     // No watchlist exists - return empty response with proper structure
     if (!watchlist) {
-      // Try to find ANY watchlist for this user (not just default) for debugging
-      const { data: _anyWatchlist, error: _anyError } = await supabase
-        .from('watchlists')
-        .select('*')
-        .eq('user_id', user.id)
-        .limit(5);
-
       return NextResponse.json({
         watchlist: {
           id: '',
