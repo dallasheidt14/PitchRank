@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { isValidUuid } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 import { generateAllInsights, type InsightInputData, type TeamInsightsResponse } from '@/lib/insights';
 
@@ -21,8 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     const { supabase } = auth;
 
     // Validate team ID format
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(teamId)) {
+    if (!isValidUuid(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
 

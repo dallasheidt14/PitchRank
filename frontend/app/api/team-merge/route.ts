@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
+import { isValidUuid } from '@/lib/validation';
 
 /**
  * Team Merge API Endpoints
@@ -48,8 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate UUIDs
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(deprecatedTeamId) || !uuidRegex.test(canonicalTeamId)) {
+    if (!isValidUuid(deprecatedTeamId) || !isValidUuid(canonicalTeamId)) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
@@ -157,8 +157,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Validate UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(deprecatedTeamId)) {
+    if (!isValidUuid(deprecatedTeamId)) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
@@ -245,8 +244,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate UUID
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(teamId)) {
+    if (!isValidUuid(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
