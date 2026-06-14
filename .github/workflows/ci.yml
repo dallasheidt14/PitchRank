@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install ruff
-      - run: ruff check src/ scripts/ --output-format=github
+      - run: ruff check src/ scripts/ config/ tournament_intake.py dashboard.py --output-format=github
 
   python-test:
     name: Python Tests

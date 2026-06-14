@@ -1,0 +1,13 @@
+# Python pre-commit hooks. Mirrors the CI ruff lint gate (.github/workflows/ci.yml).
+# Frontend already has husky/lint-staged; this covers *.py, which CI lints but no
+# local hook enforced. Install once: pip install pre-commit && pre-commit install
+#
+# Lint only. ruff-format is intentionally omitted — repo-wide format enforcement is
+# deferred (it would reformat the rankings engine, which is currently frozen).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(src/|scripts/|config/|dashboard\.py|tournament_intake\.py)
