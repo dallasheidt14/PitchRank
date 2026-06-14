@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { resolveMergedTeamIds } from '@/lib/team-merge';
 import { isValidUuid } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 
@@ -20,25 +21,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
 
-    // Resolve merged team IDs so games stored under deprecated IDs are included
-    // (mirrors /api/insights/[teamId]).
-    const { data: incomingMerge } = await supabase
-      .from('team_merge_map')
-      .select('canonical_team_id')
-      .eq('deprecated_team_id', teamId)
-      .maybeSingle();
-    const canonicalTeamId = (incomingMerge as { canonical_team_id?: string } | null)?.canonical_team_id ?? teamId;
-
-    const { data: mergedTeams } = await supabase
-      .from('team_merge_map')
-      .select('deprecated_team_id')
-      .eq('canonical_team_id', canonicalTeamId);
-
-    const teamIdsToQuery = new Set<string>([canonicalTeamId, teamId]);
-    ((mergedTeams || []) as { deprecated_team_id: string | null }[]).forEach((m) => {
-      if (m.deprecated_team_id) teamIdsToQuery.add(m.deprecated_team_id);
-    });
-    const teamIdList = Array.from(teamIdsToQuery);
+    // Resolve merged team IDs so games stored under deprecated IDs are included.
+    const { teamIdsToQuery, teamIdList } = await resolveMergedTeamIds(supabase, teamId);
 
     const orConditions = teamIdList
       .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
