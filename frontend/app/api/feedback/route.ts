@@ -3,6 +3,7 @@ import { parseJsonBody } from '@/lib/api/parseJsonBody';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { sendFeedbackEmail, type FeedbackCategory, type FeedbackIdentity } from '@/lib/email';
+import { isValidEmail } from '@/lib/validation';
 
 const VALID_CATEGORIES: readonly FeedbackCategory[] = [
   'cant-find-team',
@@ -19,7 +20,6 @@ const MAX_TEXT_FIELD = 512;
 const MIN_DWELL_MS = 2000;
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface IncomingBody {
   category?: unknown;
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
     // Optional anonymous email
     let anonymousEmail: string | undefined;
     if (body.email !== undefined && body.email !== null && body.email !== '') {
-      if (typeof body.email !== 'string' || !EMAIL_REGEX.test(body.email)) {
+      if (typeof body.email !== 'string' || !isValidEmail(body.email)) {
         return bad('Email is not valid');
       }
       anonymousEmail = body.email.trim();

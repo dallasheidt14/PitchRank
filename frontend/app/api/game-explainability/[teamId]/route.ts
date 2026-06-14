@@ -1,8 +1,8 @@
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { requirePremium } from '@/lib/api/requirePremium';
+import { isValidUuid } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_GAME_IDS = 150;
 
 const SELECT_COLUMNS = [
@@ -35,7 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ teamId:
     if (auth.error) return auth.error;
 
     const { teamId } = await params;
-    if (!UUID_REGEX.test(teamId)) {
+    if (!isValidUuid(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
     const supabase = createServiceSupabase();
@@ -50,7 +50,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ teamId:
     }
 
     const uniqueGameIds = Array.from(new Set(body.gameIds));
-    if (!uniqueGameIds.every((gameId) => typeof gameId === 'string' && UUID_REGEX.test(gameId))) {
+    if (!uniqueGameIds.every((gameId) => typeof gameId === 'string' && isValidUuid(gameId))) {
       return NextResponse.json({ error: 'All game IDs must be valid UUIDs' }, { status: 400 });
     }
     const validatedGameIds = uniqueGameIds as string[];

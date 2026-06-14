@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { isValidEmail } from '@/lib/validation';
 import { Mail, Check, AlertCircle } from 'lucide-react';
 
 export function NewsletterSubscribe() {
@@ -15,8 +16,7 @@ export function NewsletterSubscribe() {
     e.preventDefault();
 
     // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!isValidEmail(email)) {
       setStatus('error');
       setErrorMessage('Please enter a valid email address');
       return;

@@ -4,9 +4,8 @@ import { requirePremium } from '@/lib/api/requirePremium';
 import { AppError } from '@/lib/errors';
 import { buildMatchPredictionWithShadowContext } from '@/lib/matchPredictionService';
 import { maybeLogMatchPredictionShadow } from '@/lib/matchPredictionShadow';
+import { isValidUuid } from '@/lib/validation';
 import { NextRequest, NextResponse } from 'next/server';
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface MatchPredictionRequest {
   teamAId?: string;
@@ -27,11 +26,11 @@ export async function POST(request: NextRequest) {
 
     const { teamAId, teamBId } = body.data;
 
-    if (!teamAId || typeof teamAId !== 'string' || !UUID_REGEX.test(teamAId)) {
+    if (!teamAId || typeof teamAId !== 'string' || !isValidUuid(teamAId)) {
       return NextResponse.json({ error: 'Invalid Team A ID' }, { status: 400 });
     }
 
-    if (!teamBId || typeof teamBId !== 'string' || !UUID_REGEX.test(teamBId)) {
+    if (!teamBId || typeof teamBId !== 'string' || !isValidUuid(teamBId)) {
       return NextResponse.json({ error: 'Invalid Team B ID' }, { status: 400 });
     }
 

@@ -3,14 +3,12 @@ import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { subscribeFreeLead, enrollInAutomation } from '@/lib/beehiiv';
+import { isValidUuid, isValidEmail } from '@/lib/validation';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
 import type { ReportCardGame } from '@/lib/pdf';
 import React from 'react';
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,10 +23,10 @@ export async function POST(request: NextRequest) {
     const { teamId, email, role } = body;
 
     // Validate inputs
-    if (!teamId || typeof teamId !== 'string' || !UUID_REGEX.test(teamId)) {
+    if (!teamId || typeof teamId !== 'string' || !isValidUuid(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
-    if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
+    if (!email || typeof email !== 'string' || !isValidEmail(email)) {
       return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
     }
 

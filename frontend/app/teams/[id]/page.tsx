@@ -5,6 +5,7 @@ import { Suspense } from 'react';
 import { notFound, redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
+import { isValidUuid } from '@/lib/validation';
 
 interface TeamPageProps {
   params: Promise<{
@@ -113,8 +114,7 @@ export default async function Page({ params }: TeamPageProps) {
       const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
       // Validate UUID format first (basic check)
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(resolvedParams.id)) {
+      if (!isValidUuid(resolvedParams.id)) {
         notFound();
       }
 
