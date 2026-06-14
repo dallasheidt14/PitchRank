@@ -7,7 +7,8 @@ import { createClientSupabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import { Loader2, Mail, Lock, CheckCircle2 } from 'lucide-react';
 
 export default function LoginPage() {
@@ -63,92 +64,90 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-12">
-      <Card data-testid="login-card" className="w-full max-w-md" variant="elevated">
-        <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
-          <CardDescription>Sign in to your PitchRank account to access your watchlist</CardDescription>
-        </CardHeader>
-        <form onSubmit={handleEmailLogin}>
-          <CardContent className="space-y-4">
-            {successMessage && (
-              <div
-                data-testid="login-success"
-                className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400"
-              >
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                {successMessage}
-              </div>
+    <AuthCardShell data-testid="login-card">
+      <CardHeader className="space-y-1 text-center">
+        <CardTitle className="text-2xl font-bold tracking-tight">Welcome back</CardTitle>
+        <CardDescription>Sign in to your PitchRank account to access your watchlist</CardDescription>
+      </CardHeader>
+      <form onSubmit={handleEmailLogin}>
+        <CardContent className="space-y-4">
+          {successMessage && (
+            <div
+              data-testid="login-success"
+              className="flex items-center gap-2 rounded-md bg-green-500/10 p-3 text-sm text-green-700 dark:text-green-400"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {successMessage}
+            </div>
+          )}
+          {error && (
+            <div data-testid="login-error" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="pl-10"
+                required
+                autoComplete="email"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="password"
+                type="password"
+                placeholder="Your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pl-10"
+                required
+                autoComplete="current-password"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        </CardContent>
+        <CardFooter className="flex flex-col gap-4">
+          <Button data-testid="login-submit" type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Signing in...
+              </>
+            ) : (
+              'Sign in'
             )}
-            {error && (
-              <div data-testid="login-error" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
+          </Button>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  required
-                  autoComplete="email"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
-                  required
-                  autoComplete="current-password"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <Link
-                href="/forgot-password"
-                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-              >
-                Forgot password?
-              </Link>
-            </div>
-          </CardContent>
-          <CardFooter className="flex flex-col gap-4">
-            <Button data-testid="login-submit" type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in...
-                </>
-              ) : (
-                'Sign in'
-              )}
-            </Button>
-
-            <p className="text-center text-sm text-muted-foreground">
-              Don&apos;t have an account?{' '}
-              <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
-                Sign up
-              </Link>
-            </p>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+          <p className="text-center text-sm text-muted-foreground">
+            Don&apos;t have an account?{' '}
+            <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
+              Sign up
+            </Link>
+          </p>
+        </CardFooter>
+      </form>
+    </AuthCardShell>
   );
 }
