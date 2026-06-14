@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
 import { NextResponse } from 'next/server';
 
 /**
@@ -15,37 +16,12 @@ export async function POST() {
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    // Check if user already has a default watchlist
-    const fetchResult = await supabase
-      .from('watchlists')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_default', true)
-      .single();
-    const fetchError = fetchResult.error;
-    let existingWatchlist = fetchResult.data;
+    // Resolve the user's default watchlist (falls back to most-recent).
+    const { watchlist: existingWatchlist, error: fetchError } = await resolveDefaultWatchlist(supabase, user.id);
 
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      // PGRST116 = no rows returned, which is expected if no watchlist exists
+    if (fetchError) {
       console.error('Error fetching watchlist:', fetchError);
       return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
-    }
-
-    // If no default watchlist found, use most recent watchlist (fallback)
-    // This prevents creating duplicate watchlists when is_default flag is missing
-    if (!existingWatchlist && fetchError?.code === 'PGRST116') {
-      console.log('[Watchlist Init] No default watchlist found, trying most recent');
-      const { data: watchlists, error: listError } = await supabase
-        .from('watchlists')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (!listError && watchlists && watchlists.length > 0) {
-        existingWatchlist = watchlists[0];
-        console.log('[Watchlist Init] Using most recent watchlist as fallback:', existingWatchlist.id);
-      }
     }
 
     // If watchlist exists, return it

@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
 import { NextResponse } from 'next/server';
 
 /**
@@ -37,34 +38,15 @@ export async function POST(req: Request) {
     // Get or create default watchlist
     let watchlistId: string;
 
-    const fetchResult = await supabase
-      .from('watchlists')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('is_default', true)
-      .single();
+    const { watchlist: existingWatchlist, error: fetchError } = await resolveDefaultWatchlist<{ id: string }>(
+      supabase,
+      user.id,
+      'id'
+    );
 
-    const fetchError = fetchResult.error;
-    let existingWatchlist = fetchResult.data;
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
+    if (fetchError) {
       console.error('[Watchlist Add] Error fetching watchlist:', fetchError);
       return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
-    }
-
-    // If no default watchlist found, use most recent watchlist (fallback)
-    // This prevents creating duplicate watchlists when is_default flag is missing
-    if (!existingWatchlist && fetchError?.code === 'PGRST116') {
-      const { data: watchlists, error: listError } = await supabase
-        .from('watchlists')
-        .select('id')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (!listError && watchlists && watchlists.length > 0) {
-        existingWatchlist = watchlists[0];
-      }
     }
 
     if (existingWatchlist) {

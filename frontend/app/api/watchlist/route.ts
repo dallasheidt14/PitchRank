@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
 import { NextResponse } from 'next/server';
 
 /**
@@ -59,33 +60,10 @@ export async function GET() {
     if (auth.error) return auth.error;
     const { user, supabase } = auth;
 
-    // Get user's default watchlist
-    // First try to find default watchlist
-    let { data: watchlist, error: watchlistError } = await supabase
-      .from('watchlists')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_default', true)
-      .single();
+    // Resolve the user's default watchlist (falls back to most-recent).
+    const { watchlist, error: watchlistError } = await resolveDefaultWatchlist(supabase, user.id);
 
-    // If no default watchlist found, get the most recent watchlist (fallback)
-    // This handles cases where watchlists exist but is_default flag is missing
-    if (!watchlist && watchlistError?.code === 'PGRST116') {
-      const { data: watchlists, error: listError } = await supabase
-        .from('watchlists')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (listError) {
-        watchlistError = listError;
-      } else if (watchlists && watchlists.length > 0) {
-        watchlist = watchlists[0];
-      }
-    }
-
-    if (watchlistError && watchlistError.code !== 'PGRST116') {
+    if (watchlistError) {
       console.error('Error fetching watchlist:', watchlistError);
       return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
     }
