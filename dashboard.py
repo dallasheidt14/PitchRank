@@ -1,20 +1,16 @@
 """PitchRank Settings Dashboard - Comprehensive Parameter Viewer"""
-import streamlit as st
-import pandas as pd
-import altair as alt
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
-import time
 from pathlib import Path
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+from config.settings import AGE_GROUPS, PROJECT_NAME, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERSION
 from supabase import create_client
-from config.settings import (
-    AGE_GROUPS,
-    VERSION,
-    PROJECT_NAME,
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY
-)
 
 # Optional Stripe SDK for account reconciliation
 try:
@@ -964,15 +960,15 @@ elif section == "📈 Database Import Stats":
                 from collections import Counter
                 status_counts = Counter(all_statuses)
                 total_teams = len(all_statuses)
-                
+
                 # Display metrics
                 col1, col2, col3, col4 = st.columns(4)
-                
+
                 active_count = status_counts.get('Active', 0)
                 inactive_count = status_counts.get('Inactive', 0)
                 not_enough_count = status_counts.get('Not Enough Ranked Games', 0)
                 other_count = total_teams - active_count - inactive_count - not_enough_count
-                
+
                 with col1:
                     active_pct = (active_count / total_teams * 100) if total_teams > 0 else 0
                     st.metric(
@@ -981,7 +977,7 @@ elif section == "📈 Database Import Stats":
                         help=f"{active_pct:.1f}% of all teams"
                     )
                     st.caption("Teams with enough ranked games")
-                
+
                 with col2:
                     not_enough_pct = (not_enough_count / total_teams * 100) if total_teams > 0 else 0
                     st.metric(
@@ -990,7 +986,7 @@ elif section == "📈 Database Import Stats":
                         help=f"{not_enough_pct:.1f}% of all teams"
                     )
                     st.caption("Teams with <5 ranked games")
-                
+
                 with col3:
                     inactive_pct = (inactive_count / total_teams * 100) if total_teams > 0 else 0
                     st.metric(
@@ -999,14 +995,14 @@ elif section == "📈 Database Import Stats":
                         help=f"{inactive_pct:.1f}% of all teams"
                     )
                     st.caption("No games in last 180 days")
-                
+
                 with col4:
                     st.metric(
                         "Total Teams",
                         f"{total_teams:,}"
                     )
                     st.caption("All teams in rankings")
-                
+
                 # Display as table
                 st.divider()
                 status_df = pd.DataFrame([
@@ -1026,20 +1022,20 @@ elif section == "📈 Database Import Stats":
                         'Percentage': f"{(inactive_count / total_teams * 100):.1f}%"
                     }
                 ])
-                
+
                 if other_count > 0:
                     status_df = pd.concat([status_df, pd.DataFrame([{
                         'Status': 'Other/Unknown',
                         'Count': other_count,
                         'Percentage': f"{(other_count / total_teams * 100):.1f}%"
                     }])], ignore_index=True)
-                
+
                 st.dataframe(status_df, use_container_width=True, hide_index=True)
-                
+
                 # Status breakdown by age group and state
                 st.divider()
                 st.subheader("Status Breakdown by Age Group and State")
-                
+
                 rows = _load_rankings_view_age_state_status()
                 age_state_status_data = [
                     {
@@ -1053,7 +1049,7 @@ elif section == "📈 Database Import Stats":
 
                 if age_state_status_data:
                     age_state_status_df = pd.DataFrame(age_state_status_data)
-                    
+
                     # Create pivot table: Age Group x State x Status
                     pivot_3d = pd.crosstab(
                         [age_state_status_df['age'], age_state_status_df['state']],
@@ -1061,70 +1057,70 @@ elif section == "📈 Database Import Stats":
                         margins=True,
                         margins_name='Total'
                     )
-                    
+
                     # Reorder status columns
                     col_order = ['Active', 'Not Enough Ranked Games', 'Inactive', 'Total']
                     available_cols = [c for c in col_order if c in pivot_3d.columns]
                     other_cols = [c for c in pivot_3d.columns if c not in col_order]
                     pivot_3d = pivot_3d[available_cols + other_cols]
-                    
+
                     # Reset index to make age and state regular columns
                     pivot_3d = pivot_3d.reset_index()
                     pivot_3d.columns.name = None
-                    
+
                     # Rename columns for display
                     pivot_3d = pivot_3d.rename(columns={'age': 'Age', 'state': 'State'})
-                    
+
                     # Filter out the Total row for the main display (we'll show it separately)
                     pivot_display = pivot_3d[pivot_3d['Age'] != 'Total'].copy()
                     total_row = pivot_3d[pivot_3d['Age'] == 'Total'].copy()
-                    
+
                     # Sort by Age, then by State
                     pivot_display['Age'] = pd.to_numeric(pivot_display['Age'], errors='coerce')
                     pivot_display = pivot_display.sort_values(['Age', 'State'])
                     pivot_display['Age'] = pivot_display['Age'].apply(lambda x: f'U{int(x)}' if pd.notna(x) else 'Unknown')
-                    
+
                     # Display the breakdown
                     st.dataframe(
                         pivot_display.style.background_gradient(
-                            cmap='YlOrRd', 
+                            cmap='YlOrRd',
                             subset=[c for c in pivot_display.columns if c not in ['Age', 'State']]
                         ),
                         use_container_width=True,
                         hide_index=True
                     )
-                    
+
                     # Show totals row
                     if len(total_row) > 0:
                         st.markdown("**Totals:**")
                         st.dataframe(total_row, use_container_width=True, hide_index=True)
-                    
+
                     # Also show summary by age group only (simpler view)
                     with st.expander("View Simplified Breakdown by Age Group Only"):
                         age_only_df = age_state_status_df.groupby(['age', 'status']).size().reset_index(name='count')
                         age_only_pivot = age_only_df.pivot(index='age', columns='status', values='count').fillna(0)
                         age_only_pivot = age_only_pivot.astype(int)
-                        
+
                         # Add totals
                         age_only_pivot['Total'] = age_only_pivot.sum(axis=1)
                         age_only_pivot.loc['Total'] = age_only_pivot.sum(axis=0)
-                        
+
                         # Reorder columns
                         col_order = ['Active', 'Not Enough Ranked Games', 'Inactive', 'Total']
                         available_cols = [c for c in col_order if c in age_only_pivot.columns]
                         other_cols = [c for c in age_only_pivot.columns if c not in col_order]
                         age_only_pivot = age_only_pivot[available_cols + other_cols]
-                        
+
                         # Format age labels
                         age_only_pivot.index = age_only_pivot.index.map(lambda x: f'U{int(x)}' if isinstance(x, (int, float)) and pd.notna(x) else str(x))
-                        
+
                         st.dataframe(
                             age_only_pivot.style.background_gradient(cmap='YlOrRd', subset=age_only_pivot.columns[:-1]),
                             use_container_width=True
                         )
             else:
                 st.warning("No team status data found. Rankings may not have been calculated yet.")
-                
+
         except Exception as e:
             st.error(f"Error loading team status distribution: {e}")
             import traceback
@@ -1798,24 +1794,24 @@ elif section == "📍 Missing State Codes":
             with col1:
                 st.metric("Total Teams", f"{total_teams:,}")
             with col2:
-                st.metric("Complete State Info", f"{has_both_count:,}", 
-                         delta=f"{has_both_count/total_teams*100:.1f}%", 
+                st.metric("Complete State Info", f"{has_both_count:,}",
+                         delta=f"{has_both_count/total_teams*100:.1f}%",
                          delta_color="normal")
             with col3:
-                st.metric("Missing Both", f"{no_state_count:,}", 
-                         delta=f"{no_state_count/total_teams*100:.1f}%", 
+                st.metric("Missing Both", f"{no_state_count:,}",
+                         delta=f"{no_state_count/total_teams*100:.1f}%",
                          delta_color="inverse")
             with col4:
                 partial_count = has_state_no_code_count + has_code_no_state_count
-                st.metric("Partial Info", f"{partial_count:,}", 
-                         delta=f"{partial_count/total_teams*100:.1f}%", 
+                st.metric("Partial Info", f"{partial_count:,}",
+                         delta=f"{partial_count/total_teams*100:.1f}%",
                          delta_color="off")
 
             st.divider()
 
             # Detailed breakdown
             st.subheader("Detailed Breakdown")
-            
+
             breakdown_data = {
                 'Category': [
                     'Complete (both state and state_code)',
@@ -1836,7 +1832,7 @@ elif section == "📍 Missing State Codes":
                     f"{has_code_no_state_count/total_teams*100:.2f}%"
                 ]
             }
-            
+
             breakdown_df = pd.DataFrame(breakdown_data)
             st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
 
@@ -1844,7 +1840,7 @@ elif section == "📍 Missing State Codes":
 
             # Show teams without state codes
             st.subheader("Teams Missing State Codes")
-            
+
             # Fetch teams without state_code (with retry logic)
             teams_no_state = []
             page_size = 1000
@@ -1865,57 +1861,57 @@ elif section == "📍 Missing State Codes":
                         if teams_no_state:
                             st.info(f"Using {len(teams_no_state)} teams loaded so far...")
                         break
-                    
+
                     if not result.data:
                         break
-                    
+
                     teams_no_state.extend(result.data)
                     offset += page_size
-                    
+
                     if len(result.data) < page_size:
                         break
-                    
+
                     # Small delay between pages to avoid overwhelming the connection
                     time.sleep(0.3)
 
             if teams_no_state:
                 st.info(f"Found **{len(teams_no_state)}** teams without state_code")
-                
+
                 # Create DataFrame
                 teams_df = pd.DataFrame(teams_no_state)
-                
+
                 # Add filters
                 col1, col2, col3 = st.columns(3)
-                
+
                 with col1:
                     age_filter = st.multiselect(
                         "Filter by Age Group",
                         options=sorted(teams_df['age_group'].dropna().unique()),
                         default=[]
                     )
-                
+
                 with col2:
                     gender_filter = st.multiselect(
                         "Filter by Gender",
                         options=sorted(teams_df['gender'].dropna().unique()),
                         default=[]
                     )
-                
+
                 with col3:
                     has_club = st.checkbox("Has Club Name", value=False)
-                
+
                 # Apply filters
                 filtered_df = teams_df.copy()
-                
+
                 if age_filter:
                     filtered_df = filtered_df[filtered_df['age_group'].isin(age_filter)]
-                
+
                 if gender_filter:
                     filtered_df = filtered_df[filtered_df['gender'].isin(gender_filter)]
-                
+
                 if has_club:
                     filtered_df = filtered_df[filtered_df['club_name'].notna()]
-                
+
                 # Display table
                 display_df = filtered_df[['team_name', 'club_name', 'age_group', 'gender', 'state', 'state_code']].copy()
                 display_df = display_df.rename(columns={
@@ -1926,17 +1922,17 @@ elif section == "📍 Missing State Codes":
                     'state': 'State (Full)',
                     'state_code': 'State Code'
                 })
-                
+
                 st.dataframe(
                     display_df,
                     use_container_width=True,
                     hide_index=True
                 )
-                
+
                 # Manual update form
                 st.divider()
                 st.subheader("✏️ Manually Update State Code")
-                
+
                 # Create team selection options
                 team_options = {}
                 for _, row in filtered_df.iterrows():
@@ -1947,7 +1943,7 @@ elif section == "📍 Missing State Codes":
                     gender = row['gender'] if pd.notna(row['gender']) else 'Unknown'
                     display_name = f"{team_name} ({club_name}) - {age_group} {gender}"
                     team_options[team_id] = display_name
-                
+
                 if team_options:
                     # Select team outside of form so it updates reactively
                     selected_team_id = st.selectbox(
@@ -1956,7 +1952,7 @@ elif section == "📍 Missing State Codes":
                         format_func=lambda x: team_options.get(x, 'Select a team...') if x else 'Select a team...',
                         help="Choose a team from the filtered list above"
                     )
-                    
+
                     # Show current team info (outside form so it updates reactively)
                     # Debug: Check what was selected
                     if selected_team_id:
@@ -1984,13 +1980,13 @@ elif section == "📍 Missing State Codes":
                             st.info("👆 Select a team above to see its current information")
                     else:
                         st.info("👆 Select a team above to see its current information")
-                    
+
                     st.divider()
-                    
+
                     # Form for state code selection and submission
                     with st.form("update_state_form"):
                         col1, col2 = st.columns(2)
-                        
+
                         with col1:
                             # Display selected team name (read-only, for reference)
                             if selected_team_id:
@@ -2002,19 +1998,19 @@ elif section == "📍 Missing State Codes":
                                 )
                             else:
                                 st.warning("⚠️ Please select a team above first")
-                        
+
                         with col2:
                             state_code_input = st.selectbox(
                                 "State Code",
                                 options=[''] + sorted(STATE_CODE_TO_NAME.keys()),
                                 help="Select the 2-letter state code (e.g., CA, AZ, TX)"
                             )
-                            
+
                             # Auto-populate state name if state code is selected
                             if state_code_input:
                                 auto_state_name = STATE_CODE_TO_NAME[state_code_input]
                                 st.success(f"State name will be set to: **{auto_state_name}**")
-                            
+
                             # Optional: Allow manual override of state name
                             manual_state_override = st.checkbox("Manually override state name", value=False)
                             if manual_state_override:
@@ -2025,9 +2021,9 @@ elif section == "📍 Missing State Codes":
                                 )
                             else:
                                 state_name_input = STATE_CODE_TO_NAME.get(state_code_input, '') if state_code_input else ''
-                        
+
                         submitted = st.form_submit_button("Update Team State", type="primary", use_container_width=True)
-                        
+
                         if submitted:
                             if not state_code_input:
                                 st.error("Please select a state code")
@@ -2039,16 +2035,16 @@ elif section == "📍 Missing State Codes":
                                         'state_code': state_code_input.upper(),
                                         'state': state_name_input if state_name_input else STATE_CODE_TO_NAME.get(state_code_input.upper(), '')
                                     }
-                                    
+
                                     result = db.table('teams').update(update_data).eq('team_id_master', selected_team_id).execute()
-                                    
+
                                     if result.data:
                                         st.success(f"✅ Successfully updated **{team_options[selected_team_id]}** to State Code: **{update_data['state_code']}**, State: **{update_data['state']}**")
                                         time.sleep(1)  # Brief pause to show success message
                                         st.rerun()
                                     else:
                                         st.error("Failed to update team. No data returned from update operation.")
-                                        
+
                                 except Exception as e:
                                     st.error(f"Error updating team: {e}")
                                     import traceback
@@ -2056,33 +2052,33 @@ elif section == "📍 Missing State Codes":
                                         st.code(traceback.format_exc())
                 else:
                     st.info("No teams available to update with current filters.")
-                
+
                 # Show breakdown by age group and gender
                 if len(filtered_df) > 0:
                     st.divider()
                     st.subheader("Breakdown by Age Group and Gender")
-                    
+
                     breakdown_pivot = pd.crosstab(
                         filtered_df['age_group'].fillna('Unknown'),
                         filtered_df['gender'].fillna('Unknown'),
                         margins=True,
                         margins_name='Total'
                     )
-                    
+
                     st.dataframe(breakdown_pivot, use_container_width=True)
-                    
+
                     # Identify clubs spanning multiple states
                     if filtered_df['club_name'].notna().sum() > 0:
                         st.divider()
                         st.subheader("🌍 Clubs Spanning Multiple States")
                         st.markdown("These clubs have teams in multiple states. Review teams by state to assign correct state codes.")
-                        
+
                         # Fetch all teams (including those with state codes) to check for multi-state clubs
                         with st.spinner("Analyzing clubs across states..."):
                             all_teams_multi_state = []
                             page_size = 1000
                             offset = 0
-                            
+
                             try:
                                 while True:
                                     result = execute_with_retry(
@@ -2092,24 +2088,24 @@ elif section == "📍 Missing State Codes":
                                         max_retries=3,
                                         base_delay=2.0
                                     )
-                                    
+
                                     if not result.data:
                                         break
-                                    
+
                                     all_teams_multi_state.extend(result.data)
                                     offset += page_size
-                                    
+
                                     if len(result.data) < page_size:
                                         break
-                                    
+
                                     time.sleep(0.3)
                             except Exception as e:
                                 st.warning(f"⚠️ Error loading teams for multi-state analysis: {str(e)[:200]}")
                                 all_teams_multi_state = []
-                            
+
                             if all_teams_multi_state:
                                 all_teams_df = pd.DataFrame(all_teams_multi_state)
-                                
+
                                 # Find clubs with teams in multiple states
                                 multi_state_clubs_info = {}
                                 for club_name in filtered_df['club_name'].dropna().unique():
@@ -2122,15 +2118,15 @@ elif section == "📍 Missing State Codes":
                                             'state_counts': club_teams[club_teams['state_code'].notna()]['state_code'].value_counts().to_dict(),
                                             'teams_missing_state': len(club_teams[club_teams['state_code'].isna()])
                                         }
-                                
+
                                 if multi_state_clubs_info:
                                     # Store multi-state clubs info in session state for later use
                                     st.session_state.multi_state_clubs_info = multi_state_clubs_info
-                                    
+
                                     # Initialize session state for multi-state club selection
                                     if 'selected_multi_state_club' not in st.session_state:
                                         st.session_state.selected_multi_state_club = None
-                                    
+
                                     # Create summary table
                                     multi_state_summary = []
                                     for club_name, info in multi_state_clubs_info.items():
@@ -2142,12 +2138,12 @@ elif section == "📍 Missing State Codes":
                                             'Teams by State': state_counts_str,
                                             'Teams Missing State': info['teams_missing_state']
                                         })
-                                    
+
                                     multi_state_df = pd.DataFrame(multi_state_summary)
                                     multi_state_df = multi_state_df.sort_values('Teams Missing State', ascending=False)
-                                    
+
                                     st.info(f"Found **{len(multi_state_clubs_info)}** clubs with teams in multiple states")
-                                    
+
                                     # Club selector for multi-state clubs
                                     col1, col2 = st.columns([3, 1])
                                     with col1:
@@ -2155,7 +2151,7 @@ elif section == "📍 Missing State Codes":
                                         default_multi_index = 0
                                         if st.session_state.selected_multi_state_club and st.session_state.selected_multi_state_club in multi_state_club_options:
                                             default_multi_index = multi_state_club_options.index(st.session_state.selected_multi_state_club)
-                                        
+
                                         selected_multi_club = st.selectbox(
                                             "🔍 Select a multi-state club to review teams by state",
                                             options=multi_state_club_options,
@@ -2166,21 +2162,21 @@ elif section == "📍 Missing State Codes":
                                             st.session_state.selected_multi_state_club = selected_multi_club
                                         else:
                                             st.session_state.selected_multi_state_club = None
-                                    
+
                                     with col2:
                                         if st.session_state.selected_multi_state_club:
                                             if st.button("Clear Selection", key="clear_multi_state", use_container_width=True):
                                                 st.session_state.selected_multi_state_club = None
                                                 st.rerun()
-                                    
+
                                     # Display teams grouped by state for selected club
                                     if st.session_state.selected_multi_state_club:
                                         club_info = multi_state_clubs_info[st.session_state.selected_multi_state_club]
                                         club_all_teams = all_teams_df[all_teams_df['club_name'] == st.session_state.selected_multi_state_club]
-                                        
+
                                         st.markdown(f"### 📋 Teams for **{st.session_state.selected_multi_state_club}**")
                                         st.markdown(f"**States:** {', '.join(club_info['states'])} | **Teams Missing State Code:** {club_info['teams_missing_state']}")
-                                        
+
                                         # Group teams by state
                                         for state_code in sorted(club_info['states']):
                                             state_teams = club_all_teams[club_all_teams['state_code'] == state_code]
@@ -2195,13 +2191,13 @@ elif section == "📍 Missing State Codes":
                                                         'state_code': 'State Code'
                                                     })
                                                     st.dataframe(state_display, use_container_width=True, hide_index=True)
-                                        
+
                                         # Show teams missing state codes for this club
                                         missing_state_teams = club_all_teams[club_all_teams['state_code'].isna()]
                                         if not missing_state_teams.empty:
                                             with st.expander(f"❓ Teams Missing State Code ({len(missing_state_teams)} teams)", expanded=True):
                                                 st.warning("These teams need state codes assigned. Review the teams above to determine the correct state for each team.")
-                                                
+
                                                 # Prepare teams for editing - include team_id_master for updates
                                                 missing_display = missing_state_teams[['team_id_master', 'team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
                                                 missing_display = missing_display.rename(columns={
@@ -2212,9 +2208,9 @@ elif section == "📍 Missing State Codes":
                                                     'state': 'State (Full)',
                                                     'state_code': 'State Code'
                                                 })
-                                                
+
                                                 st.info("💡 **How to edit:** Double-click on any cell in the 'State Code' column, then type a 2-letter state code (e.g., TX, CA, NY). Leave blank cells empty.")
-                                                
+
                                                 # Display editable table
                                                 edited_missing_teams_df = st.data_editor(
                                                     missing_display,
@@ -2237,7 +2233,7 @@ elif section == "📍 Missing State Codes":
                                                     num_rows="fixed",
                                                     key=f"multi_state_editor_{st.session_state.selected_multi_state_club}"
                                                 )
-                                                
+
                                                 # Apply updates button for multi-state club teams
                                                 apply_multi_clicked = st.button(
                                                     "💾 Apply State Code Updates",
@@ -2245,11 +2241,11 @@ elif section == "📍 Missing State Codes":
                                                     use_container_width=True,
                                                     key=f"apply_multi_state_{st.session_state.selected_multi_state_club}"
                                                 )
-                                                
+
                                                 if apply_multi_clicked:
                                                     # Convert State Code column to string, handling NaN values
                                                     edited_missing_teams_df['State Code'] = edited_missing_teams_df['State Code'].fillna('').astype(str).str.strip().str.upper()
-                                                    
+
                                                     # Find teams that have valid state codes entered (ignore blanks)
                                                     valid_state_codes = set(STATE_CODE_TO_NAME.keys())
                                                     updates_to_apply = edited_missing_teams_df[
@@ -2257,7 +2253,7 @@ elif section == "📍 Missing State Codes":
                                                         (edited_missing_teams_df['State Code'] != '') &
                                                         (edited_missing_teams_df['State Code'].isin(valid_state_codes))
                                                     ]
-                                                    
+
                                                     if updates_to_apply.empty:
                                                         st.error("⚠️ No valid state codes found to apply!")
                                                         st.info("💡 **Blank cells are fine** - only teams with state codes entered will be updated.")
@@ -2267,20 +2263,20 @@ elif section == "📍 Missing State Codes":
                                                             updated_count = 0
                                                             error_count = 0
                                                             errors = []
-                                                            
+
                                                             for _, row in updates_to_apply.iterrows():
                                                                 team_id = int(row['Team ID'])
                                                                 state_code = str(row['State Code']).strip().upper()
                                                                 team_name = row['Team Name']
-                                                                
+
                                                                 state_name = STATE_CODE_TO_NAME[state_code]
-                                                                
+
                                                                 try:
                                                                     result = db.table('teams').update({
                                                                         'state_code': state_code,
                                                                         'state': state_name
                                                                     }).eq('team_id_master', team_id).execute()
-                                                                    
+
                                                                     if result.data:
                                                                         updated_count += 1
                                                                     else:
@@ -2291,7 +2287,7 @@ elif section == "📍 Missing State Codes":
                                                                     error_msg = f"Error updating {team_name} (ID: {team_id}): {str(e)}"
                                                                     errors.append(error_msg)
                                                                     error_count += 1
-                                                            
+
                                                             if updated_count > 0:
                                                                 st.success(f"✅ Successfully updated {updated_count} teams with state codes!")
                                                                 if error_count > 0:
@@ -2306,9 +2302,9 @@ elif section == "📍 Missing State Codes":
                                                                             st.text(err)
                                                                         if len(errors) > 20:
                                                                             st.text(f"... and {len(errors) - 20} more errors")
-                                        
+
                                         st.divider()
-                                    
+
                                     # Display summary table
                                     st.markdown("#### Summary of Multi-State Clubs")
                                     st.dataframe(
@@ -2318,21 +2314,21 @@ elif section == "📍 Missing State Codes":
                                     )
                                 else:
                                     st.success("✅ No clubs found spanning multiple states!")
-                                    
+
                                     # Clear selection if no multi-state clubs
                                     if 'selected_multi_state_club' in st.session_state:
                                         st.session_state.selected_multi_state_club = None
                                     if 'multi_state_clubs_info' in st.session_state:
                                         st.session_state.multi_state_clubs_info = {}
-                        
+
                         st.divider()
-                    
+
                     # Show breakdown by club name (top clubs)
                     if filtered_df['club_name'].notna().sum() > 0:
                         st.subheader("Top Clubs (Missing State Codes)")
-                        
+
                         club_counts = filtered_df['club_name'].value_counts().head(20)
-                        
+
                         # Get state codes for clubs that already have them (from teams with state codes)
                         clubs_with_states = {}
                         for club_name in club_counts.index:
@@ -2344,19 +2340,19 @@ elif section == "📍 Missing State Codes":
                                 most_common_state = teams_with_state['state_code'].mode()
                                 if not most_common_state.empty:
                                     clubs_with_states[club_name] = most_common_state.iloc[0]
-                        
+
                         club_df = pd.DataFrame({
                             'Club Name': club_counts.index,
                             'Teams Missing State Code': club_counts.values
                         })
-                        
+
                         # Add state code column (pre-populate if club already has state codes)
                         club_df['State Code'] = club_df['Club Name'].map(clubs_with_states).fillna('')
-                        
+
                         # Initialize session state for selected club
                         if 'selected_club_missing_state' not in st.session_state:
                             st.session_state.selected_club_missing_state = None
-                        
+
                         # Add club selector above the table
                         col1, col2 = st.columns([3, 1])
                         with col1:
@@ -2365,7 +2361,7 @@ elif section == "📍 Missing State Codes":
                             default_index = 0
                             if st.session_state.selected_club_missing_state and st.session_state.selected_club_missing_state in club_options:
                                 default_index = club_options.index(st.session_state.selected_club_missing_state)
-                            
+
                             selected_club = st.selectbox(
                                 "🔍 Select a club to view its teams",
                                 options=club_options,
@@ -2376,13 +2372,13 @@ elif section == "📍 Missing State Codes":
                                 st.session_state.selected_club_missing_state = selected_club
                             else:
                                 st.session_state.selected_club_missing_state = None
-                        
+
                         with col2:
                             if st.session_state.selected_club_missing_state:
                                 if st.button("Clear Selection", use_container_width=True):
                                     st.session_state.selected_club_missing_state = None
                                     st.rerun()
-                        
+
                         # Quick access: Clickable club buttons
                         with st.expander("🔗 Quick Access: Click a club name to view teams", expanded=False):
                             # Display clubs in a grid of buttons
@@ -2402,11 +2398,11 @@ elif section == "📍 Missing State Codes":
                                             ):
                                                 st.session_state.selected_club_missing_state = club_name
                                                 st.rerun()
-                        
+
                         # Display teams for selected club
                         if st.session_state.selected_club_missing_state:
                             selected_club_name = st.session_state.selected_club_missing_state
-                            
+
                             # Fetch teams missing state codes for this club
                             with st.spinner(f"Loading teams missing state codes for {selected_club_name}..."):
                                 try:
@@ -2418,12 +2414,12 @@ elif section == "📍 Missing State Codes":
                                         base_delay=2.0
                                     )
                                     club_teams_missing = pd.DataFrame(club_teams_missing_result.data) if club_teams_missing_result.data else pd.DataFrame()
-                                    
+
                                     if not club_teams_missing.empty:
                                         st.markdown(f"### 📋 **{selected_club_name}**")
                                         st.info(f"Showing **{len(club_teams_missing)}** teams missing state codes")
                                         st.success("💡 **INSTRUCTIONS:** Double-click on any cell in the 'State Code' column below to edit it. Type a 2-letter state code (e.g., TX, CA, NY). Leave blank cells empty.")
-                                        
+
                                         # Prepare teams for editing - include team_id_master for updates
                                         teams_display = club_teams_missing[['team_id_master', 'team_name', 'age_group', 'gender', 'state', 'state_code']].copy()
                                         teams_display = teams_display.rename(columns={
@@ -2434,7 +2430,7 @@ elif section == "📍 Missing State Codes":
                                             'state': 'State (Full)',
                                             'state_code': 'State Code'
                                         })
-                                        
+
                                         # Display editable table
                                         edited_teams_df = st.data_editor(
                                             teams_display,
@@ -2456,14 +2452,14 @@ elif section == "📍 Missing State Codes":
                                             hide_index=True,
                                             num_rows="fixed"
                                         )
-                                        
+
                                         # Apply updates button
                                         apply_clicked = st.button("💾 Apply State Code Updates", type="primary", use_container_width=True, key=f"apply_individual_updates_{selected_club_name}")
-                                        
+
                                         if apply_clicked:
                                             # Convert State Code column to string, handling NaN values
                                             edited_teams_df['State Code'] = edited_teams_df['State Code'].fillna('').astype(str).str.strip().str.upper()
-                                            
+
                                             # Find teams that have valid state codes entered (ignore blanks)
                                             # Filter for rows with exactly 2 characters that are valid state codes
                                             updates_to_apply = edited_teams_df[
@@ -2471,23 +2467,23 @@ elif section == "📍 Missing State Codes":
                                                 (edited_teams_df['State Code'] != '') &
                                                 (~edited_teams_df['State Code'].isin(['NA', 'NAN', 'NONE', 'NUL']))
                                             ]
-                                            
+
                                             # Further filter to only include valid state codes
                                             valid_state_codes = set(STATE_CODE_TO_NAME.keys())
                                             updates_to_apply = updates_to_apply[
                                                 updates_to_apply['State Code'].isin(valid_state_codes)
                                             ]
-                                            
+
                                             if updates_to_apply.empty:
                                                 st.error("⚠️ No valid state codes found to apply!")
                                                 st.info("💡 **Blank cells are fine** - only teams with state codes entered will be updated.")
                                                 st.info("💡 Make sure you've entered **2-letter state codes** (e.g., TX, CA, NY) in the State Code column above.")
-                                                
+
                                                 # Show what was actually captured
                                                 rows_with_2_chars = edited_teams_df[edited_teams_df['State Code'].str.len() == 2]
                                                 if not rows_with_2_chars.empty:
                                                     st.warning(f"Found {len(rows_with_2_chars)} rows with 2-character codes, but they may not be valid state codes.")
-                                                
+
                                                 # Debug info
                                                 with st.expander("🔍 Debug: See what was captured", expanded=True):
                                                     st.write("**Total rows:**", len(edited_teams_df))
@@ -2504,27 +2500,27 @@ elif section == "📍 Missing State Codes":
                                                     updated_count = 0
                                                     error_count = 0
                                                     errors = []
-                                                    
+
                                                     for _, row in updates_to_apply.iterrows():
                                                         team_id = int(row['Team ID'])
                                                         state_code = str(row['State Code']).strip().upper()
                                                         team_name = row['Team Name']
-                                                        
+
                                                         # Validate state code
                                                         if state_code not in STATE_CODE_TO_NAME:
                                                             error_msg = f"Invalid state code '{state_code}' for {team_name} (ID: {team_id})"
                                                             errors.append(error_msg)
                                                             error_count += 1
                                                             continue
-                                                        
+
                                                         state_name = STATE_CODE_TO_NAME[state_code]
-                                                        
+
                                                         try:
                                                             result = db.table('teams').update({
                                                                 'state_code': state_code,
                                                                 'state': state_name
                                                             }).eq('team_id_master', team_id).execute()
-                                                            
+
                                                             if result.data:
                                                                 updated_count += 1
                                                             else:
@@ -2535,7 +2531,7 @@ elif section == "📍 Missing State Codes":
                                                             error_msg = f"Error updating {team_name} (ID: {team_id}): {str(e)}"
                                                             errors.append(error_msg)
                                                             error_count += 1
-                                                    
+
                                                     if updated_count > 0:
                                                         st.success(f"✅ Successfully updated {updated_count} teams with state codes!")
                                                         if error_count > 0:
@@ -2550,11 +2546,11 @@ elif section == "📍 Missing State Codes":
                                                                     st.text(err)
                                                                 if len(errors) > 20:
                                                                     st.text(f"... and {len(errors) - 20} more errors")
-                                        
+
                                         # Bulk update section for this specific club
                                         st.divider()
                                         st.markdown("#### 🔧 Bulk Update State Code for This Club")
-                                        
+
                                         col1, col2 = st.columns([2, 1])
                                         with col1:
                                             club_state_code = st.selectbox(
@@ -2563,12 +2559,12 @@ elif section == "📍 Missing State Codes":
                                                 key=f"club_state_{selected_club_name}",
                                                 help="Select a state code to apply to all teams missing state codes for this club"
                                             )
-                                        
+
                                         with col2:
                                             if club_state_code:
                                                 state_name = STATE_CODE_TO_NAME[club_state_code]
                                                 st.info(f"Will set state to: **{state_name}**")
-                                        
+
                                         if st.button(
                                             f"🚀 Apply State Code '{club_state_code}' to All {len(club_teams_missing)} Teams",
                                             type="primary",
@@ -2581,7 +2577,7 @@ elif section == "📍 Missing State Codes":
                                                     try:
                                                         team_ids = club_teams_missing['team_id_master'].tolist()
                                                         state_name = STATE_CODE_TO_NAME[club_state_code]
-                                                        
+
                                                         # Update in batches
                                                         batch_size = 100
                                                         updated_count = 0
@@ -2592,7 +2588,7 @@ elif section == "📍 Missing State Codes":
                                                                 'state': state_name
                                                             }).in_('team_id_master', batch).execute()
                                                             updated_count += len(batch)
-                                                        
+
                                                         st.success(f"✅ Successfully updated {updated_count} teams with state code '{club_state_code}' ({state_name})!")
                                                         time.sleep(1)
                                                         st.rerun()
@@ -2601,7 +2597,7 @@ elif section == "📍 Missing State Codes":
                                                         import traceback
                                                         with st.expander("View Error Details"):
                                                             st.code(traceback.format_exc())
-                                        
+
                                         st.divider()
                                     else:
                                         st.success(f"✅ **{selected_club_name}** has no teams missing state codes!")
@@ -2610,7 +2606,7 @@ elif section == "📍 Missing State Codes":
                                     import traceback
                                     with st.expander("View Error Details"):
                                         st.code(traceback.format_exc())
-                        
+
                         # Display editable table
                         edited_club_df = st.data_editor(
                             club_df,
@@ -2628,58 +2624,58 @@ elif section == "📍 Missing State Codes":
                             hide_index=True,
                             num_rows="fixed"
                         )
-                        
+
                         # Check if any clubs in the table are multi-state clubs
                         multi_state_clubs_in_table = []
                         if 'multi_state_clubs_info' in st.session_state and st.session_state.multi_state_clubs_info:
                             for club_name in club_df['Club Name'].tolist():
                                 if club_name in st.session_state.multi_state_clubs_info:
                                     multi_state_clubs_in_table.append(club_name)
-                        
+
                         if multi_state_clubs_in_table:
                             st.warning(f"⚠️ **Warning:** The following clubs span multiple states: {', '.join(multi_state_clubs_in_table)}. "
                                       f"Review these clubs in the 'Clubs Spanning Multiple States' section above before bulk updating. "
                                       f"Bulk updates will apply the same state code to ALL teams for a club.")
-                        
+
                         # Bulk update button
                         if st.button("🚀 Apply State Codes to All Teams", type="primary", use_container_width=True):
                             updates_to_apply = edited_club_df[
-                                (edited_club_df['State Code'].notna()) & 
+                                (edited_club_df['State Code'].notna()) &
                                 (edited_club_df['State Code'].str.strip() != '') &
                                 (edited_club_df['State Code'].str.len() == 2)
                             ]
-                            
+
                             if updates_to_apply.empty:
                                 st.warning("⚠️ No valid state codes to apply. Please enter 2-letter state codes.")
                             else:
                                 with st.spinner(f"Updating teams for {len(updates_to_apply)} clubs..."):
                                     updated_count = 0
                                     error_count = 0
-                                    
+
                                     for _, row in updates_to_apply.iterrows():
                                         club_name = row['Club Name']
                                         state_code = row['State Code'].strip().upper()
-                                        
+
                                         # Validate state code
                                         if state_code not in STATE_CODE_TO_NAME:
                                             st.warning(f"⚠️ Invalid state code '{state_code}' for {club_name}. Skipping.")
                                             error_count += 1
                                             continue
-                                        
+
                                         state_name = STATE_CODE_TO_NAME[state_code]
-                                        
+
                                         try:
                                             # Find all teams with this club name that are missing state codes
                                             teams_to_update = filtered_df[
                                                 (filtered_df['club_name'] == club_name) &
                                                 (filtered_df['state_code'].isna())
                                             ]
-                                            
+
                                             if teams_to_update.empty:
                                                 continue
-                                            
+
                                             team_ids = teams_to_update['team_id_master'].tolist()
-                                            
+
                                             # Update in batches
                                             batch_size = 100
                                             for i in range(0, len(team_ids), batch_size):
@@ -2688,23 +2684,23 @@ elif section == "📍 Missing State Codes":
                                                     'state_code': state_code,
                                                     'state': state_name
                                                 }).in_('team_id_master', batch).execute()
-                                                
+
                                                 updated_count += len(batch)
-                                        
+
                                         except Exception as e:
                                             st.error(f"Error updating {club_name}: {e}")
                                             error_count += len(teams_to_update)
-                                    
+
                                     if updated_count > 0:
                                         st.success(f"✅ Successfully updated {updated_count} teams with state codes!")
                                         time.sleep(1)
                                         st.rerun()
                                     else:
                                         st.info("No teams were updated. They may have already been updated.")
-                                    
+
                                     if error_count > 0:
                                         st.warning(f"⚠️ {error_count} teams had errors during update.")
-                        
+
                         st.info("💡 **Tip:** Enter state codes in the table above, then click 'Apply State Codes to All Teams' to bulk update all teams for each club!")
 
                     # ============================================================================
@@ -3258,13 +3254,13 @@ elif section == "🔀 Team Merge Manager":
                             if err_match:
                                 st.error(f"❌ Merge failed: {err_match.group(1)}")
                             else:
-                                st.error(f"❌ Merge failed - check details")
+                                st.error("❌ Merge failed - check details")
                         else:
                             # Unknown response but might have worked - check database
-                            st.warning(f"⚠️ Merge may have completed - please verify in database")
+                            st.warning("⚠️ Merge may have completed - please verify in database")
                     elif isinstance(response, dict) and 'success' in response:
                         # Direct response (no wrapper)
-                        if response.get('success') == True:
+                        if response.get('success'):
                             if response.get('already_merged'):
                                 st.success(f"✅ {response.get('message', 'Team is already merged')}")
                             else:
@@ -3477,7 +3473,7 @@ elif section == "🔀 Team Merge Manager":
                         classified.add(idx)
 
                 # Classify age tokens
-                age_pattern = _re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
+                _re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b")
                 for idx, tok in enumerate(tokens):
                     if idx in classified:
                         continue
@@ -3860,7 +3856,7 @@ elif section == "🔀 Team Merge Manager":
 
                             with action_cols[0]:
                                 # Capture values in default args to avoid closure issues
-                                if st.button(f"🔗 Merge A→B", key=f"merge_ab_{idx}",
+                                if st.button("🔗 Merge A→B", key=f"merge_ab_{idx}",
                                            disabled=not merge_email or s['roman_diff']):
                                     try:
                                         # Use values directly from suggestion dict
@@ -3884,7 +3880,7 @@ elif section == "🔀 Team Merge Manager":
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
                                             st.rerun()
-                                        elif isinstance(response, dict) and response.get('success') == True:
+                                        elif isinstance(response, dict) and response.get('success'):
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_a_name']} → {s['team_b_name']}"
                                             st.rerun()
@@ -3901,7 +3897,7 @@ elif section == "🔀 Team Merge Manager":
 
                             with action_cols[1]:
                                 # Capture values in default args to avoid closure issues
-                                if st.button(f"🔗 Merge B→A", key=f"merge_ba_{idx}",
+                                if st.button("🔗 Merge B→A", key=f"merge_ba_{idx}",
                                            disabled=not merge_email or s['roman_diff']):
                                     try:
                                         result = execute_with_retry(
@@ -3924,7 +3920,7 @@ elif section == "🔀 Team Merge Manager":
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
                                             st.rerun()
-                                        elif isinstance(response, dict) and response.get('success') == True:
+                                        elif isinstance(response, dict) and response.get('success'):
                                             st.session_state.dismissed_suggestions.add(s['key'])
                                             st.session_state.last_merge_success = f"✅ Merged! {s['team_b_name']} → {s['team_a_name']}"
                                             st.rerun()
@@ -3940,7 +3936,7 @@ elif section == "🔀 Team Merge Manager":
                                         st.error(f"❌ Merge failed: {e}")
 
                             with action_cols[2]:
-                                if st.button(f"❌ Not a Duplicate", key=f"dismiss_{idx}"):
+                                if st.button("❌ Not a Duplicate", key=f"dismiss_{idx}"):
                                     st.session_state.dismissed_suggestions.add(s['key'])
                                     st.rerun()
 
@@ -5398,7 +5394,7 @@ elif section == "🛡️ Due Diligence Review":
                                 remaining_df["unknown_provider_team_id"].str.strip() != unknown_pid.strip()
                             ]
                             remaining_df.to_csv(selected_csv, index=False)
-                        except Exception as exc:
+                        except Exception:
                             # Log but don't block — DB write succeeded,
                             # and the DB cross-check on next load will filter it out
                             pass
@@ -6030,7 +6026,7 @@ elif section == "🚫 Game Exclusion Manager":
                         key="excl_game_editor"
                     )
 
-                    selected_ids = edited_df[edited_df['Exclude'] == True]['Game ID'].tolist()
+                    selected_ids = edited_df[edited_df['Exclude']]['Game ID'].tolist()
 
                     if selected_ids:
                         st.warning(f"**{len(selected_ids)} game(s) selected for exclusion.**")

@@ -278,7 +278,7 @@ PARALLEL_PROCESSING = os.getenv("PARALLEL_PROCESSING", "true").lower() == "true"
 DEBUG_MODE = os.getenv("DEBUG_MODE", "false").lower() == "true"
 
 # Validate critical configuration at startup
-import logging as _logging
+import logging as _logging  # noqa: E402  (deliberate late import for startup validation)
 
 _settings_logger = _logging.getLogger(__name__)
 if not USE_LOCAL_SUPABASE:
