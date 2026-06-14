@@ -122,49 +122,17 @@ def _data(climbers=None, spotlight_teams=None):
     }
 
 
-def test_resolve_tag_targets_rankings_live_picks_first_three_climbers():
-    data = _data(
-        climbers=[
-            {"team_id": "a"},
-            {"team_id": "b"},
-            {"team_id": "c"},
-            {"team_id": "d"},
-        ]
-    )
-    assert _resolve_tag_targets("rankings_live", data) == ["a", "b", "c"]
+def test_resolve_tag_targets_rankings_live_is_generic_no_tags():
+    data = _data(climbers=[{"team_id": "a"}, {"team_id": "b"}, {"team_id": "c"}])
+    assert _resolve_tag_targets("rankings_live", data) == []
 
 
-def test_resolve_tag_targets_rankings_live_skips_missing_team_ids():
-    data = _data(climbers=[{"team_id": "a"}, {"team_name": "no id"}, {"team_id": "c"}])
-    assert _resolve_tag_targets("rankings_live", data) == ["a", "c"]
-
-
-def test_resolve_tag_targets_mover_spotlight_prefers_second_climber():
-    data = _data(climbers=[{"team_id": "first"}, {"team_id": "second"}, {"team_id": "third"}])
-    assert _resolve_tag_targets("mover_spotlight", data) == ["second"]
-
-
-def test_resolve_tag_targets_mover_spotlight_falls_back_to_first_when_only_one():
-    data = _data(climbers=[{"team_id": "first"}])
-    assert _resolve_tag_targets("mover_spotlight", data) == ["first"]
-
-
-def test_resolve_tag_targets_mover_spotlight_empty_climbers():
+def test_resolve_tag_targets_rankings_live_empty_climbers():
     data = _data(climbers=[])
-    assert _resolve_tag_targets("mover_spotlight", data) == []
+    assert _resolve_tag_targets("rankings_live", data) == []
 
 
-def test_resolve_tag_targets_state_spotlight_picks_first_three():
-    data = _data(spotlight_teams=[{"team_id": "x"}, {"team_id": "y"}, {"team_id": "z"}, {"team_id": "w"}])
-    assert _resolve_tag_targets("state_spotlight", data) == ["x", "y", "z"]
-
-
-def test_resolve_tag_targets_state_spotlight_none_returns_empty():
-    data = {"climbers": [], "spotlight_teams": None}
-    assert _resolve_tag_targets("state_spotlight", data) == []
-
-
-@pytest.mark.parametrize("post_type", ["data_flex", "x_thread", "trend", "unknown_future_type"])
+@pytest.mark.parametrize("post_type", ["top10", "big_games", "x_thread", "trend", "unknown_future_type"])
 def test_resolve_tag_targets_other_types_return_empty(post_type):
     data = _data(climbers=[{"team_id": "a"}], spotlight_teams=[{"team_id": "b"}])
     assert _resolve_tag_targets(post_type, data) == []

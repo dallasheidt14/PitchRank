@@ -2,6 +2,18 @@ import type { ReactNode } from 'react';
 import { COLORS } from './theme';
 import { wordmarkUrl, WORDMARK_ASPECT } from './assets';
 
+// Divider + pitchrank.io/rankings line that closes every infographic.
+export function Footer({ isStory }: { isStory: boolean }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', marginTop: isStory ? 28 : 18 }}>
+      <div style={{ display: 'flex', height: 2, background: COLORS.divider, marginBottom: 16 }} />
+      <div style={{ display: 'flex', justifyContent: 'center', fontSize: isStory ? 20 : 17, color: COLORS.club }}>
+        pitchrank.io/rankings
+      </div>
+    </div>
+  );
+}
+
 // Root frame: gradient + scan-line texture overlay + (consumer-supplied) content.
 export function Frame({ isStory, children }: { isStory: boolean; children: ReactNode }) {
   return (
