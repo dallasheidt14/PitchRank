@@ -55,10 +55,6 @@ function buildFromLine(identity: FeedbackIdentity): string {
   return identity.email ? `${identity.email} (anonymous)` : 'anonymous (no email provided)';
 }
 
-function pickReplyTo(identity: FeedbackIdentity): string | undefined {
-  return identity.email;
-}
-
 function buildHtml(input: SendFeedbackEmailInput): string {
   const { category, message, identity, context, ipMasked } = input;
   const safeMessage = escapeHtml(message);
@@ -124,7 +120,7 @@ export async function sendFeedbackEmail(input: SendFeedbackEmailInput): Promise<
     return false;
   }
 
-  const replyTo = pickReplyTo(input.identity);
+  const replyTo = input.identity.email;
 
   try {
     const { error } = await resend.emails.send({

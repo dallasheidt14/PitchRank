@@ -404,21 +404,27 @@ export async function GET(request: NextRequest) {
         const gamesA = gamesByTeam[teamA.team_id_master] || [];
         const gamesB = gamesByTeam[teamB.team_id_master] || [];
 
-        // Calculate signals
+        // Evaluate each signal once (score + human-readable detail together)
+        const opponent = evalOpponentOverlap(gamesA, gamesB);
+        const schedule = evalScheduleAlignment(gamesA, gamesB);
+        const name = evalNameSimilarity(teamA, teamB);
+        const geo = evalGeography(teamA, teamB);
+        const perf = evalPerformance(gamesA, gamesB);
+
         const signals = {
-          opponentOverlap: calcOpponentOverlap(gamesA, gamesB),
-          scheduleAlignment: calcScheduleAlignment(gamesA, gamesB),
-          nameSimilarity: calcNameSimilarity(teamA, teamB),
-          geography: calcGeography(teamA, teamB),
-          performance: calcPerformance(gamesA, gamesB),
+          opponentOverlap: opponent.score,
+          scheduleAlignment: schedule.score,
+          nameSimilarity: name.score,
+          geography: geo.score,
+          performance: perf.score,
         };
 
         const details = {
-          opponentOverlap: getOpponentOverlapDetail(gamesA, gamesB),
-          scheduleAlignment: getScheduleAlignmentDetail(gamesA, gamesB),
-          nameSimilarity: getNameSimilarityDetail(teamA, teamB),
-          geography: getGeographyDetail(teamA, teamB),
-          performance: getPerformanceDetail(gamesA, gamesB),
+          opponentOverlap: opponent.detail,
+          scheduleAlignment: schedule.detail,
+          nameSimilarity: name.detail,
+          geography: geo.detail,
+          performance: perf.detail,
         };
 
         // Calculate weighted confidence
@@ -460,23 +466,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Signal calculation functions
-function calcOpponentOverlap(gamesA: GameData[], gamesB: GameData[]): number {
-  if (!gamesA.length || !gamesB.length) return 0;
+// Signal evaluation functions — each returns the score and its human-readable
+// detail together, computing shared intermediates once (called per O(n²) pair).
+type SignalResult = { score: number; detail: string };
 
-  const opponentsA = new Set(gamesA.map((g) => g.opponent_id).filter(Boolean));
-  const opponentsB = new Set(gamesB.map((g) => g.opponent_id).filter(Boolean));
-
-  if (!opponentsA.size || !opponentsB.size) return 0;
-
-  const intersection = [...opponentsA].filter((id) => opponentsB.has(id)).length;
-  const union = new Set([...opponentsA, ...opponentsB]).size;
-
-  return union > 0 ? intersection / union : 0;
-}
-
-function getOpponentOverlapDetail(gamesA: GameData[], gamesB: GameData[]): string {
-  if (!gamesA.length || !gamesB.length) return 'Insufficient game data';
+function evalOpponentOverlap(gamesA: GameData[], gamesB: GameData[]): SignalResult {
+  if (!gamesA.length || !gamesB.length) return { score: 0, detail: 'Insufficient game data' };
 
   const opponentsA = new Set(gamesA.map((g) => g.opponent_id).filter(Boolean));
   const opponentsB = new Set(gamesB.map((g) => g.opponent_id).filter(Boolean));
@@ -484,16 +479,15 @@ function getOpponentOverlapDetail(gamesA: GameData[], gamesB: GameData[]): strin
   const intersection = [...opponentsA].filter((id) => opponentsB.has(id)).length;
   const union = new Set([...opponentsA, ...opponentsB]).size;
 
-  return `${intersection} shared opponents out of ${union} total`;
+  const score = !opponentsA.size || !opponentsB.size ? 0 : union > 0 ? intersection / union : 0;
+  return { score, detail: `${intersection} shared opponents out of ${union} total` };
 }
 
-function calcScheduleAlignment(gamesA: GameData[], gamesB: GameData[]): number {
-  if (!gamesA.length || !gamesB.length) return 0;
+function evalScheduleAlignment(gamesA: GameData[], gamesB: GameData[]): SignalResult {
+  if (!gamesA.length || !gamesB.length) return { score: 0, detail: 'Insufficient game data' };
 
   const datesA = new Set(gamesA.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
   const datesB = new Set(gamesB.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
-
-  if (!datesA.size || !datesB.size) return 0;
 
   // Count dates within 1 day of each other
   let closeMatches = 0;
@@ -509,38 +503,17 @@ function calcScheduleAlignment(gamesA: GameData[], gamesB: GameData[]): number {
     }
   }
 
-  return Math.min(closeMatches / Math.min(datesA.size, datesB.size), 1);
+  const score = !datesA.size || !datesB.size ? 0 : Math.min(closeMatches / Math.min(datesA.size, datesB.size), 1);
+  return { score, detail: `${closeMatches} games on similar dates` };
 }
 
-function getScheduleAlignmentDetail(gamesA: GameData[], gamesB: GameData[]): string {
-  if (!gamesA.length || !gamesB.length) return 'Insufficient game data';
-
-  const datesA = new Set(gamesA.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
-  const datesB = new Set(gamesB.map((g) => g.game_date?.split('T')[0]).filter(Boolean));
-
-  let closeMatches = 0;
-  for (const dateA of datesA) {
-    const da = new Date(dateA);
-    for (const dateB of datesB) {
-      const db = new Date(dateB);
-      const diffDays = Math.abs((da.getTime() - db.getTime()) / (1000 * 60 * 60 * 24));
-      if (diffDays <= 1) {
-        closeMatches++;
-        break;
-      }
-    }
-  }
-
-  return `${closeMatches} games on similar dates`;
-}
-
-function calcNameSimilarity(teamA: TeamData, teamB: TeamData): number {
+function evalNameSimilarity(teamA: TeamData, teamB: TeamData): SignalResult {
   const nameA = (teamA.team_name || '').toLowerCase().trim();
   const nameB = (teamB.team_name || '').toLowerCase().trim();
-
-  if (!nameA || !nameB) return 0;
-
   const nameScore = levenshteinSimilarity(nameA, nameB);
+  const detail = `Name match: ${Math.round(nameScore * 100)}%`;
+
+  if (!nameA || !nameB) return { score: 0, detail };
 
   const clubA = (teamA.club_name || '').toLowerCase().trim();
   const clubB = (teamB.club_name || '').toLowerCase().trim();
@@ -550,18 +523,10 @@ function calcNameSimilarity(teamA: TeamData, teamB: TeamData): number {
     clubScore = levenshteinSimilarity(clubA, clubB);
   }
 
-  return 0.7 * nameScore + 0.3 * clubScore;
+  return { score: 0.7 * nameScore + 0.3 * clubScore, detail };
 }
 
-function getNameSimilarityDetail(teamA: TeamData, teamB: TeamData): string {
-  const nameA = (teamA.team_name || '').toLowerCase().trim();
-  const nameB = (teamB.team_name || '').toLowerCase().trim();
-  const nameScore = levenshteinSimilarity(nameA, nameB);
-
-  return `Name match: ${Math.round(nameScore * 100)}%`;
-}
-
-function calcGeography(teamA: TeamData, teamB: TeamData): number {
+function evalGeography(teamA: TeamData, teamB: TeamData): SignalResult {
   const stateA = (teamA.state_code || '').toUpperCase();
   const stateB = (teamB.state_code || '').toUpperCase();
   const clubA = (teamA.club_name || '').toLowerCase().trim();
@@ -581,30 +546,19 @@ function calcGeography(teamA: TeamData, teamB: TeamData): number {
     }
   }
 
-  return score;
-}
-
-function getGeographyDetail(teamA: TeamData, teamB: TeamData): string {
-  const stateA = (teamA.state_code || '').toUpperCase();
-  const stateB = (teamB.state_code || '').toUpperCase();
-  const details: string[] = [];
-
+  const geoDetails: string[] = [];
   if (stateA && stateB) {
-    if (stateA === stateB) {
-      details.push(`Same state (${stateA})`);
-    } else {
-      details.push(`Different states (${stateA} vs ${stateB})`);
-    }
+    geoDetails.push(stateA === stateB ? `Same state (${stateA})` : `Different states (${stateA} vs ${stateB})`);
   }
 
-  return details.join(', ') || 'No geographic info';
+  return { score, detail: geoDetails.join(', ') || 'No geographic info' };
 }
 
-function calcPerformance(gamesA: GameData[], gamesB: GameData[]): number {
+function evalPerformance(gamesA: GameData[], gamesB: GameData[]): SignalResult {
   const statsA = calcStats(gamesA);
   const statsB = calcStats(gamesB);
 
-  if (!statsA || !statsB) return 0;
+  if (!statsA || !statsB) return { score: 0, detail: 'Cannot calculate stats' };
 
   const winPctDiff = Math.abs(statsA.winPct - statsB.winPct);
   const gdDiff = Math.abs(statsA.goalDiff - statsB.goalDiff);
@@ -612,16 +566,8 @@ function calcPerformance(gamesA: GameData[], gamesB: GameData[]): number {
   const winScore = Math.max(0, 1 - winPctDiff);
   const gdScore = Math.max(0, 1 - gdDiff / 5);
 
-  return 0.6 * winScore + 0.4 * gdScore;
-}
-
-function getPerformanceDetail(gamesA: GameData[], gamesB: GameData[]): string {
-  const statsA = calcStats(gamesA);
-  const statsB = calcStats(gamesB);
-
-  if (!statsA || !statsB) return 'Cannot calculate stats';
-
-  return `Win%: ${Math.round(statsA.winPct * 100)}% vs ${Math.round(statsB.winPct * 100)}%, GD: ${statsA.goalDiff.toFixed(1)} vs ${statsB.goalDiff.toFixed(1)}`;
+  const detail = `Win%: ${Math.round(statsA.winPct * 100)}% vs ${Math.round(statsB.winPct * 100)}%, GD: ${statsA.goalDiff.toFixed(1)} vs ${statsB.goalDiff.toFixed(1)}`;
+  return { score: 0.6 * winScore + 0.4 * gdScore, detail };
 }
 
 function calcStats(games: GameData[]) {
