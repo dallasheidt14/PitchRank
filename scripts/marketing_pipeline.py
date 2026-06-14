@@ -10,6 +10,7 @@ Run: python3 scripts/marketing_pipeline.py [--dry-run]
 """
 
 import argparse
+import base64
 import json
 import logging
 import os
@@ -54,23 +55,55 @@ POSTIZ_API_URL = "https://api.postiz.com/public/v1"
 # Beehiiv API
 BEEHIIV_API_URL = "https://api.beehiiv.com/v2"
 
-# State spotlight infographic — rotate the featured cohort each week so the Thursday
-# graphic cycles through age/gender groups (u14 boys, u14 girls, u15 boys, ...).
-# Ages limited to cohorts with enough ranked teams nationally to be worth posting.
-STATE_COHORT_ROTATION = [(age, gender) for age in (10, 11, 12, 13, 14, 15, 16, 17, 19) for gender in ("male", "female")]
-# Restrict the weekly state spotlight to deep states, where every age/gender cohort
-# has enough ranked teams to fill a clean Top 5. Small states surface provisional
-# ("Not Enough Ranked Games") teams, which we don't want in a public graphic.
+# Restrict the newsletter/blog state spotlight to deep states, where every age/gender
+# cohort has enough ranked teams to fill a clean Top 5. Small states surface provisional
+# ("Not Enough Ranked Games") teams, which we don't want in public copy.
 SPOTLIGHT_STATES = ("CA", "TX", "AZ", "FL", "PA", "NJ", "OK", "OH")
-# Fixed Monday epoch so the rotation advances exactly one cohort per week with no
+# Fixed Monday epoch so the rotation advances exactly one step per week with no
 # year-boundary jump.
 STATE_COHORT_EPOCH = datetime(2026, 1, 5)
 
+# States with a pillar guide — must stay in sync with STATE_PILLAR_SLUGS in
+# frontend/lib/cohort-seo.ts (19 states as of 2026-06).
+PILLAR_STATES = (
+    "AZ", "CA", "CO", "CT", "FL", "GA", "IL", "MA", "MD", "MI",
+    "MN", "NJ", "NY", "NC", "OH", "PA", "TX", "VA", "WA",
+)
+STATE_DISPLAY_NAMES = {
+    "AZ": "Arizona", "CA": "California", "CO": "Colorado", "CT": "Connecticut",
+    "FL": "Florida", "GA": "Georgia", "IL": "Illinois", "MA": "Massachusetts",
+    "MD": "Maryland", "MI": "Michigan", "MN": "Minnesota", "NJ": "New Jersey",
+    "NY": "New York", "NC": "North Carolina", "OH": "Ohio", "PA": "Pennsylvania",
+    "TX": "Texas", "VA": "Virginia", "WA": "Washington",
+}
+# Tuesday Top-10 age pool: u10-u17 + u19 (u18 merges into u19 platform-wide).
+TOP10_AGES = (10, 11, 12, 13, 14, 15, 16, 17, 19)
 
-def weekly_state_cohort(monday: datetime) -> tuple[int, str]:
-    """Return the (age, gender) cohort to feature for the week of the given Monday."""
-    weeks_since = (monday.date() - STATE_COHORT_EPOCH.date()).days // 7
-    return STATE_COHORT_ROTATION[weeks_since % len(STATE_COHORT_ROTATION)]
+# Thursday big-games slate is restricted to deeper states so matchups are
+# genuine marquee games, not thin small-state #1-vs-#2 pairings.
+BIG_GAMES_STATES = (
+    "CA", "MA", "TX", "FL", "NJ", "AZ", "PA", "GA", "VA", "MD",
+    "OH", "OK", "CO", "NC", "IL", "WA", "NV", "NY",
+)
+
+
+def weekly_top10_combos(monday: datetime) -> list[tuple[str, int, str]]:
+    """Return the week's 3 deterministic (state, age, gender) Top-10 combos.
+
+    States walk PILLAR_STATES in blocks of 3, so every 19 consecutive picks cover
+    all 19 states before any repeats (19 % 3 != 0 means one week per cycle mixes
+    the cycle boundary — expected, not a bug). Ages and genders shift by week so
+    cohorts vary.
+    """
+    week = (monday.date() - STATE_COHORT_EPOCH.date()).days // 7
+    return [
+        (
+            PILLAR_STATES[(week * 3 + i) % len(PILLAR_STATES)],
+            TOP10_AGES[(week + i) % len(TOP10_AGES)],
+            ("male", "female")[(week + i) % 2],
+        )
+        for i in range(3)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +293,140 @@ def fetch_ranking_highlights(supabase) -> dict:
         "date": datetime.now(MT_OFFSET),
     }
 
+    # Instagram week inputs: live Active count, Tuesday Top-10 cohorts, weekend slate
+    data["active_team_count"] = fetch_active_team_count(supabase)
+    data["top10_combos"] = weekly_top10_combos(data["date"])
+    data["top10_cohorts"] = fetch_top10_cohorts(supabase, data["top10_combos"])
+    data["big_games_window"] = next_weekend_window(datetime.now(MT_OFFSET))
+    data["big_games"] = fetch_big_weekend_games(supabase, *data["big_games_window"])
+
     log.info(
         f"Highlights: {len(climbers)} climbers, {len(fallers)} fallers, "
         f"{total_teams} total teams, spotlight: {spotlight_state}, "
-        f"{len(milestones)} milestone crossings"
+        f"{len(milestones)} milestone crossings, {data['active_team_count']} active teams, "
+        f"{len(data['top10_cohorts'])} top-10 cohorts, {len(data['big_games'])} big games"
     )
     return data
+
+
+def fetch_active_team_count(supabase) -> int:
+    """Live Active-team count via the same RPC the rankings-live graphic uses.
+
+    One shared source means the Monday caption and graphic can never disagree.
+    This is the published-rank denominator (Active only) — deliberately smaller
+    than the legacy total_teams count, which includes other statuses.
+    """
+    try:
+        resp = supabase.rpc("get_national_active_count").execute()
+        return int(resp.data or 0)
+    except Exception as e:
+        log.warning(f"Active team count RPC failed: {e}")
+        return 0
+
+
+def fetch_rankings_last_calculated(supabase) -> datetime | None:
+    """Return MAX(last_calculated) from rankings_full, or None when unavailable."""
+    try:
+        resp = (
+            supabase.table("rankings_full")
+            .select("last_calculated")
+            .order("last_calculated", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = resp.data or []
+        raw = rows[0].get("last_calculated") if rows else None
+        if not raw:
+            return None
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception as e:
+        log.warning(f"Rankings freshness lookup failed: {e}")
+        return None
+
+
+def rankings_are_stale(last_calculated: datetime | None, now: datetime | None = None, max_age_days: int = 8) -> bool:
+    """True when rankings are too old to announce as new.
+
+    The threshold is sized to the weekly recalc cadence plus margin — a healthy
+    dataset can legitimately be several days old by the time the pipeline runs.
+    """
+    if last_calculated is None:
+        return True
+    now = now or datetime.now(timezone.utc)
+    return now - last_calculated > timedelta(days=max_age_days)
+
+
+def fetch_top10_cohorts(supabase, combos: list[tuple[str, int, str]]) -> list[dict]:
+    """Resolve each (state, age, gender) combo to its state Top 10 via get_state_rankings.
+
+    Mirrors getStateTopTeams() in frontend/app/api/infographic/state/route.tsx:
+    over-fetch, keep Active teams with a state rank, slice 10. A combo with a thin
+    cohort advances deterministically to the next pillar state (same age/gender).
+    """
+    cohorts = []
+    for state, age, gender in combos:
+        start = PILLAR_STATES.index(state)
+        chosen = None
+        for step in range(len(PILLAR_STATES)):
+            candidate = PILLAR_STATES[(start + step) % len(PILLAR_STATES)]
+            try:
+                resp = supabase.rpc(
+                    "get_state_rankings",
+                    {
+                        "p_state": candidate,
+                        # Bare number, not "u14" — the RPC casts p_age::INTEGER
+                        "p_age": str(age),
+                        "p_gender": "M" if gender == "male" else "F",
+                        "p_limit": 55,
+                        "p_offset": 0,
+                    },
+                ).execute()
+            except Exception as e:
+                log.warning(f"get_state_rankings failed for {candidate} u{age} {gender}: {e}")
+                continue
+            teams = [
+                t
+                for t in (resp.data or [])
+                if t.get("status") == "Active" and t.get("rank_in_state_final") is not None
+            ][:10]
+            if len(teams) >= 10:
+                if step:
+                    log.info(f"Top-10 combo {state} u{age} {gender} thin; re-picked {candidate}")
+                chosen = {"state": candidate, "age": age, "gender": gender, "teams": teams}
+                break
+        if chosen:
+            cohorts.append(chosen)
+        else:
+            log.warning(f"No viable Top-10 cohort for u{age} {gender} in any pillar state")
+    return cohorts
+
+
+def next_weekend_window(now: datetime) -> tuple:
+    """Return (friday, sunday) dates of the next upcoming Fri-Sun window."""
+    days_to_friday = (4 - now.weekday()) % 7 or 7
+    friday = (now + timedelta(days=days_to_friday)).date()
+    return friday, friday + timedelta(days=2)
+
+
+def fetch_big_weekend_games(supabase, start_date, end_date, states=BIG_GAMES_STATES) -> list[dict]:
+    """Weekend games where both sides are ranked top-25 in the same state cohort.
+
+    Restricted to `states` (the bigger-state list) so the slate is marquee
+    matchups rather than thin small-state pairings.
+    """
+    try:
+        resp = supabase.rpc(
+            "get_big_weekend_games",
+            {
+                "p_start_date": start_date.isoformat(),
+                "p_end_date": end_date.isoformat(),
+                "p_states": list(states) if states else None,
+            },
+        ).execute()
+        return resp.data or []
+    except Exception as e:
+        log.warning(f"Big weekend games RPC failed: {e}")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +496,14 @@ def generate_newsletter_html(data: dict, blog_body_md: str) -> str:
 
     dt = data["date"]
     date_display = f"Week of {dt.strftime('%b %d, %Y')}"
-    total_teams = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
+    # Drop the count sentence entirely when the live count is unavailable —
+    # never a made-up number.
+    total_teams_line = (
+        f'<p style="margin:12px 0 0;font-size:13px;color:#888;">{data["total_teams"]:,} teams. '
+        "13-layer algorithm. Updated every Monday.</p>"
+        if data["total_teams"]
+        else ""
+    )
 
     blog_content_html = _markdown_to_email_html(blog_body_md)
 
@@ -352,7 +520,7 @@ def generate_newsletter_html(data: dict, blog_body_md: str) -> str:
     html = tmpl.safe_substitute(
         date_display=date_display,
         blog_content_html=blog_content_html,
-        total_teams=total_teams,
+        total_teams_line=total_teams_line,
         engagement_hook=engagement_hook,
     )
 
@@ -511,7 +679,9 @@ def _filter_by_state(teams: list[dict], state: str) -> list[dict]:
 def _build_blog_body(data: dict, topic: dict) -> str:
     """Build blog post body based on topic type."""
     topic_type = topic.get("type", "weekly_movers")
-    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
+    # None when unavailable; each branch drops its count sentence rather than
+    # publishing a made-up number.
+    total = f"{data['total_teams']:,}" if data["total_teams"] else None
     biggest = data.get("biggest_jump", 0)
     keyword = topic.get("target_keyword", "youth soccer rankings")
     climbers_table = _movers_table(data["climbers"], "up")
@@ -525,9 +695,14 @@ def _build_blog_body(data: dict, topic: dict) -> str:
         state_fallers = _filter_by_state(data["fallers"], state)
         ct = _movers_table(state_climbers or data["climbers"], "up")
         ft = _movers_table(state_fallers or data["fallers"], "down")
+        tracking_line = (
+            f"We track {total} teams nationally, and here's what moved in {state} this week.\n\n"
+            if total
+            else f"Here's what moved in {state} this week.\n\n"
+        )
         return (
             f"Every Monday, PitchRank updates {keyword} across all leagues.\n"
-            f"We track {total} teams nationally, and here's what moved in {state} this week.\n\n"
+            f"{tracking_line}"
             f"## Top Movers in {state} This Week\n\n{ct}\n\n"
             f"## Biggest Drops in {state}\n\n{ft}\n\n"
             f"## How {state} Compares Nationally\n\n"
@@ -543,10 +718,11 @@ def _build_blog_body(data: dict, topic: dict) -> str:
         )
 
     if topic_type == "league_comparison":
+        across = f" across {total} teams" if total else ""
         return (
             f"One of the most common questions in youth soccer: {keyword} — which\n"
             f"league is better? PitchRank's cross-league calibration makes a\n"
-            f"data-driven comparison possible across {total} teams.\n\n"
+            f"data-driven comparison possible{across}.\n\n"
             f"## This Week's Top Movers\n\n{climbers_table}\n\n"
             f"## How PitchRank Compares Leagues\n\n"
             f"PitchRank uses a 13-layer algorithm that normalizes across leagues.\n"
@@ -562,11 +738,13 @@ def _build_blog_body(data: dict, topic: dict) -> str:
         )
 
     if topic_type == "methodology":
+        ranked_intro = f"ranked {total} youth soccer teams" if total else "ranked youth soccer teams"
+        teams_bullet = f"- **{total}** teams ranked\n" if total else ""
         return (
-            f"This week, PitchRank ranked {total} youth soccer teams across\n"
+            f"This week, PitchRank {ranked_intro} across\n"
             f"all 50 states. Here's how we did it and what the data showed.\n\n"
             f"## This Week by the Numbers\n\n"
-            f"- **{total}** teams ranked\n"
+            f"{teams_bullet}"
             f"- **50** states covered\n"
             f"- **+{biggest}** biggest single rank jump\n"
             f"- Rankings updated every Monday\n\n"
@@ -582,8 +760,9 @@ def _build_blog_body(data: dict, topic: dict) -> str:
 
     if topic_type == "age_group":
         age_group = topic.get("age_group", "U14")
+        ranks_clause = f"ranks {total} teams" if total else "ranks teams"
         return (
-            f"Looking for the {keyword}? PitchRank ranks {total} teams across\n"
+            f"Looking for the {keyword}? PitchRank {ranks_clause} across\n"
             f"all age groups every Monday. Here's what moved at {age_group} this week.\n\n"
             f"## Top {age_group} Movers This Week\n\n{climbers_table}\n\n"
             f"## Biggest Drops at {age_group}\n\n{fallers_table}\n\n"
@@ -598,9 +777,10 @@ def _build_blog_body(data: dict, topic: dict) -> str:
     top_attr = ""
     if top:
         top_attr = f", earned by **{top.get('team_name', '')}** from {top.get('state_code') or top.get('state', '')}"
+    for_teams = f"for {total} teams" if total else "for teams"
     return (
-        f"Every Monday, PitchRank updates youth soccer rankings for {total}\n"
-        f"teams across all 50 states. Here are this week's biggest movers.\n\n"
+        f"Every Monday, PitchRank updates youth soccer rankings {for_teams}\n"
+        f"across all 50 states. Here are this week's biggest movers.\n\n"
         f"## Biggest Climbers\n\n{climbers_table}\n\n"
         f"## Biggest Drops\n\n{fallers_table}\n\n"
         f"## What Drove the Movement\n\n"
@@ -656,10 +836,15 @@ def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     week_num = dt.isocalendar()[1]
     date_str = dt.strftime("%Y-%m-%d")
     date_display = dt.strftime("%B %d, %Y")
-    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
+    total = f"{data['total_teams']:,}" if data["total_teams"] else None
 
     topic = get_next_blog_topic(week_num)
-    title = topic.get("title", "Youth Soccer Rankings Update").replace("{total}", total)
+    title = topic.get("title", "Youth Soccer Rankings Update")
+    if total:
+        title = title.replace("{total}", total)
+    else:
+        # Count-free title variant — collapse the placeholder and any doubled spaces
+        title = " ".join(title.replace("{total}", "").split())
     slug = f"{date_str}-{topic.get('slug_prefix', 'weekly-update')}"
     tags = topic.get("tags", ["Rankings"])
     target_keyword = topic.get("target_keyword", "youth soccer rankings")
@@ -686,14 +871,21 @@ def generate_blog_post(data: dict, supabase=None) -> tuple[str, str]:
     state = topic.get("state", "")
     age_group = topic.get("age_group", "")
     if state:
-        excerpt = (
-            f"This week's {state} youth soccer rankings update."
+        moved_clause = (
             f" See which {state} teams moved the most across {total} ranked teams."
+            if total
+            else f" See which {state} teams moved the most this week."
         )
+        excerpt = f"This week's {state} youth soccer rankings update.{moved_clause}"
     elif age_group:
-        excerpt = f"Best {age_group} soccer teams this week. Rankings for {total} teams updated every Monday."
-    else:
+        rankings_clause = (
+            f"Rankings for {total} teams updated every Monday." if total else "Rankings updated every Monday."
+        )
+        excerpt = f"Best {age_group} soccer teams this week. {rankings_clause}"
+    elif total:
         excerpt = f"Weekly youth soccer rankings update for {date_display}. {total} teams ranked across all 50 states."
+    else:
+        excerpt = f"Weekly youth soccer rankings update for {date_display}. Teams ranked across all 50 states."
 
     # Build full markdown with frontmatter
     frontmatter = {
@@ -782,62 +974,104 @@ SOCIAL_TEMPLATES = {
     "rankings_live": [
         (
             "New rankings are live.\n\n"
-            "{team_name} jumped {change} spots to #{rank}.\n\n"
             "Where does your team stand?\n\n"
             "pitchrank.io/rankings\n\n"
             "#YouthSoccer #ClubSoccer #SoccerRankings"
         ),
         (
             "Monday means new rankings.\n\n"
-            "Biggest move: {team_name} ({state}) climbed {change} spots.\n\n"
-            "25K+ teams updated.\n\n"
+            "{active_team_count} teams updated.\n\n"
             "pitchrank.io/rankings\n\n"
-            "#YouthSoccer #SoccerRankings"
-        ),
-    ],
-    "mover_spotlight": [
-        (
-            "{team_name} ({state}) climbed {change} spots this week.\n\n"
-            "Now #{rank} nationally.\n\n"
-            "Rankings built from real game data, not vibes.\n\n"
-            "pitchrank.io/rankings"
-        ),
-        (
-            "Big move alert: {team_name} is now #{rank} nationally.\n\n"
-            "+{change} spots this week.\n\n"
-            "Some rankings are vibes. Ours are receipts.\n\n"
-            "pitchrank.io/rankings"
-        ),
-    ],
-    "state_spotlight": [
-        (
-            "Top movers in {state} this week:\n\n"
-            "{mover_list}\n\n"
-            "Full state rankings at pitchrank.io/rankings\n\n"
-            "#{state}Soccer #YouthSoccer"
-        ),
-    ],
-    "data_flex": [
-        (
-            "{total_teams} teams. Updated every Monday.\n\n"
-            "Your team is in there.\n\n"
-            "pitchrank.io/rankings\n\n"
-            "#YouthSoccer #SoccerRankings #ClubSoccer"
-        ),
-        (
-            "We don't guess. We count.\n\n"
-            "Real match results.\n"
-            "Strength of schedule.\n"
-            "Updated weekly.\n\n"
-            "Find your team: pitchrank.io/rankings\n\n"
             "#YouthSoccer #SoccerRankings"
         ),
     ],
 }
 
 
+def format_rankings_live_caption(template: str, active_team_count: int) -> str:
+    """Fill the live count, or drop the count line entirely — never a made-up number."""
+    if "{active_team_count}" not in template:
+        return template
+    if active_team_count:
+        return template.format(active_team_count=f"{active_team_count:,}")
+    return "\n\n".join(seg for seg in template.split("\n\n") if "{active_team_count}" not in seg)
+
+
+def build_top10_caption(state: str, age: int, gender: str) -> str:
+    state_name = STATE_DISPLAY_NAMES.get(state, state)
+    gender_label = "Boys" if gender == "male" else "Girls"
+    return (
+        f"{state_name} U{age} {gender_label} — Top 10 in the state.\n\n"
+        "Full rankings: pitchrank.io/rankings\n\n"
+        f"#YouthSoccer #SoccerRankings #{state}Soccer"
+    )
+
+
+def _matchup_cohort_label(game: dict) -> str:
+    age = re.sub(r"\D", "", game.get("age_group") or "")
+    gender_label = "Boys" if game.get("gender") == "M" else "Girls"
+    return f"{game['state_code']} U{age} {gender_label}"
+
+
+def build_big_games_caption(games: list[dict]) -> str:
+    lines = "\n".join(
+        f"⚔️ {g['home_team_name']} vs {g['away_team_name']} ({_matchup_cohort_label(g)})" for g in games[:5]
+    )
+    return (
+        "Big games this weekend. Ranked vs ranked.\n\n"
+        f"{lines}\n\n"
+        "Full rankings: pitchrank.io/rankings\n\n"
+        "#YouthSoccer #SoccerRankings"
+    )
+
+
+# Explicit labels instead of strftime('%a') — day names must not vary with locale.
+_DAY_LABELS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+
+def _format_window_range(start_date, end_date) -> str:
+    if start_date.month == end_date.month:
+        return f"{start_date.strftime('%b')} {start_date.day}–{end_date.day}, {end_date.year}"
+    return f"{start_date.strftime('%b')} {start_date.day} – {end_date.strftime('%b')} {end_date.day}, {end_date.year}"
+
+
+def encode_big_games_payload(matchups: list[dict], start_date, end_date) -> str:
+    """Base64url JSON consumed by /api/infographic/big-games (a pure renderer).
+
+    Owns all label derivation: the RPC returns a bare DATE, so the day labels and
+    the human range string are formatted here and rendered verbatim by the route.
+    """
+    games = []
+    for m in matchups[:5]:
+        gd = m["game_date"]
+        if isinstance(gd, str):
+            gd = datetime.strptime(gd, "%Y-%m-%d").date()
+        age = re.sub(r"\D", "", m.get("age_group") or "")
+        gender_label = "BOYS" if m.get("gender") == "M" else "GIRLS"
+        games.append(
+            {
+                "cohort": f"{m['state_code']} · U{age} {gender_label}",
+                "day": _DAY_LABELS[gd.weekday()],
+                "home": {
+                    "name": m["home_team_name"],
+                    "club": m.get("home_club_name") or "",
+                    "rank": m["home_state_rank"],
+                },
+                "away": {
+                    "name": m["away_team_name"],
+                    "club": m.get("away_club_name") or "",
+                    "rank": m["away_state_rank"],
+                },
+                "state": m["state_code"],
+            }
+        )
+    payload = {"v": 1, "range": _format_window_range(start_date, end_date), "games": games}
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
 def generate_social_posts(data: dict) -> list[dict]:
-    """Generate social posts scheduled across the week."""
+    """Generate the 5-post Instagram week: Mon live, 3x Tue Top-10, Thu big games."""
     posts = []
     monday = data["date"].replace(hour=12, minute=0, second=0, microsecond=0)
 
@@ -845,77 +1079,61 @@ def generate_social_posts(data: dict) -> list[dict]:
     while monday.weekday() != 0:
         monday += timedelta(days=1)
 
-    wednesday = monday + timedelta(days=2, hours=-4, minutes=30)  # Wed 7:30 AM MT
-    thursday = monday + timedelta(days=3, hours=-4, minutes=30)  # Thu 7:30 AM MT
+    tuesday = monday + timedelta(days=1)
+    tuesday_slots = [
+        tuesday.replace(hour=9, minute=0),
+        tuesday.replace(hour=12, minute=0),
+        tuesday.replace(hour=17, minute=0),
+    ]
+    thursday = monday + timedelta(days=3, hours=7, minutes=30)  # Thu 7:30 PM MT
 
-    top_climber = data["climbers"][0] if data["climbers"] else {}
-    second_climber = data["climbers"][1] if len(data["climbers"]) > 1 else top_climber
-
-    # Post 1: Monday noon — Rankings announcement
-    if top_climber:
-        template = random.choice(SOCIAL_TEMPLATES["rankings_live"])
-        text = template.format(
-            team_name=top_climber.get("team_name", "A team"),
-            change=abs(top_climber.get("rank_change", 0)),
-            rank=top_climber.get("current_rank", "?"),
-            state=top_climber.get("state_code", top_climber.get("state", "")),
-        )
-        posts.append(
-            {
-                "text": text,
-                "media_url": f"{PITCHRANK_URL}/api/infographic/movers?platform=instagram",
-                "scheduled_at": monday,
-                "type": "rankings_live",
-            }
-        )
-
-    # Post 2: Wednesday — Mover spotlight (use second climber to avoid repeat)
-    target = second_climber or top_climber
-    if target:
-        template = random.choice(SOCIAL_TEMPLATES["mover_spotlight"])
-        text = template.format(
-            team_name=target.get("team_name", "A team"),
-            change=abs(target.get("rank_change", 0)),
-            rank=target.get("current_rank", "?"),
-            state=target.get("state_code", target.get("state", "")),
-        )
-        posts.append(
-            {
-                "text": text,
-                "media_url": f"{PITCHRANK_URL}/api/infographic/spotlight?platform=instagram",
-                "scheduled_at": wednesday,
-                "type": "mover_spotlight",
-            }
-        )
-
-    # Post 3: Thursday — State spotlight or data flex
-    cohort_age, cohort_gender = weekly_state_cohort(monday)
-    if data["spotlight_state"] and data["spotlight_teams"]:
-        mover_list = "\n".join(
-            f"{i + 1}. {t.get('team_name', '')} (+{abs(t.get('rank_change', 0))})"
-            for i, t in enumerate(data["spotlight_teams"][:3])
-        )
-        template = random.choice(SOCIAL_TEMPLATES["state_spotlight"])
-        text = template.format(
-            state=data["spotlight_state"],
-            mover_list=mover_list,
-        )
-    else:
-        template = random.choice(SOCIAL_TEMPLATES["data_flex"])
-        total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
-        text = template.format(total_teams=total)
-
+    # Post 1: Monday noon — Rankings announcement (mover-independent)
+    template = random.choice(SOCIAL_TEMPLATES["rankings_live"])
     posts.append(
         {
-            "text": text,
-            "media_url": (
-                f"{PITCHRANK_URL}/api/infographic/state?state={data.get('spotlight_state', 'TX')}"
-                f"&age=u{cohort_age}&gender={cohort_gender}&platform=instagram"
-            ),
-            "scheduled_at": thursday,
-            "type": "state_spotlight" if data["spotlight_state"] else "data_flex",
+            "text": format_rankings_live_caption(template, data.get("active_team_count") or 0),
+            "media_url": f"{PITCHRANK_URL}/api/infographic/rankings-live?platform=instagram",
+            "scheduled_at": monday,
+            "type": "rankings_live",
         }
     )
+
+    # Posts 2-4: Tuesday — rotating state Top-10s with team tagging
+    for slot, cohort in zip(tuesday_slots, data.get("top10_cohorts") or []):
+        posts.append(
+            {
+                "text": build_top10_caption(cohort["state"], cohort["age"], cohort["gender"]),
+                "media_url": (
+                    f"{PITCHRANK_URL}/api/infographic/state?state={cohort['state']}"
+                    f"&age=u{cohort['age']}&gender={cohort['gender']}&platform=instagram"
+                ),
+                "scheduled_at": slot,
+                "type": "top10",
+                "_tag_target_ids": [t["team_id_master"] for t in cohort["teams"] if t.get("team_id_master")],
+            }
+        )
+
+    # Post 5: Thursday evening — big weekend games (skipped when nothing qualifies)
+    big_games = data.get("big_games") or []
+    if big_games:
+        window_start, window_end = data["big_games_window"]
+        payload = encode_big_games_payload(big_games, window_start, window_end)
+        posts.append(
+            {
+                "text": build_big_games_caption(big_games),
+                "media_url": f"{PITCHRANK_URL}/api/infographic/big-games?platform=instagram&m={payload}",
+                "scheduled_at": thursday,
+                "type": "big_games",
+                "_tag_target_ids": [
+                    g[k]
+                    for g in big_games[:5]
+                    for k in ("home_team_id_master", "away_team_id_master")
+                    if g.get(k)
+                ],
+            }
+        )
+    else:
+        log.info("Big-games post skipped: no qualifying matchups this weekend")
 
     log.info(f"Generated {len(posts)} social posts")
     return posts
@@ -1285,17 +1503,12 @@ def enrich_post_with_handles(post: dict, supabase, target_team_ids: list[str]) -
 
 
 def _resolve_tag_targets(post_type: str, data: dict) -> list[str]:
-    """Pick which team_ids to tag for a given post type."""
-    if post_type == "rankings_live":
-        return [c["team_id"] for c in data["climbers"][:3] if c.get("team_id")]
-    if post_type == "mover_spotlight":
-        target = (
-            data["climbers"][1] if len(data["climbers"]) > 1 else (data["climbers"][0] if data["climbers"] else None)
-        )
-        return [target["team_id"]] if target and target.get("team_id") else []
-    if post_type == "state_spotlight":
-        return [t["team_id"] for t in (data.get("spotlight_teams") or [])[:3] if t.get("team_id")]
-    return []  # data_flex, x_thread, trend — no tagging
+    """Tag targets for post types that don't carry their own _tag_target_ids.
+
+    rankings_live is generic (no team claims); top10/big_games supply their own
+    ids at generation. The remaining types (x_thread, trend) are never tagged.
+    """
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1328,7 +1541,9 @@ def generate_x_thread_posts(data: dict) -> dict:
     Postiz translation reads `thread_parts` for chained replies.
     """
     milestones = data.get("milestones", [])
-    total = f"{data['total_teams']:,}" if data["total_teams"] else "25,000+"
+    # None when unavailable; count-bearing tweets get count-free variants instead
+    # of a made-up number.
+    total = f"{data['total_teams']:,}" if data["total_teams"] else None
     tweets: list[str] = []
 
     # Group milestones by tier
@@ -1390,12 +1605,12 @@ def generate_x_thread_posts(data: dict) -> dict:
 
     # If no milestones at all, fall back to a general tweet
     if len(tweets) == 1:
-        tweets.append(
-            f"Rankings updated for {total} teams across all 50 states.\n\nSame algorithm. Real game data. No opinions."
-        )
+        updated_for = f"Rankings updated for {total} teams" if total else "Rankings updated"
+        tweets.append(f"{updated_for} across all 50 states.\n\nSame algorithm. Real game data. No opinions.")
 
     # Tweet 4 (final): CTA
-    tweets.append(f"{total} teams ranked every Monday.\n\npitchrank.io/rankings")
+    cta_lead = f"{total} teams ranked every Monday." if total else "New rankings every Monday."
+    tweets.append(f"{cta_lead}\n\npitchrank.io/rankings")
 
     # Scheduled at Monday noon MT (same as the rankings_live post)
     monday = data["date"].replace(hour=12, minute=0, second=0, microsecond=0)
@@ -1473,32 +1688,44 @@ def main():
         log.error(f"Failed to fetch ranking data: {e}")
         sys.exit(1)
 
-    if not data["climbers"] and not data["fallers"]:
-        log.warning("No movers found — rankings may not have updated yet. Exiting.")
+    # Freshness gate: announcing "new rankings are live" on stale data is worse
+    # than skipping a week. Mover-emptiness is NOT the staleness signal — quiet
+    # weeks are legitimate; mover-centric outputs are gated separately below.
+    last_calculated = fetch_rankings_last_calculated(supabase)
+    if rankings_are_stale(last_calculated):
+        log.warning(f"Rankings look stale (last_calculated={last_calculated}) — not announcing. Exiting.")
         sys.exit(0)
 
-    # Step 2: Generate blog post (newsletter uses the same content)
+    has_movers = bool(data["climbers"] or data["fallers"])
+    if not has_movers:
+        log.warning("No movers this week — skipping blog/newsletter/X thread; IG posts still run.")
+
+    # Step 2: Generate blog post (newsletter uses the same content; both are
+    # mover-centric, so a quiet week skips them)
     blog_filename, blog_content, blog_body_md, blog_title = "", "", "", ""
-    try:
-        blog_filename, blog_content = generate_blog_post(data, supabase)
-        # Extract the markdown body (after frontmatter) for the newsletter
-        parts = blog_content.split("---", 2)
-        if len(parts) >= 3:
-            full_md = parts[2].strip()
-            # Strip the leading H1 (title) — it's in the subject line
-            lines = full_md.split("\n")
-            if lines and lines[0].startswith("# "):
-                blog_title = lines[0].lstrip("# ").strip()
-                blog_body_md = "\n".join(lines[1:]).strip()
-            else:
-                blog_body_md = full_md
-    except Exception as e:
-        log.error(f"Blog generation failed: {e}")
+    if has_movers:
+        try:
+            blog_filename, blog_content = generate_blog_post(data, supabase)
+            # Extract the markdown body (after frontmatter) for the newsletter
+            parts = blog_content.split("---", 2)
+            if len(parts) >= 3:
+                full_md = parts[2].strip()
+                # Strip the leading H1 (title) — it's in the subject line
+                lines = full_md.split("\n")
+                if lines and lines[0].startswith("# "):
+                    blog_title = lines[0].lstrip("# ").strip()
+                    blog_body_md = "\n".join(lines[1:]).strip()
+                else:
+                    blog_body_md = full_md
+        except Exception as e:
+            log.error(f"Blog generation failed: {e}")
 
     # Step 3: Generate newsletter from blog content
-    newsletter_html = generate_newsletter_html(data, blog_body_md)
-    subject = generate_newsletter_subject(data, blog_title)
-    log.info(f"Subject: {subject}")
+    newsletter_html, subject = "", ""
+    if has_movers:
+        newsletter_html = generate_newsletter_html(data, blog_body_md)
+        subject = generate_newsletter_subject(data, blog_title)
+        log.info(f"Subject: {subject}")
 
     # Step 4-5: Generate all social drafts (kill-switch gated)
     drafts_enabled = os.getenv("POSTIZ_DRAFTS_ENABLED", "true").lower() == "true"
@@ -1508,16 +1735,19 @@ def main():
     all_drafts: list[dict] = []
     if drafts_enabled:
         social_posts = generate_social_posts(data)
-        # Enrich IG-bound posts with team handles (post-pass; keeps generators platform-agnostic)
+        # Enrich IG-bound posts with team handles (post-pass; keeps generators
+        # platform-agnostic). Posts that know their own teams carry
+        # _tag_target_ids; the resolver is the fallback for the rest.
         for post in social_posts:
-            targets = _resolve_tag_targets(post["type"], data)
+            targets = post.get("_tag_target_ids") or _resolve_tag_targets(post["type"], data)
             if targets:
                 enrich_post_with_handles(post, supabase, targets)
-        try:
-            x_thread_post = generate_x_thread_posts(data)
-        except Exception as e:
-            log.error(f"X thread generation failed: {e}")
-            x_thread_post = {"thread_parts": []}
+        if has_movers:
+            try:
+                x_thread_post = generate_x_thread_posts(data)
+            except Exception as e:
+                log.error(f"X thread generation failed: {e}")
+                x_thread_post = {"thread_parts": []}
         trend_posts = generate_trend_posts(current_iso_week, data)
         all_drafts = list(social_posts)
         if x_thread_post.get("thread_parts"):
@@ -1538,10 +1768,24 @@ def main():
         if blog_filename:
             log.info(f"Blog post: {blog_filename} ({len(blog_content):,} bytes)")
         log.info("")
+        log.info(f"Top-10 combos: {data.get('top10_combos')}")
+        big_games = data.get("big_games") or []
+        if big_games:
+            for g in big_games:
+                log.info(
+                    f"Big game: {g['home_team_name']} (#{g['home_state_rank']}) vs "
+                    f"{g['away_team_name']} (#{g['away_state_rank']}) "
+                    f"[{g['state_code']} {g['age_group']} {g['gender']}] on {g['game_date']}"
+                )
+        else:
+            log.info("Big-games post skipped: no qualifying matchups")
+        log.info("")
         for post in social_posts:
             log.info(f"[{post['type']}] {post['scheduled_at'].strftime('%A %I:%M %p MT')}")
             if post.get("media_url"):
                 log.info(f"  Image: {post['media_url']}")
+            if post.get("_tag_stats"):
+                log.info(f"  Tags: {post['_tag_stats']}")
             log.info(post["text"])
             log.info("")
         if x_thread_post.get("thread_parts"):
@@ -1563,6 +1807,10 @@ def main():
     newsletter_ok = False
     if args.postiz_only:
         log.info("--postiz-only: skipping Beehiiv newsletter send")
+    elif not has_movers:
+        # Deliberate skip, not a failure — keep the exit-code guard meaningful
+        log.info("No movers: skipping Beehiiv newsletter send")
+        newsletter_ok = True
     else:
         try:
             newsletter_ok = publish_to_beehiiv(newsletter_html, subject)
@@ -1573,6 +1821,8 @@ def main():
     blog_ok = False
     if args.postiz_only:
         log.info("--postiz-only: skipping blog post commit")
+    elif not has_movers:
+        log.info("No movers: skipping blog post commit")
     else:
         try:
             if blog_filename and blog_content:

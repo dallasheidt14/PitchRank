@@ -3,7 +3,7 @@ import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, platformDims, formatScore, formatRecord } from '../_shared/theme';
-import { Frame, Header, StatBlock } from '../_shared/components';
+import { Frame, Header, Footer, StatBlock } from '../_shared/components';
 
 export const runtime = 'edge';
 
@@ -178,12 +178,7 @@ export async function GET(request: Request) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', marginTop: isStory ? 28 : 18 }}>
-        <div style={{ display: 'flex', height: 2, background: COLORS.divider, marginBottom: 16 }} />
-        <div style={{ display: 'flex', justifyContent: 'center', fontSize: isStory ? 20 : 17, color: COLORS.club }}>
-          pitchrank.io/rankings
-        </div>
-      </div>
+      <Footer isStory={isStory} />
     </Frame>,
     { width: d.width, height: d.height, fonts, headers: { 'Cache-Control': INFOGRAPHIC_CACHE_CONTROL } }
   );

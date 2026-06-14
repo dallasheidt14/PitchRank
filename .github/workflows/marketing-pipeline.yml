@@ -70,6 +70,7 @@ jobs:
           BEEHIIV_PUBLICATION_ID: ${{ secrets.BEEHIIV_PUBLICATION_ID }}
           POSTIZ_API_KEY: ${{ secrets.POSTIZ_API_KEY }}
           POSTIZ_DRAFTS_ENABLED: ${{ vars.POSTIZ_DRAFTS_ENABLED || 'true' }}
+          POSTIZ_TAG_INCLUDE_AUTO_APPROVED: 'true'
           PITCHRANK_URL: 'https://pitchrank.io'
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
