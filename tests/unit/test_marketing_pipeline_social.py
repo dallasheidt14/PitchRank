@@ -17,6 +17,7 @@ from scripts.marketing_pipeline import (
     fetch_top10_cohorts,
     format_rankings_live_caption,
     generate_social_posts,
+    live_run_failed,
     next_weekend_window,
     rankings_are_stale,
     weekly_top10_combos,
@@ -191,6 +192,38 @@ def test_next_weekend_window_from_monday():
 
 def test_next_weekend_window_on_friday_skips_to_next_weekend():
     assert next_weekend_window(datetime(2026, 6, 12, 12, 0, tzinfo=MT)) == (date(2026, 6, 19), date(2026, 6, 21))
+
+
+# ---------------------------------------------------------------------------
+# live_run_failed (exit-code guard)
+# ---------------------------------------------------------------------------
+
+
+def test_live_run_failed_normal_week_everything_failed():
+    assert live_run_failed(False, False, True, [False, False]) is True
+
+
+def test_live_run_failed_normal_week_newsletter_sent():
+    assert live_run_failed(True, False, True, [False]) is False
+
+
+def test_live_run_failed_normal_week_drafts_succeeded():
+    assert live_run_failed(False, False, True, [True, False]) is False
+
+
+def test_live_run_failed_quiet_week_drafts_succeeded():
+    assert live_run_failed(False, True, True, [True]) is False
+
+
+def test_live_run_failed_quiet_week_all_drafts_failed():
+    # Quiet week: IG drafts are the only deliverable, so a total draft failure
+    # must exit non-zero rather than be masked by the skipped newsletter.
+    assert live_run_failed(False, True, True, [False, False]) is True
+
+
+def test_live_run_failed_quiet_week_nothing_attempted():
+    # Kill switch on a quiet week: no newsletter, no drafts — nothing was due.
+    assert live_run_failed(False, True, False, []) is False
 
 
 # ---------------------------------------------------------------------------

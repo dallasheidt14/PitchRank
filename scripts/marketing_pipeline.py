@@ -1660,6 +1660,20 @@ def save_artifacts(newsletter_html: str, drafts: list[dict], data: dict):
     log.info(f"Saved social posts JSON: {posts_path}")
 
 
+def live_run_failed(
+    newsletter_ok: bool, newsletter_skipped: bool, drafts_attempted: bool, draft_results: list[bool]
+) -> bool:
+    """True when a live run delivered nothing it attempted (the exit-1 condition).
+
+    A deliberately skipped newsletter (quiet week) is neither success nor failure:
+    it must not mask an all-drafts-failed outage, nor trip a failure on its own
+    when drafts went out.
+    """
+    attempted = (not newsletter_skipped) or drafts_attempted
+    succeeded = newsletter_ok or any(draft_results)
+    return attempted and not succeeded
+
+
 def main():
     parser = argparse.ArgumentParser(description="PitchRank Marketing Pipeline")
     parser.add_argument("--dry-run", action="store_true", help="Generate content without publishing")
@@ -1805,12 +1819,14 @@ def main():
 
     # Step 6: Publish newsletter to Beehiiv
     newsletter_ok = False
+    newsletter_skipped = False
     if args.postiz_only:
         log.info("--postiz-only: skipping Beehiiv newsletter send")
     elif not has_movers:
-        # Deliberate skip, not a failure — keep the exit-code guard meaningful
+        # Quiet week: the newsletter is mover-centric, so skip it. Track the skip
+        # separately from success so the exit guard doesn't read it as "delivered".
         log.info("No movers: skipping Beehiiv newsletter send")
-        newsletter_ok = True
+        newsletter_skipped = True
     else:
         try:
             newsletter_ok = publish_to_beehiiv(newsletter_html, subject)
@@ -1840,10 +1856,11 @@ def main():
         log.error(f"Postiz drafting failed: {e}")
 
     # Summary
+    newsletter_status = "SENT" if newsletter_ok else "SKIPPED" if newsletter_skipped else "FAILED"
     log.info("")
     log.info("=" * 60)
     log.info("PIPELINE COMPLETE")
-    log.info(f"  Newsletter: {'SENT' if newsletter_ok else 'FAILED'}")
+    log.info(f"  Newsletter: {newsletter_status}")
     log.info(f"  Blog: {'PUBLISHED' if blog_ok else 'SKIPPED'}")
     log.info(f"  Social Drafts: {sum(draft_results)}/{len(draft_results)} drafted to Postiz")
     log.info("=" * 60)
@@ -1857,10 +1874,11 @@ def main():
             sys.exit(1)
         return
 
-    # Live mode: exit 1 only if newsletter AND every draft failed — partial outages surface
-    # via non-zero entries in draft_results (collapsed from old Buffer + tweepy split, so
-    # X-thread failures now contribute to the exit code).
-    if not newsletter_ok and not any(draft_results):
+    # Live mode: exit 1 when nothing we attempted to deliver succeeded. A quiet-week
+    # newsletter skip is not a delivery, so an all-drafts-failed quiet week still exits
+    # non-zero instead of masking the outage; partial outages surface via the
+    # individual draft_results entries.
+    if live_run_failed(newsletter_ok, newsletter_skipped, bool(all_drafts), draft_results):
         sys.exit(1)
 
 

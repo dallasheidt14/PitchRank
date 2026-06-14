@@ -140,11 +140,14 @@ $$;
 COMMENT ON FUNCTION get_big_weekend_games IS
   'Upcoming unplayed games in a date window where both teams are ranked top-N '
   '(default 25) in the same state/age/gender cohort, ordered by combined state '
-  'rank. Pipeline-only (service role); intentionally no anon grant.';
+  'rank. p_states optionally restricts to a set of state codes (NULL = all). '
+  'Pipeline-only (service role); intentionally no anon/authenticated grant.';
 
--- Postgres grants EXECUTE to PUBLIC by default; revoke so anon cannot reach a
--- function that does per-cohort ranking work.
+-- Pipeline-only: the marketing job calls this with the service-role key, and the
+-- big-games route is a pure renderer that never queries it. Grant service_role
+-- only; revoke PUBLIC/anon/authenticated so no signed-in user can spend the
+-- per-cohort ranking work.
 REVOKE ALL ON FUNCTION get_big_weekend_games(DATE, DATE, INT, INT, TEXT[]) FROM PUBLIC;
 REVOKE ALL ON FUNCTION get_big_weekend_games(DATE, DATE, INT, INT, TEXT[]) FROM anon;
-GRANT EXECUTE ON FUNCTION get_big_weekend_games(DATE, DATE, INT, INT, TEXT[]) TO authenticated;
+REVOKE ALL ON FUNCTION get_big_weekend_games(DATE, DATE, INT, INT, TEXT[]) FROM authenticated;
 GRANT EXECUTE ON FUNCTION get_big_weekend_games(DATE, DATE, INT, INT, TEXT[]) TO service_role;
