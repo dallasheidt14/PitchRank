@@ -1,4 +1,5 @@
 import { requirePremium } from '@/lib/api/requirePremium';
+import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
 import { isValidUuid } from '@/lib/validation';
 import { NextResponse } from 'next/server';
 
@@ -29,31 +30,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
-    // Get user's default watchlist
-    const { data: watchlist, error: watchlistError } = await supabase
-      .from('watchlists')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('is_default', true)
-      .single();
+    // Get user's default watchlist (falls back to most-recent).
+    const { watchlist: resolvedWatchlist, error: watchlistError } = await resolveDefaultWatchlist<{ id: string }>(
+      supabase,
+      user.id,
+      'id'
+    );
 
-    if (watchlistError && watchlistError.code !== 'PGRST116') {
+    if (watchlistError) {
       console.error('Error fetching watchlist:', watchlistError);
       return NextResponse.json({ error: 'Failed to fetch watchlist' }, { status: 500 });
-    }
-
-    // Fallback: if no default watchlist found, try to find the most recent one
-    let resolvedWatchlist = watchlist;
-    if (!resolvedWatchlist) {
-      const { data: fallbackWatchlist } = await supabase
-        .from('watchlists')
-        .select('id')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      resolvedWatchlist = fallbackWatchlist;
     }
 
     if (!resolvedWatchlist) {
