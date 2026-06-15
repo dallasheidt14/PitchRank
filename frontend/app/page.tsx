@@ -14,19 +14,29 @@ export const revalidate = 3600;
 
 export default async function Home() {
   // Fetch above-the-fold data server-side; degrade to fallbacks on failure so a
-  // Supabase hiccup never breaks the static render.
+  // Supabase hiccup never breaks the static render. Stats (a cheap cached read)
+  // and movers (a heavy national-cohort scan that can hit the anon statement
+  // timeout during the bulk static build) are fetched independently so a movers
+  // failure can't blank the stats.
   let totalGames: number | undefined;
   let totalTeams: number | undefined;
   let movers7d: RankingRow[] = [];
   let movers30d: RankingRow[] = [];
+
   try {
-    const [stats, national] = await Promise.all([api.getDbStats(), api.getRankings(null, 'u12', 'M')]);
+    const stats = await api.getDbStats();
     totalGames = stats.totalGames;
     totalTeams = stats.totalTeams;
+  } catch (e) {
+    console.error('[home] stats fetch failed, using fallbacks:', e);
+  }
+
+  try {
+    const national = await api.getRankings(null, 'u12', 'M');
     movers7d = selectTopMovers(national, '7d', 5);
     movers30d = selectTopMovers(national, '30d', 5);
   } catch (e) {
-    console.error('[home] server data fetch failed, using fallbacks:', e);
+    console.error('[home] movers fetch failed, using empty lists:', e);
   }
 
   return (
