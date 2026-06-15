@@ -80,6 +80,14 @@ export async function GET(request: Request) {
         exchangeError.message.toLowerCase().includes('pkce');
 
       if (isCodeVerifierError) {
+        // Terminal failure: the code is consumed and the email confirmed, so this
+        // recovery link can't be retried. Clear the flag now (it survives up to an
+        // hour otherwise) so it can't later hijack an unrelated code exchange in
+        // this browser into the reset flow. Genuinely retryable errors fall through
+        // below and keep the flag so a retried recovery link still routes to reset.
+        if (isRecovery) {
+          cookieStore.set('password_reset_pending', '', { path: '/', maxAge: 0 });
+        }
         return NextResponse.redirect(
           `${origin}/login?message=${encodeURIComponent('Email confirmed! Please sign in with your password.')}`
         );

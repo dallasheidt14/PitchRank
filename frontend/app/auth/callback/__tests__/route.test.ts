@@ -51,4 +51,15 @@ describe('GET /auth/callback — recovery code exchange', () => {
     expect(res.headers.get('location')).toContain('/reset-password');
     expect(recoveryCookieWasCleared()).toBe(true);
   });
+
+  it('clears the recovery cookie on a terminal code-verifier failure so it cannot hijack a later exchange', async () => {
+    // Code-verifier/PKCE failures are non-retryable (the code is consumed); leaving
+    // the flag set would route an unrelated later ?code= exchange to /reset-password.
+    mockExchange.mockResolvedValue({ error: { message: 'auth code and code verifier should be non-empty' } });
+
+    const res = await GET(callbackRequest('?code=abc'));
+
+    expect(res.headers.get('location')).toContain('/login');
+    expect(recoveryCookieWasCleared()).toBe(true);
+  });
 });
