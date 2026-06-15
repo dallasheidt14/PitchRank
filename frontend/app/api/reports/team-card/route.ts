@@ -3,6 +3,7 @@ import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { subscribeFreeLead, enrollInAutomation } from '@/lib/beehiiv';
+import { formatTeamRecord } from '@/lib/reports/team-record';
 import { isValidUuid, isValidEmail } from '@/lib/validation';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
@@ -214,7 +215,7 @@ export async function POST(request: NextRequest) {
       });
 
     // Send email with PDF attachment (non-blocking)
-    const record = `${ranking.total_wins ?? ranking.wins}-${ranking.total_losses ?? ranking.losses}-${ranking.total_draws ?? ranking.draws}`;
+    const record = formatTeamRecord(ranking);
     const percentile = Math.round((1 - ranking.rank_in_cohort_final / totalNational) * 100);
 
     sendReportCardEmail(

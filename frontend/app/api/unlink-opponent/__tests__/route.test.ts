@@ -146,4 +146,26 @@ describe('POST /api/unlink-opponent', () => {
     // 1 clicked game + 1 matching game unlinked; alias delete failed (non-fatal).
     expect(await res.json()).toMatchObject({ success: true, gamesUpdated: 2, aliasRemoved: false });
   });
+
+  it('surfaces a failed bulk unlink to logs instead of silently swallowing the error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    svc.queueFrom(
+      'games',
+      { data: linkedHomeGame(), error: null }, // initial lookup
+      { data: null, error: { message: 'deadlock detected' } }, // home bulk unlink FAILS
+      { data: [], error: null } // away bulk unlink
+    );
+    svc.queueRpc({ error: null });
+    svc.queueFrom('team_alias_map', { error: null });
+    svc.queueFrom('team_link_audit', { error: null });
+
+    const res = await POST(makeRequest({ ...validBody, unlinkAllGames: true }));
+
+    expect(res.status).toBe(200);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('bulk-unlink'),
+      expect.objectContaining({ message: 'deadlock detected' })
+    );
+    errorSpy.mockRestore();
+  });
 });

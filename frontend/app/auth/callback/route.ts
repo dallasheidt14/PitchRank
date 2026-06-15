@@ -64,9 +64,6 @@ export async function GET(request: Request) {
   // Handle OAuth/PKCE (code exchange flow)
   if (code) {
     const isRecovery = type === 'recovery' || cookieStore.get('password_reset_pending')?.value === 'true';
-    if (isRecovery) {
-      cookieStore.set('password_reset_pending', '', { path: '/', maxAge: 0 });
-    }
 
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
@@ -83,6 +80,14 @@ export async function GET(request: Request) {
         exchangeError.message.toLowerCase().includes('pkce');
 
       if (isCodeVerifierError) {
+        // Terminal failure: the code is consumed and the email confirmed, so this
+        // recovery link can't be retried. Clear the flag now (it survives up to an
+        // hour otherwise) so it can't later hijack an unrelated code exchange in
+        // this browser into the reset flow. Genuinely retryable errors fall through
+        // below and keep the flag so a retried recovery link still routes to reset.
+        if (isRecovery) {
+          cookieStore.set('password_reset_pending', '', { path: '/', maxAge: 0 });
+        }
         return NextResponse.redirect(
           `${origin}/login?message=${encodeURIComponent('Email confirmed! Please sign in with your password.')}`
         );
@@ -91,8 +96,11 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(exchangeError.message)}`);
     }
 
-    // For recovery, redirect to reset-password page
+    // Clear the recovery flag only now that the exchange has succeeded — clearing
+    // it earlier would strip the recovery context from a retried link if the
+    // exchange failed (C36), routing the retry to /rankings instead of reset.
     if (isRecovery) {
+      cookieStore.set('password_reset_pending', '', { path: '/', maxAge: 0 });
       return NextResponse.redirect(`${origin}/reset-password`);
     }
 

@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     // 3. Optionally unlink ALL games with this provider_team_id linked to this team
     if (unlinkAllGames) {
       // Unlink games where opponent is HOME team
-      const { data: homeUnlinked } = await supabase
+      const { data: homeUnlinked, error: homeUnlinkError } = await supabase
         .from('games')
         .update({ home_team_master_id: null })
         .eq('home_provider_id', providerTeamIdStr)
@@ -105,8 +105,12 @@ export async function POST(request: NextRequest) {
         .neq('id', gameId)
         .select('id');
 
+      if (homeUnlinkError) {
+        console.error('[unlink-opponent] Failed to bulk-unlink home games:', homeUnlinkError);
+      }
+
       // Unlink games where opponent is AWAY team
-      const { data: awayUnlinked } = await supabase
+      const { data: awayUnlinked, error: awayUnlinkError } = await supabase
         .from('games')
         .update({ away_team_master_id: null })
         .eq('away_provider_id', providerTeamIdStr)
@@ -114,6 +118,10 @@ export async function POST(request: NextRequest) {
         .eq('provider_id', game.provider_id)
         .neq('id', gameId)
         .select('id');
+
+      if (awayUnlinkError) {
+        console.error('[unlink-opponent] Failed to bulk-unlink away games:', awayUnlinkError);
+      }
 
       gamesUpdated += (homeUnlinked?.length || 0) + (awayUnlinked?.length || 0);
     }
