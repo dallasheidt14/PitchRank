@@ -1,4 +1,3 @@
-<!-- Updated: 2026-02-07 -->
 ---
 name: seo-content
 description: >
@@ -6,6 +5,8 @@ description: >
   Use when user says "content quality", "E-E-A-T", "content analysis",
   "readability check", "thin content", or "content audit".
 ---
+
+<!-- Updated: 2026-02-07 -->
 
 # Content Quality & E-E-A-T Analysis
 
