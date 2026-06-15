@@ -1310,35 +1310,21 @@ export const api = {
    * @returns Object with totalGames and totalTeams counts
    */
   async getDbStats(): Promise<{ totalGames: number; totalTeams: number }> {
-    // Get total games count (only games with valid team IDs and scores)
-    const { count: gamesCount, error: gamesError } = await supabase
-      .from('games')
-      .select('*', { count: 'exact', head: true })
-      .not('home_team_master_id', 'is', null)
-      .not('away_team_master_id', 'is', null)
-      .not('home_score', 'is', null)
-      .not('away_score', 'is', null)
-      .eq('is_excluded', false);
+    // Read the daily-refreshed homepage_stats cache via get_db_stats(); an exact
+    // count over ~1.3M games can't finish under the anon role's 3s statement
+    // timeout, so it must be precomputed off the request path.
+    const { data, error } = await supabase.rpc('get_db_stats');
 
-    if (gamesError) {
-      console.error('Error fetching games count:', gamesError);
-      throw gamesError;
+    if (error) {
+      console.error('Error fetching db stats via RPC:', error);
+      throw error;
     }
 
-    // Get total ranked teams count from rankings_view (only active teams)
-    const { count: teamsCount, error: teamsError } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .not('power_score_final', 'is', null);
-
-    if (teamsError) {
-      console.error('Error fetching teams count:', teamsError);
-      throw teamsError;
-    }
+    const stats = Array.isArray(data) ? data[0] : data;
 
     return {
-      totalGames: gamesCount || 0,
-      totalTeams: teamsCount || 0,
+      totalGames: Number(stats?.total_games) || 0,
+      totalTeams: Number(stats?.total_teams) || 0,
     };
   },
 
