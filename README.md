@@ -2,6 +2,8 @@
 
 A comprehensive ranking system for youth soccer teams with cross-age and cross-state support.
 
+> **Working with Claude Code or another AI agent?** Start with [`CLAUDE.md`](CLAUDE.md) for repo conventions, architecture, and workflow guidance — plus [`frontend/CLAUDE.md`](frontend/CLAUDE.md) for the Next.js app.
+
 ## 🎯 Features
 
 - **National Rankings**: Rankings by age group (U10-U19) and gender
