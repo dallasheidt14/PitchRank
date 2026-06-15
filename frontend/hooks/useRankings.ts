@@ -114,11 +114,12 @@ export function useRankings(
   gender?: 'M' | 'F' | 'B' | 'G' | null,
   initialData?: RankingRow[]
 ) {
-  // When the page seeds the full cohort from its own server fetch, treat it as
-  // fresh so the client skips the redundant mount fetch. National cohorts can
-  // exceed the server's 2000-row cap, so leave those stale to let React Query
-  // backfill the remaining rows.
-  const seededComplete = initialData !== undefined && initialData.length < 2000;
+  // Only treat a NON-EMPTY server seed as initial data. An empty array (e.g. a
+  // failed ISR fetch returning []) must not seed — leave it undefined so the
+  // client fetches and can recover. A complete cohort (under the 2000-row server
+  // cap) is marked fresh to skip the mount refetch; a capped cohort is marked
+  // stale (0) so React Query backfills the rows beyond 2000.
+  const seed = initialData !== undefined && initialData.length > 0 ? initialData : undefined;
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true,
@@ -133,8 +134,8 @@ export function useRankings(
         },
         { region, ageGroup, gender }
       ),
-    initialData,
-    initialDataUpdatedAt: seededComplete ? () => Date.now() : undefined,
+    initialData: seed,
+    initialDataUpdatedAt: seed === undefined ? undefined : seed.length < 2000 ? () => Date.now() : 0,
     staleTime: 2 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     retry: 2,

@@ -135,9 +135,6 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
   const sortedRankings = useMemo(() => {
     if (!rankings) return [];
 
-    // Rows arrive in published-rank order, so the default view needs no client sort.
-    if (sortField === 'rank' && sortDirection === 'asc') return rankings;
-
     const sorted = [...rankings].sort((a, b) => {
       let aValue: number | string;
       let bValue: number | string;
