@@ -1,0 +1,23 @@
+{
+  "week": "2026-W25",
+  "posts": [
+    {
+      "topic": "ECNL Regional League playoffs underway",
+      "hook": "Anchor = SoccerWire (June 6, 2026) on ECNL RL 2026 playoffs across five regions; finals take 40 boys + 40 girls teams, eight per age group, in Richmond and Seattle July 15-18. Stats kept to what that article states (five regions, eight-per-age-group, the two finals cities). Postseason-small-sample angle = ECNL voice_angle (every team on one scale).",
+      "suggested_tweet": "ECNL Regional League playoffs are live across five regions, and only eight teams per age group reach the finals in Richmond and Seattle. A hot bracket isn't a full season - we rank every RL team on one scale, all year.\n\npitchrank.io/rankings",
+      "source_url": "https://www.soccerwire.com/news/ecnl-regional-league-2026-playoffs-boys-and-girls-events-set-to-begin-in-five-regions/"
+    },
+    {
+      "topic": "ECNL 2026-27 pyramid expansion",
+      "hook": "Anchor = ECNL (May 12, 2026) club-pathway movement for 2026-27: 14 new clubs into ECNL, 46 into ECNL RL, 11 new Pre-ECNL leagues (60+ total moving up). Forward-looking framing ('next season') so the ~34-day source date doesn't read as a stale 'just announced' reaction. Same-scale angle = ECNL voice_angle.",
+      "suggested_tweet": "Next season the ECNL pyramid grows: 14 new clubs into the ECNL, 46 into the Regional League, and 11 new Pre-ECNL leagues. More teams, same question - who's actually good? We put them all on the same scale as established clubs.\n\npitchrank.io/rankings",
+      "source_url": "https://theecnl.com/news/2026/5/12/general-ecnl-highlights-club-pathway-with-movement-and-new-additions-to-ecnl-ecnl-rl-and-pre-ecnl.aspx"
+    },
+    {
+      "topic": "ECNL showcases and college scouting",
+      "hook": "Anchor = ECNL (June 3, 2026) 2026-27 schedule release: top girls showcases averaged more than 1,000 scouts each; top boys events drew more than 500 coaches. Both figures are in this single source. Recruiting angle = exposure vs results; PitchRank ranks on performance not reputation.",
+      "suggested_tweet": "ECNL says its top girls showcases averaged 1,000+ scouts and top boys events drew 500+ college coaches this year. Exposure gets you seen - results tell coaches who's worth it. We rank every ECNL team on performance, not reputation.\n\npitchrank.io/rankings",
+      "source_url": "https://theecnl.com/news/2026/6/3/general-ecnl-announces-2026-27-event-schedule.aspx"
+    }
+  ]
+}
