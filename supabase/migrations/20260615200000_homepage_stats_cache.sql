@@ -45,8 +45,11 @@ BEGIN
         AND away_score IS NOT NULL
         AND is_excluded = FALSE),
     (SELECT COUNT(*)
-       FROM public.rankings_full
-      WHERE status = 'Active'),
+       FROM public.rankings_full rf
+       JOIN public.teams t ON t.team_id_master = rf.team_id
+      WHERE rf.status = 'Active'
+        AND t.is_deprecated IS NOT TRUE
+        AND rf.power_score_final IS NOT NULL),
     NOW()
   )
   ON CONFLICT (id) DO UPDATE
@@ -55,6 +58,10 @@ BEGIN
         refreshed_at = EXCLUDED.refreshed_at;
 END;
 $$;
+
+-- Writer RPC: revoke the default PUBLIC execute so a public client can't drive the
+-- ~25s recompute onto the request path. The daily cron runs as the owner (postgres).
+REVOKE EXECUTE ON FUNCTION refresh_homepage_stats() FROM PUBLIC, anon, authenticated;
 
 -- Serve the cached row. Keeps the prior get_db_stats() shape (total_games,
 -- total_teams) so callers are unchanged.
