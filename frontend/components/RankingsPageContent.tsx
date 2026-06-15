@@ -7,14 +7,16 @@ import { RankingsTable } from '@/components/RankingsTable';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { RelatedRankings } from '@/components/RelatedRankings';
+import type { RankingRow } from '@/types/RankingRow';
 
 interface RankingsPageContentProps {
   region: string;
   ageGroup: string;
   gender: string;
+  initialRankings?: RankingRow[];
 }
 
-export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageContentProps) {
+export function RankingsPageContent({ region, ageGroup, gender, initialRankings }: RankingsPageContentProps) {
   const genderForAPI = gender
     ? ((gender === 'male' ? 'M' : gender === 'female' ? 'F' : null) as 'M' | 'F' | 'B' | 'G' | null)
     : null;
@@ -57,7 +59,12 @@ export function RankingsPageContent({ region, ageGroup, gender }: RankingsPageCo
         </div>
 
         <Suspense fallback={<RankingsTableSkeleton />}>
-          <RankingsTable region={region === 'national' ? null : region} ageGroup={ageGroup} gender={genderForAPI} />
+          <RankingsTable
+            region={region === 'national' ? null : region}
+            ageGroup={ageGroup}
+            gender={genderForAPI}
+            initialData={initialRankings}
+          />
         </Suspense>
 
         <RelatedRankings currentRegion={region} currentAgeGroup={ageGroup} currentGender={gender} />

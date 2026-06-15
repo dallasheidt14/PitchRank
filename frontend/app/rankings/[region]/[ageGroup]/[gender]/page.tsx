@@ -228,7 +228,13 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
         </div>
       )}
 
-      <RankingsPageContent key={routeKey} region={region} ageGroup={ageGroup} gender={gender} />
+      <RankingsPageContent
+        key={routeKey}
+        region={region}
+        ageGroup={ageGroup}
+        gender={gender}
+        initialRankings={allTeams}
+      />
 
       {/* FAQ below the interactive table — JSON-LD tells Google it exists regardless of position */}
       {cohortData && <CohortFAQ data={cohortData} />}

@@ -108,7 +108,18 @@ async function fetchNationalRankings(
  * @param gender - Gender filter ('M', 'F', 'B', 'G')
  * @returns React Query hook result with rankings data
  */
-export function useRankings(region?: string | null, ageGroup?: string, gender?: 'M' | 'F' | 'B' | 'G' | null) {
+export function useRankings(
+  region?: string | null,
+  ageGroup?: string,
+  gender?: 'M' | 'F' | 'B' | 'G' | null,
+  initialData?: RankingRow[]
+) {
+  // Only treat a NON-EMPTY server seed as initial data. An empty array (e.g. a
+  // failed ISR fetch returning []) must not seed — leave it undefined so the
+  // client fetches and can recover. A complete cohort (under the 2000-row server
+  // cap) is marked fresh to skip the mount refetch; a capped cohort is marked
+  // stale (0) so React Query backfills the rows beyond 2000.
+  const seed = initialData !== undefined && initialData.length > 0 ? initialData : undefined;
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true,
@@ -123,6 +134,8 @@ export function useRankings(region?: string | null, ageGroup?: string, gender?: 
         },
         { region, ageGroup, gender }
       ),
+    initialData: seed,
+    initialDataUpdatedAt: seed === undefined ? undefined : seed.length < 2000 ? () => Date.now() : 0,
     staleTime: 2 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     retry: 2,

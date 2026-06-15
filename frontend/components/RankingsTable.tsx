@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState, useRef, memo, useCallback, useEffect } from 'react';
+import { useDeferredValue, useMemo, useState, useRef, memo, useCallback, useEffect, startTransition } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
@@ -19,6 +19,7 @@ interface RankingsTableProps {
   region: string | null; // null = national
   ageGroup: string;
   gender: 'M' | 'F' | 'B' | 'G' | null;
+  initialData?: RankingRow[];
 }
 
 type SortField = 'rank' | 'team' | 'powerScore' | 'winPercentage' | 'gamesPlayed' | 'sos' | 'sosRank';
@@ -81,14 +82,21 @@ function getRankBorderClass(rank: number | null | undefined): string {
   return '';
 }
 
-export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) {
+export function RankingsTable({ region, ageGroup, gender, initialData }: RankingsTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [searchQuery, setSearchQuery] = useState('');
   const deferredQuery = useDeferredValue(searchQuery);
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { data: rankings, isLoading, isFetching, isError, error, refetch } = useRankings(region, ageGroup, gender);
+  const {
+    data: rankings,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useRankings(region, ageGroup, gender, initialData);
   const prefetchTeam = usePrefetchTeam();
 
   // Clear search query when cohort changes
@@ -218,12 +226,15 @@ export function RankingsTable({ region, ageGroup, gender }: RankingsTableProps) 
         gender,
       });
 
-      if (sortField === field) {
-        setSortDirection(newDirection);
-      } else {
-        setSortField(field);
-        setSortDirection('asc');
-      }
+      // Re-sorting the full cohort is non-urgent; keep the tap responsive.
+      startTransition(() => {
+        if (sortField === field) {
+          setSortDirection(newDirection);
+        } else {
+          setSortField(field);
+          setSortDirection('asc');
+        }
+      });
     },
     [sortField, sortDirection, region, ageGroup, gender]
   );
