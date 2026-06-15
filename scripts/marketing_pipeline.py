@@ -925,9 +925,31 @@ def commit_and_push_blog_post(filename: str, content: str) -> bool:
     filepath.write_text(content, encoding="utf-8")
     log.info(f"Wrote blog post: {filepath}")
 
+    frontend_dir = PROJECT_ROOT / "frontend"
+    llms_txt = frontend_dir / "public" / "llms.txt"
+
     try:
+        # Format the generated post and regenerate llms.txt before committing — the
+        # local Claude hook that normally does this doesn't run in CI, so an
+        # unformatted post or a stale llms.txt would fail the repo's checks.
         subprocess.run(
-            ["git", "add", str(filepath)],
+            ["npx", "prettier", "--write", str(filepath)],
+            check=True,
+            cwd=frontend_dir,
+            timeout=120,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["npm", "run", "generate-llms"],
+            check=True,
+            cwd=frontend_dir,
+            timeout=120,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "add", str(filepath), str(llms_txt)],
             check=True,
             cwd=PROJECT_ROOT,
             timeout=30,
@@ -960,9 +982,9 @@ def commit_and_push_blog_post(filename: str, content: str) -> bool:
         )
         log.info("Blog post committed and pushed to main")
         return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         stderr = getattr(e, "stderr", "")
-        log.error(f"Git operation failed: {e}\n{stderr}")
+        log.error(f"Blog publish step failed: {e}\n{stderr}")
         return False
 
 
@@ -1817,11 +1839,17 @@ def main():
         log.info("Artifacts saved. No Postiz API calls made (Supabase reads ran for data fetch + handle enrichment).")
         return
 
-    # Step 6: Publish newsletter to Beehiiv
+    # Step 6: Publish newsletter to Beehiiv (disabled by default — Beehiiv's send
+    # endpoint requires the enterprise plan; set BEEHIIV_NEWSLETTER_ENABLED=true to
+    # re-enable once on a plan that allows API sends).
+    newsletter_enabled = os.getenv("BEEHIIV_NEWSLETTER_ENABLED", "false").lower() == "true"
     newsletter_ok = False
     newsletter_skipped = False
     if args.postiz_only:
         log.info("--postiz-only: skipping Beehiiv newsletter send")
+    elif not newsletter_enabled:
+        log.info("BEEHIIV_NEWSLETTER_ENABLED is not true — skipping Beehiiv newsletter send")
+        newsletter_skipped = True
     elif not has_movers:
         # Quiet week: the newsletter is mover-centric, so skip it. Track the skip
         # separately from success so the exit guard doesn't read it as "delivered".
