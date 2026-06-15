@@ -108,7 +108,17 @@ async function fetchNationalRankings(
  * @param gender - Gender filter ('M', 'F', 'B', 'G')
  * @returns React Query hook result with rankings data
  */
-export function useRankings(region?: string | null, ageGroup?: string, gender?: 'M' | 'F' | 'B' | 'G' | null) {
+export function useRankings(
+  region?: string | null,
+  ageGroup?: string,
+  gender?: 'M' | 'F' | 'B' | 'G' | null,
+  initialData?: RankingRow[]
+) {
+  // When the page seeds the full cohort from its own server fetch, treat it as
+  // fresh so the client skips the redundant mount fetch. National cohorts can
+  // exceed the server's 2000-row cap, so leave those stale to let React Query
+  // backfill the remaining rows.
+  const seededComplete = initialData !== undefined && initialData.length < 2000;
   return useQuery<RankingRow[]>({
     queryKey: ['rankings', region, ageGroup, gender],
     enabled: true,
@@ -123,6 +133,8 @@ export function useRankings(region?: string | null, ageGroup?: string, gender?: 
         },
         { region, ageGroup, gender }
       ),
+    initialData,
+    initialDataUpdatedAt: seededComplete ? () => Date.now() : undefined,
     staleTime: 2 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     retry: 2,

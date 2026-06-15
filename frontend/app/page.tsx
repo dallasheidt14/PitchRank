@@ -4,8 +4,31 @@ import { RecentMovers } from '@/components/RecentMovers';
 import { HomeStats } from '@/components/HomeStats';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { api } from '@/lib/api';
+import { selectTopMovers } from '@/lib/movers';
+import type { RankingRow } from '@/types/RankingRow';
 
-export default function Home() {
+// Revalidate hourly so above-the-fold stats and movers are server-rendered
+// rather than fetched on the client after first paint.
+export const revalidate = 3600;
+
+export default async function Home() {
+  // Fetch above-the-fold data server-side; degrade to fallbacks on failure so a
+  // Supabase hiccup never breaks the static render.
+  let totalGames: number | undefined;
+  let totalTeams: number | undefined;
+  let movers7d: RankingRow[] = [];
+  let movers30d: RankingRow[] = [];
+  try {
+    const [stats, national] = await Promise.all([api.getDbStats(), api.getRankings(null, 'u12', 'M')]);
+    totalGames = stats.totalGames;
+    totalTeams = stats.totalTeams;
+    movers7d = selectTopMovers(national, '7d', 5);
+    movers30d = selectTopMovers(national, '30d', 5);
+  } catch (e) {
+    console.error('[home] server data fetch failed, using fallbacks:', e);
+  }
+
   return (
     <>
       {/* Hero Section - Athletic Editorial Style */}
@@ -33,8 +56,8 @@ export default function Home() {
               Data-driven performance analytics for U10-U19 boys and girls nationwide
             </p>
 
-            {/* Stats Row - Client component for reliable data fetching */}
-            <HomeStats />
+            {/* Stats Row - server-rendered for fast first paint */}
+            <HomeStats totalGames={totalGames} totalTeams={totalTeams} />
 
             <div className="flex flex-wrap gap-3">
               <Button
@@ -82,7 +105,7 @@ export default function Home() {
 
           {/* Sidebar Column */}
           <div className="space-y-6">
-            <RecentMovers />
+            <RecentMovers initialMovers7d={movers7d} initialMovers30d={movers30d} />
           </div>
         </div>
       </div>
