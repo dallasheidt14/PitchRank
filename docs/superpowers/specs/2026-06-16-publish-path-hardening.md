@@ -1,7 +1,7 @@
 # Publish-Path Hardening — Scoping Doc
 
 **Date:** 2026-06-16
-**Status:** Draft for review. No implementation until approved.
+**Status:** Step 1 implemented and merged (#913, flag-gated, default off). Steps 2–4 are scoped, not yet implemented.
 **Hard invariant:** `SCF_PUBLISH_ONLY` stays `False` for every step below. Re-enabling it is **not** part of any scoped change — it is a separate final decision gate (see *Re-enable Criteria*).
 
 ---
