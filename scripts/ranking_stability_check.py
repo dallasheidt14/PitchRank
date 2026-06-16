@@ -203,6 +203,8 @@ def main() -> None:
     parser.add_argument("--gender", help="Restrict to one gender (e.g. Female). Requires --age.")
     parser.add_argument("--prev-date", help="Prior snapshot date (YYYY-MM-DD). Default: latest before today.")
     args = parser.parse_args()
+    if bool(args.age) != bool(args.gender):
+        parser.error("--age and --gender must be used together (pass both to scope to one cohort, or neither)")
 
     cohort_sql, params = _cohort_filter(args.age, args.gender)
     scope = f"{args.age}/{args.gender}" if cohort_sql else "all Active cohorts"
