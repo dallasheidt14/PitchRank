@@ -88,7 +88,12 @@ class GlickoConfig:
     # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
     # cross-age global map); publish-only SCF won log-loss in every backtested
     # cohort/cutoff cell while keeping isolated teams out of the top ranks.
-    SCF_PUBLISH_ONLY: bool = True
+    # ROLLBACK 2026-06-15: disabled. The first published run on this flag (#885)
+    # scrambled standings — u14F non-playing teams moved a median of 387 ranks —
+    # because undampened mu fed Layer-13 and the self-referential same-age evidence
+    # gates. Re-enable only behind end-to-end publish-path validation
+    # (scripts/ranking_stability_check.py).
+    SCF_PUBLISH_ONLY: bool = False
     SCF_MIN_UNIQUE_STATES: int = 2
     SCF_DIVERSITY_DIVISOR: float = 4.0
     SCF_FLOOR: float = 0.4
@@ -114,7 +119,9 @@ class GlickoConfig:
     # Tier multiplier application. Centered keeps the intended discount relative to
     # the 1500 neutral rating (effective_mu = 1500 + (mu - 1500) * mult) instead of
     # scaling the raw rating, which over-discounts strong lower-league opponents.
-    TIER_MULT_CENTERED: bool = True
+    # ROLLBACK 2026-06-15: disabled alongside SCF_PUBLISH_ONLY to fully restore
+    # pre-#885 behavior during incident containment.
+    TIER_MULT_CENTERED: bool = False
 
     # SOS post-hoc adjustment (asymmetric scaling of mu before normalization)
     # Weak schedules get a larger shrinkage than strong schedules get a reward.

@@ -811,8 +811,8 @@ class TestSigmoidZscoreNormalize:
 
 class TestApplyTierMult:
     def test_centered_discount_is_relative_to_neutral(self):
-        """Default centered mode: discount scales the distance from 1500, not the raw rating."""
-        cfg = GlickoConfig()
+        """Centered mode: discount scales the distance from 1500, not the raw rating."""
+        cfg = GlickoConfig(TIER_MULT_CENTERED=True)
         assert abs(_apply_tier_mult(1700.0, 0.95, cfg) - 1690.0) < 0.001
         assert abs(_apply_tier_mult(1300.0, 0.95, cfg) - 1310.0) < 0.001
         assert abs(_apply_tier_mult(1500.0, 0.95, cfg) - 1500.0) < 0.001
@@ -1018,8 +1018,8 @@ class TestSCF:
         return team_df, scf_data
 
     def test_scf_publish_only_leaves_mu_pure(self):
-        """Default SCF_PUBLISH_ONLY: mu is never dampened; dampening moves to the publish path."""
-        cfg = GlickoConfig()
+        """Publish-only SCF: mu is never dampened; dampening moves to the publish path."""
+        cfg = GlickoConfig(SCF_PUBLISH_ONLY=True)
         high_mu = 1700.0
         team_df, scf_data = self._scf_mu_dampening_fixture(high_mu, cfg)
 
@@ -1342,7 +1342,7 @@ class TestComputeRankingsV2:
         """Publish-only SCF: identical results give identical mu, but the isolated
         team's published score is pulled toward neutral. Covers both publish branches."""
         games, state_map = self._isolated_vs_connected_games()
-        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled)
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=True)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
         teams = result["teams"].set_index("team_id")
 

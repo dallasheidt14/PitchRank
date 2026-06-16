@@ -189,9 +189,9 @@ class TestGlickoSOSAblations:
         assert _max_abs_diff(teams_baseline, teams_altered, "power_score_final") > 1e-6
 
     def test_scf_is_post_convergence_sos_and_publish_dampening(self):
-        """Default SCF_PUBLISH_ONLY: SCF dampens SOS and the published score; mu stays pure."""
+        """Publish-only SCF: SCF dampens SOS and the published score; mu stays pure."""
         games, state_map = _build_isolated_bubble_fixture()
-        scf_on = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=True)
+        scf_on = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=True, SCF_PUBLISH_ONLY=True)
         scf_off = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_ENABLED=False)
 
         converged_on, _ = run_glicko2_cohort(games, scf_on, pd.Timestamp("2026-03-31"))
