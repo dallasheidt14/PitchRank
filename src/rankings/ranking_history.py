@@ -336,6 +336,92 @@ async def get_historical_ranks(
         return {team_id: None for team_id in team_ids}
 
 
+async def get_prior_cohort_ranks(
+    supabase_client, team_ids: list[str], days_ago: int, reference_date: Optional[date] = None
+) -> Dict[str, Dict[str, object]]:
+    """
+    Get each team's prior published rank AND the cohort it held in that snapshot.
+
+    Returns ``{team_id: {"age_group": str, "gender": str, "rank": int}}`` for the snapshot
+    ~``days_ago`` days before ``reference_date`` (±3 days, closest wins; rank via the same
+    final → ml → raw fallback as get_historical_ranks). The snapshot cohort lets callers that
+    freeze the evidence-gate reference skip teams whose cohort has since changed (e.g. aged up),
+    so a stale rank is never applied to a different cohort. Empty dict when no snapshot is found.
+    """
+    if reference_date is None:
+        reference_date = date.today()
+
+    target_date = reference_date - timedelta(days=days_ago)
+    date_range_start = target_date - timedelta(days=3)
+    date_range_end = target_date + timedelta(days=3)
+
+    if not team_ids:
+        return {}
+
+    try:
+        batch_size = 150
+        all_records = []
+
+        for i in range(0, len(team_ids), batch_size):
+            batch = team_ids[i : i + batch_size]
+            try:
+                response = (
+                    supabase_client.table("ranking_history")
+                    .select(
+                        "team_id, snapshot_date, age_group, gender, "
+                        "rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final"
+                    )
+                    .in_("team_id", batch)
+                    .gte("snapshot_date", date_range_start.isoformat())
+                    .lte("snapshot_date", date_range_end.isoformat())
+                    .execute()
+                )
+                if response.data:
+                    all_records.extend(response.data)
+            except Exception as batch_error:
+                logger.warning(f"❌ Error fetching prior cohort ranks for batch {i // batch_size + 1}: {batch_error}")
+                continue
+
+        if not all_records:
+            logger.info(f"📍 No prior cohort ranking snapshot found for {len(team_ids)} teams around {target_date}")
+            return {}
+
+        # Keep the snapshot closest to target_date for each team
+        best_by_team: Dict[str, Dict[str, object]] = {}
+        for record in all_records:
+            final_rank = record.get("rank_in_cohort_final")
+            ml_rank = record.get("rank_in_cohort_ml")
+            rank = (
+                final_rank
+                if final_rank is not None
+                else (ml_rank if ml_rank is not None else record.get("rank_in_cohort"))
+            )
+            age_group = str(record.get("age_group") or "")
+            gender = str(record.get("gender") or "")
+            if rank is None or not age_group or not gender:
+                continue
+
+            team_id = str(record["team_id"])
+            distance = abs((date.fromisoformat(record["snapshot_date"]) - target_date).days)
+            existing = best_by_team.get(team_id)
+            if existing is None or distance < existing["distance"]:
+                best_by_team[team_id] = {
+                    "age_group": age_group,
+                    "gender": gender,
+                    "rank": int(rank),
+                    "distance": distance,
+                }
+
+        return {
+            team_id: {"age_group": v["age_group"], "gender": v["gender"], "rank": v["rank"]}
+            for team_id, v in best_by_team.items()
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error fetching prior cohort ranks: {e}")
+        return {}
+
+
 async def get_historical_state_ranks(
     supabase_client, team_ids: list[str], days_ago: int, reference_date: Optional[date] = None
 ) -> Dict[str, Optional[int]]:
