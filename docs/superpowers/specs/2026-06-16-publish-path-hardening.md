@@ -24,18 +24,20 @@ The rollback restored the *old* system, not a *good* one. The baseline still car
 **Problem being addressed**
 `_compute_same_age_evidence_metrics()` builds its opponent rank/power lookups (`base_rank_lookup`, `base_power_lookup`) from the **current run's** `powerscore_adj`. Every downstream consumer of those metrics (evidence gates, raw-shrink, publish-penalty, publication-cap) therefore moves whenever the current run's pricing moves. An engine change perturbs `powerscore_adj`, which silently shifts the gates and caps in the same run — a self-referential amplifier with no stable anchor.
 
-**Exact code surface / files touched (ONLY this)**
+**Exact code surface / files touched** (as shipped in #913)
 - `src/rankings/calculator.py`:
-  - `_compute_same_age_evidence_metrics()` (~line 667): replace the two lookups derived from `teams_work["powerscore_adj"]` with reads from a passed-in frozen reference map.
-  - Its single caller (in `compute_all_cohorts`): build the frozen reference once and pass it in.
-- No other file. No threshold, gate-logic, ML, SOS, cap, or SCF change.
+  - `_compute_same_age_evidence_metrics()`: overlay the opponent **rank** lookup (`base_rank_lookup`) from a passed-in frozen reference; the **power** lookup (`base_power_lookup`) stays on the live `powerscore_adj`.
+  - Its single caller (in `compute_all_cohorts`): build the frozen reference once (flag-gated, run-date aware) and pass it in.
+- `src/rankings/ranking_history.py`: a read-only helper (`get_prior_cohort_ranks`) returning each team's prior rank **and** the cohort it held in that snapshot. (Read-only snapshot access — no engine logic.)
+- No threshold, gate-logic, ML, SOS, cap, or SCF change.
 
-**One design decision to settle in review (does not widen scope):** what the frozen reference *is*, and on what scale.
-- **Recommended:** the prior published snapshot (`ranking_history`, keyed by `team_id`), which is stable against the current run's repricing. **Scale is load-bearing.** The live metrics read *unanchored* `powerscore_adj` (calculator.py ~703) and test it against fixed thresholds (calculator.py ~321: `severe_min_avg_opp_power`, `thin_schedule_max_avg_opp_power`, `play_up_min_avg_opp_power`), but `ranking_history` stores *anchor-scaled* `power_score_final` (ranking_history.py ~137). So Step 1 must take prior **rank** from `rank_in_cohort_final`, and convert prior **power** back to an unanchored score before use (un-apply the anchor, e.g. `power_score_final / anchor_val`, or read `power_score_true` if the snapshot carries it). Without this, `same_age_avg_opp_power_adj` / `play_up_avg_opp_power_adj` are fed the wrong scale and the fixed thresholds silently retune the gates, which would break the "no threshold/gate change" guarantee. Fall back to the current run's `powerscore_adj` **only** for teams absent from the snapshot.
-- **Alternative:** the current run's pre-ML base (`powerscore_adj`) captured once. Already on the correct unanchored scale (no conversion needed), simpler, no lag, but it still moves with engine changes, so it only partially decouples.
+**Design decision — settled in review, shipped in #913 (the Hybrid).** The frozen reference is **rank-only**: opponent **rank** is read from the prior published snapshot (`ranking_history.rank_in_cohort_final`, via `get_prior_cohort_ranks`), while opponent **power** stays on the live `powerscore_adj`. This deliberately sidesteps the scale hazard of a full prior-snapshot freeze: the live metrics test *unanchored* `powerscore_adj` (calculator.py ~703) against fixed thresholds (calculator.py ~321: `severe_min_avg_opp_power`, `thin_schedule_max_avg_opp_power`, `play_up_min_avg_opp_power`), but `ranking_history` stores *anchor-scaled* `power_score_final` (ranking_history.py ~137) — so reusing snapshot power against those thresholds would silently retune the gates. Keeping power live means no anchor conversion and no threshold retune; the only frozen quantity is the discrete rank that drives the top-100/top-500 gates.
+- **Cohort-keyed (resolves the cohort-rollover correctness issue).** The snapshot rank is applied only when the team's **snapshot cohort matches its current cohort** (compared via `_parse_age_number` on both sides + exact gender), so a team that aged up since the snapshot keeps its current-run rank instead of leaking an old-cohort `rank_in_cohort_final` into the new cohort's counts — critical at the Aug 1 rollover (see *Risks*).
+- Teams absent from the snapshot, or whose cohort no longer matches, **fall back to the current run's rank**.
+- **Rejected options:** (a) the full prior-snapshot freeze keyed by `team_id` taking *both* rank and power — needs anchor scale-conversion and risks retuning the fixed thresholds (and, keyed by `team_id` alone, corrupts cohort rollovers); (b) the current-run pre-ML base captured once — scale-correct and simple, but still moves with engine changes, so it only partially decouples.
 
 **Expected behavior change**
-Evidence metrics (top-100/top-500 opponent counts, avg opponent power, etc.) become a function of a stable reference, not of the in-flight ordering. A future engine change no longer moves the gates/caps within the run that introduces it. On a steady-state week the published output is materially unchanged.
+The rank-driven evidence metrics (top-100/top-500 opponent counts) become a function of a stable reference rather than the in-flight ordering, so a future engine change no longer moves the rank-driven gates/caps within the run that introduces it. Opponent power (`avg_opp_power`) stays live by design (see *Design decision*). On a steady-state week the published output is materially unchanged.
 
 **Validation plan**
 - Run `scripts/ranking_stability_check.py` on a re-run with the flag on vs off; non-playing churn and top-100 churn must not regress.
@@ -51,8 +53,8 @@ Single config flag (e.g. `EVIDENCE_GATE_FROZEN_REF`, default `False`). Flip off 
 - Stability harness: no FAIL introduced.
 
 **Risks / failure modes**
-- Prior-snapshot reference lags one run; a team's real strength change is reflected in gates one cycle late (acceptable; converges). Cold-start teams need the documented fallback or they get no evidence credit.
-- If the alternative (current-run base) is chosen, decoupling is partial — must be stated honestly, not oversold.
+- The frozen rank lags one run; a team's real strength change reaches the rank-driven gates one cycle late (acceptable; converges). Cold-start / cohort-mismatched teams fall back to their current-run rank.
+- Decoupling is **rank-only**: opponent power stays live, so the power-threshold gates (`avg_opp_power` vs fixed thresholds) still move with engine changes. Step 1 decouples the discrete rank cliffs, not the power gates — stated honestly, not oversold (tightening the power side would require the scale-conversion this step deliberately avoids).
 - **Season rollover (Aug 1) — mandates the cohort match.** The frozen rank is keyed by the team's cohort *in the prior snapshot* and applied only when that matches the current cohort (shipped in #913: snapshot `age_group` → `_parse_age_number` vs current age + exact gender; mismatch/miss → fall back to live rank). At the annual age-up nearly every team changes cohort (u12→u13, …), so on the first post-rollover run almost no same-cohort prior rank is found and frozen-rank coverage legitimately drops to ~0 — the gate falls back to live ranks for that run. This is correct, safe behavior; reusing an aged-up team's old-cohort `rank_in_cohort_final` is exactly the corruption the cohort match prevents. Normal freezing resumes once one new-cohort snapshot exists.
 
 **Independently shippable:** yes. Delivers value (kills the self-referential amplifier) even if Steps 2–4 never land.
