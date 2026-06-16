@@ -117,7 +117,9 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
     isNavigatingRef.current = true;
     targetPathRef.current = targetPath;
 
-    router.replace(targetPath);
+    // scroll: false keeps the user's scroll position on the filter card.
+    // Without it, App Router jumps to the top of the page on every filter change.
+    router.replace(targetPath, { scroll: false });
   }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (
