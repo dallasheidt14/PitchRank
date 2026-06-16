@@ -117,6 +117,7 @@ export function RankRow({
   teamName,
   club,
   isStory,
+  fluid = false,
   children,
 }: {
   rank: number;
@@ -124,18 +125,23 @@ export function RankRow({
   teamName: string;
   club: string;
   isStory: boolean;
+  fluid?: boolean;
   children: ReactNode;
 }) {
+  const nameSize = isStory ? 28 : 23;
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        flex: 1,
+        // Fluid rows size to their own content (1 or 2 lines) and stay vertically
+        // centered, so a long team name never clips or knocks the rank/stat columns
+        // out of alignment. Fixed layouts keep the original equal-height fill.
+        ...(fluid ? { flexShrink: 0 } : { flex: 1 }),
         background: accent ? COLORS.rowTop3 : COLORS.rowDim,
         borderLeft: `5px solid ${accent ?? COLORS.rowBorderDim}`,
         borderRadius: 10,
-        padding: isStory ? '0 26px' : '0 22px',
+        padding: fluid ? (isStory ? '16px 26px' : '13px 22px') : isStory ? '0 26px' : '0 22px',
       }}
     >
       <div
@@ -157,13 +163,25 @@ export function RankRow({
             display: 'flex',
             fontFamily: 'Oswald',
             fontWeight: 600,
-            fontSize: isStory ? 28 : 23,
+            fontSize: nameSize,
             color: COLORS.brightWhite,
+            // Cap at two lines so a pathologically long name can't grow unbounded.
+            ...(fluid ? { maxHeight: Math.round(nameSize * 1.3 * 2), overflow: 'hidden' } : {}),
           }}
         >
           {teamName}
         </div>
-        <div style={{ display: 'flex', fontSize: isStory ? 17 : 14, color: COLORS.club, marginTop: 3 }}>{club}</div>
+        <div
+          style={{
+            display: 'flex',
+            fontSize: isStory ? 17 : 14,
+            color: COLORS.club,
+            marginTop: 3,
+            ...(fluid ? { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
+          }}
+        >
+          {club}
+        </div>
       </div>
       {children}
     </div>
