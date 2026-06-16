@@ -53,6 +53,7 @@ Single config flag (e.g. `EVIDENCE_GATE_FROZEN_REF`, default `False`). Flip off 
 **Risks / failure modes**
 - Prior-snapshot reference lags one run; a team's real strength change is reflected in gates one cycle late (acceptable; converges). Cold-start teams need the documented fallback or they get no evidence credit.
 - If the alternative (current-run base) is chosen, decoupling is partial — must be stated honestly, not oversold.
+- **Season rollover (Aug 1) — mandates the cohort match.** The frozen rank is keyed by the team's cohort *in the prior snapshot* and applied only when that matches the current cohort (shipped in #913: snapshot `age_group` → `_parse_age_number` vs current age + exact gender; mismatch/miss → fall back to live rank). At the annual age-up nearly every team changes cohort (u12→u13, …), so on the first post-rollover run almost no same-cohort prior rank is found and frozen-rank coverage legitimately drops to ~0 — the gate falls back to live ranks for that run. This is correct, safe behavior; reusing an aged-up team's old-cohort `rank_in_cohort_final` is exactly the corruption the cohort match prevents. Normal freezing resumes once one new-cohort snapshot exists.
 
 **Independently shippable:** yes. Delivers value (kills the self-referential amplifier) even if Steps 2–4 never land.
 
@@ -88,6 +89,7 @@ Gate is additive. Disable by reverting the workflow step / env toggle (`STABILIT
 **Risks / failure modes**
 - Staging seam is the scope risk; if it balloons, fall back to detection+alert (explicitly weaker) rather than widening this step.
 - Threshold calibration: too strict blocks legitimate high-movement weeks (season starts). Thresholds live in the harness and are tunable; start permissive, tighten with data.
+- **Season rollover (Aug 1) — explicit rule required.** A plain "compare to last week" gate will FAIL a *correct* rollover run, because the cohorts themselves change wholesale: every team's prior `rank_in_cohort_final` is in the old age system, so non-playing churn and top-100 churn light up even though nothing is scrambled. The gate must special-case the first post-rollover run — one of: (a) pin the comparison to the first snapshot in the **new** age system, (b) downgrade the gate to warn-only for that single run, or (c) compare only after applying cohort-remap. Do not treat rollover week as a normal weekly comparison. (Same reason Step 1's frozen-rank coverage legitimately drops to ~0 that week.) Relatedly, the harness's default `_resolve_prev_date` picks the latest snapshot before today; the gate must pin a **known-good** baseline (right now that auto-pick lands on the broken 06-15 snapshot and yields a misleading FAIL), not just "latest".
 
 ---
 
@@ -167,6 +169,7 @@ What `scripts/ranking_stability_check.py` must prove, and when.
 - Harness runs on the staged result vs the prior snapshot and returns **0 FAIL**.
 - A FAIL blocks publication (or, in the fallback design, fires an alert and arms one-command rollback).
 - The mu→published stage-shift metric is logged every run for trend tracking even when it passes.
+- The prior snapshot must be a **known-good** baseline, not blindly "latest before today" (which can be a broken or pre-rollover snapshot). **Season-rollover exception (Aug 1):** the gate must not compare a new-age-system run against the prior old-age-system snapshot — see the Step 2 rollover rule.
 
 ---
 
