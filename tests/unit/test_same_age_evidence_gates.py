@@ -169,6 +169,97 @@ def test_compute_same_age_evidence_metrics_tracks_exact_one_year_play_up_results
     assert int(a["play_up_top1000_non_loss_opp_count"]) == 2
 
 
+def test_compute_same_age_evidence_metrics_frozen_ref_none_matches_default():
+    teams = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C"],
+            "age": ["12", "12", "12"],
+            "gender": ["Male", "Male", "Male"],
+            "powerscore_adj": [0.95, 0.90, 0.70],
+            "status": ["Active", "Active", "Active"],
+        }
+    )
+    games_used = pd.DataFrame(
+        [
+            {"team_id": "A", "opp_id": "B", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+            {"team_id": "A", "opp_id": "C", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+        ]
+    )
+
+    default = _compute_same_age_evidence_metrics(games_used, teams)
+    explicit_none = _compute_same_age_evidence_metrics(games_used, teams, frozen_rank_lookup=None)
+
+    pd.testing.assert_frame_equal(default, explicit_none)
+
+
+def test_compute_same_age_evidence_metrics_freezes_opponent_rank_keeps_live_power():
+    teams = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C"],
+            "age": ["12", "12", "12"],
+            "gender": ["Male", "Male", "Male"],
+            "powerscore_adj": [0.95, 0.90, 0.70],
+            "status": ["Active", "Active", "Active"],
+        }
+    )
+    games_used = pd.DataFrame(
+        [
+            {"team_id": "A", "opp_id": "B", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+            {"team_id": "A", "opp_id": "C", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+        ]
+    )
+
+    live = _compute_same_age_evidence_metrics(games_used, teams).set_index("team_id").loc["A"]
+    assert int(live["same_age_top100_opp_count"]) == 2
+
+    # B's prior published rank (150) drops it out of the top 100; C is absent from the
+    # snapshot and falls back to its current-run rank, which is still top 100.
+    frozen = (
+        _compute_same_age_evidence_metrics(
+            games_used, teams, frozen_rank_lookup={"B": {"age_group": "u12", "gender": "Male", "rank": 150}}
+        )
+        .set_index("team_id")
+        .loc["A"]
+    )
+
+    assert int(frozen["same_age_top100_opp_count"]) == 1
+    assert int(frozen["same_age_top500_opp_count"]) == 2
+    assert float(frozen["same_age_avg_opp_power_adj"]) == float(live["same_age_avg_opp_power_adj"])
+
+
+def test_compute_same_age_evidence_metrics_frozen_ref_ignores_cross_cohort_rank():
+    teams = pd.DataFrame(
+        {
+            "team_id": ["A", "B", "C"],
+            "age": ["12", "12", "12"],
+            "gender": ["Male", "Male", "Male"],
+            "powerscore_adj": [0.95, 0.90, 0.70],
+            "status": ["Active", "Active", "Active"],
+        }
+    )
+    games_used = pd.DataFrame(
+        [
+            {"team_id": "A", "opp_id": "B", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+            {"team_id": "A", "opp_id": "C", "age": "12", "gender": "Male", "opp_age": "12", "opp_gender": "Male"},
+        ]
+    )
+
+    live = _compute_same_age_evidence_metrics(games_used, teams).set_index("team_id").loc["A"]
+    assert int(live["same_age_top100_opp_count"]) == 2
+
+    # B's prior snapshot was a DIFFERENT cohort (u11 — it aged up). The stale rank must be
+    # ignored, so B keeps its current-run top-100 rank.
+    frozen = (
+        _compute_same_age_evidence_metrics(
+            games_used, teams, frozen_rank_lookup={"B": {"age_group": "u11", "gender": "Male", "rank": 150}}
+        )
+        .set_index("team_id")
+        .loc["A"]
+    )
+
+    assert int(frozen["same_age_top100_opp_count"]) == 2
+
+
 def test_positive_ml_evidence_scale_blocks_weak_u12_case():
     row = pd.Series(
         {

@@ -123,6 +123,17 @@ class GlickoConfig:
     # pre-#885 behavior during incident containment.
     TIER_MULT_CENTERED: bool = False
 
+    # Evidence-gate reference freeze (Step 1 publish-path hardening, post-#885).
+    # When True, the same-age evidence gates rank opponents by their PRIOR published
+    # rank (ranking_history.rank_in_cohort_final) instead of the current run's
+    # powerscore_adj, so an engine-input change can no longer reshuffle the rank-driven
+    # gates within the run that introduces it (the self-referential amplifier behind
+    # #885). Opponent POWER stays on the live powerscore_adj scale the fixed thresholds
+    # are tuned against; teams absent from the prior snapshot fall back to their
+    # current-run rank. Default False = exact pre-hardening behavior. Re-enable only
+    # behind the stability harness (scripts/ranking_stability_check.py).
+    EVIDENCE_GATE_FROZEN_REF: bool = False
+
     # SOS post-hoc adjustment (asymmetric scaling of mu before normalization)
     # Weak schedules get a larger shrinkage than strong schedules get a reward.
     # This is intentional: it reins in inflated ratings from soft schedules

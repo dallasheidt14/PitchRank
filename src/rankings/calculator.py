@@ -20,7 +20,7 @@ from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
 from src.rankings.prediction_feature_history import save_prediction_feature_snapshot
-from src.rankings.ranking_history import calculate_rank_changes, save_ranking_snapshot
+from src.rankings.ranking_history import calculate_rank_changes, get_prior_cohort_ranks, save_ranking_snapshot
 
 if TYPE_CHECKING:
     from src.profiling.timer import TimingReport
@@ -664,8 +664,21 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
     return work.loc[mask, existing].copy()
 
 
-def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd.DataFrame) -> pd.DataFrame:
-    """Build same-age evidence metrics from a broader same-age evidence pool."""
+def _compute_same_age_evidence_metrics(
+    games_used_df: pd.DataFrame,
+    teams_df: pd.DataFrame,
+    frozen_rank_lookup: dict[str, dict] | None = None,
+) -> pd.DataFrame:
+    """Build same-age evidence metrics from a broader same-age evidence pool.
+
+    When ``frozen_rank_lookup`` is provided — mapping team_id to its prior published rank and
+    the cohort it held in that snapshot (``{"age_group", "gender", "rank"}``) — opponent ranks
+    are read from that stable reference instead of the current run's ``powerscore_adj`` ordering,
+    so an engine-input change cannot reshuffle the rank-driven gates within the run. A frozen
+    rank is applied only when the team's snapshot cohort matches its current cohort, so a team
+    that aged up keeps its current-run rank. Opponent power is unaffected (stays on the live
+    ``powerscore_adj`` scale); teams absent from the reference keep their current-run rank.
+    """
     defaults = pd.DataFrame(
         {
             "team_id": teams_df["team_id"].astype(str),
@@ -708,6 +721,28 @@ def _compute_same_age_evidence_metrics(games_used_df: pd.DataFrame, teams_df: pd
         ranked = grp.sort_values(["powerscore_adj", "team_id"], ascending=[False, True]).reset_index(drop=True)
         ranked["base_rank"] = ranked.index + 1
         base_rank_lookup[(str(age), str(gender))] = dict(zip(ranked["team_id"], ranked["base_rank"]))
+
+    if frozen_rank_lookup:
+        frozen_used = 0
+        rank_total = 0
+        for (age, gender), rank_map in base_rank_lookup.items():
+            cohort_age = _parse_age_number(age)
+            for opp_id in rank_map:
+                rank_total += 1
+                ref = frozen_rank_lookup.get(opp_id)
+                if (
+                    ref is not None
+                    and cohort_age is not None
+                    and _parse_age_number(ref["age_group"]) == cohort_age
+                    and str(ref["gender"]) == str(gender)
+                ):
+                    rank_map[opp_id] = int(ref["rank"])
+                    frozen_used += 1
+        coverage = (frozen_used / rank_total) if rank_total else 0.0
+        logger.info(
+            f"🧊 Evidence-gate frozen rank reference: {frozen_used:,}/{rank_total:,} "
+            f"ranked teams used prior-snapshot ranks ({coverage * 100:.1f}% coverage)"
+        )
 
     games = games_used_df.copy()
     games["team_id"] = games["team_id"].astype(str)
@@ -2828,7 +2863,22 @@ async def compute_all_cohorts(
 
     # ========== Same-Age Evidence Metrics ==========
     if not teams_combined.empty:
-        evidence_df = _compute_same_age_evidence_metrics(games_df, teams_combined)
+        frozen_rank_lookup = None
+        if use_glicko and GlickoConfig().EVIDENCE_GATE_FROZEN_REF:
+            if "status" in teams_combined.columns:
+                ranked_team_ids = (
+                    teams_combined.loc[teams_combined["status"] == "Active", "team_id"].astype(str).tolist()
+                )
+            else:
+                ranked_team_ids = teams_combined["team_id"].astype(str).tolist()
+            # Prior published rank + the cohort the team held in that snapshot, so a team that
+            # aged up since only matches its prior cohort and is skipped (falls back to its
+            # current-run rank). days_ago=7 = the prior weekly snapshot; reference_date honors
+            # the run's `today` so replay/backfill freezes against the replayed week.
+            frozen_rank_lookup = await get_prior_cohort_ranks(
+                supabase_client, ranked_team_ids, days_ago=7, reference_date=_normalize_snapshot_date(today)
+            )
+        evidence_df = _compute_same_age_evidence_metrics(games_df, teams_combined, frozen_rank_lookup)
         teams_combined = teams_combined.merge(evidence_df, on="team_id", how="left")
 
         for col in [
