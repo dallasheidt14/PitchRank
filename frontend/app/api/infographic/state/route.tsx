@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, MEDAL, platformDims, formatScore, formatRecord } from '../_shared/theme';
 import { Frame, Header, Footer, RankRow, StatBlock } from '../_shared/components';
+import { clampIgHeight, lineCount } from '../_shared/layout';
 
 export const runtime = 'edge';
 
@@ -97,16 +98,26 @@ export async function GET(request: Request) {
   const stateName = STATE_NAMES[state] || state;
   const genderLabel = isGirls ? 'GIRLS' : 'BOYS';
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const title = `TOP 10 U${age} ${genderLabel} IN ${stateName}`;
+
+  // Instagram grows from square to fit names that wrap to a second line; story /
+  // twitter keep their fixed dimensions. Heights below are the fluid row heights
+  // plus fixed header/footer/padding overhead, tuned against the rendered output.
+  const fluid = platform === 'instagram';
+  const NAME_WIDTH = 1080 - 112 - 54 - 18 - (110 + 92) - 44; // canvas minus rank, stat cols, padding
+  const ROW_GAP = 8;
+  const rowsHeight = teams.reduce(
+    (sum, t) => sum + (lineCount(t.team_name.toUpperCase(), 23, NAME_WIDTH) > 1 ? 105 : 75),
+    0
+  );
+  const overhead = 112 + (56 + 22 + lineCount(title, 50, 968) * 60 + 10 + 24 + 30) + 57;
+  const width = fluid ? 1080 : d.width;
+  const height = fluid ? clampIgHeight(overhead + rowsHeight + Math.max(0, teams.length - 1) * ROW_GAP) : d.height;
 
   return new ImageResponse(
     <Frame isStory={isStory}>
-      <Header
-        origin={origin}
-        isStory={isStory}
-        title={`TOP 10 U${age} ${genderLabel} IN ${stateName}`}
-        subtitle={`Rankings as of ${dateStr}`}
-      />
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: isStory ? 12 : 8 }}>
+      <Header origin={origin} isStory={isStory} title={title} subtitle={`Rankings as of ${dateStr}`} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: isStory ? 12 : 8, ...(fluid ? {} : { flex: 1 }) }}>
         {teams.map((team, i) => (
           <RankRow
             key={i}
@@ -115,6 +126,7 @@ export async function GET(request: Request) {
             teamName={team.team_name.toUpperCase()}
             club={team.club_name}
             isStory={isStory}
+            fluid={fluid}
           >
             <StatBlock
               value={formatRecord(team.wins, team.losses, team.draws)}
@@ -135,6 +147,6 @@ export async function GET(request: Request) {
       </div>
       <Footer isStory={isStory} />
     </Frame>,
-    { width: d.width, height: d.height, fonts, headers: { 'Cache-Control': INFOGRAPHIC_CACHE_CONTROL } }
+    { width, height, fonts, headers: { 'Cache-Control': INFOGRAPHIC_CACHE_CONTROL } }
   );
 }
