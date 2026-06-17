@@ -1,0 +1,14 @@
+# Outreach sources: youth soccer CLUBS.
+# Schema documented in associations.yaml.
+#
+# Club targets are best generated from the top-ranked clubs in rankings_full
+# (high-authority, relevance-aligned) rather than hand-listed. Seed real clubs
+# here as they are confirmed; the example below shows the expected shape.
+segment: clubs
+sites: []
+  # - org: "Example SC"
+  #   source_domain: "examplesc.org"
+  #   start_url: "https://www.examplesc.org/contact"
+  #   personalization:
+  #     state: "AZ"
+  #     league_mix: "ECNL / MLS NEXT"

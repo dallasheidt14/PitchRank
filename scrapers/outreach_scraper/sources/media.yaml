@@ -1,0 +1,19 @@
+# Outreach sources: youth-soccer MEDIA / mastheads.
+# Schema documented in associations.yaml. Target editorial/tips role inboxes.
+segment: media
+sites:
+  - org: "SoccerWire"
+    source_domain: "soccerwire.com"
+    start_url: "https://www.soccerwire.com/contact-us/"
+    personalization:
+      beat: "youth & club soccer"
+  - org: "TopDrawerSoccer"
+    source_domain: "topdrawersoccer.com"
+    start_url: "https://www.topdrawersoccer.com/contact/"
+    personalization:
+      beat: "youth & college soccer recruiting"
+  - org: "Soccer America"
+    source_domain: "socceramerica.com"
+    start_url: "https://www.socceramerica.com/contact"
+    personalization:
+      beat: "American soccer news"
