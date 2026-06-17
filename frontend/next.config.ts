@@ -62,6 +62,11 @@ const nextConfig: NextConfig = {
         destination: '/blog/texas-youth-soccer-rankings-guide',
         permanent: true,
       },
+      {
+        source: '/blog/2026-06-17-massachusetts-youth-soccer-rankings',
+        destination: '/blog/massachusetts-youth-soccer-rankings-guide',
+        permanent: true,
+      },
     ];
   },
 
