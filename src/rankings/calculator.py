@@ -734,7 +734,7 @@ def _compute_same_age_evidence_metrics(
                     ref is not None
                     and cohort_age is not None
                     and _parse_age_number(ref["age_group"]) == cohort_age
-                    and str(ref["gender"]) == str(gender)
+                    and str(ref["gender"]).lower() == str(gender).lower()
                 ):
                     rank_map[opp_id] = int(ref["rank"])
                     frozen_used += 1
