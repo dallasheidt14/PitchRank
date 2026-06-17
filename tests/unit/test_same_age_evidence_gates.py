@@ -214,9 +214,11 @@ def test_compute_same_age_evidence_metrics_freezes_opponent_rank_keeps_live_powe
 
     # B's prior published rank (150) drops it out of the top 100; C is absent from the
     # snapshot and falls back to its current-run rank, which is still top 100.
+    # The frozen ref mirrors real ranking_history: lowercase "male" gender (vs the
+    # teams' "Male") must still match — the cohort comparison is case-insensitive.
     frozen = (
         _compute_same_age_evidence_metrics(
-            games_used, teams, frozen_rank_lookup={"B": {"age_group": "u12", "gender": "Male", "rank": 150}}
+            games_used, teams, frozen_rank_lookup={"B": {"age_group": "u12", "gender": "male", "rank": 150}}
         )
         .set_index("team_id")
         .loc["A"]
