@@ -1,7 +1,7 @@
 # Publish-Path Hardening — Scoping Doc
 
 **Date:** 2026-06-16
-**Status:** Step 1 implemented and merged (#913, flag-gated, default off). Steps 2–4 are scoped, not yet implemented.
+**Status:** Step 1 implemented (#913, #917) but **enablement REJECTED as designed** — a 2026-06-17 read-only A/B showed turning the flag on reshuffles ~99% of the board (see Step 1 *Findings*). Flag stays `False`. Steps 2–4 scoped, not yet implemented.
 **Hard invariant:** `SCF_PUBLISH_ONLY` stays `False` for every step below. Re-enabling it is **not** part of any scoped change — it is a separate final decision gate (see *Re-enable Criteria*).
 
 ---
@@ -20,6 +20,16 @@ The rollback restored the *old* system, not a *good* one. The baseline still car
 ---
 
 ## Step 1 — Freeze the evidence-gate reference (narrow, ships first)
+
+> ### Findings — enablement REJECTED as currently designed (validated 2026-06-17)
+> **The flag stays `False`; do not enable it in this design.** A read-only A/B (full engine run, flag off vs on, identical games, no persistence — `force_rebuild`, all persist/snapshot flags off) showed the frozen reference does **not** stabilize the board; it re-prices it wholesale:
+> - **98.7% of Active teams (57,546 / 58,311) changed published rank**
+> - median mover **51** ranks; p90 329; p99 821; max **1,859**; **18,835 moved ≥100**
+> - worst-cohort new top-100 entrants **30 (u19/male)** — **exceeds the stability harness FAIL threshold (20)**
+>
+> Coverage was **98.4%** (the flag engaged correctly — confirmed against the known-good 06-08 baseline), so this is the design's true behavior, not a no-op. Mechanism: freezing the gate reference to the prior published snapshot flips enough top-100/top-500 opponent classifications (the evidence gates are publish-path-dominant) to cascade cap/penalty reassignments across nearly every team — the exact opposite of this step's "steady-state published output materially unchanged" success criterion.
+>
+> The implementation fixes — #913 (cohort-keyed match) and #917 (case-insensitive gender; the flag had silently no-op'd at 0% coverage before it) — **remain correct**: the flag now behaves *as designed* when toggled, and the default-off no-op path is preserved. But **the design itself is rejected.** Future work is a *redesigned* approach (e.g. a fresher or blended reference, or hysteresis on threshold crossings), **not** further testing of this one. The scoping below is retained as historical context.
 
 **Problem being addressed**
 `_compute_same_age_evidence_metrics()` builds its opponent rank/power lookups (`base_rank_lookup`, `base_power_lookup`) from the **current run's** `powerscore_adj`. Every downstream consumer of those metrics (evidence gates, raw-shrink, publish-penalty, publication-cap) therefore moves whenever the current run's pricing moves. An engine change perturbs `powerscore_adj`, which silently shifts the gates and caps in the same run — a self-referential amplifier with no stable anchor.
