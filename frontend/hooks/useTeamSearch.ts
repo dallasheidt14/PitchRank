@@ -47,7 +47,7 @@ async function fetchModular11TeamIds(supabase: ReturnType<typeof createClientSup
 
 async function fetchAllTeams(): Promise<RankingRow[]> {
   const supabase = createClientSupabase();
-  const BATCH_SIZE = 10000; // keyset page size; this project's PostgREST has no max-rows cap
+  const BATCH_SIZE = 10000; // request large pages; loop below tolerates a smaller PostgREST max_rows cap
   const allTeams: RankingRow[] = [];
   let lastId: string | null = null;
   let hasMore = true;
@@ -162,11 +162,11 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
 
     allTeams.push(...transformedBatch);
 
-    // Advance the cursor; fewer than BATCH_SIZE rows means we've reached the end
+    // Advance the cursor and keep paging until an empty page (handled above).
+    // Don't stop on a short page: PostgREST can cap a "full" page below
+    // BATCH_SIZE (max_rows), and treating that cap as the end would silently
+    // drop every remaining team.
     lastId = data[data.length - 1].team_id_master;
-    if (data.length < BATCH_SIZE) {
-      hasMore = false;
-    }
   }
 
   return allTeams;
