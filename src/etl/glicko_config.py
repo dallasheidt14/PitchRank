@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,9 @@ class GlickoConfig:
     SOS_TRIM_TOP_PCT: float = 0.15
 
     # SCF
-    SCF_ENABLED: bool = True
+    SCF_ENABLED: bool = field(
+        default_factory=lambda: os.getenv("SCF_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+    )
     # Apply SCF dampening only to the published score, never to mu.
     # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
     # cross-age global map); publish-only SCF won log-loss in every backtested
