@@ -47,21 +47,29 @@ async function fetchModular11TeamIds(supabase: ReturnType<typeof createClientSup
 
 async function fetchAllTeams(): Promise<RankingRow[]> {
   const supabase = createClientSupabase();
-  const BATCH_SIZE = 1000; // Supabase default limit
+  const BATCH_SIZE = 10000; // request large pages; loop below tolerates a smaller PostgREST max_rows cap
   const allTeams: RankingRow[] = [];
-  let offset = 0;
+  let lastId: string | null = null;
   let hasMore = true;
 
   const modular11TeamIds = await fetchModular11TeamIds(supabase);
 
-  // Fetch teams in batches until we've got them all
+  // Fetch teams in keyset (cursor) batches until we've got them all.
+  // Seek past the last id rather than OFFSET so deep pages stay fast on the
+  // full ~168k-row table — OFFSET re-scans every preceding row on each page.
   while (hasMore) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('teams')
       .select('team_id_master, team_name, club_name, league, distinction, state_code, age_group, gender')
       .eq('is_deprecated', false) // Filter out deprecated/merged teams
-      .order('team_name', { ascending: true })
-      .range(offset, offset + BATCH_SIZE - 1);
+      .order('team_id_master', { ascending: true })
+      .limit(BATCH_SIZE);
+
+    if (lastId !== null) {
+      query = query.gt('team_id_master', lastId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[useTeamSearch] Error fetching teams:', error.message);
@@ -154,12 +162,11 @@ async function fetchAllTeams(): Promise<RankingRow[]> {
 
     allTeams.push(...transformedBatch);
 
-    // If we got fewer than BATCH_SIZE, we've reached the end
-    if (data.length < BATCH_SIZE) {
-      hasMore = false;
-    } else {
-      offset += BATCH_SIZE;
-    }
+    // Advance the cursor and keep paging until an empty page (handled above).
+    // Don't stop on a short page: PostgREST can cap a "full" page below
+    // BATCH_SIZE (max_rows), and treating that cap as the end would silently
+    // drop every remaining team.
+    lastId = data[data.length - 1].team_id_master;
   }
 
   return allTeams;
