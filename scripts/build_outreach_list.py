@@ -48,6 +48,24 @@ def segment_counts(client, segment):
     return counts
 
 
+def queued_slice_ids(client, segment, limit):
+    """The first ``limit`` queued rows for a segment, ordered for determinism.
+
+    Enrich and verify share this slice so a capped run advances the same rows
+    through both stages.
+    """
+    res = (
+        client.table(TABLE)
+        .select("id")
+        .eq("segment", segment)
+        .eq("status", "queued")
+        .order("id")
+        .limit(limit)
+        .execute()
+    )
+    return [row["id"] for row in (res.data or [])]
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build the outreach target list for one segment.")
     parser.add_argument("--segment", required=True, choices=SEGMENTS)
@@ -60,10 +78,16 @@ def main():
         logger.info("dry-run: scrape only, skipping enrichment and verification")
         return
 
-    enrich_stats = enrich.enrich_queued(limit=args.limit, segment=args.segment)
-    gate_summary = verify.verify_and_gate(segment=args.segment, limit=args.limit)
+    client = get_client()
+    if args.limit:
+        slice_ids = queued_slice_ids(client, args.segment, args.limit)
+        enrich_stats = enrich.enrich_queued(client=client, ids=slice_ids)
+        gate_summary = verify.verify_and_gate(client=client, ids=slice_ids)
+    else:
+        enrich_stats = enrich.enrich_queued(client=client, segment=args.segment)
+        gate_summary = verify.verify_and_gate(client=client, segment=args.segment)
 
-    counts = segment_counts(get_client(), args.segment)
+    counts = segment_counts(client, args.segment)
     logger.info("=" * 60)
     logger.info("Segment: %s", args.segment)
     logger.info("Enrichment: %s", enrich_stats)

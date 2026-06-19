@@ -32,15 +32,15 @@ def _hunter_key():
 
 
 def _pick_domain_email(emails):
-    """Prefer a generic/role inbox, highest Hunter confidence first."""
-    if not emails:
+    """Pick the highest-confidence generic/role inbox; skip personal addresses.
+
+    Outreach is scoped to publicly-listed role inboxes, so a domain search that
+    returns only personal addresses yields no contact (left for manual review).
+    """
+    generic = [e for e in emails if e.get("type") == "generic"]
+    if not generic:
         return None
-    ranked = sorted(
-        emails,
-        key=lambda e: (e.get("type") == "generic", e.get("confidence") or 0),
-        reverse=True,
-    )
-    return ranked[0]
+    return max(generic, key=lambda e: e.get("confidence") or 0)
 
 
 def find_email(source_domain, full_name=None):
@@ -92,12 +92,13 @@ def merge_confidence(personalization, confidence):
     return merged
 
 
-def enrich_queued(limit=None, client=None, segment=None):
+def enrich_queued(limit=None, client=None, segment=None, ids=None):
     """Find and write emails for queued rows missing a contact.
 
-    When ``segment`` is given, only that segment is enriched, so a ``limit`` is
-    spent on the segment the caller asked for (matching ``verify_and_gate``'s
-    scoping) rather than starving it with other segments' rows.
+    ``segment`` scopes to one segment. ``ids`` restricts to an explicit set of
+    rows so a capped run enriches and verifies the *same* slice (the runner
+    passes a shared slice for ``--limit``), rather than each stage taking its
+    own arbitrary slice.
     """
     client = client or get_client()
     query = (
@@ -105,6 +106,8 @@ def enrich_queued(limit=None, client=None, segment=None):
     )
     if segment:
         query = query.eq("segment", segment)
+    if ids is not None:
+        query = query.in_("id", ids)
     if limit:
         query = query.limit(limit)
     rows = query.execute().data or []

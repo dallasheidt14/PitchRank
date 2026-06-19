@@ -22,6 +22,11 @@ def test_pick_domain_email_prefers_generic_then_confidence():
     assert enrich._pick_domain_email([]) is None
 
 
+def test_pick_domain_email_skips_personal_only():
+    personal = [{"value": "coach@x.org", "type": "personal", "confidence": 95}]
+    assert enrich._pick_domain_email(personal) is None
+
+
 # --- Minimal Supabase client fake (only the chains enrich_queued uses) ---
 
 
@@ -34,6 +39,7 @@ class _Select:
     def __init__(self, table):
         self.table = table
         self._limit = None
+        self._ids = None
 
     def select(self, *a, **k):
         return self
@@ -44,12 +50,22 @@ class _Select:
     def is_(self, *a, **k):
         return self
 
+    def in_(self, col, vals):
+        if col == "id":
+            self._ids = set(vals)
+        return self
+
+    def order(self, *a, **k):
+        return self
+
     def limit(self, n):
         self._limit = n
         return self
 
     def execute(self):
         rows = [dict(r) for r in self.table.rows if r.get("status") == "queued" and r.get("contact") is None]
+        if self._ids is not None:
+            rows = [r for r in rows if r.get("id") in self._ids]
         if self._limit:
             rows = rows[: self._limit]
         return _Result(rows)
@@ -141,6 +157,21 @@ def test_enrich_skips_already_enriched_rows(monkeypatch):
     stats = enrich.enrich_queued(client=client)
 
     assert stats == {"resolved": 0, "no_email": 0, "held_collision": 0}
+
+
+def test_enrich_queued_ids_restricts_to_slice(monkeypatch):
+    rows = [
+        {"id": "a", "status": "queued", "contact": None, "source_domain": "a.org", "personalization": {}},
+        {"id": "b", "status": "queued", "contact": None, "source_domain": "b.org", "personalization": {}},
+    ]
+    client = _Client(_Table(rows))
+    monkeypatch.setattr(enrich, "find_email", lambda domain, full_name=None: (f"info@{domain}", 70.0))
+
+    stats = enrich.enrich_queued(client=client, ids=["a"])
+
+    assert stats == {"resolved": 1, "no_email": 0, "held_collision": 0}
+    assert rows[0]["contact"] == "info@a.org"  # in slice -> enriched
+    assert rows[1]["contact"] is None  # outside slice -> untouched
 
 
 def test_enrich_no_source_domain_counts_no_email(monkeypatch):

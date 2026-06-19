@@ -103,12 +103,19 @@ def decide_gate(rows, threshold=INVALID_RATE_THRESHOLD):
     }
 
 
-def verify_and_gate(*, segment=None, limit=None, client=None, threshold=INVALID_RATE_THRESHOLD):
-    """Verify a slice of queued rows and apply the invalid-rate gate."""
+def verify_and_gate(*, segment=None, limit=None, client=None, ids=None, threshold=INVALID_RATE_THRESHOLD):
+    """Verify a slice of queued rows and apply the invalid-rate gate.
+
+    ``ids`` restricts the slice to an explicit set of rows so a capped run gates
+    exactly the rows enrichment just processed (the runner passes a shared slice
+    for ``--limit``), so no un-enriched row is held as "no-email" prematurely.
+    """
     client = client or get_client()
     query = client.table(TABLE).select("id, contact, verification_status").eq("status", "queued")
     if segment:
         query = query.eq("segment", segment)
+    if ids is not None:
+        query = query.in_("id", ids)
     if limit:
         query = query.limit(limit)
     rows = query.execute().data or []
