@@ -7,6 +7,8 @@ import { Toaster } from '@/components/ui/Toaster';
 import { StructuredData } from '@/components/StructuredData';
 import { Footer } from '@/components/Footer';
 import { GoogleAnalytics } from '@/components/GoogleAnalytics';
+import { MetaPixel } from '@/components/MetaPixel';
+import { GoogleAds } from '@/components/GoogleAds';
 import { WebVitalsReporter } from '@/components/WebVitalsReporter';
 import { BASE_URL_WWW } from '@/lib/constants';
 
@@ -144,6 +146,10 @@ export default function RootLayout({
 
         {/* Google Analytics */}
         <GoogleAnalytics measurementId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
+
+        {/* Meta Pixel + Google Ads remarketing (audience capture) */}
+        <MetaPixel pixelId={process.env.NEXT_PUBLIC_META_PIXEL_ID} />
+        <GoogleAds conversionId={process.env.NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID} />
       </head>
       <body
         className={`${oswald.variable} ${dmSans.variable} ${jetbrainsMono.variable} antialiased flex flex-col min-h-screen`}

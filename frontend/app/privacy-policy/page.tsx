@@ -150,6 +150,7 @@ export default function PrivacyPolicyPage() {
               <li>Payment processors (Stripe)</li>
               <li>Hosting providers</li>
               <li>Analytics providers</li>
+              <li>Advertising partners (Meta and Google) for measurement and remarketing audiences</li>
               <li>Legal authorities if required by law</li>
             </ul>
             <p className="text-muted-foreground leading-relaxed mt-3 font-medium text-foreground">
