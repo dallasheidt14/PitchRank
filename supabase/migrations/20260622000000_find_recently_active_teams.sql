@@ -11,6 +11,10 @@
 -- than a teams-driven EXISTS, which times out at full team-table scale. The
 -- cooldown gate skips teams scraped very recently so we don't waste scrape budget.
 --
+-- Only past games count (game_date <= CURRENT_DATE): GotSport imports future
+-- scheduled fixtures, so without the upper bound any team with an upcoming game
+-- would qualify as "recently active" and crowd out teams that actually just played.
+--
 -- Filters mirror find_stale_teams: is_deprecated, GotSport provider, U8/U9 +
 -- U20+ age exclusions, 'unknown_*' placeholder exclusion. is_excluded games are
 -- ignored so excluded/futsal results don't count as activity (a deliberate
@@ -35,12 +39,14 @@ AS $$
         SELECT home_team_master_id AS master_id
         FROM games
         WHERE game_date >= CURRENT_DATE - make_interval(days => find_recently_active_teams.p_active_window_days)
+          AND game_date <= CURRENT_DATE
           AND is_excluded = false
           AND home_team_master_id IS NOT NULL
         UNION
         SELECT away_team_master_id AS master_id
         FROM games
         WHERE game_date >= CURRENT_DATE - make_interval(days => find_recently_active_teams.p_active_window_days)
+          AND game_date <= CURRENT_DATE
           AND is_excluded = false
           AND away_team_master_id IS NOT NULL
     )
