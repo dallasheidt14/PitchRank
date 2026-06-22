@@ -1,35 +1,52 @@
 #!/usr/bin/env python3
 """
-SCF-off staging board producer — zero prod-write.
-=================================================
-Builds a staging-only Glicko-2 ranking board with SCF disabled and loads it into
-a persistent scratch table ``rankings_full_scf_off`` (``LIKE rankings_full``) so
-the existing read-only harnesses can score it:
+SCF staging board producer — zero prod-write, one candidate per invocation.
+===========================================================================
+Builds a staging-only Glicko-2 ranking board for ONE SCF candidate (mode on/off,
+and when on, a chosen SCF_FLOOR / SCF_DIVERSITY_DIVISOR) and loads it into a named
+scratch table (``LIKE rankings_full``) so the read-only harnesses can score it:
 
-    scripts/diagnose_bubble_teams.py   --rankings-table rankings_full_scf_off
-    scripts/ranking_stability_check.py --compare-table  rankings_full_scf_off
+    scripts/diagnose_bubble_teams.py   --rankings-table <table>
+    scripts/ranking_stability_check.py --compare-table  <table> --baseline-table <baseline>
 
 The board is produced DB-read-only: compute_all_cohorts runs with save_snapshot,
 persist_game_residuals, persist_game_explainability, and calculate_rank_changes
-all disabled, and force_rebuild=True. Because the engine cache key includes
-SCF_ENABLED, this run writes a distinct-hash parquet cache that cannot overwrite
-the prod (SCF-on) cache. No row in rankings_full / current_rankings /
-ranking_history / games is mutated.
+all disabled, and force_rebuild=True. The engine cache key includes the SCF dials
+(SCF_ENABLED + SCF_FLOOR + SCF_DIVERSITY_DIVISOR), so each candidate writes a
+distinct-hash parquet cache that cannot overwrite another candidate's or prod's.
+No row in rankings_full / current_rankings / ranking_history / games is mutated.
 
-SCF is flipped via the env-backed default on GlickoConfig.SCF_ENABLED — set to
-"false" in this process only, after dotenv load and before any GlickoConfig is
-constructed.
+The SCF dials are flipped via env-backed defaults on GlickoConfig — forced in this
+process only, after dotenv load and before any GlickoConfig is constructed.
 
-Usage (run from the SCF-off worktree with C:/Python313/python.exe):
-    python scripts/run_scf_off_staging.py                 # build board + load scratch table
-    python scripts/run_scf_off_staging.py --teardown      # drop the scratch table
-The only mutation is the scratch table this script owns; prod tables are read-only.
+Same-snapshot guarantee: pass --fetch-snapshot once to dump the games dataset to a
+parquet (pinned to --today), then build every candidate board from that identical
+dataset with --games-snapshot <parquet> --today <date>, so every board-to-board
+delta is pure dial effect rather than a re-fetch confound.
+
+Usage (run from the SCF worktree with C:/Python313/python.exe):
+    # 1. Fetch the shared games snapshot once (pin today):
+    python scripts/run_scf_off_staging.py --fetch-snapshot \
+        --games-snapshot data/staging/sweep_games_snapshot.parquet --today 2026-06-19
+    # 2. Build the SCF-on baseline (prod dials) and each floor candidate from it:
+    python scripts/run_scf_off_staging.py --scf-mode on --scf-floor 0.4 --scf-divisor 4.0 \
+        --table rankings_full_scf_on_base \
+        --games-snapshot data/staging/sweep_games_snapshot.parquet --today 2026-06-19
+    python scripts/run_scf_off_staging.py --scf-mode on --scf-floor 0.55 \
+        --table rankings_full_scf_floor055 \
+        --games-snapshot data/staging/sweep_games_snapshot.parquet --today 2026-06-19
+    # Legacy single-board SCF-off (live fetch, default table):
+    python scripts/run_scf_off_staging.py
+    # Drop one scratch table:
+    python scripts/run_scf_off_staging.py --teardown --table rankings_full_scf_floor055
+The only mutation is the scratch table each invocation owns; prod tables are read-only.
 """
 
 import argparse
 import asyncio
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -43,8 +60,8 @@ from psycopg2 import sql
 from psycopg2.extras import execute_values
 
 from src.etl.glicko_config import GlickoConfig
-from src.rankings.calculator import compute_all_cohorts
-from src.rankings.data_adapter import batch_fetch_rows, v53e_to_rankings_full_format
+from src.rankings.calculator import _effective_fetch_lookback_days, compute_all_cohorts
+from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings, v53e_to_rankings_full_format
 from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
 
@@ -58,15 +75,9 @@ if env_local.exists():
 else:
     load_dotenv()
 
-# Force SCF off for THIS process AFTER dotenv load, so a stray SCF_ENABLED in
-# .env.local cannot override the forced value. GlickoConfig reads this env-backed
-# default only when constructed (compute_all_cohorts / _assert_scf_off below),
-# never at import, so setting it here is early enough.
-os.environ["SCF_ENABLED"] = "false"
-
 SEP = "=" * 78
-SCRATCH_TABLE = "rankings_full_scf_off"
-STAGING_PARQUET = Path("data/staging/scf_off_teams.parquet")
+DEFAULT_TABLE = "rankings_full_scf_off"
+SNAPSHOT_PARQUET_DEFAULT = Path("data/staging/sweep_games_snapshot.parquet")
 
 # Columns the bubble-guardrail and stability harnesses read off the board. The
 # formatter always emits these; a present-but-all-NULL column is the real failure
@@ -100,12 +111,35 @@ def _open_connection():
     return psycopg2.connect(database_url)
 
 
-def _assert_scf_off() -> None:
-    effective = GlickoConfig().SCF_ENABLED
-    print(f"  effective GlickoConfig().SCF_ENABLED = {effective}")
-    if effective is not False:
-        print("ERROR: SCF_ENABLED did not resolve to False — aborting to avoid an SCF-on staging board")
+def _force_scf_env(mode: str, floor: float, divisor: float) -> None:
+    """Force the SCF dials for THIS process AFTER dotenv load, so a stray value in
+    .env.local cannot win. GlickoConfig reads these env-backed defaults only when
+    constructed (compute_all_cohorts / _assert_effective_config below), never at
+    import, so forcing here — before any GlickoConfig() — is early enough."""
+    os.environ["SCF_ENABLED"] = "true" if mode == "on" else "false"
+    if mode == "on":
+        os.environ["SCF_FLOOR"] = str(floor)
+        os.environ["SCF_DIVERSITY_DIVISOR"] = str(divisor)
+
+
+def _assert_effective_config(mode: str, floor: float, divisor: float) -> None:
+    cfg = GlickoConfig()
+    print(f"  effective GlickoConfig().SCF_ENABLED           = {cfg.SCF_ENABLED}")
+    print(f"  effective GlickoConfig().SCF_FLOOR             = {cfg.SCF_FLOOR}")
+    print(f"  effective GlickoConfig().SCF_DIVERSITY_DIVISOR = {cfg.SCF_DIVERSITY_DIVISOR}")
+    want_enabled = mode == "on"
+    if cfg.SCF_ENABLED is not want_enabled:
+        print(f"ERROR: SCF_ENABLED resolved to {cfg.SCF_ENABLED}, expected {want_enabled} — aborting")
         sys.exit(1)
+    if want_enabled:
+        if abs(cfg.SCF_FLOOR - floor) > 1e-9:
+            print(f"ERROR: SCF_FLOOR resolved to {cfg.SCF_FLOOR}, expected {floor} — aborting")
+            sys.exit(1)
+        if abs(cfg.SCF_DIVERSITY_DIVISOR - divisor) > 1e-9:
+            print(
+                f"ERROR: SCF_DIVERSITY_DIVISOR resolved to {cfg.SCF_DIVERSITY_DIVISOR}, expected {divisor} — aborting"
+            )
+            sys.exit(1)
 
 
 def _fetch_teams_metadata(supabase_client, team_ids: list[str]) -> pd.DataFrame:
@@ -176,15 +210,13 @@ def _to_pg(value):
     return value
 
 
-def _load_scratch_table(conn, board: pd.DataFrame) -> int:
+def _load_scratch_table(conn, board: pd.DataFrame, table: str) -> int:
     with conn.cursor() as cur:
-        cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(SCRATCH_TABLE)))
-        cur.execute(
-            sql.SQL("CREATE TABLE {} (LIKE rankings_full INCLUDING DEFAULTS)").format(sql.Identifier(SCRATCH_TABLE))
-        )
+        cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
+        cur.execute(sql.SQL("CREATE TABLE {} (LIKE rankings_full INCLUDING DEFAULTS)").format(sql.Identifier(table)))
         cur.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
-            (SCRATCH_TABLE,),
+            (table,),
         )
         table_cols = {row[0] for row in cur.fetchall()}
         cols = [c for c in board.columns if c in table_cols]
@@ -193,7 +225,7 @@ def _load_scratch_table(conn, board: pd.DataFrame) -> int:
             print(f"  Board columns absent from rankings_full (skipped on insert): {dropped}")
         rows = [tuple(_to_pg(v) for v in rec) for rec in board[cols].itertuples(index=False, name=None)]
         insert_sql = sql.SQL("INSERT INTO {} ({}) VALUES %s").format(
-            sql.Identifier(SCRATCH_TABLE),
+            sql.Identifier(table),
             sql.SQL(", ").join(sql.Identifier(c) for c in cols),
         )
         execute_values(cur, insert_sql.as_string(cur), rows, page_size=1000)
@@ -201,7 +233,7 @@ def _load_scratch_table(conn, board: pd.DataFrame) -> int:
     return len(rows)
 
 
-async def _build_board(lookback_days: int) -> pd.DataFrame:
+def _supabase_with_merges():
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not supabase_url or not supabase_key:
@@ -215,11 +247,49 @@ async def _build_board(lookback_days: int) -> pd.DataFrame:
         print(f"  Loaded {merge_resolver.merge_count} team merges (version: {merge_resolver.version})")
     else:
         print(f"  WARNING: no team merges loaded (version: {merge_resolver.version})")
+    return supabase, merge_resolver
+
+
+async def _fetch_snapshot(lookback_days: int, today: pd.Timestamp, out_path: Path) -> None:
+    """Fetch the games dataset once (pinned to `today`) and persist it, so every
+    candidate board can be built from byte-identical input via --games-snapshot.
+    Uses the same fetch path compute_all_cohorts uses internally, so a board built
+    from this parquet matches a live fetch run on the same date."""
+    supabase, merge_resolver = _supabase_with_merges()
+    fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=True)
+    games_df = await fetch_games_for_rankings(
+        supabase_client=supabase,
+        lookback_days=fetch_lookback_days,
+        provider_filter=None,
+        today=today,
+        merge_resolver=merge_resolver,
+    )
+    if games_df.empty:
+        print("ERROR: fetch returned zero games — refusing to write an empty snapshot")
+        sys.exit(1)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    games_df.to_parquet(out_path, index=False)
+    print(f"  Wrote {len(games_df):,} game perspectives to {out_path} (today pinned {today.date()})")
+    print("  Build every board from this snapshot with:")
+    print(f"    --games-snapshot {out_path} --today {today.date()}")
+
+
+async def _build_board(lookback_days: int, games_snapshot: Path | None, today: pd.Timestamp | None) -> pd.DataFrame:
+    supabase, merge_resolver = _supabase_with_merges()
+
+    games_df = None
+    if games_snapshot is not None:
+        if not games_snapshot.exists():
+            print(f"ERROR: --games-snapshot {games_snapshot} not found (run --fetch-snapshot first)")
+            sys.exit(1)
+        games_df = pd.read_parquet(games_snapshot)
+        print(f"  Loaded {len(games_df):,} game perspectives from {games_snapshot} (today pinned {today.date()})")
 
     result = await compute_all_cohorts(
         supabase_client=supabase,
-        today=None,
-        fetch_from_supabase=True,
+        games_df=games_df,
+        today=today,
+        fetch_from_supabase=games_df is None,
         lookback_days=lookback_days,
         force_rebuild=True,
         merge_resolver=merge_resolver,
@@ -240,60 +310,115 @@ async def _build_board(lookback_days: int) -> pd.DataFrame:
 
 
 async def _run_build(args) -> None:
-    print(f"\n{SEP}\n  SCF-off staging board producer (zero prod-write)\n{SEP}")
-    _assert_scf_off()
+    table = args.table
+    mode = args.scf_mode
+    print(f"\n{SEP}\n  SCF staging board producer (zero prod-write) — mode {mode}, table {table}\n{SEP}")
+    _assert_effective_config(mode, args.scf_floor, args.scf_divisor)
 
-    formatted = await _build_board(args.lookback_days)
+    today = pd.Timestamp(args.today) if args.today else None
+    games_snapshot = Path(args.games_snapshot) if args.games_snapshot else None
+    formatted = await _build_board(args.lookback_days, games_snapshot, today)
 
     conn = _open_connection()
     try:
         formatted = _backfill_last_game(conn, formatted)
         _verify_board_columns(formatted)
 
-        STAGING_PARQUET.parent.mkdir(parents=True, exist_ok=True)
-        formatted.to_parquet(STAGING_PARQUET, index=False)
-        print(f"  Dumped {len(formatted):,} rows to {STAGING_PARQUET}")
+        board_parquet = Path(f"data/staging/{table}.parquet")
+        board_parquet.parent.mkdir(parents=True, exist_ok=True)
+        formatted.to_parquet(board_parquet, index=False)
+        print(f"  Dumped {len(formatted):,} rows to {board_parquet}")
 
-        inserted = _load_scratch_table(conn, formatted)
+        inserted = _load_scratch_table(conn, formatted, table)
         with conn.cursor() as cur:
-            cur.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(SCRATCH_TABLE)))
+            cur.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table)))
             scratch_count = cur.fetchone()[0]
-            cur.execute(
-                sql.SQL("SELECT count(*) FROM {} WHERE status = 'Active'").format(sql.Identifier(SCRATCH_TABLE))
-            )
+            cur.execute(sql.SQL("SELECT count(*) FROM {} WHERE status = 'Active'").format(sql.Identifier(table)))
             active_count = cur.fetchone()[0]
     finally:
         conn.close()
 
     print(f"\n{SEP}")
-    print(f"  Loaded {inserted:,} rows into {SCRATCH_TABLE} (table count {scratch_count:,}, Active {active_count:,})")
+    print(f"  Loaded {inserted:,} rows into {table} (table count {scratch_count:,}, Active {active_count:,})")
     print("  Score it with:")
-    print(f"    python scripts/diagnose_bubble_teams.py   --rankings-table {SCRATCH_TABLE}")
-    print(f"    python scripts/ranking_stability_check.py --compare-table  {SCRATCH_TABLE}")
-    print("  Tear down with: python scripts/run_scf_off_staging.py --teardown")
+    print(f"    python scripts/diagnose_bubble_teams.py   --rankings-table {table}")
+    print(
+        f"    python scripts/ranking_stability_check.py --compare-table {table} "
+        "--baseline-table rankings_full_scf_on_base"
+    )
+    print(f"  Tear down with: python scripts/run_scf_off_staging.py --teardown --table {table}")
     print(SEP)
 
 
-def _run_teardown() -> None:
+def _run_teardown(table: str) -> None:
     conn = _open_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(SCRATCH_TABLE)))
+            cur.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
         conn.commit()
     finally:
         conn.close()
-    print(f"  Dropped {SCRATCH_TABLE}")
+    print(f"  Dropped {table}")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Produce an SCF-off staging board and load it into a scratch table.")
+    parser = argparse.ArgumentParser(
+        description="Produce one SCF staging board (any mode/floor/divisor) and load it into a scratch table."
+    )
     parser.add_argument("--lookback-days", type=int, default=365, help="Days to look back for rankings (default: 365)")
-    parser.add_argument("--teardown", action="store_true", help="Drop the scratch table and exit")
+    parser.add_argument(
+        "--scf-mode",
+        choices=("on", "off"),
+        default="off",
+        help="SCF on (apply --scf-floor/--scf-divisor) or off (default: off, backward-compat).",
+    )
+    parser.add_argument(
+        "--scf-floor", type=float, default=0.4, help="SCF_FLOOR when --scf-mode on (default: 0.4 = prod)."
+    )
+    parser.add_argument(
+        "--scf-divisor", type=float, default=4.0, help="SCF_DIVERSITY_DIVISOR when --scf-mode on (default: 4.0 = prod)."
+    )
+    parser.add_argument(
+        "--table", default=DEFAULT_TABLE, help=f"Scratch table to (re)create and load (default: {DEFAULT_TABLE})."
+    )
+    parser.add_argument(
+        "--games-snapshot", help="Parquet of pre-fetched games to build from (requires --today). Omit to fetch live."
+    )
+    parser.add_argument(
+        "--today",
+        help="Reference date YYYY-MM-DD pinning the run (required with --games-snapshot or --fetch-snapshot).",
+    )
+    parser.add_argument(
+        "--fetch-snapshot",
+        action="store_true",
+        help="Fetch games once into --games-snapshot (or the default path) and exit; build candidates from it after.",
+    )
+    parser.add_argument("--teardown", action="store_true", help="Drop the --table scratch table and exit.")
     args = parser.parse_args()
 
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", args.table):
+        parser.error(f"--table must match [a-z_][a-z0-9_]* (got {args.table!r})")
+    if args.today is not None:
+        try:
+            pd.Timestamp(args.today)
+        except ValueError:
+            parser.error(f"--today must be a valid date (YYYY-MM-DD); got {args.today!r}")
+
     if args.teardown:
-        _run_teardown()
+        _run_teardown(args.table)
         return
+
+    if args.fetch_snapshot:
+        if not args.today:
+            parser.error("--fetch-snapshot requires --today to pin the reference date")
+        out_path = Path(args.games_snapshot) if args.games_snapshot else SNAPSHOT_PARQUET_DEFAULT
+        asyncio.run(_fetch_snapshot(args.lookback_days, pd.Timestamp(args.today), out_path))
+        return
+
+    if args.games_snapshot and not args.today:
+        parser.error("--games-snapshot requires --today (the same date used to fetch the snapshot)")
+
+    _force_scf_env(args.scf_mode, args.scf_floor, args.scf_divisor)
     asyncio.run(_run_build(args))
 
 

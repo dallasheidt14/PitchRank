@@ -2120,6 +2120,8 @@ async def compute_rankings_with_ml(
         "window_grace": getattr(_ecfg, "WINDOW_GRACE_DAYS", 0),
         "scf": getattr(_ecfg, "SCF_ENABLED", True),
         "scf_po": getattr(_ecfg, "SCF_PUBLISH_ONLY", None),
+        "scf_fl": getattr(_ecfg, "SCF_FLOOR", None),
+        "scf_dd": getattr(_ecfg, "SCF_DIVERSITY_DIVISOR", None),
         "scf_lf": getattr(_ecfg, "SCF_LEAGUE_FLOOR", None),
         "scf_lc": getattr(_ecfg, "SCF_LEAGUE_CONCENTRATION_THRESHOLD", None),
         "tier_ctr": getattr(_ecfg, "TIER_MULT_CENTERED", None),

@@ -98,8 +98,8 @@ class GlickoConfig:
     # (scripts/ranking_stability_check.py).
     SCF_PUBLISH_ONLY: bool = False
     SCF_MIN_UNIQUE_STATES: int = 2
-    SCF_DIVERSITY_DIVISOR: float = 4.0
-    SCF_FLOOR: float = 0.4
+    SCF_DIVERSITY_DIVISOR: float = field(default_factory=lambda: float(os.getenv("SCF_DIVERSITY_DIVISOR", "4.0")))
+    SCF_FLOOR: float = field(default_factory=lambda: float(os.getenv("SCF_FLOOR", "0.4")))
     SCF_ZERO_BRIDGE_FLOOR: float = 0.1
     MIN_BRIDGE_GAMES: int = 3
     ISOLATION_SOS_CAP: float = 0.60

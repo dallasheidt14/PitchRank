@@ -204,17 +204,18 @@ def check_top100_churn(cur, prev_date: str, cohort_sql: str, params: dict) -> No
         verdict("Top-100 churn", "FAIL", f"worst cohort {worst} new entrants into the top 100")
 
 
-# ── Compare mode: board-vs-board (current rankings_full vs a candidate table) ──
+# ── Compare mode: board-vs-board (a baseline table vs a candidate table) ──
 # A legitimate engine change is EXPECTED to move teams, so these checks are
-# characterization (INFO), never FAIL. Baseline = current rankings_full (SCF-on),
+# characterization (INFO), never FAIL. Baseline = the --baseline-table board
+# (default rankings_full; pass a same-snapshot SCF-on board to avoid stale prod);
 # candidate = the table passed via --compare-table. No ranking_history is read.
-def compare_movement(cur, cand_ident: str, cohort_sql: str, params: dict) -> None:
-    print(f"\n{SEP}\n  COMPARE 1: rank movement, candidate vs current rankings_full (same snapshot)\n{SEP}")
+def compare_movement(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 1: rank movement, candidate vs baseline (same snapshot)\n{SEP}")
     cur.execute(
         f"""
         WITH prod AS (
             SELECT team_id, rank_in_cohort_final AS r_prod
-            FROM rankings_full
+            FROM {base_ident}
             WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
         ),
         cand AS (
@@ -244,13 +245,13 @@ def compare_movement(cur, cand_ident: str, cohort_sql: str, params: dict) -> Non
     verdict("Board movement", "INFO", f"median |Δrank| {float(median):.0f} across {n:,} teams (movement expected)")
 
 
-def compare_top_movers(cur, cand_ident: str, cohort_sql: str, params: dict) -> None:
+def compare_top_movers(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
     print(f"\n{SEP}\n  COMPARE 1b: biggest movers with schedule/record (eyeball bubble demotions)\n{SEP}")
     cur.execute(
         f"""
         WITH prod AS (
             SELECT team_id, age_group, gender, rank_in_cohort_final AS r_prod
-            FROM rankings_full
+            FROM {base_ident}
             WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
         ),
         cand AS (
@@ -288,24 +289,24 @@ def compare_top_movers(cur, cand_ident: str, cohort_sql: str, params: dict) -> N
     verdict("Top movers", "INFO", "DROP movers should be high-SOS / mediocre-record bubble teams")
 
 
-def compare_stage_shift(cur, cand_ident: str, cohort_sql: str, params: dict) -> None:
-    print(f"\n{SEP}\n  COMPARE 2: mu->published decoupling, candidate vs rankings_full (within-board)\n{SEP}")
-    prod_avg, prod_med = _stage_shift(cur, "rankings_full", cohort_sql, params)
+def compare_stage_shift(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 2: mu->published decoupling, candidate vs baseline (within-board)\n{SEP}")
+    prod_avg, prod_med = _stage_shift(cur, base_ident, cohort_sql, params)
     cand_avg, cand_med = _stage_shift(cur, cand_ident, cohort_sql, params)
-    print(f"\n  rankings_full : avg {prod_avg}, median {prod_med}")
-    print(f"  candidate     : avg {cand_avg}, median {cand_med}")
-    print("  (a healthy candidate should NOT decouple mu from the published order more than prod)")
-    verdict("Stage-shift delta", "INFO", f"prod avg {prod_avg} vs candidate avg {cand_avg}")
+    print(f"\n  baseline  : avg {prod_avg}, median {prod_med}")
+    print(f"  candidate : avg {cand_avg}, median {cand_med}")
+    print("  (a healthy candidate should NOT decouple mu from the published order more than the baseline)")
+    verdict("Stage-shift delta", "INFO", f"baseline avg {prod_avg} vs candidate avg {cand_avg}")
 
 
-def compare_topn_composition(cur, cand_ident: str, cohort_sql: str, params: dict) -> None:
-    print(f"\n{SEP}\n  COMPARE 3: top-N composition delta, candidate vs rankings_full\n{SEP}")
+def compare_topn_composition(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 3: top-N composition delta, candidate vs baseline\n{SEP}")
     for n in (50, 100):
         cur.execute(
             f"""
             WITH prod AS (
                 SELECT team_id, age_group, gender, rank_in_cohort_final AS r_prod
-                FROM rankings_full WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
+                FROM {base_ident} WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
             ),
             cand AS (
                 SELECT team_id, age_group, gender, rank_in_cohort_final AS r_cand
@@ -335,7 +336,7 @@ def compare_topn_composition(cur, cand_ident: str, cohort_sql: str, params: dict
             for ag, g, entrants, exits in rows[:15]:
                 print(f"  {ag + '/' + g:<18}{entrants:>10}{exits:>8}")
         worst = max((entrants for _, _, entrants, _ in rows), default=0)
-        verdict(f"Top-{n} composition", "INFO", f"worst cohort {worst} new entrants vs prod")
+        verdict(f"Top-{n} composition", "INFO", f"worst cohort {worst} new entrants vs baseline")
 
 
 def main() -> None:
@@ -345,14 +346,22 @@ def main() -> None:
     parser.add_argument("--prev-date", help="Prior snapshot date (YYYY-MM-DD). Default: latest before today.")
     parser.add_argument(
         "--compare-table",
-        help="Board-vs-board mode: characterize this candidate table against current rankings_full "
+        help="Board-vs-board mode: characterize this candidate table against the baseline "
         "(additive; reads no ranking_history, never FAILs).",
+    )
+    parser.add_argument(
+        "--baseline-table",
+        default="rankings_full",
+        help="Baseline board the candidate is compared against in --compare-table mode "
+        "(default: rankings_full). Pass a same-snapshot SCF-on board to avoid a stale-prod confound.",
     )
     args = parser.parse_args()
     if bool(args.age) != bool(args.gender):
         parser.error("--age and --gender must be used together (pass both to scope to one cohort, or neither)")
     if args.compare_table and not re.fullmatch(r"[a-z_][a-z0-9_]*", args.compare_table):
         parser.error(f"--compare-table must match [a-z_][a-z0-9_]* (got {args.compare_table!r})")
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", args.baseline_table):
+        parser.error(f"--baseline-table must match [a-z_][a-z0-9_]* (got {args.baseline_table!r})")
 
     cohort_sql, params = _cohort_filter(args.age, args.gender)
     scope = f"{args.age}/{args.gender}" if cohort_sql else "all Active cohorts"
@@ -362,14 +371,15 @@ def main() -> None:
         with conn.cursor() as cur:
             if args.compare_table:
                 cand_ident = sql.Identifier(args.compare_table).as_string(conn)
+                base_ident = sql.Identifier(args.baseline_table).as_string(conn)
                 print(
                     f"\n{SEP}\n  Board-vs-Board Stability — candidate {args.compare_table} "
-                    f"vs current rankings_full | scope: {scope}\n{SEP}"
+                    f"vs baseline {args.baseline_table} | scope: {scope}\n{SEP}"
                 )
-                compare_movement(cur, cand_ident, cohort_sql, params)
-                compare_top_movers(cur, cand_ident, cohort_sql, params)
-                compare_stage_shift(cur, cand_ident, cohort_sql, params)
-                compare_topn_composition(cur, cand_ident, cohort_sql, params)
+                compare_movement(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_top_movers(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_stage_shift(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_topn_composition(cur, cand_ident, base_ident, cohort_sql, params)
             else:
                 prev_date = args.prev_date or _resolve_prev_date(cur)
                 print(f"\n{SEP}\n  Ranking Stability Check — scope: {scope} | prior snapshot: {prev_date}\n{SEP}")
