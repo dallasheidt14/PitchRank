@@ -1,0 +1,84 @@
+# Outreach sources: state/national youth soccer ASSOCIATIONS.
+#
+# Schema (per site):
+#   org:            organization name (used in dedupe + personalization)
+#   source_domain:  the org's domain (Hunter enrichment input + dedupe key)
+#   start_url:      public page to harvest (footer/contact pages list role inboxes)
+#   fetch:          "direct" (default) or "zenrows" for anti-bot-protected sites
+#   selectors:      optional CSS overrides, e.g. {email: "a.contact-email::attr(href)"}
+#   personalization: tokens for templating (state, league_mix, a standing signal)
+#
+# NOTE: verify domains/start_urls before a live run. The verification gate
+# (NeverBounce) is the backstop, but a wrong start_url just yields no contact.
+segment: associations
+sites:
+  - org: "Arizona Soccer Association"
+    source_domain: "arizonasoccer.org"
+    start_url: "https://www.arizonasoccer.org/"
+    personalization:
+      state: "AZ"
+  - org: "Cal North (California Youth Soccer Association, North)"
+    source_domain: "calnorth.org"
+    start_url: "https://www.calnorth.org/"
+    personalization:
+      state: "CA"
+  - org: "Cal South (California State Soccer Association, South)"
+    source_domain: "calsouth.com"
+    start_url: "https://www.calsouth.com/"
+    personalization:
+      state: "CA"
+  - org: "North Texas Soccer"
+    source_domain: "ntxsoccer.org"
+    start_url: "https://www.ntxsoccer.org/"
+    personalization:
+      state: "TX"
+  - org: "South Texas Youth Soccer Association"
+    source_domain: "stxsoccer.org"
+    start_url: "https://www.stxsoccer.org/"
+    personalization:
+      state: "TX"
+  - org: "Georgia Soccer"
+    source_domain: "georgiasoccer.org"
+    start_url: "https://www.georgiasoccer.org/"
+    personalization:
+      state: "GA"
+  - org: "Florida Youth Soccer Association"
+    source_domain: "fysa.com"
+    start_url: "https://www.fysa.com/"
+    personalization:
+      state: "FL"
+  - org: "Washington Youth Soccer"
+    source_domain: "washingtonyouthsoccer.org"
+    start_url: "https://www.washingtonyouthsoccer.org/"
+    personalization:
+      state: "WA"
+  - org: "Oregon Youth Soccer Association"
+    source_domain: "oregonyouthsoccer.org"
+    start_url: "https://www.oregonyouthsoccer.org/"
+    personalization:
+      state: "OR"
+  - org: "Colorado Soccer Association"
+    source_domain: "coloradosoccer.org"
+    start_url: "https://www.coloradosoccer.org/"
+    personalization:
+      state: "CO"
+  - org: "Michigan Youth Soccer Association"
+    source_domain: "michiganyouthsoccer.org"
+    start_url: "https://www.michiganyouthsoccer.org/"
+    personalization:
+      state: "MI"
+  - org: "Illinois Youth Soccer Association"
+    source_domain: "illinoisyouthsoccer.org"
+    start_url: "https://www.illinoisyouthsoccer.org/"
+    personalization:
+      state: "IL"
+  - org: "Virginia Youth Soccer Association"
+    source_domain: "vysa.com"
+    start_url: "https://www.vysa.com/"
+    personalization:
+      state: "VA"
+  - org: "US Club Soccer"
+    source_domain: "usclubsoccer.org"
+    start_url: "https://www.usclubsoccer.org/"
+    personalization:
+      state: "US"

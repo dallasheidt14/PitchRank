@@ -1,0 +1,12 @@
+# Outreach sources: independent BLOGGERS / desks covering youth soccer.
+# Schema documented in associations.yaml.
+#
+# Bloggers are added as relevant desks are identified (e.g. SB Nation team
+# desks covering academy/youth pipelines). Seed real targets below.
+segment: bloggers
+sites: []
+  # - org: "Example Soccer Blog"
+  #   source_domain: "exampleblog.com"
+  #   start_url: "https://www.exampleblog.com/about"
+  #   personalization:
+  #     beat: "academy & youth development"
