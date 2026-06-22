@@ -1,0 +1,23 @@
+{
+  "week": "2026-W26",
+  "posts": [
+    {
+      "topic": "2026 MLS NEXT Cup finals decided on penalties",
+      "hook": "Anchor = TopDrawerSoccer recap (June 1, 2026) of the 2026 MLS NEXT Cup. Both finals cited went to penalty shootouts per this source: U19 Columbus Crew over St. Louis City, U17 Orlando City Seminole over Atlanta United. Only 'won on penalties' is asserted (no exact scores), no minors named. Angle: one-game/PK variance vs season-long signal (PitchRank one-scale voice).",
+      "suggested_tweet": "Two 2026 MLS NEXT Cup finals came down to penalties: Columbus Crew (U19) and Orlando City Seminole (U17) both won shootouts. A PK settles a final - a full season settles who's actually best. We rank every MLS NEXT team on one scale.\n\npitchrank.io/rankings",
+      "source_url": "https://www.topdrawersoccer.com/club-soccer-articles/mls-next-season-wraps-with-cup-finals_aid56018"
+    },
+    {
+      "topic": "Utah Celtic win 2026 MLS NEXT Cup Academy Division U19 title",
+      "hook": "Anchor = KSL Sports (published May 31, 2026; updated June 2), in-window (26 days old at the Friday post slot). Source: Utah Celtic's U19 (2008 boys) won the 2026 MLS NEXT Cup Academy Division title 5-0 over St. Louis Developmental Academy at Zions Bank Stadium, Herriman UT (home soil), their fourth straight national title. All stats are in this source; no minors named. Distinct source + team from posts 1 and 3 (diversifies off the TopDrawer recap per reviewer request). Angle: a multi-year winning streak is a season-long track record, not a hot bracket -> PitchRank one-scale voice.",
+      "suggested_tweet": "Utah Celtic's U19s won the MLS NEXT Cup Academy Division title 5-0 on home soil - their fourth straight national title. Four years running isn't a hot bracket; it's a track record. We rank every MLS NEXT team on one scale, all season.\n\npitchrank.io/rankings",
+      "source_url": "https://sports.ksl.com/soccer/utah-celtic-boys-mls-next-cup-title/574653"
+    },
+    {
+      "topic": "2026 MLS NEXT Cup Homegrown champions",
+      "hook": "Anchor = TopDrawerSoccer recap (June 1, 2026). Lists the four MLS NEXT Cup Homegrown Division champions: Columbus Crew (U19), Orlando City Seminole (U17), Total Futbol Academy (U16), Cedar Stars Academy-Bergen (U15) - all four are in this source. Shares source_url with post 1 (the only authoritative 2026-champions recap found inside the 30-day window); distinct angle = no repeat winner, results over reputation. No minors named.",
+      "suggested_tweet": "Four clubs took the 2026 MLS NEXT Cup Homegrown titles: Columbus Crew (U19), Orlando City Seminole (U17), Total Futbol Academy (U16), Cedar Stars Academy-Bergen (U15). No badge guarantees a trophy - results do. See where every MLS NEXT team ranks.\n\npitchrank.io/rankings",
+      "source_url": "https://www.topdrawersoccer.com/club-soccer-articles/mls-next-season-wraps-with-cup-finals_aid56018"
+    }
+  ]
+}
