@@ -3,7 +3,14 @@
 import sys
 from pathlib import Path
 
-from scrapy.http import HtmlResponse
+import pytest
+
+# The Scrapy project and its YAML configs are heavy deps that live outside src/;
+# skip cleanly (rather than abort the whole suite) where they aren't installed.
+pytest.importorskip("scrapy")
+pytest.importorskip("yaml")
+
+from scrapy.http import HtmlResponse  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRAPER_DIR = REPO_ROOT / "scrapers" / "outreach_scraper"

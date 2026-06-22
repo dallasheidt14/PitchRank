@@ -29,6 +29,7 @@ beautifulsoup4>=4.12.0
 lxml>=4.9.0
 scrapy>=2.13.0  # For Modular11 scraper
 twisted>=25.0.0  # Required by Scrapy
+pyyaml>=6.0  # For outreach_scraper YAML source configs
 
 # Stripe billing reconciliation
 stripe>=8.0.0
