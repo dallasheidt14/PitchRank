@@ -3,6 +3,7 @@
  * Used to render FAQPage structured data for rich snippet eligibility.
  * Keyed by blog post slug.
  */
+import { report as texasReport } from '@/content/reports/state-of-texas-youth-soccer-2026';
 
 export interface FAQ {
   question: string;
@@ -619,6 +620,31 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How do Eastside and Eastern Washington clubs compare in rankings?',
       answer:
         'The Eastside and Seattle have the deepest competitive density, anchored by Eastside FC, Seattle United, Crossfire Premier, and Pacific Northwest SC, with year-round access to Sounders Academy pathways. Eastern Washington clubs like Spokane Shadow and Washington East Surf compete in a separate geographic ecosystem, often playing into Idaho and Montana more than across the Cascades. Use PitchRank’s state filter to compare clubs across regions.',
+    },
+  ],
+
+  /* ─── State Data Reports ─────────────────────────────────────── */
+
+  [texasReport.slug]: [
+    {
+      question: `How are ${texasReport.stateName} youth soccer teams ranked?`,
+      answer: `PitchRank ranks ${texasReport.stateName} teams with a rating engine that evaluates every game result — strength of schedule, goal differential, recency, and consistency — and recalculates every Monday. The ${texasReport.year} report covers ${texasReport.rankedTeams.toLocaleString()} ranked ${texasReport.stateName} teams.`,
+    },
+    {
+      question: `How many ${texasReport.stateName} youth soccer teams does PitchRank rank?`,
+      answer: `PitchRank ranks ${texasReport.rankedTeams.toLocaleString()} ${texasReport.stateName} teams across ${texasReport.totalGroups} age and gender groups, from U10 through U19.`,
+    },
+    {
+      question: `How many matches does the ${texasReport.stateName} report analyze?`,
+      answer: `The report draws on ${texasReport.matchesAnalyzed.toLocaleString()} competitive ${texasReport.stateName} matches from the trailing 12 months. Futsal and other non-counting results are excluded, so the figure reflects games that actually fed the standings.`,
+    },
+    {
+      question: `How often is the ${texasReport.stateName} ranking data updated?`,
+      answer: `Rankings update every Monday morning with the previous week's game results. This report is a snapshot — the live ${texasReport.stateName} board moves every week.`,
+    },
+    {
+      question: `What does a team need to be ranked in ${texasReport.stateName}?`,
+      answer: `A team must play enough games to earn a stable PowerScore. Teams with too little data are held out of the rankings rather than estimated, so every ranked team reflects real results.`,
     },
   ],
 
