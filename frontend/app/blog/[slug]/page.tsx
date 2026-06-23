@@ -4,8 +4,10 @@ import { NewsletterSubscribe } from '@/components/NewsletterSubscribe';
 import { BlogPostSchema } from '@/components/BlogPostSchema';
 import { BlogFAQSchema } from '@/components/BlogFAQSchema';
 import { BreadcrumbSchema } from '@/components/BreadcrumbSchema';
+import { DatasetSchema } from '@/components/DatasetSchema';
 import { getBlogPost, getAllBlogSlugs } from '@/lib/blog';
 import { BLOG_FAQS } from '@/lib/blog-faqs';
+import { BLOG_DATASETS } from '@/lib/blog-datasets';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { BASE_URL } from '@/lib/constants';
@@ -97,6 +99,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         ]}
       />
       {BLOG_FAQS[slug] && <BlogFAQSchema faqs={BLOG_FAQS[slug]} />}
+      {BLOG_DATASETS[slug] && <DatasetSchema {...BLOG_DATASETS[slug]} />}
       <PageHeader title={post.title} description={post.excerpt} showBackButton backHref="/blog" />
 
       <div className="max-w-4xl mx-auto mt-8">

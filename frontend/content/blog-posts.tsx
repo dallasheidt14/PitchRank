@@ -17,6 +17,30 @@ import {
   AlertTriangle,
   BarChart3,
 } from 'lucide-react';
+import { report as texasReport } from '@/content/reports/state-of-texas-youth-soccer-2026';
+import { formatGender } from '@/lib/constants';
+import { composeTeamDisplay, formatLeague } from '@/lib/utils';
+
+/** A team row from a generated state report, shaped for composeTeamDisplay. */
+interface ReportTeam {
+  teamName: string;
+  clubName: string | null;
+  league: string | null;
+  distinction: string | null;
+}
+
+function reportTeamName(t: ReportTeam): string {
+  return composeTeamDisplay({
+    team_name: t.teamName,
+    club_name: t.clubName,
+    league: t.league,
+    distinction: t.distinction,
+  });
+}
+
+function reportCohort(ageGroup: string, gender: string): string {
+  return `${ageGroup.toUpperCase()} ${formatGender(gender)}`;
+}
 
 /**
  * Blog posts content
@@ -2562,6 +2586,256 @@ export const blogPosts: BlogPost[] = [
           <p className="text-foreground font-semibold">
             Because in Texas&apos;s crowded youth soccer market, knowledge is power. And knowing where your team truly
             ranks is the first step to making smarter decisions.
+          </p>
+        </section>
+      </div>
+    ),
+  },
+  {
+    slug: texasReport.slug,
+    title: `State of ${texasReport.stateName} Youth Soccer ${texasReport.year}`,
+    excerpt: `PitchRank's first-party ${texasReport.stateName} youth soccer report: ${texasReport.rankedTeams.toLocaleString()} ranked teams across ${texasReport.totalGroups} groups, drawn from ${texasReport.matchesAnalyzed.toLocaleString()} matches over the past year — biggest movers, league parity, and age-group depth.`,
+    author: 'PitchRank Team',
+    date: '2026-06-22',
+    modifiedDate: texasReport.generatedAt,
+    readingTime: '9 min read',
+    tags: ['Texas', 'Youth Soccer', 'Rankings', 'Data Report'],
+    content: (
+      <div className="space-y-8">
+        {/* Intro — first-party framing */}
+        <section>
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
+            This is PitchRank&apos;s first-party snapshot of competitive youth soccer in {texasReport.stateName}. Over
+            the past year we processed{' '}
+            <strong>
+              {texasReport.matchesAnalyzed.toLocaleString()} {texasReport.stateName} matches
+            </strong>{' '}
+            to rate <strong>{texasReport.rankedTeams.toLocaleString()} ranked teams</strong> across{' '}
+            {texasReport.totalGroups} age-and-gender groups — every team with enough games to earn a PowerScore.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            No surveys, no reputation, no pay-to-rank. Every number below comes from real game results and updates every
+            week. Here&apos;s what the {texasReport.year} season looks like in the data.
+          </p>
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">
+              →{' '}
+              <Link href={`/rankings/${texasReport.state.toLowerCase()}`} className="text-primary hover:underline">
+                View all {texasReport.stateName} youth soccer rankings
+              </Link>
+            </p>
+          </div>
+        </section>
+
+        {/* By the numbers */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <BarChart3 className="size-6 text-primary" />
+            {texasReport.stateName} Youth Soccer by the Numbers
+          </h2>
+          <div className="grid sm:grid-cols-3 gap-3 mb-6">
+            <div className="p-4 rounded-lg bg-muted/50 border text-center">
+              <p className="text-3xl font-bold text-primary">{texasReport.rankedTeams.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">ranked teams</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border text-center">
+              <p className="text-3xl font-bold text-primary">{texasReport.matchesAnalyzed.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">matches analyzed</p>
+            </div>
+            <div className="p-4 rounded-lg bg-muted/50 border text-center">
+              <p className="text-3xl font-bold text-primary">{texasReport.totalGroups}</p>
+              <p className="text-sm text-muted-foreground">age &amp; gender groups</p>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Boys and Girls</h3>
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-center">
+              <p className="text-3xl font-bold text-blue-600">{texasReport.genderSplit.male.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">
+                Boys teams ({Math.round((texasReport.genderSplit.male / texasReport.rankedTeams) * 100)}%)
+              </p>
+            </div>
+            <div className="p-4 rounded-lg bg-pink-500/10 border border-pink-500/20 text-center">
+              <p className="text-3xl font-bold text-pink-600">{texasReport.genderSplit.female.toLocaleString()}</p>
+              <p className="text-sm text-muted-foreground">
+                Girls teams ({Math.round((texasReport.genderSplit.female / texasReport.rankedTeams) * 100)}%)
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Age-group depth */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Activity className="size-6 text-primary" />
+            Where the Depth Is: {texasReport.stateName} Teams by Age Group
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            The deepest group in {texasReport.stateName} is{' '}
+            <strong>
+              {texasReport.deepestAgeGroup.ageGroup.toUpperCase()} with{' '}
+              {texasReport.deepestAgeGroup.count.toLocaleString()} ranked teams
+            </strong>
+            . Here is the full breakdown of ranked teams by age group:
+          </p>
+          <div className="overflow-x-auto mb-4">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-semibold">Age Group</th>
+                  <th className="text-left py-2 font-semibold">Ranked Teams</th>
+                </tr>
+              </thead>
+              <tbody>
+                {texasReport.ageGroups.map((g) => (
+                  <tr key={g.ageGroup} className="border-b border-border/40">
+                    <td className="py-2 pr-4 font-medium">{g.ageGroup.toUpperCase()}</td>
+                    <td className="py-2">{g.count.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-sm">
+              <strong>Why the younger groups are biggest:</strong> the youngest age groups carry the most teams because
+              nearly every club fields multiple squads there. Depth thins at the older groups as players consolidate
+              onto fewer, more competitive rosters.
+            </p>
+          </div>
+        </section>
+
+        {/* League & conference parity */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Shield className="size-6 text-primary" />
+            League and Conference Parity
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            PitchRank rates every {texasReport.stateName} team on one scale, so an ECNL team and a state-league team are
+            directly comparable. Most ranked {texasReport.stateName} teams compete in state and local leagues that carry
+            no national-league tag; the teams playing in national and regional showcase leagues break down like this:
+          </p>
+          <div className="grid sm:grid-cols-2 gap-2 mb-4">
+            {texasReport.leagues.map((l) => (
+              <div key={l.league} className="flex items-center justify-between gap-2 p-2 rounded bg-muted/30">
+                <span className="text-sm font-medium">{formatLeague(l.league)}</span>
+                <span className="text-sm text-muted-foreground">{l.count.toLocaleString()} teams</span>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 rounded-lg bg-muted/50 border">
+            <p className="text-sm text-muted-foreground">
+              ECNL and its Regional League make up the bulk of {texasReport.stateName}&apos;s national-showcase teams,
+              with the GA, NL, MLS Next, and EA pathways adding depth across age groups. These counts cover only
+              league-tagged teams — they are not the full {texasReport.rankedTeams.toLocaleString()}-team ranked
+              population, most of which competes in state and local leagues.
+            </p>
+          </div>
+        </section>
+
+        {/* Biggest movers */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <TrendingUp className="size-6 text-primary" />
+            Biggest Movers in the Last {texasReport.windowBucket} Days
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            These are the teams that moved the most while climbing into — or holding near — the top 100 of their{' '}
+            {texasReport.stateName} group over the last {texasReport.windowBucket} days.
+          </p>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Climbing</h3>
+          <div className="grid gap-2 mb-6">
+            {texasReport.topMovers.up.map((m, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <TrendingUp className="size-5 text-green-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-muted-foreground">
+                  <strong>{reportTeamName(m)}</strong> ({reportCohort(m.ageGroup, m.gender)}) — climbed {m.rankChange}{' '}
+                  spots to #{m.currentRank} in {texasReport.stateName}.
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <h3 className="text-xl font-display font-semibold mb-3">Sliding</h3>
+          <div className="grid gap-2">
+            {texasReport.topMovers.down.map((m, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border">
+                <Activity className="size-5 text-orange-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-muted-foreground">
+                  <strong>{reportTeamName(m)}</strong> ({reportCohort(m.ageGroup, m.gender)}) — slipped{' '}
+                  {Math.abs(m.rankChange)} spots to #{m.currentRank} in {texasReport.stateName}.
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* League leaders */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Globe className="size-6 text-primary" />
+            Top of the Table: {texasReport.stateName}&apos;s League Leaders
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            The highest-rated {texasReport.stateName} team in each national showcase league right now:
+          </p>
+          <div className="grid gap-3">
+            {texasReport.leagueCallouts.map((c, i) => (
+              <div key={i} className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+                <Target className="size-5 text-primary shrink-0 mt-0.5" />
+                <p className="text-sm">
+                  <strong>{formatLeague(c.league)}</strong> — {reportTeamName(c)}{' '}
+                  <span className="text-muted-foreground">({reportCohort(c.ageGroup, c.gender)})</span>
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Methodology disclosure */}
+        <section>
+          <h2 className="text-2xl font-display font-bold mb-4 flex items-center gap-3">
+            <Calendar className="size-6 text-primary" />
+            How We Built This Report
+          </h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            {`Per PitchRank's analysis of ${texasReport.matchesAnalyzed.toLocaleString()} ${texasReport.stateName} matches over the past year, `}
+            every ranked team earns a PowerScore from real game results — not surveys, tournament seeding, or
+            reputation. Our rating engine weighs strength of schedule, goal differential, recency, and consistency, then
+            recalculates the full board every Monday.
+          </p>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            A team appears in this report only after it has played enough games to be ranked; teams with too little data
+            are held out rather than guessed at. Match counts cover the trailing 12 months and exclude futsal and other
+            non-counting results, so the {texasReport.matchesAnalyzed.toLocaleString()} figure reflects the competitive{' '}
+            {texasReport.stateName} games behind this season&apos;s rankings.
+          </p>
+          <div className="my-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="font-semibold">
+              →{' '}
+              <a href="/methodology" className="text-primary hover:underline">
+                Read the full ranking methodology
+              </a>
+            </p>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="p-6 rounded-lg bg-primary/10 border border-primary/20">
+          <h2 className="text-2xl font-display font-bold mb-4">Find Your {texasReport.stateName} Team</h2>
+          <p className="text-muted-foreground leading-relaxed mb-4">
+            This report is a snapshot — the live rankings move every week. Browse the full {texasReport.stateName} board
+            by age group and gender, or search for your club to see exactly where it stands among{' '}
+            {texasReport.rankedTeams.toLocaleString()} ranked teams.
+          </p>
+          <p className="font-semibold">
+            →{' '}
+            <Link href={`/rankings/${texasReport.state.toLowerCase()}`} className="text-primary hover:underline">
+              See the full {texasReport.stateName} rankings
+            </Link>
           </p>
         </section>
       </div>
