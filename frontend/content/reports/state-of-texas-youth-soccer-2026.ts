@@ -4,98 +4,98 @@ export const report = {
   "stateName": "Texas",
   "year": 2026,
   "slug": "state-of-texas-youth-soccer-2026",
-  "generatedAt": "2026-06-22",
+  "generatedAt": "2026-06-23",
   "windowBucket": 30,
-  "temporalCoverage": "2025-06-22/2026-06-22",
-  "rankedTeams": 10783,
+  "temporalCoverage": "2025-06-23/2026-06-23",
+  "rankedTeams": 7992,
   "matchesAnalyzed": 117747,
   "totalGroups": 18,
   "genderSplit": {
-    "male": 7134,
-    "female": 3649
+    "male": 5242,
+    "female": 2750
   },
   "deepestAgeGroup": {
-    "ageGroup": "u10",
-    "count": 1819
+    "ageGroup": "u12",
+    "count": 1385
   },
   "ageGroups": [
     {
-      "ageGroup": "u10",
-      "count": 1819
-    },
-    {
       "ageGroup": "u12",
-      "count": 1769
+      "count": 1385
     },
     {
       "ageGroup": "u11",
-      "count": 1716
+      "count": 1302
+    },
+    {
+      "ageGroup": "u10",
+      "count": 1244
     },
     {
       "ageGroup": "u13",
-      "count": 1429
+      "count": 1123
     },
     {
       "ageGroup": "u14",
-      "count": 1260
+      "count": 989
     },
     {
       "ageGroup": "u15",
-      "count": 958
+      "count": 724
     },
     {
       "ageGroup": "u16",
-      "count": 705
+      "count": 516
     },
     {
       "ageGroup": "u19",
-      "count": 637
+      "count": 359
     },
     {
       "ageGroup": "u17",
-      "count": 490
+      "count": 350
     }
   ],
   "leagues": [
     {
       "league": "ECNL_RL",
-      "count": 872
+      "count": 770
     },
     {
       "league": "ECNL",
-      "count": 197
+      "count": 170
     },
     {
       "league": "NPL",
-      "count": 167
+      "count": 159
     },
     {
       "league": "MLS_NEXT_AD",
-      "count": 76
+      "count": 67
     },
     {
       "league": "DPL",
-      "count": 60
+      "count": 56
     },
     {
       "league": "MLS_NEXT_HD",
-      "count": 41
+      "count": 37
     },
     {
       "league": "ASPIRE",
-      "count": 37
+      "count": 36
     },
     {
       "league": "GA",
-      "count": 37
-    },
-    {
-      "league": "NL",
       "count": 34
     },
     {
+      "league": "NL",
+      "count": 29
+    },
+    {
       "league": "EA",
-      "count": 8
+      "count": 7
     }
   ],
   "topMovers": {
@@ -206,11 +206,11 @@ export const report = {
   },
   "leagueCallouts": [
     {
-      "teamName": "Liverpool FC Houston U17 EA",
-      "clubName": "Liverpool FC Texas",
+      "teamName": "EA Aguilas 2011",
+      "clubName": "East Austin SC",
       "league": "EA",
-      "distinction": "houston",
-      "ageGroup": "u17",
+      "distinction": "aguilas",
+      "ageGroup": "u15",
       "gender": "Male"
     },
     {

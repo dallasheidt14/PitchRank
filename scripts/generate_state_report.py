@@ -115,7 +115,7 @@ def fetch_headline(cur, state: str) -> dict:
                count(*) FILTER (WHERE gender IN ('Female', 'F', 'Girls')) AS female,
                count(DISTINCT (age_group, gender)) AS groups
         FROM rankings_full
-        WHERE state_code = %(state)s AND status <> 'Not Enough Ranked Games'
+        WHERE state_code = %(state)s AND status = 'Active'
         """,
         {"state": state},
     )
@@ -127,7 +127,7 @@ def fetch_age_groups(cur, state: str) -> list[dict]:
         """
         SELECT age_group, count(*) AS cnt
         FROM rankings_full
-        WHERE state_code = %(state)s AND status <> 'Not Enough Ranked Games'
+        WHERE state_code = %(state)s AND status = 'Active'
         GROUP BY age_group
         ORDER BY cnt DESC, age_group
         """,
@@ -143,7 +143,7 @@ def fetch_league_counts(cur, state: str) -> list[dict]:
         FROM rankings_full rf
         JOIN teams t ON t.team_id_master = rf.team_id
         WHERE rf.state_code = %(state)s
-          AND rf.status <> 'Not Enough Ranked Games'
+          AND rf.status = 'Active'
           AND t.league IS NOT NULL
         GROUP BY t.league
         ORDER BY cnt DESC, t.league
@@ -199,7 +199,7 @@ def fetch_league_callouts(cur, state: str, leagues: tuple[str, ...]) -> list[dic
         FROM rankings_full rf
         JOIN teams t ON t.team_id_master = rf.team_id
         WHERE rf.state_code = %(state)s
-          AND rf.status <> 'Not Enough Ranked Games'
+          AND rf.status = 'Active'
           AND t.league = ANY(%(leagues)s)
         ORDER BY t.league, rf.power_score_final DESC NULLS LAST
         """,
