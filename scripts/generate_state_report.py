@@ -17,9 +17,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-import psycopg2
 from dotenv import load_dotenv
-from psycopg2.extras import RealDictCursor
 
 env_local = Path(".env.local")
 if env_local.exists():
@@ -100,6 +98,8 @@ STATE_NAMES = {
 
 
 def _open_connection():
+    import psycopg2
+
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         print("ERROR: DATABASE_URL not set in environment (.env / .env.local)")
@@ -249,6 +249,8 @@ def run_credibility_gate(state: str, state_name: str, ranked_teams: int, league_
 
 
 def build_report(state: str, year: int, bucket: int) -> dict:
+    from psycopg2.extras import RealDictCursor
+
     state_name = STATE_NAMES.get(state)
     if not state_name:
         raise SystemExit(f"Unknown state code: {state}")
