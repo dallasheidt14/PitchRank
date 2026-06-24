@@ -146,6 +146,24 @@ class GlickoConfig:
     SOS_ADJ_STRONG_THRESHOLD: float = 0.60     # Dead zone upper edge (sos_norm scale)
     SOS_ADJ_WEAK_MAX: float = 0.16             # Max 16% penalty for weakest SOS
     SOS_ADJ_STRONG_MAX: float = 0.03           # Max 3% reward for strongest SOS
+
+    # SOS-credit cap (record-gated post-mu shaping). Caps the portion of a team's
+    # published score that exceeds what its own record justifies, gated on record so
+    # only SOS-inflated teams (mediocre record on a hard schedule) are pulled down and
+    # record-justified teams are untouched. Default OFF = byte-identical to prod.
+    SOS_CREDIT_CAP_ENABLED: bool = field(
+        default_factory=lambda: os.getenv("SOS_CREDIT_CAP_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+    )
+    SOS_CREDIT_MAX: float = field(default_factory=lambda: float(os.getenv("SOS_CREDIT_MAX", "0.15")))
+    SOS_CREDIT_RECORD_WIN_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_RECORD_WIN_WEIGHT", "0.6"))
+    )
+    SOS_CREDIT_RECORD_GD_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_RECORD_GD_WEIGHT", "0.4"))
+    )
+    SOS_CREDIT_MIN_GAMES_FULL: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_MIN_GAMES_FULL", "12"))
+    )
     BASE_EVIDENCE_SHRINK_ENABLED: bool = True
     BASE_EVIDENCE_SHRINK_MAX: float = 0.08
     BASE_EVIDENCE_SHRINK_STRONG: float = 0.05

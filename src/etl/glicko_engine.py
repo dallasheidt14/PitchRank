@@ -1369,6 +1369,63 @@ def apply_scf_dampening(
     return df
 
 
+def apply_sos_credit_cap(team_df: pd.DataFrame, cfg: GlickoConfig) -> pd.DataFrame:
+    """Cap each team's SOS-credit — the portion of its published score above what its
+    own record justifies — gated on record so only SOS-inflated teams (mediocre record
+    on a hard schedule) are pulled down, never record-justified ones.
+
+    Runs within the cohort, on the normalized powerscore_core scale. record_score is
+    produced by the same sigmoid_zscore_normalize used for powerscore_core, so the two
+    share one [0, 1] scale and powerscore_core - record_score is meaningful. The cap is
+    one-sided (a min): it never raises a score and never touches mu, SOS, SCF, or ML.
+
+    Args:
+        team_df: DataFrame with team_id, wins, games_played, goals_for, goals_against,
+                 and powerscore_core (post-normalization).
+        cfg: GlickoConfig with SOS_CREDIT_* settings.
+
+    Returns:
+        Modified DataFrame with powerscore_core capped and power_presos holding the
+        pre-cap value (for a pre/post audit).
+    """
+    df = team_df.copy()
+
+    games = df["games_played"].astype(float)
+    gp = games.clip(lower=1.0)
+    win_rate = df["wins"].astype(float) / gp
+    gd_per_game = (df["goals_for"].astype(float) - df["goals_against"].astype(float)) / gp
+
+    # Standardize each component before blending: win-rate is [0, 1] while goal
+    # differential spans several goals, so a raw blend would let goal-diff dominate
+    # regardless of the configured weights.
+    def _zscore(series: pd.Series) -> pd.Series:
+        std = series.std(ddof=0)
+        if std < 1e-10:
+            return pd.Series(0.0, index=series.index)
+        return (series - series.mean()) / std
+
+    record_raw = cfg.SOS_CREDIT_RECORD_WIN_WEIGHT * _zscore(win_rate) + cfg.SOS_CREDIT_RECORD_GD_WEIGHT * _zscore(
+        gd_per_game
+    )
+    record_score = sigmoid_zscore_normalize(record_raw)
+
+    # Record-gated ceiling: a strong record keeps ~full credit (ceiling >= 1 → never
+    # binds); a mediocre record allows only SOS_CREDIT_MAX above its record level.
+    ceiling = record_score * (1.0 + cfg.SOS_CREDIT_MAX)
+    core = df["powerscore_core"].astype(float)
+    capped_full = core.clip(upper=ceiling)
+
+    # Ramp the cap in with sample size: fully applied at SOS_CREDIT_MIN_GAMES_FULL
+    # games, relaxed toward uncapped below it so thin-sample teams aren't whipsawed by
+    # a noisy record estimate. The blend stays continuous, so there is no rank cliff.
+    games_ramp = (games / max(float(cfg.SOS_CREDIT_MIN_GAMES_FULL), 1.0)).clip(lower=0.0, upper=1.0)
+    capped_core = core + games_ramp * (capped_full - core)
+
+    df["power_presos"] = df["powerscore_core"]
+    df["powerscore_core"] = capped_core
+    return df
+
+
 # =========================================================
 # Batch convergence engine
 # =========================================================
@@ -1769,6 +1826,10 @@ def compute_rankings_v2(
         mu_publish = cfg.INITIAL_MU + (mu_publish - cfg.INITIAL_MU) * evidence_scale
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_publish)
 
+    # 7b. Record-gated SOS-credit cap (one block covers both powerscore_core branches).
+    if cfg.SOS_CREDIT_CAP_ENABLED:
+        team_df = apply_sos_credit_cap(team_df, cfg)
+
     # 8. Provisional multiplier from sigma
     team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)
     team_df["powerscore_adj"] = (team_df["powerscore_core"] * team_df["provisional_mult"]).clip(0.0, 1.0)
@@ -1854,8 +1915,10 @@ def compute_rankings_v2(
     # Abs strength for two-pass
     team_df["abs_strength"] = sigmoid_zscore_normalize(team_df["mu"])
 
-    # Power scores
-    team_df["power_presos"] = team_df["powerscore_core"]
+    # Power scores. The SOS-credit cap, when on, already set power_presos to the
+    # pre-cap powerscore_core; only assign here when it left it unset.
+    if "power_presos" not in team_df.columns:
+        team_df["power_presos"] = team_df["powerscore_core"]
     team_df["anchor"] = 0.5
 
     # Performance residuals (placeholder -- ML layer computes these)

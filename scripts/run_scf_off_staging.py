@@ -111,22 +111,29 @@ def _open_connection():
     return psycopg2.connect(database_url)
 
 
-def _force_scf_env(mode: str, floor: float, divisor: float) -> None:
-    """Force the SCF dials for THIS process AFTER dotenv load, so a stray value in
-    .env.local cannot win. GlickoConfig reads these env-backed defaults only when
-    constructed (compute_all_cohorts / _assert_effective_config below), never at
-    import, so forcing here — before any GlickoConfig() — is early enough."""
+def _force_scf_env(mode: str, floor: float, divisor: float, sos_cap: str = "off", sos_max: float = 0.15) -> None:
+    """Force the SCF and SOS-credit-cap dials for THIS process AFTER dotenv load, so a
+    stray value in .env.local cannot win. GlickoConfig reads these env-backed defaults
+    only when constructed (compute_all_cohorts / _assert_effective_config below), never
+    at import, so forcing here — before any GlickoConfig() — is early enough."""
     os.environ["SCF_ENABLED"] = "true" if mode == "on" else "false"
     if mode == "on":
         os.environ["SCF_FLOOR"] = str(floor)
         os.environ["SCF_DIVERSITY_DIVISOR"] = str(divisor)
+    os.environ["SOS_CREDIT_CAP_ENABLED"] = "true" if sos_cap == "on" else "false"
+    if sos_cap == "on":
+        os.environ["SOS_CREDIT_MAX"] = str(sos_max)
 
 
-def _assert_effective_config(mode: str, floor: float, divisor: float) -> None:
+def _assert_effective_config(
+    mode: str, floor: float, divisor: float, sos_cap: str = "off", sos_max: float = 0.15
+) -> None:
     cfg = GlickoConfig()
-    print(f"  effective GlickoConfig().SCF_ENABLED           = {cfg.SCF_ENABLED}")
-    print(f"  effective GlickoConfig().SCF_FLOOR             = {cfg.SCF_FLOOR}")
-    print(f"  effective GlickoConfig().SCF_DIVERSITY_DIVISOR = {cfg.SCF_DIVERSITY_DIVISOR}")
+    print(f"  effective GlickoConfig().SCF_ENABLED            = {cfg.SCF_ENABLED}")
+    print(f"  effective GlickoConfig().SCF_FLOOR              = {cfg.SCF_FLOOR}")
+    print(f"  effective GlickoConfig().SCF_DIVERSITY_DIVISOR  = {cfg.SCF_DIVERSITY_DIVISOR}")
+    print(f"  effective GlickoConfig().SOS_CREDIT_CAP_ENABLED = {cfg.SOS_CREDIT_CAP_ENABLED}")
+    print(f"  effective GlickoConfig().SOS_CREDIT_MAX         = {cfg.SOS_CREDIT_MAX}")
     want_enabled = mode == "on"
     if cfg.SCF_ENABLED is not want_enabled:
         print(f"ERROR: SCF_ENABLED resolved to {cfg.SCF_ENABLED}, expected {want_enabled} — aborting")
@@ -140,6 +147,13 @@ def _assert_effective_config(mode: str, floor: float, divisor: float) -> None:
                 f"ERROR: SCF_DIVERSITY_DIVISOR resolved to {cfg.SCF_DIVERSITY_DIVISOR}, expected {divisor} — aborting"
             )
             sys.exit(1)
+    want_cap = sos_cap == "on"
+    if cfg.SOS_CREDIT_CAP_ENABLED is not want_cap:
+        print(f"ERROR: SOS_CREDIT_CAP_ENABLED resolved to {cfg.SOS_CREDIT_CAP_ENABLED}, expected {want_cap} — aborting")
+        sys.exit(1)
+    if want_cap and abs(cfg.SOS_CREDIT_MAX - sos_max) > 1e-9:
+        print(f"ERROR: SOS_CREDIT_MAX resolved to {cfg.SOS_CREDIT_MAX}, expected {sos_max} — aborting")
+        sys.exit(1)
 
 
 def _fetch_teams_metadata(supabase_client, team_ids: list[str]) -> pd.DataFrame:
@@ -313,7 +327,7 @@ async def _run_build(args) -> None:
     table = args.table
     mode = args.scf_mode
     print(f"\n{SEP}\n  SCF staging board producer (zero prod-write) — mode {mode}, table {table}\n{SEP}")
-    _assert_effective_config(mode, args.scf_floor, args.scf_divisor)
+    _assert_effective_config(mode, args.scf_floor, args.scf_divisor, args.sos_credit_cap, args.sos_credit_max)
 
     today = pd.Timestamp(args.today) if args.today else None
     games_snapshot = Path(args.games_snapshot) if args.games_snapshot else None
@@ -379,6 +393,18 @@ def main() -> None:
         "--scf-divisor", type=float, default=4.0, help="SCF_DIVERSITY_DIVISOR when --scf-mode on (default: 4.0 = prod)."
     )
     parser.add_argument(
+        "--sos-credit-cap",
+        choices=("on", "off"),
+        default="off",
+        help="Record-gated SOS-credit cap on/off (default: off = prod-identical).",
+    )
+    parser.add_argument(
+        "--sos-credit-max",
+        type=float,
+        default=0.15,
+        help="SOS_CREDIT_MAX (allowed SOS bonus above record) when --sos-credit-cap on (default: 0.15).",
+    )
+    parser.add_argument(
         "--table", default=DEFAULT_TABLE, help=f"Scratch table to (re)create and load (default: {DEFAULT_TABLE})."
     )
     parser.add_argument(
@@ -418,7 +444,7 @@ def main() -> None:
     if args.games_snapshot and not args.today:
         parser.error("--games-snapshot requires --today (the same date used to fetch the snapshot)")
 
-    _force_scf_env(args.scf_mode, args.scf_floor, args.scf_divisor)
+    _force_scf_env(args.scf_mode, args.scf_floor, args.scf_divisor, args.sos_credit_cap, args.sos_credit_max)
     asyncio.run(_run_build(args))
 
 

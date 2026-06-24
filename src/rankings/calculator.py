@@ -2142,6 +2142,8 @@ async def compute_rankings_with_ml(
         "sos_adj_st": getattr(_ecfg, "SOS_ADJ_STRONG_THRESHOLD", None),
         "sos_adj_wm": getattr(_ecfg, "SOS_ADJ_WEAK_MAX", None),
         "sos_adj_sm": getattr(_ecfg, "SOS_ADJ_STRONG_MAX", None),
+        "sos_cc": getattr(_ecfg, "SOS_CREDIT_CAP_ENABLED", None),
+        "sos_cm": getattr(_ecfg, "SOS_CREDIT_MAX", None),
     }
     _cfg_fp = hashlib.md5(_json.dumps(_cfg_dict, sort_keys=True, default=str).encode()).hexdigest()[:12]
     hash_input += f"_cfg_{_cfg_fp}"

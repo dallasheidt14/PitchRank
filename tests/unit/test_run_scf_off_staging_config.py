@@ -13,7 +13,7 @@ from scripts.run_scf_off_staging import _assert_effective_config, _force_scf_env
 
 def _clear_scf_env(monkeypatch):
     # monkeypatch tracks each var so its teardown removes whatever _force_scf_env adds.
-    for key in ("SCF_ENABLED", "SCF_FLOOR", "SCF_DIVERSITY_DIVISOR"):
+    for key in ("SCF_ENABLED", "SCF_FLOOR", "SCF_DIVERSITY_DIVISOR", "SOS_CREDIT_CAP_ENABLED", "SOS_CREDIT_MAX"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -54,3 +54,34 @@ def test_assert_off_mode_skips_dial_checks(monkeypatch):
     _force_scf_env("off", 0.4, 4.0)
     # off mode asserts only SCF_ENABLED is False; floor/divisor are not constrained.
     _assert_effective_config("off", 0.99, 9.0)
+
+
+def test_force_then_assert_sos_credit_cap_roundtrip(monkeypatch):
+    _clear_scf_env(monkeypatch)
+    _force_scf_env("off", 0.4, 4.0, "on", 0.18)
+    # SCF off + cap on at 0.18 resolves to exactly the requested dials, so no SystemExit.
+    _assert_effective_config("off", 0.4, 4.0, "on", 0.18)
+
+
+def test_assert_aborts_on_sos_credit_cap_enabled_mismatch(monkeypatch):
+    _clear_scf_env(monkeypatch)
+    monkeypatch.setenv("SCF_ENABLED", "false")
+    monkeypatch.setenv("SOS_CREDIT_CAP_ENABLED", "false")
+    with pytest.raises(SystemExit):
+        _assert_effective_config("off", 0.4, 4.0, "on", 0.15)
+
+
+def test_assert_aborts_on_sos_credit_max_mismatch(monkeypatch):
+    _clear_scf_env(monkeypatch)
+    monkeypatch.setenv("SCF_ENABLED", "false")
+    monkeypatch.setenv("SOS_CREDIT_CAP_ENABLED", "true")
+    monkeypatch.setenv("SOS_CREDIT_MAX", "0.15")
+    with pytest.raises(SystemExit):
+        _assert_effective_config("off", 0.4, 4.0, "on", 0.25)
+
+
+def test_assert_cap_off_skips_max_check(monkeypatch):
+    _clear_scf_env(monkeypatch)
+    _force_scf_env("off", 0.4, 4.0, "off", 0.15)
+    # cap off asserts only SOS_CREDIT_CAP_ENABLED is False; the max is not constrained.
+    _assert_effective_config("off", 0.4, 4.0, "off", 0.99)
