@@ -239,6 +239,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'indiana-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Indiana?',
+      answer:
+        'PitchRank tracks game-by-game results across 994 Indiana teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Indiana?',
+      answer:
+        'By team count: Indy Premier SC (124 teams), Indy Eleven Academy (85), FC Pride (53), USAI (41), Carmel FC (37), Hoosier Futbol Club (37), Union FC Indy (35), NWI Lions United (34), Indiana Impact SC (32), and Jr. Irish Soccer Club (28).',
+    },
+    {
+      question: 'How often do Indiana soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Indiana?',
+      answer:
+        "Indiana teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through Indiana Soccer premier divisions and the Indiana State Cup. The Indy Eleven is the state's professional club and anchors the top of the boys pathway.",
+    },
+    {
+      question: 'How does Indianapolis compare to the rest of Indiana in rankings?',
+      answer:
+        "Indianapolis produces the large majority of Indiana's top-ranked teams, with Indy Premier, FC Pride, Carmel FC, and the Indy Eleven pathway driving national-level competition. Fort Wayne, Northwest Indiana, South Bend, and the southern clubs have credible regional programs, but their top teams travel to Indy or out of state for the strongest competition. Use PitchRank's state filter to compare clubs across regions.",
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Indiana rankings help with college recruiting?',
+      answer:
+        'Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Indiana is home to Indiana University, Notre Dame, Butler, Valparaiso, and Evansville.',
+    },
+    {
+      question: 'Can clubs game the Indiana rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker premier-flight opponents repeatedly won't inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
+    },
+  ],
+
   'massachusetts-youth-soccer-rankings-guide': [
     {
       question: 'How are Massachusetts youth soccer teams ranked?',
@@ -348,6 +391,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How does the Twin Cities metro compare to Greater Minnesota in rankings?',
       answer:
         "The seven-county Twin Cities metro concentrates most of the state's ECNL, MLS NEXT, and GA presence, with the western suburbs (Edina, Tonka, EPSC, Salvo) forming the deepest competitive belt and the National Sports Center in Blaine anchoring the north-metro event calendar. Greater Minnesota clubs like Manitou FC and MapleBrook SC compete strongly at the state and regional level but typically travel into the Twin Cities or down into Iowa for top-flight events.",
+    },
+  ],
+
+  'missouri-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Missouri?',
+      answer:
+        'PitchRank tracks game-by-game results across 1,125 Missouri teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Missouri?',
+      answer:
+        'By team count: St. Louis Scott Gallagher (166 teams), Lou Fusz Athletic (124), Missouri Rush (85), St. Louis Development Academy (55), St. Louis Stars SC (45), CarShield FC (36), Southwest MO Rush (36), JB Marine (28), Kirkwood United (26), and Gunners SC (24).',
+    },
+    {
+      question: 'How often do Missouri soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Missouri?',
+      answer:
+        'Missouri teams compete in ECNL, MLS NEXT (anchored by the St. Louis CITY SC academy), Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through MYSA premier divisions and the Missouri State Cup.',
+    },
+    {
+      question: 'How does St. Louis compare to the rest of Missouri in rankings?',
+      answer:
+        "St. Louis produces the large majority of Missouri's top-ranked teams, with Scott Gallagher, Lou Fusz, and the St. Louis CITY SC pathway driving national-level competition. Springfield, Columbia, the Missouri side of Kansas City, and Southeast Missouri have credible regional clubs, but their top teams travel to the metros or out of state for the strongest competition. Use PitchRank's state filter to compare clubs across regions.",
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Missouri rankings help with college recruiting?',
+      answer:
+        'Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Missouri is home to Saint Louis University, Missouri, Missouri State, UMKC, and a deep D2/D3 bench.',
+    },
+    {
+      question: 'Can clubs game the Missouri rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker MYSA flight opponents repeatedly won't inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
     },
   ],
 
