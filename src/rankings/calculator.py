@@ -2144,6 +2144,18 @@ async def compute_rankings_with_ml(
         "sos_adj_sm": getattr(_ecfg, "SOS_ADJ_STRONG_MAX", None),
         "sos_cc": getattr(_ecfg, "SOS_CREDIT_CAP_ENABLED", None),
         "sos_cm": getattr(_ecfg, "SOS_CREDIT_MAX", None),
+        "rr": getattr(_ecfg, "RECORD_RECONCILE_ENABLED", None),
+        "rr_ww": getattr(_ecfg, "RECORD_RECONCILE_WIN_WEIGHT", None),
+        "rr_gw": getattr(_ecfg, "RECORD_RECONCILE_GD_WEIGHT", None),
+        "rr_wm": getattr(_ecfg, "RECORD_RECONCILE_WIN_MIDPOINT", None),
+        "rr_ws": getattr(_ecfg, "RECORD_RECONCILE_WIN_SCALE", None),
+        "rr_gc": getattr(_ecfg, "RECORD_RECONCILE_GD_CLAMP", None),
+        "rr_b": getattr(_ecfg, "RECORD_RECONCILE_BETA", None),
+        "rr_r0": getattr(_ecfg, "RECORD_RECONCILE_R0", None),
+        "rr_k": getattr(_ecfg, "RECORD_RECONCILE_DOWNPULL_K", None),
+        "rr_tf": getattr(_ecfg, "RECORD_RECONCILE_TOLERANCE_FLOOR", None),
+        "rr_mc": getattr(_ecfg, "RECORD_RECONCILE_MIN_COHORT", None),
+        "rr_mg": getattr(_ecfg, "RECORD_RECONCILE_MIN_GAMES_FULL", None),
     }
     _cfg_fp = hashlib.md5(_json.dumps(_cfg_dict, sort_keys=True, default=str).encode()).hexdigest()[:12]
     hash_input += f"_cfg_{_cfg_fp}"

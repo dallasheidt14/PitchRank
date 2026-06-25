@@ -111,11 +111,26 @@ def _open_connection():
     return psycopg2.connect(database_url)
 
 
-def _force_scf_env(mode: str, floor: float, divisor: float, sos_cap: str = "off", sos_max: float = 0.15) -> None:
-    """Force the SCF and SOS-credit-cap dials for THIS process AFTER dotenv load, so a
-    stray value in .env.local cannot win. GlickoConfig reads these env-backed defaults
-    only when constructed (compute_all_cohorts / _assert_effective_config below), never
-    at import, so forcing here — before any GlickoConfig() — is early enough."""
+def _force_scf_env(
+    mode: str,
+    floor: float,
+    divisor: float,
+    sos_cap: str = "off",
+    sos_max: float = 0.15,
+    record_reconcile: str = "off",
+    record_downpull_k: float = 1.0,
+    record_beta: float = 0.8,
+    record_r0: float = 0.5,
+    record_win_weight: float = 0.7,
+) -> None:
+    """Force the SCF, SOS-credit-cap, and record-reconciliation dials for THIS process AFTER
+    dotenv load, so a stray value in .env.local cannot win. GlickoConfig reads these env-backed
+    defaults only when constructed (compute_all_cohorts / _assert_effective_config below), never
+    at import, so forcing here — before any GlickoConfig() — is early enough.
+
+    Reconciliation dials without a CLI flag are *cleared* from the environment (not set) so they
+    resolve to GlickoConfig's code defaults — a stray .env.local value cannot perturb the swept
+    board or its cache fingerprint."""
     os.environ["SCF_ENABLED"] = "true" if mode == "on" else "false"
     if mode == "on":
         os.environ["SCF_FLOOR"] = str(floor)
@@ -123,17 +138,55 @@ def _force_scf_env(mode: str, floor: float, divisor: float, sos_cap: str = "off"
     os.environ["SOS_CREDIT_CAP_ENABLED"] = "true" if sos_cap == "on" else "false"
     if sos_cap == "on":
         os.environ["SOS_CREDIT_MAX"] = str(sos_max)
+    os.environ["RECORD_RECONCILE_ENABLED"] = "true" if record_reconcile == "on" else "false"
+    if record_reconcile == "on":
+        os.environ["RECORD_RECONCILE_DOWNPULL_K"] = str(record_downpull_k)
+        os.environ["RECORD_RECONCILE_BETA"] = str(record_beta)
+        os.environ["RECORD_RECONCILE_R0"] = str(record_r0)
+        os.environ["RECORD_RECONCILE_WIN_WEIGHT"] = str(record_win_weight)
+        os.environ["RECORD_RECONCILE_GD_WEIGHT"] = str(round(1.0 - record_win_weight, 6))
+    for non_cli_dial in (
+        "RECORD_RECONCILE_WIN_MIDPOINT",
+        "RECORD_RECONCILE_WIN_SCALE",
+        "RECORD_RECONCILE_GD_CLAMP",
+        "RECORD_RECONCILE_TOLERANCE_FLOOR",
+        "RECORD_RECONCILE_MIN_COHORT",
+        "RECORD_RECONCILE_MIN_GAMES_FULL",
+    ):
+        os.environ.pop(non_cli_dial, None)
 
 
 def _assert_effective_config(
-    mode: str, floor: float, divisor: float, sos_cap: str = "off", sos_max: float = 0.15
+    mode: str,
+    floor: float,
+    divisor: float,
+    sos_cap: str = "off",
+    sos_max: float = 0.15,
+    record_reconcile: str = "off",
+    record_downpull_k: float = 1.0,
+    record_beta: float = 0.8,
+    record_r0: float = 0.5,
+    record_win_weight: float = 0.7,
 ) -> None:
+    # Fail closed before constructing GlickoConfig (whose __post_init__ would raise): the cap and
+    # the reconciliation are two generations of the same post-mu shaping and must never stack.
+    if sos_cap == "on" and record_reconcile == "on":
+        print("ERROR: --sos-credit-cap and --record-reconcile are mutually exclusive — aborting")
+        sys.exit(1)
     cfg = GlickoConfig()
-    print(f"  effective GlickoConfig().SCF_ENABLED            = {cfg.SCF_ENABLED}")
-    print(f"  effective GlickoConfig().SCF_FLOOR              = {cfg.SCF_FLOOR}")
-    print(f"  effective GlickoConfig().SCF_DIVERSITY_DIVISOR  = {cfg.SCF_DIVERSITY_DIVISOR}")
-    print(f"  effective GlickoConfig().SOS_CREDIT_CAP_ENABLED = {cfg.SOS_CREDIT_CAP_ENABLED}")
-    print(f"  effective GlickoConfig().SOS_CREDIT_MAX         = {cfg.SOS_CREDIT_MAX}")
+    for label, value in (
+        ("SCF_ENABLED", cfg.SCF_ENABLED),
+        ("SCF_FLOOR", cfg.SCF_FLOOR),
+        ("SCF_DIVERSITY_DIVISOR", cfg.SCF_DIVERSITY_DIVISOR),
+        ("SOS_CREDIT_CAP_ENABLED", cfg.SOS_CREDIT_CAP_ENABLED),
+        ("SOS_CREDIT_MAX", cfg.SOS_CREDIT_MAX),
+        ("RECORD_RECONCILE_ENABLED", cfg.RECORD_RECONCILE_ENABLED),
+        ("RECORD_RECONCILE_DOWNPULL_K", cfg.RECORD_RECONCILE_DOWNPULL_K),
+        ("RECORD_RECONCILE_BETA", cfg.RECORD_RECONCILE_BETA),
+        ("RECORD_RECONCILE_R0", cfg.RECORD_RECONCILE_R0),
+        ("RECORD_RECONCILE_WIN_WEIGHT", cfg.RECORD_RECONCILE_WIN_WEIGHT),
+    ):
+        print(f"  effective GlickoConfig().{label:<27} = {value}")
     want_enabled = mode == "on"
     if cfg.SCF_ENABLED is not want_enabled:
         print(f"ERROR: SCF_ENABLED resolved to {cfg.SCF_ENABLED}, expected {want_enabled} — aborting")
@@ -154,6 +207,23 @@ def _assert_effective_config(
     if want_cap and abs(cfg.SOS_CREDIT_MAX - sos_max) > 1e-9:
         print(f"ERROR: SOS_CREDIT_MAX resolved to {cfg.SOS_CREDIT_MAX}, expected {sos_max} — aborting")
         sys.exit(1)
+    want_reconcile = record_reconcile == "on"
+    if cfg.RECORD_RECONCILE_ENABLED is not want_reconcile:
+        print(
+            f"ERROR: RECORD_RECONCILE_ENABLED resolved to {cfg.RECORD_RECONCILE_ENABLED}, "
+            f"expected {want_reconcile} — aborting"
+        )
+        sys.exit(1)
+    if want_reconcile:
+        for name, got, want in (
+            ("RECORD_RECONCILE_DOWNPULL_K", cfg.RECORD_RECONCILE_DOWNPULL_K, record_downpull_k),
+            ("RECORD_RECONCILE_BETA", cfg.RECORD_RECONCILE_BETA, record_beta),
+            ("RECORD_RECONCILE_R0", cfg.RECORD_RECONCILE_R0, record_r0),
+            ("RECORD_RECONCILE_WIN_WEIGHT", cfg.RECORD_RECONCILE_WIN_WEIGHT, record_win_weight),
+        ):
+            if abs(got - want) > 1e-9:
+                print(f"ERROR: {name} resolved to {got}, expected {want} — aborting")
+                sys.exit(1)
 
 
 def _fetch_teams_metadata(supabase_client, team_ids: list[str]) -> pd.DataFrame:
@@ -327,7 +397,18 @@ async def _run_build(args) -> None:
     table = args.table
     mode = args.scf_mode
     print(f"\n{SEP}\n  SCF staging board producer (zero prod-write) — mode {mode}, table {table}\n{SEP}")
-    _assert_effective_config(mode, args.scf_floor, args.scf_divisor, args.sos_credit_cap, args.sos_credit_max)
+    _assert_effective_config(
+        mode,
+        args.scf_floor,
+        args.scf_divisor,
+        args.sos_credit_cap,
+        args.sos_credit_max,
+        args.record_reconcile,
+        args.record_downpull_k,
+        args.record_beta,
+        args.record_r0,
+        args.record_win_weight,
+    )
 
     today = pd.Timestamp(args.today) if args.today else None
     games_snapshot = Path(args.games_snapshot) if args.games_snapshot else None
@@ -405,6 +486,37 @@ def main() -> None:
         help="SOS_CREDIT_MAX (allowed SOS bonus above record) when --sos-credit-cap on (default: 0.15).",
     )
     parser.add_argument(
+        "--record-reconcile",
+        choices=("on", "off"),
+        default="off",
+        help="Down-side record reconciliation on/off (default: off = prod-identical). "
+        "Mutually exclusive with --sos-credit-cap.",
+    )
+    parser.add_argument(
+        "--record-downpull-k",
+        type=float,
+        default=1.0,
+        help="RECORD_RECONCILE_DOWNPULL_K (tolerance multiplier) when --record-reconcile on (default: 1.0).",
+    )
+    parser.add_argument(
+        "--record-beta",
+        type=float,
+        default=0.8,
+        help="RECORD_RECONCILE_BETA (affine crosswalk slope) when --record-reconcile on (default: 0.8).",
+    )
+    parser.add_argument(
+        "--record-r0",
+        type=float,
+        default=0.5,
+        help="RECORD_RECONCILE_R0 (affine crosswalk baseline) when --record-reconcile on (default: 0.5).",
+    )
+    parser.add_argument(
+        "--record-win-weight",
+        type=float,
+        default=0.7,
+        help="RECORD_RECONCILE_WIN_WEIGHT when --record-reconcile on; gd weight forced to 1-this (default: 0.7).",
+    )
+    parser.add_argument(
         "--table", default=DEFAULT_TABLE, help=f"Scratch table to (re)create and load (default: {DEFAULT_TABLE})."
     )
     parser.add_argument(
@@ -444,7 +556,18 @@ def main() -> None:
     if args.games_snapshot and not args.today:
         parser.error("--games-snapshot requires --today (the same date used to fetch the snapshot)")
 
-    _force_scf_env(args.scf_mode, args.scf_floor, args.scf_divisor, args.sos_credit_cap, args.sos_credit_max)
+    _force_scf_env(
+        args.scf_mode,
+        args.scf_floor,
+        args.scf_divisor,
+        args.sos_credit_cap,
+        args.sos_credit_max,
+        args.record_reconcile,
+        args.record_downpull_k,
+        args.record_beta,
+        args.record_r0,
+        args.record_win_weight,
+    )
     asyncio.run(_run_build(args))
 
 
