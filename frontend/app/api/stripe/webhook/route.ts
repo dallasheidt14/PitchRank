@@ -369,7 +369,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
       console.log(`[webhook] Created new user ${newUser.user.id} for anonymous checkout`);
 
-      // Send password-setup email (non-fatal if it fails)
+      // Send password-setup email. If it can't be delivered the customer has
+      // no way to log in, so alert an admin to send a recovery link manually.
+      // Non-fatal — the webhook still returns 200 so Stripe doesn't retry.
+      const alertSetupFailed = (reason: string) =>
+        notifyAdmin(
+          `<b>⚠️ Set-password email FAILED</b>\n` +
+            `New paid signup <b>${escapeHtml(email)}</b> could not be sent a set-password link ` +
+            `(${reason}). They cannot log in — send them a recovery link manually.`
+        );
       try {
         const { data: linkData } = await getSupabaseAdmin().auth.admin.generateLink({
           type: 'recovery',
@@ -380,13 +388,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         });
 
         const setupUrl = linkData?.properties?.action_link;
-        if (setupUrl) {
-          await sendPasswordSetupEmail(email, setupUrl);
-        } else {
+        const sent = setupUrl ? await sendPasswordSetupEmail(email, setupUrl) : false;
+        if (!setupUrl) {
           console.warn('[webhook] Could not generate password setup link');
+        }
+        if (!sent) {
+          await alertSetupFailed(setupUrl ? 'email send failed' : 'no setup link generated');
         }
       } catch (emailError) {
         console.error('[webhook] Password setup email failed (non-fatal):', emailError);
+        await alertSetupFailed('unexpected error');
       }
     }
   }

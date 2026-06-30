@@ -83,6 +83,14 @@ function LoginForm() {
           {error && (
             <div data-testid="login-error" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
+              <div className="mt-2">
+                <Link
+                  href="/forgot-password"
+                  className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Set or reset your password →
+                </Link>
+              </div>
             </div>
           )}
 
