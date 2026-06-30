@@ -48,7 +48,7 @@ def make_supabase(auth_users, billing_rows):
     supabase = Mock()
     supabase.auth.admin.list_users.return_value = auth_users
     supabase.auth.admin.generate_link.return_value = SimpleNamespace(
-        properties=SimpleNamespace(action_link="https://pitchrank.io/auth/callback")
+        properties=SimpleNamespace(action_link="https://supabase.example/verify?token=raw", hashed_token="hashed-xyz")
     )
     table = supabase.table.return_value
     table.select.return_value.range.return_value.execute.return_value = SimpleNamespace(data=billing_rows)
@@ -83,7 +83,10 @@ def test_flags_paying_customer_who_never_logged_in():
     supabase = make_supabase([user], [billing_row("u1", "stuck@example.com")])
     stuck = find_stuck_users(supabase)
     assert [s["email"] for s in stuck] == ["stuck@example.com"]
-    assert stuck[0]["action_link"] == "https://pitchrank.io/auth/callback"
+    # Forwardable token_hash URL through our callback, not Supabase's raw action_link
+    assert stuck[0]["action_link"] == (
+        "https://pitchrank.io/auth/callback?token_hash=hashed-xyz&type=recovery&next=/reset-password"
+    )
 
 
 def test_skips_user_who_has_signed_in():

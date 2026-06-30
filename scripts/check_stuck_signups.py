@@ -153,16 +153,23 @@ def find_stuck_users(supabase):
 
 
 def generate_recovery_link(supabase, email: str) -> str:
-    """Generate a fresh set-password (recovery) link for a stuck user."""
+    """Generate a fresh set-password (recovery) link for a stuck user.
+
+    Build the URL from hashed_token through our own /auth/callback (the verifyOtp
+    token_hash branch) instead of returning Supabase's raw action_link: a link
+    generated server-side and forwarded to the customer hits the PKCE code path
+    with no code_verifier cookie in their browser and falls through to /login
+    instead of establishing the recovery session.
+    """
     try:
         resp = supabase.auth.admin.generate_link(
             {
                 "type": "recovery",
                 "email": email,
-                "options": {"redirect_to": f"{SITE_URL}/auth/callback?next=/rankings"},
+                "options": {"redirect_to": f"{SITE_URL}/auth/callback?next=/reset-password"},
             }
         )
-        return resp.properties.action_link
+        return f"{SITE_URL}/auth/callback?token_hash={resp.properties.hashed_token}&type=recovery&next=/reset-password"
     except Exception as e:
         logger.error(f"  ERROR generating recovery link for {email}: {e}")
         return LINK_FAILED
@@ -195,7 +202,8 @@ def build_digest_html(stuck: list) -> str:
     return f"""
     <h2>Stuck signups — paying but never logged in</h2>
     <p>{len(stuck)} customer(s) are paying/trialing but have never signed in.
-       Forward each the set-password link below so they can get in.</p>
+       Forward each the set-password link below so they can get in.
+       Always use the latest alert: links from earlier alerts stop working.</p>
     <table border="1" cellpadding="0" cellspacing="0"
            style="border-collapse:collapse; font-family:sans-serif; font-size:14px">
         <tr style="background:#f5f5f5">
