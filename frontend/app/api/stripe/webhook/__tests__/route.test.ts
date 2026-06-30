@@ -84,6 +84,13 @@ function nextMaybeSingle() {
   return maybeSingleQueue && maybeSingleQueue.length > 0 ? maybeSingleQueue.shift()! : priorStateRow;
 }
 
+// action_link the mocked admin generateLink returns. Set to null to simulate
+// Supabase returning no link (one of the set-password failure modes).
+let generateLinkAction: string | null = 'https://example.com/setup';
+function setGenerateLinkAction(value: string | null) {
+  generateLinkAction = value;
+}
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: vi.fn(() => {
@@ -106,7 +113,11 @@ vi.mock('@supabase/supabase-js', () => ({
         createUser: vi
           .fn()
           .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null }),
-        generateLink: vi.fn().mockResolvedValue({ data: { properties: { action_link: 'https://example.com/setup' } } }),
+        generateLink: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve({ data: { properties: generateLinkAction ? { action_link: generateLinkAction } : {} } })
+          ),
       },
     },
   })),
@@ -117,6 +128,7 @@ import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
 import { setLifecycle, setSubscriberCustomField, enrollInAutomation } from '@/lib/beehiiv';
 import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
+import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 import { notifyAdmin } from '@/lib/notifications/admin';
 
 function makeRequest(body = ''): Request {
@@ -811,5 +823,79 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
 
     expect(fieldOrder).toBeLessThan(enrollOrder);
     expect(enrollOrder).toBeLessThan(profileOrder);
+  });
+});
+
+describe('Set-password email failure alerts an admin', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    maybeSingleQueue = null;
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    setPriorState(null);
+    setGenerateLinkAction('https://example.com/setup');
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+  });
+
+  // New anonymous checkout: no profile by customer-id, none by email → the
+  // route creates a user and tries to send the set-password email.
+  function fireNewSignup(): Promise<Response> {
+    queueMaybeSingle([null, null]);
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_new',
+      status: 'active',
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+      id: 'evt_new_signup',
+      type: 'checkout.session.completed',
+      data: { object: { customer: 'cus_new', subscription: 'sub_new', payment_status: 'paid' } },
+    } as unknown as Stripe.Event);
+    return POST(makeRequest('valid body'));
+  }
+
+  it('alerts admin and returns 200 when the set-password email send fails', async () => {
+    vi.mocked(sendPasswordSetupEmail).mockResolvedValueOnce(false);
+
+    const res = await fireNewSignup();
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('email send failed'));
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('test@example.com'));
+  });
+
+  it('does not alert when the set-password email sends successfully', async () => {
+    vi.mocked(sendPasswordSetupEmail).mockResolvedValueOnce(true);
+
+    const res = await fireNewSignup();
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(sendPasswordSetupEmail)).toHaveBeenCalled();
+    expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
+  });
+
+  it('alerts admin and returns 200 when the set-password email throws', async () => {
+    vi.mocked(sendPasswordSetupEmail).mockRejectedValueOnce(new Error('Resend unavailable'));
+
+    const res = await fireNewSignup();
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
+  });
+
+  it('alerts admin and returns 200 when no setup link can be generated', async () => {
+    setGenerateLinkAction(null);
+
+    const res = await fireNewSignup();
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(sendPasswordSetupEmail)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('no setup link generated'));
   });
 });

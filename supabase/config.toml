@@ -180,8 +180,10 @@ secure_password_change = false
 max_frequency = "1s"
 # Number of characters used in the email OTP.
 otp_length = 6
-# Number of seconds before the email OTP expires (defaults to 1 hour).
-otp_expiry = 3600
+# Number of seconds before the email OTP expires (defaults to 1 hour). Set to
+# 24h so guest-checkout set-password links survive a slow or spam-filtered
+# email. Load-bearing copy lives in the hosted Auth dashboard; this mirrors it.
+otp_expiry = 86400
 
 # Use Resend SMTP for auth emails (signup confirmation, password reset, etc.)
 [auth.email.smtp]

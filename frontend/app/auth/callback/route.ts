@@ -81,8 +81,8 @@ export async function GET(request: Request) {
 
       if (isCodeVerifierError) {
         // Terminal failure: the code is consumed and the email confirmed, so this
-        // recovery link can't be retried. Clear the flag now (it survives up to an
-        // hour otherwise) so it can't later hijack an unrelated code exchange in
+        // recovery link can't be retried. Clear the flag now (it survives up to 24
+        // hours otherwise) so it can't later hijack an unrelated code exchange in
         // this browser into the reset flow. Genuinely retryable errors fall through
         // below and keep the flag so a retried recovery link still routes to reset.
         if (isRecovery) {

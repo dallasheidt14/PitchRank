@@ -29,7 +29,10 @@ export default function ForgotPasswordPage() {
       // Secure cookies are dropped on plain-http origins (local dev), which
       // silently kills the signal — only mark Secure on https.
       const secureSuffix = window.location.protocol === 'https:' ? '; Secure' : '';
-      document.cookie = `password_reset_pending=true; path=/; max-age=3600; SameSite=Lax${secureSuffix}`;
+      // max-age matches the OTP link lifetime (supabase otp_expiry, 24h) so the
+      // recovery context survives as long as the link does — otherwise a link
+      // opened after the cookie expires misroutes off /reset-password on PKCE.
+      document.cookie = `password_reset_pending=true; path=/; max-age=86400; SameSite=Lax${secureSuffix}`;
 
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
@@ -61,7 +64,7 @@ export default function ForgotPasswordPage() {
         </CardHeader>
         <CardContent className="text-center">
           <p className="text-sm text-muted-foreground">
-            Click the link in the email to reset your password. The link will expire in 1 hour.
+            Click the link in the email to reset your password. The link will expire in 24 hours.
           </p>
         </CardContent>
         <CardFooter className="flex justify-center">
