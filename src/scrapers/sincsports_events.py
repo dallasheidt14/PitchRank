@@ -46,10 +46,12 @@ _TEAMID_RE = re.compile(
     re.IGNORECASE,
 )
 
-# "Under 14 Girls First Division" → (14, "Girls"). Handles dual-age "Under 9/10"
-# by taking the lower age (younger primary cohort, matches SincSports convention).
+# "Under 14 Girls First Division" → (14, "Girls"). Also matches the compact
+# birth-year form some tournaments use, e.g. "2016 - U10 Girls Mendota 7v7"
+# (RWISC) → (10, "Girls"). Handles dual-age "Under 9/10" / "U9/10" by taking the
+# lower age (younger primary cohort, matches SincSports convention).
 _DIV_HEADING_RE = re.compile(
-    r"\bUnder\s+(\d{1,2})(?:/\d{1,2})?\s+(Boys|Girls)\b",
+    r"\bU(?:nder)?\s*(\d{1,2})(?:/\d{1,2})?\s+(Boys|Girls)\b",
     re.IGNORECASE,
 )
 

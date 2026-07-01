@@ -143,6 +143,11 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--auto-import", action="store_true", help="Run import_games_enhanced.py after scraping")
     p.add_argument("--dry-run", action="store_true", help="Print summary only; no JSONL or import")
+    p.add_argument(
+        "--via-proxy",
+        action="store_true",
+        help="Route fetches through the ZenRows proxy (bypasses SincSports' 403 bot-protection)",
+    )
     return p.parse_args()
 
 
@@ -150,6 +155,13 @@ def main() -> int:
     args = parse_args()
 
     scraper = SincSportsScheduleScraper()
+    if args.via_proxy:
+        from src.scrapers._zenrows import ZenRowsSession
+
+        # SincSports 403s direct requests; js_render must stay OFF (division links
+        # collapse into a JS dropdown that exposes only the div=N placeholder).
+        scraper.session = ZenRowsSession(js_render=False)
+        console.print("[cyan]Routing schedule fetch through ZenRows proxy[/cyan]")
     try:
         all_games = scraper.fetch_tournament(args.tid, year=args.year)
     except Exception as e:
