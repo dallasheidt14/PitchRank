@@ -113,11 +113,11 @@ vi.mock('@supabase/supabase-js', () => ({
         createUser: vi
           .fn()
           .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null }),
-        generateLink: vi
-          .fn()
-          .mockImplementation(() =>
-            Promise.resolve({ data: { properties: generateLinkHashedToken ? { hashed_token: generateLinkHashedToken } : {} } })
-          ),
+        generateLink: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            data: { properties: generateLinkHashedToken ? { hashed_token: generateLinkHashedToken } : {} },
+          })
+        ),
       },
     },
   })),
