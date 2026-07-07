@@ -84,11 +84,11 @@ function nextMaybeSingle() {
   return maybeSingleQueue && maybeSingleQueue.length > 0 ? maybeSingleQueue.shift()! : priorStateRow;
 }
 
-// action_link the mocked admin generateLink returns. Set to null to simulate
+// hashed_token the mocked admin generateLink returns. Set to null to simulate
 // Supabase returning no link (one of the set-password failure modes).
-let generateLinkAction: string | null = 'https://example.com/setup';
-function setGenerateLinkAction(value: string | null) {
-  generateLinkAction = value;
+let generateLinkHashedToken: string | null = 'test-hashed-token';
+function setGenerateLinkHashedToken(value: string | null) {
+  generateLinkHashedToken = value;
 }
 
 vi.mock('@supabase/supabase-js', () => ({
@@ -113,11 +113,11 @@ vi.mock('@supabase/supabase-js', () => ({
         createUser: vi
           .fn()
           .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null }),
-        generateLink: vi
-          .fn()
-          .mockImplementation(() =>
-            Promise.resolve({ data: { properties: generateLinkAction ? { action_link: generateLinkAction } : {} } })
-          ),
+        generateLink: vi.fn().mockImplementation(() =>
+          Promise.resolve({
+            data: { properties: generateLinkHashedToken ? { hashed_token: generateLinkHashedToken } : {} },
+          })
+        ),
       },
     },
   })),
@@ -834,7 +834,7 @@ describe('Set-password email failure alerts an admin', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
     setPriorState(null);
-    setGenerateLinkAction('https://example.com/setup');
+    setGenerateLinkHashedToken('test-hashed-token');
     vi.mocked(headers).mockResolvedValue(
       new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
     );
@@ -889,7 +889,7 @@ describe('Set-password email failure alerts an admin', () => {
   });
 
   it('alerts admin and returns 200 when no setup link can be generated', async () => {
-    setGenerateLinkAction(null);
+    setGenerateLinkHashedToken(null);
 
     const res = await fireNewSignup();
 

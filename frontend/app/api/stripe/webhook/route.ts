@@ -383,11 +383,18 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           type: 'recovery',
           email,
           options: {
-            redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/rankings`,
+            redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
           },
         });
 
-        const setupUrl = linkData?.properties?.action_link;
+        // Build the set-password link through our own callback via token_hash rather
+        // than the PKCE action_link: a link opened on a different device than checkout
+        // has no code_verifier cookie and would fall through to /login, stranding the
+        // paying customer. The token_hash (verifyOtp) path works on any device.
+        const hashedToken = linkData?.properties?.hashed_token;
+        const setupUrl = hashedToken
+          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?token_hash=${hashedToken}&type=recovery&next=/reset-password`
+          : undefined;
         const sent = setupUrl ? await sendPasswordSetupEmail(email, setupUrl) : false;
         if (!setupUrl) {
           console.warn('[webhook] Could not generate password setup link');
