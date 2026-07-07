@@ -12,6 +12,7 @@ PitchRank provides the most accurate youth soccer rankings in the United States,
 ## Blog
 *State-specific guides are listed under State Pillars below.*
 
+- [Best U11 Soccer Teams: This Week's Rankings](https://www.pitchrank.io/blog/2026-07-07-best-u11-soccer-teams): Best U11 soccer teams this week. Rankings for 86,310 teams updated every Monday.
 - [Best U13 Soccer Teams: This Week's Rankings](https://www.pitchrank.io/blog/2026-06-29-best-u13-soccer-teams): Best U13 soccer teams this week. Rankings for 87,973 teams updated every Monday.
 - [State of Texas Youth Soccer 2026](https://www.pitchrank.io/blog/state-of-texas-youth-soccer-2026): PitchRank's first-party Texas youth soccer report: 7,992 ranked teams across 18 groups, drawn from 117,747 matches over the past year — biggest movers, league parity, and age-group depth.
 - [Connecticut Youth Soccer Rankings: This Week's Top Movers](https://www.pitchrank.io/blog/2026-06-22-connecticut-youth-soccer-rankings): This week's CT youth soccer rankings update. See which CT teams moved the most across 90,413 ranked teams.
