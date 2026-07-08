@@ -54,10 +54,16 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import numpy as np
 import pandas as pd
-import psycopg2
 from dotenv import load_dotenv
-from psycopg2 import sql
-from psycopg2.extras import execute_values
+
+try:
+    import psycopg2  # type: ignore
+    from psycopg2 import sql
+    from psycopg2.extras import execute_values
+except ImportError:  # pragma: no cover - exercised only when psycopg2 is unavailable
+    psycopg2 = None
+    sql = None
+    execute_values = None
 
 from src.etl.glicko_config import GlickoConfig
 from src.rankings.calculator import _effective_fetch_lookback_days, compute_all_cohorts
