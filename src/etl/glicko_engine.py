@@ -302,6 +302,12 @@ def clip_outlier_goals(games_df: pd.DataFrame, zscore_threshold: float = 2.5) ->
     return df
 
 
+def _window_cutoff(today: pd.Timestamp, window_days: int, grace_days: int = 0) -> pd.Timestamp:
+    """Lookback cutoff shared by select_games and derive_windowed_record so the selection window
+    and the windowed record stay provably aligned (one formula, not two hand-copied ones)."""
+    return today - pd.Timedelta(days=window_days + max(int(grace_days), 0))
+
+
 def select_games(
     games_df: pd.DataFrame,
     team_id: str,
@@ -322,7 +328,7 @@ def select_games(
     Returns:
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
-    cutoff = today - pd.Timedelta(days=window_days + max(int(grace_days), 0))
+    cutoff = _window_cutoff(today, window_days, grace_days)
     dates = games_df["date"]
     if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
         dates = dates.dt.tz_localize(None)
@@ -1369,6 +1375,185 @@ def apply_scf_dampening(
     return df
 
 
+def apply_sos_credit_cap(team_df: pd.DataFrame, cfg: GlickoConfig) -> pd.DataFrame:
+    """Cap each team's SOS-credit — the portion of its published score above what its
+    own record justifies — gated on record so only SOS-inflated teams (mediocre record
+    on a hard schedule) are pulled down, never record-justified ones.
+
+    Runs within the cohort, on the normalized powerscore_core scale. record_score is
+    produced by the same sigmoid_zscore_normalize used for powerscore_core, so the two
+    share one [0, 1] scale and powerscore_core - record_score is meaningful. The cap is
+    one-sided (a min): it never raises a score and never touches mu, SOS, SCF, or ML.
+
+    Args:
+        team_df: DataFrame with team_id, wins, games_played, goals_for, goals_against,
+                 and powerscore_core (post-normalization).
+        cfg: GlickoConfig with SOS_CREDIT_* settings.
+
+    Returns:
+        Modified DataFrame with powerscore_core capped and power_presos holding the
+        pre-cap value (for a pre/post audit).
+    """
+    df = team_df.copy()
+
+    games = df["games_played"].astype(float)
+    gp = games.clip(lower=1.0)
+    win_rate = df["wins"].astype(float) / gp
+    gd_per_game = (df["goals_for"].astype(float) - df["goals_against"].astype(float)) / gp
+
+    # Standardize each component before blending: win-rate is [0, 1] while goal
+    # differential spans several goals, so a raw blend would let goal-diff dominate
+    # regardless of the configured weights.
+    def _zscore(series: pd.Series) -> pd.Series:
+        std = series.std(ddof=0)
+        if std < 1e-10:
+            return pd.Series(0.0, index=series.index)
+        return (series - series.mean()) / std
+
+    record_raw = cfg.SOS_CREDIT_RECORD_WIN_WEIGHT * _zscore(win_rate) + cfg.SOS_CREDIT_RECORD_GD_WEIGHT * _zscore(
+        gd_per_game
+    )
+    record_score = sigmoid_zscore_normalize(record_raw)
+
+    # Record-gated ceiling: a strong record keeps ~full credit (ceiling >= 1 → never
+    # binds); a mediocre record allows only SOS_CREDIT_MAX above its record level.
+    ceiling = record_score * (1.0 + cfg.SOS_CREDIT_MAX)
+    core = df["powerscore_core"].astype(float)
+    capped_full = core.clip(upper=ceiling)
+
+    # Ramp the cap in with sample size: fully applied at SOS_CREDIT_MIN_GAMES_FULL
+    # games, relaxed toward uncapped below it so thin-sample teams aren't whipsawed by
+    # a noisy record estimate. The blend stays continuous, so there is no rank cliff.
+    games_ramp = (games / max(float(cfg.SOS_CREDIT_MIN_GAMES_FULL), 1.0)).clip(lower=0.0, upper=1.0)
+    capped_core = core + games_ramp * (capped_full - core)
+
+    df["power_presos"] = df["powerscore_core"]
+    df["powerscore_core"] = capped_core
+    return df
+
+
+# Single source of truth for the windowed-record columns, so producer and consumer can't drift.
+_REC_WINDOW_COLS = [
+    "rec_window_wins",
+    "rec_window_draws",
+    "rec_window_games",
+    "rec_window_goals_for",
+    "rec_window_goals_against",
+]
+
+
+def derive_windowed_record(games_df: pd.DataFrame, cfg: GlickoConfig, today: pd.Timestamp) -> pd.DataFrame:
+    """Per-team windowed, draw-aware record from ALL games in the lookback window.
+
+    Distinct from the wins/games_played on team_df, which summarize only the selected
+    <=MAX_GAMES balanced subset: record_expected must reflect the full window (same cutoff as
+    select_games) so a strong record is not truncated by outcome-biased selection.
+
+    Returns one row per team with the _REC_WINDOW_COLS columns.
+    """
+    cutoff = _window_cutoff(today, cfg.WINDOW_DAYS, getattr(cfg, "WINDOW_GRACE_DAYS", 0))
+    dates = games_df["date"]
+    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
+        dates = dates.dt.tz_localize(None)
+    windowed = games_df.loc[dates >= cutoff, ["team_id", "gf", "ga"]].copy()
+    if windowed.empty:
+        return pd.DataFrame(columns=["team_id", *_REC_WINDOW_COLS])
+
+    gf = windowed["gf"].astype(float)
+    ga = windowed["ga"].astype(float)
+    windowed["_win"] = (gf > ga).astype(int)
+    windowed["_draw"] = (gf == ga).astype(int)
+    grp = windowed.groupby("team_id")
+    return pd.DataFrame(
+        {
+            "rec_window_wins": grp["_win"].sum(),
+            "rec_window_draws": grp["_draw"].sum(),
+            "rec_window_games": grp.size(),
+            "rec_window_goals_for": grp["gf"].sum(),
+            "rec_window_goals_against": grp["ga"].sum(),
+        }
+    ).reset_index()
+
+
+def _record_expected_index(points_rate: pd.Series, gd_per_game: pd.Series, cfg: GlickoConfig) -> pd.Series:
+    """Absolute-anchored [0, 1] index of a windowed, draw-aware record.
+
+    Unlike sigmoid_zscore_normalize, this uses fixed absolute breakpoints, not the cohort
+    mean/std, so a strong record anchors near the top in any cohort (the property the
+    cohort-relative SOS-credit cap lacked). win_component is a logistic of the points rate
+    (~0 -> ~0, .500 -> 0.5, ~.85 -> ~.95); gd_component is the per-game goal differential
+    clamped to a band and mapped to [0, 1]. The convex blend stays in [0, 1].
+    """
+    scale = max(float(cfg.RECORD_RECONCILE_WIN_SCALE), 1e-6)
+    win_component = 1.0 / (1.0 + np.exp(-(points_rate - cfg.RECORD_RECONCILE_WIN_MIDPOINT) / scale))
+    clamp = max(float(cfg.RECORD_RECONCILE_GD_CLAMP), 1e-6)
+    gd_component = (gd_per_game.clip(-clamp, clamp) + clamp) / (2.0 * clamp)
+    record = cfg.RECORD_RECONCILE_WIN_WEIGHT * win_component + cfg.RECORD_RECONCILE_GD_WEIGHT * gd_component
+    return record.clip(0.0, 1.0)
+
+
+def apply_record_score_reconciliation(team_df: pd.DataFrame, cfg: GlickoConfig) -> pd.DataFrame:
+    """Lower SOS-inflated teams toward their absolute-anchored record level on the normalized
+    powerscore_core scale — the down-side of a record-vs-score reconciliation.
+
+    record_expected is an absolute, windowed, draw-aware record index (so a strong record is
+    near-uncappable in any cohort); it is projected onto the powerscore_core scale via a
+    per-cohort affine crosswalk before any comparison. The pull is self-normalizing (tolerance
+    scales with the cohort dispersion of powerscore_core - record_expected_core), one-sided (a
+    min — never raises a score), continuous, and ramped in with windowed sample size. It never
+    touches mu, SOS, SCF, or ML. Supersedes apply_sos_credit_cap; the two never stack.
+
+    Args:
+        team_df: DataFrame with team_id, powerscore_core (post-normalization), and the windowed
+                 record columns rec_window_wins, rec_window_draws, rec_window_games,
+                 rec_window_goals_for, rec_window_goals_against (the full-window record, not the
+                 selected <=30-game subset summarized on wins/games_played).
+        cfg: GlickoConfig with RECORD_RECONCILE_* settings.
+
+    Returns:
+        Modified DataFrame with powerscore_core reconciled and power_presos holding the
+        pre-reconciliation value (for a pre/post audit).
+    """
+    df = team_df.copy()
+
+    games = df["rec_window_games"].astype(float)
+    gp = games.clip(lower=1.0)
+    points_rate = (df["rec_window_wins"].astype(float) + 0.5 * df["rec_window_draws"].astype(float)) / gp
+    gd_per_game = (df["rec_window_goals_for"].astype(float) - df["rec_window_goals_against"].astype(float)) / gp
+
+    record_expected = _record_expected_index(points_rate, gd_per_game, cfg)
+
+    # Affine crosswalk onto the powerscore_core scale: the cohort center absorbs the per-cohort
+    # offset while the absolute (record_expected - R0) term preserves top-anchoring.
+    core = df["powerscore_core"].astype(float)
+    cohort_core_center = core.median()
+    record_expected_core = cohort_core_center + cfg.RECORD_RECONCILE_BETA * (record_expected - cfg.RECORD_RECONCILE_R0)
+
+    # Self-normalizing tolerance from the cohort dispersion of the core-vs-record gap, with a
+    # nonzero floor (so a homogeneous cohort never collapses to a hard cap / rank cliff) and a
+    # min-cohort-size fallback (a small cohort's dispersion estimate is unreliable).
+    floor = float(cfg.RECORD_RECONCILE_TOLERANCE_FLOOR)
+    if len(df) < int(cfg.RECORD_RECONCILE_MIN_COHORT):
+        dispersion = floor
+    else:
+        dispersion = max(float((core - record_expected_core).std(ddof=0)), floor)
+    tolerance = cfg.RECORD_RECONCILE_DOWNPULL_K * dispersion
+
+    # One-sided pull toward record_expected_core + tolerance; a strong record (high
+    # record_expected_core) keeps full credit and is never raised.
+    reconciled_full = np.minimum(core, record_expected_core + tolerance)
+
+    # Ramp the pull in with windowed sample size: fully applied at RECORD_RECONCILE_MIN_GAMES_FULL
+    # games, relaxed toward untouched below it so thin-sample teams aren't whipsawed by a noisy
+    # record estimate. The blend stays continuous, so there is no rank cliff.
+    games_ramp = (games / max(float(cfg.RECORD_RECONCILE_MIN_GAMES_FULL), 1.0)).clip(lower=0.0, upper=1.0)
+    reconciled_core = core + games_ramp * (reconciled_full - core)
+
+    df["power_presos"] = df["powerscore_core"]
+    df["powerscore_core"] = reconciled_core
+    return df
+
+
 # =========================================================
 # Batch convergence engine
 # =========================================================
@@ -1769,6 +1954,19 @@ def compute_rankings_v2(
         mu_publish = cfg.INITIAL_MU + (mu_publish - cfg.INITIAL_MU) * evidence_scale
         team_df["powerscore_core"] = sigmoid_zscore_normalize(mu_publish)
 
+    # 7b. Record-gated SOS-credit cap (one block covers both powerscore_core branches).
+    if cfg.SOS_CREDIT_CAP_ENABLED:
+        team_df = apply_sos_credit_cap(team_df, cfg)
+
+    # 7c. Down-side record reconciliation (supersedes the cap; never both — enforced in GlickoConfig).
+    # The windowed record comes from games_df (the full window), not team_df's selected subset.
+    if cfg.RECORD_RECONCILE_ENABLED:
+        windowed_record = derive_windowed_record(games_df, cfg, today)
+        team_df = team_df.merge(windowed_record, on="team_id", how="left")
+        team_df[_REC_WINDOW_COLS] = team_df[_REC_WINDOW_COLS].fillna(0)
+        team_df = apply_record_score_reconciliation(team_df, cfg)
+        team_df = team_df.drop(columns=_REC_WINDOW_COLS)
+
     # 8. Provisional multiplier from sigma
     team_df["provisional_mult"] = np.clip(1.0 - (team_df["sigma"] / cfg.INITIAL_SIGMA) ** 2, 0.0, 1.0)
     team_df["powerscore_adj"] = (team_df["powerscore_core"] * team_df["provisional_mult"]).clip(0.0, 1.0)
@@ -1854,8 +2052,10 @@ def compute_rankings_v2(
     # Abs strength for two-pass
     team_df["abs_strength"] = sigmoid_zscore_normalize(team_df["mu"])
 
-    # Power scores
-    team_df["power_presos"] = team_df["powerscore_core"]
+    # Power scores. The SOS-credit cap, when on, already set power_presos to the
+    # pre-cap powerscore_core; only assign here when it left it unset.
+    if "power_presos" not in team_df.columns:
+        team_df["power_presos"] = team_df["powerscore_core"]
     team_df["anchor"] = 0.5
 
     # Performance residuals (placeholder -- ML layer computes these)

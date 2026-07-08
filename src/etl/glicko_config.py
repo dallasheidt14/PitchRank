@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,9 @@ class GlickoConfig:
     SOS_TRIM_TOP_PCT: float = 0.15
 
     # SCF
-    SCF_ENABLED: bool = True
+    SCF_ENABLED: bool = field(
+        default_factory=lambda: os.getenv("SCF_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+    )
     # Apply SCF dampening only to the published score, never to mu.
     # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
     # cross-age global map); publish-only SCF won log-loss in every backtested
@@ -95,8 +98,8 @@ class GlickoConfig:
     # (scripts/ranking_stability_check.py).
     SCF_PUBLISH_ONLY: bool = False
     SCF_MIN_UNIQUE_STATES: int = 2
-    SCF_DIVERSITY_DIVISOR: float = 4.0
-    SCF_FLOOR: float = 0.4
+    SCF_DIVERSITY_DIVISOR: float = field(default_factory=lambda: float(os.getenv("SCF_DIVERSITY_DIVISOR", "4.0")))
+    SCF_FLOOR: float = field(default_factory=lambda: float(os.getenv("SCF_FLOOR", "0.4")))
     SCF_ZERO_BRIDGE_FLOOR: float = 0.1
     MIN_BRIDGE_GAMES: int = 3
     ISOLATION_SOS_CAP: float = 0.60
@@ -143,6 +146,67 @@ class GlickoConfig:
     SOS_ADJ_STRONG_THRESHOLD: float = 0.60     # Dead zone upper edge (sos_norm scale)
     SOS_ADJ_WEAK_MAX: float = 0.16             # Max 16% penalty for weakest SOS
     SOS_ADJ_STRONG_MAX: float = 0.03           # Max 3% reward for strongest SOS
+
+    # SOS-credit cap (record-gated post-mu shaping). Caps the portion of a team's
+    # published score that exceeds what its own record justifies, gated on record so
+    # only SOS-inflated teams (mediocre record on a hard schedule) are pulled down and
+    # record-justified teams are untouched. Default OFF = byte-identical to prod.
+    SOS_CREDIT_CAP_ENABLED: bool = field(
+        default_factory=lambda: os.getenv("SOS_CREDIT_CAP_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+    )
+    SOS_CREDIT_MAX: float = field(default_factory=lambda: float(os.getenv("SOS_CREDIT_MAX", "0.15")))
+    SOS_CREDIT_RECORD_WIN_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_RECORD_WIN_WEIGHT", "0.6"))
+    )
+    SOS_CREDIT_RECORD_GD_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_RECORD_GD_WEIGHT", "0.4"))
+    )
+    SOS_CREDIT_MIN_GAMES_FULL: float = field(
+        default_factory=lambda: float(os.getenv("SOS_CREDIT_MIN_GAMES_FULL", "12"))
+    )
+
+    # Down-side record reconciliation (supersedes the cohort-relative SOS-credit cap).
+    # Lowers only SOS-inflated teams toward an absolute-anchored, windowed, draw-aware
+    # record level, so a strong record is near-uncappable in any cohort. One-sided
+    # (never raises a score) and never touches mu/SOS/SCF/ML. Default OFF = byte-identical
+    # to prod. Mutually exclusive with the SOS-credit cap (see __post_init__).
+    RECORD_RECONCILE_ENABLED: bool = field(
+        default_factory=lambda: os.getenv("RECORD_RECONCILE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+    )
+    RECORD_RECONCILE_WIN_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_WIN_WEIGHT", "0.7"))
+    )
+    RECORD_RECONCILE_GD_WEIGHT: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_GD_WEIGHT", "0.3"))
+    )
+    # Absolute win/points-rate → [0,1] logistic breakpoints (NOT cohort-relative):
+    # midpoint maps a .500 record to 0.5; scale sets the steepness (≈0.85 → ≈0.95).
+    RECORD_RECONCILE_WIN_MIDPOINT: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_WIN_MIDPOINT", "0.5"))
+    )
+    RECORD_RECONCILE_WIN_SCALE: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_WIN_SCALE", "0.12"))
+    )
+    RECORD_RECONCILE_GD_CLAMP: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_GD_CLAMP", "3.0"))
+    )
+    # Affine crosswalk record_expected → powerscore_core scale: cohort_center + BETA*(record - R0).
+    RECORD_RECONCILE_BETA: float = field(default_factory=lambda: float(os.getenv("RECORD_RECONCILE_BETA", "0.8")))
+    RECORD_RECONCILE_R0: float = field(default_factory=lambda: float(os.getenv("RECORD_RECONCILE_R0", "0.5")))
+    # Self-normalizing tolerance: K * dispersion(powerscore_core - record_expected_core),
+    # with a nonzero floor (homogeneous cohorts) and a min-cohort-size fallback to the floor.
+    RECORD_RECONCILE_DOWNPULL_K: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_DOWNPULL_K", "1.0"))
+    )
+    RECORD_RECONCILE_TOLERANCE_FLOOR: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_TOLERANCE_FLOOR", "0.05"))
+    )
+    RECORD_RECONCILE_MIN_COHORT: int = field(
+        default_factory=lambda: int(os.getenv("RECORD_RECONCILE_MIN_COHORT", "5"))
+    )
+    RECORD_RECONCILE_MIN_GAMES_FULL: float = field(
+        default_factory=lambda: float(os.getenv("RECORD_RECONCILE_MIN_GAMES_FULL", "12"))
+    )
     BASE_EVIDENCE_SHRINK_ENABLED: bool = True
     BASE_EVIDENCE_SHRINK_MAX: float = 0.08
     BASE_EVIDENCE_SHRINK_STRONG: float = 0.05
@@ -175,3 +239,14 @@ class GlickoConfig:
 
     # Provisional/publication floor
     MIN_GAMES_PROVISIONAL: int = 12
+
+    def __post_init__(self):
+        # Fail closed: the old SOS-credit cap and the new record reconciliation are two
+        # generations of the same post-mu shaping. Stacking them would produce a
+        # doubly-shaped board that masquerades as a clean single-lever test, so no run —
+        # staging or prod — may have both on.
+        if self.SOS_CREDIT_CAP_ENABLED and self.RECORD_RECONCILE_ENABLED:
+            raise ValueError(
+                "SOS_CREDIT_CAP_ENABLED and RECORD_RECONCILE_ENABLED are mutually exclusive "
+                "(the reconciliation supersedes the cap); enable at most one."
+            )

@@ -33,11 +33,13 @@ Exit code is non-zero if any check FAILs, so this can gate a ranking run.
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
 import psycopg2
 from dotenv import load_dotenv
+from psycopg2 import sql
 
 # ── Setup ────────────────────────────────────────────────────────────────
 env_local = Path(".env.local")
@@ -135,20 +137,25 @@ def check_nonplaying_churn(cur, prev_date: str, cohort_sql: str, params: dict) -
 
 
 # ── Check 2: mu -> published stage shift ─────────────────────────────────
-def check_stage_shift(cur, cohort_sql: str, params: dict) -> None:
-    print(f"\n{SEP}\n  CHECK 2: mu -> published stage shift (characterization)\n{SEP}")
+def _stage_shift(cur, table_sql: str, cohort_sql: str, params: dict) -> tuple:
+    """avg + median |rank_in_cohort - rank_in_cohort_final| over Active teams on one board."""
     cur.execute(
         f"""
         SELECT round(avg(abs(rank_in_cohort - rank_in_cohort_final))::numeric, 1),
                round(percentile_cont(0.5) WITHIN GROUP (
                    ORDER BY abs(rank_in_cohort - rank_in_cohort_final))::numeric, 0)
-        FROM rankings_full
+        FROM {table_sql}
         WHERE status = 'Active'
           AND rank_in_cohort IS NOT NULL AND rank_in_cohort_final IS NOT NULL{cohort_sql}
         """,
         params,
     )
-    avg_shift, median_shift = cur.fetchone()
+    return cur.fetchone()
+
+
+def check_stage_shift(cur, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  CHECK 2: mu -> published stage shift (characterization)\n{SEP}")
+    avg_shift, median_shift = _stage_shift(cur, "rankings_full", cohort_sql, params)
     print(f"\n  avg |raw-strength rank - published rank| = {avg_shift}   (median {median_shift})")
     print("  (informational: compare across runs — a rollback that re-couples standings")
     print("   to strength should make this DROP. High values = publish chain dominates mu.)")
@@ -197,14 +204,164 @@ def check_top100_churn(cur, prev_date: str, cohort_sql: str, params: dict) -> No
         verdict("Top-100 churn", "FAIL", f"worst cohort {worst} new entrants into the top 100")
 
 
+# ── Compare mode: board-vs-board (a baseline table vs a candidate table) ──
+# A legitimate engine change is EXPECTED to move teams, so these checks are
+# characterization (INFO), never FAIL. Baseline = the --baseline-table board
+# (default rankings_full; pass a same-snapshot SCF-on board to avoid stale prod);
+# candidate = the table passed via --compare-table. No ranking_history is read.
+def compare_movement(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 1: rank movement, candidate vs baseline (same snapshot)\n{SEP}")
+    cur.execute(
+        f"""
+        WITH prod AS (
+            SELECT team_id, rank_in_cohort_final AS r_prod
+            FROM {base_ident}
+            WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
+        ),
+        cand AS (
+            SELECT team_id, rank_in_cohort_final AS r_cand
+            FROM {cand_ident}
+            WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL
+        ),
+        j AS (SELECT (c.r_cand - p.r_prod) AS delta FROM prod p JOIN cand c USING (team_id))
+        SELECT count(*),
+               round(avg(abs(delta))::numeric, 1),
+               round(percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(delta))::numeric, 0),
+               round(percentile_cont(0.9) WITHIN GROUP (ORDER BY abs(delta))::numeric, 0),
+               max(abs(delta)),
+               sum((delta < 0)::int),
+               sum((delta > 0)::int)
+        FROM j
+        """,
+        params,
+    )
+    n, avg_move, median, p90, worst, rose, dropped = cur.fetchone()
+    if not n:
+        verdict("Board movement", "INFO", "no teams matched between boards")
+        return
+    print(f"\n  teams on both boards: {n:,}")
+    print(f"  avg |Δrank| {avg_move}  |  median {median}  |  p90 {p90}  |  worst {worst}")
+    print(f"  rose toward #1: {rose:,} ({rose / n:.0%})   dropped: {dropped:,} ({dropped / n:.0%})")
+    verdict("Board movement", "INFO", f"median |Δrank| {float(median):.0f} across {n:,} teams (movement expected)")
+
+
+def compare_top_movers(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 1b: biggest movers with schedule/record (eyeball bubble demotions)\n{SEP}")
+    cur.execute(
+        f"""
+        WITH prod AS (
+            SELECT team_id, age_group, gender, rank_in_cohort_final AS r_prod
+            FROM {base_ident}
+            WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
+        ),
+        cand AS (
+            SELECT team_id, rank_in_cohort_final AS r_cand, sos_norm, win_percentage
+            FROM {cand_ident}
+            WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL
+        ),
+        j AS (
+            SELECT p.age_group, p.gender, p.team_id, p.r_prod, c.r_cand,
+                   (c.r_cand - p.r_prod) AS delta, c.sos_norm, c.win_percentage
+            FROM prod p JOIN cand c USING (team_id)
+        ),
+        movers AS (
+            (SELECT 'DROP' AS dir, * FROM j ORDER BY delta DESC LIMIT 15)
+            UNION ALL
+            (SELECT 'RISE' AS dir, * FROM j ORDER BY delta ASC LIMIT 15)
+        )
+        SELECT m.dir, m.age_group, m.gender, t.team_name, m.r_prod, m.r_cand, m.delta,
+               round(m.sos_norm::numeric, 3), round(m.win_percentage::numeric, 1)
+        FROM movers m LEFT JOIN teams t ON t.team_id_master = m.team_id
+        ORDER BY m.dir, abs(m.delta) DESC
+        """,
+        params,
+    )
+    rows = cur.fetchall()
+    if not rows:
+        verdict("Top movers", "INFO", "no overlapping teams to rank by movement")
+        return
+    print(f"\n  {'Dir':<5}{'Cohort':<11}{'Team':<26}{'prod->cand':>12}{'Δ':>7}{'SOS':>7}{'Win%':>7}")
+    print(f"  {THIN}")
+    for d, ag, g, name, r_prod, r_cand, delta, sosn, winp in rows:
+        name = (name or "?")[:25]
+        path = f"{r_prod}->{r_cand}"
+        print(f"  {d:<5}{ag + '/' + g:<11}{name:<26}{path:>12}{delta:>+7}{sosn:>7}{winp:>7}")
+    verdict("Top movers", "INFO", "DROP movers should be high-SOS / mediocre-record bubble teams")
+
+
+def compare_stage_shift(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 2: mu->published decoupling, candidate vs baseline (within-board)\n{SEP}")
+    prod_avg, prod_med = _stage_shift(cur, base_ident, cohort_sql, params)
+    cand_avg, cand_med = _stage_shift(cur, cand_ident, cohort_sql, params)
+    print(f"\n  baseline  : avg {prod_avg}, median {prod_med}")
+    print(f"  candidate : avg {cand_avg}, median {cand_med}")
+    print("  (a healthy candidate should NOT decouple mu from the published order more than the baseline)")
+    verdict("Stage-shift delta", "INFO", f"baseline avg {prod_avg} vs candidate avg {cand_avg}")
+
+
+def compare_topn_composition(cur, cand_ident: str, base_ident: str, cohort_sql: str, params: dict) -> None:
+    print(f"\n{SEP}\n  COMPARE 3: top-N composition delta, candidate vs baseline\n{SEP}")
+    for n in (50, 100):
+        cur.execute(
+            f"""
+            WITH prod AS (
+                SELECT team_id, age_group, gender, rank_in_cohort_final AS r_prod
+                FROM {base_ident} WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
+            ),
+            cand AS (
+                SELECT team_id, age_group, gender, rank_in_cohort_final AS r_cand
+                FROM {cand_ident} WHERE status = 'Active' AND rank_in_cohort_final IS NOT NULL{cohort_sql}
+            ),
+            j AS (
+                SELECT COALESCE(c.age_group, p.age_group) AS ag,
+                       COALESCE(c.gender, p.gender) AS g,
+                       p.r_prod, c.r_cand
+                FROM cand c FULL OUTER JOIN prod p USING (team_id)
+            )
+            SELECT ag, g,
+                   sum((r_cand <= %(n)s AND (r_prod IS NULL OR r_prod > %(n)s))::int) AS entrants,
+                   sum((r_prod <= %(n)s AND (r_cand IS NULL OR r_cand > %(n)s))::int) AS exits
+            FROM j GROUP BY ag, g
+            HAVING sum((r_cand <= %(n)s AND (r_prod IS NULL OR r_prod > %(n)s))::int) > 0
+                OR sum((r_prod <= %(n)s AND (r_cand IS NULL OR r_cand > %(n)s))::int) > 0
+            ORDER BY entrants DESC, ag, g
+            """,
+            {**params, "n": n},
+        )
+        rows = cur.fetchall()
+        print(f"\n  top {n}: {len(rows)} cohort(s) with churn")
+        if rows:
+            print(f"  {'Cohort':<18}{'entrants':>10}{'exits':>8}")
+            print(f"  {THIN}")
+            for ag, g, entrants, exits in rows[:15]:
+                print(f"  {ag + '/' + g:<18}{entrants:>10}{exits:>8}")
+        worst = max((entrants for _, _, entrants, _ in rows), default=0)
+        verdict(f"Top-{n} composition", "INFO", f"worst cohort {worst} new entrants vs baseline")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Quantify published-ranking reshuffle vs the prior snapshot.")
     parser.add_argument("--age", help="Restrict to one age_group (e.g. u14). Requires --gender.")
     parser.add_argument("--gender", help="Restrict to one gender (e.g. Female). Requires --age.")
     parser.add_argument("--prev-date", help="Prior snapshot date (YYYY-MM-DD). Default: latest before today.")
+    parser.add_argument(
+        "--compare-table",
+        help="Board-vs-board mode: characterize this candidate table against the baseline "
+        "(additive; reads no ranking_history, never FAILs).",
+    )
+    parser.add_argument(
+        "--baseline-table",
+        default="rankings_full",
+        help="Baseline board the candidate is compared against in --compare-table mode "
+        "(default: rankings_full). Pass a same-snapshot SCF-on board to avoid a stale-prod confound.",
+    )
     args = parser.parse_args()
     if bool(args.age) != bool(args.gender):
         parser.error("--age and --gender must be used together (pass both to scope to one cohort, or neither)")
+    if args.compare_table and not re.fullmatch(r"[a-z_][a-z0-9_]*", args.compare_table):
+        parser.error(f"--compare-table must match [a-z_][a-z0-9_]* (got {args.compare_table!r})")
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", args.baseline_table):
+        parser.error(f"--baseline-table must match [a-z_][a-z0-9_]* (got {args.baseline_table!r})")
 
     cohort_sql, params = _cohort_filter(args.age, args.gender)
     scope = f"{args.age}/{args.gender}" if cohort_sql else "all Active cohorts"
@@ -212,11 +369,23 @@ def main() -> None:
     conn = _open_connection()
     try:
         with conn.cursor() as cur:
-            prev_date = args.prev_date or _resolve_prev_date(cur)
-            print(f"\n{SEP}\n  Ranking Stability Check — scope: {scope} | prior snapshot: {prev_date}\n{SEP}")
-            check_nonplaying_churn(cur, prev_date, cohort_sql, params)
-            check_stage_shift(cur, cohort_sql, params)
-            check_top100_churn(cur, prev_date, cohort_sql, params)
+            if args.compare_table:
+                cand_ident = sql.Identifier(args.compare_table).as_string(conn)
+                base_ident = sql.Identifier(args.baseline_table).as_string(conn)
+                print(
+                    f"\n{SEP}\n  Board-vs-Board Stability — candidate {args.compare_table} "
+                    f"vs baseline {args.baseline_table} | scope: {scope}\n{SEP}"
+                )
+                compare_movement(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_top_movers(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_stage_shift(cur, cand_ident, base_ident, cohort_sql, params)
+                compare_topn_composition(cur, cand_ident, base_ident, cohort_sql, params)
+            else:
+                prev_date = args.prev_date or _resolve_prev_date(cur)
+                print(f"\n{SEP}\n  Ranking Stability Check — scope: {scope} | prior snapshot: {prev_date}\n{SEP}")
+                check_nonplaying_churn(cur, prev_date, cohort_sql, params)
+                check_stage_shift(cur, cohort_sql, params)
+                check_top100_churn(cur, prev_date, cohort_sql, params)
     finally:
         conn.close()
 
