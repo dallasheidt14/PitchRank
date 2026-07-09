@@ -133,8 +133,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           PYTHONUNBUFFERED: "1"  # Force Python to output logs immediately
-          RECORD_RECONCILE_ENABLED: "true"
-          RECORD_RECONCILE_DOWNPULL_K: "0.7"
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
           echo "⚽ Running PitchRank Rankings Engine (Glicko-2 + ML + post-convergence SOS/SCF)"
