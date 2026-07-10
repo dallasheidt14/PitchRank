@@ -56,7 +56,13 @@ const POPULAR_STATES: ReadonlyArray<{ code: string; name: string; hasGuide: bool
  * Server-rendered for SEO — targets head-term intent ("youth soccer rankings",
  * "youth soccer rankings by state") that the interactive tool alone does not satisfy.
  */
-export function RankingsPillar({ faqItems }: { faqItems: ReadonlyArray<RankingsPillarFaqItem> }) {
+export function RankingsPillar({
+  faqItems,
+  gamesLabel,
+}: {
+  faqItems: ReadonlyArray<RankingsPillarFaqItem>;
+  gamesLabel: string;
+}) {
   return (
     <>
       {/* How rankings work */}
@@ -70,9 +76,9 @@ export function RankingsPillar({ faqItems }: { faqItems: ReadonlyArray<RankingsP
             the game context (league, tournament, or friendly).
           </p>
           <p>
-            The rating engine is a 13-layer system that processes every game in the dataset — currently more than
-            700,000 results across the 2025–2026 season. Teams that beat strong opponents gain more rating than teams
-            that beat weak ones. Losses to top teams cost less than losses to weaker teams. Over the course of a season,
+            The rating engine is a 13-layer system that processes every game in the dataset — currently {gamesLabel}{' '}
+            results across the 2025–2026 season. Teams that beat strong opponents gain more rating than teams that beat
+            weak ones. Losses to top teams cost less than losses to weaker teams. Over the course of a season,
             PowerScore separates real strength from easy schedules.
           </p>
           <p>

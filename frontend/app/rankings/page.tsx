@@ -42,8 +42,9 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RankingsPage() {
-  const { totalTeams } = await getPublicStats();
+  const { totalTeams, totalGames } = await getPublicStats();
   const teamsLong = formatCountLong(totalTeams);
+  const gamesLabel = formatCountShort(totalGames);
   const faqItems = buildRankingsPillarFaqItems(teamsLong);
 
   const rankingsSchema = {
@@ -107,7 +108,7 @@ export default async function RankingsPage() {
         </div>
       </section>
 
-      <RankingsPillar faqItems={faqItems} />
+      <RankingsPillar faqItems={faqItems} gamesLabel={gamesLabel} />
     </>
   );
 }

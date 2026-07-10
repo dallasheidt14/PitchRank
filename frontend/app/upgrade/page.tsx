@@ -46,19 +46,21 @@ function UpgradePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   const [teamsRanked, setTeamsRanked] = useState('59K+');
+  const [gamesAnalyzed, setGamesAnalyzed] = useState('1.3M+');
 
-  // Live teams-ranked count, same source as the homepage counter.
+  // Live counts, same source as the homepage counter.
   useEffect(() => {
     api
       .getDbStats()
-      .then(({ totalTeams }) => {
+      .then(({ totalTeams, totalGames }) => {
         if (totalTeams) setTeamsRanked(formatCountShort(totalTeams));
+        if (totalGames) setGamesAnalyzed(formatCountShort(totalGames));
       })
       .catch(() => {});
   }, []);
 
   const socialProofStats = [
-    { value: '1.1M+', label: 'Games Analyzed' },
+    { value: gamesAnalyzed, label: 'Games Analyzed' },
     { value: teamsRanked, label: 'Teams Ranked' },
     { value: '50', label: 'States Covered' },
   ];
@@ -392,7 +394,7 @@ function UpgradePageContent() {
               <h3 className="font-semibold mb-2">How often are rankings updated?</h3>
               <p className="text-muted-foreground text-sm">
                 Rankings are recalculated every Monday using our proprietary rating engine. We process data from{' '}
-                {teamsRanked} teams and 1.1M+ games across all major youth soccer platforms.
+                {teamsRanked} teams and {gamesAnalyzed} games across all major youth soccer platforms.
               </p>
             </div>
             <div>

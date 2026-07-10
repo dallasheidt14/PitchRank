@@ -88,10 +88,12 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
     : (STATE_DESCRIPTIONS[region.toLowerCase()] ??
       `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`);
 
-  // Keep the hardcoded "77K+" marketing copy in sync with the live teams-ranked
-  // count (same source as the homepage counter) without editing every string.
-  const { totalTeams } = await getPublicStats();
-  const description = rawDescription.replaceAll('77K+', formatCountShort(totalTeams));
+  // Keep the hardcoded "77K+"/"700K+" marketing copy in sync with the live
+  // counts (same source as the homepage counter) without editing every string.
+  const { totalTeams, totalGames } = await getPublicStats();
+  const description = rawDescription
+    .replaceAll('77K+', formatCountShort(totalTeams))
+    .replaceAll('700K+', formatCountShort(totalGames));
 
   const ogTitle = isNational
     ? 'National Youth Soccer Rankings 2026 | PitchRank'

@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
 import type { ReportCardGame } from '@/lib/pdf';
+import { getPublicStats } from '@/lib/stats';
+import { formatCountShort } from '@/lib/utils';
 import React from 'react';
 
 export async function POST(request: NextRequest) {
@@ -138,6 +140,7 @@ export async function POST(request: NextRequest) {
       year: 'numeric',
     });
 
+    const { totalGames } = await getPublicStats();
     const pdfElement = React.createElement(TeamReportCard, {
       team: {
         team_name: team.team_name,
@@ -172,6 +175,7 @@ export async function POST(request: NextRequest) {
       cohortTotal: totalNational,
       stateCohortTotal: totalState,
       generatedDate,
+      gamesLabel: formatCountShort(totalGames),
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfBuffer = await renderToBuffer(pdfElement as any);
