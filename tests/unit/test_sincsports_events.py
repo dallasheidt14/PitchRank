@@ -157,3 +157,50 @@ class TestParseTeamlist:
         assert len(records) == 1
         assert records[0].age_group == "u9"
         assert records[0].gender == "Female"
+
+    def test_compact_birthyear_heading_format(self):
+        """`2016 - U10 Girls Mendota 7v7` (RWISC) → u10 Female, not just `Under 10`."""
+        html = (
+            "<h2>2016 - U10 Girls Mendota 7v7</h2>"
+            "<table>"
+            "<tr><td>Team</td><td>Club</td><td>State</td></tr>"
+            "<tr><td><a onclick=\"eo_Callback('cpTeamSummary', 'ILF1611F'); return false;\">"
+            "FC-1 Academy G2016 Elite</a></td><td>FC-1 Academy</td><td>IL</td></tr>"
+            "</table>"
+        )
+        records = SincSportsEventsScraper.parse_teamlist(html)
+        assert len(records) == 1
+        assert records[0].provider_team_id == "ILF1611F"
+        assert records[0].age_group == "u10"
+        assert records[0].gender == "Female"
+        assert records[0].club_name == "FC-1 Academy"
+        assert records[0].state_code == "IL"
+
+    def test_compact_dual_age_heading_takes_younger(self):
+        """`2017 - U9/10 Girls` (compact dual-age) → u9 (younger primary cohort)."""
+        html = (
+            "<h2>2017 - U9/10 Girls Mendota 7v7</h2>"
+            "<table>"
+            "<tr><td>Team</td><td>Club</td><td>State</td></tr>"
+            "<tr><td><a onclick=\"eo_Callback('cpTeamSummary', 'WIF9100'); return false;\">Sample</a></td>"
+            "<td>Sample Club</td><td>WI</td></tr>"
+            "</table>"
+        )
+        wide = frozenset({"u9", *CANONICAL_AGE_GROUPS})
+        records = SincSportsEventsScraper.parse_teamlist(html, include_ages=wide)
+        assert len(records) == 1
+        assert records[0].age_group == "u9"
+        assert records[0].gender == "Female"
+
+    def test_heading_without_gender_token_not_classified(self):
+        """The broadened `U<age>` regex still requires a Boys/Girls token: a
+        `U12 Coed` heading must NOT classify its Team|Club|State table as a division."""
+        html = (
+            "<h2>2014 - U12 Coed Bracket</h2>"
+            "<table>"
+            "<tr><td>Team</td><td>Club</td><td>State</td></tr>"
+            "<tr><td><a onclick=\"eo_Callback('cpTeamSummary', 'WIX1200'); return false;\">Sample</a></td>"
+            "<td>Sample Club</td><td>WI</td></tr>"
+            "</table>"
+        )
+        assert SincSportsEventsScraper.parse_teamlist(html) == []
