@@ -1,31 +1,38 @@
 import Link from 'next/link';
 
+export interface RankingsPillarFaqItem {
+  q: string;
+  a: string;
+}
+
 /**
- * FAQ items shared between the visible FAQ section and the FAQPage JSON-LD
- * emitted on /rankings. Schema must match rendered content — edit both together.
+ * FAQ items shared between the visible FAQ section and the FAQPage JSON-LD on
+ * /rankings — schema must match rendered content.
  */
-export const rankingsPillarFaqItems: ReadonlyArray<{ q: string; a: string }> = [
-  {
-    q: 'What are youth soccer rankings?',
-    a: 'Youth soccer rankings compare competitive clubs and teams based on their performance over a season. PitchRank ranks more than 77,000 teams across all 50 states, every age group from U10 through U19, for both boys and girls.',
-  },
-  {
-    q: 'How are PitchRank rankings calculated?',
-    a: 'Every ranking is built from real game results — wins, losses, margin of victory, and the strength of the opponents a team has played. Our rating engine processes hundreds of thousands of games each season and produces a PowerScore for every team. Rankings update every Monday.',
-  },
-  {
-    q: 'Are youth soccer rankings accurate?',
-    a: 'Accuracy depends on the data and the method. PitchRank uses public game results directly from league websites and scoring platforms — not coach votes or subjective polls. When two teams play the same opponents, they can be compared directly. When they don’t, PowerScore uses common opponents and strength-of-schedule to infer relative strength, which is why the rankings hold up across state lines.',
-  },
-  {
-    q: 'How often are rankings updated?',
-    a: 'PitchRank updates every Monday. Games from the prior week are processed and every team’s PowerScore is recalculated. You can see when a team’s ranking last changed on its team page.',
-  },
-  {
-    q: 'Are these rankings free?',
-    a: 'Yes. Browsing rankings for any state, age group, or team is free and does not require an account. We offer advanced features for registered users, but the full ranking data is always free to view.',
-  },
-];
+export function buildRankingsPillarFaqItems(teamsLabel: string): ReadonlyArray<RankingsPillarFaqItem> {
+  return [
+    {
+      q: 'What are youth soccer rankings?',
+      a: `Youth soccer rankings compare competitive clubs and teams based on their performance over a season. PitchRank ranks ${teamsLabel} teams across all 50 states, every age group from U10 through U19, for both boys and girls.`,
+    },
+    {
+      q: 'How are PitchRank rankings calculated?',
+      a: 'Every ranking is built from real game results — wins, losses, margin of victory, and the strength of the opponents a team has played. Our rating engine processes hundreds of thousands of games each season and produces a PowerScore for every team. Rankings update every Monday.',
+    },
+    {
+      q: 'Are youth soccer rankings accurate?',
+      a: 'Accuracy depends on the data and the method. PitchRank uses public game results directly from league websites and scoring platforms — not coach votes or subjective polls. When two teams play the same opponents, they can be compared directly. When they don’t, PowerScore uses common opponents and strength-of-schedule to infer relative strength, which is why the rankings hold up across state lines.',
+    },
+    {
+      q: 'How often are rankings updated?',
+      a: 'PitchRank updates every Monday. Games from the prior week are processed and every team’s PowerScore is recalculated. You can see when a team’s ranking last changed on its team page.',
+    },
+    {
+      q: 'Are these rankings free?',
+      a: 'Yes. Browsing rankings for any state, age group, or team is free and does not require an account. We offer advanced features for registered users, but the full ranking data is always free to view.',
+    },
+  ];
+}
 
 /**
  * Popular state links for the pillar section. Order follows GSC traffic —
@@ -49,7 +56,7 @@ const POPULAR_STATES: ReadonlyArray<{ code: string; name: string; hasGuide: bool
  * Server-rendered for SEO — targets head-term intent ("youth soccer rankings",
  * "youth soccer rankings by state") that the interactive tool alone does not satisfy.
  */
-export function RankingsPillar() {
+export function RankingsPillar({ faqItems }: { faqItems: ReadonlyArray<RankingsPillarFaqItem> }) {
   return (
     <>
       {/* How rankings work */}
@@ -170,7 +177,7 @@ export function RankingsPillar() {
       <section className="container mx-auto px-4 py-8 border-t border-border">
         <h2 className="text-2xl font-bold mb-4">Frequently Asked Questions</h2>
         <dl className="divide-y divide-border/60">
-          {rankingsPillarFaqItems.map((item) => (
+          {faqItems.map((item) => (
             <div key={item.q} className="py-3 first:pt-0">
               <dt className="text-sm font-semibold text-foreground">{item.q}</dt>
               <dd className="text-sm text-muted-foreground mt-1 leading-relaxed">{item.a}</dd>

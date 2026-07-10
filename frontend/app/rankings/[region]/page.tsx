@@ -5,7 +5,8 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES, AGE_GROUPS, BASE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 import { api } from '@/lib/api';
-import { formatPowerScore } from '@/lib/utils';
+import { formatPowerScore, formatCountLong, formatCountShort } from '@/lib/utils';
+import { getPublicStats } from '@/lib/stats';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -82,10 +83,15 @@ export async function generateMetadata({ params }: StateOverviewPageProps): Prom
     ? 'National Youth Soccer Rankings 2026 — Updated Weekly | PitchRank'
     : `${stateInfo.name} Youth Soccer Rankings 2026 — Updated Weekly | PitchRank`;
 
-  const description = isNational
+  const rawDescription = isNational
     ? 'National youth soccer rankings for all age groups. 77K+ teams ranked across 700K+ games analyzed. See where your team stands. Updated weekly.'
     : (STATE_DESCRIPTIONS[region.toLowerCase()] ??
       `${stateInfo.name} youth soccer rankings - Find where your team ranks among 77K+ teams. PowerScore ratings updated weekly from 700K+ analyzed games. Start now!`);
+
+  // Keep the hardcoded "77K+" marketing copy in sync with the live teams-ranked
+  // count (same source as the homepage counter) without editing every string.
+  const { totalTeams } = await getPublicStats();
+  const description = rawDescription.replaceAll('77K+', formatCountShort(totalTeams));
 
   const ogTitle = isNational
     ? 'National Youth Soccer Rankings 2026 | PitchRank'
@@ -140,6 +146,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
   }
 
   const isNational = region.toLowerCase() === 'national';
+  const { totalTeams: siteTeamCount } = await getPublicStats();
 
   // Fetch top teams for each gender in popular age groups (for preview)
   let boysTeamCount = 0;
@@ -300,7 +307,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
               <Link href="/rankings" className="text-primary hover:underline font-medium">
                 all US youth soccer rankings
               </Link>{' '}
-              — 77,000+ teams across 50 states
+              — {formatCountLong(siteTeamCount)} teams across 50 states
             </p>
           )}
         </div>
