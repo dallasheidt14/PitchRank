@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { startCheckout } from '@/lib/stripe/client';
 import { useUser } from '@/hooks/useUser';
 import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
+import { api } from '@/lib/api';
+import { formatCountShort } from '@/lib/utils';
 
 // Price IDs from Stripe Dashboard (configured via environment variables)
 const PRICE_IDS = {
@@ -29,12 +31,6 @@ const FEATURES = [
   { icon: Pencil, title: 'Edit Access', text: 'Merge duplicate teams and find missing game history' },
 ];
 
-const SOCIAL_PROOF_STATS = [
-  { value: '1.1M+', label: 'Games Analyzed' },
-  { value: '126K+', label: 'Teams Ranked' },
-  { value: '50', label: 'States Covered' },
-];
-
 export default function UpgradePage() {
   return (
     <Suspense>
@@ -49,6 +45,23 @@ function UpgradePageContent() {
   const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
+  const [teamsRanked, setTeamsRanked] = useState('59K+');
+
+  // Live teams-ranked count, same source as the homepage counter.
+  useEffect(() => {
+    api
+      .getDbStats()
+      .then(({ totalTeams }) => {
+        if (totalTeams) setTeamsRanked(formatCountShort(totalTeams));
+      })
+      .catch(() => {});
+  }, []);
+
+  const socialProofStats = [
+    { value: '1.1M+', label: 'Games Analyzed' },
+    { value: teamsRanked, label: 'Teams Ranked' },
+    { value: '50', label: 'States Covered' },
+  ];
 
   const source = searchParams.get('next') || searchParams.get('source') || 'direct';
   const pageViewTracked = useRef(false);
@@ -110,7 +123,7 @@ function UpgradePageContent() {
 
         {/* Social Proof Bar */}
         <div className="flex items-center justify-center gap-8 md:gap-12 mb-10">
-          {SOCIAL_PROOF_STATS.map((stat) => (
+          {socialProofStats.map((stat) => (
             <div key={stat.label} className="text-center">
               <div className="text-2xl md:text-3xl font-bold font-display text-primary">{stat.value}</div>
               <div className="text-xs text-muted-foreground">{stat.label}</div>
@@ -378,8 +391,8 @@ function UpgradePageContent() {
             <div>
               <h3 className="font-semibold mb-2">How often are rankings updated?</h3>
               <p className="text-muted-foreground text-sm">
-                Rankings are recalculated every Monday using our proprietary rating engine. We process data from
-                126,000+ teams and 1.1M+ games across all major youth soccer platforms.
+                Rankings are recalculated every Monday using our proprietary rating engine. We process data from{' '}
+                {teamsRanked} teams and 1.1M+ games across all major youth soccer platforms.
               </p>
             </div>
             <div>

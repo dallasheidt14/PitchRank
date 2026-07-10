@@ -27,6 +27,19 @@ export function formatSOSIndex(sosNorm?: number | null): string {
   return (sosNorm * 100).toFixed(1);
 }
 
+/**
+ * Format a site-wide count for marketing copy, long form.
+ * Floors to the nearest thousand and appends "+" so it reads as a conservative
+ * minimum and does not churn on every new team (e.g. 59434 -> "59,000+").
+ */
+export function formatCountLong(n: number): string {
+  return `${(Math.floor(n / 1000) * 1000).toLocaleString('en-US')}+`;
+}
+
+export function formatCountShort(n: number): string {
+  return `${Math.floor(n / 1000)}K+`;
+}
+
 const LEAGUE_DISPLAY: Record<string, string> = {
   ECNL: 'ECNL',
   ECNL_RL: 'ECNL RL',

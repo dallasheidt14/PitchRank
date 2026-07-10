@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { ReportCardForm } from '@/components/ReportCardForm';
 import { ReportCardPreview } from '@/components/ReportCardPreview';
 import { BASE_URL } from '@/lib/constants';
+import { getPublicStats } from '@/lib/stats';
+import { formatCountShort } from '@/lib/utils';
 
 export const metadata: Metadata = {
   title: 'Free Team Report Card',
@@ -21,11 +23,7 @@ export const metadata: Metadata = {
   },
 };
 
-const STATS = [
-  { value: '1.1M+', label: 'Games Analyzed' },
-  { value: '126K+', label: 'Teams Ranked' },
-  { value: '50', label: 'States Covered' },
-];
+export const revalidate = 3600;
 
 const FAQS: { q: string; a: React.ReactNode }[] = [
   {
@@ -69,7 +67,14 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
   },
 ];
 
-export default function ReportCardPage() {
+export default async function ReportCardPage() {
+  const { totalTeams } = await getPublicStats();
+  const stats = [
+    { value: '1.1M+', label: 'Games Analyzed' },
+    { value: formatCountShort(totalTeams), label: 'Teams Ranked' },
+    { value: '50', label: 'States Covered' },
+  ];
+
   return (
     <main className="min-h-screen bg-background">
       {/* Hero */}
@@ -97,7 +102,7 @@ export default function ReportCardPage() {
 
           {/* Stats bar */}
           <div className="flex items-center justify-center gap-8 md:gap-14 mt-10">
-            {STATS.map((stat) => (
+            {stats.map((stat) => (
               <div key={stat.label} className="text-center">
                 <div className="font-oswald text-2xl md:text-3xl font-bold text-[#F4D03F]">{stat.value}</div>
                 <div className="text-[10px] md:text-xs uppercase tracking-wider text-white/70 font-oswald mt-1">
