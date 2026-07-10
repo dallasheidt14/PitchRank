@@ -68,9 +68,9 @@ const FAQS: { q: string; a: React.ReactNode }[] = [
 ];
 
 export default async function ReportCardPage() {
-  const { totalTeams } = await getPublicStats();
+  const { totalTeams, totalGames } = await getPublicStats();
   const stats = [
-    { value: '1.1M+', label: 'Games Analyzed' },
+    { value: formatCountShort(totalGames), label: 'Games Analyzed' },
     { value: formatCountShort(totalTeams), label: 'Teams Ranked' },
     { value: '50', label: 'States Covered' },
   ];

@@ -37,6 +37,8 @@ export function formatCountLong(n: number): string {
 }
 
 export function formatCountShort(n: number): string {
+  // e.g. 59434 -> "59K+", 1302311 -> "1.3M+"
+  if (n >= 1_000_000) return `${(Math.floor(n / 100_000) / 10).toFixed(1)}M+`;
   return `${Math.floor(n / 1000)}K+`;
 }
 

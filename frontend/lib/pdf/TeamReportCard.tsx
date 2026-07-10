@@ -397,6 +397,7 @@ export interface ReportCardProps {
   cohortTotal: number;
   stateCohortTotal: number;
   generatedDate: string;
+  gamesLabel?: string;
 }
 
 // --- Document ---
@@ -408,6 +409,7 @@ export function TeamReportCard({
   cohortTotal,
   stateCohortTotal,
   generatedDate,
+  gamesLabel,
 }: ReportCardProps) {
   const percentile = Math.max(1, Math.round((1 - ranking.rank_in_cohort_final / cohortTotal) * 100));
   const genderLabel = formatGender(team.gender);
@@ -527,7 +529,9 @@ export function TeamReportCard({
 
         {/* Footer */}
         <View style={s.footer}>
-          <Text style={s.footerText}>Powered by PitchRank · 1.1M+ games analyzed · Updated weekly</Text>
+          <Text style={s.footerText}>
+            Powered by PitchRank · {gamesLabel ?? '1.1M+'} games analyzed · Updated weekly
+          </Text>
           <Text style={s.footerText}>pitchrank.io</Text>
         </View>
       </Page>
