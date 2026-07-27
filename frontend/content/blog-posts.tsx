@@ -1398,6 +1398,22 @@ export const blogPosts: BlogPost[] = [
               </p>
             </div>
           </div>
+
+          <div className="mt-4 p-4 rounded-lg bg-muted/50 border">
+            <p className="text-sm text-muted-foreground">
+              <strong>Southern California parents:</strong>{' '}
+              <a
+                href="https://socalpitch.com/club-directory/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                SoCal Pitch
+              </a>{' '}
+              maintains an independent directory of 316 clubs across the eight SoCal counties, alongside elite-league
+              standings and tryout listings — a useful companion when you&apos;re shortlisting clubs to compare here.
+            </p>
+          </div>
         </section>
 
         {/* Age Group Breakdown */}
