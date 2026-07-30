@@ -293,7 +293,7 @@ npm run analyze
 | `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
 | `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
 | `tgs-event-scrape-import.yml` | Sun 6:30 AM UTC | TGS event scraping |
-| `data-hygiene-weekly.yml` | Sun 5:00 PM UTC | Data cleanup (age, dupes, states) |
+| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup (names, queue; age + dupe steps frozen for the Aug 2026 rollover — see `AGE_ROLLOVER_FREEZE`) |
 | `unknown-opponent-hygiene-weekly.yml` | Weekly | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Post-import | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
@@ -301,9 +301,9 @@ npm run analyze
 ### Weekly Cycle
 
 ```
-Monday AM  → Scrape games (2 batches, 25K teams each)
+Monday AM  → Scrape games (2 batches, 25K teams each), data hygiene jobs
 Monday PM  → Calculate rankings (v53e + ML Layer 13)
-Sunday     → Data hygiene jobs, event scraping
+Sunday     → Event scraping
 Continuous → Merge queue processing, club name backfill
 ```
 

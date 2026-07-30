@@ -60,6 +60,11 @@ env:
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
+  # Freezes Steps 2 and 3 across the 2026-08-01 age-group rollover; set to
+  # 'false' to lift, once the rollover is verified. skip_steps can't do this —
+  # a scheduled run passes no inputs. Gates test == 'false' (not != 'true') so
+  # a renamed or deleted flag leaves the steps skipped, not merging unguarded.
+  AGE_ROLLOVER_FREEZE: 'true'
 
 jobs:
   data-hygiene-pipeline:
@@ -143,7 +148,10 @@ jobs:
       # ── Step 2: Fix Age Year Discrepancies ─────────────────
       - name: 'Step 2: Fix Age Year Discrepancies'
         id: step2
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') }}
+        # Derives cohort from a birth year in the team NAME, so it would roll
+        # only the teams carrying one and freeze the rest — a half-rollover
+        # that Step 3 then merges across.
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
@@ -164,7 +172,9 @@ jobs:
       # ── Step 3: Fuzzy Duplicate Merge ─────────────────────
       - name: 'Step 3: Fuzzy Duplicate Merge'
         id: step3
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') }}
+        # Scheduled runs take the --auto-merge branch below: across half-rolled
+        # cohorts a frozen and a rolled team can be merged irreversibly.
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GENDER_RAW: ${{ github.event.inputs.gender }}
