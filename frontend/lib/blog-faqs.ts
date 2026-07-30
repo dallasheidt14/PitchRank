@@ -1050,7 +1050,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What happens to a player after MLS NEXT ends at U19?',
       answer:
-        'Most move on to college soccer. A small number continue into MLS NEXT Pro, which is organizationally linked to MLS NEXT through shared senior leadership. Ask a club where its recent graduating players actually went, since that varies far more than the pathway diagram suggests.',
+        'College soccer and MLS NEXT Pro are the routes onward, and MLS NEXT Pro is organizationally linked to MLS NEXT through shared senior leadership. Where players actually land varies widely by club, so ask a club where its recent graduating players went rather than inferring it from the pathway.',
     },
     {
       question: 'Which platform do college coaches attend?',

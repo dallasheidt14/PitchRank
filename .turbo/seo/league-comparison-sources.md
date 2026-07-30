@@ -73,6 +73,14 @@ published rather than guess.
   different entity from NPL. Disambiguate only (`ecnl-vs-npl` body + FAQ); never target the term.
 - **Which league is "better"** — no source supports a ranking of league quality, and the pages take
   no position. Structure and operator facts only.
+- **Player destinations after a platform's top age group** — no source here carries outcome data
+  (how many players go to college, to MLS NEXT Pro, or stop). Name the available routes; never
+  quantify how many take each one. Shared senior leadership between MLS NEXT and MLS NEXT Pro
+  establishes an organizational link only, not a player pipeline volume.
+- **Entry as promotion-only** — ECNL admission is not exclusively promotion from within the pyramid.
+  The 2026-27 release records 10 new ECNL Boys clubs of which **7** came from the Regional League
+  and **3** from other leagues, so any summary of the entry route must allow for direct admission
+  alongside promotion.
 
 ## Fetch notes
 
