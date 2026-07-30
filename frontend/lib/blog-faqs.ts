@@ -1116,7 +1116,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'How does a club earn promotion into the ECNL?',
       answer:
-        'Through on-field results assessed across multiple seasons and multiple age groups, rather than through an application or a single strong season. Clubs typically move from Pre-ECNL to the Regional League to the top platform.',
+        'Through on-field results assessed across multiple seasons and multiple age groups, not off a single strong season. Clubs typically move from Pre-ECNL to the Regional League to the top platform, though some join from other leagues instead.',
     },
     {
       question: 'Does a club join the ECNL for all its teams at once?',
