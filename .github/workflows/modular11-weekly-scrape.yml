@@ -35,6 +35,15 @@ on:
         required: false
         default: false
 
+env:
+  # Freezes team-creating imports across the 2026-08-01 age-group rollover; set to
+  # 'false' to lift, once the rollover is applied and verified. The provider
+  # matchers create unmatched teams with an age derived from the wall clock, so
+  # during the gap a new team is stored one cohort off and then rolled again.
+  # Gates test == 'false' (not != 'true') so a renamed or deleted flag leaves the
+  # step skipped. See CLAUDE.md.
+  AGE_ROLLOVER_FREEZE: 'true'
+
 jobs:
   scrape-and-import:
     runs-on: ubuntu-latest
@@ -104,7 +113,7 @@ jobs:
           echo "ROW_COUNT=$ROW_COUNT" >> $GITHUB_ENV
 
       - name: Import Games
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        if: ${{ github.event.inputs.dry_run != 'true && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

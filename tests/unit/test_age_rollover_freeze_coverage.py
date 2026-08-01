@@ -41,6 +41,10 @@ ALWAYS_WRITING_SCRIPTS = (
     "fix_team_age_groups.py",
     "find_fuzzy_duplicate_teams.py",
     "extract_and_import_tgs_teams.py",
+    # Game importers create unmatched teams through the provider matchers, using
+    # an age the ETL pipeline derives from the wall clock. The derivation is not
+    # visible in the invocation, so this list is the only thing that catches it.
+    "import_games_enhanced.py",
 )
 
 # A run block writes when it can reach one of these. EXECUTE_FLAG is the repo's

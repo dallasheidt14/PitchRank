@@ -255,7 +255,7 @@ jobs:
           python scripts/extract_and_import_tgs_teams.py "$CSV_FILE" tgs
 
       - name: Import Games
-        if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' }}
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}

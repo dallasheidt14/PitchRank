@@ -303,15 +303,22 @@ npm run analyze
 
 ### `AGE_ROLLOVER_FREEZE` (Aug 2026 age-group rollover)
 
-The flag holds the eight steps that write through the age-derivation scripts, because those
-derive a cohort from the wall clock while the labels are relabelled by hand —
-between the two, a derived cohort and a stored label differ by one, and writing
-on that difference merges or duplicates teams permanently.
+The flag holds the fourteen steps that write a team's age group, because those
+derive a cohort from the wall clock while the labels are relabelled by hand.
+Between the two, a derived cohort and a stored label differ by one, and writing
+on that difference merges or duplicates teams permanently. The game importers
+count: they create unmatched teams through the provider matchers using an age
+`EnhancedETLPipeline` derives at import time, so the derivation is invisible at
+the call site.
 
-**To lift**, set it to `'false'` in all five: `data-hygiene-weekly.yml`,
+**To lift**, set it to `'false'` in all ten: `data-hygiene-weekly.yml`,
 `unknown-opponent-hygiene-weekly.yml`, `auto-merge-queue.yml`,
-`fix-age-year-discrepancies.yml`, `tgs-event-scrape-import.yml`. Do it only after
-the relabel migration is applied and the boards are verified.
+`fix-age-year-discrepancies.yml`, `tgs-event-scrape-import.yml`,
+`modular11-weekly-scrape.yml`, `modular11-events-weekly-scrape.yml`,
+`playmetrics-scrape-import.yml`, `playmetrics-tournament-scrape-import.yml`,
+`wa-scraper.yml`. Do it only after the relabel migration is applied and the
+boards are verified. All game ingestion is paused until then, so expect a
+backfill of games played during the freeze.
 
 `tests/unit/test_age_rollover_freeze_coverage.py` fails on any ungated writing
 step, or a gate widened by a top-level `||`. It detects steps by script name, so
