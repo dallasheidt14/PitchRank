@@ -89,7 +89,7 @@ jobs:
           fi
 
       - name: Import Games
-        if: ${{ steps.find_csv.outputs.has_games == 'true' && inputs.dry_run == fals && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ steps.find_csv.outputs.has_games == 'true' && inputs.dry_run == false && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

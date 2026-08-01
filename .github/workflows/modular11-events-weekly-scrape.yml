@@ -110,7 +110,7 @@ jobs:
           echo "ROW_COUNT=$ROW_COUNT" >> $GITHUB_ENV
 
       - name: Import Games
-        if: ${{ github.event.inputs.dry_run != 'true && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ github.event.inputs.dry_run != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

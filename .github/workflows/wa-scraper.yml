@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Import scraped WA games
-        if: ${{ steps.guard.outputs.should_run != 'false' && github.event.inputs.dry_run != 'true && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ steps.guard.outputs.should_run != 'false' && github.event.inputs.dry_run != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

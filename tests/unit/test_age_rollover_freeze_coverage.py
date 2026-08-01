@@ -79,6 +79,17 @@ def _has_top_level_or(condition):
     return False
 
 
+# Steps deliberately left ungated, with the reason. Scraping and importing are one
+# step here, so gating it would stop collection entirely rather than defer a write,
+# and unlike the other importers there is no uploaded artifact to backfill from.
+# The accepted risk is a new team created mid-rollover with a cohort one off.
+# Exemptions are listed rather than silently skipped: an unlisted ungated step
+# still fails, and a listed step that no longer exists fails too.
+EXEMPT = {
+    ("playmetrics-scrape-import.yml", "Scrape and Import PlayMetrics Leagues"),
+}
+
+
 def _workflow_files():
     return sorted(WORKFLOWS.glob("*.yml")) + sorted(WORKFLOWS.glob("*.yaml"))
 
@@ -112,8 +123,17 @@ def test_the_scan_finds_the_known_writing_steps():
     assert "auto-merge-queue.yml" in workflows
 
 
+def test_every_exemption_still_exists():
+    """A stale exemption is a hole nobody is watching."""
+    found = {(w, s) for w, s, _ in _writing_steps()}
+    missing = EXEMPT - found
+    assert not missing, f"exempted steps no longer exist, drop them from EXEMPT: {missing}"
+
+
 @pytest.mark.parametrize("workflow,step,condition", list(_writing_steps()))
 def test_writing_step_is_gated_on_the_freeze(workflow, step, condition):
+    if (workflow, step) in EXEMPT:
+        pytest.skip(f"deliberately ungated: {workflow} :: {step}")
     assert FREEZE_GATE in condition, (
         f"{workflow} step {step!r} runs an age-deriving script with a write flag "
         f"but its `if:` does not contain `{FREEZE_GATE}`.\n"
@@ -138,9 +158,16 @@ def test_gate_is_not_bypassable_by_an_or(workflow, step, condition):
     )
 
 
-@pytest.mark.parametrize("workflow", sorted({w for w, _, _ in _writing_steps()}))
+@pytest.mark.parametrize(
+    "workflow",
+    sorted({w for w, s, _ in _writing_steps() if (w, s) not in EXEMPT}),
+)
 def test_gating_workflow_declares_the_flag(workflow):
-    """A gate referencing an undeclared flag reads as '' and silently stays shut."""
+    """A gate referencing an undeclared flag reads as '' and silently stays shut.
+
+    Scoped to workflows that actually gate something: one whose only writing step
+    is exempt has nothing to declare.
+    """
     text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
     assert re.search(rf"^\s*{FREEZE_FLAG}:\s*'(true|false)'\s*$", text, re.MULTILINE), (
         f"{workflow} gates a step on {FREEZE_FLAG} but never declares it in an env: block"
