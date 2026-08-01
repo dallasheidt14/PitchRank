@@ -49,6 +49,14 @@ env:
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   PYTHONUNBUFFERED: "1"
+  # Freezes the apply step across the 2026-08-01 age-group rollover; set to
+  # 'false' to lift, once the rollover is verified. auto_match_unknown_opponents
+  # derives cohorts from birth years and hard-filters candidates on the result,
+  # so until the relabel is applied its filters are one cohort off the stored
+  # labels. Gates test == 'false' (not != 'true') so a renamed or deleted flag
+  # leaves the step skipped rather than applying unguarded. Mirrors
+  # data-hygiene-weekly.yml.
+  AGE_ROLLOVER_FREEZE: 'true'
 
 jobs:
   unknown-opponent-hygiene:
@@ -166,7 +174,7 @@ jobs:
           PY
 
       - name: Execute approved matches
-        if: ${{ steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' }}
+        if: ${{ steps.due.outputs.approved_count != '0' && github.event.inputs.dry_run != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           APPROVED_CSV: ${{ steps.due.outputs.approved_csv }}
         run: |
@@ -175,13 +183,17 @@ jobs:
             --require-approved-rows | tee logs/unknown_apply.log
 
       - name: Skip execution note
-        if: ${{ steps.due.outputs.approved_count == '0' || github.event.inputs.dry_run == 'true' }}
+        if: ${{ steps.due.outputs.approved_count == '0' || github.event.inputs.dry_run == 'true' || env.AGE_ROLLOVER_FREEZE != 'false' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           APPROVED_COUNT: ${{ steps.due.outputs.approved_count }}
           REVIEW_COUNT: ${{ steps.due.outputs.review_count }}
+          FREEZE: ${{ env.AGE_ROLLOVER_FREEZE }}
         run: |
-          if [ "$DRY_RUN" = "true" ]; then
+          if [ "$FREEZE" != "false" ]; then
+            echo "Execution skipped: AGE_ROLLOVER_FREEZE=$FREEZE (approved_count=$APPROVED_COUNT held back)"
+            echo "Lift it once the Aug 2026 age-group rollover is applied and verified."
+          elif [ "$DRY_RUN" = "true" ]; then
             echo "Execution skipped: dry_run=true (approved_count=$APPROVED_COUNT would have executed)"
           else
             echo "Execution skipped: no approved matches (approved=0, review=$REVIEW_COUNT)"
@@ -189,7 +201,11 @@ jobs:
 
       - name: Discover new teams from no_match opponents
         id: discover
-        if: ${{ github.event.inputs.discover_teams != 'false' }}
+        # Frozen for the same reason as the apply step, and more consequentially: a
+        # cohort-shifted miss lands here as no_match, and discovery then INSERTs
+        # a NEW team carrying a post-roll label into a pre-roll table, which the
+        # migration rolls a second time.
+        if: ${{ github.event.inputs.discover_teams != 'false' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           EXPORT_TIMESTAMP: ${{ steps.export.outputs.timestamp }}
           MATCH_CSV: ${{ steps.match.outputs.match_csv }}

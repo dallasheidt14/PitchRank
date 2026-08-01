@@ -36,6 +36,11 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}  # Fallback for local dev
+      # Mirrors the flag in data-hygiene-weekly.yml, which runs the same script.
+      # Set to 'false' to lift, once the Aug 2026 age-group rollover is verified.
+      # Gates test == 'false' (not != 'true') so a renamed or deleted flag leaves
+      # the merge skipped rather than running unguarded.
+      AGE_ROLLOVER_FREEZE: 'true'
 
     steps:
       - name: Checkout repository
@@ -62,8 +67,13 @@ jobs:
             exit 1
           fi
 
+      # find_queue_matches derives cohorts from birth years on a wall-clock
+      # cutover, while the relabel is applied by hand. Until both have happened
+      # its filters and the stored labels differ by one cohort, and this step
+      # merges on that difference permanently.
       - name: Run queue auto-merge
         id: merge
+        if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           LIMIT_INPUT: ${{ github.event.inputs.limit }}

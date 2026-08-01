@@ -60,7 +60,7 @@ env:
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
-  # Freezes Steps 2 and 3 across the 2026-08-01 age-group rollover; set to
+  # Freezes Steps 2, 3 and 4 across the 2026-08-01 age-group rollover; set to
   # 'false' to lift, once the rollover is verified. skip_steps can't do this —
   # a scheduled run passes no inputs. Gates test == 'false' (not != 'true') so
   # a renamed or deleted flag leaves the steps skipped, not merging unguarded.
@@ -224,7 +224,11 @@ jobs:
       # ── Step 4: Match Review Queue ────────────────────────
       - name: 'Step 4: Match Review Queue'
         id: step4
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
+        # Frozen: find_queue_matches derives cohorts on a wall-clock cutover while
+        # the relabel is applied by hand, so until both have happened its filters
+        # and the stored labels differ by one cohort — and --execute --yes merges
+        # on that difference permanently.
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
