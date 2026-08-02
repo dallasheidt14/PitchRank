@@ -2,6 +2,7 @@ import { HowWeRank } from '@/components/HowWeRank';
 import { FeatureShowcase } from '@/components/FeatureShowcase';
 import { RecentMovers } from '@/components/RecentMovers';
 import { HomeStats } from '@/components/HomeStats';
+import { SeasonRolloverNotice } from '@/components/SeasonRolloverNotice';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -103,6 +104,8 @@ export default async function Home() {
         {/* Decorative gradient overlay */}
         <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background to-transparent pointer-events-none" />
       </div>
+
+      <SeasonRolloverNotice />
 
       {/* Main Content */}
       <div className="container mx-auto py-8 sm:py-12 px-4 sm:px-6">
