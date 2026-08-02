@@ -90,7 +90,10 @@ PitchRank/
 
 ## Domain Knowledge (CRITICAL)
 
-### Age Groups (2026 Season)
+### Age Groups (2025-26 Season)
+
+> Pre-rollover. On 2026-08-01 every cohort below moves up one and U17 merges
+> into U19 — see the `AGE_ROLLOVER_FREEZE` section under GitHub Actions Workflows.
 
 | Birth Year | Age Group | | Birth Year | Age Group |
 |---|---|---|---|---|
@@ -292,11 +295,50 @@ npm run analyze
 | `scrape-games.yml` | Mon 6:00 & 11:15 AM UTC | Scrape 25K GotSport teams |
 | `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
 | `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
-| `tgs-event-scrape-import.yml` | Sun 6:30 AM UTC | TGS event scraping |
-| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup (names, queue; age + dupe steps frozen for the Aug 2026 rollover — see `AGE_ROLLOVER_FREEZE`) |
-| `unknown-opponent-hygiene-weekly.yml` | Weekly | Resolve "Unknown" opponents |
-| `auto-merge-queue.yml` | Post-import | Auto-approve low-risk merges |
+| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping (team pre-create step frozen — see `AGE_ROLLOVER_FREEZE`) |
+| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization and distinction backfill run; the age, dupe and queue-match steps are frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
+| `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents — the apply and team-discovery steps are frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
+| `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges — frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
+
+### `AGE_ROLLOVER_FREEZE` (Aug 2026 age-group rollover)
+
+The flag holds the thirteen steps that write a team's age group, because those
+derive a cohort from the wall clock while the labels are relabelled by hand.
+Between the two, a derived cohort and a stored label differ by one, and writing
+on that difference merges or duplicates teams permanently. The game importers
+count: they create unmatched teams through the provider matchers using an age
+`EnhancedETLPipeline` derives at import time, so the derivation is invisible at
+the call site.
+
+**To lift**, set it to `'false'` in all nine: `data-hygiene-weekly.yml`,
+`unknown-opponent-hygiene-weekly.yml`, `auto-merge-queue.yml`,
+`fix-age-year-discrepancies.yml`, `tgs-event-scrape-import.yml`,
+`modular11-weekly-scrape.yml`, `modular11-events-weekly-scrape.yml`,
+`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`. Do it only after
+the relabel migration is applied and the boards are verified.
+
+Scrapers keep running while frozen; only the database write is skipped, and the
+scraped CSVs still upload as artifacts, so expect a backfill rather than a gap.
+The one exception is `playmetrics-scrape-import.yml`, where scraping and
+importing are a single step: it is deliberately left ungated so collection
+continues, accepting that a brand-new PlayMetrics team created mid-rollover may
+land one cohort off. The exemption is named in the coverage test.
+
+`tests/unit/test_age_rollover_freeze_coverage.py` fails on any ungated writing
+step, or a gate widened by a top-level `||`. It detects steps by script name, so
+a genuinely new writer must be added to its lists — a regression guard, not a
+discovery tool.
+
+The relabel is hand-applied, so the migration ledger needs updating by hand too:
+
+- after applying — `supabase migration repair --status applied 20260801000000`
+- after a committed rollback — `supabase migration repair --status reverted 20260801000000`
+
+Skipping either leaves the next `supabase db push` either re-applying the file
+(and aborting on its guard, blocking unrelated migrations) or skipping a rollover
+that never happened. The rollback itself expires at the first post-roll ranking
+run, which re-anchors scores that restoring labels cannot undo.
 
 ### Weekly Cycle
 
@@ -304,7 +346,7 @@ npm run analyze
 Monday AM  → Scrape games (2 batches, 25K teams each), data hygiene jobs
 Monday PM  → Calculate rankings (v53e + ML Layer 13)
 Sunday     → Event scraping
-Continuous → Merge queue processing, club name backfill
+Continuous → Club name backfill (merge queue processing is frozen — see `AGE_ROLLOVER_FREEZE`)
 ```
 
 ---

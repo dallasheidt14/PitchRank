@@ -11,17 +11,32 @@ from src.tournaments.event_team_matcher import (
     fetch_db_candidates,
     rank_db_candidates,
 )
+from src.utils import team_utils
 
 
-def test_build_candidate_age_groups_prefers_name_age_and_event_age():
-    query = EventTeamSearchQuery(
+def _dynamos_query():
+    """A team whose name carries a birth year, so its search age is derived."""
+    return EventTeamSearchQuery(
         event_team_name="Dynamos SC 2016 SC",
         event_age_group="u11",
         event_gender="Male",
         event_club_name="Dynamos SC",
     )
 
-    assert build_candidate_age_groups(query) == ["u10", "u11"]
+
+def test_build_candidate_age_groups_prefers_name_age_and_event_age(monkeypatch):
+    # Pinned to the 2025-26 season: the search age is derived from the 2016 in
+    # the name, so this ordering changes every Aug 1.
+    monkeypatch.setattr(team_utils, "CURRENT_YEAR", 2025)
+
+    assert build_candidate_age_groups(_dynamos_query()) == ["u10", "u11"]
+
+
+def test_build_candidate_age_groups_after_season_rollover(monkeypatch):
+    """One season on, 2016 derives u11 — so u10 becomes the play-up neighbor."""
+    monkeypatch.setattr(team_utils, "CURRENT_YEAR", 2026)
+
+    assert build_candidate_age_groups(_dynamos_query()) == ["u11", "u10"]
 
 
 def test_rank_db_candidates_skips_same_club_wrong_variant():
@@ -61,14 +76,8 @@ def test_rank_db_candidates_skips_same_club_wrong_variant():
     assert matches[0].score_reason in {"normalized_name_exact", "weekly_score"}
 
 
-def test_rank_db_candidates_prefers_actual_play_up_team_age():
-    query = EventTeamSearchQuery(
-        event_team_name="Dynamos SC 2016 SC",
-        event_age_group="u11",
-        event_gender="Male",
-        event_club_name="Dynamos SC",
-    )
-    candidates = [
+def _play_up_candidates():
+    return [
         {
             "team_id_master": "play-up-u10",
             "team_name": "Dynamos SC 2016 SC",
@@ -91,10 +100,26 @@ def test_rank_db_candidates_prefers_actual_play_up_team_age():
         },
     ]
 
-    matches = rank_db_candidates(query, candidates, limit=5)
+
+def test_rank_db_candidates_prefers_actual_play_up_team_age(monkeypatch):
+    # Pinned to the 2025-26 season, where 2016 derives u10 and the u10 team is
+    # therefore the exact-age match rather than a neighbor.
+    monkeypatch.setattr(team_utils, "CURRENT_YEAR", 2025)
+
+    matches = rank_db_candidates(_dynamos_query(), _play_up_candidates(), limit=5)
 
     assert matches[0].team_id_master == "play-up-u10"
     assert matches[0].age_match_kind == "search_age_exact"
+
+
+def test_rank_db_candidates_play_up_after_season_rollover(monkeypatch):
+    """One season on, 2016 derives u11, so the u10 team scores as a neighbor."""
+    monkeypatch.setattr(team_utils, "CURRENT_YEAR", 2026)
+
+    matches = rank_db_candidates(_dynamos_query(), _play_up_candidates(), limit=5)
+
+    assert matches[0].team_id_master == "play-up-u10"
+    assert matches[0].age_match_kind == "play_up_or_neighbor"
 
 
 def test_classify_match_result_uses_margin_for_high_confidence():

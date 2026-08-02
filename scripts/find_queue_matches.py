@@ -30,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _team_distinction import should_skip_pair  # noqa: E402
 
+from src.utils import team_utils  # noqa: E402
+
 # Load .env.local if it exists, otherwise fall back to .env
 env_path = Path(__file__).parent.parent / ".env.local"
 if env_path.exists():
@@ -562,18 +564,36 @@ def extract_team_variant(name, club_name: str = ""):
 def _current_season_year():
     """Return the current season year for birth-year-to-age conversion.
 
-    Youth soccer seasons typically start in August/September, so we use the
-    calendar year directly (players born in 2014 are U12 in 2026).
+    Read off the module rather than imported by value so a caller can pin it.
+    Seasons roll on Aug 1, not Jan 1 — see team_utils._soccer_season_year.
     """
-    from datetime import date
-
-    return date.today().year
+    return team_utils.CURRENT_YEAR
 
 
-def extract_age_group(name, details):
+# The trailing letter is load-bearing. Filter normalizers strip non-digits, so
+# this still narrows a query to u99 — a cohort no team holds. The persistence
+# normalizer in discover_teams_from_opponents accepts only "u" followed by
+# digits, so it refuses this value instead of writing it to teams.age_group; a
+# name that yields no real cohort must never become a team.
+UNMATCHABLE_AGE_GROUP = "u99x"
+
+
+def _age_group_from_birth_year(birth_year, season_year):
+    """Convert a birth year to a filter cohort.
+
+    A year that yields no real cohort — a graduation or event year like
+    "Rush 2027" — returns UNMATCHABLE_AGE_GROUP rather than None, because a
+    caller that reads None drops the age filter and searches every cohort.
+    """
+    label = team_utils.calculate_age_group_from_birth_year(birth_year, season_year)
+    return normalize_filter_age_group(label) or UNMATCHABLE_AGE_GROUP
+
+
+def extract_age_group(name, details, season_year=None):
     """Extract age group from name - ALWAYS parse from name first, metadata is unreliable."""
     name_lower = name.lower() if name else ""
-    season_year = _current_season_year()
+    if season_year is None:
+        season_year = _current_season_year()
 
     # Priority 1: U-age format (U13, U14, etc)
     match = re.search(r"\bu(\d+)\b", name_lower)
@@ -594,21 +614,16 @@ def extract_age_group(name, details):
     if match:
         short_year = int(match.group(1))
         year = 2000 + short_year if short_year < 50 else 1900 + short_year
-        age = season_year - year
-        return normalize_filter_age_group(age)
+        return _age_group_from_birth_year(year, season_year)
 
     match = re.search(r"[bg](20\d{2})", name_lower)  # G2013, B2014 (4-digit)
     if match:
-        year = int(match.group(1))
-        age = season_year - year
-        return normalize_filter_age_group(age)
+        return _age_group_from_birth_year(int(match.group(1)), season_year)
 
     # Priority 3: Standalone 4-digit birth year
     match = re.search(r"\b(20\d{2})\b", name)
     if match:
-        year = int(match.group(1))
-        age = season_year - year
-        return normalize_filter_age_group(age)
+        return _age_group_from_birth_year(int(match.group(1)), season_year)
 
     # Fallback: use metadata only if nothing found in name
     if details and details.get("age_group"):
@@ -1490,10 +1505,11 @@ def _run_inline_tests() -> int:
     b = extract_age_group("FC Example U14", {})
     check(f"extract_age_group '14U' == 'U14' (got {a!r} vs {b!r})", a == b and a is not None)
 
-    # Birth year and digit-U form resolve to the same cohort
-    a = extract_age_group("FC Example 2012", {})
-    b = extract_age_group("FC Example 14U", {})
-    check(f"extract_age_group '2012' == '14U' (got {a!r} vs {b!r})", a == b and a is not None)
+    # Birth year and digit-U form resolve to the same cohort. The season year is
+    # pinned because the pairing depends on it — unpinned, this flips every Aug 1.
+    a = extract_age_group("FC Example 2012", {}, season_year=2026)
+    b = extract_age_group("FC Example 15U", {})
+    check(f"extract_age_group '2012'@2026 == '15U' (got {a!r} vs {b!r})", a == b and a is not None)
 
     # U18/U19 parity: Priority 1 and 1b must agree on the same cohort.
     # Previously Priority 1b routed through _canonicalize_age_token which remaps

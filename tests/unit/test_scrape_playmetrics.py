@@ -25,9 +25,34 @@ from scripts.scrape_playmetrics_league import (
     parse_utc_to_local_date,
 )
 
+PINNED_SEASON = 2025
+
 
 class TestDeriveTeamAgeGroup:
     """Team-name-first age_group derivation with division fallback."""
+
+    @pytest.fixture(autouse=True)
+    def _pin_season(self, monkeypatch):
+        """Hold the season year so these expectations do not expire on Aug 1.
+
+        Every case here is season-relative: a 2015-born team is u11 in 2025-26
+        and u12 in 2026-27. Two patches are needed, not one.
+        ``extract_birth_year_from_name`` reads ``CURRENT_YEAR`` off the module at
+        call time, but ``calculate_age_group_from_birth_year`` is imported by
+        value and binds its season default at definition time, so that name has
+        to be replaced where the caller looks it up.
+        """
+        import scripts.scrape_playmetrics_league as mod
+        from src.utils import team_utils
+
+        monkeypatch.setattr(team_utils, "CURRENT_YEAR", PINNED_SEASON)
+        monkeypatch.setattr(
+            mod,
+            "calculate_age_group_from_birth_year",
+            lambda birth_year, current_year=PINNED_SEASON: (
+                team_utils.calculate_age_group_from_birth_year(birth_year, current_year)
+            ),
+        )
 
     @pytest.mark.parametrize(
         "name, fallback, expected",
@@ -59,8 +84,8 @@ class TestDeriveTeamAgeGroup:
         assert derive_team_age_group(name, fallback) == expected
 
     def test_unmapped_birth_year_falls_back(self):
-        # 2004 is outside ``calculate_age_group_from_birth_year``'s range for
-        # season 2025 → falls through to the U-token / fallback path.
+        # 2004 is outside ``calculate_age_group_from_birth_year``'s range for the
+        # pinned season → falls through to the U-token / fallback path.
         assert derive_team_age_group("FC 2004 Boys", "u16") == "u16"
 
 
