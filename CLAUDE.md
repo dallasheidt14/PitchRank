@@ -90,24 +90,37 @@ PitchRank/
 
 ## Domain Knowledge (CRITICAL)
 
-### Age Groups (2025-26 Season)
+### Age Groups (2026-27 Season)
 
-> Pre-rollover. On 2026-08-01 every cohort below moves up one and U17 merges
-> into U19 — see the `AGE_ROLLOVER_FREEZE` section under GitHub Actions Workflows.
+> Rolled over on 2026-08-01. US youth soccer runs on an Aug 1 – Jul 31 window, so
+> every cohort moved up one and 2007 aged out. A birth year maps to a different
+> cohort than it did last season — check the season before trusting any older
+> mapping you find in code comments or docs.
 
 | Birth Year | Age Group | | Birth Year | Age Group |
 |---|---|---|---|---|
-| 2016 | U10 | | 2012 | U14 |
-| 2015 | U11 | | 2011 | U15 |
-| 2014 | U12 | | 2010 | U16 |
-| 2013 | U13 | | 2009 | U17 |
+| 2017 | U10 | | 2013 | U14 |
+| 2016 | U11 | | 2012 | U15 |
+| 2015 | U12 | | 2011 | U16 |
+| 2014 | U13 | | 2010 | U17 |
+| | | | 2009 | U19 |
 | | | | 2008 | U19 |
-| | | | 2007 | U19 |
 
-- `14B` = 2014 birth year, Boys = **U12 Male** (NOT U14!)
+- `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
-- `G2016` = Girls, 2016 birth year = **U10 Female**
+- `G2016` = Girls, 2016 birth year = **U11 Female**
 - **B/G = Gender (Boys/Girls), NOT part of age number**
+
+The season is derived from the wall clock, not configured:
+`src/utils/team_utils.py` `_soccer_season_year()` returns `now.year` from August
+onward and `now.year - 1` before it, so `calculate_age_group_from_birth_year`
+re-maps itself every Aug 1 with no code change.
+
+**`config/settings.py` `_BIRTH_YEARS` has NOT rolled and now disagrees with that
+derivation on all nine entries** — it still says U12 is 2014, and `AGE_GROUPS` is
+built from it. The table above documents the wall-clock derivation, which is what
+ingestion and matching use. Treat `_BIRTH_YEARS` as stale for cohort questions;
+see `.turbo/improvements.md`.
 
 ### Gender Normalization
 
@@ -295,50 +308,54 @@ npm run analyze
 | `scrape-games.yml` | Mon 6:00 & 11:15 AM UTC | Scrape 25K GotSport teams |
 | `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
 | `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
-| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping (team pre-create step frozen — see `AGE_ROLLOVER_FREEZE`) |
-| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization and distinction backfill run; the age, dupe and queue-match steps are frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
-| `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents — the apply and team-discovery steps are frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
-| `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges — frozen for the Aug 2026 rollover (see `AGE_ROLLOVER_FREEZE`) |
+| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
+| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, age, dupe and queue-match steps |
+| `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
+| `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
 
-### `AGE_ROLLOVER_FREEZE` (Aug 2026 age-group rollover)
+### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
+
+**Status: `'false'` in all nine workflows since the Aug 2026 rollover completed.**
+Everything it gated is running normally. The flag stays in place because this
+recurs every Aug 1 — re-arm it rather than rebuilding it.
 
 The flag holds the thirteen steps that write a team's age group, because those
-derive a cohort from the wall clock while the labels are relabelled by hand.
-Between the two, a derived cohort and a stored label differ by one, and writing
-on that difference merges or duplicates teams permanently. The game importers
-count: they create unmatched teams through the provider matchers using an age
-`EnhancedETLPipeline` derives at import time, so the derivation is invisible at
-the call site.
+derive a cohort from the wall clock while the stored labels only move when
+someone hand-applies a migration. Between the two, a derived cohort and a stored
+label differ by one, and writing on that difference merges or duplicates teams
+permanently. The game importers count: they create unmatched teams through the
+provider matchers using an age `EnhancedETLPipeline` derives at import time, so
+the derivation is invisible at the call site.
 
-**To lift**, set it to `'false'` in all nine: `data-hygiene-weekly.yml`,
-`unknown-opponent-hygiene-weekly.yml`, `auto-merge-queue.yml`,
-`fix-age-year-discrepancies.yml`, `tgs-event-scrape-import.yml`,
-`modular11-weekly-scrape.yml`, `modular11-events-weekly-scrape.yml`,
-`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`. Do it only after
-the relabel migration is applied and the boards are verified.
+**To re-arm for the next rollover**, set it to `'true'` in all nine:
+`data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
+`auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
+`tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
+`modular11-events-weekly-scrape.yml`,
+`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`. Do it before Aug 1;
+lift it again only once the relabel migration is applied and the boards verified.
 
 Scrapers keep running while frozen; only the database write is skipped, and the
-scraped CSVs still upload as artifacts, so expect a backfill rather than a gap.
-The one exception is `playmetrics-scrape-import.yml`, where scraping and
+scraped CSVs still upload as artifacts, so a freeze costs a backfill rather than
+a gap. The one exception is `playmetrics-scrape-import.yml`, where scraping and
 importing are a single step: it is deliberately left ungated so collection
 continues, accepting that a brand-new PlayMetrics team created mid-rollover may
 land one cohort off. The exemption is named in the coverage test.
 
 `tests/unit/test_age_rollover_freeze_coverage.py` fails on any ungated writing
-step, or a gate widened by a top-level `||`. It detects steps by script name, so
-a genuinely new writer must be added to its lists — a regression guard, not a
-discovery tool.
+step, or a gate widened by a top-level `||`. It guards the gates themselves, not
+the flag's value, so it stays meaningful while lifted. It detects steps by script
+name, so a genuinely new writer must be added to its lists — a regression guard,
+not a discovery tool.
 
-The relabel is hand-applied, so the migration ledger needs updating by hand too:
-
-- after applying — `supabase migration repair --status applied 20260801000000`
-- after a committed rollback — `supabase migration repair --status reverted 20260801000000`
-
-Skipping either leaves the next `supabase db push` either re-applying the file
-(and aborting on its guard, blocking unrelated migrations) or skipping a rollover
-that never happened. The rollback itself expires at the first post-roll ranking
-run, which re-anchors scores that restoring labels cannot undo.
+The relabel is hand-applied, so the migration ledger needs updating by hand too
+(`supabase migration repair --status applied <version>`, or `--status reverted`
+after a committed rollback). Skipping it leaves the next `supabase db push`
+either re-applying the file — aborting on its guard, blocking unrelated
+migrations — or skipping a rollover that never happened. The rollback expires at
+the first post-roll ranking run, which re-anchors scores that restoring labels
+cannot undo.
 
 ### Weekly Cycle
 
@@ -346,7 +363,7 @@ run, which re-anchors scores that restoring labels cannot undo.
 Monday AM  → Scrape games (2 batches, 25K teams each), data hygiene jobs
 Monday PM  → Calculate rankings (v53e + ML Layer 13)
 Sunday     → Event scraping
-Continuous → Club name backfill (merge queue processing is frozen — see `AGE_ROLLOVER_FREEZE`)
+Continuous → Club name backfill, merge queue processing
 ```
 
 ---
@@ -498,7 +515,7 @@ const { user, supabase } = auth;
 1. **Supabase 1000-row limit** — Always paginate queries; a single `.select()` returns max 1000 rows
 2. **Team merge resolution** — Always apply `MergeResolver` before processing team IDs; deprecated teams must map to canonical
 3. **Game immutability** — Never UPDATE a game row; quarantine bad data instead
-4. **Age/birth year confusion** — `14B` = birth year 2014 = **U12**, not U14
+4. **Age/birth year confusion** — `14B` = birth year 2014 = **U13** in 2026-27, not U14
 5. **Division tier merging** — ECNL ≠ ECNL-RL, HD ≠ AD — never merge teams across tiers
 6. **PowerScore bounds** — Must always be [0.0, 1.0]; check for NaN/Infinity after calculation
 7. **URI length limits** — Batch `.in_()` queries to ≤100 IDs per call
