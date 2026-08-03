@@ -26,7 +26,7 @@ env:
   # during the gap a new team is stored one cohort off and then rolled again.
   # Gates test == 'false' (not != 'true') so a renamed or deleted flag leaves the
   # step skipped. See CLAUDE.md.
-  AGE_ROLLOVER_FREEZE: 'true'
+  AGE_ROLLOVER_FREEZE: 'false'
 
 jobs:
   scrape-wa-games:

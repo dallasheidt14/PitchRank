@@ -56,7 +56,7 @@ env:
   # labels. Gates test == 'false' (not != 'true') so a renamed or deleted flag
   # leaves the step skipped rather than applying unguarded. Mirrors
   # data-hygiene-weekly.yml.
-  AGE_ROLLOVER_FREEZE: 'true'
+  AGE_ROLLOVER_FREEZE: 'false'
 
 jobs:
   unknown-opponent-hygiene:

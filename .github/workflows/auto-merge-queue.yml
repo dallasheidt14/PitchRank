@@ -40,7 +40,7 @@ jobs:
       # Set to 'false' to lift, once the Aug 2026 age-group rollover is verified.
       # Gates test == 'false' (not != 'true') so a renamed or deleted flag leaves
       # the merge skipped rather than running unguarded.
-      AGE_ROLLOVER_FREEZE: 'true'
+      AGE_ROLLOVER_FREEZE: 'false'
 
     steps:
       - name: Checkout repository
