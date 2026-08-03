@@ -64,7 +64,7 @@ env:
   # 'false' to lift, once the rollover is verified. skip_steps can't do this —
   # a scheduled run passes no inputs. Gates test == 'false' (not != 'true') so
   # a renamed or deleted flag leaves the steps skipped, not merging unguarded.
-  AGE_ROLLOVER_FREEZE: 'true'
+  AGE_ROLLOVER_FREEZE: 'false'
 
 jobs:
   data-hygiene-pipeline:

@@ -45,7 +45,7 @@ env:
   PYTHONUNBUFFERED: '1'
   # Mirrors the flag in data-hygiene-weekly.yml, which runs the same script.
   # Lift both together, and only once the rollover is verified.
-  AGE_ROLLOVER_FREEZE: 'true'
+  AGE_ROLLOVER_FREEZE: 'false'
 
 jobs:
   fix-age-groups:

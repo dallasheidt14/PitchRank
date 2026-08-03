@@ -52,7 +52,7 @@ env:
   # Freezes the team pre-create step across the 2026-08-01 age-group rollover;
   # set to 'false' to lift, once the rollover is verified. Gates test == 'false'
   # (not != 'true') so a renamed or deleted flag leaves the step skipped.
-  AGE_ROLLOVER_FREEZE: 'true'
+  AGE_ROLLOVER_FREEZE: 'false'
   DEFAULT_START_EVENT: '3400'
   DEFAULT_END_EVENT: '3550'
   # Below this many events: keep single-shard behavior (matches the proven
