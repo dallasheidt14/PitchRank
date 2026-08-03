@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import track
 
+from src.utils.team_utils import calculate_age_group_from_birth_year  # noqa: E402
 from supabase import create_client
 
 # Set up logging
@@ -42,18 +43,6 @@ if env_local.exists():
     load_dotenv(env_local)
 else:
     load_dotenv()
-
-
-def calculate_age_group_from_birth_year(birth_year: int) -> str:
-    """
-    Calculate age group (U##) from birth year using soccer season year.
-    Formula: CURRENT_YEAR - birth_year + 1 (season rolls over Aug 1).
-    Example: 2014 → U12 (2025-26 season)
-    """
-    from src.utils.team_utils import CURRENT_YEAR
-
-    age = CURRENT_YEAR - birth_year + 1
-    return f"u{age}"
 
 
 # Full state name → 2-letter code. CSV's `state` column may carry either form.
@@ -360,8 +349,16 @@ def batch_create_teams_and_aliases(
             gender = normalize_gender(team_data["gender"])
             state_code = team_data.get("state_code")
 
-            # Calculate age group from birth year
-            age_group = calculate_age_group_from_birth_year(age_year)
+            # Calculate age group from birth year. Returns None outside U7-U19,
+            # and stored labels are lowercase.
+            age_label = calculate_age_group_from_birth_year(age_year)
+            if age_label is None:
+                logger.error(
+                    f"Skipping team {team_name}: birth year {age_year} is outside the U7-U19 range"
+                )
+                stats["errors"] += 1
+                continue
+            age_group = age_label.lower()
 
             # Generate UUID for master team ID
             team_id_master = str(uuid.uuid4())
