@@ -25,7 +25,7 @@ on:
         type: boolean
         default: true
       concurrency:
-        description: 'Number of concurrent scrapes (default: 30 direct, 8 with ZenRows)'
+        description: 'Number of concurrent scrapes (default: 30 direct, 20 with ZenRows)'
         required: false
         type: string
         default: ''
@@ -78,7 +78,7 @@ jobs:
           # it needs ~181 min of scraping alone — past the 180-min
           # timeout-minutes below. A killed run never reaches auto-import, so
           # every game it scraped is lost to Supabase. 20 roughly halves the
-          # scrape to ~75 min.
+          # scrape to ~90 min, leaving real margin under the cap.
           if [[ "${USE_ZENROWS:-false}" == "true" ]]; then
             CONCURRENCY=20
           else
