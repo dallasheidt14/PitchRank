@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       queue_limit:
-        description: 'Total teams to scrape (default 2000). Drains the scrape_requests queue first, then tops up from the teams table (oldest-scraped first, skipping anything scraped in the last 7 days). Queue claims use FOR UPDATE SKIP LOCKED so parallel dispatches split the queue safely — the top-up does NOT, so run one at a time when the queue is short.'
+        description: 'Do not run concurrent dispatches: the teams-table top-up is not parallel-safe. Total teams to scrape (default 2000) — drains the queue first, then tops up from the teams table, oldest-scraped first, skipping teams scraped in the last 7 days.'
         required: false
         type: string
         default: '2000'
@@ -70,7 +70,9 @@ jobs:
           # because scrape-games runs 5 shards through one ZenRows API key
           # (5 x 8 = 40, under the Startup-tier 50-slot parallel ceiling).
           # This workflow is a single runner, so one run at 20 is 40% of the
-          # cap.
+          # cap. That 50-slot ceiling is shared across the whole ZenRows API
+          # key, not per workflow — don't run this alongside a ZenRows
+          # scrape-games.yml chain, or the combined concurrency can exceed it.
           #
           # Sizing: run 27104427792 (2026-06-07) scraped 4984 teams in 45m06s
           # at concurrency 10 — 1.84 teams/sec. Now that --limit is a total

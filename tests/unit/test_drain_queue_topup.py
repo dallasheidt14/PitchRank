@@ -123,10 +123,13 @@ def test_none_data_is_treated_as_empty():
 
 
 def test_finalize_only_touches_claimed_queue_rows():
-    """Top-up teams land in log_buffer but have no scrape_requests row.
+    """_finalize_queue_items iterates queue_map, so it ignores any log_buffer
+    entry with no corresponding queue row.
 
-    _finalize_queue_items iterates queue_map, which is built from claimed items
-    only — so a top-up team must never produce an update.
+    This pins the finalize helper's behavior only — it does not exercise
+    drain_queue(), so it cannot verify that top-up teams never end up in
+    queue_map. That call-site guarantee is checked separately by the manual
+    dry-run in the plan's Task 4.
     """
     from scripts.drain_queue import _finalize_queue_items
 

@@ -2,17 +2,19 @@
 """
 Drain the scrape_requests queue using concurrent scraping.
 
-Clone of scrape_games.py with one difference: instead of fetching teams from
-the teams table (via get_teams_to_scrape_limited RPC), it claims pending
-items from the scrape_requests queue and scrapes those.
+Claims pending items from the scrape_requests queue and scrapes those. When
+the queue yields fewer teams than --limit, tops the batch up from the teams
+table via get_teams_to_scrape_limited (oldest-scraped first).
 
 Completely independent of process_missing_games.py and scrape_games.py.
-Safe to run in parallel with both — the claim_queue_items RPC uses
-FOR UPDATE SKIP LOCKED to prevent double-processing.
+Queue claims use FOR UPDATE SKIP LOCKED, so concurrent runs of this script
+split the queue safely. The teams-table top-up has no such claim mechanism:
+concurrent runs can double-scrape the same topped-up teams. Run one at a
+time.
 
 Usage:
     python scripts/drain_queue.py --limit 2000 --concurrency 30
-    python scripts/drain_queue.py --limit 500 --concurrency 8   # with ZenRows
+    python scripts/drain_queue.py --limit 500 --concurrency 20   # with ZenRows
     python scripts/drain_queue.py --dry-run --limit 100
 """
 
@@ -453,7 +455,9 @@ async def drain_queue(
     Drain the scrape_requests queue using concurrent scraping.
 
     Clone of scrape_games() with one change: teams come from the
-    scrape_requests queue instead of the teams table RPC.
+    scrape_requests queue first, then from the teams table RPC
+    (get_teams_to_scrape_limited) to top up the batch when the queue
+    falls short of --limit.
     """
     if concurrency < 1:
         console.print("[red]--concurrency must be at least 1[/red]")
@@ -543,9 +547,15 @@ async def drain_queue(
 
     # --limit is a total scrape target, not a claim count. The queue is usually
     # shallower than the requested batch, and the filters above drop a large
-    # share of what it does hold — a 500-item claim on 2026-08-04 left 104
-    # teams. Top up from the teams table so the operator gets the batch size
-    # they asked for.
+    # share of what it does hold — run 30944721235 (2026-08-04) claimed 500
+    # items and filtering left 104 teams. Top up from the teams table so the
+    # operator gets the batch size they asked for.
+    #
+    # The top-up can select a team that still has a pending row in
+    # scrape_requests (this run didn't claim it because --limit was already
+    # hit). That team gets scraped again once a later run claims its queue
+    # row. That's wasted work, not corruption — the import path dedupes and
+    # the second scrape is incremental.
     queue_team_count = len(teams)
     shortfall = limit - queue_team_count
     if shortfall > 0:
@@ -743,13 +753,13 @@ def main():
         "--limit",
         type=int,
         default=2000,
-        help="Max queue items to claim and scrape (default: 2000)",
+        help="Total teams to scrape (default: 2000) — queue items first, then topped up from the teams table",
     )
     parser.add_argument(
         "--concurrency",
         type=int,
         default=30,
-        help="Number of concurrent scrapes (default: 30; use 8 with ZenRows)",
+        help="Number of concurrent scrapes (default: 30; use 20 with ZenRows)",
     )
     parser.add_argument(
         "--output",
