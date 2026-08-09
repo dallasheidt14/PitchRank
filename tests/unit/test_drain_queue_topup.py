@@ -120,3 +120,25 @@ def test_other_api_errors_propagate():
 def test_none_data_is_treated_as_empty():
     """PostgREST can return data=None; the helper must not raise on it."""
     assert _fetch_topup_teams(_supabase_returning(None), "prov-1", 5, set()) == []
+
+
+def test_finalize_only_touches_claimed_queue_rows():
+    """Top-up teams land in log_buffer but have no scrape_requests row.
+
+    _finalize_queue_items iterates queue_map, which is built from claimed items
+    only — so a top-up team must never produce an update.
+    """
+    from scripts.drain_queue import _finalize_queue_items
+
+    supabase = Mock()
+    queue_map = {"t-queue": "req-1"}
+    log_buffer = [
+        {"team_id_master": "t-queue", "games_found": 3, "status": "success"},
+        {"team_id_master": "t-topup", "games_found": 7, "status": "success"},
+    ]
+
+    _finalize_queue_items(supabase, queue_map, log_buffer)
+
+    eq_calls = supabase.table.return_value.update.return_value.eq.call_args_list
+    assert [c.args for c in eq_calls] == [("id", "req-1")]
+    supabase.table.return_value.update.return_value.in_.assert_not_called()

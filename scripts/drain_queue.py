@@ -472,11 +472,10 @@ async def drain_queue(
     console.print(f"[cyan]Claiming up to {limit} pending queue items...[/cyan]")
     claimed = _claim_queue_items(supabase, provider_id, limit)
 
-    if not claimed:
-        console.print("[green]Queue is empty — nothing to drain.[/green]")
-        return
-
-    console.print(f"[cyan]Claimed {len(claimed)} items from scrape_requests queue[/cyan]")
+    if claimed:
+        console.print(f"[cyan]Claimed {len(claimed)} items from scrape_requests queue[/cyan]")
+    else:
+        console.print("[yellow]Queue is empty — filling the batch from the teams table[/yellow]")
 
     # Build queue_map (team_id_master -> request_id) for finalization
     queue_map: Dict[str, str] = {}
@@ -507,28 +506,6 @@ async def drain_queue(
                 "last_scraped_at": meta.get("last_scraped_at"),
             }
         )
-
-    if dry_run:
-        console.print(f"\n[yellow][DRY RUN] Would scrape {len(teams)} teams:[/yellow]")
-        for t in teams[:20]:
-            console.print(f"  {t['provider_team_id']} — {t['team_name']}")
-        if len(teams) > 20:
-            console.print(f"  ... and {len(teams) - 20} more")
-        # Release claimed items back to pending
-        ids = list(queue_map.values())
-        for i in range(0, len(ids), 100):
-            batch = ids[i : i + 100]
-            try:
-                (
-                    supabase.table("scrape_requests")
-                    .update({"status": "pending", "processed_at": None})
-                    .in_("id", batch)
-                    .execute()
-                )
-            except Exception:
-                pass
-        console.print("[yellow]Released claimed items back to pending[/yellow]")
-        return
 
     # ---- FROM HERE: identical to scrape_games.py ----
 
@@ -563,6 +540,52 @@ async def drain_queue(
         console.print(f"[yellow]Filtered out {placeholder_unknown_count} placeholder unknown teams[/yellow]")
     if skipped_count > 0:
         console.print(f"[yellow]Filtered out {skipped_count} out-of-range teams (PitchRank is U10-U19 only)[/yellow]")
+
+    # --limit is a total scrape target, not a claim count. The queue is usually
+    # shallower than the requested batch, and the filters above drop a large
+    # share of what it does hold — a 500-item claim on 2026-08-04 left 104
+    # teams. Top up from the teams table so the operator gets the batch size
+    # they asked for.
+    queue_team_count = len(teams)
+    shortfall = limit - queue_team_count
+    if shortfall > 0:
+        topup = _fetch_topup_teams(
+            supabase,
+            provider_id,
+            shortfall,
+            {t["team_id_master"] for t in teams if t.get("team_id_master")},
+        )
+        if topup:
+            console.print(
+                f"[cyan]Topping up with {len(topup):,} teams from the teams table (oldest-scraped first)[/cyan]"
+            )
+            teams.extend(topup)
+        else:
+            console.print("[yellow]No eligible teams available to top up the batch[/yellow]")
+
+    if dry_run:
+        topup_count = len(teams) - queue_team_count
+        console.print(f"\n[yellow][DRY RUN] Would scrape {len(teams)} teams:[/yellow]")
+        console.print(f"[dim]  {queue_team_count} from the queue, {topup_count} topped up from the teams table[/dim]")
+        for t in teams[:20]:
+            console.print(f"  {t['provider_team_id']} — {t['team_name']}")
+        if len(teams) > 20:
+            console.print(f"  ... and {len(teams) - 20} more")
+        # Release claimed items back to pending. Top-up teams have no queue row.
+        ids = list(queue_map.values())
+        for i in range(0, len(ids), 100):
+            batch = ids[i : i + 100]
+            try:
+                (
+                    supabase.table("scrape_requests")
+                    .update({"status": "pending", "processed_at": None})
+                    .in_("id", batch)
+                    .execute()
+                )
+            except Exception:
+                pass
+        console.print("[yellow]Released claimed items back to pending[/yellow]")
+        return
 
     console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
