@@ -26,7 +26,7 @@ import threading
 from asyncio import Semaphore
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -36,7 +36,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
-from src.etl.bulk_ops import bulk_update_last_scraped_at
+from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
 from supabase import create_client
 
@@ -62,6 +62,7 @@ else:
 # ---------------------------------------------------------------------------
 # Helpers (cloned from scrape_games.py)
 # ---------------------------------------------------------------------------
+
 
 def _is_placeholder_unknown_team(team: Dict) -> bool:
     """Return True for placeholder teams like unknown_3712624 that should not be scraped."""
@@ -121,6 +122,7 @@ def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[st
 # Queue operations (the only part that differs from scrape_games.py)
 # ---------------------------------------------------------------------------
 
+
 def _claim_queue_items(supabase, provider_id: str, limit: int) -> List[Dict]:
     """Atomically claim pending scrape_requests via RPC.
 
@@ -128,10 +130,13 @@ def _claim_queue_items(supabase, provider_id: str, limit: int) -> List[Dict]:
     been applied yet.
     """
     try:
-        result = supabase.rpc("claim_queue_items", {
-            "p_provider_id": provider_id,
-            "p_limit": limit,
-        }).execute()
+        result = supabase.rpc(
+            "claim_queue_items",
+            {
+                "p_provider_id": provider_id,
+                "p_limit": limit,
+            },
+        ).execute()
         return result.data or []
     except Exception as e:
         logger.warning(f"claim_queue_items RPC failed ({e}), using fallback")
@@ -189,6 +194,72 @@ def _fetch_team_metadata(supabase, team_id_masters: List[str]) -> Dict[str, Dict
     return meta
 
 
+def _fetch_topup_teams(
+    supabase,
+    provider_id: str,
+    shortfall: int,
+    exclude_ids: Set[str],
+) -> List[Dict]:
+    """Pull oldest-scraped eligible teams to fill out a short queue batch.
+
+    ``--limit`` is a total scrape target, not a claim count. The queue is
+    usually shallower than the requested batch, and the placeholder/age filters
+    drop a large share of what it does hold, so without this the operator gets
+    a fraction of the batch they asked for.
+
+    ``get_teams_to_scrape_limited`` applies the same eligibility rules in SQL
+    (provider, U8/U9, out-of-range birth years, placeholder ``unknown_*``) and
+    orders ``last_scraped_at ASC NULLS FIRST``, so these rows need no further
+    Python filtering. ``p_include_recent=False`` skips anything scraped in the
+    last 7 days, which is what lets consecutive runs walk the backlog instead
+    of re-scraping the same teams.
+
+    Over-fetches by ``len(exclude_ids)`` to cover the worst case where every
+    claimed queue team is also top-up-eligible and comes back in the result.
+    """
+    if shortfall <= 0:
+        return []
+
+    rows = (
+        call_rpc_with_fallback(
+            supabase,
+            "get_teams_to_scrape_limited",
+            {
+                "p_provider_id": provider_id,
+                "p_limit": shortfall + len(exclude_ids),
+                "p_shard_index": 0,
+                "p_shard_count": 1,
+                "p_include_recent": False,
+                "p_null_only": False,
+            },
+            fallback=lambda: [],
+            log_msg="get_teams_to_scrape_limited missing, skipping top-up: %s",
+        )
+        or []
+    )
+
+    topup: List[Dict] = []
+    for row in rows:
+        team_id_master = row.get("team_id_master")
+        if not team_id_master or team_id_master in exclude_ids:
+            continue
+        topup.append(
+            {
+                "team_id_master": team_id_master,
+                "team_name": row.get("team_name"),
+                "provider_id": row.get("provider_id"),
+                "provider_team_id": row.get("provider_team_id"),
+                "age_group": row.get("age_group"),
+                "birth_year": row.get("birth_year"),
+                "last_scraped_at": row.get("last_scraped_at"),
+            }
+        )
+        if len(topup) >= shortfall:
+            break
+
+    return topup
+
+
 def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[Dict[str, Any]]):
     """Mark claimed queue items as completed or failed based on scrape results."""
     if not queue_map:
@@ -222,25 +293,26 @@ def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[
         try:
             (
                 supabase.table("scrape_requests")
-                .update({
-                    "status": "failed",
-                    "completed_at": now_iso,
-                    "error_message": "Team not found or scrape error",
-                })
+                .update(
+                    {
+                        "status": "failed",
+                        "completed_at": now_iso,
+                        "error_message": "Team not found or scrape error",
+                    }
+                )
                 .in_("id", failed_ids)
                 .execute()
             )
         except Exception as e:
             logger.warning(f"Failed to mark {len(failed_ids)} queue items as failed: {e}")
 
-    console.print(
-        f"[green]✓[/green] Queue finalized: {completed_count} completed, {len(failed_ids)} failed"
-    )
+    console.print(f"[green]✓[/green] Queue finalized: {completed_count} completed, {len(failed_ids)} failed")
 
 
 # ---------------------------------------------------------------------------
 # Concurrent scraping (cloned from scrape_games.py — identical)
 # ---------------------------------------------------------------------------
+
 
 async def _scrape_team_concurrent(
     semaphore: Semaphore,
@@ -370,6 +442,7 @@ async def _scrape_team_concurrent(
 # Main drain logic (mirrors scrape_games() but sources teams from queue)
 # ---------------------------------------------------------------------------
 
+
 async def drain_queue(
     limit: int = 2000,
     concurrency: int = 30,
@@ -491,9 +564,7 @@ async def drain_queue(
     if skipped_count > 0:
         console.print(f"[yellow]Filtered out {skipped_count} out-of-range teams (PitchRank is U10-U19 only)[/yellow]")
 
-    console.print(
-        f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]"
-    )
+    console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
     console.print("[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
 
@@ -646,19 +717,26 @@ async def drain_queue(
 def main():
     parser = argparse.ArgumentParser(description="Drain the scrape_requests queue with concurrent scraping")
     parser.add_argument(
-        "--limit", type=int, default=2000,
+        "--limit",
+        type=int,
+        default=2000,
         help="Max queue items to claim and scrape (default: 2000)",
     )
     parser.add_argument(
-        "--concurrency", type=int, default=30,
+        "--concurrency",
+        type=int,
+        default=30,
         help="Number of concurrent scrapes (default: 30; use 8 with ZenRows)",
     )
     parser.add_argument(
-        "--output", type=str, default=None,
+        "--output",
+        type=str,
+        default=None,
         help="Output file path (default: auto-generated)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Claim + show targets, then release back to pending",
     )
 
