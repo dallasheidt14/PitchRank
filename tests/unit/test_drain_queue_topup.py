@@ -145,3 +145,90 @@ def test_finalize_only_touches_claimed_queue_rows():
     eq_calls = supabase.table.return_value.update.return_value.eq.call_args_list
     assert [c.args for c in eq_calls] == [("id", "req-1")]
     supabase.table.return_value.update.return_value.in_.assert_not_called()
+
+
+def test_release_queue_items_batches_at_100():
+    """PostgREST puts the id list in the query string, so an unbatched
+    .in_() breaks the URI length limit at a few hundred UUIDs."""
+    from scripts.drain_queue import _release_queue_items
+
+    supabase = Mock()
+    _release_queue_items(supabase, [f"req-{i}" for i in range(250)])
+
+    in_calls = supabase.table.return_value.update.return_value.in_.call_args_list
+    assert [len(c.args[1]) for c in in_calls] == [100, 100, 50]
+    payload = supabase.table.return_value.update.call_args.args[0]
+    assert payload == {"status": "pending", "processed_at": None}
+
+
+def test_release_queue_items_survives_a_failing_batch():
+    """A failed release must not mask the original error that triggered it."""
+    from scripts.drain_queue import _release_queue_items
+
+    supabase = Mock()
+    supabase.table.return_value.update.return_value.in_.return_value.execute.side_effect = RuntimeError("boom")
+
+    _release_queue_items(supabase, ["req-1"])  # must not raise
+
+
+def _drain_with(dry_run, topup_error):
+    """Drive drain_queue() far enough to exercise the claim->release window.
+
+    Returns (outcome, release_call_count). No network: the scraper, the claim,
+    the metadata fetch and the top-up are all stubbed.
+    """
+    import asyncio
+    from unittest.mock import patch
+
+    import scripts.drain_queue as d
+
+    released = []
+    supabase = Mock()
+
+    def _table(_name):
+        t = Mock()
+        t.update.return_value.in_.return_value.execute.side_effect = lambda: released.append(1) or Mock()
+        return t
+
+    supabase.table.side_effect = _table
+    claimed = [{"id": "req-1", "team_id_master": "t-1", "team_name": "A",
+                "provider_id": "p", "provider_team_id": "1", "game_date": None,
+                "priority": 1, "request_type": "x"}]
+    meta = {"t-1": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None}}
+    topup = (lambda *a, **k: []) if topup_error is None else topup_error
+
+    with patch.object(d, "create_client", return_value=supabase), \
+         patch.object(d, "GotSportScraper") as gs, \
+         patch.object(d, "_claim_queue_items", return_value=claimed), \
+         patch.object(d, "_fetch_team_metadata", return_value=meta), \
+         patch.object(d, "_fetch_topup_teams", side_effect=topup):
+        gs.return_value._get_provider_id.return_value = "pid"
+        try:
+            asyncio.run(d.drain_queue(limit=50, concurrency=1, dry_run=dry_run))
+            return "completed", len(released)
+        except RuntimeError:
+            return "raised", len(released)
+
+
+def test_dry_run_releases_claims_when_topup_fails():
+    """Regression: a transient PostgREST error in the top-up used to propagate
+    before the dry-run release, stranding the claimed rows in 'processing'
+    where no reaper would ever recover them."""
+    outcome, releases = _drain_with(dry_run=True, topup_error=RuntimeError("transient"))
+    assert outcome == "raised"
+    assert releases == 1
+
+
+def test_real_run_does_not_release_claims_on_success():
+    """The guard must be an except, not a finally: on the non-dry-run success
+    path the rows stay 'processing' through the scrape so _finalize_queue_items
+    can complete them."""
+    outcome, releases = _drain_with(dry_run=False, topup_error=None)
+    assert outcome == "completed"
+    assert releases == 0
+
+
+def test_real_run_releases_claims_when_topup_fails():
+    outcome, releases = _drain_with(dry_run=False, topup_error=RuntimeError("transient"))
+    assert outcome == "raised"
+    assert releases == 1

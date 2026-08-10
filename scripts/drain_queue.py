@@ -262,6 +262,31 @@ def _fetch_topup_teams(
     return topup
 
 
+def _release_queue_items(supabase, request_ids: List[str]) -> None:
+    """Hand claimed rows back to pending.
+
+    ``claim_queue_items`` flips rows to 'processing' and nothing ever flips
+    them back: there is no lease, no expiry, no reaper, and the claim RPC only
+    ever selects status='pending'. A row abandoned in 'processing' is therefore
+    invisible to every future drain. Any path that claims rows without going on
+    to scrape them has to release them explicitly.
+
+    Batched at 100 ids per ``.in_()`` — PostgREST puts the id list in the query
+    string, so an unbatched call breaks the URI length limit.
+    """
+    for i in range(0, len(request_ids), 100):
+        batch = request_ids[i : i + 100]
+        try:
+            (
+                supabase.table("scrape_requests")
+                .update({"status": "pending", "processed_at": None})
+                .in_("id", batch)
+                .execute()
+            )
+        except Exception as e:
+            logger.warning(f"Failed to release {len(batch)} queue items back to pending: {e}")
+
+
 def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[Dict[str, Any]]):
     """Mark claimed queue items as completed or failed based on scrape results."""
     if not queue_map:
@@ -490,112 +515,121 @@ async def drain_queue(
         if tid not in team_id_masters:
             team_id_masters.append(tid)
 
-    # Fetch team metadata (age_group, birth_year, last_scraped_at)
-    console.print("[dim]Fetching team metadata...[/dim]")
-    team_meta = _fetch_team_metadata(supabase, team_id_masters)
-
-    # Build team dicts (same shape as scrape_games.py expects)
-    teams: List[Dict] = []
-    for item in claimed:
-        tid = item["team_id_master"]
-        meta = team_meta.get(tid, {})
-        teams.append(
-            {
-                "team_id_master": tid,
-                "team_name": item.get("team_name"),
-                "provider_id": item.get("provider_id"),
-                "provider_team_id": item.get("provider_team_id"),
-                "age_group": meta.get("age_group"),
-                "birth_year": meta.get("birth_year"),
-                "last_scraped_at": meta.get("last_scraped_at"),
-            }
-        )
-
-    # ---- FROM HERE: identical to scrape_games.py ----
-
-    # Filter out U8/U9 and U20+ teams (PitchRank supports U10-U19)
-    filtered_teams = []
-    skipped_count = 0
-    placeholder_unknown_count = 0
-
-    for team in teams:
-        if _is_placeholder_unknown_team(team):
-            logger.debug(f"Skipping placeholder unknown team: {team.get('team_name', 'Unknown')}")
-            placeholder_unknown_count += 1
-            continue
-
-        age_group = team.get("age_group", "").upper().strip()
-        birth_year = team.get("birth_year")
-
-        if age_group in ["U8", "U-8", "U9", "U-9"]:
-            logger.debug(f"Skipping U8/U9 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
-            skipped_count += 1
-            continue
-
-        if birth_year in [2005, 2006, 2017, 2018, 2019]:
-            logger.debug(f"Skipping out-of-range team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
-            skipped_count += 1
-            continue
-
-        filtered_teams.append(team)
-
-    teams = filtered_teams
-    if placeholder_unknown_count > 0:
-        console.print(f"[yellow]Filtered out {placeholder_unknown_count} placeholder unknown teams[/yellow]")
-    if skipped_count > 0:
-        console.print(f"[yellow]Filtered out {skipped_count} out-of-range teams (PitchRank is U10-U19 only)[/yellow]")
-
-    # --limit is a total scrape target, not a claim count. The queue is usually
-    # shallower than the requested batch, and the filters above drop a large
-    # share of what it does hold — run 30944721235 (2026-08-04) claimed 500
-    # items and filtering left 104 teams. Top up from the teams table so the
-    # operator gets the batch size they asked for.
+    # Everything from here until scraping starts runs against Supabase and can
+    # fail. The rows claimed above are already 'processing', and nothing
+    # reclaims them — see _release_queue_items. So any failure in this window
+    # hands them back before the exception leaves.
     #
-    # The top-up can select a team that still has a pending row in
-    # scrape_requests (this run didn't claim it because --limit was already
-    # hit). That team gets scraped again once a later run claims its queue
-    # row. That's wasted work, not corruption — the import path dedupes and
-    # the second scrape is incremental.
-    queue_team_count = len(teams)
-    shortfall = limit - queue_team_count
-    if shortfall > 0:
-        topup = _fetch_topup_teams(
-            supabase,
-            provider_id,
-            shortfall,
-            {t["team_id_master"] for t in teams if t.get("team_id_master")},
-        )
-        if topup:
-            console.print(
-                f"[cyan]Topping up with {len(topup):,} teams from the teams table (oldest-scraped first)[/cyan]"
-            )
-            teams.extend(topup)
-        else:
-            console.print("[yellow]No eligible teams available to top up the batch[/yellow]")
+    # This is an except, not a finally: on the non-dry-run success path the
+    # rows must STAY 'processing' through the scrape so _finalize_queue_items
+    # can complete them. Only the error path releases.
+    try:
+        # Fetch team metadata (age_group, birth_year, last_scraped_at)
+        console.print("[dim]Fetching team metadata...[/dim]")
+        team_meta = _fetch_team_metadata(supabase, team_id_masters)
 
-    if dry_run:
-        topup_count = len(teams) - queue_team_count
-        console.print(f"\n[yellow][DRY RUN] Would scrape {len(teams)} teams:[/yellow]")
-        console.print(f"[dim]  {queue_team_count} from the queue, {topup_count} topped up from the teams table[/dim]")
-        for t in teams[:20]:
-            console.print(f"  {t['provider_team_id']} — {t['team_name']}")
-        if len(teams) > 20:
-            console.print(f"  ... and {len(teams) - 20} more")
-        # Release claimed items back to pending. Top-up teams have no queue row.
-        ids = list(queue_map.values())
-        for i in range(0, len(ids), 100):
-            batch = ids[i : i + 100]
-            try:
-                (
-                    supabase.table("scrape_requests")
-                    .update({"status": "pending", "processed_at": None})
-                    .in_("id", batch)
-                    .execute()
+        # Build team dicts (same shape as scrape_games.py expects)
+        teams: List[Dict] = []
+        for item in claimed:
+            tid = item["team_id_master"]
+            meta = team_meta.get(tid, {})
+            teams.append(
+                {
+                    "team_id_master": tid,
+                    "team_name": item.get("team_name"),
+                    "provider_id": item.get("provider_id"),
+                    "provider_team_id": item.get("provider_team_id"),
+                    "age_group": meta.get("age_group"),
+                    "birth_year": meta.get("birth_year"),
+                    "last_scraped_at": meta.get("last_scraped_at"),
+                }
+            )
+
+        # ---- FROM HERE: identical to scrape_games.py ----
+
+        # Filter out U8/U9 and U20+ teams (PitchRank supports U10-U19)
+        filtered_teams = []
+        skipped_count = 0
+        placeholder_unknown_count = 0
+
+        for team in teams:
+            if _is_placeholder_unknown_team(team):
+                logger.debug(f"Skipping placeholder unknown team: {team.get('team_name', 'Unknown')}")
+                placeholder_unknown_count += 1
+                continue
+
+            age_group = team.get("age_group", "").upper().strip()
+            birth_year = team.get("birth_year")
+
+            if age_group in ["U8", "U-8", "U9", "U-9"]:
+                logger.debug(f"Skipping U8/U9 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+                skipped_count += 1
+                continue
+
+            if birth_year in [2005, 2006, 2017, 2018, 2019]:
+                logger.debug(
+                    f"Skipping out-of-range team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}"
                 )
-            except Exception:
-                pass
-        console.print("[yellow]Released claimed items back to pending[/yellow]")
-        return
+                skipped_count += 1
+                continue
+
+            filtered_teams.append(team)
+
+        teams = filtered_teams
+        if placeholder_unknown_count > 0:
+            console.print(f"[yellow]Filtered out {placeholder_unknown_count} placeholder unknown teams[/yellow]")
+        if skipped_count > 0:
+            console.print(
+                f"[yellow]Filtered out {skipped_count} out-of-range teams (PitchRank is U10-U19 only)[/yellow]"
+            )
+
+        # --limit is a total scrape target, not a claim count. The queue is
+        # usually shallower than the requested batch, and the filters above drop
+        # a large share of what it does hold — run 30944721235 (2026-08-04)
+        # claimed 500 items and filtering left 104 teams. Top up from the teams
+        # table so the operator gets the batch size they asked for.
+        #
+        # The top-up can select a team that still has a pending row in
+        # scrape_requests (this run didn't claim it because --limit was already
+        # hit). That team gets scraped again once a later run claims its queue
+        # row. That's wasted work, not corruption — the import path dedupes and
+        # the second scrape is incremental.
+        queue_team_count = len(teams)
+        shortfall = limit - queue_team_count
+        if shortfall > 0:
+            topup = _fetch_topup_teams(
+                supabase,
+                provider_id,
+                shortfall,
+                {t["team_id_master"] for t in teams if t.get("team_id_master")},
+            )
+            if topup:
+                console.print(
+                    f"[cyan]Topping up with {len(topup):,} teams from the teams table (oldest-scraped first)[/cyan]"
+                )
+                teams.extend(topup)
+            else:
+                console.print("[yellow]No eligible teams available to top up the batch[/yellow]")
+
+        if dry_run:
+            topup_count = len(teams) - queue_team_count
+            console.print(f"\n[yellow][DRY RUN] Would scrape {len(teams)} teams:[/yellow]")
+            console.print(
+                f"[dim]  {queue_team_count} from the queue, {topup_count} topped up from the teams table[/dim]"
+            )
+            for t in teams[:20]:
+                console.print(f"  {t['provider_team_id']} — {t['team_name']}")
+            if len(teams) > 20:
+                console.print(f"  ... and {len(teams) - 20} more")
+            # Release claimed items back to pending. Top-up teams have no queue row.
+            _release_queue_items(supabase, list(queue_map.values()))
+            console.print("[yellow]Released claimed items back to pending[/yellow]")
+            return
+    except Exception:
+        if queue_map:
+            console.print(f"[red]Failed before scraping — releasing {len(queue_map)} claimed queue items[/red]")
+            _release_queue_items(supabase, list(queue_map.values()))
+        raise
 
     console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
     console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
