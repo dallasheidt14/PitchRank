@@ -1,7 +1,7 @@
 name: Help Clear Queue
 run-name: >-
   Clear Queue · ${{
-    format('{0} items', inputs.queue_limit || '2000')
+    format('{0} teams', inputs.queue_limit || '2000')
   }}${{
     inputs.use_zenrows == true && ' · ZenRows' || ''
   }}
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       queue_limit:
-        description: 'Number of queue items to claim and process (default 2000). Safe to dispatch multiple runs — each claims its own batch via FOR UPDATE SKIP LOCKED.'
+        description: 'Do not run concurrent dispatches: the teams-table top-up is not parallel-safe. Total teams to scrape (default 2000) — drains the queue first, then tops up from the teams table, oldest-scraped first, skipping teams scraped in the last 7 days.'
         required: false
         type: string
         default: '2000'
@@ -25,7 +25,7 @@ on:
         type: boolean
         default: true
       concurrency:
-        description: 'Number of concurrent scrapes (default: 30 direct, 8 with ZenRows)'
+        description: 'Number of concurrent scrapes (default: 30 direct, 20 with ZenRows)'
         required: false
         type: string
         default: ''
@@ -64,9 +64,25 @@ jobs:
             CMD="$CMD --limit 2000"
           fi
 
-          # Concurrency: 8 with ZenRows (shared 50-slot ceiling), 30 without
+          # Concurrency: 20 with ZenRows, 30 without.
+          #
+          # ZenRows: 20, not the 8 used by scrape-games.yml. That 8 exists
+          # because scrape-games runs 5 shards through one ZenRows API key
+          # (5 x 8 = 40, under the Startup-tier 50-slot parallel ceiling).
+          # This workflow is a single runner, so one run at 20 is 40% of the
+          # cap. That 50-slot ceiling is shared across the whole ZenRows API
+          # key, not per workflow — don't run this alongside a ZenRows
+          # scrape-games.yml chain, or the combined concurrency can exceed it.
+          #
+          # Sizing: run 27104427792 (2026-06-07) scraped 4984 teams in 45m06s
+          # at concurrency 10 — 1.84 teams/sec. Now that --limit is a total
+          # scrape target, a 20,000-team batch is reachable, and at that rate
+          # it needs ~181 min of scraping alone — past the 180-min
+          # timeout-minutes below. A killed run never reaches auto-import, so
+          # every game it scraped is lost to Supabase. 20 roughly halves the
+          # scrape to ~90 min, leaving real margin under the cap.
           if [[ "${USE_ZENROWS:-false}" == "true" ]]; then
-            CONCURRENCY=8
+            CONCURRENCY=20
           else
             CONCURRENCY=30
           fi
