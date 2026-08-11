@@ -6,8 +6,6 @@ from unittest.mock import Mock
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from postgrest.exceptions import APIError
-
 from scripts.drain_queue import _fetch_topup_teams
 
 TEAM_KEYS = {
@@ -22,7 +20,7 @@ TEAM_KEYS = {
 
 
 def _team_row(team_id):
-    """A row shaped like SETOF public.teams, with extra columns the helper drops."""
+    """A row shaped like a public.teams select, with an extra column to drop."""
     return {
         "team_id_master": team_id,
         "team_name": f"Team {team_id}",
@@ -35,33 +33,166 @@ def _team_row(team_id):
     }
 
 
-def _supabase_returning(rows):
-    """Mock matching call_rpc_with_fallback's supabase.rpc(...).limit(...).execute().data chain."""
+def _supabase_paging(pages):
+    """Mock the .table().select()...range().execute() chain, one entry per page.
+
+    Each call to .range() returns the next page. `pages` is a list of row lists.
+    Records the builder calls so tests can assert on the query that was built.
+    """
     supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.return_value.data = rows
+    builder = Mock()
+    calls = {"eq": [], "lt": [], "or_": [], "order": [], "range": []}
+
+    def _record(name):
+        def inner(*args, **kwargs):
+            calls[name].append((args, kwargs))
+            return builder
+
+        return inner
+
+    supabase.table.return_value.select.return_value = builder
+    builder.eq.side_effect = _record("eq")
+    builder.lt.side_effect = _record("lt")
+    builder.or_.side_effect = _record("or_")
+    builder.order.side_effect = _record("order")
+
+    seq = list(pages)
+
+    def _range(*args, **kwargs):
+        calls["range"].append((args, kwargs))
+        result = Mock()
+        result.execute.return_value = Mock(data=seq.pop(0) if seq else [])
+        return result
+
+    builder.range.side_effect = _range
+    supabase._calls = calls
     return supabase
 
 
-def test_no_rpc_call_when_batch_is_already_full():
+def _supabase_returning(rows):
+    """Single-page adapter so the pre-existing tests keep working unchanged.
+
+    They were written against the RPC's one-shot result; a single page of the
+    same rows is the exact equivalent under the paged table query.
+    """
+    return _supabase_paging([rows if rows is not None else None])
+
+
+def test_query_uses_14_day_cutoff_provider_and_descending_order():
+    import datetime as _dt
+
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    c = supabase._calls
+    assert c["eq"][0][0] == ("provider_id", "prov-1")
+    col, cutoff = c["lt"][0][0]
+    assert col == "last_scraped_at"
+    delta = _dt.datetime.now() - _dt.datetime.fromisoformat(cutoff)
+    assert 13.9 < delta.days + delta.seconds / 86400 < 14.1
+    assert c["order"][0][0] == ("last_scraped_at",)
+    assert c["order"][0][1] == {"desc": True}
+
+
+def test_orders_by_a_unique_tiebreaker_for_stable_paging():
+    """last_scraped_at is stamped per-run, so tie groups span thousands of rows.
+    Without a unique secondary key, OFFSET paging can repeat or skip rows."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    orders = supabase._calls["order"]
+    assert orders[0][0] == ("last_scraped_at",)
+    assert orders[0][1] == {"desc": True}
+    assert orders[1][0] == ("team_id_master",), "needs a unique tiebreaker"
+
+
+def test_query_excludes_birth_years_dynamically():
+    from scripts.drain_queue import _excluded_birth_years, _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    clause = supabase._calls["or_"][0][0][0]
+    assert clause.startswith("birth_year.is.null,birth_year.not.in.(")
+    for yr in _excluded_birth_years():
+        assert str(yr) in clause
+
+
+def test_pages_until_shortfall_is_satisfied():
+    """~40% of fetched rows fail the filter (1,186 of 3,000 sampled 2026-08-11),
+    so one page is often not enough."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
+    good = [_team_row(f"g-{i}") for i in range(1000)]
+    supabase = _supabase_paging([junk, good])
+
+    result = _fetch_topup_teams(supabase, "prov-1", 5, set())
+
+    assert [t["team_id_master"] for t in result] == [f"g-{i}" for i in range(5)]
+    assert len(supabase._calls["range"]) == 2
+
+
+def test_does_not_return_the_same_team_twice_across_pages():
+    """Defensive: a row repeating across pages must not be scraped twice."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    dup = _team_row("dup")
+    page1 = [dup] + [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(999)]
+    page2 = [dup, _team_row("g-1")]
+    supabase = _supabase_paging([page1, page2])
+
+    result = _fetch_topup_teams(supabase, "prov-1", 2, set())
+    ids = [t["team_id_master"] for t in result]
+    assert ids == ["dup", "g-1"], ids
+    assert len(ids) == len(set(ids))
+
+
+def test_stops_paging_on_a_short_page():
+    """A page smaller than the page size means the source is exhausted."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")], [_team_row("t-1")]])
+    result = _fetch_topup_teams(supabase, "prov-1", 50, set())
+
+    assert [t["team_id_master"] for t in result] == ["t-0"]
+    assert len(supabase._calls["range"]) == 1
+
+
+def test_paging_offsets_advance_by_page_size():
+    from scripts.drain_queue import _fetch_topup_teams
+
+    junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
+    supabase = _supabase_paging([junk, [_team_row("g-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    assert [c[0] for c in supabase._calls["range"]] == [(0, 999), (1000, 1999)]
+
+
+def test_drops_excluded_ids_and_filtered_rows():
+    from scripts.drain_queue import _fetch_topup_teams
+
+    rows = [
+        _team_row("t-0"),
+        {**_team_row("t-1"), "team_name": "unknown_pt-t-1"},  # placeholder
+        {**_team_row("t-2"), "age_group": "u9"},  # out of range
+        _team_row("t-3"),
+    ]
+    supabase = _supabase_paging([rows])
+    result = _fetch_topup_teams(supabase, "prov-1", 10, {"t-0"})
+
+    assert [t["team_id_master"] for t in result] == ["t-3"]
+
+
+def test_no_query_when_batch_is_already_full():
     supabase = _supabase_returning([])
     assert _fetch_topup_teams(supabase, "prov-1", 0, {"t-1"}) == []
     assert _fetch_topup_teams(supabase, "prov-1", -5, {"t-1"}) == []
-    supabase.rpc.assert_not_called()
-
-
-def test_requests_shortfall_padded_by_exclusion_count():
-    """920 claimed, 300 survive filtering, limit 4000 -> shortfall 3700, p_limit 4000."""
-    supabase = _supabase_returning([])
-    _fetch_topup_teams(supabase, "prov-1", 3700, {f"t-{i}" for i in range(300)})
-
-    fn_name, params = supabase.rpc.call_args.args
-    assert fn_name == "get_teams_to_scrape_limited"
-    assert params["p_limit"] == 4000
-    assert params["p_provider_id"] == "prov-1"
-    assert params["p_include_recent"] is False
-    assert params["p_null_only"] is False
-    assert params["p_shard_index"] == 0
-    assert params["p_shard_count"] == 1
+    supabase.table.assert_not_called()
 
 
 def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
@@ -70,8 +201,8 @@ def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
     assert [t["team_id_master"] for t in result] == ["t-2", "t-3"]
 
 
-def test_preserves_rpc_order():
-    """The RPC orders last_scraped_at ASC NULLS FIRST; the helper must not reorder."""
+def test_preserves_source_order():
+    """The helper preserves whatever order the source returns rows in; it must not reorder them."""
     supabase = _supabase_returning([_team_row("t-9"), _team_row("t-4"), _team_row("t-7")])
     result = _fetch_topup_teams(supabase, "prov-1", 3, set())
     assert [t["team_id_master"] for t in result] == ["t-9", "t-4", "t-7"]
@@ -95,23 +226,19 @@ def test_returns_only_the_keys_the_scrape_path_reads():
     assert set(team) == TEAM_KEYS
 
 
-def test_missing_rpc_degrades_to_queue_only():
-    """Rolling deploy where the migration has not landed must not crash a drain."""
-    supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.side_effect = APIError(
-        {"code": "42883", "message": "function does not exist", "hint": "", "details": ""}
-    )
-    assert _fetch_topup_teams(supabase, "prov-1", 100, set()) == []
+def test_postgrest_errors_propagate():
+    """Swallowing this would silently return a short batch with no explanation.
+    The caller's claim-release guard depends on the exception escaping."""
+    from postgrest.exceptions import APIError
 
+    from scripts.drain_queue import _fetch_topup_teams
 
-def test_other_api_errors_propagate():
-    """Only 42883 is survivable; a real DB fault must not be silently swallowed."""
-    supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.side_effect = APIError(
-        {"code": "42P01", "message": "relation does not exist", "hint": "", "details": ""}
+    supabase = _supabase_paging([[]])
+    supabase.table.return_value.select.return_value.eq.side_effect = APIError(
+        {"code": "42P01", "message": "boom", "hint": "", "details": ""}
     )
     try:
-        _fetch_topup_teams(supabase, "prov-1", 100, set())
+        _fetch_topup_teams(supabase, "prov-1", 5, set())
     except APIError:
         return
     raise AssertionError("expected APIError to propagate")
@@ -191,17 +318,28 @@ def _drain_with(dry_run, topup_error):
         return t
 
     supabase.table.side_effect = _table
-    claimed = [{"id": "req-1", "team_id_master": "t-1", "team_name": "A",
-                "provider_id": "p", "provider_team_id": "1", "game_date": None,
-                "priority": 1, "request_type": "x"}]
+    claimed = [
+        {
+            "id": "req-1",
+            "team_id_master": "t-1",
+            "team_name": "A",
+            "provider_id": "p",
+            "provider_team_id": "1",
+            "game_date": None,
+            "priority": 1,
+            "request_type": "x",
+        }
+    ]
     meta = {"t-1": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None}}
     topup = (lambda *a, **k: []) if topup_error is None else topup_error
 
-    with patch.object(d, "create_client", return_value=supabase), \
-         patch.object(d, "GotSportScraper") as gs, \
-         patch.object(d, "_claim_queue_items", return_value=claimed), \
-         patch.object(d, "_fetch_team_metadata", return_value=meta), \
-         patch.object(d, "_fetch_topup_teams", side_effect=topup):
+    with (
+        patch.object(d, "create_client", return_value=supabase),
+        patch.object(d, "GotSportScraper") as gs,
+        patch.object(d, "_claim_queue_items", return_value=claimed),
+        patch.object(d, "_fetch_team_metadata", return_value=meta),
+        patch.object(d, "_fetch_topup_teams", side_effect=topup),
+    ):
         gs.return_value._get_provider_id.return_value = "pid"
         try:
             asyncio.run(d.drain_queue(limit=50, concurrency=1, dry_run=dry_run))
@@ -232,3 +370,59 @@ def test_real_run_releases_claims_when_topup_fails():
     outcome, releases = _drain_with(dry_run=False, topup_error=RuntimeError("transient"))
     assert outcome == "raised"
     assert releases == 1
+
+
+def test_excluded_birth_years_is_dynamic():
+    """Mirrors the SQL side's extract(year from now()) minus (21,20,9,8,7)."""
+    import datetime as _dt
+
+    from scripts.drain_queue import _excluded_birth_years
+
+    assert _excluded_birth_years(_dt.date(2026, 8, 11)) == [2005, 2006, 2017, 2018, 2019]
+    assert _excluded_birth_years(_dt.date(2027, 1, 1)) == [2006, 2007, 2018, 2019, 2020]
+    # Defaults to today rather than a frozen list.
+    assert _excluded_birth_years() == _excluded_birth_years(_dt.date.today())
+
+
+def test_is_scrapeable_team_accepts_a_normal_team():
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert _is_scrapeable_team(
+        {"team_name": "Real Team", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
+    )
+
+
+def test_is_scrapeable_team_rejects_placeholder():
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert not _is_scrapeable_team(
+        {"team_name": "unknown_123", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
+    )
+
+
+def test_is_scrapeable_team_rejects_u8_and_u9_any_case():
+    """age_group is stored lowercase but the SQL compares upper(trim(...))."""
+    from scripts.drain_queue import _is_scrapeable_team
+
+    for ag in ("u8", "U8", " u-9 ", "U-8", "u9"):
+        assert not _is_scrapeable_team(
+            {"team_name": "T", "provider_team_id": "1", "age_group": ag, "birth_year": 2014}
+        ), ag
+
+
+def test_is_scrapeable_team_rejects_out_of_range_birth_year():
+    import datetime as _dt
+
+    from scripts.drain_queue import _excluded_birth_years, _is_scrapeable_team
+
+    for by in _excluded_birth_years(_dt.date.today()):
+        assert not _is_scrapeable_team(
+            {"team_name": "T", "provider_team_id": "1", "age_group": "u12", "birth_year": by}
+        ), by
+
+
+def test_is_scrapeable_team_tolerates_null_age_and_birth_year():
+    """A None age_group must not raise — .get(k, "") only defaults a MISSING key."""
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert _is_scrapeable_team({"team_name": "T", "provider_team_id": "1", "age_group": None, "birth_year": None})

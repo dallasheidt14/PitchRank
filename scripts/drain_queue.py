@@ -3,8 +3,9 @@
 Drain the scrape_requests queue using concurrent scraping.
 
 Claims pending items from the scrape_requests queue and scrapes those. When
-the queue yields fewer teams than --limit, tops the batch up from the teams
-table via get_teams_to_scrape_limited (oldest-scraped first).
+the queue yields fewer teams than --limit, tops the batch up by querying the
+teams table directly for the most-recently-scraped eligible teams, skipping
+anything scraped in the last 14 days.
 
 Completely independent of process_missing_games.py and scrape_games.py.
 Queue claims use FOR UPDATE SKIP LOCKED, so concurrent runs of this script
@@ -26,7 +27,7 @@ import subprocess
 import sys
 import threading
 from asyncio import Semaphore
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -38,7 +39,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
-from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
+from src.etl.bulk_ops import bulk_update_last_scraped_at
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
 from supabase import create_client
 
@@ -75,6 +76,37 @@ def _is_placeholder_unknown_team(team: Dict) -> bool:
         return False
 
     return team_name.lower() == f"unknown_{provider_team_id}".lower()
+
+
+_EXCLUDED_AGE_GROUPS = ("U8", "U-8", "U9", "U-9")
+
+
+def _excluded_birth_years(today: Optional[date] = None) -> List[int]:
+    """Birth years outside PitchRank's U10-U19 range for the current season.
+
+    Mirrors the list the SQL side computes as ``extract(year from now())``
+    minus (21, 20, 9, 8, 7): the U20/U21 old end and the U7/U8/U9 young end.
+    Computed rather than hardcoded so it rolls over on Jan 1 like the SQL does.
+    """
+    yr = (today or date.today()).year
+    return [yr - 21, yr - 20, yr - 9, yr - 8, yr - 7]
+
+
+def _is_scrapeable_team(team: Dict) -> bool:
+    """True when a team passes PitchRank's scrape-eligibility rules.
+
+    Both team sources run through this — claimed queue rows and teams-table
+    top-ups — so the two cannot diverge. The placeholder rule compares two
+    columns and ``age_group`` is stored lowercase but compared uppercase, so
+    neither is expressible as a PostgREST filter and both must be applied here.
+    """
+    if _is_placeholder_unknown_team(team):
+        return False
+    if (team.get("age_group") or "").upper().strip() in _EXCLUDED_AGE_GROUPS:
+        return False
+    if team.get("birth_year") in _excluded_birth_years():
+        return False
+    return True
 
 
 def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[str, Any]]):
@@ -196,68 +228,89 @@ def _fetch_team_metadata(supabase, team_id_masters: List[str]) -> Dict[str, Dict
     return meta
 
 
+_TOPUP_STALE_DAYS = 14
+_TOPUP_PAGE_SIZE = 1000
+_TEAM_KEYS = (
+    "team_id_master",
+    "team_name",
+    "provider_id",
+    "provider_team_id",
+    "age_group",
+    "birth_year",
+    "last_scraped_at",
+)
+
+
 def _fetch_topup_teams(
     supabase,
     provider_id: str,
     shortfall: int,
     exclude_ids: Set[str],
 ) -> List[Dict]:
-    """Pull oldest-scraped eligible teams to fill out a short queue batch.
+    """Pull recently-scraped eligible teams to fill out a short queue batch.
 
-    ``--limit`` is a total scrape target, not a claim count. The queue is
-    usually shallower than the requested batch, and the placeholder/age filters
-    drop a large share of what it does hold, so without this the operator gets
-    a fraction of the batch they asked for.
+    Ordered ``last_scraped_at`` DESC, skipping anything scraped in the last
+    14 days. How recently we scraped a team is a strong proxy for whether it
+    is still playing: measured 2026-08-11, teams last scraped 14-75 days ago
+    were 80-93% active within 90 days, while teams last scraped 75+ days ago
+    were 0-6% active. Actively-playing teams are continuously re-enqueued by
+    the daily pipeline so they always carry a recent ``last_scraped_at``; a
+    team sinks to the bottom of an ascending sort precisely because nothing
+    has had reason to touch it. Ascending order is anti-correlated with
+    activity, which is why this reads the column descending.
 
-    ``get_teams_to_scrape_limited`` applies the same eligibility rules in SQL
-    (provider, U8/U9, out-of-range birth years, placeholder ``unknown_*``) and
-    orders ``last_scraped_at ASC NULLS FIRST``, so these rows need no further
-    Python filtering. ``p_include_recent=False`` skips anything scraped in the
-    last 7 days, which is what lets consecutive runs walk the backlog instead
-    of re-scraping the same teams.
+    Queries ``teams`` directly rather than through
+    ``get_teams_to_scrape_limited``: that RPC is shared with scrape_games.py
+    and orders ascending, so reversing it there would mean altering a function
+    another script depends on.
 
-    Over-fetches by ``len(exclude_ids)`` to cover the worst case where every
-    claimed queue team is also top-up-eligible and comes back in the result.
+    Pages until ``shortfall`` teams survive ``_is_scrapeable_team`` — roughly
+    40% of fetched rows do not (1,186 of 3,000 sampled 2026-08-11) — or the
+    source is exhausted, in which case it returns fewer. Never-scraped teams
+    are excluded, since ``last_scraped_at < cutoff`` is NULL for them; they
+    carry no activity signal, and enqueue_safety_net already routes them
+    through the queue.
     """
     if shortfall <= 0:
         return []
 
-    rows = (
-        call_rpc_with_fallback(
-            supabase,
-            "get_teams_to_scrape_limited",
-            {
-                "p_provider_id": provider_id,
-                "p_limit": shortfall + len(exclude_ids),
-                "p_shard_index": 0,
-                "p_shard_count": 1,
-                "p_include_recent": False,
-                "p_null_only": False,
-            },
-            fallback=lambda: [],
-            log_msg="get_teams_to_scrape_limited missing, skipping top-up: %s",
-        )
-        or []
-    )
+    cutoff = (datetime.now() - timedelta(days=_TOPUP_STALE_DAYS)).isoformat()
+    excluded_years = ",".join(str(y) for y in _excluded_birth_years())
 
     topup: List[Dict] = []
-    for row in rows:
-        team_id_master = row.get("team_id_master")
-        if not team_id_master or team_id_master in exclude_ids:
-            continue
-        topup.append(
-            {
-                "team_id_master": team_id_master,
-                "team_name": row.get("team_name"),
-                "provider_id": row.get("provider_id"),
-                "provider_team_id": row.get("provider_team_id"),
-                "age_group": row.get("age_group"),
-                "birth_year": row.get("birth_year"),
-                "last_scraped_at": row.get("last_scraped_at"),
-            }
-        )
-        if len(topup) >= shortfall:
+    seen: Set[str] = set()
+    offset = 0
+    while len(topup) < shortfall:
+        page = (
+            supabase.table("teams")
+            .select(",".join(_TEAM_KEYS))
+            .eq("provider_id", provider_id)
+            .lt("last_scraped_at", cutoff)
+            .or_(f"birth_year.is.null,birth_year.not.in.({excluded_years})")
+            .order("last_scraped_at", desc=True)
+            .order("team_id_master")
+            .range(offset, offset + _TOPUP_PAGE_SIZE - 1)
+            .execute()
+            .data
+        ) or []
+
+        if not page:
             break
+
+        for row in page:
+            team_id_master = row.get("team_id_master")
+            if not team_id_master or team_id_master in exclude_ids or team_id_master in seen:
+                continue
+            if not _is_scrapeable_team(row):
+                continue
+            seen.add(team_id_master)
+            topup.append({k: row.get(k) for k in _TEAM_KEYS})
+            if len(topup) >= shortfall:
+                break
+
+        if len(page) < _TOPUP_PAGE_SIZE:
+            break
+        offset += _TOPUP_PAGE_SIZE
 
     return topup
 
@@ -480,8 +533,8 @@ async def drain_queue(
     Drain the scrape_requests queue using concurrent scraping.
 
     Clone of scrape_games() with one change: teams come from the
-    scrape_requests queue first, then from the teams table RPC
-    (get_teams_to_scrape_limited) to top up the batch when the queue
+    scrape_requests queue first, then from a direct teams-table query
+    (most-recently-scraped first) to top up the batch when the queue
     falls short of --limit.
     """
     if concurrency < 1:
@@ -553,27 +606,15 @@ async def drain_queue(
         placeholder_unknown_count = 0
 
         for team in teams:
+            if _is_scrapeable_team(team):
+                filtered_teams.append(team)
+                continue
             if _is_placeholder_unknown_team(team):
                 logger.debug(f"Skipping placeholder unknown team: {team.get('team_name', 'Unknown')}")
                 placeholder_unknown_count += 1
-                continue
-
-            age_group = team.get("age_group", "").upper().strip()
-            birth_year = team.get("birth_year")
-
-            if age_group in ["U8", "U-8", "U9", "U-9"]:
-                logger.debug(f"Skipping U8/U9 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+            else:
+                logger.debug(f"Skipping out-of-range team: {team.get('team_name', 'Unknown')}")
                 skipped_count += 1
-                continue
-
-            if birth_year in [2005, 2006, 2017, 2018, 2019]:
-                logger.debug(
-                    f"Skipping out-of-range team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}"
-                )
-                skipped_count += 1
-                continue
-
-            filtered_teams.append(team)
 
         teams = filtered_teams
         if placeholder_unknown_count > 0:
@@ -605,7 +646,8 @@ async def drain_queue(
             )
             if topup:
                 console.print(
-                    f"[cyan]Topping up with {len(topup):,} teams from the teams table (oldest-scraped first)[/cyan]"
+                    f"[cyan]Topping up with {len(topup):,} teams from the teams table "
+                    f"(most-recently-scraped first, skipping the last 14 days)[/cyan]"
                 )
                 teams.extend(topup)
             else:
