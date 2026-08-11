@@ -19,6 +19,7 @@ from typing import Dict, Optional
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
+from src.utils.club_canonical_overrides import canonicalize_club_name
 from src.utils.club_normalizer import are_same_club
 from src.utils.team_name_utils import resolve_distinction
 
@@ -117,6 +118,20 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
                 extracted = extract_club_from_team_name(provider_team_name)
                 if extracted:
                     club_name = extracted
+            # Apply the per-state Monday-hygiene override registry so the
+            # provider's raw club lines up with the canonical ``teams.club_name``
+            # (e.g., ``"XF"`` → ``"Crossfire Premier"`` for WA). Without this,
+            # ``are_same_club`` below relies on string similarity rather than
+            # canonical identity.
+            if club_name:
+                canonical_club = canonicalize_club_name(STATE_CODE, club_name)
+                if canonical_club != club_name:
+                    logger.debug(
+                        "[Affinity-WA] club canonicalized: %r -> %r",
+                        club_name,
+                        canonical_club,
+                    )
+                club_name = canonical_club
             provider_club_name = _normalize_club_for_affinity(club_name)
 
             provider_variant = extract_team_variant(provider_team_name)

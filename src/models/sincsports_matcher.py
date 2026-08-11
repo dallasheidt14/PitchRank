@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, Optional, Set, Tuple
 
 from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher
+from src.utils.club_canonical_overrides import canonicalize_club_name
 from supabase import Client
 
 # Import rapidfuzz for similarity scoring
@@ -349,6 +350,23 @@ class SincSportsGameMatcher(GameHistoryMatcher):
             # --- Club extraction ---
             if not club_name and HAVE_TEAM_NAME_UTILS:
                 club_name = extract_club_structured(team_name)
+
+            # --- Club canonicalization ---
+            # Apply the same per-state override registry the Monday
+            # ``update-missing-club-and-state.yml`` job uses to rewrite
+            # ``teams.club_name``. Without this, the gated ``.ilike("club_name",
+            # X)`` below misses canonical rows whose names diverge from the raw
+            # provider extraction (e.g. ``"Mustang SC"`` vs ``"Mustang Soccer"``).
+            if club_name:
+                canonical_club = canonicalize_club_name(state_code, club_name)
+                if canonical_club != club_name:
+                    logger.debug(
+                        "[SincSports] club canonicalized: %r -> %r (state=%s)",
+                        club_name,
+                        canonical_club,
+                        state_code,
+                    )
+                club_name = canonical_club
 
             # --- Provider distinctions for hard rejection ---
             provider_distinctions = None

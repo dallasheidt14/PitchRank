@@ -23,6 +23,7 @@ from typing import Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
+from src.utils.club_canonical_overrides import canonicalize_club_name
 from src.utils.club_normalizer import are_same_club
 from src.utils.team_name_utils import extract_distinctions, resolve_distinction
 
@@ -220,9 +221,23 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 return None
 
             tournament_path = self.default_state_code is None
-            scoring_team_name = (
-                self._normalize_pm_tournament_team_name(team_name) if tournament_path else team_name
-            )
+            scoring_team_name = self._normalize_pm_tournament_team_name(team_name) if tournament_path else team_name
+            # Canonicalize the provider club via the per-state override registry
+            # (same registry the Monday hygiene job uses to rewrite
+            # ``teams.club_name``). ``are_same_club`` then sees identical strings
+            # for cases like ``"MVLA"`` vs ``"Mountain View Los Altos Soccer Club"``.
+            # For the tournament path ``default_state_code is None`` — the helper
+            # falls back to the cross-state-safe override subset.
+            if club_name:
+                canonical_club = canonicalize_club_name(self.default_state_code, club_name)
+                if canonical_club != club_name:
+                    logger.debug(
+                        "[PlayMetrics] club canonicalized: %r -> %r (state=%s)",
+                        club_name,
+                        canonical_club,
+                        self.default_state_code,
+                    )
+                club_name = canonical_club
             provider_distinctions = extract_distinctions(scoring_team_name)
             provider_team = {
                 "team_name": scoring_team_name,

@@ -83,6 +83,12 @@ PROVIDERS = {
         "base_url": "https://api.athleteone.com",
         "adapter": "src.scrapers.athleteone",
     },
+    "somsports": {
+        "code": "somsports",
+        "name": "SOM Sports / athletes2events",
+        "base_url": "https://somsports.athletes2events.com",
+        "adapter": "src.scrapers.somsports",
+    },
 }
 
 # Age Groups with metadata

@@ -275,6 +275,20 @@ class EnhancedETLPipeline:
                 default_state_code=None,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "somsports":
+            from src.models.somsports_matcher import SomSportsGameMatcher
+
+            # SOM Sports normalization-only matcher: unmatched teams flow
+            # through the base review-queue path; the weekly hygiene job
+            # (find_queue_matches.py + find_fuzzy_duplicate_teams.py)
+            # resolves them with distinction-aware logic.
+            logger.info("Using SomSportsGameMatcher (normalization-only; hygiene resolves queue)")
+            self.matcher = SomSportsGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         else:
             logger.info(f"Using standard GameHistoryMatcher for provider: {self.provider_code}")
             self.matcher = GameHistoryMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
@@ -550,10 +564,7 @@ class EnhancedETLPipeline:
                             # _validate_games for tournament rematches; without
                             # this re-append, the master-ID regen strips it and
                             # collapses both rematches back into one game_uid.
-                            if (
-                                self.provider_code
-                                and self.provider_code.lower() == "playmetrics_tournament"
-                            ):
+                            if self.provider_code and self.provider_code.lower() == "playmetrics_tournament":
                                 schedule_id_suffix = (matched_game.get("schedule_id") or "").strip()
                                 if schedule_id_suffix:
                                     master_game_uid = f"{master_game_uid}:{schedule_id_suffix}"
@@ -740,13 +751,9 @@ class EnhancedETLPipeline:
                         uid = g.get("game_uid")
                         existing_info = regen_uid_master_ids.get(uid, {})
                         existing_has_scores = (
-                            existing_info.get("home_score") is not None
-                            and existing_info.get("away_score") is not None
+                            existing_info.get("home_score") is not None and existing_info.get("away_score") is not None
                         )
-                        incoming_has_scores = (
-                            g.get("home_score") is not None
-                            and g.get("away_score") is not None
-                        )
+                        incoming_has_scores = g.get("home_score") is not None and g.get("away_score") is not None
                         if not existing_has_scores and incoming_has_scores:
                             null_score_updates.append(g)
                         else:
@@ -755,12 +762,8 @@ class EnhancedETLPipeline:
                     game_records = [g for g in game_records if g.get("game_uid") not in regen_existing_uids]
 
                     if null_score_updates:
-                        score_bf = await self._update_null_score_games(
-                            null_score_updates, regen_uid_master_ids
-                        )
-                        batch_metrics.scores_backfilled = (
-                            getattr(batch_metrics, "scores_backfilled", 0) + score_bf
-                        )
+                        score_bf = await self._update_null_score_games(null_score_updates, regen_uid_master_ids)
+                        batch_metrics.scores_backfilled = getattr(batch_metrics, "scores_backfilled", 0) + score_bf
                         self.metrics.scores_backfilled += score_bf
                         failed = len(null_score_updates) - score_bf
                         batch_metrics.scores_backfill_failed = (
@@ -799,8 +802,8 @@ class EnhancedETLPipeline:
                     game_records = [
                         g for g in game_records if self._make_composite_key(g) not in existing_composite_keys
                     ]
-                    batch_metrics.duplicates_found = (
-                        getattr(batch_metrics, "duplicates_found", 0) + len(existing_composite_keys)
+                    batch_metrics.duplicates_found = getattr(batch_metrics, "duplicates_found", 0) + len(
+                        existing_composite_keys
                     )
                     self.metrics.duplicates_found += len(existing_composite_keys)
                     logger.info(
@@ -1207,8 +1210,7 @@ class EnhancedETLPipeline:
                 schedule_id_key = (game.get("schedule_id") or "").strip()
                 if schedule_id_key:
                     game_key = (
-                        f"{provider_code}:{game_date_normalized}:"
-                        f"{sorted_teams[0]}:{sorted_teams[1]}:{schedule_id_key}"
+                        f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}:{schedule_id_key}"
                     )
                 else:
                     game_key = f"{provider_code}:{game_date_normalized}:{sorted_teams[0]}:{sorted_teams[1]}"

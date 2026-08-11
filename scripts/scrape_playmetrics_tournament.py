@@ -28,6 +28,7 @@ The matcher refactor in ``src/models/playmetrics_matcher.py`` activates the
 no-state path automatically when constructed with ``default_state_code=None``,
 which the importer does for ``provider_code="playmetrics_tournament"``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,6 +58,7 @@ from scripts.scrape_playmetrics_league import (  # noqa: E402
     map_min_age_to_age_group,
     parse_int_or_none,
 )
+from src.scrapers._age_normalization import derive_division_age_group  # noqa: E402
 
 OUTPUT_DIR = "data/raw/playmetrics_tournament"
 
@@ -64,47 +66,9 @@ OUTPUT_DIR = "data/raw/playmetrics_tournament"
 SCRAPE_TS: Optional[str] = None
 SCRAPE_RUN_ID: Optional[str] = None
 
-# Division name → cohort token. Tournament divisions almost always carry an
-# unambiguous ``U{N}`` somewhere in the name (``"U19 Boys Blue"``,
-# ``"U15/16 Boys Tan (2)"``). PitchRank tracks u10..u17 + u19 (u18 merges
-# into u19); ``min_age``-style numerical edge cases are out of band.
-# Slash form ``U15/16`` matches both numbers (the second number lacks its
-# own U prefix); single ``U13`` matches just one.
-_DIV_U_SLASH_RE = re.compile(r"\b[Uu](\d{1,2})/(\d{1,2})\b")
-_DIV_U_TOKEN_RE = re.compile(r"\b[Uu](\d{1,2})\b")
 # Per-game venue state extraction. PM venue addresses are formatted as
 # ``"... City, ST 28115, USA"`` — pull the 2-letter state.
 _VENUE_STATE_RE = re.compile(r",\s*([A-Z]{2})\s+\d{5}")
-
-
-def derive_division_age_group(division_name: str) -> Optional[str]:
-    """Pull a u-cohort out of a tournament division name.
-
-    Returns ``"u11"``..``"u17"`` or ``"u19"``; ``None`` if no recognizable
-    U-token is present (caller falls back to team-name derivation, then
-    ``min_age``).
-
-    Dual-age cohorts (``"U15/16 Boys Tan (2)"``) → take the **higher** U-age,
-    which is the OLDER cohort per the unified PitchRank rule (see
-    ``memory/gotcha_slash_age_tokens.md``: older players play up; team is
-    classified as their primary tier).
-    """
-    if not division_name:
-        return None
-    nums: List[int] = []
-    slash = _DIV_U_SLASH_RE.search(division_name)
-    if slash:
-        nums.extend([int(slash.group(1)), int(slash.group(2))])
-    else:
-        nums.extend(int(m) for m in _DIV_U_TOKEN_RE.findall(division_name))
-    if not nums:
-        return None
-    older = max(nums)
-    if 10 <= older <= 17:
-        return f"u{older}"
-    if older in (18, 19):
-        return "u19"
-    return None
 
 
 def derive_state_from_address(address: str) -> Optional[str]:
@@ -518,8 +482,7 @@ def write_output(records: List[Dict], config: Dict) -> Path:
 
     timestamp = SCRAPE_TS.replace(":", "-").replace(".", "-")
     fname = (
-        f"playmetrics_tournament_{config['governing_body_id']}_{config['league_id']}_"
-        f"{config['key']}_{timestamp}.csv"
+        f"playmetrics_tournament_{config['governing_body_id']}_{config['league_id']}_{config['key']}_{timestamp}.csv"
     )
     path = output_dir / fname
 
