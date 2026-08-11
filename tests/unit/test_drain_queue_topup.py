@@ -6,8 +6,6 @@ from unittest.mock import Mock
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from postgrest.exceptions import APIError
-
 from scripts.drain_queue import _fetch_topup_teams
 
 TEAM_KEYS = {
@@ -22,7 +20,7 @@ TEAM_KEYS = {
 
 
 def _team_row(team_id):
-    """A row shaped like SETOF public.teams, with extra columns the helper drops."""
+    """A row shaped like a public.teams select, with an extra column to drop."""
     return {
         "team_id_master": team_id,
         "team_name": f"Team {team_id}",
@@ -35,33 +33,136 @@ def _team_row(team_id):
     }
 
 
-def _supabase_returning(rows):
-    """Mock matching call_rpc_with_fallback's supabase.rpc(...).limit(...).execute().data chain."""
+def _supabase_paging(pages):
+    """Mock the .table().select()...range().execute() chain, one entry per page.
+
+    Each call to .range() returns the next page. `pages` is a list of row lists.
+    Records the builder calls so tests can assert on the query that was built.
+    """
     supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.return_value.data = rows
+    builder = Mock()
+    calls = {"eq": [], "lt": [], "or_": [], "order": [], "range": []}
+
+    def _record(name):
+        def inner(*args, **kwargs):
+            calls[name].append((args, kwargs))
+            return builder
+
+        return inner
+
+    supabase.table.return_value.select.return_value = builder
+    builder.eq.side_effect = _record("eq")
+    builder.lt.side_effect = _record("lt")
+    builder.or_.side_effect = _record("or_")
+    builder.order.side_effect = _record("order")
+
+    seq = list(pages)
+
+    def _range(*args, **kwargs):
+        calls["range"].append((args, kwargs))
+        result = Mock()
+        result.execute.return_value = Mock(data=seq.pop(0) if seq else [])
+        return result
+
+    builder.range.side_effect = _range
+    supabase._calls = calls
     return supabase
+
+
+def _supabase_returning(rows):
+    """Single-page adapter so the pre-existing tests keep working unchanged.
+
+    They were written against the RPC's one-shot result; a single page of the
+    same rows is the exact equivalent under the paged table query.
+    """
+    return _supabase_paging([rows if rows is not None else None])
+
+
+def test_query_uses_14_day_cutoff_provider_and_descending_order():
+    import datetime as _dt
+
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    c = supabase._calls
+    assert c["eq"][0][0] == ("provider_id", "prov-1")
+    col, cutoff = c["lt"][0][0]
+    assert col == "last_scraped_at"
+    delta = _dt.datetime.now() - _dt.datetime.fromisoformat(cutoff)
+    assert 13.9 < delta.days + delta.seconds / 86400 < 14.1
+    assert c["order"][0][0] == ("last_scraped_at",)
+    assert c["order"][0][1] == {"desc": True}
+
+
+def test_query_excludes_birth_years_dynamically():
+    from scripts.drain_queue import _excluded_birth_years, _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    clause = supabase._calls["or_"][0][0][0]
+    assert clause.startswith("birth_year.is.null,birth_year.not.in.(")
+    for yr in _excluded_birth_years():
+        assert str(yr) in clause
+
+
+def test_pages_until_shortfall_is_satisfied():
+    """~40% of fetched rows fail the filter, so one page is often not enough."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
+    good = [_team_row(f"g-{i}") for i in range(1000)]
+    supabase = _supabase_paging([junk, good])
+
+    result = _fetch_topup_teams(supabase, "prov-1", 5, set())
+
+    assert [t["team_id_master"] for t in result] == [f"g-{i}" for i in range(5)]
+    assert len(supabase._calls["range"]) == 2
+
+
+def test_stops_paging_on_a_short_page():
+    """A page smaller than the page size means the source is exhausted."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")], [_team_row("t-1")]])
+    result = _fetch_topup_teams(supabase, "prov-1", 50, set())
+
+    assert [t["team_id_master"] for t in result] == ["t-0"]
+    assert len(supabase._calls["range"]) == 1
+
+
+def test_paging_offsets_advance_by_page_size():
+    from scripts.drain_queue import _fetch_topup_teams
+
+    junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
+    supabase = _supabase_paging([junk, [_team_row("g-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    assert [c[0] for c in supabase._calls["range"]] == [(0, 999), (1000, 1999)]
+
+
+def test_drops_excluded_ids_and_filtered_rows():
+    from scripts.drain_queue import _fetch_topup_teams
+
+    rows = [
+        _team_row("t-0"),
+        {**_team_row("t-1"), "team_name": "unknown_pt-t-1"},  # placeholder
+        {**_team_row("t-2"), "age_group": "u9"},  # out of range
+        _team_row("t-3"),
+    ]
+    supabase = _supabase_paging([rows])
+    result = _fetch_topup_teams(supabase, "prov-1", 10, {"t-0"})
+
+    assert [t["team_id_master"] for t in result] == ["t-3"]
 
 
 def test_no_rpc_call_when_batch_is_already_full():
     supabase = _supabase_returning([])
     assert _fetch_topup_teams(supabase, "prov-1", 0, {"t-1"}) == []
     assert _fetch_topup_teams(supabase, "prov-1", -5, {"t-1"}) == []
-    supabase.rpc.assert_not_called()
-
-
-def test_requests_shortfall_padded_by_exclusion_count():
-    """920 claimed, 300 survive filtering, limit 4000 -> shortfall 3700, p_limit 4000."""
-    supabase = _supabase_returning([])
-    _fetch_topup_teams(supabase, "prov-1", 3700, {f"t-{i}" for i in range(300)})
-
-    fn_name, params = supabase.rpc.call_args.args
-    assert fn_name == "get_teams_to_scrape_limited"
-    assert params["p_limit"] == 4000
-    assert params["p_provider_id"] == "prov-1"
-    assert params["p_include_recent"] is False
-    assert params["p_null_only"] is False
-    assert params["p_shard_index"] == 0
-    assert params["p_shard_count"] == 1
+    supabase.table.assert_not_called()
 
 
 def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
@@ -70,7 +171,7 @@ def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
     assert [t["team_id_master"] for t in result] == ["t-2", "t-3"]
 
 
-def test_preserves_rpc_order():
+def test_preserves_source_order():
     """The RPC orders last_scraped_at ASC NULLS FIRST; the helper must not reorder."""
     supabase = _supabase_returning([_team_row("t-9"), _team_row("t-4"), _team_row("t-7")])
     result = _fetch_topup_teams(supabase, "prov-1", 3, set())
@@ -95,23 +196,19 @@ def test_returns_only_the_keys_the_scrape_path_reads():
     assert set(team) == TEAM_KEYS
 
 
-def test_missing_rpc_degrades_to_queue_only():
-    """Rolling deploy where the migration has not landed must not crash a drain."""
-    supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.side_effect = APIError(
-        {"code": "42883", "message": "function does not exist", "hint": "", "details": ""}
-    )
-    assert _fetch_topup_teams(supabase, "prov-1", 100, set()) == []
+def test_postgrest_errors_propagate():
+    """Swallowing this would silently return a short batch with no explanation.
+    The caller's claim-release guard depends on the exception escaping."""
+    from postgrest.exceptions import APIError
 
+    from scripts.drain_queue import _fetch_topup_teams
 
-def test_other_api_errors_propagate():
-    """Only 42883 is survivable; a real DB fault must not be silently swallowed."""
-    supabase = Mock()
-    supabase.rpc.return_value.limit.return_value.execute.side_effect = APIError(
-        {"code": "42P01", "message": "relation does not exist", "hint": "", "details": ""}
+    supabase = _supabase_paging([[]])
+    supabase.table.return_value.select.return_value.eq.side_effect = APIError(
+        {"code": "42P01", "message": "boom", "hint": "", "details": ""}
     )
     try:
-        _fetch_topup_teams(supabase, "prov-1", 100, set())
+        _fetch_topup_teams(supabase, "prov-1", 5, set())
     except APIError:
         return
     raise AssertionError("expected APIError to propagate")
