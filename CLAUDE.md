@@ -35,6 +35,8 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - When diagnosing issues, verify your initial hypothesis with data before proposing or implementing a fix. Do not jump to implementation.
 - If the user redirects or corrects your diagnosis, fully abandon the prior theory and start fresh from their correction.
 - When estimating data sizes (row counts, backfill scope), query the actual database for counts rather than estimating.
+- Automated pipelines and manual operator tools are separate concerns. Do not modify a scheduled, hands-off job to improve a manually-triggered one — fix the manual tool in its own script.
+- When a change needs different behavior from a database function shared by several callers, prefer a direct PostgREST query in the calling script. Adding parameters to a Postgres function creates an overload rather than replacing it, so every existing call fails with "function is not unique" until the old signature is dropped, and the drop also wipes its GRANTs.
 
 ## Data Accuracy
 - Never fabricate or guess external identifiers (Wikidata Q-numbers, API entity IDs, etc.). Always look them up.
@@ -305,7 +307,13 @@ npm run analyze
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
-| `scrape-games.yml` | Mon 6:00 & 11:15 AM UTC | Scrape 25K GotSport teams |
+| `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
+| `enqueue-yesterday-games.yml` | Daily 7:00 AM UTC | Queue teams with yesterday's games (priority 2) |
+| `enqueue-active-teams.yml` | Daily 10:00 AM UTC | Queue teams active in the last 3 days (priority 2) |
+| `enqueue-discovery.yml` | Sun 2:00 PM UTC | Queue teams with no future games (priority 3) |
+| `enqueue-safety-net.yml` | Sun 4:00 PM UTC | Queue never-scraped / 90d+ teams (priority 4) |
+| `process-missing-games.yml` | Every 15 min | Drain the queue, 40 teams per run |
+| `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
 | `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
 | `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
@@ -360,11 +368,41 @@ cannot undo.
 ### Weekly Cycle
 
 ```
-Monday AM  → Scrape games (2 batches, 25K teams each), data hygiene jobs
+Continuous → Enqueue jobs fill scrape_requests; process_missing_games drains
+             it every 15 min (40 teams/run, ~3,840/day)
+Monday AM  → Data hygiene jobs
 Monday PM  → Calculate rankings (v53e + ML Layer 13)
-Sunday     → Event scraping
-Continuous → Club name backfill, merge queue processing
+Sunday     → Event scraping, discovery + safety-net enqueue
+As needed  → "Help Clear Queue" (manual) for bulk catch-up
 ```
+
+### Scraping is queue-driven, not scheduled
+
+Ongoing scraping runs through a priority queue, not a weekly bulk job. The Sunday-night
+`scrape-games.yml` chain was removed in the schedule-driven-scraping migration; that
+workflow is now a manual escape hatch for bootstrap and recovery only.
+
+| Producer | Cadence | Priority | Targets |
+|----------|---------|----------|---------|
+| `frontend/app/api/scrape-missing-game` | User-clicked | 1 | One team |
+| `enqueue_yesterday_games.py` | Daily | 2 | Teams with yesterday's games |
+| `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
+| `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
+| `enqueue_safety_net.py` | Weekly | 4 | Never scraped, or not in 90+ days |
+
+All producers write via the `enqueue_scrape_request` RPC, which keeps at most one
+pending row per team and promotes priority via `LEAST`. Consumers:
+
+- `process_missing_games.py` — the automatic drainer, every 15 min, `--limit 40`.
+- `drain_queue.py` — **this is the "Help Clear Queue" action** (`clear-queue.yml`).
+  Manual only. `--limit` is a total scrape target: it claims queue rows via
+  `claim_queue_items` (`FOR UPDATE SKIP LOCKED`), then tops the batch up from the
+  `teams` table, most-recently-scraped first past a 14-day gate. Queue claims are
+  parallel-safe; the top-up is not, so run one at a time.
+
+A claimed row is set to `processing` and **nothing ever reclaims it** — there is no
+lease, expiry, or reaper, and `claim_queue_items` only selects `pending`. Any path that
+claims rows without going on to scrape them must release them explicitly.
 
 ---
 
