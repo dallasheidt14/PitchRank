@@ -265,10 +265,11 @@ def _fetch_topup_teams(
     another script depends on.
 
     Pages until ``shortfall`` teams survive ``_is_scrapeable_team`` — roughly
-    40% of fetched rows do not — or the source is exhausted, in which case it
-    returns fewer. Never-scraped teams are excluded, since ``last_scraped_at
-    < cutoff`` is NULL for them; they carry no activity signal, and
-    enqueue_safety_net already routes them through the queue.
+    40% of fetched rows do not (1,186 of 3,000 sampled 2026-08-11) — or the
+    source is exhausted, in which case it returns fewer. Never-scraped teams
+    are excluded, since ``last_scraped_at < cutoff`` is NULL for them; they
+    carry no activity signal, and enqueue_safety_net already routes them
+    through the queue.
     """
     if shortfall <= 0:
         return []
@@ -277,6 +278,7 @@ def _fetch_topup_teams(
     excluded_years = ",".join(str(y) for y in _excluded_birth_years())
 
     topup: List[Dict] = []
+    seen: Set[str] = set()
     offset = 0
     while len(topup) < shortfall:
         page = (
@@ -286,6 +288,7 @@ def _fetch_topup_teams(
             .lt("last_scraped_at", cutoff)
             .or_(f"birth_year.is.null,birth_year.not.in.({excluded_years})")
             .order("last_scraped_at", desc=True)
+            .order("team_id_master")
             .range(offset, offset + _TOPUP_PAGE_SIZE - 1)
             .execute()
             .data
@@ -296,10 +299,11 @@ def _fetch_topup_teams(
 
         for row in page:
             team_id_master = row.get("team_id_master")
-            if not team_id_master or team_id_master in exclude_ids:
+            if not team_id_master or team_id_master in exclude_ids or team_id_master in seen:
                 continue
             if not _is_scrapeable_team(row):
                 continue
+            seen.add(team_id_master)
             topup.append({k: row.get(k) for k in _TEAM_KEYS})
             if len(topup) >= shortfall:
                 break

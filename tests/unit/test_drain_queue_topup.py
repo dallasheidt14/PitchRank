@@ -96,6 +96,20 @@ def test_query_uses_14_day_cutoff_provider_and_descending_order():
     assert c["order"][0][1] == {"desc": True}
 
 
+def test_orders_by_a_unique_tiebreaker_for_stable_paging():
+    """last_scraped_at is stamped per-run, so tie groups span thousands of rows.
+    Without a unique secondary key, OFFSET paging can repeat or skip rows."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    supabase = _supabase_paging([[_team_row("t-0")]])
+    _fetch_topup_teams(supabase, "prov-1", 1, set())
+
+    orders = supabase._calls["order"]
+    assert orders[0][0] == ("last_scraped_at",)
+    assert orders[0][1] == {"desc": True}
+    assert orders[1][0] == ("team_id_master",), "needs a unique tiebreaker"
+
+
 def test_query_excludes_birth_years_dynamically():
     from scripts.drain_queue import _excluded_birth_years, _fetch_topup_teams
 
@@ -109,7 +123,8 @@ def test_query_excludes_birth_years_dynamically():
 
 
 def test_pages_until_shortfall_is_satisfied():
-    """~40% of fetched rows fail the filter, so one page is often not enough."""
+    """~40% of fetched rows fail the filter (1,186 of 3,000 sampled 2026-08-11),
+    so one page is often not enough."""
     from scripts.drain_queue import _fetch_topup_teams
 
     junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
@@ -120,6 +135,21 @@ def test_pages_until_shortfall_is_satisfied():
 
     assert [t["team_id_master"] for t in result] == [f"g-{i}" for i in range(5)]
     assert len(supabase._calls["range"]) == 2
+
+
+def test_does_not_return_the_same_team_twice_across_pages():
+    """Defensive: a row repeating across pages must not be scraped twice."""
+    from scripts.drain_queue import _fetch_topup_teams
+
+    dup = _team_row("dup")
+    page1 = [dup] + [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(999)]
+    page2 = [dup, _team_row("g-1")]
+    supabase = _supabase_paging([page1, page2])
+
+    result = _fetch_topup_teams(supabase, "prov-1", 2, set())
+    ids = [t["team_id_master"] for t in result]
+    assert ids == ["dup", "g-1"], ids
+    assert len(ids) == len(set(ids))
 
 
 def test_stops_paging_on_a_short_page():
@@ -158,7 +188,7 @@ def test_drops_excluded_ids_and_filtered_rows():
     assert [t["team_id_master"] for t in result] == ["t-3"]
 
 
-def test_no_rpc_call_when_batch_is_already_full():
+def test_no_query_when_batch_is_already_full():
     supabase = _supabase_returning([])
     assert _fetch_topup_teams(supabase, "prov-1", 0, {"t-1"}) == []
     assert _fetch_topup_teams(supabase, "prov-1", -5, {"t-1"}) == []
@@ -172,7 +202,7 @@ def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
 
 
 def test_preserves_source_order():
-    """The RPC orders last_scraped_at ASC NULLS FIRST; the helper must not reorder."""
+    """The helper preserves whatever order the source returns rows in; it must not reorder them."""
     supabase = _supabase_returning([_team_row("t-9"), _team_row("t-4"), _team_row("t-7")])
     result = _fetch_topup_teams(supabase, "prov-1", 3, set())
     assert [t["team_id_master"] for t in result] == ["t-9", "t-4", "t-7"]
