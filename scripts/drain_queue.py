@@ -26,7 +26,7 @@ import subprocess
 import sys
 import threading
 from asyncio import Semaphore
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -75,6 +75,37 @@ def _is_placeholder_unknown_team(team: Dict) -> bool:
         return False
 
     return team_name.lower() == f"unknown_{provider_team_id}".lower()
+
+
+_EXCLUDED_AGE_GROUPS = ("U8", "U-8", "U9", "U-9")
+
+
+def _excluded_birth_years(today: Optional[date] = None) -> List[int]:
+    """Birth years outside PitchRank's U10-U19 range for the current season.
+
+    Mirrors the list the SQL side computes as ``extract(year from now())``
+    minus (21, 20, 9, 8, 7): the U20/U21 old end and the U7/U8/U9 young end.
+    Computed rather than hardcoded so it rolls over on Jan 1 like the SQL does.
+    """
+    yr = (today or date.today()).year
+    return [yr - 21, yr - 20, yr - 9, yr - 8, yr - 7]
+
+
+def _is_scrapeable_team(team: Dict) -> bool:
+    """True when a team passes PitchRank's scrape-eligibility rules.
+
+    Both team sources run through this — claimed queue rows and teams-table
+    top-ups — so the two cannot diverge. The placeholder rule compares two
+    columns and ``age_group`` is stored lowercase but compared uppercase, so
+    neither is expressible as a PostgREST filter and both must be applied here.
+    """
+    if _is_placeholder_unknown_team(team):
+        return False
+    if (team.get("age_group") or "").upper().strip() in _EXCLUDED_AGE_GROUPS:
+        return False
+    if team.get("birth_year") in _excluded_birth_years():
+        return False
+    return True
 
 
 def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[str, Any]]):
@@ -553,27 +584,15 @@ async def drain_queue(
         placeholder_unknown_count = 0
 
         for team in teams:
+            if _is_scrapeable_team(team):
+                filtered_teams.append(team)
+                continue
             if _is_placeholder_unknown_team(team):
                 logger.debug(f"Skipping placeholder unknown team: {team.get('team_name', 'Unknown')}")
                 placeholder_unknown_count += 1
-                continue
-
-            age_group = team.get("age_group", "").upper().strip()
-            birth_year = team.get("birth_year")
-
-            if age_group in ["U8", "U-8", "U9", "U-9"]:
-                logger.debug(f"Skipping U8/U9 team (age_group={age_group}): {team.get('team_name', 'Unknown')}")
+            else:
+                logger.debug(f"Skipping out-of-range team: {team.get('team_name', 'Unknown')}")
                 skipped_count += 1
-                continue
-
-            if birth_year in [2005, 2006, 2017, 2018, 2019]:
-                logger.debug(
-                    f"Skipping out-of-range team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}"
-                )
-                skipped_count += 1
-                continue
-
-            filtered_teams.append(team)
 
         teams = filtered_teams
         if placeholder_unknown_count > 0:

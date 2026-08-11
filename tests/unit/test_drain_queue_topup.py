@@ -191,17 +191,28 @@ def _drain_with(dry_run, topup_error):
         return t
 
     supabase.table.side_effect = _table
-    claimed = [{"id": "req-1", "team_id_master": "t-1", "team_name": "A",
-                "provider_id": "p", "provider_team_id": "1", "game_date": None,
-                "priority": 1, "request_type": "x"}]
+    claimed = [
+        {
+            "id": "req-1",
+            "team_id_master": "t-1",
+            "team_name": "A",
+            "provider_id": "p",
+            "provider_team_id": "1",
+            "game_date": None,
+            "priority": 1,
+            "request_type": "x",
+        }
+    ]
     meta = {"t-1": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None}}
     topup = (lambda *a, **k: []) if topup_error is None else topup_error
 
-    with patch.object(d, "create_client", return_value=supabase), \
-         patch.object(d, "GotSportScraper") as gs, \
-         patch.object(d, "_claim_queue_items", return_value=claimed), \
-         patch.object(d, "_fetch_team_metadata", return_value=meta), \
-         patch.object(d, "_fetch_topup_teams", side_effect=topup):
+    with (
+        patch.object(d, "create_client", return_value=supabase),
+        patch.object(d, "GotSportScraper") as gs,
+        patch.object(d, "_claim_queue_items", return_value=claimed),
+        patch.object(d, "_fetch_team_metadata", return_value=meta),
+        patch.object(d, "_fetch_topup_teams", side_effect=topup),
+    ):
         gs.return_value._get_provider_id.return_value = "pid"
         try:
             asyncio.run(d.drain_queue(limit=50, concurrency=1, dry_run=dry_run))
@@ -232,3 +243,59 @@ def test_real_run_releases_claims_when_topup_fails():
     outcome, releases = _drain_with(dry_run=False, topup_error=RuntimeError("transient"))
     assert outcome == "raised"
     assert releases == 1
+
+
+def test_excluded_birth_years_is_dynamic():
+    """Mirrors the SQL side's extract(year from now()) minus (21,20,9,8,7)."""
+    import datetime as _dt
+
+    from scripts.drain_queue import _excluded_birth_years
+
+    assert _excluded_birth_years(_dt.date(2026, 8, 11)) == [2005, 2006, 2017, 2018, 2019]
+    assert _excluded_birth_years(_dt.date(2027, 1, 1)) == [2006, 2007, 2018, 2019, 2020]
+    # Defaults to today rather than a frozen list.
+    assert _excluded_birth_years() == _excluded_birth_years(_dt.date.today())
+
+
+def test_is_scrapeable_team_accepts_a_normal_team():
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert _is_scrapeable_team(
+        {"team_name": "Real Team", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
+    )
+
+
+def test_is_scrapeable_team_rejects_placeholder():
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert not _is_scrapeable_team(
+        {"team_name": "unknown_123", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
+    )
+
+
+def test_is_scrapeable_team_rejects_u8_and_u9_any_case():
+    """age_group is stored lowercase but the SQL compares upper(trim(...))."""
+    from scripts.drain_queue import _is_scrapeable_team
+
+    for ag in ("u8", "U8", " u-9 ", "U-8", "u9"):
+        assert not _is_scrapeable_team(
+            {"team_name": "T", "provider_team_id": "1", "age_group": ag, "birth_year": 2014}
+        ), ag
+
+
+def test_is_scrapeable_team_rejects_out_of_range_birth_year():
+    import datetime as _dt
+
+    from scripts.drain_queue import _excluded_birth_years, _is_scrapeable_team
+
+    for by in _excluded_birth_years(_dt.date.today()):
+        assert not _is_scrapeable_team(
+            {"team_name": "T", "provider_team_id": "1", "age_group": "u12", "birth_year": by}
+        ), by
+
+
+def test_is_scrapeable_team_tolerates_null_age_and_birth_year():
+    """A None age_group must not raise — .get(k, "") only defaults a MISSING key."""
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert _is_scrapeable_team({"team_name": "T", "provider_team_id": "1", "age_group": None, "birth_year": None})
