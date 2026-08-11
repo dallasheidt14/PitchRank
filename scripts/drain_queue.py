@@ -642,7 +642,8 @@ async def drain_queue(
             )
             if topup:
                 console.print(
-                    f"[cyan]Topping up with {len(topup):,} teams from the teams table (oldest-scraped first)[/cyan]"
+                    f"[cyan]Topping up with {len(topup):,} teams from the teams table "
+                    f"(most-recently-scraped first, skipping the last 14 days)[/cyan]"
                 )
                 teams.extend(topup)
             else:
