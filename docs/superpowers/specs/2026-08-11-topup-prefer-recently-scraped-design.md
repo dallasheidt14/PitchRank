@@ -2,179 +2,194 @@
 
 **Date:** 2026-08-11
 **Status:** Draft for implementation planning
-**Affects:** `supabase/migrations/` (new migration), `scripts/drain_queue.py`
+**Affects:** `scripts/drain_queue.py` only. No migration, no database function, no
+change visible to any other caller.
 
 ## Purpose
 
-The "Help Clear Queue" top-up fills a short batch from the `teams` table using
-`get_teams_to_scrape_limited`, which orders `last_scraped_at ASC NULLS FIRST`.
-That picks the teams we have neglected longest, which turn out to be the teams
-that are no longer playing.
+The "Help Clear Queue" top-up fills a short batch from the `teams` table, and it
+picks the teams we have neglected longest. Those turn out to be the teams that
+stopped playing.
 
-Measured 2026-08-11 against production: of the 2,000 teams the top-up would
-select right now, **5.6% have played a game in the last 90 days**. The 9,999-team
-run on 2026-08-10 (run 31438229008) returned 11,288 games, or **1.1 games per
-team**. The 2,000-team run the same evening (run 31427617530) returned 14,304
-games, **7.2 per team**.
+Measured against production 2026-08-11: of the 2,000 teams the top-up would pick
+right now, **5.6% have played a game in the last 90 days**. Run 31438229008
+(9,999 teams, 2026-08-10) returned 11,288 games, **1.1 per team**. Run
+31427617530 the same evening (2,000 teams, queue-fed) returned 14,304 games,
+**7.2 per team**.
 
-Sorting the same column the other way selects teams that are still playing.
+Selecting on the same column in the opposite direction picks teams that are
+still playing. A live query with the proposed ordering returned **99.2% active**.
 
-## The measurement this rests on
+## Why last-scraped predicts activity
 
-Activity rate by how long ago a team was last scraped. Samples of 600 teams per
-band, "active" meaning at least one game in the last 90 days, taken 2026-08-11:
+Activity rate by how long ago a team was last scraped. 600-team samples per band,
+"active" meaning at least one game in the last 90 days, measured 2026-08-11:
 
-| Last scraped | Active | Eligible pool |
-|---|---|---|
-| 0-7 days ago | 94.8% | (excluded by any gate) |
-| 14-30 days ago | 79.7% | 3,787 |
-| 30-60 days ago | 93.2% | ~12,700 |
-| 60-75 days ago | 85.8% | large |
-| 75-90 days ago | 6.2% | large |
-| 90+ days ago | 0.0% | 721 |
+| Last scraped | Active |
+|---|---|
+| 0-7 days ago | 94.8% |
+| 14-30 days ago | 79.7% |
+| 30-60 days ago | 93.2% |
+| 60-75 days ago | 85.8% |
+| 75-90 days ago | 6.2% |
+| 90+ days ago | 0.0% |
 
-The cliff sits between 75 and 90 days. Descending order does not need to know
-where it is: it walks from the freshest eligible team backwards and exhausts the
-high-yield bands before reaching the dead ones.
-
-**Why the correlation is this strong.** Actively-playing teams are continuously
-re-enqueued by the automated pipeline (`enqueue_yesterday_games` daily at
-priority 2, `enqueue_active_teams` daily at priority 2), so they always carry a
-recent `last_scraped_at`. A team sinks to the bottom of the ascending sort
-precisely because nothing in the pipeline has had a reason to touch it. Ascending
-order is therefore not merely uncorrelated with activity, it is
+Actively-playing teams are continuously re-enqueued by the automated pipeline
+(`enqueue_yesterday_games` and `enqueue_active_teams`, both daily, both priority
+2), so they always carry a recent `last_scraped_at`. A team sinks to the bottom
+of an ascending sort precisely because nothing in the pipeline has had reason to
+touch it. Ascending order is not merely uncorrelated with activity — it is
 anti-correlated.
 
-## Behavior
+Descending order does not need to know where the cliff sits. It walks from the
+freshest eligible team backwards and exhausts the high-yield bands first.
 
-Two new parameters on `get_teams_to_scrape_limited`, both defaulting to today's
-behavior:
+## Approach
 
-- `p_stale_days int default 7` — replaces the hardcoded `interval '7 days'`
-- `p_oldest_first boolean default true` — when false, order
-  `last_scraped_at DESC`
+Replace the `get_teams_to_scrape_limited` RPC call inside `_fetch_topup_teams`
+with a direct PostgREST query against `teams`.
 
-`drain_queue.py`'s `_fetch_topup_teams` passes `p_stale_days => 14` and
-`p_oldest_first => false`. Every other caller is unchanged and unaffected.
+This is the whole reason there is no migration. The RPC is shared with
+`scripts/scrape_games.py`; changing its ordering or its parameter list would
+require dropping and recreating a function two scripts depend on, re-granting
+permissions, and risking a "function is not unique" overload error at runtime.
+The top-up does not need that function. It needs an ordinary query, and an
+ordinary query cannot affect anything else.
 
-Expected effect on a 10,000-team run: draws from the 14-30d and 30-60d bands, so
-roughly 90% of picks are active, against 5.6% today.
+### The query
 
-### NULL last_scraped_at
+```
+teams
+  where provider_id = <gotsport>
+    and last_scraped_at < now() - 14 days
+    and (birth_year is null or birth_year not in (yr-21, yr-20, yr-9, yr-8, yr-7))
+  order by last_scraped_at desc
+```
 
-`NULLS FIRST` in the ascending order exists to prioritize never-scraped teams.
-Under descending order they must sort **last** (`DESC NULLS LAST`), not first:
-a never-scraped team carries no evidence of activity, and putting the unknown
-bucket ahead of the 93%-active bucket would defeat the change. As of 2026-08-11
-`get_scrape_eligibility_counts` reports `never_count = 0`, so this affects
-nothing today, but the ordering must be explicit rather than left to the
-Postgres default.
+Verified live: 2,000 rows in 0.55s, ordering confirmed descending, 99.2% of the
+result active within 90 days.
+
+The birth-year exclusions are computed in Python from the current year, matching
+the dynamic `extract(year from now())` list the SQL functions use, so they roll
+over annually without edits.
+
+### Filtering and the fetch loop
+
+Two eligibility rules cannot be expressed in a PostgREST filter:
+
+- placeholder teams, where `team_name = 'unknown_' || provider_team_id` (a
+  column-to-column comparison)
+- `age_group` in U8/U-8/U9/U-9, which the SQL functions compare via
+  `upper(trim(...))` while the stored values are lowercase
+
+`drain_queue.py` already applies both, in Python, to every queue team. Top-up
+teams currently skip that filter because the RPC pre-filtered them in SQL.
+
+**Measured drop rate: 39.5%** (of 3,000 fetched rows, 988 placeholder and 198
+U8/U9). A fixed over-fetch multiplier is therefore not safe. Instead, page
+through the query 1,000 rows at a time — PostgREST caps a single response at
+1,000 — applying the filter to each page and stopping once `shortfall` teams
+have survived or the pages run out. Returning fewer than `shortfall` when supply
+is exhausted is acceptable and already handled by the call site.
+
+### Extract the filter, do not copy it
+
+The U8/U9 and birth-year checks currently live inline in `drain_queue()`'s filter
+loop. Extract them, with `_is_placeholder_unknown_team`, into one
+`_is_scrapeable_team(team) -> bool` helper used by both the existing loop and the
+new top-up path. This removes the duplication the change would otherwise
+introduce rather than adding a second copy that can drift.
+
+### Never-scraped teams
+
+`last_scraped_at < cutoff` is NULL for a never-scraped team, so PostgREST
+excludes them. There are 7,724 such teams, but `get_scrape_eligibility_counts`
+reports `never_count = 0` — every one of them fails the age, birth-year, or
+placeholder filters anyway. So the exclusion costs nothing real today.
+
+It is also the correct behavior on the merits: a never-scraped team carries no
+evidence of activity, and this change is built on last-scraped-date as an
+activity signal. Should genuinely eligible never-scraped teams appear later,
+`enqueue_safety_net` already targets teams "never scraped or not scraped in 90+
+days" and feeds them through the queue at priority 4, which the drain claims
+before it reaches the top-up.
 
 ## Scope
 
-- **In scope:** the two RPC parameters and the single call site in
-  `_fetch_topup_teams`.
+- **In scope:** `_fetch_topup_teams` and the filter extraction, both in
+  `scripts/drain_queue.py`.
+- **Out of scope:** `get_teams_to_scrape_limited`. Untouched, so `scrape_games.py`
+  is byte-for-byte unaffected.
+- **Out of scope:** `get_scrape_eligibility_counts` and the dashboard. It mirrors
+  what `scrape_games` would pick, which remains true.
 - **Out of scope:** `scripts/enqueue_active_teams.py` and its daily workflow.
-  It is part of the automated, hands-off pipeline; "Help Clear Queue" is a
-  manual tool. Improving the manual tool must not perturb the automation.
-- **Out of scope:** `scripts/scrape_games.py`. It keeps calling the RPC without
-  the new parameters and gets byte-identical behavior from the defaults.
+  That is the automated, hands-off pipeline; "Help Clear Queue" is a manual tool,
+  and improving the manual tool must not perturb the automation.
 - **Out of scope:** the stale docstring in four `enqueue_*.py` scripts claiming
   `process_missing_games` drains "200/run" when
-  `.github/workflows/process-missing-games.yml:42` runs `--limit 40`. Real and
-  worth fixing, unrelated to this change.
+  `.github/workflows/process-missing-games.yml:42` runs `--limit 40`. Real, and
+  unrelated.
 
 ## The trade-off
 
-Teams last scraped 75+ days ago will never be selected by the top-up, where
-today they are selected first. That is the intent, since they yield nothing, but
-it means the top-up stops performing discovery.
+Teams last scraped 75+ days ago will no longer be selected by the top-up, where
+today they are selected first. That is the intent — they yield nothing — but it
+means the top-up stops doing discovery.
 
-That is acceptable because discovery is not the top-up's job.
-`scripts/enqueue_discovery_teams.py` runs weekly (`enqueue-discovery.yml`,
-`cron: '0 14 * * 0'`), selects teams with no future games on record — exactly
-the dormant set — and enqueues them at priority 3. The drain claims queue rows
-before it ever calls the top-up, so dormant teams still get scraped; they arrive
-through the automated path instead of the manual one.
+Discovery is not the top-up's job. `scripts/enqueue_discovery_teams.py` runs
+weekly (`enqueue-discovery.yml`, `cron: '0 14 * * 0'`), selects teams with no
+future games on record, and enqueues them at priority 3. The drain claims queue
+rows before it ever calls the top-up, so dormant teams still get scraped — via
+the automation rather than the manual button.
 
-## Alternative considered and rejected
+## Failure behavior
 
-Joining `games` to order by "has a game in the last 90 days" first, mirroring
-the CTE in `find_discovery_teams`. It targets the same teams but requires a new
-aggregation over a games table that made the naive form of that very query time
-out at 137K teams (`20260520054454_find_discovery_teams.sql`, and `teams` now
-holds 152,918 rows). `last_scraped_at` already delivers 80-93% activity on its
-own, and the RPC that reads it returns 10,000 rows in 0.45s today. The join buys
-nothing the sort direction does not already provide.
+The current implementation calls the RPC through `call_rpc_with_fallback`, which
+returns `[]` only on SQLSTATE 42883 ("function does not exist") and re-raises
+every other error. A direct table query has no 42883 case: `teams` always
+exists.
 
-## Implementation
+So errors propagate, matching today's semantics for every non-42883 failure.
+That is deliberate: swallowing an error would hand back a batch of 300 when
+10,000 was requested, with nothing in the output saying why. The claim-release
+guard added in `035ff0fc0` catches the propagating exception, returns the
+claimed rows to `pending`, and the run fails visibly.
 
-### Migration
+Removing the RPC call leaves `call_rpc_with_fallback` unused in this module; its
+import must be dropped or `ruff` will fail on F401.
 
-New migration adding the two parameters via `CREATE OR REPLACE FUNCTION`.
-Because Postgres treats a changed parameter list as a new signature, the
-migration must `DROP FUNCTION` the existing 6-argument version explicitly, then
-create the 8-argument one, and re-issue the `GRANT` (grants do not survive a
-drop). The existing body is otherwise preserved verbatim, including the
-Euclidean-modulo shard filter from
-`20260422010000_fix_get_teams_to_scrape_limited_signed_modulo.sql`.
-
-Ordering clause becomes:
-
-```sql
-order by
-  case when p_oldest_first then t.last_scraped_at end asc nulls first,
-  case when not p_oldest_first then t.last_scraped_at end desc nulls last
-```
-
-Whichever branch is inactive evaluates to NULL for every row and contributes no
-ordering, leaving the active branch to decide. Ordering on a `CASE` expression
-cannot use an index, but no index on `teams.last_scraped_at` appears anywhere in
-`supabase/migrations/`, so the current ascending order is already an unindexed
-sort — and it returns 10,000 rows in 0.45s and 2,000 in 0.29s (measured against
-production 2026-08-11). The expression therefore costs nothing relative to
-today. If an index is added later, this clause would need revisiting.
-
-Staleness clause becomes:
-
-```sql
-and (p_include_recent
-     or t.last_scraped_at is null
-     or t.last_scraped_at < now() - (p_stale_days || ' days')::interval)
-```
-
-### `scripts/drain_queue.py`
-
-`_fetch_topup_teams` adds the two keys to its RPC params dict. Its docstring
-currently states the RPC skips teams "scraped in the last 7 days" and returns
-them oldest-first; both claims change and must be corrected in the same edit.
-
-The `call_rpc_with_fallback` fallback currently returns `[]` on SQLSTATE 42883.
-That still applies, and now also covers the window where the migration has not
-yet been applied and the 8-argument signature does not exist: the top-up
-degrades to queue-only rather than crashing a drain.
+Removing the RPC call leaves `call_rpc_with_fallback` unused in this module; its
+import must be dropped or `ruff` will fail on F401.
 
 ## Testing
 
-Extend `tests/unit/test_drain_queue_topup.py`:
+Extend `tests/unit/test_drain_queue_topup.py`. The existing tests assert RPC
+parameters that will no longer exist and must be rewritten against the new query
+builder, not deleted.
 
-1. `_fetch_topup_teams` passes `p_stale_days=14` and `p_oldest_first=False`.
-2. The existing parameter assertions still hold for the other six arguments.
-3. Signature-missing (42883) still degrades to `[]`.
-
-The ordering itself is SQL behavior and is verified against production rather
-than in a unit test, since the stub returns whatever rows the test supplies.
+1. The query applies the 14-day cutoff, provider filter, and
+   `order(last_scraped_at, desc=True)`.
+2. Birth-year exclusions are computed from the current year, not hardcoded.
+3. Paging continues while pages come back full and stops once `shortfall` teams
+   survive filtering.
+4. Placeholder and U8/U9 rows are dropped, and paging fetches further to make up
+   the difference rather than returning short.
+5. Teams already in `exclude_ids` are dropped.
+6. Supply exhaustion returns fewer than `shortfall` without raising.
+7. `shortfall <= 0` issues no query at all.
+8. A PostgREST error propagates rather than being swallowed, so the caller's
+   claim-release guard runs and the failure is visible.
+9. `_is_scrapeable_team` rejects placeholder, U8, U9, and out-of-range birth
+   years, and accepts a normal team and one with NULL age/birth-year.
 
 ## Verification
 
 `ruff check`, then `python -m pytest tests/unit/test_drain_queue_topup.py`.
 
-Apply the migration, then confirm the ordering flipped by calling the RPC
-directly with `p_oldest_first => false, p_stale_days => 14` and checking that
-the returned teams' `last_scraped_at` values are descending and start roughly 14
-days back. Then sample the returned set for games in the last 90 days: expect
-roughly 80-93% active, against the 5.6% baseline measured on the current
-ascending order.
+Then `python scripts/drain_queue.py --dry-run --limit 200` against production and
+confirm: the previewed teams' `last_scraped_at` values are descending and start
+around 14 days back, the claimed rows are released, and the `processing` count
+returns to baseline.
 
-Finally `python scripts/drain_queue.py --dry-run --limit 200` to confirm the
-call site works end to end and releases its claimed rows.
+Finally, sample the previewed set for games in the last 90 days. Expect roughly
+99%, against the 5.6% baseline.
