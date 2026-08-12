@@ -43,6 +43,13 @@ export default function SignupPage() {
 
   const emailSuggestion = suggestEmailCorrection(email);
 
+  // Every path that changes the address has to retire the banner with it, or it
+  // goes on making a specific claim about an address that is no longer typed.
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    setExistingAccount(false);
+  };
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -249,10 +256,7 @@ export default function SignupPage() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setExistingAccount(false);
-                }}
+                onChange={(e) => handleEmailChange(e.target.value)}
                 className="pl-10"
                 required
                 autoComplete="email"
@@ -263,7 +267,7 @@ export default function SignupPage() {
                 Did you mean{' '}
                 <button
                   type="button"
-                  onClick={() => setEmail(emailSuggestion)}
+                  onClick={() => handleEmailChange(emailSuggestion)}
                   className="font-medium text-primary underline-offset-4 hover:underline"
                 >
                   {emailSuggestion}
