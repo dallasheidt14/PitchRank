@@ -308,7 +308,7 @@ npm run analyze
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
-| `enqueue-yesterday-games.yml` | Daily 7:00 AM UTC | Queue teams with yesterday's games (priority 2) |
+| `enqueue-yesterday-games.yml` | Daily 7:00 AM UTC | Queue teams whose yesterday games have null scores (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:00 AM UTC | Queue teams active in the last 3 days (priority 2) |
 | `enqueue-discovery.yml` | Sun 2:00 PM UTC | Queue teams with no future games (priority 3) |
 | `enqueue-safety-net.yml` | Sun 4:00 PM UTC | Queue never-scraped / 90d+ teams (priority 4) |
@@ -385,13 +385,17 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | Producer | Cadence | Priority | Targets |
 |----------|---------|----------|---------|
 | `frontend/app/api/scrape-missing-game` | User-clicked | 1 | One team |
-| `enqueue_yesterday_games.py` | Daily | 2 | Teams with yesterday's games |
+| `frontend/app/api/create-team` | Admin creates a team | 1 | The new team, GotSport only |
+| `enqueue_yesterday_games.py` | Daily | 2 | Teams whose yesterday games have null scores, excluding any already scraped today |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
+| `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
 | `enqueue_safety_net.py` | Weekly | 4 | Never scraped, or not in 90+ days |
 
-All producers write via the `enqueue_scrape_request` RPC, which keeps at most one
-pending row per team and promotes priority via `LEAST`. Consumers:
+That is every caller of `enqueue_scrape_request` — the two `new_team` paths are easy to
+miss when tracing why a team entered the queue, because neither lives in an
+`enqueue_*.py` script. The RPC keeps at most one pending row per team and promotes
+priority via `LEAST`. Consumers:
 
 - `process_missing_games.py` — the automatic drainer, every 15 min, `--limit 40`.
 - `drain_queue.py` — **this is the "Help Clear Queue" action** (`clear-queue.yml`).
