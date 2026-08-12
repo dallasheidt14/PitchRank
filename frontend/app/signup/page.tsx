@@ -102,6 +102,8 @@ export default function SignupPage() {
         // Auto-confirmed, redirect to rankings (accessible to all users)
         router.push('/rankings');
         router.refresh();
+      } else {
+        setError('Signup did not complete. Please try again, or sign in if you already have an account.');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Signup failed. Please try again.');
@@ -247,7 +249,10 @@ export default function SignupPage() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setExistingAccount(false);
+                }}
                 className="pl-10"
                 required
                 autoComplete="email"

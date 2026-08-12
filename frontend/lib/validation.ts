@@ -49,6 +49,7 @@ export function suggestEmailCorrection(value: string): string | null {
   if (parts.length !== 2) return null;
 
   const [local, domain] = parts;
-  const corrected = EMAIL_DOMAIN_TYPOS[domain];
-  return corrected && local ? `${local}@${corrected}` : null;
+  if (!local || !Object.hasOwn(EMAIL_DOMAIN_TYPOS, domain)) return null;
+
+  return `${local}@${EMAIL_DOMAIN_TYPOS[domain]}`;
 }

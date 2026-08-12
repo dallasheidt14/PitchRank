@@ -35,6 +35,12 @@ describe('suggestEmailCorrection', () => {
     expect(suggestEmailCorrection('  Someone@GMAI.com  ')).toBe('someone@gmail.com');
   });
 
+  it('does not resolve inherited Object properties as domains', () => {
+    expect(suggestEmailCorrection('bob@constructor')).toBeNull();
+    expect(suggestEmailCorrection('bob@__proto__')).toBeNull();
+    expect(suggestEmailCorrection('bob@valueof')).toBeNull();
+  });
+
   it('returns null for input that is not a single address', () => {
     expect(suggestEmailCorrection('')).toBeNull();
     expect(suggestEmailCorrection('gmai.com')).toBeNull();
