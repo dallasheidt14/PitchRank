@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClientSupabase } from '@/lib/supabase/client';
+import { suggestEmailCorrection } from '@/lib/validation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,14 +35,18 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingAccount, setExistingAccount] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [emailSendFailed, setEmailSendFailed] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
 
+  const emailSuggestion = suggestEmailCorrection(email);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setExistingAccount(false);
 
     // Validate passwords match
     if (password !== confirmPassword) {
@@ -78,6 +83,15 @@ export default function SignupPage() {
           return;
         }
         throw signUpError;
+      }
+
+      // With enumeration protection on, signing up with an address that already
+      // exists returns a success-shaped response carrying an empty identities
+      // array, and Supabase sends no mail. Treating that as success shows a
+      // "Check your email" card for a message that will never arrive.
+      if (data.user && data.user.identities?.length === 0) {
+        setExistingAccount(true);
+        return;
       }
 
       // Check if email confirmation is required
@@ -153,29 +167,32 @@ export default function SignupPage() {
         </CardHeader>
         <CardContent className="text-center space-y-3">
           {emailSendFailed ? (
+            <p className="text-sm text-muted-foreground">
+              Click below to resend the confirmation email, or try again in a few minutes.
+            </p>
+          ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Click below to resend the confirmation email, or try again in a few minutes.
+                Click the link in the email to activate your account and start tracking your favorite teams.
               </p>
-              <Button variant="outline" onClick={handleResendConfirmation} disabled={isResending} className="mt-2">
-                {isResending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Resend confirmation email
-                  </>
-                )}
-              </Button>
+              <p className="text-sm text-muted-foreground">
+                Didn&apos;t get it? Check your spam folder, then resend it below.
+              </p>
             </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Click the link in the email to activate your account and start tracking your favorite teams.
-            </p>
           )}
+          <Button variant="outline" onClick={handleResendConfirmation} disabled={isResending} className="mt-2">
+            {isResending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Resend confirmation email
+              </>
+            )}
+          </Button>
           {resendMessage && (
             <p className={`text-sm ${resendMessage.includes('sent!') ? 'text-green-600' : 'text-muted-foreground'}`}>
               {resendMessage}
@@ -205,6 +222,22 @@ export default function SignupPage() {
             </div>
           )}
 
+          {existingAccount && (
+            <div data-testid="signup-existing-account" className="rounded-md bg-yellow-500/10 p-3 text-sm">
+              <p className="font-medium">You already have an account with this email.</p>
+              <p className="mt-1 text-muted-foreground">
+                <Link href="/login" className="text-primary underline-offset-4 hover:underline">
+                  Sign in
+                </Link>{' '}
+                or{' '}
+                <Link href="/forgot-password" className="text-primary underline-offset-4 hover:underline">
+                  reset your password
+                </Link>{' '}
+                if you&apos;ve forgotten it.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <div className="relative">
@@ -220,6 +253,19 @@ export default function SignupPage() {
                 autoComplete="email"
               />
             </div>
+            {emailSuggestion && (
+              <p data-testid="signup-email-suggestion" className="text-xs text-muted-foreground">
+                Did you mean{' '}
+                <button
+                  type="button"
+                  onClick={() => setEmail(emailSuggestion)}
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  {emailSuggestion}
+                </button>
+                ?
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
