@@ -5,12 +5,32 @@
 
 // gtag type is declared in types/gtag.d.ts
 
+type GtagFn = NonNullable<Window['gtag']>;
+
+/**
+ * Resolve window.gtag, installing the standard shim when gtag.js has not loaded yet.
+ *
+ * gtag.js only replays dataLayer entries that are `arguments` objects — the shim it
+ * installs pushes `arguments`, and a plain array is discarded without error. Queuing
+ * through this shim keeps events fired before the script loads (page-view trackers on
+ * mount) from being dropped; gtag.js replaces window.gtag and replays the queue on load.
+ */
+function ensureGtag(): GtagFn {
+  const w = window as Window & { dataLayer?: unknown[] };
+
+  if (typeof w.gtag !== 'function') {
+    w.dataLayer = w.dataLayer || [];
+    w.gtag = function gtag() {
+      // eslint-disable-next-line prefer-rest-params
+      (w.dataLayer as unknown[]).push(arguments);
+    } as GtagFn;
+  }
+
+  return w.gtag as GtagFn;
+}
+
 /**
  * Send a custom event to Google Analytics 4.
- *
- * Pushes directly to window.dataLayer so events emitted before the gtag script
- * finishes loading are still captured (dataLayer is initialized by GoogleAnalytics
- * before the script tag; gtag replays the queue on load).
  *
  * @param eventName - The name of the event (snake_case, no spaces)
  * @param eventParams - Optional parameters to send with the event
@@ -30,12 +50,7 @@ export function gtagEvent(
     ? Object.fromEntries(Object.entries(eventParams).filter(([, value]) => value !== null && value !== undefined))
     : undefined;
 
-  // Ensure dataLayer exists — GoogleAnalytics component initializes it, but guard
-  // against the event firing before the Script tag has mounted.
-  const w = window as Window & { dataLayer?: unknown[] };
-  w.dataLayer = w.dataLayer || [];
-  // Mirrors the shape gtag('event', name, params) pushes.
-  w.dataLayer.push(['event', eventName, cleanParams]);
+  ensureGtag()('event', eventName, cleanParams);
 }
 
 /**
