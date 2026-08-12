@@ -133,6 +133,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tid", required=True, help="SincSports tournament ID (e.g., TZ2565)")
     p.add_argument("--dry-run", action="store_true", help="Scrape + CSV only; no DB writes")
     p.add_argument(
+        "--via-proxy",
+        action="store_true",
+        help="Route the teamlist fetch through the ZenRows proxy (bypasses SincSports' 403 bot-protection)",
+    )
+    p.add_argument(
         "--include-u8-u9",
         action="store_true",
         help="Include u8/u9 divisions (default: filter to u10..u17, u19)",
@@ -151,6 +156,13 @@ def main() -> int:
 
     # Scrape phase — no Supabase required.
     scraper = SincSportsEventsScraper()
+    if args.via_proxy:
+        from src.scrapers._zenrows import ZenRowsSession
+
+        # SincSports 403s direct requests; js_render must stay OFF (teamlist rows
+        # are server-rendered and vanish from the JS-rendered DOM).
+        scraper.session = ZenRowsSession(js_render=False)
+        console.print("[cyan]Routing teamlist fetch through ZenRows proxy[/cyan]")
     include_ages = None
     if args.include_u8_u9:
         from src.scrapers.sincsports_events import CANONICAL_AGE_GROUPS

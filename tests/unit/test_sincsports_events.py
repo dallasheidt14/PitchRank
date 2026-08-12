@@ -157,3 +157,21 @@ class TestParseTeamlist:
         assert len(records) == 1
         assert records[0].age_group == "u9"
         assert records[0].gender == "Female"
+
+    def test_compact_birthyear_heading_format(self):
+        """`2016 - U10 Girls Mendota 7v7` (RWISC) → u10 Female, not just `Under 10`."""
+        html = (
+            "<h2>2016 - U10 Girls Mendota 7v7</h2>"
+            "<table>"
+            "<tr><td>Team</td><td>Club</td><td>State</td></tr>"
+            "<tr><td><a onclick=\"eo_Callback('cpTeamSummary', 'ILF1611F'); return false;\">"
+            "FC-1 Academy G2016 Elite</a></td><td>FC-1 Academy</td><td>IL</td></tr>"
+            "</table>"
+        )
+        records = SincSportsEventsScraper.parse_teamlist(html)
+        assert len(records) == 1
+        assert records[0].provider_team_id == "ILF1611F"
+        assert records[0].age_group == "u10"
+        assert records[0].gender == "Female"
+        assert records[0].club_name == "FC-1 Academy"
+        assert records[0].state_code == "IL"
