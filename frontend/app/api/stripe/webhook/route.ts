@@ -313,12 +313,14 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       // to log in, where checkout offers monthly/annual without a trial.
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
       if (subscription.status === 'trialing' && hasBillingHistory) {
-        // A profile still on a live subscription hasn't lapsed and come back —
-        // they checked out twice minutes apart because anonymous checkout leaves
-        // them logged out. Sending them to re-subscribe would dead-end at
-        // /upgrade, which rejects an active subscriber.
+        // Mirrors the check in the checkout route: these are the statuses that
+        // make /upgrade reject a new checkout, so they're the ones where telling
+        // someone to log in and re-subscribe dead-ends. past_due is deliberately
+        // absent — mapStatusToPlan calls it premium to hold access open during
+        // payment retries, but /upgrade still accepts it, so an unrecovered
+        // account keeps the re-subscribe path that can actually fix its billing.
         const alreadySubscribed =
-          mapStatusToPlan(profileByEmail.subscription_status as Stripe.Subscription.Status) === 'premium';
+          profileByEmail.subscription_status === 'active' || profileByEmail.subscription_status === 'trialing';
 
         await stripe.subscriptions.cancel(subscriptionId);
         console.log(

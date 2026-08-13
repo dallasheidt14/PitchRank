@@ -416,6 +416,52 @@ describe('POST /api/stripe/webhook', () => {
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
   });
 
+  it('keeps the re-subscribe email for a past_due profile, whose billing still needs fixing', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+
+    const fakeEvent = {
+      id: 'evt_past_due_trial',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_past_due',
+          customer: 'cus_second',
+          subscription: 'sub_second',
+          payment_status: 'no_payment_required',
+        } as unknown as Stripe.Checkout.Session,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_second',
+      status: 'trialing',
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    queueMaybeSingle([
+      null,
+      {
+        id: 'user-past-due',
+        stripe_customer_id: 'cus_first',
+        stripe_subscription_id: 'sub_first',
+        subscription_status: 'past_due',
+      },
+    ]);
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_second');
+    // past_due maps to premium for access, but /upgrade still accepts a new
+    // checkout, so re-subscribing is a real fix and the set-password email
+    // would wrongly tell them nothing is wrong with their billing.
+    expect(vi.mocked(sendReturningSubscriberEmail)).toHaveBeenCalledWith('test@example.com');
+    expect(vi.mocked(sendDuplicateSubscriptionEmail)).not.toHaveBeenCalled();
+  });
+
   it('returns 200 for unknown event types (acknowledge receipt)', async () => {
     vi.mocked(headers).mockResolvedValue(
       new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
