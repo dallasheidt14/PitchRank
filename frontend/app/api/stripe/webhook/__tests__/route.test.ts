@@ -62,6 +62,10 @@ vi.mock('@/lib/email/returning-subscriber', () => ({
   sendReturningSubscriberEmail: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('@/lib/email/duplicate-subscription', () => ({
+  sendDuplicateSubscriptionEmail: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock @supabase/supabase-js (used directly in webhook route for admin client).
 // Builder supports both:
 //   - update(...).eq(...).select() → returns rows for updateUserProfile-style writes
@@ -128,6 +132,7 @@ import { headers } from 'next/headers';
 import { stripe, updateUserProfile } from '@/lib/stripe/server';
 import { setLifecycle, setSubscriberCustomField, enrollInAutomation } from '@/lib/beehiiv';
 import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
+import { sendDuplicateSubscriptionEmail } from '@/lib/email/duplicate-subscription';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 import { notifyAdmin } from '@/lib/notifications/admin';
 
@@ -350,12 +355,111 @@ describe('POST /api/stripe/webhook', () => {
     expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_new');
     // User is told to log in and re-subscribe; admin is notified.
     expect(vi.mocked(sendReturningSubscriberEmail)).toHaveBeenCalledWith('test@example.com');
+    expect(vi.mocked(sendDuplicateSubscriptionEmail)).not.toHaveBeenCalled();
     expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Returning subscriber'));
     // The profile keeps its existing billing state, and no lifecycle
     // routing fires for the canceled checkout.
     expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
+  it('sends the set-password email, not re-subscribe, when the profile is still on a live subscription', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+
+    const fakeEvent = {
+      id: 'evt_duplicate_trial',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_duplicate',
+          customer: 'cus_second',
+          subscription: 'sub_second',
+          payment_status: 'no_payment_required',
+        } as unknown as Stripe.Checkout.Session,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_second',
+      status: 'trialing',
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    // Lookup by the second stripe_customer_id → no profile (anonymous path).
+    // Lookup by email → the account created minutes ago, still trialing.
+    queueMaybeSingle([
+      null,
+      {
+        id: 'user-duplicate',
+        stripe_customer_id: 'cus_first',
+        stripe_subscription_id: 'sub_first',
+        subscription_status: 'trialing',
+      },
+    ]);
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_second');
+    // They already have a trial running — telling them to re-subscribe would
+    // dead-end at /upgrade, so they get the set-password link instead.
+    expect(vi.mocked(sendDuplicateSubscriptionEmail)).toHaveBeenCalledWith('test@example.com');
+    expect(vi.mocked(sendReturningSubscriberEmail)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Duplicate checkout blocked'));
+    // The first subscription keeps the profile; the duplicate never touches it.
+    expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
+  it('keeps the re-subscribe email for a past_due profile, whose billing still needs fixing', async () => {
+    vi.mocked(headers).mockResolvedValue(
+      new Map([['stripe-signature', 'sig_valid']]) as unknown as Awaited<ReturnType<typeof headers>>
+    );
+
+    const fakeEvent = {
+      id: 'evt_past_due_trial',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_past_due',
+          customer: 'cus_second',
+          subscription: 'sub_second',
+          payment_status: 'no_payment_required',
+        } as unknown as Stripe.Checkout.Session,
+      },
+    } as Stripe.Event;
+
+    vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(fakeEvent);
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_second',
+      status: 'trialing',
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    queueMaybeSingle([
+      null,
+      {
+        id: 'user-past-due',
+        stripe_customer_id: 'cus_first',
+        stripe_subscription_id: 'sub_first',
+        subscription_status: 'past_due',
+      },
+    ]);
+
+    const res = await POST(makeRequest('valid body'));
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(stripe.subscriptions.cancel)).toHaveBeenCalledWith('sub_second');
+    // past_due maps to premium for access, but /upgrade still accepts a new
+    // checkout, so re-subscribing is a real fix and the set-password email
+    // would wrongly tell them nothing is wrong with their billing.
+    expect(vi.mocked(sendReturningSubscriberEmail)).toHaveBeenCalledWith('test@example.com');
+    expect(vi.mocked(sendDuplicateSubscriptionEmail)).not.toHaveBeenCalled();
   });
 
   it('returns 200 for unknown event types (acknowledge receipt)', async () => {

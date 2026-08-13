@@ -21,6 +21,7 @@ import {
 } from '@/lib/beehiiv';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
+import { sendDuplicateSubscriptionEmail } from '@/lib/email/duplicate-subscription';
 
 // Escape HTML to prevent injection via Stripe-sourced strings (customer name/email)
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -299,7 +300,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     // Check if a user already exists with this email (signed up but checked out anonymously)
     const { data: profileByEmail } = await getSupabaseAdmin()
       .from('user_profiles')
-      .select('id, stripe_customer_id, stripe_subscription_id')
+      .select('id, stripe_customer_id, stripe_subscription_id, subscription_status')
       .eq('email', email)
       .maybeSingle();
 
@@ -312,21 +313,36 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       // to log in, where checkout offers monthly/annual without a trial.
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
       if (subscription.status === 'trialing' && hasBillingHistory) {
+        // Mirrors the check in the checkout route: these are the statuses that
+        // make /upgrade reject a new checkout, so they're the ones where telling
+        // someone to log in and re-subscribe dead-ends. past_due is deliberately
+        // absent — mapStatusToPlan calls it premium to hold access open during
+        // payment retries, but /upgrade still accepts it, so an unrecovered
+        // account keeps the re-subscribe path that can actually fix its billing.
+        const alreadySubscribed =
+          profileByEmail.subscription_status === 'active' || profileByEmail.subscription_status === 'trialing';
+
         await stripe.subscriptions.cancel(subscriptionId);
         console.log(
-          `[webhook] Canceled anonymous trial for returning subscriber ${profileByEmail.id} (trial already used); sent re-subscribe email`
+          alreadySubscribed
+            ? `[webhook] Canceled duplicate anonymous trial for ${profileByEmail.id} (subscription already live); sent set-password email`
+            : `[webhook] Canceled anonymous trial for returning subscriber ${profileByEmail.id} (trial already used); sent re-subscribe email`
         );
 
         try {
-          await sendReturningSubscriberEmail(email);
+          await (alreadySubscribed ? sendDuplicateSubscriptionEmail(email) : sendReturningSubscriberEmail(email));
         } catch (emailError) {
-          console.error('[webhook] Returning-subscriber email failed (non-fatal):', emailError);
+          console.error('[webhook] Blocked-checkout email failed (non-fatal):', emailError);
         }
 
         await notifyAdmin(
-          `<b>Returning subscriber blocked from second trial</b>\n` +
-            `<b>Email:</b> ${escapeHtml(email)}\n` +
-            `Anonymous trial checkout canceled (no charge); emailed log-in-and-resubscribe link.`
+          alreadySubscribed
+            ? `<b>Duplicate checkout blocked</b>\n` +
+                `<b>Email:</b> ${escapeHtml(email)}\n` +
+                `Second anonymous trial canceled (no charge); subscription already live, emailed set-password link.`
+            : `<b>Returning subscriber blocked from second trial</b>\n` +
+                `<b>Email:</b> ${escapeHtml(email)}\n` +
+                `Anonymous trial checkout canceled (no charge); emailed log-in-and-resubscribe link.`
         );
         return;
       }
