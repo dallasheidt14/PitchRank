@@ -371,3 +371,5 @@ RESEND_API_KEY
 6. **1000-row pagination** — All Supabase queries must paginate
 7. **Premium gating** — Check `hasPremiumAccess()` before rendering premium features
 8. **ISR revalidation** — Team pages cache for 1 hour; don't expect instant updates
+9. **Age 0 and null state are real** — `teams.age_group` includes the literal `'u0'`, and thousands of teams have `state_code = NULL`. `useTeamSearch` maps an unresolved cohort to `age: 0`, so guard on truthiness; `age != null` renders "U0"
+10. **Three components share search-row rendering** — `GlobalSearch`, `TeamSelector`, and `UnknownOpponentLink` all consume `useTeamSearch`. Grep every consumer before changing a row's markup, or the fix lands on one surface and not the others

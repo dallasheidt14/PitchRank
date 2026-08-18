@@ -23,8 +23,8 @@ import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
-import { AGE_GROUPS_ALL, formatGender } from '@/lib/constants';
-import { composeTeamDisplay } from '@/lib/utils';
+import { AGE_GROUPS_ALL } from '@/lib/constants';
+import { composeTeamDisplay, composeTeamMeta } from '@/lib/utils';
 
 interface UnknownOpponentLinkProps {
   game: GameWithTeams;
@@ -241,7 +241,7 @@ export function UnknownOpponentLink({
 
   const handleSelectTeam = (team: RankingRow) => {
     setSelectedTeam(team);
-    setSearchQuery(composeTeamDisplay(team));
+    setSearchQuery(composeTeamDisplay(team, { includeAge: true }));
     setIsSearchOpen(false);
     setSelectedIndex(0);
   };
@@ -439,6 +439,8 @@ export function UnknownOpponentLink({
     }
   };
 
+  const selectedTeamMeta = selectedTeam ? composeTeamMeta(selectedTeam) : '';
+
   return (
     <>
       <button
@@ -535,7 +537,8 @@ export function UnknownOpponentLink({
                       ) : (
                         <div className="space-y-1">
                           {filteredTeams.map((team, index) => {
-                            const displayName = composeTeamDisplay(team);
+                            const displayName = composeTeamDisplay(team, { includeAge: true });
+                            const meta = composeTeamMeta(team);
                             return (
                               <button
                                 key={team.team_id_master}
@@ -543,19 +546,13 @@ export function UnknownOpponentLink({
                                 className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
                                   index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                                 }`}
-                                aria-label={`Select ${displayName}`}
+                                aria-label={`Select ${displayName}${meta ? ` ${meta}` : ''}`}
                               >
                                 <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
                                 <div className="text-xs text-muted-foreground">
                                   {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
-                                  {team.state && (
-                                    <span className={team.club_name ? ' • ' : ''}>{team.state.toUpperCase()}</span>
-                                  )}
-                                  {team.age != null && team.gender && (
-                                    <span className={team.club_name || team.state ? ' • ' : ''}>
-                                      U{team.age} {formatGender(team.gender)}
-                                    </span>
-                                  )}
+                                  {team.club_name && meta ? ' • ' : ''}
+                                  {meta}
                                 </div>
                               </button>
                             );
@@ -676,12 +673,13 @@ export function UnknownOpponentLink({
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">{composeTeamDisplay(selectedTeam)}</p>
+                  <p className="font-medium text-green-800 dark:text-green-200">
+                    {composeTeamDisplay(selectedTeam, { includeAge: true })}
+                  </p>
                   <p className="text-green-600 dark:text-green-300 text-xs">
-                    {selectedTeam.club_name && `${selectedTeam.club_name} • `}
-                    {selectedTeam.state?.toUpperCase()}
-                    {selectedTeam.age != null && ` • U${selectedTeam.age}`}
-                    {selectedTeam.gender && ` ${formatGender(selectedTeam.gender)}`}
+                    {selectedTeam.club_name}
+                    {selectedTeam.club_name && selectedTeamMeta ? ' • ' : ''}
+                    {selectedTeamMeta}
                   </p>
                 </div>
               </div>
