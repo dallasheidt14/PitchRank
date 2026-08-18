@@ -122,6 +122,7 @@ export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }>
   ga: { slug: 'georgia-youth-soccer-rankings-guide', title: 'Georgia Youth Soccer Rankings Guide' },
   il: { slug: 'illinois-youth-soccer-rankings-guide', title: 'Illinois Youth Soccer Rankings Guide' },
   in: { slug: 'indiana-youth-soccer-rankings-guide', title: 'Indiana Youth Soccer Rankings Guide' },
+  ky: { slug: 'kentucky-youth-soccer-rankings-guide', title: 'Kentucky Youth Soccer Rankings Guide' },
   ma: { slug: 'massachusetts-youth-soccer-rankings-guide', title: 'Massachusetts Youth Soccer Rankings Guide' },
   md: { slug: 'maryland-youth-soccer-rankings-guide', title: 'Maryland Youth Soccer Rankings Guide' },
   mi: { slug: 'michigan-youth-soccer-rankings-guide', title: 'Michigan Youth Soccer Rankings Guide' },
