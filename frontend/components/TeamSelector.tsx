@@ -8,7 +8,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
-import { composeTeamDisplay } from '@/lib/utils';
+import { composeTeamDisplay, composeTeamMeta } from '@/lib/utils';
 
 interface TeamSelectorProps {
   label: string;
@@ -144,7 +144,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
 
   const handleSelect = (team: RankingRow) => {
     onChange(team.team_id_master, team);
-    setSearchQuery(composeTeamDisplay(team));
+    setSearchQuery(composeTeamDisplay(team, { includeAge: true }));
     setIsOpen(false);
     setSelectedIndex(0);
   };
@@ -231,24 +231,23 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {filteredTeams.map((team, index) => (
-                    <button
-                      key={team.team_id_master}
-                      onClick={() => handleSelect(team)}
-                      className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                        index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                      }`}
-                      aria-label={`Select ${composeTeamDisplay(team)}`}
-                    >
-                      <div className="font-medium">{highlightMatch(composeTeamDisplay(team), deferredSearchQuery)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {team.state && <span>{team.state.toUpperCase()}</span>}
-                        {team.rank_in_cohort_final && (
-                          <span className={team.state ? ' • ' : ''}>Rank #{team.rank_in_cohort_final}</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                  {filteredTeams.map((team, index) => {
+                    const displayName = composeTeamDisplay(team, { includeAge: true });
+                    const meta = composeTeamMeta(team);
+                    return (
+                      <button
+                        key={team.team_id_master}
+                        onClick={() => handleSelect(team)}
+                        className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                          index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                        }`}
+                        aria-label={`Select ${displayName}${meta ? ` ${meta}` : ''}`}
+                      >
+                        <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                        <div className="text-xs text-muted-foreground">{meta}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -257,7 +256,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
       </div>
       {selectedTeam && (
         <div className="mt-2 text-sm text-muted-foreground">
-          Selected: <span className="font-medium">{composeTeamDisplay(selectedTeam)}</span>
+          Selected: <span className="font-medium">{composeTeamDisplay(selectedTeam, { includeAge: true })}</span>
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeTeamDisplay, formatDistinction, formatLeague } from './utils';
+import { composeTeamDisplay, composeTeamMeta, formatDistinction, formatLeague } from './utils';
 
 describe('composeTeamDisplay', () => {
   it('composes club + league + distinction for clean data', () => {
@@ -112,6 +112,93 @@ describe('composeTeamDisplay', () => {
         expect(out).toContain('Phoenix Rising');
       }
     );
+  });
+
+  describe('with includeAge', () => {
+    it('appends the age group so same-club teams are distinguishable', () => {
+      expect(
+        composeTeamDisplay(
+          {
+            team_name: 'Dynamos SC - Dynamos SC 2017 SC',
+            club_name: 'Dynamos SC',
+            league: null,
+            distinction: null,
+            age: 10,
+          },
+          { includeAge: true }
+        )
+      ).toBe('Dynamos SC U10');
+    });
+
+    it('appends the age group after league and distinction', () => {
+      expect(
+        composeTeamDisplay(
+          {
+            team_name: 'OK Energy FC 2014 Black',
+            club_name: 'Oklahoma Energy FC',
+            league: 'ECNL',
+            distinction: 'black',
+            age: 13,
+          },
+          { includeAge: true }
+        )
+      ).toBe('Oklahoma Energy FC ECNL Black U13');
+    });
+
+    it('omits the age group when age is unresolved', () => {
+      expect(
+        composeTeamDisplay(
+          { team_name: 'Dynamos SC 2017', club_name: 'Dynamos SC', league: null, distinction: null, age: 0 },
+          { includeAge: true }
+        )
+      ).toBe('Dynamos SC');
+    });
+
+    it('leaves MLS NEXT team_name verbatim rather than appending a second age', () => {
+      expect(
+        composeTeamDisplay(
+          {
+            team_name: 'Cedar Stars Academy Bergen U14 HD',
+            club_name: 'Cedar Stars Academy - Bergen',
+            league: 'MLS_NEXT_HD',
+            distinction: 'hd',
+            has_modular11_alias: true,
+            age: 14,
+          },
+          { includeAge: true }
+        )
+      ).toBe('Cedar Stars Academy Bergen U14 HD');
+    });
+  });
+
+  it('ignores age entirely when no options are passed', () => {
+    expect(
+      composeTeamDisplay({
+        team_name: 'Dynamos SC 2017',
+        club_name: 'Dynamos SC',
+        league: null,
+        distinction: null,
+        age: 10,
+      })
+    ).toBe('Dynamos SC');
+  });
+});
+
+describe('composeTeamMeta', () => {
+  it('joins state, age group, and gender with bullets', () => {
+    expect(composeTeamMeta({ state: 'az', age: 14, gender: 'M' })).toBe('AZ • U14 Boys');
+  });
+
+  it('omits the age fragment when age is unresolved', () => {
+    expect(composeTeamMeta({ state: 'AZ', age: 0, gender: 'M' })).toBe('AZ');
+  });
+
+  it('omits the leading bullet when state is missing', () => {
+    expect(composeTeamMeta({ state: null, age: 14, gender: 'M' })).toBe('U14 Boys');
+  });
+
+  it('returns an empty string when nothing is known', () => {
+    expect(composeTeamMeta({ state: null, age: null, gender: null })).toBe('');
   });
 });
 
