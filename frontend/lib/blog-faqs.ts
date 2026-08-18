@@ -282,6 +282,49 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'kentucky-youth-soccer-rankings-guide': [
+    {
+      question: 'How are youth soccer teams ranked in Kentucky?',
+      answer:
+        'PitchRank tracks game-by-game results across 702 Kentucky teams. Teams earn a PowerScore from 0.0 to 1.0 based on wins, opponent strength, recency, and consistency — updated weekly with real game data.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Kentucky?',
+      answer:
+        'By team count: LouCity / Racing Academy (124 teams), Kings Hammer Soccer Club (65), Lexington Sporting Club (53), Mockingbird Valley Premier (46), Fusion FC NKY (39), Independence SC (35), Falls City Soccer Club (34), Javanon FC (27), Nedo SC (23), and Georgetown FC (23).',
+    },
+    {
+      question: 'How often do Kentucky soccer rankings update?',
+      answer:
+        'PitchRank updates rankings every Monday morning with the latest game results. Recent games are weighted more heavily than older ones.',
+    },
+    {
+      question: 'What youth soccer leagues operate in Kentucky?',
+      answer:
+        'Kentucky teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, National League through the Great Lakes Conference, and USL Academy — plus state competition through the Kentucky Select Soccer League, the Kentucky Premier League, and the Kentucky State Cup. Louisville City FC, Racing Louisville FC, and Lexington SC all run youth pathways attached to professional clubs.',
+    },
+    {
+      question: 'How does Louisville compare to Lexington in Kentucky rankings?',
+      answer:
+        "Louisville still has the most teams and the deepest single organization in the LouCity / Racing Academy, but Lexington has closed fast — Lexington Sporting Club is the state's third-largest club, fields MLS NEXT and Girls Academy teams, and sits behind a professional club that won the 2026 USL Super League title. Treat them as two poles, and use PitchRank's state filter to compare clubs across both.",
+    },
+    {
+      question: 'Should my child be on the highest-ranked team possible?',
+      answer:
+        'Not necessarily. The best team is one where your child gets meaningful playing time, faces the right level of competition, and develops in a positive environment. A top-ranked team where your kid sits the bench is worse than a mid-ranked team where they play every minute.',
+    },
+    {
+      question: 'Do Kentucky rankings help with college recruiting?',
+      answer:
+        "Rankings provide context but are not the main recruiting tool. Individual highlight video, academic eligibility, showcase attendance, and direct coach contact matter more. D1 coaches notice top 5% nationally. D3 coaches care more about GPA and fit. Kentucky offers eight Division I women's programs but only four Division I men's programs, so the realistic in-state pathway differs by gender.",
+    },
+    {
+      question: 'Can clubs game the Kentucky rankings?',
+      answer:
+        "No. PitchRank's rating algorithm adjusts for opponent strength. Beating weaker KSSL opponents repeatedly won't inflate a team's ranking. Teams that avoid strong competition plateau quickly.",
+    },
+  ],
+
   'massachusetts-youth-soccer-rankings-guide': [
     {
       question: 'How are Massachusetts youth soccer teams ranked?',
