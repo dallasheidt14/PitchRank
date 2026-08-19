@@ -3164,11 +3164,21 @@ elif section == "🔀 Team Merge Manager":
                     else:
                         st.success(f"Found {len(all_teams)} teams for {filter_desc}")
 
-                        # Create team options with more detail
-                        team_options = {
-                            f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')}": t['team_id_master']
+                        # Create team options with more detail. Teams that are exact
+                        # duplicates share a label, so disambiguate those with the team
+                        # ID - otherwise only one of them is selectable.
+                        from collections import Counter
+
+                        label_counts = Counter(
+                            f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')}"
                             for t in all_teams
-                        }
+                        )
+                        team_options = {}
+                        for t in all_teams:
+                            label = f"{t['team_name']} ({t.get('club_name', 'N/A')}) - {t.get('state_code', '??')}"
+                            if label_counts[label] > 1:
+                                label = f"{label} [{t['team_id_master'][:8]}]"
+                            team_options[label] = t['team_id_master']
 
                 except Exception as e:
                     st.error(f"Failed to load teams: {e}")

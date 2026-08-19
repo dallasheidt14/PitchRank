@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import { formatGender } from './constants';
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
@@ -159,24 +161,25 @@ function distinctionHasLeakage(distinction?: string | null): boolean {
 }
 
 /**
- * Compose a clean display name from structured team fields.
- * Format: "{club_name (abbreviated)} {league} {distinction}" — age is intentionally
- * dropped because it's already in the page's URL filter. Pieces are skipped when null.
+ * Compose a display name: "{club (abbreviated)} {league} {distinction}". Age is dropped by
+ * default because the page's URL filter already pins the cohort; pass `{ includeAge: true }`
+ * where it doesn't, or a club whose teams record no league and no distinction renders every
+ * age group as the same bare club name.
  *
- * MLS Next / Modular 11 teams already have well-formatted, recognizable team_name
- * values (e.g. "Cedar Stars Academy Bergen U14 HD") so we leave them untouched
- * regardless of how their distinction tokens decompose.
- *
- * Falls back to team_name when club_name is missing.
+ * MLS Next / Modular 11 team_name values are already well formatted (e.g. "Cedar Stars
+ * Academy Bergen U14 HD"), so they short-circuit ahead of the distinction checks.
  */
-export function composeTeamDisplay(team: {
-  team_name: string;
-  club_name: string | null;
-  league?: string | null;
-  distinction?: string | null;
-  age?: number | null;
-  has_modular11_alias?: boolean | null;
-}): string {
+export function composeTeamDisplay(
+  team: {
+    team_name: string;
+    club_name: string | null;
+    league?: string | null;
+    distinction?: string | null;
+    age?: number | null;
+    has_modular11_alias?: boolean | null;
+  },
+  options?: { includeAge?: boolean }
+): string {
   if (!team.club_name) return team.team_name;
   if (team.has_modular11_alias) return team.team_name;
   // Dirty-data safety net: if the distinction still carries league/tier leakage
@@ -188,7 +191,22 @@ export function composeTeamDisplay(team: {
   if (league) parts.push(league);
   const distinction = formatDistinction(team.distinction);
   if (distinction) parts.push(distinction);
+  if (options?.includeAge && team.age) parts.push(`U${team.age}`);
   return parts.join(' ');
+}
+
+/**
+ * Joins "{state} • U{age} {gender}", omitting whatever is unknown.
+ *
+ * useTeamSearch sets age to 0 when a team's cohort is unresolved, so the age fragment tests
+ * truthiness — `age != null` would render "U0". Gender rides along with it because a bare
+ * "Boys" reads as noise.
+ */
+export function composeTeamMeta(team: { state?: string | null; age?: number | null; gender?: string | null }): string {
+  const parts: string[] = [];
+  if (team.state) parts.push(team.state.toUpperCase());
+  if (team.age && team.gender) parts.push(`U${team.age} ${formatGender(team.gender)}`);
+  return parts.join(' • ');
 }
 
 /**

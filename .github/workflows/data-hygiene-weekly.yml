@@ -65,6 +65,21 @@ env:
   # a scheduled run passes no inputs. Gates test == 'false' (not != 'true') so
   # a renamed or deleted flag leaves the steps skipped, not merging unguarded.
   AGE_ROLLOVER_FREEZE: 'false'
+  # Disables Step 2. Its script derives a cohort as CURRENT_YEAR - birth_year + 1,
+  # which assumed calendar-year age groups. Age groups now band on Aug 1 - Jul 31,
+  # so one birth year spans two cohorts and no function of birth year alone can be
+  # right. Re-enable only once age_group has a source that carries birth date or a
+  # registered band. Gates test == 'false' so a renamed flag leaves Step 2 skipped.
+  AGE_DERIVATION_ENABLED: 'false'
+  # Disables Step 3. score_team_pair compares team NAMES with SequenceMatcher,
+  # which two failure modes push over the 0.90 auto-merge bar:
+  #   unknown_781631 vs unknown_781653 scores 0.929 on the shared placeholder
+  #   prefix alone, and "EPIC SC 2008 Dash" vs "EPIC SC 2009 Dash" scores 0.941,
+  #   +0.15 for the matching club, so distinct birth years merge — and U19 holds
+  #   both 2008 and 2009, which is why that one cohort produced 780 suggestions.
+  # The 2026-08-19 run merged 1,772 pairs this way. Re-enable only once scoring
+  # rejects placeholder names and treats a differing birth year as disqualifying.
+  FUZZY_AUTO_MERGE_ENABLED: 'false'
 
 jobs:
   data-hygiene-pipeline:
@@ -151,7 +166,7 @@ jobs:
         # Derives cohort from a birth year in the team NAME, so it would roll
         # only the teams carrying one and freeze the rest — a half-rollover
         # that Step 3 then merges across.
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') && env.AGE_ROLLOVER_FREEZE == 'false' && env.AGE_DERIVATION_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
@@ -174,7 +189,7 @@ jobs:
         id: step3
         # Scheduled runs take the --auto-merge branch below: across half-rolled
         # cohorts a frozen and a rolled team can be merged irreversibly.
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',3,') && env.AGE_ROLLOVER_FREEZE == 'false' && env.FUZZY_AUTO_MERGE_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           GENDER_RAW: ${{ github.event.inputs.gender }}

@@ -1,0 +1,87 @@
+name: Backfill Unknown Team Names
+
+on:
+  schedule:
+    # Offset from :00/:15/:30/:45 to reduce GitHub scheduler contention, and
+    # off the drainer's 7,22,37,52 so the two don't share a WAF burst window.
+    - cron: '3,18,33,48 * * * *'  # every 15 minutes
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (resolve only, no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      limit:
+        description: 'Max teams to process this run'
+        required: false
+        default: '75'
+        type: string
+      created_after:
+        description: "Only teams created on/after this date (blank = script default)"
+        required: false
+        default: ''
+        type: string
+
+# GotSport's burst limiter is per-IP, and the in-process WAFBreaker cannot see
+# a sibling run on another runner. Serialise so two runs never share a window.
+concurrency:
+  group: backfill-unknown-team-names
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Matches process-missing-games.yml: importing the shared WAFBreaker
+          # from src.scrapers.gotsport pulls in src.etl.pipeline's dependencies.
+          pip install supabase python-dotenv pandas requests rich certifi numpy beautifulsoup4
+
+      - name: Backfill placeholder team names
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PYTHONUNBUFFERED: '1'
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          LIMIT: ${{ github.event.inputs.limit }}
+          CREATED_AFTER: ${{ github.event.inputs.created_after }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+
+          FLAGS="--limit ${LIMIT:-75}"
+          if [ "$DRY_RUN" == "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          if [ -n "$CREATED_AFTER" ]; then
+            FLAGS="$FLAGS --created-after $CREATED_AFTER"
+          fi
+
+          python scripts/backfill_unknown_team_names.py $FLAGS
+
+      - name: Upload gender mismatch CSVs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backfill-mismatches-${{ github.run_id }}
+          path: data/exports/unknown_backfill_mismatches_*.csv
+          if-no-files-found: ignore
+          retention-days: 30
