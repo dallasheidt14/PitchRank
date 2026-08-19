@@ -26,11 +26,12 @@ OUTPUT_DIR = "data/raw/tgs"
 YOUNGEST_TRACKED_BIRTH_YEAR = CURRENT_YEAR - 10 + 1
 OLDEST_TRACKED_BIRTH_YEAR = CURRENT_YEAR - 19 + 1
 
-# TGS relabelled its divisions from birth year ('B2015') to U-age ('BU11') at the
-# 2026-08-01 rollover, so a U-age label is only readable for events played on or
-# after it. Earlier events carry an unrecoverable labelling season -- 3430 (Apr
-# 2025) and 3967 (Sep 2025) both sit two seasons back -- and are skipped rather
-# than guessed. --u-format-before-cutover lifts that for a manual backfill.
+# The date from which a U-age label ('BU11') can be resolved, not the date such
+# labels start appearing -- they occur on both sides of it. From here on, the
+# event's own game dates identify the season the label was written against.
+# Before it they do not: 3430 (Apr 2025) and 3967 (Sep 2025) both carry U-age
+# divisions sitting two seasons behind their play dates, so those are skipped
+# rather than guessed. --u-format-before-cutover lifts that for a backfill.
 U_FORMAT_CUTOVER_DATE = "2026-08-01"
 U_FORMAT_BEFORE_CUTOVER = False
 

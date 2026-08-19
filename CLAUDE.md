@@ -157,20 +157,27 @@ see `.turbo/improvements.md`.
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
 
-#### TGS relabelled its divisions on 2026-08-01
+#### TGS U-age divisions are only resolvable from 2026-08-01
 
-TGS names divisions by birth year (`B2015`) for events before that date and by
-U-age (`BU11`, `GU18/19`) on or after it. A birth year means the same cohort
-forever; a U-age only means one against the season that wrote it, so it must be
-resolved against the event's own game dates, never the wall clock. The weekly
-chain rescans a fixed id range forever, so a clock-derived cohort would re-file
-the same historical event one group higher every Aug 1.
+Both label styles appear throughout the scrape range: birth year (`B2015`) and
+U-age (`BU11`, `GU18/19`). A birth year names the same cohort forever. A U-age
+names one only against the season that wrote it, and TGS does not say which
+season that was, so the label alone is not enough.
 
-Events predating the switch carry a labelling season that cannot be recovered:
-3430 (Apr 2025) and 3967 (Sep 2025) both sit two seasons behind their play
-dates. `scrape_tgs_event.py` skips those rather than guess;
-`--u-format-before-cutover` reads them as the cutover season for a manual
-backfill, and is only safe when the event's team names confirm the cohort.
+2026-08-01 is the date from which a U-age becomes *resolvable*, not the date
+those labels start existing. On or after it, the event's own game dates identify
+the labelling season. Before it, they do not: event 3430 (Apr 2025) and event
+3967 (Sep 2025) both carry U-age divisions whose labels sit two seasons behind
+their play dates, which their own team names confirm.
+
+So `scrape_tgs_event.py` resolves a post-cutover U-age against the season its
+games fall in, and skips a pre-cutover one rather than guess.
+`--u-format-before-cutover` reads the skipped ones as the cutover season for a
+manual backfill, and is only safe when the event's team names confirm the cohort.
+
+Resolve against the event, never the wall clock. The weekly chain rescans a fixed
+id range indefinitely, so a clock-derived cohort would re-file the same
+historical event one group higher every Aug 1.
 
 ### Adding a new scraper
 
