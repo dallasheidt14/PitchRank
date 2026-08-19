@@ -235,7 +235,12 @@ class EnhancedETLPipeline:
             from src.models.tgs_matcher import TGSGameMatcher
 
             logger.info("Using TGSGameMatcher (with enhanced fuzzy matching)")
-            self.matcher = TGSGameMatcher(self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache)
+            self.matcher = TGSGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "sincsports":
             from src.models.sincsports_matcher import SincSportsGameMatcher
 
