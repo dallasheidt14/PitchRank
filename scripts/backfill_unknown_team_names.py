@@ -14,7 +14,9 @@ concurrent GotSport work on the same IP. The default 12s spacing puts a
 
 Provider IDs minted before ~May 2026 no longer exist on GotSport and return 404
 permanently; they are counted separately so a run that only hits those is visibly
-exhausted rather than silently failing.
+exhausted rather than silently failing. The default --created-after sits at that
+boundary so a scheduled run covers every resolvable placeholder without spending
+requests on the dead ones.
 
 Updates team_name and club_name only. Age group is deliberately not written —
 GotSport's display_age_group is the registered event cohort, not the birth-year
@@ -247,8 +249,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--created-after",
-        default="2026-08-04",
-        help="Only teams created on/after this date (default: 2026-08-04). Pass '' for all.",
+        default="2026-05-01",
+        help="Only teams created on/after this date (default: 2026-05-01). Pass '' for all.",
     )
     args = parser.parse_args()
 
