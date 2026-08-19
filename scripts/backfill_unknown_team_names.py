@@ -4,9 +4,13 @@ Backfill real team names for `unknown_<provider_team_id>` placeholder teams from
 
 These rows are created by the weekly unknown-opponent hygiene pipeline
 (discover_teams_from_opponents.py) when its GotSport name lookup comes back empty.
-The lookup is a plain HTTPS call that CloudFront rate-limits in bursts, so this
-script paces itself the way process_missing_games.py does and is meant to be run
-with a small --limit on a schedule until the placeholders are gone.
+
+GotSport fronts this endpoint with a per-IP CloudFront burst limiter, so the
+lookup returns 403 rather than data whenever a caller goes too fast — which is
+what leaves the placeholder name behind in the first place. Requests share the
+module-level WAFBreaker from src.scrapers.gotsport, so a trip here pauses any
+concurrent GotSport work on the same IP. The default 12s spacing puts a
+--limit 75 run just inside a 15-minute window.
 
 Provider IDs minted before ~May 2026 no longer exist on GotSport and return 404
 permanently; they are counted separately so a run that only hits those is visibly
@@ -25,15 +29,26 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
+import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import requests
 from dotenv import load_dotenv
 
-from supabase import create_client
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.scrapers.gotsport import (  # noqa: E402
+    _WAF_COOLDOWN_DEFAULT,  # noqa: E402
+    WAFBlockedError,
+    _is_cloudfront_waf_block,
+    get_waf_breaker,
+)
+from supabase import create_client  # noqa: E402
 
 # Values from GotSport that mean "no club" - do not update
 NO_CLUB_VALUES: Set[str] = {
@@ -89,24 +104,37 @@ class GotSportResolver:
 
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
-    def __init__(self, timeout: int = 20, delay_seconds: float = 0.25):
+    def __init__(self, timeout: int = 20, delay_seconds: float = 12.0):
         self.timeout = timeout
         self.delay_seconds = delay_seconds
         self.session = requests.Session()
+        self.breaker = get_waf_breaker()
+        self.cooldown_sec = int(os.getenv("GOTSPORT_WAF_COOLDOWN_SEC", str(_WAF_COOLDOWN_DEFAULT)))
 
     def resolve(self, provider_team_id: str) -> Dict[str, str]:
         key = str(provider_team_id).strip()
         if not key:
             return {"_error": "empty provider_team_id"}
-        time.sleep(self.delay_seconds)
-        try:
-            response = self.session.get(
-                self.BASE_URL,
-                params={"team_id": key},
-                timeout=self.timeout,
-            )
-        except Exception as e:
-            return {"_error": str(e)}
+
+        for attempt in range(2):
+            self.breaker.wait_if_open_sync()
+            time.sleep(self.delay_seconds)
+            try:
+                response = self.session.get(
+                    self.BASE_URL,
+                    params={"team_id": key},
+                    timeout=self.timeout,
+                )
+            except Exception as e:
+                return {"_error": str(e)}
+
+            if _is_cloudfront_waf_block(response):
+                if attempt == 0:
+                    log(f"  WAF block on {key} — pausing {self.cooldown_sec}s, then retrying once")
+                self.breaker.trip(self.cooldown_sec, url=self.BASE_URL, team_id=key)
+                continue
+
+            break
 
         if response.status_code == 404:
             return {"_gone": "404 Can not find team"}
@@ -127,6 +155,18 @@ class GotSportResolver:
             "age_group": str(payload.get("display_age_group") or "").strip(),
             "association": str(payload.get("team_association") or "").strip(),
         }
+
+
+def write_mismatch_csv(mismatches: List[Dict]) -> str:
+    """Write mismatches to data/exports for follow-up. Returns the path."""
+    out_dir = Path("data/exports")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"unknown_backfill_mismatches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(mismatches[0].keys()))
+        writer.writeheader()
+        writer.writerows(mismatches)
+    return str(path)
 
 
 def load_env() -> None:
@@ -151,7 +191,7 @@ def fetch_placeholder_teams(supabase, limit: int, created_after: Optional[str]) 
     """Placeholder teams, newest first. Recent provider IDs still resolve; old ones 404."""
     query = (
         supabase.table("teams")
-        .select("team_id_master,team_name,provider_team_id,club_name,gender,state_code")
+        .select("team_id_master,team_name,provider_team_id,club_name,gender,age_group,state_code")
         .like("team_name", "unknown_%")
         .eq("is_deprecated", False)
         .not_.is_("provider_team_id", "null")
@@ -172,14 +212,14 @@ def main() -> None:
     parser.add_argument(
         "--limit",
         type=int,
-        default=40,
-        help="Max teams to process (default: 40, matching the scrape drainer)",
+        default=75,
+        help="Max teams to process (default: 75, one 15-minute cron slot at the default delay)",
     )
     parser.add_argument(
         "--delay",
         type=float,
-        default=0.25,
-        help="Seconds between API calls (default: 0.25)",
+        default=12.0,
+        help="Seconds between API calls (default: 12.0, ~75 calls per 15 min)",
     )
     parser.add_argument(
         "--created-after",
@@ -207,13 +247,22 @@ def main() -> None:
     gone = 0
     skipped_no_name = 0
     skipped_error = 0
-    gender_mismatch = 0
+    mismatches: List[Dict] = []
+
+    waf_aborted = False
 
     for team in teams:
         team_id = team["team_id_master"]
         provider_team_id = str(team["provider_team_id"]).strip()
 
-        result = resolver.resolve(provider_team_id)
+        try:
+            result = resolver.resolve(provider_team_id)
+        except WAFBlockedError:
+            waf_aborted = True
+            log("")
+            log("  WAF tripped twice — stopping this run. Already-written renames are kept.")
+            log("  Wait out the cooldown before the next run; lower --limit or raise --delay if it repeats.")
+            break
         if "_gone" in result:
             gone += 1
             continue
@@ -235,7 +284,17 @@ def main() -> None:
 
         api_gender = result.get("gender", "")
         if api_gender and api_gender != str(team.get("gender") or "").strip():
-            gender_mismatch += 1
+            mismatches.append(
+                {
+                    "provider_team_id": provider_team_id,
+                    "team_name": name,
+                    "club_name": club or team.get("club_name") or "",
+                    "stored_gender": str(team.get("gender") or ""),
+                    "gotsport_gender": api_gender,
+                    "stored_age_group": str(team.get("age_group") or ""),
+                    "gotsport_age_group": result.get("age_group", ""),
+                }
+            )
 
         suffix = f"  [club: {update['club_name']}]" if "club_name" in update else ""
 
@@ -255,14 +314,25 @@ def main() -> None:
             log(f"  ERROR updating {team_id}: {e}")
 
     log("")
-    log("=== Summary ===")
+    log(f"=== Summary{' (WAF-ABORTED)' if waf_aborted else ''} ===")
     log(f"Renamed: {updated:,}")
     log(f"Club also set: {clubs_set:,}")
     log(f"Gone from GotSport (404, needs marking): {gone:,}")
     log(f"Skipped (no usable name): {skipped_no_name:,}")
     log(f"Skipped (API/DB error): {skipped_error:,}")
-    if gender_mismatch:
-        log(f"NOTE: {gender_mismatch:,} teams have a stored gender that disagrees with GotSport (not written)")
+
+    if mismatches:
+        log("")
+        log(f"=== Gender disagrees with GotSport ({len(mismatches):,}) — not written ===")
+        for m in mismatches:
+            log(f"  {m['provider_team_id']}  {m['team_name']}")
+            log(f"      club={m['club_name'] or '(none)'}")
+            log(
+                f"      gender: stored={m['stored_gender'] or '(none)'} gotsport={m['gotsport_gender']}"
+                f"   |  age: stored={m['stored_age_group'] or '(none)'} gotsport={m['gotsport_age_group'] or '(none)'}"
+            )
+        log("")
+        log(f"CSV: {write_mismatch_csv(mismatches)}")
 
 
 if __name__ == "__main__":
