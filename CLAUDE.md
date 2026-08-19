@@ -99,14 +99,27 @@ PitchRank/
 > cohort than it did last season — check the season before trusting any older
 > mapping you find in code comments or docs.
 
-| Birth Year | Age Group | | Birth Year | Age Group |
-|---|---|---|---|---|
-| 2017 | U10 | | 2013 | U14 |
-| 2016 | U11 | | 2012 | U15 |
-| 2015 | U12 | | 2011 | U16 |
-| 2014 | U13 | | 2010 | U17 |
-| | | | 2009 | U19 |
-| | | | 2008 | U19 |
+| Birth years (Aug 1 - Jul 31) | Real-world | PitchRank |
+|---|---|---|
+| 2018 / 2017 | U9  | u9 |
+| 2017 / 2016 | U10 | u10 |
+| 2016 / 2015 | U11 | u11 |
+| 2015 / 2014 | U12 | u12 |
+| 2014 / 2013 | U13 | u13 |
+| 2013 / 2012 | U14 | u14 |
+| 2012 / 2011 | U15 | u15 |
+| 2011 / 2010 | U16 | u16 |
+| 2010 / 2009 | U17 | u17 |
+| 2009 / 2008 | U18 | **u19** (merged) |
+| 2008 / 2007 | U19 | u19 |
+
+A cohort's birth window runs Aug 1 - Jul 31 and so spans two calendar years,
+which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
+The system stores the **leading** year only, matching birth-year registration.
+
+PitchRank deliberately files U18 into U19 rather than running a separate U18
+board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
+Do not "fix" this by splitting the cohort.
 
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
