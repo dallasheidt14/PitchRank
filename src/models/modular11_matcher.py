@@ -15,7 +15,6 @@ Key features:
 
 import logging
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -1351,7 +1350,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
                 return self._dry_run_teams_by_provider_team_id[aliased_provider_team_id]
 
             # Generate new UUID
-            team_id_master = str(uuid.uuid4())
+            team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
 
             # Normalize age_group
             age_group_normalized = age_group.lower() if age_group else age_group

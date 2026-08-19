@@ -15,7 +15,6 @@ SincSports naming patterns:
 
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import Dict, Optional, Set, Tuple
 
@@ -710,7 +709,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 except Exception:
                     pass  # No existing team found
 
-            team_id_master = str(uuid.uuid4())
+            team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
             age_group_normalized = age_group.lower() if age_group else age_group
             gender_normalized = "Male" if gender.upper() in ("M", "MALE", "BOYS", "B") else "Female"
 

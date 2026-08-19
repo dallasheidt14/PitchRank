@@ -17,7 +17,6 @@ Hybrid design:
 
 import logging
 import re
-import uuid
 from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
@@ -467,19 +466,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         else:
             new_state_code, new_state = self._resolve_state_from_club(club_name)
 
-        # Deterministic stub UUID for dry-runs — same inputs always yield the
-        # same ID so home + away perspectives within a batch resolve to one
-        # "team", and repeated dry-runs are idempotent. Real team_id_master
-        # uses uuid4 (random) per insert.
-        if self.dry_run:
-            team_id_master = str(
-                uuid.uuid5(
-                    uuid.NAMESPACE_DNS,
-                    f"playmetrics_dry_run|{provider_id}|{provider_team_id}|{team_name}|{age_group_normalized}|{gender_normalized}",
-                )
-            )
-        else:
-            team_id_master = str(uuid.uuid4())
+        team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
 
         # PlayMetrics: pass raw `team_name` — no clean_team_name intermediate exists.
         # state_code lets resolve_distinction strip state-name tokens

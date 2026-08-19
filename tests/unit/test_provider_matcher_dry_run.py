@@ -85,3 +85,84 @@ def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):
     )
 
     db.table.return_value.insert.assert_not_called()
+
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    """Resolves every read to "nothing found" and records every insert."""
+
+    def __init__(self, table, sink):
+        self.table, self.sink, self._single = table, sink, False
+
+    def __getattr__(self, _name):
+        return lambda *a, **k: self
+
+    def single(self):
+        self._single = True
+        return self
+
+    def insert(self, data):
+        self.sink.append((self.table, data))
+        return self
+
+    def execute(self):
+        return _Result(None if self._single else [])
+
+
+class _EmptyDB:
+    def __init__(self):
+        self.inserts = []
+
+    def table(self, name):
+        return _Query(name, self.inserts)
+
+
+def _match_thrice(cls, provider, db):
+    matcher = cls(db, provider_id=provider, dry_run=True)
+    return [
+        (matcher._match_team(provider, "999001", "Some Unseen Team", "u14", "Female", "Some Club") or {}).get("team_id")
+        for _ in range(3)
+    ]
+
+
+@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+def test_one_unseen_team_keeps_one_id_across_a_dry_run(provider, cls):
+    """Without this the same team fragments into a fresh uuid per game.
+
+    The alias cache is only populated when already non-empty, and a cached hit
+    is re-validated against a `teams` row a dry run never wrote, so the alias is
+    rejected and the team is created again. The simulated game_uids then stop
+    matching what a real import would produce.
+    """
+    ids = _match_thrice(cls, provider, _EmptyDB())
+
+    assert len(set(ids)) == 1, f"{provider} produced {len(set(ids))} ids for one team"
+
+
+@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+def test_dry_run_ids_are_reproducible_across_runs(provider, cls):
+    first = _match_thrice(cls, provider, _EmptyDB())[0]
+    second = _match_thrice(cls, provider, _EmptyDB())[0]
+
+    assert first == second
+
+
+@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+def test_matching_writes_nothing_at_all_in_dry_run(provider, cls):
+    db = _EmptyDB()
+
+    _match_thrice(cls, provider, db)
+
+    assert db.inserts == []
+
+
+def test_real_imports_still_get_a_random_id():
+    """The deterministic id is a dry-run device, not the production identity."""
+    matcher = TGSGameMatcher(_EmptyDB(), provider_id="tgs", dry_run=False)
+    args = ("tgs", "999001", "Some Unseen Team", "u14", "Female")
+
+    assert matcher._new_team_id_master(*args) != matcher._new_team_id_master(*args)

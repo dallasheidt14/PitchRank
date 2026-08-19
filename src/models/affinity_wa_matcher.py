@@ -14,7 +14,6 @@ Affinity-specific overrides (do not affect other providers):
 
 import logging
 import re
-import uuid
 from typing import Dict, Optional
 
 from config.settings import MATCHING_CONFIG
@@ -368,7 +367,7 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
             except Exception:
                 pass
 
-        team_id_master = str(uuid.uuid4())
+        team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
         age_group_normalized = age_group.lower() if age_group else age_group
         gender_normalized = "Male" if gender.upper() in ("M", "MALE", "BOYS", "B") else "Female"
         clean_team_name = team_name
