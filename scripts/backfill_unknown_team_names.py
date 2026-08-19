@@ -48,6 +48,7 @@ from src.scrapers.gotsport import (  # noqa: E402
     _is_cloudfront_waf_block,
     get_waf_breaker,
 )
+from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 # Values from GotSport that mean "no club" - do not update
@@ -187,19 +188,42 @@ def get_supabase():
     return create_client(supabase_url, supabase_key)
 
 
-def fetch_placeholder_teams(supabase, limit: int, created_after: Optional[str]) -> List[Dict]:
-    """Placeholder teams, newest first. Recent provider IDs still resolve; old ones 404."""
+def fetch_gotsport_provider_id(supabase) -> Optional[str]:
+    providers = supabase.table("providers").select("id").eq("code", "gotsport").execute().data
+    if not providers:
+        return None
+    return providers[0]["id"]
+
+
+def fetch_placeholder_teams(
+    supabase,
+    limit: int,
+    created_after: Optional[str],
+    gotsport_provider_id: str,
+) -> List[Dict]:
+    """Placeholder teams, newest first. Recent provider IDs still resolve; old ones 404.
+
+    Scoped to GotSport because the name is resolved against GotSport:
+    discover_teams_from_opponents.py takes a --provider, so another provider's
+    placeholder whose numeric ID collides with a GotSport one would otherwise be
+    overwritten with that unrelated team's identity.
+
+    The escaped LIKE is a coarse prefilter only — ``_`` is a LIKE wildcard, so
+    it is the exact-equality predicate that decides, keeping a real name like
+    ``unknown_elite`` out (tests/unit/test_scrape_games.py).
+    """
     query = (
         supabase.table("teams")
         .select("team_id_master,team_name,provider_team_id,club_name,gender,age_group,state_code")
-        .like("team_name", "unknown_%")
+        .like("team_name", "unknown\\_%")
+        .eq("provider_id", gotsport_provider_id)
         .eq("is_deprecated", False)
         .not_.is_("provider_team_id", "null")
     )
     if created_after:
         query = query.gte("created_at", created_after)
     rows = query.order("created_at", desc=True).limit(limit).execute().data or []
-    return [r for r in rows if str(r.get("provider_team_id") or "").strip()]
+    return [r for r in rows if _is_placeholder_team(r.get("team_name"), str(r.get("provider_team_id") or ""))]
 
 
 def main() -> None:
@@ -231,7 +255,12 @@ def main() -> None:
     load_env()
     supabase = get_supabase()
 
-    teams = fetch_placeholder_teams(supabase, args.limit, args.created_after)
+    gotsport_provider_id = fetch_gotsport_provider_id(supabase)
+    if not gotsport_provider_id:
+        log("ERROR: GotSport provider not found in providers table.")
+        return
+
+    teams = fetch_placeholder_teams(supabase, args.limit, args.created_after, gotsport_provider_id)
     if not teams:
         log("No placeholder teams remaining.")
         return
