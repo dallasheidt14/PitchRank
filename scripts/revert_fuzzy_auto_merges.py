@@ -71,38 +71,99 @@ def get_supabase():
     return create_client(supabase_url, supabase_key)
 
 
-def fetch_merges_to_revert(supabase, since: str, merged_by: str, limit: Optional[int]) -> List[Dict]:
+def is_placeholder(team_name: Optional[str], provider_team_id: Optional[str]) -> bool:
+    """True when the name is the unknown_<provider_team_id> fallback and nothing more."""
+    name = (team_name or "").strip()
+    pid = str(provider_team_id or "").strip()
+    if not name or not pid:
+        return False
+    return name.lower() == f"unknown_{pid}".lower()
+
+
+def keep_placeholder_pairs(supabase, rows: List[Dict]) -> List[Dict]:
+    """Keep only merges where both sides were unknown_<pid> placeholders.
+
+    Two placeholders carry no identifying information, so a similarity score
+    between them only ever reflects their shared prefix and adjacent provider
+    IDs — such a pair is never a known duplicate. The canonical side is read
+    live rather than from a snapshot (only the deprecated side is snapshotted);
+    a canonical since renamed by the backfill therefore drops out, which is the
+    conservative direction.
+    """
+    deprecated_side = [
+        r
+        for r in rows
+        if is_placeholder(
+            (r.get("deprecated_team_snapshot") or {}).get("team_name"),
+            (r.get("deprecated_team_snapshot") or {}).get("provider_team_id"),
+        )
+    ]
+    if not deprecated_side:
+        return []
+
+    canonical_ids = sorted({r["canonical_team_id"] for r in deprecated_side})
+    canonical: Dict[str, Dict] = {}
+    for i in range(0, len(canonical_ids), 100):
+        batch = (
+            supabase.table("teams")
+            .select("team_id_master,team_name,provider_team_id")
+            .in_("team_id_master", canonical_ids[i : i + 100])
+            .execute()
+            .data
+            or []
+        )
+        for team in batch:
+            canonical[team["team_id_master"]] = team
+
+    return [
+        r
+        for r in deprecated_side
+        if is_placeholder(
+            (canonical.get(r["canonical_team_id"]) or {}).get("team_name"),
+            (canonical.get(r["canonical_team_id"]) or {}).get("provider_team_id"),
+        )
+    ]
+
+
+def fetch_merges_to_revert(
+    supabase,
+    since: Optional[str],
+    merged_by: str,
+    limit: Optional[int],
+    placeholders_only: bool,
+) -> List[Dict]:
     """Un-reverted 'merge' audit rows, newest first so chained merges unwind in order."""
     rows: List[Dict] = []
     offset = 0
     page_size = 1000
 
     while True:
-        batch = (
+        query = (
             supabase.table("team_merge_audit")
             .select(
                 "id,deprecated_team_id,canonical_team_id,aliases_updated,performed_at,deprecated_team_snapshot"
             )
             .eq("action", "merge")
             .eq("performed_by", merged_by)
-            .gte("performed_at", since)
             .is_("reverted_at", "null")
-            .order("performed_at", desc=True)
-            .range(offset, offset + page_size - 1)
-            .execute()
-            .data
-            or []
         )
+        if since:
+            query = query.gte("performed_at", since)
+        batch = query.order("performed_at", desc=True).range(offset, offset + page_size - 1).execute().data or []
         if not batch:
             break
         rows.extend(batch)
-        if limit and len(rows) >= limit:
+        # The placeholder filter runs after paging, so --limit cannot short-circuit here.
+        if limit and not placeholders_only and len(rows) >= limit:
             return rows[:limit]
         if len(batch) < page_size:
             break
         offset += page_size
 
-    return rows
+    if placeholders_only:
+        rows = keep_placeholder_pairs(supabase, rows)
+
+    return rows[:limit] if limit else rows
 
 
 def revert_one(supabase, audit: Dict, execute: bool) -> Dict:
@@ -155,7 +216,12 @@ def main() -> None:
     parser.add_argument(
         "--since",
         default=RUN_START_DEFAULT,
-        help=f"Audit rows at/after this time (default: {RUN_START_DEFAULT})",
+        help=f"Audit rows at/after this time (default: {RUN_START_DEFAULT}). Pass '' for all history.",
+    )
+    parser.add_argument(
+        "--placeholders-only",
+        action="store_true",
+        help="Only revert merges where BOTH sides were unknown_<provider_team_id> placeholders",
     )
     parser.add_argument(
         "--merged-by",
@@ -170,13 +236,15 @@ def main() -> None:
     load_env()
     supabase = get_supabase()
 
-    merges = fetch_merges_to_revert(supabase, args.since, args.merged_by, args.limit)
+    merges = fetch_merges_to_revert(supabase, args.since, args.merged_by, args.limit, args.placeholders_only)
     if not merges:
         log("No un-reverted merges match.")
         return
 
     log(f"=== Revert Fuzzy Auto-Merges ({'LIVE' if execute else 'DRY RUN'}) ===")
-    log(f"{len(merges):,} merges by {args.merged_by} at/after {args.since}, newest first")
+    window = f"at/after {args.since}" if args.since else "across all history"
+    scope = " (both sides placeholders)" if args.placeholders_only else ""
+    log(f"{len(merges):,} merges by {args.merged_by} {window}{scope}, newest first")
     log("")
 
     reverted = 0
