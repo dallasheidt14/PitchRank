@@ -111,27 +111,33 @@ Rebels SC 2014G Premier       ≠  Rebels SC 2014G Academy       ❌ DIFFERENT T
 
 Youth soccer uses TWO naming systems interchangeably:
 
+Seasons run Aug 1 - Jul 31, so every cohort moves up one each Aug 1. This table
+is the 2026-27 season; re-check it against `CLAUDE.md` before relying on it.
+
 | Birth Year | Age Group |
 |------------|-----------|
-| 2016 | U10 |
-| 2015 | U11 |
-| 2014 | U12 |
-| 2013 | U13 |
-| 2012 | U14 |
-| 2011 | U15 |
-| 2010 | U16 |
-| 2009 | U17 |
-| 2008 | U18 |
+| 2017 | U10 |
+| 2016 | U11 |
+| 2015 | U12 |
+| 2014 | U13 |
+| 2013 | U14 |
+| 2012 | U15 |
+| 2011 | U16 |
+| 2010 | U17 |
+| 2009 | U19 |
+| 2008 | U19 |
+
+Age 18 collapses into U19, so 2009 and 2008 share a cohort.
 
 **All of these refer to the SAME team:**
 - `Phoenix Premier FC 2014B`
-- `Phoenix Premier FC U12B`
+- `Phoenix Premier FC U13B`
 - `Phoenix Premier FC B2014`
-- `Phoenix Premier FC 12B`
+- `Phoenix Premier FC 14B`
 
 **CRITICAL: B/G usually means GENDER, not "Boys U-age"**
-- `14B` = 2014 Boys = **U12 Male** (birth year!)
-- `14G` = 2014 Girls = **U12 Female**
+- `14B` = 2014 Boys = **U13 Male** (birth year!)
+- `14G` = 2014 Girls = **U13 Female**
 - `U14B` = U14 Boys = **U14 Male** (age group - DIFFERENT!)
 
 The **"U" prefix is the signal:**

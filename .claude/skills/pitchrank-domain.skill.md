@@ -13,23 +13,32 @@ You are working on PitchRank, a youth soccer ranking platform. This skill teache
 - U10, U11, U12, U13, U14, U15, U16, U17, U18, U19
 - "U" = "Under" (U14 = Under 14 years old)
 
-### Birth Year to Age (2026 Season)
+### Birth Year to Age (2026-27 Season)
+
+Rolled over on 2026-08-01. Seasons run Aug 1 - Jul 31, so every cohort moves up
+one each Aug 1 and this table is only valid for the season named above. Check
+the current season before trusting any birth-year mapping you find in code
+comments or docs.
+
 | Birth Year | Age Group |
 |------------|-----------|
-| 2016 | U10 |
-| 2015 | U11 |
-| 2014 | U12 |
-| 2013 | U13 |
-| 2012 | U14 |
-| 2011 | U15 |
-| 2010 | U16 |
-| 2009 | U17 |
-| 2008 | U18 |
+| 2017 | U10 |
+| 2016 | U11 |
+| 2015 | U12 |
+| 2014 | U13 |
+| 2013 | U14 |
+| 2012 | U15 |
+| 2011 | U16 |
+| 2010 | U17 |
+| 2009 | U19 |
+| 2008 | U19 |
+
+Age 18 collapses into U19, so 2009 and 2008 share a cohort.
 
 ### Common Formats
-- `14B` = 2014 birth year, Boys = **U12 Male**
+- `14B` = 2014 birth year, Boys = **U13 Male**
 - `U14B` = U14 age group, Boys = **U14 Male**
-- `G2016` = Girls, 2016 birth year = **U10 Female**
+- `G2016` = Girls, 2016 birth year = **U11 Female**
 
 **CRITICAL**: B/G = Gender (Boys/Girls), NOT part of age number!
 

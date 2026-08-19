@@ -10,7 +10,7 @@ Parses team names into structured components:
 
 Key rules:
 - B/G = gender (Boys/Girls), NOT part of age
-- No "U" prefix = birth year (14B = 2014 Boys = U12 Male)
+- No "U" prefix = birth year (14B = 2014 Boys, which is U13 in the 2026-27 season)
 - "U" prefix = age group (U14B = U14 Boys = U14 Male)
 - ECNL ≠ ECNL-RL (different tiers)
 """

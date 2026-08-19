@@ -144,6 +144,21 @@ see `.turbo/improvements.md`.
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
 
+#### TGS relabelled its divisions on 2026-08-01
+
+TGS names divisions by birth year (`B2015`) for events before that date and by
+U-age (`BU11`, `GU18/19`) on or after it. A birth year means the same cohort
+forever; a U-age only means one against the season that wrote it, so it must be
+resolved against the event's own game dates, never the wall clock. The weekly
+chain rescans a fixed id range forever, so a clock-derived cohort would re-file
+the same historical event one group higher every Aug 1.
+
+Events predating the switch carry a labelling season that cannot be recovered:
+3430 (Apr 2025) and 3967 (Sep 2025) both sit two seasons behind their play
+dates. `scrape_tgs_event.py` skips those rather than guess;
+`--u-format-before-cutover` reads them as the cutover season for a manual
+backfill, and is only safe when the event's team names confirm the cohort.
+
 ### Adding a new scraper
 
 When planning a new provider, audit what per-team metadata the source exposes (state_code, club_name, coach, gender, age) BEFORE locking in match/create policy. `state_code` availability is load-bearing — without it, auto-created canonical teams land with NULL state and cannot benefit from location-scoped fuzzy matching downstream.
@@ -225,6 +240,10 @@ supabase.rpc('batch_update_ml_overperformance', {'updates': data}).execute()
 
 # Querying team data directly: resolve merges first (team_id_master) —
 # deprecated team_id values yield duplicate or missing rows
+
+# games.home_team_master_id / away_team_master_id join teams.team_id_master,
+# NOT teams.id — filtering teams by .id returns zero rows for a game's team
+supabase.table('teams').select('*').in_('team_id_master', master_ids).execute()
 ```
 
 ---
@@ -542,7 +561,9 @@ const { user, supabase } = auth;
 ## Code Quality
 
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
+- A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
 - Run `ruff check` before committing Python changes; a Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
+- Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.
 
 ---
 
