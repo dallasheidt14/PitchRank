@@ -1,5 +1,6 @@
 'use server';
 
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { isVerifiableOtpType, safeNextPath } from '@/lib/auth/emailTokens';
@@ -29,5 +30,14 @@ export async function confirmEmailLink(formData: FormData) {
     );
   }
 
-  redirect(type === 'recovery' ? '/reset-password' : next);
+  if (type === 'recovery') {
+    // forgot-password sets password_reset_pending for 24h so the callback can
+    // route a bare PKCE code to /reset-password. The reset is done, so clear it:
+    // a stale flag reclassifies any unrelated OAuth sign-in in this browser as a
+    // recovery for the rest of the day. The callback clears it on its own paths.
+    (await cookies()).set('password_reset_pending', '', { path: '/', maxAge: 0 });
+    redirect('/reset-password');
+  }
+
+  redirect(next);
 }

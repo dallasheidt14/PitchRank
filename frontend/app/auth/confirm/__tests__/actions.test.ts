@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockVerifyOtp, mockRedirect } = vi.hoisted(() => ({
+const { mockVerifyOtp, mockRedirect, mockCookieSet } = vi.hoisted(() => ({
   mockVerifyOtp: vi.fn(),
+  mockCookieSet: vi.fn(),
   mockRedirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
 }));
 
 vi.mock('next/navigation', () => ({ redirect: mockRedirect }));
+
+vi.mock('next/headers', () => ({ cookies: vi.fn(async () => ({ set: mockCookieSet })) }));
 
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabase: vi.fn(async () => ({ auth: { verifyOtp: mockVerifyOtp } })),
@@ -38,6 +41,25 @@ describe('confirmEmailLink', () => {
 
     expect(mockVerifyOtp).toHaveBeenCalledWith({ token_hash: 'abc', type: 'recovery' });
     expect(target).toBe('/reset-password');
+  });
+
+  it('clears the recovery marker so a later OAuth sign-in is not misrouted', async () => {
+    // forgot-password sets password_reset_pending for 24h; the callback treats
+    // any bare ?code= as a recovery while it is set. Leaving it behind sends an
+    // unrelated Google sign-in to /reset-password for the rest of the day.
+    mockVerifyOtp.mockResolvedValue({ error: null });
+
+    await redirectTarget(confirmForm({ token_hash: 'abc', type: 'recovery' }));
+
+    expect(mockCookieSet).toHaveBeenCalledWith('password_reset_pending', '', { path: '/', maxAge: 0 });
+  });
+
+  it('leaves the recovery marker alone when confirming a non-recovery link', async () => {
+    mockVerifyOtp.mockResolvedValue({ error: null });
+
+    await redirectTarget(confirmForm({ token_hash: 'abc', type: 'email' }));
+
+    expect(mockCookieSet).not.toHaveBeenCalled();
   });
 
   it('routes a confirmed email to the requested next path', async () => {
