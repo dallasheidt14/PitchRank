@@ -27,16 +27,12 @@ YOUNGEST_TRACKED_BIRTH_YEAR = CURRENT_YEAR - 10 + 1
 OLDEST_TRACKED_BIRTH_YEAR = CURRENT_YEAR - 19 + 1
 
 # TGS relabelled its divisions from birth year ('B2015') to U-age ('BU11') at the
-# 2026-08-01 rollover, so a U-age label is only readable against CURRENT_YEAR for
-# events played on or after it. Earlier events carry an unrecoverable labelling
-# season -- 3430 (Apr 2025) and 3967 (Sep 2025) both sit two seasons back -- and
-# are skipped rather than guessed. --u-format-before-cutover lifts that per run.
+# 2026-08-01 rollover, so a U-age label is only readable for events played on or
+# after it. Earlier events carry an unrecoverable labelling season -- 3430 (Apr
+# 2025) and 3967 (Sep 2025) both sit two seasons back -- and are skipped rather
+# than guessed. --u-format-before-cutover lifts that for a manual backfill.
 U_FORMAT_CUTOVER_DATE = "2026-08-01"
 U_FORMAT_BEFORE_CUTOVER = False
-
-# 4-digit tokens above this are season or event labels ('2026 U13 Boys'), not
-# birth years. Mirrors season_year_max in scripts/team_name_normalizer.py.
-NEWEST_PLAUSIBLE_BIRTH_YEAR = CURRENT_YEAR - 7
 
 # Global scrape identifiers (set in main())
 SCRAPE_TS = None
@@ -128,8 +124,14 @@ def resolve_config():
 U_AGE_TOKEN_RE = re.compile(r"(?<![A-Z])[BG]?U-?(\d{1,2})((?:\s*[/-]\s*U?\d{1,2}\b)*)")
 
 
-def _cohort_from_u_ages(division_upper: str) -> Optional[int]:
-    """Resolve U-age tokens to one birth year, or None if the label is ambiguous.
+def season_year_of(game_date: str) -> int:
+    """Season year a date falls in. Seasons run Aug 1 to Jul 31."""
+    year, month = int(game_date[:4]), int(game_date[5:7])
+    return year if month >= 8 else year - 1
+
+
+def u_age_of(division_name: str) -> Optional[int]:
+    """The single U-age this label names, or None if it names none or several.
 
     A multi-age label is only honoured when every age it lists lands in the same
     cohort once U18 collapses into U19 ('GU18/19'). Anything spanning real
@@ -137,46 +139,63 @@ def _cohort_from_u_ages(division_upper: str) -> Optional[int]:
     with the first age filed the whole flight as the youngest.
     """
     ages = set()
-    for match in U_AGE_TOKEN_RE.finditer(division_upper):
+    for match in U_AGE_TOKEN_RE.finditer(division_name.upper()):
         ages.add(int(match.group(1)))
         ages.update(int(a) for a in re.findall(r"\d{1,2}", match.group(2)))
 
     if not ages or len({19 if age >= 18 else age for age in ages}) != 1:
         return None
-    return CURRENT_YEAR - max(ages) + 1
+    return max(ages)
 
 
-def extract_year(division_name: str, allow_u_format: bool = True) -> Optional[int]:
+def extract_year(division_name: str, u_age_season: Optional[int] = None) -> Optional[int]:
     """Extract birth year from a division name (e.g., 'B2012' -> 2012).
 
     TGS labels divisions two ways, and both appear inside the same scrape range:
-    - Birth year: 'B2012'
+    - Birth year: 'B2012', 'B2008/2007'
     - U-age:      'BU11', 'GU18/19'
 
-    A U-age wins over any 4-digit token, so a season label cannot mask it
-    ('2026 U13 Boys'). U-ages resolve against CURRENT_YEAR, which only holds for
-    events on or after U_FORMAT_CUTOVER_DATE -- callers gate that via
-    allow_u_format once they know the event's dates.
+    A birth year means the same cohort forever; a U-age only means one against
+    the season that wrote it. Callers pass that season as u_age_season once the
+    event's game dates identify it, and leaving it None skips the U-age branch
+    rather than guessing. Resolving U-ages against the wall clock instead would
+    re-file a fixed historical event one cohort higher every Aug 1.
 
     Only returns birth years inside the tracked U10-U19 window.
     """
-    division_upper = division_name.upper()
+    age = u_age_of(division_name)
+    if age is not None and u_age_season is not None:
+        year = u_age_season - age + 1
+        return year if OLDEST_TRACKED_BIRTH_YEAR <= year <= YOUNGEST_TRACKED_BIRTH_YEAR else None
 
-    year = _cohort_from_u_ages(division_upper) if allow_u_format else None
-    if year is None:
-        candidates = [int(y) for y in re.findall(r"\d{4}", division_upper) if int(y) <= NEWEST_PLAUSIBLE_BIRTH_YEAR]
-        if not candidates:
-            return None
-        year = min(candidates)
-
-    if OLDEST_TRACKED_BIRTH_YEAR <= year <= YOUNGEST_TRACKED_BIRTH_YEAR:
-        return year
-    return None
+    # Filter to the window before choosing, so an aged-out half of a combined
+    # label ('B2008/2007') cannot reject a division whose other half is tracked.
+    candidates = [
+        int(y)
+        for y in re.findall(r"\d{4}", division_name)
+        if OLDEST_TRACKED_BIRTH_YEAR <= int(y) <= YOUNGEST_TRACKED_BIRTH_YEAR
+    ]
+    return min(candidates) if candidates else None
 
 
-def is_u_format_label(division_name: str) -> bool:
-    """Whether the label names its cohort by U-age rather than birth year."""
-    return _cohort_from_u_ages(division_name.upper()) is not None
+def resolve_u_age_season(game_dates: List[str]) -> Optional[int]:
+    """Season to read a U-age label against, or None if it cannot be trusted.
+
+    Post-cutover events are read against the season they were played in, which
+    is fixed for a given event and so survives re-scrapes. Pre-cutover events
+    predate the relabel and are only readable when an operator opts in, in which
+    case they are read as the cutover season rather than the current one.
+    """
+    if not game_dates:
+        return None
+    if min(game_dates) >= U_FORMAT_CUTOVER_DATE:
+        return season_year_of(min(game_dates))
+    return season_year_of(U_FORMAT_CUTOVER_DATE) if U_FORMAT_BEFORE_CUTOVER else None
+
+
+def names_a_cohort(division_name: str) -> bool:
+    """Whether the label could name a tracked cohort, before dates are known."""
+    return u_age_of(division_name) is not None or extract_year(division_name) is not None
 
 
 def extract_gender(
@@ -423,8 +442,9 @@ def normalize_api_game(
     division_id = division.get("divisionID")
     division_name = division.get("divisionName", "")
 
-    # Extract age_year and gender from division name (fall back to event name)
-    age_year = extract_year(division_name)
+    # age_year is resolved once in process_single_flight, where the game dates
+    # that a U-age label depends on are known.
+    age_year = division.get("ageYear")
     gender = extract_gender(division_name, event_name=event_name, division_gender=division.get("divisionGender"))
 
     # Calculate age_group from age_year
@@ -593,9 +613,10 @@ def process_single_flight(
     records = []
 
     # EARLY FILTER: Check division name from parent structure first
-    # This avoids making API calls for divisions outside U10-U19 range
-    age_year_early = extract_year(parent_division_name)
-    if not age_year_early:
+    # This avoids making API calls for divisions outside U10-U19 range. A U-age
+    # cannot be resolved to a cohort until the games date the event, so this only
+    # asks whether the label could name one at all.
+    if not names_a_cohort(parent_division_name):
         return [], f"⏭️  {parent_division_name} - {flight_name}: skipped (not U10-U19)"
 
     # Step 1: Get division info (age_year, gender)
@@ -606,8 +627,7 @@ def process_single_flight(
     division_name_from_api = flight_division.get("divisionName", parent_division_name)
 
     # SECOND FILTER: Check API-returned division name
-    age_year = extract_year(division_name_from_api)
-    if not age_year:
+    if not names_a_cohort(division_name_from_api):
         return [], f"⏭️  {division_name_from_api} - {flight_name}: skipped (not U10-U19)"
 
     # Step 2: Get games for this flight (THE MONEY ENDPOINT)
@@ -615,22 +635,24 @@ def process_single_flight(
     if not games:
         return [], f"⚠️  {division_name_from_api} - {flight_name}: no games"
 
-    # A U-age label is read against CURRENT_YEAR, which only matches the label's
-    # own season once TGS switched conventions. Game dates are the first
-    # trustworthy signal of when the event ran, so the gate lands here.
-    if is_u_format_label(division_name_from_api) and not U_FORMAT_BEFORE_CUTOVER:
-        game_dates = [str(g.get("gameDate", ""))[:10] for g in games if g.get("gameDate")]
-        if game_dates and min(game_dates) < U_FORMAT_CUTOVER_DATE:
+    # The games date the event, which is what a U-age label has to be read
+    # against, so the cohort is only resolvable from here on.
+    game_dates = [str(g.get("gameDate", ""))[:10] for g in games if g.get("gameDate")]
+    age_year = extract_year(division_name_from_api, u_age_season=resolve_u_age_season(game_dates))
+    if not age_year:
+        if u_age_of(division_name_from_api) is not None:
             return [], (
                 f"⏭️  {division_name_from_api} - {flight_name}: skipped "
                 f"(U-age label predates {U_FORMAT_CUTOVER_DATE}; --u-format-before-cutover to include)"
             )
+        return [], f"⏭️  {division_name_from_api} - {flight_name}: skipped (not U10-U19)"
 
     # Create division info for normalization
     division_info = {
         "divisionID": flight_id,
         "divisionName": division_name_from_api,
         "divisionGender": flight_division.get("divisionGender"),
+        "ageYear": age_year,
     }
 
     # Step 3: Generate records for each game (both home and away perspectives)
