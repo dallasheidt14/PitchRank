@@ -352,3 +352,36 @@ for attempt in range(3):
    ```bash
    python scrape.py --provider gotsport --limit-teams 100
    ```
+
+## Reading a Provider's Age Labels
+
+A provider's division label does not carry its own season. `BU11` means one
+birth year in the season that wrote it and a different one a year later, so a
+cohort inferred from the wall clock silently drifts every Aug 1 on any job that
+re-scrapes historical events.
+
+**Corroborate the convention against the provider's own team names.** Team names
+usually embed a birth year (`Cook Inlet SC - 2016 Girls`), and that year is
+season-invariant, so the dominant year inside a division tells you which season
+the label was written in:
+
+```python
+implied_season = dominant_birth_year_in_team_names + u_age - 1
+```
+
+**Sample several events from different play dates before encoding a rule.** One
+event proves nothing. TGS looked like it labelled with the upcoming season until
+two older events showed labels two seasons behind their play dates, which killed
+the rule a single event had suggested. Divisions whose team names carry no year
+give no signal at all, so treat coverage as partial and prefer skipping an
+unreadable division over guessing its cohort.
+
+**Reject labels that name more than one cohort.** `U13-U19` and `U15 - U18` are
+catch-alls, not cohorts; filing their teams under the first age listed puts
+every older team in the youngest group. Accept a multi-age label only when every
+age it lists collapses to the same cohort (`GU18/19`, since U18 folds into U19).
+
+**Resolve gender from the provider's own field where one exists.** Prefix
+sniffing misses age-first labels (`U11 Girls` has no leading `G`), and an
+unresolved gender does not stay empty downstream — `normalize_gender("")`
+returns `"Male"`.

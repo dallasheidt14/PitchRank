@@ -111,27 +111,40 @@ Rebels SC 2014G Premier       ≠  Rebels SC 2014G Academy       ❌ DIFFERENT T
 
 Youth soccer uses TWO naming systems interchangeably:
 
-| Birth Year | Age Group |
-|------------|-----------|
-| 2016 | U10 |
-| 2015 | U11 |
-| 2014 | U12 |
-| 2013 | U13 |
-| 2012 | U14 |
-| 2011 | U15 |
-| 2010 | U16 |
-| 2009 | U17 |
-| 2008 | U18 |
+Seasons run Aug 1 - Jul 31, so every cohort moves up one each Aug 1. This table
+is the 2026-27 season; re-check it against `CLAUDE.md` before relying on it.
+
+| Birth years (Aug 1 - Jul 31) | Real-world | PitchRank |
+|---|---|---|
+| 2018 / 2017 | U9  | u9 |
+| 2017 / 2016 | U10 | u10 |
+| 2016 / 2015 | U11 | u11 |
+| 2015 / 2014 | U12 | u12 |
+| 2014 / 2013 | U13 | u13 |
+| 2013 / 2012 | U14 | u14 |
+| 2012 / 2011 | U15 | u15 |
+| 2011 / 2010 | U16 | u16 |
+| 2010 / 2009 | U17 | u17 |
+| 2009 / 2008 | U18 | **u19** (merged) |
+| 2008 / 2007 | U19 | u19 |
+
+A cohort's birth window runs Aug 1 - Jul 31, so it spans two calendar years.
+The system stores the **leading** year only, matching birth-year registration:
+`calculate_age_group_from_birth_year(2016)` is `U11`.
+
+PitchRank deliberately files U18 into U19 rather than running a separate U18
+board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
+Do not "fix" this by splitting the cohort.
 
 **All of these refer to the SAME team:**
 - `Phoenix Premier FC 2014B`
-- `Phoenix Premier FC U12B`
+- `Phoenix Premier FC U13B`
 - `Phoenix Premier FC B2014`
-- `Phoenix Premier FC 12B`
+- `Phoenix Premier FC 14B`
 
 **CRITICAL: B/G usually means GENDER, not "Boys U-age"**
-- `14B` = 2014 Boys = **U12 Male** (birth year!)
-- `14G` = 2014 Girls = **U12 Female**
+- `14B` = 2014 Boys = **U13 Male** (birth year!)
+- `14G` = 2014 Girls = **U13 Female**
 - `U14B` = U14 Boys = **U14 Male** (age group - DIFFERENT!)
 
 The **"U" prefix is the signal:**

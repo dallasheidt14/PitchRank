@@ -13,23 +13,39 @@ You are working on PitchRank, a youth soccer ranking platform. This skill teache
 - U10, U11, U12, U13, U14, U15, U16, U17, U18, U19
 - "U" = "Under" (U14 = Under 14 years old)
 
-### Birth Year to Age (2026 Season)
-| Birth Year | Age Group |
-|------------|-----------|
-| 2016 | U10 |
-| 2015 | U11 |
-| 2014 | U12 |
-| 2013 | U13 |
-| 2012 | U14 |
-| 2011 | U15 |
-| 2010 | U16 |
-| 2009 | U17 |
-| 2008 | U18 |
+### Birth Year to Age (2026-27 Season)
+
+Rolled over on 2026-08-01. Seasons run Aug 1 - Jul 31, so every cohort moves up
+one each Aug 1 and this table is only valid for the season named above. Check
+the current season before trusting any birth-year mapping you find in code
+comments or docs.
+
+| Birth years (Aug 1 - Jul 31) | Real-world | PitchRank |
+|---|---|---|
+| 2018 / 2017 | U9  | u9 |
+| 2017 / 2016 | U10 | u10 |
+| 2016 / 2015 | U11 | u11 |
+| 2015 / 2014 | U12 | u12 |
+| 2014 / 2013 | U13 | u13 |
+| 2013 / 2012 | U14 | u14 |
+| 2012 / 2011 | U15 | u15 |
+| 2011 / 2010 | U16 | u16 |
+| 2010 / 2009 | U17 | u17 |
+| 2009 / 2008 | U18 | **u19** (merged) |
+| 2008 / 2007 | U19 | u19 |
+
+A cohort's birth window runs Aug 1 - Jul 31, so it spans two calendar years.
+The system stores the **leading** year only, matching birth-year registration:
+`calculate_age_group_from_birth_year(2016)` is `U11`.
+
+PitchRank deliberately files U18 into U19 rather than running a separate U18
+board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
+Do not "fix" this by splitting the cohort.
 
 ### Common Formats
-- `14B` = 2014 birth year, Boys = **U12 Male**
+- `14B` = 2014 birth year, Boys = **U13 Male**
 - `U14B` = U14 age group, Boys = **U14 Male**
-- `G2016` = Girls, 2016 birth year = **U10 Female**
+- `G2016` = Girls, 2016 birth year = **U11 Female**
 
 **CRITICAL**: B/G = Gender (Boys/Girls), NOT part of age number!
 
