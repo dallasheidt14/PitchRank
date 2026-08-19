@@ -65,6 +65,12 @@ env:
   # a scheduled run passes no inputs. Gates test == 'false' (not != 'true') so
   # a renamed or deleted flag leaves the steps skipped, not merging unguarded.
   AGE_ROLLOVER_FREEZE: 'false'
+  # Disables Step 2. Its script derives a cohort as CURRENT_YEAR - birth_year + 1,
+  # which assumed calendar-year age groups. Age groups now band on Aug 1 - Jul 31,
+  # so one birth year spans two cohorts and no function of birth year alone can be
+  # right. Re-enable only once age_group has a source that carries birth date or a
+  # registered band. Gates test == 'false' so a renamed flag leaves Step 2 skipped.
+  AGE_DERIVATION_ENABLED: 'false'
 
 jobs:
   data-hygiene-pipeline:
@@ -151,7 +157,7 @@ jobs:
         # Derives cohort from a birth year in the team NAME, so it would roll
         # only the teams carrying one and freeze the rest — a half-rollover
         # that Step 3 then merges across.
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',2,') && env.AGE_ROLLOVER_FREEZE == 'false' && env.AGE_DERIVATION_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
