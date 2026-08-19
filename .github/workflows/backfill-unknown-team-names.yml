@@ -49,7 +49,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install supabase python-dotenv requests certifi beautifulsoup4
+          # Matches process-missing-games.yml: importing the shared WAFBreaker
+          # from src.scrapers.gotsport pulls in src.etl.pipeline's dependencies.
+          pip install supabase python-dotenv pandas requests rich certifi numpy beautifulsoup4
 
       - name: Backfill placeholder team names
         env:
