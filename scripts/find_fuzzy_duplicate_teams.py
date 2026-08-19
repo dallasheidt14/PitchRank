@@ -47,22 +47,35 @@ from src.utils.team_name_utils import _canonicalize_age_token  # noqa: E402
 BIRTH_YEAR_RE = re.compile(r"(?<!\d)(20(?:0[5-9]|1[0-9]))(?!\d)")
 
 
-def is_placeholder_name(team_name: str | None, provider_team_id: str | None) -> bool:
-    """True when the name is the unknown_<provider_team_id> fallback and nothing more."""
-    name = (team_name or "").strip()
-    pid = str(provider_team_id or "").strip()
-    if not name or not pid:
-        return False
-    return name.lower() == f"unknown_{pid}".lower()
+PLACEHOLDER_RE = re.compile(r"^unknown_\d+$", re.IGNORECASE)
+
+
+def is_placeholder_name(team_name: str | None) -> bool:
+    """True for the ``unknown_<provider_team_id>`` name the hygiene pipeline falls back to.
+
+    Matched on shape rather than against the row's own provider_team_id: the
+    cohort query does not select that column, so a predicate needing it silently
+    never fires. Nothing else in the table is named ``unknown_`` followed by only
+    digits, so the shape alone is a safe test.
+    """
+    return bool(PLACEHOLDER_RE.match((team_name or "").strip()))
 
 
 def birth_years(team_name: str | None) -> set[str]:
-    """Four-digit birth years in a name, expanding the 'B2016/17' shorthand."""
-    name = team_name or ""
-    years = set(BIRTH_YEAR_RE.findall(name))
-    for first, second in re.findall(r"(20(?:0[5-9]|1[0-9]))\s*[/-]\s*(\d{2})(?!\d)", name):
+    """Birth years stated in a name, as four-digit strings.
+
+    Reads the NORMALIZED name so shorthand counts: normalize_team_name expands
+    ``G08/07`` to ``2008/07`` and ``B14``/``14B`` to ``2014``. Reading the raw name
+    misses those, and "FC Dallas Youth Red ECNL 2009" vs "... B08/07" then scores
+    a clean 1.0.
+    """
+    norm = normalize_team_name(team_name or "")
+    years = set(BIRTH_YEAR_RE.findall(norm))
+    for first, second in re.findall(r"(20(?:0[5-9]|1[0-9]))\s*[/-]\s*(\d{2})(?!\d)", norm):
         years.add(first)
-        years.add(f"20{second}")
+        expanded = f"20{second}"
+        if BIRTH_YEAR_RE.fullmatch(expanded):
+            years.add(expanded)
     return years
 
 
@@ -81,17 +94,20 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
     # A placeholder carries no identity, so similarity against it measures only the
     # shared "unknown_" prefix and how close two provider IDs happen to be:
     # unknown_781631 vs unknown_781653 scores 0.929, over the 0.90 auto-merge bar.
-    if is_placeholder_name(name_a, team_a.get("provider_team_id")) or is_placeholder_name(
-        name_b, team_b.get("provider_team_id")
-    ):
+    if is_placeholder_name(name_a) or is_placeholder_name(name_b):
         return None
 
     # Distinct birth years are distinct teams. One digit apart scores 0.941, and a
     # matching club adds 0.15 — and U19 holds two birth years at once, so a club's
     # 2008 and 2009 sides sit in one cohort looking all but identical.
+    #
+    # Requires the stated years to match exactly rather than merely overlap: a club
+    # whose own name carries a year supplies a shared one for free, so "Union 2010 FC
+    # 2009" and "Union 2010 FC 2008" both state {2010, ...} and an overlap test lets
+    # them through at 1.0.
     years_a = birth_years(name_a)
     years_b = birth_years(name_b)
-    if years_a and years_b and not (years_a & years_b):
+    if years_a and years_b and years_a != years_b:
         return None
 
     norm_a = normalize_team_name(name_a)
