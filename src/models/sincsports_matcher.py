@@ -103,8 +103,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         provider_id: Optional[str] = None,
         alias_cache: Optional[Dict] = None,
         discovery_mode: bool = False,
+        dry_run: bool = False,
     ):
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
         # Lower thresholds for more aggressive matching
         self.fuzzy_threshold = 0.75
         self.auto_approve_threshold = 0.91
@@ -738,7 +739,8 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
-            self.db.table("teams").insert(team_data).execute()
+            if not self.dry_run:
+                self.db.table("teams").insert(team_data).execute()
 
             logger.info(
                 f"[SincSports] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})"

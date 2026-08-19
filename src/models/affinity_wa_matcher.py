@@ -95,8 +95,8 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
     Rejects fuzzy matches when RCL number differs (e.g. RCL 3 must not match RCL 2).
     """
 
-    def __init__(self, supabase, provider_id=None, alias_cache=None):
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
+    def __init__(self, supabase, provider_id=None, alias_cache=None, dry_run=False):
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
         self.default_state_code = STATE_CODE
         self._affinity_variant_gate_required = MATCHING_CONFIG.get("affinity_variant_gate_required", True)
         self._affinity_rcl_strict = MATCHING_CONFIG.get("affinity_rcl_strict", True)
@@ -393,5 +393,6 @@ class AffinityWAGameMatcher(GameHistoryMatcher):
             "provider_team_id": provider_team_id,
             "distinction": distinction,
         }
-        self.db.table("teams").insert(team_data).execute()
+        if not self.dry_run:
+            self.db.table("teams").insert(team_data).execute()
         return team_id_master
