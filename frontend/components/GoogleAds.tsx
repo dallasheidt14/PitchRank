@@ -2,17 +2,13 @@
 
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
+import { SECRET_QUERY_PATHS } from '@/lib/constants';
 
 interface GoogleAdsProps {
   conversionId?: string;
 }
 
 // gtag type is declared in types/gtag.d.ts
-
-// Skip the post-checkout page: its URL carries the Stripe session_id bearer
-// secret, and gtag auto-reports document.location. Tracking resumes on the next
-// navigation. The payment/sync flow is untouched.
-const SESSION_SECRET_PATH = '/upgrade/success';
 
 /**
  * Google Ads remarketing tag
@@ -30,11 +26,11 @@ const SESSION_SECRET_PATH = '/upgrade/success';
 export function GoogleAds({ conversionId }: GoogleAdsProps) {
   const pathname = usePathname();
 
-  // Don't render in development, without a conversion ID, or on the post-checkout page.
-  // The exact path match is leak-safe only under Next's default trailingSlash: it
+  // This tag never pins page_location, so gtag would report the raw URL of a
+  // SECRET_QUERY_PATHS page. The exact path match is leak-safe only under Next's default trailingSlash: it
   // 308-redirects `/upgrade/success/` and usePathname() returns the stripped path.
   // Flipping trailingSlash:true would require normalizing this guard.
-  if (!conversionId || process.env.NODE_ENV === 'development' || pathname === SESSION_SECRET_PATH) {
+  if (!conversionId || process.env.NODE_ENV === 'development' || SECRET_QUERY_PATHS.includes(pathname)) {
     return null;
   }
 

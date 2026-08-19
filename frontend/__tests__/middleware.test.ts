@@ -108,6 +108,24 @@ describe('middleware', () => {
       // check at line 31 is the actual guard.
       expect(res.status).toBe(200);
     });
+
+    it('does NOT funnel ?token_hash=... on /auth/confirm into the redeem-on-GET callback', async () => {
+      ANON_AUTH();
+      const res = await middleware(makeRequest('https://www.pitchrank.io/auth/confirm?token_hash=abc&type=recovery'));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get('location')).toBeNull();
+    });
+
+    it('still funnels a PKCE ?code= on /auth/confirm to the callback that can exchange it', async () => {
+      ANON_AUTH();
+      const res = await middleware(makeRequest('https://www.pitchrank.io/auth/confirm?code=oauth_xyz'));
+
+      // The confirm page reads only token_hash, so a bare code would dead-end
+      // at "Link not valid" if the exemption covered it.
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/auth/callback');
+    });
   });
 
   describe('premium route gating', () => {

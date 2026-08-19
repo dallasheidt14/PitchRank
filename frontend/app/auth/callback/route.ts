@@ -1,6 +1,14 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { safeNextPath } from '@/lib/auth/emailTokens';
+
+// Next.js aliases HEAD to the GET handler unless HEAD is exported, so a link
+// scanner's HEAD would run the PKCE exchange below and spend that single-use
+// code before the recipient clicks.
+export async function HEAD(_request: Request) {
+  return new NextResponse(null, { status: 200 });
+}
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -9,9 +17,7 @@ export async function GET(request: Request) {
   const type = searchParams.get('type');
   const code = searchParams.get('code');
   // Default to /rankings instead of /watchlist to avoid redirecting free users to premium route
-  const rawNext = searchParams.get('next') ?? '/rankings';
-  // Prevent open redirect: only allow paths starting with / (not //)
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/rankings';
+  const next = safeNextPath(searchParams.get('next'));
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
@@ -19,6 +25,17 @@ export async function GET(request: Request) {
   if (error) {
     console.error('[Auth Callback] Error:', error, errorDescription);
     return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorDescription ?? error)}`);
+  }
+
+  // Redeeming here would spend the single-use token on GET, which is what a mail
+  // scanner's fetch does before the recipient clicks. Links already sitting in
+  // inboxes still arrive here, so this redirect is what protects them.
+  if (token_hash && type) {
+    const confirmUrl = new URL('/auth/confirm', origin);
+    confirmUrl.searchParams.set('token_hash', token_hash);
+    confirmUrl.searchParams.set('type', type);
+    confirmUrl.searchParams.set('next', next);
+    return NextResponse.redirect(confirmUrl);
   }
 
   const cookieStore = await cookies();
@@ -40,26 +57,6 @@ export async function GET(request: Request) {
       },
     }
   );
-
-  // Handle magic link / email confirmation (token_hash flow)
-  if (token_hash && type) {
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      token_hash,
-      type: type as 'email' | 'recovery' | 'invite' | 'email_change',
-    });
-
-    if (verifyError) {
-      console.error('[Auth Callback] Verify OTP error:', verifyError.message);
-      return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(verifyError.message)}`);
-    }
-
-    // For password recovery, redirect to the reset password page
-    if (type === 'recovery') {
-      return NextResponse.redirect(`${origin}/reset-password`);
-    }
-
-    return NextResponse.redirect(`${origin}${next}`);
-  }
 
   // Handle OAuth/PKCE (code exchange flow)
   if (code) {

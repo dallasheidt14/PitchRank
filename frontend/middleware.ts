@@ -28,7 +28,12 @@ export async function middleware(request: NextRequest) {
   const code = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
 
-  if ((code || tokenHash) && pathname !== '/auth/callback') {
+  // Exempt only a token_hash on /auth/confirm: /auth/callback forwards emailed
+  // tokens back here, so funneling them there is an infinite redirect loop. A
+  // PKCE `code` still belongs to the callback, the only route that exchanges one.
+  const handlesTokenItself = pathname === '/auth/callback' || (pathname === '/auth/confirm' && Boolean(tokenHash));
+
+  if ((code || tokenHash) && !handlesTokenItself) {
     const callbackUrl = new URL('/auth/callback', request.url);
     searchParams.forEach((value, key) => {
       callbackUrl.searchParams.set(key, value);
