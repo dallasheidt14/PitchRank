@@ -36,6 +36,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -43,6 +45,11 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 from supabase import create_client
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from find_fuzzy_duplicate_teams import birth_years  # noqa: E402
 
 RUN_START_DEFAULT = "2026-08-19T02:40:00"
 MERGED_BY = "pitchrank-bot"
@@ -125,12 +132,60 @@ def keep_placeholder_pairs(supabase, rows: List[Dict]) -> List[Dict]:
     ]
 
 
+DUAL_YEAR_RE = re.compile(r"(?<!\d)\d{2,4}\s*[/-]\s*\d{2}(?!\d)")
+
+
+def keep_birth_year_conflicts(supabase, rows: List[Dict]) -> List[Dict]:
+    """Keep merges whose two names state birth years that do not overlap at all.
+
+    Disjoint is the test, not "one year each": a 2009 side and a 2007/2008 side are
+    different bands and the merge is wrong, so requiring a single year would skip
+    those. Overlap already protects the subset case — "2013" against "2013/14"
+    shares 2013 and is never selected.
+
+    Two-digit shorthand is excluded on top of that, because normalization drops one
+    of its years: "09/10B" reduces to {2010} and "15/16 Boys" to {2016}, so a pair
+    can look disjoint purely from the loss. DUAL_YEAR_RE deliberately matches only
+    that shorthand. Four-digit forms — "2013/2014", "2007-2008" — keep both years
+    through normalization, so the disjoint test stands on its own there and they are
+    left in scope.
+    """
+    canonical_ids = sorted({r["canonical_team_id"] for r in rows})
+    canonical: Dict[str, Dict] = {}
+    for i in range(0, len(canonical_ids), 100):
+        batch = (
+            supabase.table("teams")
+            .select("team_id_master,team_name")
+            .in_("team_id_master", canonical_ids[i : i + 100])
+            .execute()
+            .data
+            or []
+        )
+        for team in batch:
+            canonical[team["team_id_master"]] = team
+
+    keep: List[Dict] = []
+    for row in rows:
+        name_a = ((row.get("deprecated_team_snapshot") or {}).get("team_name") or "").strip()
+        name_b = ((canonical.get(row["canonical_team_id"]) or {}).get("team_name") or "").strip()
+        if not name_a or not name_b:
+            continue
+        if DUAL_YEAR_RE.search(name_a) or DUAL_YEAR_RE.search(name_b):
+            continue
+        years_a = birth_years(name_a)
+        years_b = birth_years(name_b)
+        if years_a and years_b and not (years_a & years_b):
+            keep.append(row)
+    return keep
+
+
 def fetch_merges_to_revert(
     supabase,
     since: Optional[str],
     merged_by: str,
     limit: Optional[int],
     placeholders_only: bool,
+    birth_year_conflicts: bool = False,
 ) -> List[Dict]:
     """Un-reverted 'merge' audit rows, newest first so chained merges unwind in order."""
     rows: List[Dict] = []
@@ -154,7 +209,7 @@ def fetch_merges_to_revert(
             break
         rows.extend(batch)
         # The placeholder filter runs after paging, so --limit cannot short-circuit here.
-        if limit and not placeholders_only and len(rows) >= limit:
+        if limit and not placeholders_only and not birth_year_conflicts and len(rows) >= limit:
             return rows[:limit]
         if len(batch) < page_size:
             break
@@ -162,6 +217,8 @@ def fetch_merges_to_revert(
 
     if placeholders_only:
         rows = keep_placeholder_pairs(supabase, rows)
+    if birth_year_conflicts:
+        rows = keep_birth_year_conflicts(supabase, rows)
 
     return rows[:limit] if limit else rows
 
@@ -224,6 +281,11 @@ def main() -> None:
         help="Only revert merges where BOTH sides were unknown_<provider_team_id> placeholders",
     )
     parser.add_argument(
+        "--birth-year-conflicts",
+        action="store_true",
+        help="Only revert merges where the two names state one birth year each and they differ",
+    )
+    parser.add_argument(
         "--merged-by",
         default=MERGED_BY,
         help=f"Only revert merges by this actor (default: {MERGED_BY})",
@@ -236,14 +298,26 @@ def main() -> None:
     load_env()
     supabase = get_supabase()
 
-    merges = fetch_merges_to_revert(supabase, args.since, args.merged_by, args.limit, args.placeholders_only)
+    merges = fetch_merges_to_revert(
+        supabase,
+        args.since,
+        args.merged_by,
+        args.limit,
+        args.placeholders_only,
+        args.birth_year_conflicts,
+    )
     if not merges:
         log("No un-reverted merges match.")
         return
 
     log(f"=== Revert Fuzzy Auto-Merges ({'LIVE' if execute else 'DRY RUN'}) ===")
     window = f"at/after {args.since}" if args.since else "across all history"
-    scope = " (both sides placeholders)" if args.placeholders_only else ""
+    if args.placeholders_only:
+        scope = " (both sides placeholders)"
+    elif args.birth_year_conflicts:
+        scope = " (conflicting birth years)"
+    else:
+        scope = ""
     log(f"{len(merges):,} merges by {args.merged_by} {window}{scope}, newest first")
     log("")
 

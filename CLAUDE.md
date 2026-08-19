@@ -99,14 +99,27 @@ PitchRank/
 > cohort than it did last season — check the season before trusting any older
 > mapping you find in code comments or docs.
 
-| Birth Year | Age Group | | Birth Year | Age Group |
-|---|---|---|---|---|
-| 2017 | U10 | | 2013 | U14 |
-| 2016 | U11 | | 2012 | U15 |
-| 2015 | U12 | | 2011 | U16 |
-| 2014 | U13 | | 2010 | U17 |
-| | | | 2009 | U19 |
-| | | | 2008 | U19 |
+| Birth years (Aug 1 - Jul 31) | Real-world | PitchRank |
+|---|---|---|
+| 2018 / 2017 | U9  | u9 |
+| 2017 / 2016 | U10 | u10 |
+| 2016 / 2015 | U11 | u11 |
+| 2015 / 2014 | U12 | u12 |
+| 2014 / 2013 | U13 | u13 |
+| 2013 / 2012 | U14 | u14 |
+| 2012 / 2011 | U15 | u15 |
+| 2011 / 2010 | U16 | u16 |
+| 2010 / 2009 | U17 | u17 |
+| 2009 / 2008 | U18 | **u19** (merged) |
+| 2008 / 2007 | U19 | u19 |
+
+A cohort's birth window runs Aug 1 - Jul 31 and so spans two calendar years,
+which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
+The system stores the **leading** year only, matching birth-year registration.
+
+PitchRank deliberately files U18 into U19 rather than running a separate U18
+board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
+Do not "fix" this by splitting the cohort.
 
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
@@ -144,20 +157,27 @@ see `.turbo/improvements.md`.
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
 
-#### TGS relabelled its divisions on 2026-08-01
+#### TGS U-age divisions are only resolvable from 2026-08-01
 
-TGS names divisions by birth year (`B2015`) for events before that date and by
-U-age (`BU11`, `GU18/19`) on or after it. A birth year means the same cohort
-forever; a U-age only means one against the season that wrote it, so it must be
-resolved against the event's own game dates, never the wall clock. The weekly
-chain rescans a fixed id range forever, so a clock-derived cohort would re-file
-the same historical event one group higher every Aug 1.
+Both label styles appear throughout the scrape range: birth year (`B2015`) and
+U-age (`BU11`, `GU18/19`). A birth year names the same cohort forever. A U-age
+names one only against the season that wrote it, and TGS does not say which
+season that was, so the label alone is not enough.
 
-Events predating the switch carry a labelling season that cannot be recovered:
-3430 (Apr 2025) and 3967 (Sep 2025) both sit two seasons behind their play
-dates. `scrape_tgs_event.py` skips those rather than guess;
-`--u-format-before-cutover` reads them as the cutover season for a manual
-backfill, and is only safe when the event's team names confirm the cohort.
+2026-08-01 is the date from which a U-age becomes *resolvable*, not the date
+those labels start existing. On or after it, the event's own game dates identify
+the labelling season. Before it, they do not: event 3430 (Apr 2025) and event
+3967 (Sep 2025) both carry U-age divisions whose labels sit two seasons behind
+their play dates, which their own team names confirm.
+
+So `scrape_tgs_event.py` resolves a post-cutover U-age against the season its
+games fall in, and skips a pre-cutover one rather than guess.
+`--u-format-before-cutover` reads the skipped ones as the cutover season for a
+manual backfill, and is only safe when the event's team names confirm the cohort.
+
+Resolve against the event, never the wall clock. The weekly chain rescans a fixed
+id range indefinitely, so a clock-derived cohort would re-file the same
+historical event one group higher every Aug 1.
 
 ### Adding a new scraper
 
