@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
       document.cookie = `password_reset_pending=true; path=/; max-age=86400; SameSite=Lax${secureSuffix}`;
 
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        redirectTo: `${window.location.origin}/auth/confirm?next=/reset-password`,
       });
 
       if (resetError) {

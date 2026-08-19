@@ -2,16 +2,11 @@
 
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
+import { SECRET_QUERY_PATHS } from '@/lib/constants';
 
 interface MetaPixelProps {
   pixelId?: string;
 }
-
-// Stripe appends the session_id bearer secret to this URL on the post-checkout
-// redirect, and the Pixel auto-reports document.location — so the tag is skipped
-// on this page (a fresh full page load from Stripe). Tracking resumes on the next
-// navigation. The payment/sync flow is untouched.
-const SESSION_SECRET_PATH = '/upgrade/success';
 
 /**
  * Meta Pixel component
@@ -32,7 +27,7 @@ export function MetaPixel({ pixelId }: MetaPixelProps) {
   // The exact path match is leak-safe only under Next's default trailingSlash: it
   // 308-redirects `/upgrade/success/` and usePathname() returns the stripped path.
   // Flipping trailingSlash:true would require normalizing this guard.
-  if (!pixelId || process.env.NODE_ENV === 'development' || pathname === SESSION_SECRET_PATH) {
+  if (!pixelId || process.env.NODE_ENV === 'development' || SECRET_QUERY_PATHS.includes(pathname)) {
     return null;
   }
 

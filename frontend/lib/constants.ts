@@ -169,3 +169,15 @@ export const GENDER_OPTIONS = [
   { value: 'M' as const, label: 'Boys' },
   { value: 'F' as const, label: 'Girls' },
 ];
+
+/**
+ * Bearer credentials that ride in a URL, and the pages that render carrying one.
+ *
+ * `session_id` authenticates /api/stripe/sync; `token_hash` is a Supabase auth
+ * token that /auth/confirm deliberately leaves unredeemed, so it is live in the
+ * URL while the page renders. A tag that reports document.location must not load
+ * on these paths at all; one that builds its own URL must drop these params.
+ */
+export const SECRET_QUERY_PARAMS: readonly string[] = ['session_id', 'token_hash'];
+
+export const SECRET_QUERY_PATHS: readonly string[] = ['/upgrade/success', '/auth/confirm'];

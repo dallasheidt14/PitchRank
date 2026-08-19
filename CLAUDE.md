@@ -452,7 +452,7 @@ Required variables are documented in `.env.example`. Key groups:
 
 ### Auth for API Routes
 
-All routes under `/api` are excluded from middleware auth (middleware.ts line 128), so each route must self-enforce authentication. Two shared helpers:
+All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. Two shared helpers:
 
 ```typescript
 // Admin-only routes (mission control, team management)

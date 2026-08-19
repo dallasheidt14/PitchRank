@@ -155,21 +155,26 @@ def find_stuck_users(supabase):
 def generate_recovery_link(supabase, email: str) -> str:
     """Generate a fresh set-password (recovery) link for a stuck user.
 
-    Build the URL from hashed_token through our own /auth/callback (the verifyOtp
-    token_hash branch) instead of returning Supabase's raw action_link: a link
-    generated server-side and forwarded to the customer hits the PKCE code path
-    with no code_verifier cookie in their browser and falls through to /login
-    instead of establishing the recovery session.
+    Build the URL from hashed_token through our own /auth/confirm instead of
+    returning Supabase's raw action_link: a link generated server-side and
+    forwarded to the customer hits the PKCE code path with no code_verifier
+    cookie in their browser and falls through to /login instead of establishing
+    the recovery session.
+
+    /auth/confirm rather than /auth/callback because this link is emailed to an
+    admin and forwarded on to the customer, so it passes through two mail
+    scanners. /auth/confirm redeems only on a button press, so neither
+    scanner's GET spends it.
     """
     try:
         resp = supabase.auth.admin.generate_link(
             {
                 "type": "recovery",
                 "email": email,
-                "options": {"redirect_to": f"{SITE_URL}/auth/callback?next=/reset-password"},
+                "options": {"redirect_to": f"{SITE_URL}/auth/confirm?next=/reset-password"},
             }
         )
-        return f"{SITE_URL}/auth/callback?token_hash={resp.properties.hashed_token}&type=recovery&next=/reset-password"
+        return f"{SITE_URL}/auth/confirm?token_hash={resp.properties.hashed_token}&type=recovery&next=/reset-password"
     except Exception as e:
         logger.error(f"  ERROR generating recovery link for {email}: {e}")
         return LINK_FAILED

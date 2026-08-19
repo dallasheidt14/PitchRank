@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import { Loader2, Mail, Lock, CheckCircle2 } from 'lucide-react';
+import { safeNextPath } from '@/lib/auth/emailTokens';
 
 export default function LoginPage() {
   return (
@@ -52,8 +53,7 @@ function LoginForm() {
       // email links to /login?next=/upgrade). Default to /rankings, which is
       // accessible to all tiers — avoids the confusing redirect chain for
       // free users: login -> /watchlist -> middleware redirect -> /upgrade
-      const rawNext = searchParams.get('next');
-      const nextPath = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/rankings';
+      const nextPath = safeNextPath(searchParams.get('next'));
       router.push(nextPath);
       router.refresh();
     } catch (e) {

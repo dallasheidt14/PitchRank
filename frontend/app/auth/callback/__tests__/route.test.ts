@@ -16,7 +16,7 @@ vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(() => ({ auth: { exchangeCodeForSession: mockExchange, verifyOtp: mockVerifyOtp } })),
 }));
 
-import { GET } from '../route';
+import { GET, HEAD } from '../route';
 
 function callbackRequest(query: string): Request {
   return new Request(`http://localhost/auth/callback${query}`);
@@ -61,5 +61,64 @@ describe('GET /auth/callback — recovery code exchange', () => {
 
     expect(res.headers.get('location')).toContain('/login');
     expect(recoveryCookieWasCleared()).toBe(true);
+  });
+});
+
+describe('HEAD /auth/callback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not consume the one-time token, so a mail scanner prefetch cannot invalidate a recovery link', async () => {
+    const res = await HEAD(callbackRequest('?token_hash=abc&type=recovery'));
+
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  it('does not exchange a PKCE code, the one credential this route still spends', async () => {
+    const res = await HEAD(callbackRequest('?code=oauth_xyz'));
+
+    expect(mockExchange).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('GET /auth/callback — emailed token handoff', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCookieGet.mockReturnValue(undefined);
+  });
+
+  it('hands a recovery token to /auth/confirm instead of redeeming it on GET', async () => {
+    const res = await GET(callbackRequest('?token_hash=abc&type=recovery'));
+
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+    const location = res.headers.get('location') ?? '';
+    expect(location).toContain('/auth/confirm');
+    expect(location).toContain('token_hash=abc');
+    expect(location).toContain('type=recovery');
+  });
+
+  it('preserves a same-origin next through the handoff', async () => {
+    const res = await GET(callbackRequest('?token_hash=abc&type=email&next=/watchlist'));
+
+    expect(res.headers.get('location')).toContain('next=%2Fwatchlist');
+  });
+
+  it('drops a protocol-relative next rather than forwarding it', async () => {
+    const res = await GET(callbackRequest('?token_hash=abc&type=email&next=//evil.example'));
+
+    const location = res.headers.get('location') ?? '';
+    expect(location).not.toContain('evil.example');
+    expect(location).toContain('next=%2Frankings');
+  });
+
+  it('does not touch Supabase at all on the token_hash path', async () => {
+    await GET(callbackRequest('?token_hash=abc&type=recovery'));
+
+    expect(mockVerifyOtp).not.toHaveBeenCalled();
+    expect(mockExchange).not.toHaveBeenCalled();
   });
 });

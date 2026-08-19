@@ -105,7 +105,8 @@ frontend/
 
 ### Auth
 
-- `GET /api/auth/callback` — OAuth/email link handler
+- `GET /auth/callback` — OAuth/PKCE handler; hands emailed `token_hash` links to `/auth/confirm`
+- `GET /auth/confirm` — renders an emailed link without redeeming it; the POST behind its button (a Server Action) does the redemption
 - `POST /api/logout`
 
 ### Premium
@@ -263,7 +264,7 @@ cn('base-class', condition && 'conditional-class');
 ## Middleware (Auth Flow)
 
 1. Redirect non-www → www.pitchrank.io (301)
-2. Catch OAuth `?code=` / `?token_hash=` → `/auth/callback`
+2. Catch OAuth `?code=` / `?token_hash=` → `/auth/callback`, except a `token_hash` already on `/auth/confirm` — that page holds it unredeemed so mail scanners can't spend it
 3. Refresh Supabase session cookie
 4. Protected routes (`/watchlist`, `/compare`, `/teams`) → check auth
 5. Premium routes → check `user_profiles.plan` = `premium` or `admin`
@@ -373,3 +374,6 @@ RESEND_API_KEY
 8. **ISR revalidation** — Team pages cache for 1 hour; don't expect instant updates
 9. **Age 0 and null state are real** — `teams.age_group` includes the literal `'u0'`, and thousands of teams have `state_code = NULL`. `useTeamSearch` maps an unresolved cohort to `age: 0`, so guard on truthiness; `age != null` renders "U0"
 10. **Three components share search-row rendering** — `GlobalSearch`, `TeamSelector`, and `UnknownOpponentLink` all consume `useTeamSearch`. Grep every consumer before changing a row's markup, or the fix lands on one surface and not the others
+11. **Never redeem an emailed one-time token on GET** — mail scanners fetch every link before the recipient sees it, so a GET that calls `verifyOtp`/`exchangeCodeForSession` spends the token and locks the customer out. Redeem behind a POST (`/auth/confirm`). Next also aliases `HEAD` to the `GET` handler unless `HEAD` is exported, so any route handler with side effects needs its own `HEAD`.
+12. **Credential-bearing URLs must be in `SECRET_QUERY_PATHS`** — a page that renders with `token_hash`, `session_id`, or similar in its URL leaks it to analytics: gtag and fbevents read `document.location` for the document's lifetime. Add the path to `SECRET_QUERY_PATHS` (tags skip it) and the param to `SECRET_QUERY_PARAMS` (both in `lib/constants.ts`).
+13. **`headers()` in `next.config.ts` is last-wins** — every matching rule applies, so a per-route override of a key the catch-all `/(.*)` also sets must be listed _after_ it or the catch-all silently wins.

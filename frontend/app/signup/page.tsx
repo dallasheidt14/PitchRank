@@ -76,7 +76,7 @@ export default function SignupPage() {
         options: {
           // Redirect to rankings page (accessible to all users)
           // New users can explore rankings and upgrade if desired
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/rankings`,
+          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/rankings`,
         },
       });
 
@@ -128,7 +128,7 @@ export default function SignupPage() {
         type: 'signup',
         email: email.trim().toLowerCase(),
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/rankings`,
+          emailRedirectTo: `${window.location.origin}/auth/confirm?next=/rankings`,
         },
       });
 

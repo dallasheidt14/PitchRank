@@ -983,6 +983,16 @@ describe('Set-password email failure alerts an admin', () => {
     expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
   });
 
+  it('emails a set-password link through /auth/confirm, which does not redeem on GET', async () => {
+    vi.mocked(sendPasswordSetupEmail).mockResolvedValueOnce(true);
+
+    await fireNewSignup();
+
+    const [, setupUrl] = vi.mocked(sendPasswordSetupEmail).mock.calls.at(-1)!;
+    expect(setupUrl).toContain('/auth/confirm?token_hash=test-hashed-token&type=recovery&next=/reset-password');
+    expect(setupUrl).not.toContain('/auth/callback');
+  });
+
   it('alerts admin and returns 200 when the set-password email throws', async () => {
     vi.mocked(sendPasswordSetupEmail).mockRejectedValueOnce(new Error('Resend unavailable'));
 

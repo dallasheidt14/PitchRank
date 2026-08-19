@@ -2,6 +2,7 @@
 
 import { usePathname, useSearchParams } from 'next/navigation';
 import Script from 'next/script';
+import { SECRET_QUERY_PARAMS, SECRET_QUERY_PATHS } from '@/lib/constants';
 import { useEffect, Suspense } from 'react';
 
 interface GoogleAnalyticsProps {
@@ -20,14 +21,12 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
 
   // Track page views on route change
   useEffect(() => {
-    if (!measurementId || process.env.NODE_ENV === 'development') {
+    if (!measurementId || process.env.NODE_ENV === 'development' || SECRET_QUERY_PATHS.includes(pathname)) {
       return;
     }
 
-    // Construct full URL with search params. session_id is the bearer secret
-    // for /api/stripe/sync — never report it off-origin.
     const params = new URLSearchParams(searchParams);
-    params.delete('session_id');
+    SECRET_QUERY_PARAMS.forEach((param) => params.delete(param));
     const url = params.toString() ? `${pathname}?${params.toString()}` : pathname;
 
     // Send pageview event to GA4. page_location must be pinned too — GA4
@@ -40,8 +39,10 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
     }
   }, [pathname, searchParams, measurementId]);
 
-  // Don't render in development or if no measurement ID is provided
-  if (!measurementId || process.env.NODE_ENV === 'development') {
+  // Stripping the param from page_location is not enough on a SECRET_QUERY_PATHS
+  // page: gtag.js lives in the document and re-reads location on history
+  // navigations, so the tag must not load at all.
+  if (!measurementId || process.env.NODE_ENV === 'development' || SECRET_QUERY_PATHS.includes(pathname)) {
     return null;
   }
 
@@ -54,10 +55,9 @@ function GoogleAnalyticsContent({ measurementId }: GoogleAnalyticsProps) {
           window.dataLayer = window.dataLayer || [];
           function gtag(){dataLayer.push(arguments);}
           gtag('js', new Date());
-          // Strip session_id (the /api/stripe/sync bearer secret) before the
-          // initial pageview — GA4 derives page_location from document.location
+          // GA4 derives page_location from document.location
           var sanitized = new URL(window.location.href);
-          sanitized.searchParams.delete('session_id');
+          ${JSON.stringify([...SECRET_QUERY_PARAMS])}.forEach(function (p) { sanitized.searchParams.delete(p); });
           gtag('config', '${measurementId}', {
             page_path: window.location.pathname,
             page_location: sanitized.toString(),

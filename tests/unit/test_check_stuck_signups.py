@@ -85,7 +85,7 @@ def test_flags_paying_customer_who_never_logged_in():
     assert [s["email"] for s in stuck] == ["stuck@example.com"]
     # Forwardable token_hash URL through our callback, not Supabase's raw action_link
     assert stuck[0]["action_link"] == (
-        "https://pitchrank.io/auth/callback?token_hash=hashed-xyz&type=recovery&next=/reset-password"
+        "https://pitchrank.io/auth/confirm?token_hash=hashed-xyz&type=recovery&next=/reset-password"
     )
 
 

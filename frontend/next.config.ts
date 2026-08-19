@@ -105,6 +105,21 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // Must come after the catch-all: Next applies every matching rule in
+        // order and, for a repeated key, the last one wins. The recovery link's
+        // token_hash sits unredeemed in this URL by design, and
+        // strict-origin-when-cross-origin sends the FULL url as Referer on
+        // same-origin navigations — handing the live token to the next page's
+        // analytics tags.
+        source: '/auth/confirm',
+        headers: [
+          {
+            key: 'Referrer-Policy',
+            value: 'no-referrer',
+          },
+        ],
+      },
     ];
   },
 };
