@@ -66,9 +66,15 @@ class TGSGameMatcher(GameHistoryMatcher):
     5. Creates new teams when no match found (similar to Modular11)
     """
 
-    def __init__(self, supabase: Client, provider_id: Optional[str] = None, alias_cache: Optional[Dict] = None):
+    def __init__(
+        self,
+        supabase: Client,
+        provider_id: Optional[str] = None,
+        alias_cache: Optional[Dict] = None,
+        dry_run: bool = False,
+    ):
         """Initialize TGS matcher with same interface as base matcher"""
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
         # Lower thresholds for more aggressive matching
         # Default: fuzzy_threshold=0.85, auto_approve=0.90, review=0.75
         # TGS: More lenient to match more teams
@@ -671,7 +677,8 @@ class TGSGameMatcher(GameHistoryMatcher):
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
-            self.db.table("teams").insert(team_data).execute()
+            if not self.dry_run:
+                self.db.table("teams").insert(team_data).execute()
 
             logger.info(f"[TGS] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})")
 
