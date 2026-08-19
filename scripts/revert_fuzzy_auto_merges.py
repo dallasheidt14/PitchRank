@@ -136,13 +136,19 @@ DUAL_YEAR_RE = re.compile(r"(?<!\d)\d{2,4}\s*[/-]\s*\d{2}(?!\d)")
 
 
 def keep_birth_year_conflicts(supabase, rows: List[Dict]) -> List[Dict]:
-    """Keep merges where the two names state one birth year each and the years conflict.
+    """Keep merges whose two names state birth years that do not overlap at all.
 
-    A name carrying dual-year shorthand ("09/10B", "2013/14") is excluded even when
-    the extracted years disagree: those labels usually describe the same team from
-    either end of its band, and normalization keeps only one of the two years, so a
-    disagreement there is an artefact rather than evidence. Only pairs where both
-    sides state a single clean year, and those years differ, are treated as wrong.
+    Disjoint is the test, not "one year each": a 2009 side and a 2007/2008 side are
+    different bands and the merge is wrong, so requiring a single year would skip
+    those. Overlap already protects the subset case — "2013" against "2013/14"
+    shares 2013 and is never selected.
+
+    Two-digit shorthand is excluded on top of that, because normalization drops one
+    of its years: "09/10B" reduces to {2010} and "15/16 Boys" to {2016}, so a pair
+    can look disjoint purely from the loss. DUAL_YEAR_RE deliberately matches only
+    that shorthand. Four-digit forms — "2013/2014", "2007-2008" — keep both years
+    through normalization, so the disjoint test stands on its own there and they are
+    left in scope.
     """
     canonical_ids = sorted({r["canonical_team_id"] for r in rows})
     canonical: Dict[str, Dict] = {}
