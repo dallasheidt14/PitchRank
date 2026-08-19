@@ -152,6 +152,21 @@ class GotSportResolver:
         return resolved
 
 
+def _is_placeholder_name(team_name: Optional[str], provider_team_id: str) -> bool:
+    """Return True for auto_match_unknown_opponents' ``unknown_<pid>`` fallback.
+
+    Spelled out here rather than imported for the same reason
+    ``src.tournaments.triage`` keeps its own copy: this script runs in a
+    workflow that installs three packages, and importing the shared predicate
+    would drag ``src.tournaments.storage`` in behind it.
+    """
+    name = (team_name or "").strip()
+    pid = (provider_team_id or "").strip()
+    if not name or not pid:
+        return False
+    return name.lower() == f"unknown_{pid}".lower()
+
+
 def _build_team_metadata(
     row: Dict[str, str],
     resolver: Optional[GotSportResolver],
@@ -171,7 +186,12 @@ def _build_team_metadata(
     if resolver and provider_code == "gotsport" and unknown_pid:
         resolved = resolver.resolve(unknown_pid)
         if resolved:
-            team_name = team_name or resolved.get("full_name", "") or resolved.get("name", "")
+            # auto_match hands over unknown_<pid> when its own lookup came back
+            # empty. That is a fuzzy-matching scratch value, not a name, so let a
+            # resolved name displace it — but keep it when this lookup is blocked
+            # too, so the team is still created and the backfill can rename it.
+            if not team_name or _is_placeholder_name(team_name, unknown_pid):
+                team_name = resolved.get("name", "") or team_name
             club_name = club_name or resolved.get("club_name", "")
             age_group = age_group or _normalize_age_group(resolved.get("age"))
             gender = gender or _normalize_gender(resolved.get("gender"))
