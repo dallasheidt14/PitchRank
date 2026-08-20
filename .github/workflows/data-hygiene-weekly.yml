@@ -80,6 +80,18 @@ env:
   # The 2026-08-19 run merged 1,772 pairs this way. Re-enable only once scoring
   # rejects placeholder names and treats a differing birth year as disqualifying.
   FUZZY_AUTO_MERGE_ENABLED: 'false'
+  # Disables Step 4. find_queue_matches narrows candidates by the age_group
+  # stamped on a queue row when it was imported, then passes
+  # require_age_token_match=False on the strength of that filter — so the one
+  # check that could catch a cohort error is off by design. The stamp never
+  # moves; the teams table is relabelled every Aug 1. 3,872 of the 11,202
+  # pending rows now carry a stamp that disagrees with the birth year in their
+  # own name, and --force re-examines all of them weekly. The 2026-08-10 run
+  # linked "Plant City 2007B Premier" to "Plant City 2010 Premier", both
+  # labelled u17. Aliases have no audit table and no revert RPC, so those
+  # writes are less recoverable than the merges Step 3 was gated for.
+  # Re-enable only once matching compares birth years rather than age labels.
+  QUEUE_AUTO_APPROVE_ENABLED: 'false'
 
 jobs:
   data-hygiene-pipeline:
@@ -243,7 +255,7 @@ jobs:
         # the relabel is applied by hand, so until both have happened its filters
         # and the stored labels differ by one cohort — and --execute --yes merges
         # on that difference permanently.
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') && env.AGE_ROLLOVER_FREEZE == 'false' && env.QUEUE_AUTO_APPROVE_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |

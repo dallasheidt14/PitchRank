@@ -41,6 +41,14 @@ jobs:
       # Gates test == 'false' (not != 'true') so a renamed or deleted flag leaves
       # the merge skipped rather than running unguarded.
       AGE_ROLLOVER_FREEZE: 'false'
+      # Mirrors the flag in data-hygiene-weekly.yml, which runs the same script
+      # in its Step 4. find_queue_matches matches on age labels that go stale as
+      # the teams table is relabelled each Aug 1, and its alias writes have no
+      # audit table and no revert RPC. This workflow is the least guarded copy:
+      # workflow_dispatch defaults to dry_run='false' with limit='2000', and the
+      # workflow_call trigger lets any other workflow start it. Gates test
+      # == 'true' so a renamed or deleted flag leaves it skipped, not running.
+      QUEUE_AUTO_APPROVE_ENABLED: 'false'
 
     steps:
       - name: Checkout repository
@@ -73,7 +81,7 @@ jobs:
       # merges on that difference permanently.
       - name: Run queue auto-merge
         id: merge
-        if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' && env.QUEUE_AUTO_APPROVE_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
