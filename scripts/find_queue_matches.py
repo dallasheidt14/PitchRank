@@ -596,6 +596,9 @@ UNMATCHABLE_AGE_GROUP = "u99x"
 # the largest clubs it sees every team.
 _STATE_SAMPLE_SIZE = 1000
 
+# Guards the state value before it is interpolated into a PostgREST or() filter.
+_STATE_CODE_RE = re.compile(r"[A-Za-z]{2}")
+
 
 def _age_group_from_birth_year(birth_year, season_year):
     """Convert a birth year to a filter cohort.
@@ -1089,19 +1092,49 @@ def find_best_match(queue_entry, supabase, teams_cache):
         """Candidates for a club, preferring its home state but never trapped in it.
 
         The state is a tiebreak, not an identity: a club's genuine out-of-state
-        satellite team still has to be reachable. Falling back to the unfiltered
-        query when the filtered one comes back empty can only widen the pool, and
+        satellite team has to be reachable too. Both halves are fetched and merged
+        rather than the second being a fallback for when the first comes back
+        empty -- 3,519 club/age/gender cohorts hold BOTH home-state and satellite
+        teams (20,049 teams), and in every one of those a fallback never fires,
+        because the home state has candidates. The satellite would then be absent
+        from the pool entirely, the variant, program and birth-year gates could
+        reject every home-state row, and the result is a silent no-match with the
+        right answer never considered (Codex P1 on PR #993).
+
+        Querying the complement rather than re-querying unfiltered is what makes
+        that a guarantee: an unfiltered page of 50 on a 600-team club is an
+        arbitrary 50 that may hold no satellite at all. `state_code.is.null` is in
+        the OR because `state_code <> 'TX'` is NULL for a NULL state, so a plain
+        neq silently drops teams with no state recorded.
+
+        Splitting the budget this way can only widen the pool, never narrow it;
         birth_years_conflict downstream is what keeps the widening safe.
         """
         if not club:
             return []
-        rows = _build_base_query().ilike("club_name", f"%{club}%")
-        if state:
-            rows = rows.eq("state_code", state)
-        found = rows.limit(50).execute().data or []
-        if found or not state:
-            return found
-        return _build_base_query().ilike("club_name", f"%{club}%").limit(50).execute().data or []
+        pattern = f"%{club}%"
+        if not state or not _STATE_CODE_RE.fullmatch(str(state)):
+            return _build_base_query().ilike("club_name", pattern).limit(50).execute().data or []
+
+        home = _build_base_query().ilike("club_name", pattern).eq("state_code", state).limit(50).execute().data or []
+        elsewhere = (
+            _build_base_query()
+            .ilike("club_name", pattern)
+            .or_(f"state_code.neq.{state},state_code.is.null")
+            .limit(50)
+            .execute()
+            .data
+            or []
+        )
+
+        merged, seen = [], set()
+        for row in home + elsewhere:
+            team_id = row.get("team_id_master")
+            if team_id in seen:
+                continue
+            seen.add(team_id)
+            merged.append(row)
+        return merged
 
     # Decide which club to try first. When the stored value looks wrong, prefer
     # the extracted one — but always pull candidates from BOTH and merge them,

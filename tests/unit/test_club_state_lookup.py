@@ -80,3 +80,59 @@ def test_the_sample_is_large_enough_to_outvote_a_satellite():
     rows = _rows(CA=494, AZ=2, TX=1)
     assert choose_state(rows, sample_size=1) == "TX", "a sample of 1 reproduces the bug"
     assert choose_state(rows, sample_size=1000) == "CA"
+
+
+def merge_candidates(home, elsewhere):
+    """The rule under test, matching _fetch_with_club's merge."""
+    merged, seen = [], set()
+    for row in list(home) + list(elsewhere):
+        team_id = row.get("team_id_master")
+        if team_id in seen:
+            continue
+        seen.add(team_id)
+        merged.append(row)
+    return merged
+
+
+def test_a_satellite_is_reachable_even_when_the_home_state_has_candidates():
+    """The reason this merges rather than falling back (Codex P1 on #993).
+
+    3,519 club/age/gender cohorts hold BOTH home-state and satellite teams. A
+    fallback that only fires when the home-state query returns nothing never
+    fires for any of them, so the satellite is absent from the pool, the
+    variant/program/birth-year gates can reject every home-state row, and the
+    result is a silent no-match with the right answer never considered.
+
+    Modelled on El Paso Premier League u11 female: TX 87, AZ 1.
+    """
+    home = [{"team_id_master": f"tx-{i}", "state_code": "TX"} for i in range(50)]
+    satellite = [{"team_id_master": "az-1", "state_code": "AZ"}]
+
+    fallback_only = home if home else satellite       # the old behaviour
+    assert "az-1" not in {r["team_id_master"] for r in fallback_only}
+
+    merged = merge_candidates(home, satellite)
+    assert "az-1" in {r["team_id_master"] for r in merged}
+    assert len(merged) == 51
+
+
+def test_the_merge_dedupes_and_keeps_home_state_first():
+    """Home rows lead, so the scorer still sees the likely-right state first."""
+    home = [{"team_id_master": "a", "state_code": "TX"}, {"team_id_master": "b", "state_code": "TX"}]
+    elsewhere = [{"team_id_master": "b", "state_code": "TX"}, {"team_id_master": "c", "state_code": "AZ"}]
+    merged = merge_candidates(home, elsewhere)
+    assert [r["team_id_master"] for r in merged] == ["a", "b", "c"]
+
+
+def test_the_complement_must_include_teams_with_no_state():
+    """`state_code <> 'TX'` is NULL for a NULL state, so a plain neq drops them.
+
+    That is why the query ORs in `state_code.is.null` -- otherwise teams with no
+    state recorded become unreachable the moment a home state is known.
+    """
+    rows = [{"team_id_master": "x", "state_code": None}, {"team_id_master": "y", "state_code": "AZ"}]
+    plain_neq = [r for r in rows if r["state_code"] is not None and r["state_code"] != "TX"]
+    assert "x" not in {r["team_id_master"] for r in plain_neq}
+
+    with_null_clause = [r for r in rows if r["state_code"] is None or r["state_code"] != "TX"]
+    assert {r["team_id_master"] for r in with_null_clause} == {"x", "y"}
