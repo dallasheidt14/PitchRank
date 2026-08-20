@@ -37,19 +37,35 @@ except ImportError:
 # Import structured team-name utilities for distinction-based matching
 try:
     from src.utils.team_name_utils import (
-        extract_club_from_team_name as extract_club_structured,
-    )
-    from src.utils.team_name_utils import (
+        birth_years_conflict,
         extract_distinctions,
         has_ecnl_only,
         has_ecnl_rl,
         normalize_club_for_comparison,
         normalize_name_for_matching,
     )
+    from src.utils.team_name_utils import (
+        extract_club_from_team_name as extract_club_structured,
+    )
 
     HAVE_TEAM_NAME_UTILS = True
 except ImportError:
     HAVE_TEAM_NAME_UTILS = False
+
+    def birth_years_conflict(name_a, name_b):  # type: ignore[misc]
+        """Fallback so the accept-path guard cannot raise if the import is missing.
+
+        Returning False fails OPEN, which is the wrong direction for a safety
+        control — so it is paired with test_team_name_utils_import_is_available,
+        which fails the build rather than letting this ship silently. The
+        alternative, failing closed, would demote every fuzzy match in an
+        environment that merely lacks the module.
+        """
+        logging.getLogger(__name__).warning(
+            "src.utils.team_name_utils unavailable — birth-year matching guard is INERT"
+        )
+        return False
+
 
 logger = logging.getLogger(__name__)
 
@@ -778,8 +794,27 @@ class GameHistoryMatcher:
             if fuzzy_match:
                 confidence = fuzzy_match["confidence"]
 
+                # A birth year names the same cohort forever; the age_group this
+                # candidate was filtered by is derived from the wall clock, and U19
+                # holds 2008 and 2009 at once — so nothing above this line can tell
+                # "G09" from "2008". This is the choke point every provider subclass
+                # reaches through super()._match_team(); they override
+                # _fuzzy_match_team, so a guard in the candidate loop alone would
+                # miss exactly the matchers that produced the defects.
+                #
+                # Demote rather than drop: an ambiguous name still deserves a human,
+                # it just must not auto-alias. team_name is asserted present for
+                # every subclass in tests/unit/test_birth_year_guard_wiring.py — a
+                # missing key here would fail the guard open.
+                year_conflict = birth_years_conflict(team_name, fuzzy_match.get("team_name"))
+                if year_conflict:
+                    logger.info(
+                        "Birth-year conflict, routing to review instead of alias: "
+                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+                    )
+
                 # Auto-approve high confidence matches (0.9+)
-                if confidence >= self.auto_approve_threshold:
+                if confidence >= self.auto_approve_threshold and not year_conflict:
                     # Create alias automatically
                     self._create_alias(
                         provider_id=provider_id,
@@ -799,8 +834,8 @@ class GameHistoryMatcher:
                         "confidence": confidence,
                     }
 
-                # Flag for review if between 0.75-0.9
-                elif confidence >= self.review_threshold:
+                # Flag for review if between 0.75-0.9, or when the years disagree
+                elif confidence >= self.review_threshold or year_conflict:
                     # Insert into review queue instead of creating alias
                     self._create_review_queue_entry(
                         provider_id=provider_id,
@@ -1249,6 +1284,13 @@ class GameHistoryMatcher:
                         continue
                     # Squad words must match (Bolts ≠ Clash, Gazelle ≠ Samba)
                     if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
+                        continue
+                    # Distinct birth years are distinct teams. These candidates were
+                    # filtered by a single age_group, and U19 holds 2008 and 2009 at
+                    # once, so the query cannot separate them. `continue` rather than
+                    # bail: a wrong-year candidate must not shadow a right-year one
+                    # further down the same result set.
+                    if birth_years_conflict(team_name, cand_name):
                         continue
                     # Coach names must match (Riedell ≠ Davis)
                     cand_coach = cand_distinctions.get("coach_name")

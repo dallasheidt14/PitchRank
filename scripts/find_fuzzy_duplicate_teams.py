@@ -38,7 +38,14 @@ from find_queue_matches import (  # noqa: E402
     normalize_team_name,
 )
 
-from src.utils.team_name_utils import _canonicalize_age_token  # noqa: E402
+# Shared with the import path (game_matcher) so both compare birth years the same
+# way. revert_fuzzy_auto_merges.py imports birth_years from this module, so the
+# re-export keeps that caller working.
+from src.utils.team_name_utils import (  # noqa: E402,F401
+    _canonicalize_age_token,  # noqa: E402
+    birth_years,
+    birth_years_conflict,
+)
 
 # Structured-distinction logic moved to scripts/_team_distinction.py.
 
@@ -59,24 +66,6 @@ def is_placeholder_name(team_name: str | None) -> bool:
     digits, so the shape alone is a safe test.
     """
     return bool(PLACEHOLDER_RE.match((team_name or "").strip()))
-
-
-def birth_years(team_name: str | None) -> set[str]:
-    """Birth years stated in a name, as four-digit strings.
-
-    Reads the NORMALIZED name so shorthand counts: normalize_team_name expands
-    ``G08/07`` to ``2008/07`` and ``B14``/``14B`` to ``2014``. Reading the raw name
-    misses those, and "FC Dallas Youth Red ECNL 2009" vs "... B08/07" then scores
-    a clean 1.0.
-    """
-    norm = normalize_team_name(team_name or "")
-    years = set(BIRTH_YEAR_RE.findall(norm))
-    for first, second in re.findall(r"(20(?:0[5-9]|1[0-9]))\s*[/-]\s*(\d{2})(?!\d)", norm):
-        years.add(first)
-        expanded = f"20{second}"
-        if BIRTH_YEAR_RE.fullmatch(expanded):
-            years.add(expanded)
-    return years
 
 
 def score_team_pair(team_a: dict, team_b: dict) -> float | None:
@@ -101,13 +90,15 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
     # matching club adds 0.15 — and U19 holds two birth years at once, so a club's
     # 2008 and 2009 sides sit in one cohort looking all but identical.
     #
-    # Requires the stated years to match exactly rather than merely overlap: a club
-    # whose own name carries a year supplies a shared one for free, so "Union 2010 FC
-    # 2009" and "Union 2010 FC 2008" both state {2010, ...} and an overlap test lets
-    # them through at 1.0.
-    years_a = birth_years(name_a)
-    years_b = birth_years(name_b)
-    if years_a and years_b and years_a != years_b:
+    # Subset, not equality: a band label carries both of its years ("FCDA 2015/16B")
+    # and the same team is often written from one end ("FCDA 2015"). Requiring
+    # equality refuses 55 of 2,929 kept human merges; subset refuses 6.
+    #
+    # Subset still refuses the case equality was defending: a club whose own name
+    # carries a year supplies a shared one for free, so "Union 2010 FC 2009" and
+    # "Union 2010 FC 2008" state {2009,2010} and {2008,2010} — neither a subset of
+    # the other — where a plain overlap test would let them through at 1.0.
+    if birth_years_conflict(name_a, name_b):
         return None
 
     norm_a = normalize_team_name(name_a)
