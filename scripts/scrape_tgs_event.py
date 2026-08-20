@@ -169,13 +169,20 @@ def extract_age_group(division_name: str, label_season: Optional[int] = None) ->
             return None
         return _tracked_age_group(age + CURRENT_YEAR - label_season)
 
-    groups = {
-        ag
-        for y in re.findall(r"\d{4}", division_name)
-        if (ag := calculate_age_group_from_birth_year(int(y)))
-        if _tracked_age_group(int(ag[1:]))
-    }
-    return sorted(groups, key=lambda g: int(g[1:]))[-1].lower() if groups else None
+    # A dual-year label names a BAND, not two separate cohorts: the season runs
+    # Aug 1 - Jul 31, so one band straddles Jan 1 and is written from both ends.
+    # "B2008/2007" is U19 (2008/07); "B2007/2006" is the band above it, which has
+    # aged out. Deriving each year independently and keeping the oldest COHORT
+    # gets that second case wrong, because 2007 alone maps into U19 while the
+    # 2007/06 band does not -- so read the band from its OLDEST year, which
+    # identifies it either way.
+    years = [int(y) for y in re.findall(r"\d{4}", division_name)]
+    if not years:
+        return None
+    group = calculate_age_group_from_birth_year(min(years))
+    if not group or not _tracked_age_group(int(group[1:])):
+        return None
+    return group.lower()
 
 
 def u_label_season(game_dates: List[str]) -> Optional[int]:

@@ -132,6 +132,27 @@ def test_legacy_labels_survive_an_aged_out_half():
     assert extract_age_group("B2007/2006") is None
 
 
+def test_a_dual_year_label_is_one_band_not_two_cohorts():
+    """Pins WHY the band is read from its oldest year.
+
+    The season runs Aug 1 - Jul 31, so a band straddles Jan 1 and gets written
+    from either end. "B2008/2007" and "B2007/2006" are adjacent bands, not
+    overlapping sets of birth years: the first is U19 (2008/07), the second is
+    the band above it and has aged out.
+
+    Deriving each year independently and keeping the oldest COHORT gets the
+    second wrong, because a bare 2007 maps into U19 -- U19 *is* 2008/07 -- while
+    the 2007/06 band does not. Reading from the oldest year identifies the band
+    either way. This passed for the wrong reason while 2007 was unmappable.
+    """
+    assert extract_age_group("B2008/2007") == extract_age_group("B2008")
+    assert extract_age_group("B2007") == "u19", "a bare 2007 is U19; only the BAND 2007/06 is aged out"
+    assert extract_age_group("B2007/2006") is None
+    # And the same shape lower down the range, where nothing is near aging out.
+    assert extract_age_group("B2015/2014") == "u13"
+    assert extract_age_group("B2014") == "u13"
+
+
 @pytest.mark.parametrize(
     "division_name",
     ["U20", "U6/7 COED", "Boys High School", "Texas Shootout All Teams", "Super Black", "SKU12 Super Black", ""],
