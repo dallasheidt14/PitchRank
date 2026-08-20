@@ -423,6 +423,101 @@ _VARIANT_AGE_PATTERNS = [
 # Age/year regex applied to the raw name string
 AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
 
+# ── Birth-year comparison ────────────────────────────────────────────────
+#
+# An age label cannot separate cohorts and a birth year can. A U-age means one
+# thing only against the season that wrote it, and U19 holds 2008 and 2009 at
+# once, so no age-token comparison at any strictness separates "G09" from
+# "2008". Team matching needs a test that does.
+
+_BIRTH_YEAR_MIN, _BIRTH_YEAR_MAX = 2005, 2020
+
+# U-age tokens are cohort labels, not birth years, so they are removed before
+# any year is read — otherwise "GU18/19" reads as a 2018/2019 band.
+_UAGE_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])(?:[BGMF]?U-?\d{1,2}[BGMF]?|[BGMF]?\d{1,2}U[BGMF]?)(?![\dA-Za-z])", re.I
+)
+_DUAL_4_4 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*(20\d{2})(?!\d)")
+_DUAL_4_2 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*'?(\d{2})(?!\d)")
+_DUAL_2_2 = re.compile(r"(?<![\dA-Za-z])'?([BG])?(\d{2})\s*[/-]\s*'?(\d{2})([BG])?(?![\dA-Za-z])", re.I)
+_YEAR_4 = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+_APOS_2 = re.compile(r"'(\d{2})(?!\d)")
+# A bare two-digit number is a squad number until a B/G affix or an adjacent
+# Boys/Girls makes it a year: "Arsenal 11 B" is not a 2011 team.
+_AFFIX_2 = re.compile(
+    r"(?<![A-Za-z0-9])[BG](\d{2})(?:(?![Uu])[A-Za-z])?(?![\dA-Za-z])"
+    r"|(?<![\dA-Za-z])(\d{2})[BG](?:(?![Uu])[A-Za-z])?(?![\dA-Za-z])",
+    re.I,
+)
+_GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)|(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
+
+
+def _four_digit_year(two_digits: str) -> int:
+    n = int(two_digits)
+    return 2000 + n if n < 50 else 1900 + n
+
+
+def birth_years(team_name: str | None) -> set[int]:
+    """Birth years a team name states. Empty set means the name states none.
+
+    Reads the RAW name. normalize_team_name is the wrong substrate: its
+    "<2 digits> boys|girls" rule rewrites "08/07 Girls" to "08/2007", turning a
+    band label into a single wrong year.
+    """
+    if not team_name:
+        return set()
+    text = _UAGE_TOKEN.sub(" ", team_name)
+    years: set[int] = set()
+    spans: list[tuple[int, int]] = []
+
+    def _blanked() -> str:
+        chars = list(text)
+        for start, end in spans:
+            for i in range(start, min(end, len(chars))):
+                chars[i] = " "
+        return "".join(chars)
+
+    def _harvest(pattern, to_years) -> None:
+        for m in pattern.finditer(_blanked()):
+            spans.append((m.start(), m.end()))
+            for year in to_years(m):
+                if year is not None and _BIRTH_YEAR_MIN <= year <= _BIRTH_YEAR_MAX:
+                    years.add(year)
+
+    _harvest(_DUAL_4_4, lambda m: (int(m.group(1)), int(m.group(2))))
+    _harvest(_DUAL_4_2, lambda m: (int(m.group(1)), _four_digit_year(m.group(2))))
+    # An unmarked two-digit pair is a band only when the years are consecutive
+    # ("08/07"); "6/7 Grinch Unit" is not a cohort.
+    _harvest(
+        _DUAL_2_2,
+        lambda m: (_four_digit_year(m.group(2)), _four_digit_year(m.group(3)))
+        if (m.group(1) or m.group(4) or "'" in m.group(0) or abs(int(m.group(2)) - int(m.group(3))) == 1)
+        else (),
+    )
+    _harvest(_YEAR_4, lambda m: (int(m.group(1)),))
+    _harvest(_APOS_2, lambda m: (_four_digit_year(m.group(1)),))
+    _harvest(_AFFIX_2, lambda m: (_four_digit_year(m.group(1) or m.group(2)),))
+    _harvest(_GENDER_WORD, lambda m: (_four_digit_year(m.group(1) or m.group(2)),))
+    return years
+
+
+def birth_years_conflict(name_a: str | None, name_b: str | None) -> bool:
+    """True when two names state birth years that cannot belong to one team.
+
+    Subset, not equality: a band label carries both of its years ("Dallas Texans
+    ECNL B08/07") and the same team is often written from one end ("... 2008").
+    Requiring equality refuses 55 of 2,929 human-approved merges; subset refuses 6.
+
+    Two bands that merely OVERLAP are still a conflict: a club's 08/07 side and
+    its 06/07 side are different teams that happen to share 2007.
+    """
+    years_a = birth_years(name_a)
+    years_b = birth_years(name_b)
+    if not years_a or not years_b:
+        return False
+    return not (years_a <= years_b or years_b <= years_a)
+
+
 # Pre-compiled patterns for _canonicalize_age_token — this helper runs per token
 # during fuzzy duplicate scanning (O(n²) teams-per-cohort) so pattern compilation
 # on every call is measurable. See `architecture_age_pattern_drift.md`.

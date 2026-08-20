@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _team_distinction import should_skip_pair  # noqa: E402
 
 from src.utils import team_utils  # noqa: E402
+from src.utils.team_name_utils import birth_years_conflict  # noqa: E402
 
 # Load .env.local if it exists, otherwise fall back to .env
 env_path = Path(__file__).parent.parent / ".env.local"
@@ -880,12 +881,15 @@ def resolve_via_stored_candidates(queue_entry):
     best_score = best.get("score") or 0.0
     near_tied = [c for c in candidates[1:] if (best_score - (c.get("score") or 0.0)) <= 0.015]
 
-    # Guard: when both names carry a birth-year token, require agreement.
+    # Guard: when both names carry birth years, require them to be compatible.
     # Catches off-by-year drift (e.g. 'Dynamos SC 14B SC' → 'Dynamos SC 2013 SC')
     # where the resolver picked a sibling-year team in the same club.
-    provider_year = _extract_birth_year_token(provider_name)
-    best_year = _extract_birth_year_token(best.get("team_name"))
-    if provider_year and best_year and provider_year != best_year:
+    #
+    # This path returns EARLY, before the variant, program-tier and should_skip_pair
+    # gates, so it is the least guarded route to a match in this file.
+    # _extract_birth_year_token returned a single year and so read a dual-year band
+    # as a conflict — "B08/07" against "2008" is one team written from one end.
+    if birth_years_conflict(provider_name, best.get("team_name")):
         return None, 0.0, None
 
     def _winner(rule):
@@ -1130,6 +1134,13 @@ def find_best_match(queue_entry, supabase, teams_cache):
         # itself omits an age token, valid masters with "2012" in their names
         # shouldn't be rejected (Codex P1 on PR #827).
         if should_skip_pair(name, team["team_name"], club_name=club_name or "", require_age_token_match=False):
+            continue
+
+        # should_skip_pair cannot separate cohorts: extract_distinctions converts a
+        # birth year to an age band first, and u19 holds 2008 and 2009 at once, so
+        # "Surf SC Elite '09" and "...'08" both yield age_tokens=('u19',).
+        # continue, not return: a wrong-year candidate must not block a right-year one.
+        if birth_years_conflict(name, team["team_name"]):
             continue
 
         # Calculate similarity

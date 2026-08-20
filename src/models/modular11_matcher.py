@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 # Import base matcher for shared functionality
 from src.models.game_matcher import GameHistoryMatcher
-from src.utils.team_name_utils import resolve_distinction
+from src.utils.team_name_utils import birth_years_conflict, resolve_distinction
 from supabase import Client
 
 logger = logging.getLogger(__name__)
@@ -952,6 +952,23 @@ class Modular11GameMatcher(GameHistoryMatcher):
             # Auto-approve if score >= 0.93, gap >= 0.07, and token overlap exists.
             # Division conflicts were already hard-rejected during scoring above, so
             # every surviving candidate matches the incoming division or is unscored.
+            # Distinct birth years are distinct teams. Candidates were filtered by a
+            # single age_group and U19 holds 2008 and 2009 at once, so nothing above
+            # this line separates "B09" from "2008". This matcher overrides
+            # _match_team without calling super(), so it does not inherit the base
+            # class's guard and needs its own — see
+            # tests/unit/test_birth_year_guard_wiring.py, which fails if this
+            # override stops being covered.
+            if birth_years_conflict(incoming_name, best.get("team_name")):
+                self._dlog(
+                    f"Fuzzy match REJECTED on birth-year conflict: {incoming_name} -> {best['team_name']}"
+                )
+                logger.info(
+                    f"[Modular11] Birth-year conflict, refusing match: "
+                    f"{incoming_name} → {best['team_name']} (score: {best['score']:.3f})"
+                )
+                return None
+
             if best["score"] >= MODULAR11_MIN_CONFIDENCE and score_gap >= MODULAR11_MIN_GAP and best["token_overlap"]:
                 self._dlog(
                     f"Fuzzy match ACCEPTED: {incoming_name} -> {best['team_name']} "
