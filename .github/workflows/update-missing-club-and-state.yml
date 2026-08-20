@@ -62,6 +62,8 @@ env:
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  # Step 0 connects directly rather than through PostgREST; the rest use Supabase.
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
 
 # Don't let an on-demand workflow_dispatch race a scheduled run.
@@ -92,7 +94,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install supabase python-dotenv requests
+          pip install supabase python-dotenv requests psycopg2-binary
           echo "✅ Dependencies installed"
 
       - name: Verify Supabase secrets
@@ -120,9 +122,18 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
         run: |
+          # tee swallows the exit code without this, so a missing dependency or a
+          # missing DATABASE_URL would report zero rows instead of failing.
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 0: BACKFILL STATE_CODE FROM TEAM_NAME"
           echo "═══════════════════════════════════════════════════"
+
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Step 0 needs DATABASE_URL. Add the DATABASE_URL secret."
+            exit 1
+          fi
 
           EXEC_FLAG="--execute"
           if [ "$INPUT_DRY_RUN" = "true" ]; then EXEC_FLAG="--dry-run"; fi

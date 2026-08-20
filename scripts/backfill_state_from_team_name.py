@@ -100,6 +100,23 @@ STATE_NAMES: Dict[str, str] = {
 # Phrases that contain a state name but do not mean that state.
 FALSE_FRIENDS = ("kansas city", "washington dc", "washington d c")
 
+# A state name preceded by one of these is part of a PLACE name, not a state:
+# "Mount Washington SC" is in Baltimore, Maryland.
+_PLACE_PREFIX = re.compile(
+    r"\b(mount|mt|lake|fort|ft|port|cape|north|south|east|west)\s+"
+    r"(washington|oregon|nevada|montana|indiana|florida|georgia|ohio|texas|utah|maine|delaware)\b",
+    re.I,
+)
+
+# Two-letter tokens that are soccer vocabulary here, never a state. Without this
+# "California Athletic SC" reads as South Carolina and "TSJ FC Virginia - GA"
+# as Georgia -- SC is Soccer Club and GA is Girls Academy.
+_NOT_STATE_TOKENS = frozenset({"SC", "FC", "GA", "AC", "SA", "CF", "DA", "RL", "EA", "NL", "PA"})
+
+# An explicit affiliate marker: "Utah Royals FC-AZ" is the ARIZONA affiliate.
+# Bracketed or hyphen-attached, so it does not fire on a bare word.
+_AFFILIATE_CODE = re.compile(r"(?:-\s*|\(\s*)([A-Z]{2})(?![A-Za-z])")
+
 # Longest first so "west virginia" wins over "virginia" and "new mexico" over
 # "mexico"-adjacent fragments.
 _ORDERED_STATES: List[Tuple[str, str]] = sorted(STATE_NAMES.items(), key=lambda kv: -len(kv[0]))
@@ -121,6 +138,7 @@ JOIN teams o ON o.team_id_master = CASE
     ELSE g.home_team_master_id END
 WHERE (g.home_team_master_id = %(team)s OR g.away_team_master_id = %(team)s)
   AND o.state_code IS NOT NULL
+  AND o.state_code <> ''
 """
 
 
@@ -149,6 +167,10 @@ def state_from_name(team_name: Optional[str]) -> Optional[str]:
     padded = re.sub(r"\s+", " ", padded)
     if any(phrase in padded for phrase in FALSE_FRIENDS):
         return None
+    # "Mount Washington SC" is in Maryland. A state name behind a place word is
+    # part of a town, not a location claim.
+    if _PLACE_PREFIX.search(padded):
+        return None
 
     found = set()
     remaining = padded
@@ -156,7 +178,28 @@ def state_from_name(team_name: Optional[str]) -> Optional[str]:
         if f" {name} " in remaining:
             found.add(code)
             remaining = remaining.replace(f" {name} ", " ")
-    return found.pop() if len(found) == 1 else None
+    if len(found) != 1:
+        return None
+    inferred = found.pop()
+
+    # An explicit affiliate code overrides the name: "Utah Royals FC-AZ" is the
+    # Arizona side. Refuse rather than pick -- the marker means the name and the
+    # location genuinely disagree, and guessing either way is what caused this
+    # whole class of bug.
+    for code in _AFFILIATE_CODE.findall(team_name or ""):
+        if code in _NOT_STATE_TOKENS:
+            continue
+        if code in STATE_NAMES.values() and code != inferred:
+            return None
+    return inferred
+
+
+def _state_to_code(value: str) -> Optional[str]:
+    """A teams.state value as a 2-letter code, or None when unrecognised."""
+    text = (value or "").strip()
+    if len(text) == 2 and text.upper() in set(STATE_NAMES.values()):
+        return text.upper()
+    return STATE_NAMES.get(re.sub(r"\s+", " ", text.lower()))
 
 
 def opponent_states(cur, team_id: str) -> Counter:
@@ -203,10 +246,20 @@ def main() -> None:
     rows = [dict(r) for r in cur.fetchall()]
     log(f"Live teams with no state_code (excluding placeholders): {len(rows)}")
 
-    planned, contradicted = [], []
+    planned, contradicted, overruled = [], [], []
     for row in rows:
         inferred = state_from_name(row["team_name"])
         if not inferred:
+            continue
+
+        # teams.state is a separate column the candidate query does not require.
+        # Where it is populated it is a direct statement of location and beats a
+        # name heuristic, so a disagreement means skip rather than overwrite.
+        stated = (row.get("state") or "").strip()
+        if stated and _state_to_code(stated) and _state_to_code(stated) != inferred:
+            row["inferred"] = inferred
+            row["opponents"] = f"teams.state={stated!r}"
+            overruled.append(row)
             continue
         counts = opponent_states(cur, row["team_id_master"])
         total = sum(counts.values())
@@ -228,8 +281,11 @@ def main() -> None:
     if args.limit is not None:
         planned = planned[: args.limit]
 
-    log(f"  name states exactly one US state: {len(planned) + len(contradicted)}")
-    log(f"  planned: {len(planned)}   vetoed by opponents: {len(contradicted)}")
+    log(f"  name states exactly one US state: {len(planned) + len(contradicted) + len(overruled)}")
+    log(
+        f"  planned: {len(planned)}   vetoed by opponents: {len(contradicted)}   "
+        f"overruled by teams.state: {len(overruled)}"
+    )
     log(f"  by state: {dict(Counter(r['inferred'] for r in planned).most_common(10))}")
 
     log("\nSample:")
@@ -240,6 +296,11 @@ def main() -> None:
         )
     if len(planned) > 12:
         log(f"  ... and {len(planned) - 12} more")
+
+    if overruled:
+        log("\nSkipped (teams.state already says otherwise):")
+        for row in overruled[:8]:
+            log(f"  [{row['inferred']}?] {row['team_name'][:46]!r}  {row['opponents']}")
 
     if contradicted:
         log("\nVetoed (opponents point overwhelmingly elsewhere):")
