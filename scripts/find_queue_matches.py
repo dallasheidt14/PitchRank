@@ -1399,6 +1399,8 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
     approved = 0
     failed = 0
+    noop_same = 0
+    noop_conflict = 0
 
     for r in candidates:
         q = r["queue_entry"]
@@ -1419,6 +1421,34 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
                 # Cap score at 0.99 for alias table
                 db_score = min(0.99, r["score"])
+
+                # The upsert below passes ignore_duplicates=True, which PostgREST
+                # sends as ON CONFLICT DO NOTHING. Where this provider team already
+                # holds an alias the write is a guaranteed no-op -- and it used to
+                # print "Merged" anyway. 5,458 of 5,698 historical approvals were
+                # that: the queue recorded a decision the alias table never took.
+                # Any audit keyed on the queue is wrong by two orders of magnitude,
+                # so look first and report what actually happened.
+                existing = (
+                    supabase.table("team_alias_map")
+                    .select("team_id_master")
+                    .eq("provider_id", provider_uuid)
+                    .eq("provider_team_id", q["provider_team_id"])
+                    .limit(1)
+                    .execute()
+                ).data
+                if existing:
+                    held_by = existing[0]["team_id_master"]
+                    if held_by == m["team_id_master"]:
+                        noop_same += 1
+                        print(f"  = Already linked: {q['provider_team_name']} -> {m['team_name']}")
+                    else:
+                        noop_conflict += 1
+                        print(
+                            f"  ! NOT linked (a different alias already holds this provider key): "
+                            f"{q['provider_team_name']} -> wanted {m['team_name']}, kept {held_by}"
+                        )
+                    continue
 
                 # Create alias - use team_id_master (FK target), NOT id
                 supabase.table("team_alias_map").upsert(
@@ -1449,12 +1479,19 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                 ).eq("id", q["id"]).execute()
 
             approved += 1
-            action = "Would merge" if dry_run else "Merged"
+            action = "Would merge" if dry_run else "Linked"
             print(f"  ✅ {action}: {q['provider_team_name']} → {m['team_name']} ({r['score']:.1%})")
 
         except Exception as e:
             failed += 1
             print(f"  ❌ Failed [{q['id']}]: {e}")
+
+    if noop_same or noop_conflict:
+        print(
+            f"\n  {noop_same} already linked to the same team, "
+            f"{noop_conflict} left alone because another alias holds the provider key. "
+            "Neither wrote anything."
+        )
 
     return approved, failed
 
