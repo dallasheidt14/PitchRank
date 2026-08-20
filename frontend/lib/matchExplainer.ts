@@ -599,9 +599,13 @@ export function explainMatch(
 
   // 4. Expected scoring environment
   const totalExpectedGoals = expectedScore.teamA + expectedScore.teamB;
+  // teams.age_group first; the name is a fallback only. A name states a birth
+  // year and therefore means a different cohort after every Aug 1 rollover,
+  // whereas age_group is rolled deliberately. This insight is rendered as
+  // "U${age}" to the reader, so a stale name here shows the wrong age group.
   const dbAge = teamA.age || teamB.age;
   const nameAge = extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);
-  const age = nameAge || dbAge;
+  const age = dbAge || nameAge;
   if (age) {
     if (age <= 11 && totalExpectedGoals > 5) {
       keyInsights.push(
