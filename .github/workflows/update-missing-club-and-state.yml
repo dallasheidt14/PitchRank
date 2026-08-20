@@ -34,12 +34,21 @@ on:
 #
 # Runs in strict dependency order so each step benefits from the prior:
 #
+#   Step 0: backfill_state_from_team_name.py   — state named in team_name → state_code
 #   Step 1: backfill_missing_club_names.py     — GotSport API → club_name
 #   Step 2: extract_missing_club_names.py      — team_name heuristics → club_name (in-state safe-only)
 #   Step 3: full_club_analysis.py --execute    — Standardize all club_names (incl. NULL-state pass)
 #   Step 4: match_state_from_club.py --yes     — Fill state_code from now-canonical club_names
 #   Step 5: backfill_missing_state_codes.py    — GotSport API → state_code (residual)
 #   Step 6: backfill_state_from_opponents.py   — Infer state_code from opponents' states (catch-all)
+#
+# Step 0 runs first because Step 2 REQUIRES a state_code before it will infer a
+# club from a team name, so every state it fills is a team Step 2 can then reach.
+# It also gets teams the other state steps structurally cannot: Step 4 needs a
+# meaningful club ("Oregon Surf" is stored under the national brand "SURF", and
+# "Washington Premier" under the placeholder "No Club Selection"), and Step 6
+# needs 90% of opponents in one state, which border-state clubs never reach --
+# Oregon Surf's opponents are 40% OR and 35% WA.
 #
 # Step 4 is the biggest beneficiary: it sees the new club_names from Steps 1-2
 # in their canonical form (Step 3) before doing the lookup. Step 6 catches the
@@ -53,6 +62,8 @@ env:
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  # Step 0 connects directly rather than through PostgREST; the rest use Supabase.
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
 
 # Don't let an on-demand workflow_dispatch race a scheduled run.
@@ -83,7 +94,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install supabase python-dotenv requests
+          pip install supabase python-dotenv requests psycopg2-binary
           echo "✅ Dependencies installed"
 
       - name: Verify Supabase secrets
@@ -102,6 +113,37 @@ jobs:
 
       - name: Create logs directory
         run: mkdir -p logs
+
+      # ── Step 0: state_code from a state named in the team name ──
+      - name: 'Step 0: Backfill state_code from team_name'
+        id: step0
+        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',0,') }}
+        env:
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          # tee swallows the exit code without this, so a missing dependency or a
+          # missing DATABASE_URL would report zero rows instead of failing.
+          set -o pipefail
+
+          echo "═══════════════════════════════════════════════════"
+          echo "STEP 0: BACKFILL STATE_CODE FROM TEAM_NAME"
+          echo "═══════════════════════════════════════════════════"
+
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Step 0 needs DATABASE_URL. Add the DATABASE_URL secret."
+            exit 1
+          fi
+
+          EXEC_FLAG="--execute"
+          if [ "$INPUT_DRY_RUN" = "true" ]; then EXEC_FLAG="--dry-run"; fi
+          LIMIT_FLAG=""
+          if [ -n "$INPUT_LIMIT" ]; then LIMIT_FLAG="--limit $INPUT_LIMIT"; fi
+
+          python scripts/backfill_state_from_team_name.py $EXEC_FLAG $LIMIT_FLAG 2>&1 | tee logs/step0_state_from_name.log
+
+          UPDATED=$(grep -oP '^Updated \K[\d,]+' logs/step0_state_from_name.log | tr -d ',' || echo "0")
+          echo "state_from_name=${UPDATED:-0}" >> $GITHUB_OUTPUT
 
       # ── Step 1: GotSport club_name backfill ───────────────
       - name: 'Step 1: Backfill club_name from GotSport API'
