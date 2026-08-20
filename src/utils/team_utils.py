@@ -79,6 +79,14 @@ def calculate_age_group_from_birth_year(birth_year: int, current_year: int = CUR
         'U19'
     """
     age = current_year - birth_year + 1
+    # A birth year sits in one of two bands, because the season runs Aug 1 - Jul 31
+    # and so straddles Jan 1. This formula returns the OLDER of the two. For the
+    # oldest cohort that band does not exist -- U19 is 2008/07, and there is no U20
+    # in youth soccer -- so 2007 computed age 20 and fell out as None, leaving those
+    # teams with no cohort at all. Only birth year 2007 reaches age 20; no other
+    # year changes.
+    if age == 20:
+        age = 19
     if 7 <= age <= 19:  # Valid youth soccer age range
         if age == 18:
             age = 19
