@@ -1,0 +1,60 @@
+{
+  "accessed": "2026-07-27",
+  "purpose": "First-party figures cited on /blog/ecnl-vs-mls-next, /blog/ecnl-vs-npl, /blog/what-is-ecnl. Any figure in prose that is not in this file is unsourced and must be removed or re-derived.",
+  "credential_note": {
+    "access": "Queried via Supabase PostgREST using NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_KEY from frontend/.env.local. scripts/blog_research.py:25 loads a repo-root .env expecting DATABASE_URL, which C:/PitchRank/.env does not define - that path will not work for a re-run.",
+    "tls_note": "curl required --ssl-revoke-best-effort on this machine: Norton TLS interception makes schannel fail cert revocation checking (CRYPT_E_NO_REVOCATION_CHECK). Certificate validation itself still applies.",
+    "env_file_note": "frontend/.env.local begins with a UTF-8 BOM, so `source .env.local` fails; parse with sed 's/^\\xEF\\xBB\\xBF//' first."
+  },
+  "figure_A_total_teams": {
+    "definition": "homepage-cache definition: active, non-deprecated, ranked teams",
+    "sql_equivalent": "SELECT COUNT(*) FROM public.rankings_full rf JOIN public.teams t ON t.team_id_master = rf.team_id WHERE rf.status = 'Active' AND t.is_deprecated IS NOT TRUE AND rf.power_score_final IS NOT NULL",
+    "postgrest_call": "GET /rest/v1/rankings_full?select=team_id,teams!inner(is_deprecated)&status=eq.Active&power_score_final=not.is.null&teams.is_deprecated=not.is.true with Prefer: count=exact",
+    "recompute_result": 58763,
+    "cache_cross_check": {
+      "postgrest_call": "GET /rest/v1/homepage_stats?select=total_teams,total_games,refreshed_at",
+      "total_teams": 58918,
+      "total_games": 1310979,
+      "refreshed_at": "2026-07-27T08:13:00.016695+00:00",
+      "note": "refreshed_at matches the documented pg_cron schedule '13 8 * * *' (08:13 UTC daily)."
+    },
+    "rounding_rule": "publish the LOWER of recompute and cache, rounded DOWN to the nearest 1,000",
+    "published_figure": 58000,
+    "fallback_ceiling_check": "frontend/lib/stats.ts:13 FALLBACK_STATS.totalTeams = 59000. Published 58,000 is below both the live count and the fallback, so prose cannot overstate the on-site counter.",
+    "prose_form": "more than 58,000 teams"
+  },
+  "figure_B_league_mix": {
+    "definition": "league composition of the top 50 ranked teams at one age group and gender",
+    "sql_equivalent": "SELECT league_group, COUNT(*) FROM (SELECT COALESCE(CASE WHEN t.league IN ('MLS_NEXT_HD','MLS_NEXT_AD') THEN 'MLS_NEXT' ELSE t.league END, 'UNAFFILIATED') AS league_group FROM public.rankings_full rf JOIN public.teams t ON t.team_id_master = rf.team_id WHERE rf.status='Active' AND t.is_deprecated IS NOT TRUE AND rf.power_score_final IS NOT NULL AND rf.age_group='u15' AND rf.gender=<gender> ORDER BY rf.power_score_final DESC LIMIT 50) top50 GROUP BY league_group ORDER BY COUNT(*) DESC",
+    "postgrest_call": "GET /rest/v1/rankings_full?select=team_id,power_score_final,teams!inner(league,is_deprecated)&status=eq.Active&power_score_final=not.is.null&age_group=eq.u15&gender=eq.<Male|Female>&teams.is_deprecated=not.is.true&order=power_score_final.desc&limit=50 (grouped client-side)",
+    "case_notes": "age_group is lowercase ('u15'); gender is title-case ('Male'/'Female'). Both verified against live data returning 50 rows.",
+    "u15_male": {
+      "rows_returned": 50,
+      "counts": {
+        "MLS_NEXT": 30,
+        "UNAFFILIATED": 9,
+        "ECNL": 7,
+        "ECNL_RL": 3,
+        "NL": 1
+      },
+      "coverage_gate": "PASS - UNAFFILIATED 18% is below the 30% sparse-coverage threshold",
+      "prose_form": "about three in five of the top 50 U15 boys teams play in MLS NEXT"
+    },
+    "u15_female": {
+      "rows_returned": 50,
+      "counts": {
+        "ECNL": 35,
+        "GA": 8,
+        "ECNL_RL": 3,
+        "UNAFFILIATED": 2,
+        "DPL": 1,
+        "ASPIRE": 1
+      },
+      "coverage_gate": "PASS - UNAFFILIATED 4% is below the 30% sparse-coverage threshold",
+      "prose_form": "about seven in ten of the top 50 U15 girls teams play in ECNL"
+    },
+    "interpretation_permitted": "The boys and girls top ends are concentrated in different leagues - a structural observation about where strong teams currently sit.",
+    "interpretation_forbidden": "Not a measure of league quality; not generalizable past u15, which is the only age group queried."
+  },
+  "staleness_guidance": "Rankings republish every Monday, so exact counts drift. Prose uses proportional phrasing ('about three in five') rather than raw counts so the pages do not go stale weekly. Re-run both queries before materially changing any figure."
+}

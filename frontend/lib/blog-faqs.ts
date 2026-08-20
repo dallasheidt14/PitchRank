@@ -1068,4 +1068,103 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
         'ECNL (Elite Clubs National League) and MLS NEXT are both top-tier national platforms. ECNL is club-operated and emphasizes player development with flexible scheduling. MLS NEXT is affiliated with Major League Soccer and follows a more structured competition calendar. Both produce nationally competitive teams.',
     },
   ],
+
+  'ecnl-vs-mls-next': [
+    {
+      question: 'Can one club run both an ECNL team and an MLS NEXT team?',
+      answer:
+        "The two run parallel competition calendars, so a club's boys program is usually built around one of them. A club can still field ECNL Girls teams alongside an MLS NEXT boys program, since the ECNL has a girls side and MLS NEXT does not. Ask your club which platform each age group actually plays in.",
+    },
+    {
+      question: 'What age groups does MLS NEXT cover?',
+      answer:
+        "MLS NEXT lists U13, U14, U15, U16, U17 and U19. There is no U18 bracket, and no MLS NEXT competition below U13, so younger players in an MLS NEXT club play in other leagues until they reach the platform's youngest age group.",
+    },
+    {
+      question: 'How does a club get into MLS NEXT?',
+      answer:
+        'Through an expansion application to the league rather than by promotion from a lower division. Unlike the ECNL, MLS NEXT does not operate a published feeder tier that clubs earn their way up from, so there is no on-field route into it.',
+    },
+    {
+      question: 'Does the ECNL have a boys league?',
+      answer:
+        'Yes. The ECNL began as a girls league in 2009 and added boys competition in 2017, launching with 57 clubs. ECNL Boys now spans more than 170 clubs across 15 conferences, making it substantially larger by club count than the girls side.',
+    },
+    {
+      question: 'What happens to a player after MLS NEXT ends at U19?',
+      answer:
+        'College soccer and MLS NEXT Pro are the routes onward, and MLS NEXT Pro is organizationally linked to MLS NEXT through shared senior leadership. Where players actually land varies widely by club, so ask a club where its recent graduating players went rather than inferring it from the pathway.',
+    },
+    {
+      question: 'Which platform do college coaches attend?',
+      answer:
+        'Both platforms run showcase events, and both are attended by college coaches. Attendance varies by event, region and division, so the more useful question for a family is which specific showcases a club actually travels to and which coaches were there last year.',
+    },
+  ],
+
+  'ecnl-vs-npl': [
+    {
+      question: 'Is the National 1 League completely replacing NPL?',
+      answer:
+        "US Club Soccer announced the 2026 season as NPL's final one, with the National 1 League taking its place for 2026-27. The new competition was formed by bringing NPL together with US Youth Soccer's National League, so it absorbs both rather than succeeding just one.",
+    },
+    {
+      question: 'How do teams qualify for the National 1 League?',
+      answer:
+        'This has not been published. The July 2026 announcement describes what the league is and who backs it, but does not set out qualification or selection criteria. Ask your club rather than relying on unofficial summaries, which are currently guesswork.',
+    },
+    {
+      question: 'How is the National 1 League different from the US Youth Soccer National League?',
+      answer:
+        'The USYS National League was one of the two competitions merged into it. Rather than continuing as a separate top-tier platform, its national-level competition was combined with NPL to form a single joint platform run by both organizations.',
+    },
+    {
+      question: 'Does the National 1 League change anything for ECNL clubs?',
+      answer:
+        'US Club Soccer describes the new league as a unified platform integrated with the ECNL, not as a replacement for it. The ECNL continues to run its own conferences, promotion pyramid and postseason.',
+    },
+    {
+      question: 'Is NPSL the same as NPL?',
+      answer:
+        'No. The National Premier Soccer League is an adult amateur league and is unrelated to youth club soccer. The similar acronyms cause frequent confusion, but they are separate organizations serving entirely different age groups.',
+    },
+    {
+      question: "Should my child's club change platforms because of this?",
+      answer:
+        'Platform changes are club-level decisions driven by results, geography and cost, and the transition alone is a weak reason to move a child. Look at the specific teams your child would play for and against, which is measurable, rather than at the league name, which is changing.',
+    },
+  ],
+
+  'what-is-ecnl': [
+    {
+      question: 'Who sanctions the ECNL?',
+      answer:
+        'US Club Soccer, which describes the ECNL as a top, league-based platform for both girls and boys players. US Club Soccer is one of the two main sanctioning bodies for American youth club soccer, alongside US Youth Soccer.',
+    },
+    {
+      question: 'When was the ECNL founded?',
+      answer:
+        'It launched in 2009 as a girls competition. Boys competition followed in 2017, beginning with 57 clubs, and the boys side has since grown to be the larger of the two by club count.',
+    },
+    {
+      question: 'How many clubs are in the ECNL?',
+      answer:
+        'More than 170 clubs across 15 conferences on the boys side, and 129 clubs across 10 conferences on the girls side. Those counts change annually as clubs are promoted into and out of the platform.',
+    },
+    {
+      question: 'What is Pre-ECNL?',
+      answer:
+        'The entry tier of the pyramid, aimed at younger players below Regional League age groups. For 2026-27 the ECNL announced 11 new Pre-ECNL leagues launching, plus age-group expansions in several leagues that already run.',
+    },
+    {
+      question: 'How does a club earn promotion into the ECNL?',
+      answer:
+        'Through on-field results assessed across multiple seasons and multiple age groups, not off a single strong season. Clubs typically move from Pre-ECNL to the Regional League to the top platform, though some join from other leagues instead.',
+    },
+    {
+      question: 'Does a club join the ECNL for all its teams at once?',
+      answer:
+        'No. Placement is by age group, which is why one club can field a top-platform team in one age group and a Regional League team in another. This is a frequent source of confusion when comparing two clubs that both call themselves ECNL clubs.',
+    },
+  ],
 };
