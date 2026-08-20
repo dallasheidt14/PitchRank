@@ -16,6 +16,7 @@ import argparse
 import os
 import re
 import sys
+from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -590,6 +591,11 @@ def _current_season_year():
 # name that yields no real cohort must never become a team.
 UNMATCHABLE_AGE_GROUP = "u99x"
 
+# Rows sampled to decide a club's home state. One row is not a sample -- it is
+# whatever the heap returns first. This is PostgREST's page size, so for all but
+# the largest clubs it sees every team.
+_STATE_SAMPLE_SIZE = 1000
+
 
 def _age_group_from_birth_year(birth_year, season_year):
     """Convert a birth year to a filter cohort.
@@ -1046,6 +1052,23 @@ def find_best_match(queue_entry, supabase, teams_cache):
         return q
 
     def _lookup_state(club):
+        """The state a club is actually in: the most common one across its teams.
+
+        An unordered LIMIT 1 returns whatever the heap yields first, which is the
+        earliest-inserted row -- and for a club carrying satellite entries that is
+        the outlier rather than the home state. Measured over the 40 largest
+        multi-state clubs, 35 came back with a non-majority state:
+
+            San Diego Surf Soccer Club -> AZ (2 teams), when CA holds 494
+            HTX                        -> LA (3 teams), when TX holds 495
+
+        Because the result is applied as a state filter below, that collapsed the
+        candidate pool to zero for those clubs -- a silent no-match rather than a
+        wrong match, which is why it never showed up as bad data.
+
+        Deprecated rows do not vote: they are merged-away duplicates and should
+        not decide where a club lives.
+        """
         if not club:
             return None
         r = (
@@ -1053,18 +1076,32 @@ def find_best_match(queue_entry, supabase, teams_cache):
             .select("state_code")
             .ilike("club_name", f"%{club}%")
             .not_.is_("state_code", "null")
-            .limit(1)
+            .eq("is_deprecated", False)
+            .limit(_STATE_SAMPLE_SIZE)
             .execute()
         )
-        return r.data[0]["state_code"] if r.data else None
+        codes = [row["state_code"] for row in (r.data or []) if row.get("state_code")]
+        if not codes:
+            return None
+        return Counter(codes).most_common(1)[0][0]
 
     def _fetch_with_club(club, state):
+        """Candidates for a club, preferring its home state but never trapped in it.
+
+        The state is a tiebreak, not an identity: a club's genuine out-of-state
+        satellite team still has to be reachable. Falling back to the unfiltered
+        query when the filtered one comes back empty can only widen the pool, and
+        birth_years_conflict downstream is what keeps the widening safe.
+        """
         if not club:
             return []
-        q = _build_base_query().ilike("club_name", f"%{club}%")
+        rows = _build_base_query().ilike("club_name", f"%{club}%")
         if state:
-            q = q.eq("state_code", state)
-        return q.limit(50).execute().data or []
+            rows = rows.eq("state_code", state)
+        found = rows.limit(50).execute().data or []
+        if found or not state:
+            return found
+        return _build_base_query().ilike("club_name", f"%{club}%").limit(50).execute().data or []
 
     # Decide which club to try first. When the stored value looks wrong, prefer
     # the extracted one — but always pull candidates from BOTH and merge them,
