@@ -3,10 +3,9 @@
 Regression cover for event 4125, where every flight was skipped because all 16
 divisions were labelled 'BU11'/'GU18/19' instead of 'B2015'.
 
-TGS relabelled from birth year to U-age at the 2026-08-01 rollover, so a U-age
-label only resolves against the season that wrote it. These tests pass that
-season explicitly rather than deriving expectations from the live CURRENT_YEAR,
-which would make every assertion move with the clock.
+Cohorts are age groups. A U-age label already names one and is taken as
+written; the only question is whether the label is current, since one written
+before the 2026-08-01 relabel belongs to a season that has since moved on.
 """
 
 import re
@@ -18,154 +17,100 @@ import pytest
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from scripts import scrape_tgs_event as tgs
-from scripts.scrape_tgs_event import extract_gender, extract_year, resolve_u_age_season, season_year_of, u_age_of
-
-PINNED_SEASON = 2026
+from scripts.scrape_tgs_event import extract_age_group, extract_gender, u_age_of, u_label_is_current
 
 # The 16 division names event 4125 actually returns from the TGS API.
 EVENT_4125_DIVISIONS = ["BU11", "BU12", "BU13", "BU14", "BU15", "BU16", "BU17", "BU18/19"]
 EVENT_4125_DIVISIONS += [name.replace("B", "G", 1) for name in EVENT_4125_DIVISIONS]
 
 
-@pytest.fixture(autouse=True)
-def pinned_season(monkeypatch):
-    """Freeze the season so expectations are absolute, not clock-relative.
-
-    CURRENT_YEAR is imported by value, so the module's own derived constants have
-    to be replaced too — patching src.utils.team_utils alone would not reach them.
-    """
-    monkeypatch.setattr(tgs, "CURRENT_YEAR", PINNED_SEASON)
-    monkeypatch.setattr(tgs, "YOUNGEST_TRACKED_BIRTH_YEAR", PINNED_SEASON - 10 + 1)
-    monkeypatch.setattr(tgs, "OLDEST_TRACKED_BIRTH_YEAR", PINNED_SEASON - 19 + 1)
-
-
 @pytest.mark.parametrize("division_name", EVENT_4125_DIVISIONS)
 def test_event_4125_divisions_are_no_longer_skipped(division_name):
-    assert extract_year(division_name, u_age_season=PINNED_SEASON) is not None
+    assert extract_age_group(division_name) is not None
 
 
 @pytest.mark.parametrize(
     ("division_name", "expected"),
     [
-        ("BU11", 2016),
-        ("BU12", 2015),
-        ("BU13", 2014),
-        ("BU14", 2013),
-        ("BU15", 2012),
-        ("BU16", 2011),
-        ("BU17", 2010),
-        ("GU11", 2016),
-        ("GU13", 2014),
-        ("GU16", 2011),
+        ("BU11", "u11"),
+        ("BU12", "u12"),
+        ("BU13", "u13"),
+        ("BU17", "u17"),
+        ("GU11", "u11"),
+        ("GU16", "u16"),
+        ("bu11", "u11"),
+        ("2026 U13 Boys", "u13"),
+        ("BU11 2026-27", "u11"),
+        ("U12G - 9V9 (AUG 1, 2014 - JULY 31, 2015)", "u12"),
     ],
 )
-def test_u_age_resolves_to_the_cohort_event_4125_team_names_carry(division_name, expected):
-    """Pinned against the birth years found in event 4125's own team names."""
-    assert extract_year(division_name, u_age_season=PINNED_SEASON) == expected
-
-
-def test_u_age_beats_a_season_label_rather_than_being_masked_by_it():
-    assert extract_year("2026 U13 Boys", u_age_season=PINNED_SEASON) == 2014
-    assert extract_year("BU11 2026-27", u_age_season=PINNED_SEASON) == 2016
-    assert extract_year("U12G - 9V9 (AUG 1, 2014 - JULY 31, 2015)", u_age_season=PINNED_SEASON) == 2015
-
-
-def test_birth_year_labels_still_resolve_when_no_u_age_is_present():
-    assert extract_year("B2015", u_age_season=PINNED_SEASON) == 2015
-    assert extract_year("G2013", u_age_season=PINNED_SEASON) == 2013
+def test_a_u_label_names_its_own_cohort(division_name, expected):
+    """No season arithmetic: the label is the answer."""
+    assert extract_age_group(division_name) == expected
 
 
 @pytest.mark.parametrize("division_name", ["U18/19", "BU18/19", "GU18/19"])
-def test_multi_age_labels_are_kept_when_every_age_is_one_cohort(division_name):
-    """18 and 19 both collapse to U19, so the label still names one cohort."""
-    assert extract_year(division_name, u_age_season=PINNED_SEASON) == 2008
+def test_u18_files_into_u19(division_name):
+    """PitchRank runs no U18 board; 18 and 19 are one cohort."""
+    assert extract_age_group(division_name) == "u19"
 
 
 @pytest.mark.parametrize("division_name", ["U13-U19", "U15 - U18 Boys", "U10-U11 Boys", "GU17/18", "BOYS U11/U12"])
-def test_multi_age_labels_spanning_real_cohorts_are_rejected(division_name):
+def test_labels_spanning_real_cohorts_are_rejected(division_name):
     """Stamping these with the first age filed the whole flight as the youngest."""
-    assert extract_year(division_name, u_age_season=PINNED_SEASON) is None
+    assert extract_age_group(division_name) is None
 
 
-def test_u_age_is_skipped_rather_than_guessed_without_a_season():
-    assert extract_year("BU11") is None
-    assert extract_year("B2015") == 2015
+def test_a_stale_u_label_is_skipped_rather_than_taken_at_face_value():
+    """Event 3430 (Apr 2025) files its 2012-born teams as U13; they are u15 now."""
+    assert extract_age_group("U13 BOYS 11v11", allow_u_label=False) is None
 
 
-def test_case_is_normalized_before_matching():
-    assert extract_year("bu11", u_age_season=PINNED_SEASON) == extract_year("BU11", u_age_season=PINNED_SEASON) == 2016
+@pytest.mark.parametrize(
+    ("game_dates", "expected"),
+    [
+        (["2026-12-13"], True),
+        (["2026-08-01"], True),
+        (["2026-05-23", "2026-05-25"], False),
+        (["2025-04-25"], False),
+        ([], False),
+    ],
+)
+def test_only_post_relabel_events_keep_their_u_labels(game_dates, expected):
+    assert u_label_is_current(game_dates) is expected
 
 
-def test_window_edges_follow_the_pinned_season():
-    assert extract_year("B2017", u_age_season=PINNED_SEASON) == 2017  # U10, wrongly rejected by the old 2007-2016 range
-    assert extract_year("B2008", u_age_season=PINNED_SEASON) == 2008  # U19
-    assert extract_year("B2018", u_age_season=PINNED_SEASON) is None  # U9, too young
-    assert extract_year("B2007", u_age_season=PINNED_SEASON) is None  # aged out
+def test_an_operator_can_opt_a_pre_relabel_event_in(monkeypatch):
+    monkeypatch.setattr(tgs, "U_FORMAT_BEFORE_CUTOVER", True)
+
+    assert u_label_is_current(["2026-05-23"]) is True
+
+
+def test_legacy_birth_year_labels_still_convert():
+    """Older TGS events label by birth year; a birth year is not a cohort."""
+    assert extract_age_group("B2015") == "u12"
+    assert extract_age_group("G2013") == "u14"
+
+
+def test_legacy_labels_survive_an_aged_out_half():
+    assert extract_age_group("B2008/2007") == "u19"
+    assert extract_age_group("B2007/2006") is None
 
 
 @pytest.mark.parametrize(
     "division_name",
-    ["U20", "U6/7 COED", "Boys High School", "Texas Shootout All Teams", "Super Black", ""],
+    ["U20", "U6/7 COED", "Boys High School", "Texas Shootout All Teams", "Super Black", "SKU12 Super Black", ""],
 )
-def test_out_of_window_and_unlabelled_divisions_are_rejected(division_name):
-    assert extract_year(division_name, u_age_season=PINNED_SEASON) is None
+def test_out_of_range_and_unlabelled_divisions_are_rejected(division_name):
+    assert extract_age_group(division_name) is None
 
 
 @pytest.mark.parametrize(
     ("division_name", "expected"),
     [("BU11", 11), ("GU18/19", 19), ("2026 U13 Boys", 13), ("B2015", None), ("Super Black", None)],
 )
-def test_u_age_is_identified_independently_of_any_season(division_name, expected):
+def test_u_age_is_identified_for_the_staleness_gate(division_name, expected):
     assert u_age_of(division_name) == expected
-
-
-def test_combined_birth_year_labels_survive_an_aged_out_half():
-    """B2008/2007 must not be rejected because its older half aged out."""
-    assert extract_year("B2008/2007") == 2008
-    assert extract_year("B2011/2010") == 2010
-    assert extract_year("B2007/2006") is None
-
-
-@pytest.mark.parametrize(
-    ("game_date", "expected"),
-    [("2026-07-31", 2025), ("2026-08-01", 2026), ("2026-12-13", 2026), ("2027-03-27", 2026), ("2027-08-01", 2027)],
-)
-def test_season_year_rolls_on_august_first(game_date, expected):
-    assert season_year_of(game_date) == expected
-
-
-def test_post_cutover_events_read_against_their_own_season_not_the_clock():
-    """A fixed historical event must resolve the same cohort on every re-scrape."""
-    december_2026 = ["2026-12-13", "2026-12-14"]
-
-    season = resolve_u_age_season(december_2026)
-
-    assert season == 2026
-    assert extract_year("BU11", u_age_season=season) == 2016
-    # The chain rescans 3400-4600 forever, so this must not drift with CURRENT_YEAR.
-    assert resolve_u_age_season(december_2026) == season
-
-
-def test_pre_cutover_events_are_skipped_unless_an_operator_opts_in(monkeypatch):
-    may_2026 = ["2026-05-23", "2026-05-25"]
-
-    assert resolve_u_age_season(may_2026) is None
-
-    monkeypatch.setattr(tgs, "U_FORMAT_BEFORE_CUTOVER", True)
-    assert resolve_u_age_season(may_2026) == 2026
-    assert extract_year("BU11", u_age_season=resolve_u_age_season(may_2026)) == 2016
-
-
-def test_opting_in_reads_the_cutover_season_not_whatever_year_it_is_run(monkeypatch):
-    """Backfilling event 4125 in a later season must still yield its 2026-27 cohorts."""
-    monkeypatch.setattr(tgs, "U_FORMAT_BEFORE_CUTOVER", True)
-    monkeypatch.setattr(tgs, "CURRENT_YEAR", 2031)
-
-    assert resolve_u_age_season(["2026-05-23"]) == 2026
-
-
-def test_undated_flights_never_resolve_a_u_age():
-    assert resolve_u_age_season([]) is None
 
 
 def test_gender_prefers_the_api_division_gender():
@@ -182,10 +127,6 @@ def test_gender_reads_age_first_labels_that_have_no_prefix():
 def test_gender_still_reads_the_u_age_prefix():
     assert extract_gender("BU11") == "Boys"
     assert extract_gender("GU18/19") == "Girls"
-
-
-def test_u_age_regex_requires_a_token_boundary():
-    assert extract_year("SKU12 Super Black", u_age_season=PINNED_SEASON) is None
 
 
 def test_cutover_date_is_the_documented_relabel_boundary():
