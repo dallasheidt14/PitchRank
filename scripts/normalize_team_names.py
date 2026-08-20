@@ -190,16 +190,24 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
             result_tokens.append(parsed_age)
             continue
 
-        # Handle combined age patterns like '15/16B' - take older (smaller) year.
-        # PitchRank business rule: dual-age teams classify as the OLDER cohort
-        # (older birth year for year pairs, higher U-age for U-age pairs — both
-        # refer to the same older players). So '15/16 → 2015 (= U11).
+        # A dual-year token is a BAND and both of its years are the team's
+        # identity, so it is left exactly as written. This used to collapse
+        # "15/16" to the older year, "2015" -- which was wrong twice over:
+        #
+        #   - it lands one group too old. Every band satisfies
+        #     U_N = {SEASON+1-N, SEASON-N}, so 15/16 is U11 (2016/15) and the
+        #     older year 2015 derives U12.
+        #   - it destroys the second year, and team matching needs both. The
+        #     birth-year guard treats "B08/07" and "2008" as one team because one
+        #     year-set contains the other; once the band is flattened to a single
+        #     year, "SSA 2014" and "SSA 2015" read as a CONFLICT and the matcher
+        #     refuses to link teams that are in fact the same band.
+        #
+        # Gender is still stripped from a trailing B/G, since that lives in its
+        # own column, but the years themselves are preserved.
         slash_match = re.match(r"^(\d{2})/(\d{2})([BbGgMmFf])?$", clean_token)
         if slash_match and age_found is None:
-            y1, y2 = int(slash_match.group(1)), int(slash_match.group(2))
-            older = min(y1, y2)
-            birth_year = 2000 + older if older < 30 else 1900 + older
-            age_found = str(birth_year)
+            age_found = f"{slash_match.group(1)}/{slash_match.group(2)}"
             result_tokens.append(age_found)
             continue
 

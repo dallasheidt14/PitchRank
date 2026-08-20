@@ -149,7 +149,8 @@ def test_a_dual_year_label_is_one_band_not_two_cohorts():
     assert extract_age_group("B2007") == "u19", "a bare 2007 is U19; only the BAND 2007/06 is aged out"
     assert extract_age_group("B2007/2006") is None
     # And the same shape lower down the range, where nothing is near aging out.
-    assert extract_age_group("B2015/2014") == "u13"
+    # U12 is 2015/14, so the band reads from 2015 -- its YOUNGER year.
+    assert extract_age_group("B2015/2014") == "u12"
     assert extract_age_group("B2014") == "u13"
 
 
@@ -188,3 +189,42 @@ def test_gender_still_reads_the_u_age_prefix():
 def test_cutover_date_is_the_documented_relabel_boundary():
     assert tgs.U_FORMAT_CUTOVER_DATE == "2026-08-01"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", tgs.U_FORMAT_CUTOVER_DATE)
+
+
+@pytest.mark.parametrize(
+    ("division_name", "expected"),
+    [
+        ("B2017/2016", "u10"),
+        ("B2016/2015", "u11"),
+        ("B2015/2014", "u12"),
+        ("B2014/2013", "u13"),
+        ("B2013/2012", "u14"),
+        ("B2012/2011", "u15"),
+        ("B2011/2010", "u16"),
+        ("B2010/2009", "u17"),
+        ("B2009/2008", "u18"),
+        ("B2008/2007", "u19"),
+    ],
+)
+def test_every_band_matches_the_published_table(division_name, expected):
+    """The full 2026-27 band table, so an off-by-one cannot hide behind one case.
+
+    Every band satisfies U_N = {SEASON+1-N, SEASON-N}, so N is SEASON+1 minus the
+    YOUNGER year. An earlier version read the OLDER year and was wrong on 10 of
+    these 11 rows -- and shipped, because the single case it was tested against
+    ("B2008/2007") is correct under either rule by coincidence: 2007 falls out of
+    range and folds back to U19.
+    """
+    assert extract_age_group(division_name) == expected
+
+
+def test_the_aged_out_band_is_not_folded_back():
+    """A lone 2007 is U19; the BAND 2007/06 is the group above and has aged out.
+
+    calculate_age_group_from_birth_year folds age 20 to 19 so a bare 2007 lands in
+    U19, which is right -- U19 (2008/07) is the only band containing 2007. That
+    fold must not reach the band path, or an aged-out band files as U19.
+    """
+    assert extract_age_group("B2007") == "u19"
+    assert extract_age_group("B2007/2006") is None
+    assert extract_age_group("B2006/2005") is None

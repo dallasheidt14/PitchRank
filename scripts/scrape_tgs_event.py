@@ -170,16 +170,24 @@ def extract_age_group(division_name: str, label_season: Optional[int] = None) ->
         return _tracked_age_group(age + CURRENT_YEAR - label_season)
 
     # A dual-year label names a BAND, not two separate cohorts: the season runs
-    # Aug 1 - Jul 31, so one band straddles Jan 1 and is written from both ends.
-    # "B2008/2007" is U19 (2008/07); "B2007/2006" is the band above it, which has
-    # aged out. Deriving each year independently and keeping the oldest COHORT
-    # gets that second case wrong, because 2007 alone maps into U19 while the
-    # 2007/06 band does not -- so read the band from its OLDEST year, which
-    # identifies it either way.
+    # Aug 1 - Jul 31, so a band straddles Jan 1 and gets written from both ends.
+    # Every band satisfies U_N = {SEASON+1-N, SEASON-N}, so N = SEASON+1 minus the
+    # YOUNGER year -- U11 is 2016/15 and 2016 is the year that names it. Reading a
+    # band from its older year lands one group too old on every band in the table.
+    #
+    # The fold that maps a lone 2007 into U19 must NOT apply here. A bare 2007 is
+    # genuinely U19, because U19 (2008/07) is the only band containing it -- but
+    # the BAND 2007/06 is the group above U19 and has aged out. Folding it would
+    # file an aged-out band as U19, which is what hid this error the first time:
+    # "B2008/2007" comes out right under either rule, purely by coincidence.
     years = [int(y) for y in re.findall(r"\d{4}", division_name)]
     if not years:
         return None
-    group = calculate_age_group_from_birth_year(min(years))
+    if len(set(years)) > 1:
+        age = CURRENT_YEAR + 1 - max(years)
+        group = f"U{age}" if 7 <= age <= 19 else None
+    else:
+        group = calculate_age_group_from_birth_year(years[0])
     if not group or not _tracked_age_group(int(group[1:])):
         return None
     return group.lower()
