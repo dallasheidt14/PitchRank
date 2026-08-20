@@ -111,6 +111,12 @@ def wired_scraper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> GotsportSc
         path = FIXTURES / f"event_{EVENT_ID}__group_{gid}.html"
         return FakeResponse(text=path.read_text(encoding="utf-8"), url=url)
 
+    # Force the plain-session route. `use_zenrows` is on whenever the developer
+    # has ZENROWS_API_KEY in their environment, and `_subpage_fetcher` then calls
+    # `_make_zenrows_request` instead of `session.get`, so the fixtures below are
+    # never read and every subfetch aborts as malformed_html. CI has no key, so
+    # the test passed there and failed only on configured machines.
+    s.use_zenrows = False
     s.session = MagicMock()
     s.session.get = _session_get
     # Disable per-subfetch throttle so the test runs in deterministic time.
