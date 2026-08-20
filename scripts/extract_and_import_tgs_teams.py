@@ -30,7 +30,6 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import track
 
-from src.utils.team_utils import calculate_age_group_from_birth_year  # noqa: E402
 from supabase import create_client
 
 # Set up logging
@@ -245,37 +244,37 @@ def extract_unique_teams_from_csv(csv_file: str) -> dict:
     Parse games CSV and extract unique teams.
 
     Returns:
-        dict: {(team_id, age_year, gender): {team_name, club_name, ...}}
+        dict: {(team_id, age_group, gender): {team_name, club_name, ...}}
 
     Note: TGS games CSV has perspective-based data (each game appears twice),
           so we extract both team_id and opponent_id as separate teams.
     """
-    teams = {}  # (team_id, age_year, gender) → team_data
+    teams = {}  # (team_id, age_group, gender) → team_data
 
     with open(csv_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
 
         for row in reader:
             # Extract team 1 (from team_id columns)
-            team1_key = (row["team_id"].strip(), row["age_year"].strip(), row["gender"].strip())
+            team1_key = (row["team_id"].strip(), row["age_group"].strip().lower(), row["gender"].strip())
             if team1_key not in teams:
                 teams[team1_key] = {
                     "provider_team_id": row["team_id"].strip(),
                     "team_name": row["team_name"].strip(),
                     "club_name": row["club_name"].strip(),
-                    "age_year": row["age_year"].strip(),
+                    "age_group": row["age_group"].strip().lower(),
                     "gender": row["gender"].strip(),
                     "state_code": row.get("state_code", "").strip(),
                 }
 
             # Extract team 2 (from opponent columns)
-            team2_key = (row["opponent_id"].strip(), row["age_year"].strip(), row["gender"].strip())
+            team2_key = (row["opponent_id"].strip(), row["age_group"].strip().lower(), row["gender"].strip())
             if team2_key not in teams:
                 teams[team2_key] = {
                     "provider_team_id": row["opponent_id"].strip(),
                     "team_name": row["opponent_name"].strip(),
                     "club_name": row["opponent_club_name"].strip(),
-                    "age_year": row["age_year"].strip(),
+                    "age_group": row["age_group"].strip().lower(),
                     "gender": row["gender"].strip(),
                     "state_code": row.get("state_code", "").strip(),
                 }
@@ -351,7 +350,7 @@ def batch_create_teams_and_aliases(
             team_id = team_data["provider_team_id"]
             team_name = team_data["team_name"]
             club_name = team_data["club_name"]
-            age_year = int(team_data["age_year"])
+            age_group = team_data["age_group"]
             gender = normalize_gender(team_data["gender"])
             state_code = team_data.get("state_code")
 
@@ -362,16 +361,11 @@ def batch_create_teams_and_aliases(
                 stats["errors"] += 1
                 continue
 
-            # Calculate age group from birth year. Returns None outside U7-U19,
-            # and stored labels are lowercase.
-            age_label = calculate_age_group_from_birth_year(age_year)
-            if age_label is None:
-                logger.error(
-                    f"Skipping team {team_name}: birth year {age_year} is outside the U7-U19 range"
-                )
+            # The scraper resolves the cohort; nothing is derived here.
+            if not age_group:
+                logger.error(f"Skipping team {team_name}: no age_group in the scraped row")
                 stats["errors"] += 1
                 continue
-            age_group = age_label.lower()
 
             # Generate UUID for master team ID
             team_id_master = str(uuid.uuid4())
@@ -513,7 +507,7 @@ def main():
     sample_teams = list(teams.values())[:5]
     console.print("\n[bold]Sample teams:[/bold]")
     for i, team in enumerate(sample_teams, 1):
-        console.print(f"  {i}. {team['team_name']} ({team['age_year']}, {team['gender']}) - {team['club_name']}")
+        console.print(f"  {i}. {team['team_name']} ({team['age_group']}, {team['gender']}) - {team['club_name']}")
     if len(teams) > 5:
         console.print(f"  ... and {len(teams) - 5} more")
 

@@ -15,7 +15,7 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
-from src.utils.team_utils import calculate_age_group_from_birth_year
+from src.utils.team_utils import CURRENT_YEAR, calculate_age_group_from_birth_year
 
 BASE = "https://api.athleteone.com/api"
 OUTPUT_DIR = "data/raw/tgs"
@@ -143,21 +143,31 @@ def _tracked_age_group(age: int) -> Optional[str]:
     return f"u{age}" if 10 <= age <= 19 else None
 
 
-def extract_age_group(division_name: str, allow_u_label: bool = True) -> Optional[str]:
-    """Cohort a division names, e.g. 'BU11' -> 'u11'.
+def season_year_of(game_date: str) -> int:
+    """Season year a date falls in. Seasons run Aug 1 to Jul 31."""
+    year, month = int(game_date[:4]), int(game_date[5:7])
+    return year if month >= 8 else year - 1
 
-    A U-age label already names the cohort, so it is taken as written. TGS also
-    still carries legacy birth-year labels ('B2015') on older events; a birth
-    year is not a cohort, since the team ages out of one every Aug 1, so those
-    convert against the current season.
 
-    A U-age from before U_FORMAT_CUTOVER_DATE is a previous season's label and
-    means a different cohort today, so callers pass allow_u_label=False for
-    those rather than take the number at face value.
+def extract_age_group(division_name: str, label_season: Optional[int] = None) -> Optional[str]:
+    """Cohort a division names, as of the current season. 'BU11' -> 'u11'.
+
+    A U-age names the cohort as of the season that wrote it, and that cohort
+    ages one group every Aug 1 while the label on the event stays fixed. So the
+    label is advanced by the seasons elapsed since: a BU11 event from 2026-27
+    reads u11 this season and u12 the next, tracking the same players and the
+    stored `teams.age_group` that also rolls. Callers pass label_season once the
+    event's dates identify it, and None where it cannot be trusted.
+
+    TGS also still carries legacy birth-year labels ('B2015') on older events.
+    A birth year is not a cohort either, so those convert against the current
+    season the same way.
     """
     age = u_age_of(division_name)
     if age is not None:
-        return _tracked_age_group(age) if allow_u_label else None
+        if label_season is None:
+            return None
+        return _tracked_age_group(age + CURRENT_YEAR - label_season)
 
     groups = {
         ag
@@ -168,20 +178,32 @@ def extract_age_group(division_name: str, allow_u_label: bool = True) -> Optiona
     return sorted(groups, key=lambda g: int(g[1:]))[-1].lower() if groups else None
 
 
-def u_label_is_current(game_dates: List[str]) -> bool:
-    """Whether a U-age label on this event still names today's cohort.
+def u_label_season(game_dates: List[str]) -> Optional[int]:
+    """Season a U-age label on this event was written against, or None.
 
-    A label written before the relabel belongs to an earlier season and has
-    aged: event 3430 (Apr 2025) files its 2012-born teams as U13, who are u15
-    now. Those are skipped rather than read at face value.
+    Only readable from the relabel onward, where the event's own dates identify
+    it. Before that the label belongs to some earlier season we cannot pin:
+    event 3430 (Apr 2025) files as U13 teams who are u15 now. Opting one in
+    reads it as the cutover season rather than whatever year the run happens on.
     """
     if not game_dates:
-        return False
-    return min(game_dates) >= U_FORMAT_CUTOVER_DATE or U_FORMAT_BEFORE_CUTOVER
+        return None
+    first_game = min(game_dates)
+    if first_game >= U_FORMAT_CUTOVER_DATE:
+        return season_year_of(first_game)
+    return season_year_of(U_FORMAT_CUTOVER_DATE) if U_FORMAT_BEFORE_CUTOVER else None
 
 
 def names_a_cohort(division_name: str) -> bool:
-    """Whether the label could name a tracked cohort, before dates are known."""
+    """Whether the label could name a tracked cohort, before dates are known.
+
+    Deliberately season-blind: this runs before the games are fetched, and a
+    U-age needs its season to resolve. Asking extract_age_group here instead
+    would read every U label as unresolvable and skip the flight before the
+    dates that would have resolved it are ever loaded.
+    """
+    if (age := u_age_of(division_name)) is not None:
+        return _tracked_age_group(age) is not None
     return extract_age_group(division_name) is not None
 
 
@@ -613,7 +635,7 @@ def process_single_flight(
     # The games date the event, which is what decides whether a U-age label is
     # still current, so the cohort is only resolvable from here on.
     game_dates = [str(g.get("gameDate", ""))[:10] for g in games if g.get("gameDate")]
-    age_group = extract_age_group(division_name_from_api, allow_u_label=u_label_is_current(game_dates))
+    age_group = extract_age_group(division_name_from_api, label_season=u_label_season(game_dates))
     if not age_group:
         if u_age_of(division_name_from_api) is not None:
             return [], (
