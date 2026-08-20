@@ -7,7 +7,6 @@ specifically for TGS teams, allowing better matching to existing teams in the da
 
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import Dict, Optional, Set
 
@@ -638,7 +637,7 @@ class TGSGameMatcher(GameHistoryMatcher):
                     pass
 
             # Generate new UUID
-            team_id_master = str(uuid.uuid4())
+            team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
 
             # Normalize age_group
             age_group_normalized = age_group.lower() if age_group else age_group
@@ -662,6 +661,7 @@ class TGSGameMatcher(GameHistoryMatcher):
             # don't include the state in club_name). Not load-bearing today since
             # TGS-sourced teams are typically labeled with full club names.
             from src.utils.team_name_utils import resolve_distinction
+
             distinction = resolve_distinction(clean_team_name, club_name, None)
 
             # Insert new team

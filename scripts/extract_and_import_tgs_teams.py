@@ -19,6 +19,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -216,14 +217,19 @@ def backfill_existing_team_facts(
     return stats
 
 
-def normalize_gender(gender: str) -> str:
+def normalize_gender(gender: str) -> Optional[str]:
     """
-    Normalize gender to DB format.
+    Normalize gender to DB format, or None when it cannot be determined.
+
     Boys/B/Male → Male
     Girls/G/Female → Female
+
+    Returns None rather than guessing. Defaulting to "Male" turned every
+    unreadable label into a confidently wrong team: created at confidence 1.0
+    with review_status approved, so nothing surfaced it for a human.
     """
     if not gender:
-        return "Male"  # Default
+        return None
 
     g = gender.strip().lower()
     if g in ("boys", "b", "male", "m"):
@@ -231,7 +237,7 @@ def normalize_gender(gender: str) -> str:
     elif g in ("girls", "g", "female", "f"):
         return "Female"
     else:
-        return "Male"  # Default fallback
+        return None
 
 
 def extract_unique_teams_from_csv(csv_file: str) -> dict:
@@ -348,6 +354,13 @@ def batch_create_teams_and_aliases(
             age_year = int(team_data["age_year"])
             gender = normalize_gender(team_data["gender"])
             state_code = team_data.get("state_code")
+
+            if gender is None:
+                logger.error(
+                    f"Skipping team {team_name}: gender {team_data['gender']!r} could not be determined"
+                )
+                stats["errors"] += 1
+                continue
 
             # Calculate age group from birth year. Returns None outside U7-U19,
             # and stored labels are lowercase.

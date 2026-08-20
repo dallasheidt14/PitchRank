@@ -246,14 +246,20 @@ class EnhancedETLPipeline:
 
             logger.info("Using SincSportsGameMatcher (with enhanced fuzzy matching)")
             self.matcher = SincSportsGameMatcher(
-                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
             )
         elif self.provider_code.lower() == "affinity_wa":
             from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 
             logger.info("Using AffinityWAGameMatcher (WA-specific normalization + auto-create)")
             self.matcher = AffinityWAGameMatcher(
-                self.supabase, provider_id=self.provider_id, alias_cache=self.alias_cache
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
             )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher

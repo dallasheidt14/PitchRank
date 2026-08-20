@@ -15,7 +15,6 @@ SincSports naming patterns:
 
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import Dict, Optional, Set, Tuple
 
@@ -103,8 +102,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         provider_id: Optional[str] = None,
         alias_cache: Optional[Dict] = None,
         discovery_mode: bool = False,
+        dry_run: bool = False,
     ):
-        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache)
+        super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
         # Lower thresholds for more aggressive matching
         self.fuzzy_threshold = 0.75
         self.auto_approve_threshold = 0.91
@@ -709,7 +709,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 except Exception:
                     pass  # No existing team found
 
-            team_id_master = str(uuid.uuid4())
+            team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
             age_group_normalized = age_group.lower() if age_group else age_group
             gender_normalized = "Male" if gender.upper() in ("M", "MALE", "BOYS", "B") else "Female"
 
@@ -738,7 +738,8 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
 
-            self.db.table("teams").insert(team_data).execute()
+            if not self.dry_run:
+                self.db.table("teams").insert(team_data).execute()
 
             logger.info(
                 f"[SincSports] Created new team: {clean_team_name} ({age_group_normalized}, {gender_normalized})"

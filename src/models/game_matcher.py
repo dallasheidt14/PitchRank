@@ -4,6 +4,7 @@ import logging
 import re
 import string
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -434,6 +435,11 @@ class MatchResult:
     confidence: float
     provider_team_name: str
     details: Dict[str, Any]
+
+
+# Namespace for dry-run team ids. Fixed so a simulated team keeps one identity
+# across runs; private, so a derived id can never collide with a real uuid4 row.
+DRY_RUN_TEAM_NAMESPACE = uuid.UUID("6f2a1c94-3b7e-5d16-9c48-1e0b7a5d2f83")
 
 
 class GameHistoryMatcher:
@@ -1001,6 +1007,32 @@ class GameHistoryMatcher:
         except Exception as e:
             logger.debug(f"No alias map match found: {e}")
         return None
+
+    def _new_team_id_master(
+        self,
+        provider_id: Optional[str],
+        provider_team_id: Optional[str],
+        team_name: str,
+        age_group: Optional[str] = None,
+        gender: Optional[str] = None,
+    ) -> str:
+        """Master id for a team the matcher is creating.
+
+        Random for a real import. A dry run never writes the row, so a random id
+        would not survive to the team's next game: the alias cache is only
+        populated when it is already non-empty, and a cached hit is re-validated
+        against a ``teams`` row that does not exist, so the alias is rejected and
+        the team is created again. One provider team then fragments into a fresh
+        uuid per game, and the simulated game_uids stop matching what a real
+        import would produce. Deriving the id from the team's own identity keeps
+        it stable instead.
+        """
+        if not self.dry_run:
+            return str(uuid.uuid4())
+
+        parts = (provider_id, provider_team_id, team_name, age_group, gender)
+        key = "|".join(str(part or "").strip().lower() for part in parts)
+        return str(uuid.uuid5(DRY_RUN_TEAM_NAMESPACE, key))
 
     def _validate_team_age_group(
         self, team_id_master: str, expected_age_group: str, expected_gender: Optional[str] = None
