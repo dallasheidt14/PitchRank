@@ -92,7 +92,19 @@ def normalize_team_name(name):
     n = re.sub(r"\b(boys|girls)\b", " ", n)
 
     # Remove common suffixes/prefixes
-    n = re.sub(r"\s*(ecnl|ecnl-rl|rl|pre-ecnl|mls next|ga|academy)\s*", " ", n)
+    # Letter boundaries, not \b. With no boundary at all these substrings tear
+    # real words apart - "Michigan" -> "michi n", "Charlotte" -> "cha otte",
+    # "Orlando City" -> "o ando city", "Galaxy" -> "laxy" - across 16,357
+    # team_name/club_name values. But \b over-corrects the other way: providers
+    # glue tier tokens to digits ("GA10/11", "ECNL11G", "13GA") and \b stops
+    # stripping those, regressing 208 values. The input is lowercased above, so
+    # [a-z] is the whole alphabet here.
+    # Longest-first so "ecnl-rl" matches whole rather than as "ecnl" then "rl".
+    n = re.sub(
+        r"\s*(?<![a-z])(pre-?ecnl|ecnl-?rl|mls[- ]?next|academy|ecnl|rl|ga)(?![a-z])\s*",
+        " ",
+        n,
+    )
     n = re.sub(r"\s*-\s*", " ", n)  # Replace dashes with spaces
 
     # Normalize age formats — expand 2-digit shorthand to full birth year
@@ -621,8 +633,19 @@ def extract_age_group(name, details, season_year=None):
     if match:
         return _age_group_from_birth_year(int(match.group(1)), season_year)
 
-    # Priority 3: Standalone 4-digit birth year
-    match = re.search(r"\b(20\d{2})\b", name)
+    # Priority 3: Standalone 4-digit birth year.
+    # Digit boundaries, not \b: \b cannot match between '1' and 'G', so the very
+    # common suffix form "2011G" / "2007B" was unparseable here and fell through
+    # to the stored match_details stamp - which is frozen at import time while the
+    # teams table is relabelled every Aug 1. Measured over the 7,837 pending rows
+    # that already hold an alias: +463 reach their true cohort, 3 regress.
+    #
+    # Priority 1's U-age pattern is deliberately NOT given the same treatment.
+    # Promoting a season-relative U-age above an absolute birth year in the same
+    # name is a net regression (+5/-26 on the same ground truth): "SC del Sol U-11
+    # (2015) Girls" correctly reads 2015 today. CLAUDE.md's TGS rule says a U-age
+    # must be resolved against the event's own game dates, never the wall clock.
+    match = re.search(r"(?<!\d)(20\d{2})(?!\d)", name)
     if match:
         return _age_group_from_birth_year(int(match.group(1)), season_year)
 
@@ -1376,6 +1399,8 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
     approved = 0
     failed = 0
+    noop_same = 0
+    noop_conflict = 0
 
     for r in candidates:
         q = r["queue_entry"]
@@ -1396,6 +1421,34 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
 
                 # Cap score at 0.99 for alias table
                 db_score = min(0.99, r["score"])
+
+                # The upsert below passes ignore_duplicates=True, which PostgREST
+                # sends as ON CONFLICT DO NOTHING. Where this provider team already
+                # holds an alias the write is a guaranteed no-op -- and it used to
+                # print "Merged" anyway. 5,458 of 5,698 historical approvals were
+                # that: the queue recorded a decision the alias table never took.
+                # Any audit keyed on the queue is wrong by two orders of magnitude,
+                # so look first and report what actually happened.
+                existing = (
+                    supabase.table("team_alias_map")
+                    .select("team_id_master")
+                    .eq("provider_id", provider_uuid)
+                    .eq("provider_team_id", q["provider_team_id"])
+                    .limit(1)
+                    .execute()
+                ).data
+                if existing:
+                    held_by = existing[0]["team_id_master"]
+                    if held_by == m["team_id_master"]:
+                        noop_same += 1
+                        print(f"  = Already linked: {q['provider_team_name']} -> {m['team_name']}")
+                    else:
+                        noop_conflict += 1
+                        print(
+                            f"  ! NOT linked (a different alias already holds this provider key): "
+                            f"{q['provider_team_name']} -> wanted {m['team_name']}, kept {held_by}"
+                        )
+                    continue
 
                 # Create alias - use team_id_master (FK target), NOT id
                 supabase.table("team_alias_map").upsert(
@@ -1426,12 +1479,19 @@ def execute_merges(results, dry_run=True, min_confidence=0.95):
                 ).eq("id", q["id"]).execute()
 
             approved += 1
-            action = "Would merge" if dry_run else "Merged"
+            action = "Would merge" if dry_run else "Linked"
             print(f"  ✅ {action}: {q['provider_team_name']} → {m['team_name']} ({r['score']:.1%})")
 
         except Exception as e:
             failed += 1
             print(f"  ❌ Failed [{q['id']}]: {e}")
+
+    if noop_same or noop_conflict:
+        print(
+            f"\n  {noop_same} already linked to the same team, "
+            f"{noop_conflict} left alone because another alias holds the provider key. "
+            "Neither wrote anything."
+        )
 
     return approved, failed
 
