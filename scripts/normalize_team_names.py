@@ -190,24 +190,27 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
             result_tokens.append(parsed_age)
             continue
 
-        # A dual-year token is a BAND and both of its years are the team's
-        # identity, so it is left exactly as written. This used to collapse
-        # "15/16" to the older year, "2015" -- which was wrong twice over:
+        # A dual-year token is a BAND. Collapse it to the YOUNGER year, which is
+        # the one that names the group: every band satisfies
+        # U_N = {SEASON+1-N, SEASON-N}, so "15/16" is U11 (2016/15) and 2016 is
+        # its year. This previously kept the OLDER year and landed one group too
+        # old on every band in the table.
         #
-        #   - it lands one group too old. Every band satisfies
-        #     U_N = {SEASON+1-N, SEASON-N}, so 15/16 is U11 (2016/15) and the
-        #     older year 2015 derives U12.
-        #   - it destroys the second year, and team matching needs both. The
-        #     birth-year guard treats "B08/07" and "2008" as one team because one
-        #     year-set contains the other; once the band is flattened to a single
-        #     year, "SSA 2014" and "SSA 2015" read as a CONFLICT and the matcher
-        #     refuses to link teams that are in fact the same band.
-        #
-        # Gender is still stripped from a trailing B/G, since that lives in its
-        # own column, but the years themselves are preserved.
+        # The band is NOT preserved as written, tempting though that is. Reading
+        # it back needs both years, and the consumers of teams.team_name cannot:
+        # _team_distinction tokenizes on "/" and its two-digit pattern requires a
+        # leading apostrophe, so "14/15" yields NO age token where "2015" yields
+        # u12 -- should_skip_pair then refuses the pair outright, ahead of the
+        # birth-year guard that would have accepted it. frontend/lib/utils.ts is
+        # worse: its standalone two-digit pattern matches "14" inside "14/15" and
+        # derives U13, overriding the correct age from the database. Preserving
+        # bands needs those parsers taught first.
         slash_match = re.match(r"^(\d{2})/(\d{2})([BbGgMmFf])?$", clean_token)
         if slash_match and age_found is None:
-            age_found = f"{slash_match.group(1)}/{slash_match.group(2)}"
+            y1, y2 = int(slash_match.group(1)), int(slash_match.group(2))
+            younger = max(y1, y2)
+            birth_year = 2000 + younger if younger < 30 else 1900 + younger
+            age_found = str(birth_year)
             result_tokens.append(age_found)
             continue
 

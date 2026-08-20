@@ -137,6 +137,11 @@ def u_age_of(division_name: str) -> Optional[int]:
     return max(ages)
 
 
+# A band written as two adjacent four-digit years. Anchored to the pair so a
+# season suffix elsewhere in the label cannot join the band.
+_ADJACENT_BAND = re.compile(r"(?<!\d)(20\d{2})\s*/\s*(20\d{2})(?!\d)")
+
+
 def _tracked_age_group(age: int) -> Optional[str]:
     """Cohort label for a U-age, or None outside the tracked U10-U19 range."""
     age = 19 if age == 18 else age
@@ -180,17 +185,26 @@ def extract_age_group(division_name: str, label_season: Optional[int] = None) ->
     # the BAND 2007/06 is the group above U19 and has aged out. Folding it would
     # file an aged-out band as U19, which is what hid this error the first time:
     # "B2008/2007" comes out right under either rule, purely by coincidence.
+    # Only an ADJACENT consecutive pair is a band. Taking every four-digit number
+    # in the string mis-reads a season suffix ("B2016/2015 (2026-27)" would derive
+    # from 2026) and silently files malformed multi-cohort labels ("B2016/2014")
+    # as though they named one band.
+    band = _ADJACENT_BAND.search(division_name)
+    if band:
+        first, second = int(band.group(1)), int(band.group(2))
+        if abs(first - second) != 1:
+            return None
+        # N = SEASON + 1 - the YOUNGER year, and the age-20 fold is deliberately
+        # NOT applied: a bare 2007 is U19, but the BAND 2007/06 has aged out.
+        return _tracked_age_group(CURRENT_YEAR + 1 - max(first, second))
+
     years = [int(y) for y in re.findall(r"\d{4}", division_name)]
-    if not years:
+    if len(set(years)) != 1:
         return None
-    if len(set(years)) > 1:
-        age = CURRENT_YEAR + 1 - max(years)
-        group = f"U{age}" if 7 <= age <= 19 else None
-    else:
-        group = calculate_age_group_from_birth_year(years[0])
-    if not group or not _tracked_age_group(int(group[1:])):
+    group = calculate_age_group_from_birth_year(years[0])
+    if not group:
         return None
-    return group.lower()
+    return _tracked_age_group(int(group[1:]))
 
 
 def u_label_season(game_dates: List[str]) -> Optional[int]:
