@@ -95,7 +95,9 @@ PitchRank/
 ### Age Groups (2026-27 Season)
 
 > Rolled over on 2026-08-01. US youth soccer runs on an Aug 1 – Jul 31 window, so
-> every cohort moved up one and 2007 aged out. A birth year maps to a different
+> every cohort moved up one and 2006 aged out. 2007 now sits at the top of U19,
+> which is what the table below says and what
+> `calculate_age_group_from_birth_year(2007)` returns. A birth year maps to a different
 > cohort than it did last season — check the season before trusting any older
 > mapping you find in code comments or docs.
 
@@ -115,7 +117,12 @@ PitchRank/
 
 A cohort's birth window runs Aug 1 - Jul 31 and so spans two calendar years,
 which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
-The system stores the **leading** year only, matching birth-year registration.
+A band is named by its **younger** year: that division is U12 because
+`2026 - 2015 + 1 = 12`. Reading it from the leading year, 2014, gives U13 and is
+wrong. `normalize_team_names._resolve_band` and `scrape_tgs_event.extract_age_group`
+both take the younger year. The one parser that still takes the older year,
+`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its
+callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
@@ -160,7 +167,9 @@ see `.turbo/improvements.md`.
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
 Both label styles appear throughout the scrape range: birth year (`B2015`) and
-U-age (`BU11`, `GU18/19`). A birth year names the same cohort forever. A U-age
+U-age (`BU11`, `GU18/19`). A birth year names the same players forever, so it is
+resolvable without knowing the season — though the U-age it maps to still shifts
+every Aug 1 (2014 was U12 last season, U13 now). A U-age
 names one only against the season that wrote it, and TGS does not say which
 season that was, so the label alone is not enough.
 
@@ -356,7 +365,7 @@ npm run analyze
 | `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
 | `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
-| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, age, dupe and queue-match steps |
+| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`) |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
@@ -364,8 +373,16 @@ npm run analyze
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
 **Status: `'false'` in all nine workflows since the Aug 2026 rollover completed.**
-Everything it gated is running normally. The flag stays in place because this
-recurs every Aug 1 — re-arm it rather than rebuilding it.
+Everything it gated is running normally, with one permanent exception: the
+`fix_team_age_groups.py` step carries a second, independent flag,
+`AGE_DERIVATION_ENABLED: 'false'`, in both `data-hygiene-weekly.yml` and
+`fix-age-year-discrepancies.yml`. That step derives a cohort as
+`CURRENT_YEAR - birth_year + 1`, which cannot be right now that a birth year
+spans two age groups. **It is not part of the rollover cycle — leave it `'false'`
+when lifting or re-arming `AGE_ROLLOVER_FREEZE`.**
+
+The rollover flag stays in place because this recurs every Aug 1 — re-arm it
+rather than rebuilding it.
 
 The flag holds the thirteen steps that write a team's age group, because those
 derive a cohort from the wall clock while the stored labels only move when
