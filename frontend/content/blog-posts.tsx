@@ -2374,8 +2374,8 @@ export const blogPosts: BlogPost[] = [
                 See TX U17 boys rankings
               </Link>{' '}
               •{' '}
-              <Link href="/rankings/tx/u18/female" className="text-primary hover:underline">
-                TX U18 girls rankings
+              <Link href="/rankings/tx/u19/female" className="text-primary hover:underline">
+                TX U19 girls rankings
               </Link>
             </p>
           </div>
