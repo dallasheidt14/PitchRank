@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/supabase/admin';
+import { requirePremium } from '@/lib/api/requirePremium';
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAdmin();
+    // Premium, not admin: the button that calls this lives on /teams, a premium
+    // route (middleware.ts), so every user who can see it must be able to submit.
+    const auth = await requirePremium();
     if (auth.error) return auth.error;
 
     // Check for service key
