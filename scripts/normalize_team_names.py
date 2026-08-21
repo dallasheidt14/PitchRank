@@ -169,7 +169,15 @@ def _cohort_label(age_group) -> "str | None":
 # A band as providers actually write it: two years joined by a slash or a dash,
 # with or without spaces, with or without a gender letter at either end —
 # "15/16", "B14/15", "2014/15", "2013/2012", "2014-15", "2013 - 2014".
-_BAND_RE = re.compile(r"(?<![\w'])[BbGgMmFf]?(\d{2}|\d{4})\s*[/\-–]\s*(\d{2}|\d{4})[BbGgMmFf]?(?![\w'])")
+# The separators are excluded on both sides so a longer chain is not read as a
+# band: "07/08/09/10" is a rec-league team spanning four birth years, and taking
+# its first pair would name it U19 and leave "/09/10" trailing.
+# The gender letter is optional on BOTH sides of BOTH years: clubs write
+# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably.
+_BAND_RE = re.compile(
+    r"(?<![\w'/–-])[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?\s*[/\-–]\s*"
+    r"[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?(?![\w'/–-])"
+)
 
 
 # A four-digit birth year standing on its own in the name.
@@ -218,25 +226,32 @@ def _resolve_band(name: str):
     write the band with spaces often enough ("2013 - 2014") that a per-token scan
     sees two separate years and consumes the first one as the age.
 
-    Returns (name, label) with the band replaced, or (name, None) if there is none.
+    Returns (name, label) with EVERY band replaced, or (name, None) if there is
+    none. Every band, not just the first: "Cape Coral Soccer - 2007/2008 Cyclone
+    RL B07/08" states the cohort twice, and collapsing only the leading one
+    leaves a band behind for the next run to find and the name to change again.
     """
-    match = _BAND_RE.search(name)
-    if not match:
-        return name, None
+    label_seen = None
 
-    first, second = _full_year(match.group(1)), _full_year(match.group(2))
-    # Consecutive years only. Anything else is a club founding pair, a score, or
-    # an address — "1570 FC - 1570" and "10-3 Red" are not cohorts.
-    if abs(first - second) != 1:
-        return name, None
+    def _replace(match):
+        nonlocal label_seen
+        first, second = _full_year(match.group(1)), _full_year(match.group(2))
+        # Consecutive years only. Anything else is a club founding pair, a score,
+        # or an address — "1570 FC - 1570" and "10-3 Red" are not cohorts.
+        if abs(first - second) != 1:
+            return match.group(0)
+        label = calculate_age_group_from_birth_year(max(first, second))
+        if not label:
+            return match.group(0)
+        label_seen = label
+        return label
 
-    label = calculate_age_group_from_birth_year(max(first, second))
-    if not label:
-        return name, None
-    return name[: match.start()] + label + name[match.end() :], label
+    return _BAND_RE.sub(_replace, name), label_seen
 
 
-def normalize_team_name(team_name: str, club_name: str = None, age_group: str = None) -> str:
+def normalize_team_name(
+    team_name: str, club_name: str = None, age_group: str = None, original_name: str = None
+) -> str:
     """
     Normalize a team name following Jan 2026 rules.
 
@@ -269,7 +284,25 @@ def normalize_team_name(team_name: str, club_name: str = None, age_group: str = 
     original = team_name.strip()
     club_skip_tokens = _normalizer_club_tokens(club_name)
     cohort_label = _cohort_label(age_group)
+    # Bands are read from the ORIGINAL name, because collapsing one destroys the
+    # evidence that it was ever there. "13/14B Summer" becomes "U13 Summer" on the
+    # first pass, and on the second the U13 is indistinguishable from an ordinary
+    # stale label — the column would roll it to U15 and the band's answer would
+    # survive exactly one weekly run. teams.team_name_original is what makes the
+    # job idempotent here. It also recovers bands that an earlier version already
+    # flattened to a single year, where team_name says "2014" and the original
+    # still says "13/14B".
     original, band_label = _resolve_band(original)
+
+    # The ORIGINAL name is consulted only to VETO the column, never as a source to
+    # write from. Collapsing a band destroys the evidence it was there: after
+    # "13/14B Summer" becomes "U13 Summer", the U13 is indistinguishable from an
+    # ordinary stale label and the next weekly run would roll it to the column's
+    # U15 -- the band's answer would survive exactly one run. Knowing the original
+    # held a band is enough to leave the name alone, and unlike re-rendering the
+    # label it cannot put the cohort in the wrong place: "U17 Stingers 07/08"
+    # normalizes to "U17 Stingers U19", where the first age token is not the band.
+    had_band = band_label is not None or _resolve_band(original_name or "")[1] is not None
 
     # The column may rewrite a U-age, and only a U-age. A birth year in a name is
     # a fact that re-maps itself every Aug 1 and so never needs correcting; a
@@ -279,7 +312,7 @@ def normalize_team_name(team_name: str, club_name: str = None, age_group: str = 
     # place, which is why only the U-age case is eligible here.
     column_may_drive = (
         cohort_label is not None
-        and band_label is None
+        and not had_band
         and not _column_contradicted(original, cohort_label)
     )
 
@@ -293,6 +326,8 @@ def normalize_team_name(team_name: str, club_name: str = None, age_group: str = 
 
     for token in all_tokens:
         clean_token = token.strip("()[]")
+        if not clean_token:
+            continue
         t_lower = clean_token.lower()
 
         # Skip standalone gender words EVERYWHERE
@@ -447,7 +482,7 @@ def run_with_psycopg2(args):
     samples = []
 
     for team_id, team_name, club_name, team_name_original, age_group in teams:
-        normalized = normalize_team_name(team_name, club_name, age_group)
+        normalized = normalize_team_name(team_name, club_name, age_group, team_name_original)
 
         if normalized != team_name:
             if len(samples) < 15:
@@ -546,7 +581,7 @@ def run_with_supabase(args):
         club_name = team.get("club_name")
         age_group = team.get("age_group")
 
-        normalized = normalize_team_name(team_name, club_name, age_group)
+        normalized = normalize_team_name(team_name, club_name, age_group, team.get("team_name_original"))
 
         if normalized != team_name:
             if len(samples) < 15:
