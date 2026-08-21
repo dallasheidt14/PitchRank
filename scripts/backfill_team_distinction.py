@@ -235,13 +235,17 @@ def main():
     console.print(f"\n[dim]Writing {len(updates):,} distinction updates...[/dim]")
     batch_items = list(updates.items())
     written = 0
+    failed = 0
+    attempted = 0
     client = sb
     for i in range(0, len(batch_items), 50):
         batch = batch_items[i : i + 50]
         for tid, dist in batch:
+            attempted += 1
             for attempt in range(3):
                 try:
                     client.table("teams").update({"distinction": dist}).eq("team_id_master", tid).execute()
+                    written += 1
                     break
                 except Exception as e:
                     if attempt < 2:
@@ -249,15 +253,25 @@ def main():
                         time.sleep(1)
                         client = create_client(SUPABASE_URL, SUPABASE_KEY)
                     else:
+                        # Counted, not just printed. `written` used to increment
+                        # unconditionally here, so a run that failed every write
+                        # still reported the full number and exited 0.
+                        failed += 1
                         console.print(f"[red]Failed to update {tid}: {e}[/red]")
-            written += 1
-        if written % 500 == 0 or written == len(batch_items):
-            console.print(f"  Progress: {written:,} / {len(updates):,}")
-        if written % 2000 == 0:
+        if attempted % 500 == 0 or attempted == len(batch_items):
+            console.print(f"  Progress: {attempted:,} / {len(updates):,}")
+        if attempted % 2000 == 0:
             client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Single-emission summary line — matched by workflow grep.
+    # Single-emission summary line — matched by workflow grep. Reports rows that
+    # actually landed, so the workflow summary cannot overstate the run.
     print(f"Updated: {written}")
+
+    if failed:
+        console.print(f"[red]{failed:,} of {attempted:,} writes failed after 3 attempts[/red]")
+        # A partial write is a failed run: the column is now half-old, half-new and
+        # nothing downstream can tell. Exit non-zero so the step goes red.
+        sys.exit(1)
 
 
 if __name__ == "__main__":

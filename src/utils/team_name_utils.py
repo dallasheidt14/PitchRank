@@ -421,7 +421,12 @@ _VARIANT_AGE_PATTERNS = [
 ]
 
 # Age/year regex applied to the raw name string
-AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
+# The optional gender letter before the U is load-bearing: "GU12" and "BU08" are
+# ages, but a bare  before [Uu] cannot see them because the U is preceded by a
+# word character. Without it they escape every age pass and surface as squad
+# distinctions -- "LB GU12 Grey" resolved to "grey|gu12", which renders to a
+# reader as "LB Gu12 Grey". _canonicalize_age_token already maps gu12 -> u12.
+AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[BbGgMmFf]?[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
 
 # ── Birth-year comparison ────────────────────────────────────────────────
 #
@@ -788,6 +793,17 @@ def _tokenize(name: str) -> List[str]:
 # ═══════════════════════════════════════════════════════════════
 
 
+def _collapse_age_hyphen(name: str) -> str:
+    """Spell "GU-12" and "U-12" the one way the age passes recognise.
+
+    Every tokenizer here splits on the hyphen, so the hyphenated forms arrive as
+    a bare "gu"/"u" plus a number: the age passes never see an age, and the
+    length-2/3 recovery emits the prefix as a distinction. "LB GU-12 Grey"
+    resolved to "grey|gu".
+    """
+    return re.sub(r"(?<![A-Za-z0-9])([BbGgMmFf]?[Uu])-(?=[0-9]{1,2}(?![0-9]))", r"\1", name or "")
+
+
 def extract_distinctions(name: str) -> Dict:
     """
     Decompose a team name into every distinguishing feature.
@@ -814,6 +830,7 @@ def extract_distinctions(name: str) -> Dict:
     if not name:
         return empty
 
+    name = _collapse_age_hyphen(name)
     tokens = _tokenize(name)
     colors: set = set()
     directions: set = set()
@@ -880,7 +897,14 @@ def extract_distinctions(name: str) -> Dict:
     for idx, tok in enumerate(tokens):
         if idx in classified:
             continue
-        age_gender = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
+        age_gender = re.fullmatch(
+            # The last alternative is the gender-prefixed U-age, "gu12" / "bu08".
+            # Without it the token matches nothing here, falls through to Pass 4,
+            # and is emitted as a squad word: "LB GU12 Grey" resolved to
+            # "grey|gu12", which a reader sees as "LB Gu12 Grey". 5,548 live teams.
+            r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]|[bgmf]u\d{1,2}",
+            tok,
+        )
         if age_gender:
             # Pass the original token — the helper distinguishes 4-digit birth year,
             # 2-digit shorthand ('14b' -> birth year 2014, then the season's rule),
@@ -1049,6 +1073,9 @@ def resolve_distinction(
     """
     if not name:
         return None
+    # The length-2/3 recovery below re-splits this same string on hyphens, so the
+    # collapse has to happen here too, not only inside extract_distinctions.
+    name = _collapse_age_hyphen(name)
     d = extract_distinctions(name)
     parts: List[str] = []
 
