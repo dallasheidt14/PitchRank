@@ -793,6 +793,17 @@ def _tokenize(name: str) -> List[str]:
 # ═══════════════════════════════════════════════════════════════
 
 
+def _collapse_age_hyphen(name: str) -> str:
+    """Spell "GU-12" and "U-12" the one way the age passes recognise.
+
+    Every tokenizer here splits on the hyphen, so the hyphenated forms arrive as
+    a bare "gu"/"u" plus a number: the age passes never see an age, and the
+    length-2/3 recovery emits the prefix as a distinction. "LB GU-12 Grey"
+    resolved to "grey|gu".
+    """
+    return re.sub(r"(?<![A-Za-z0-9])([BbGgMmFf]?[Uu])-(?=[0-9]{1,2}(?![0-9]))", r"\1", name or "")
+
+
 def extract_distinctions(name: str) -> Dict:
     """
     Decompose a team name into every distinguishing feature.
@@ -819,6 +830,7 @@ def extract_distinctions(name: str) -> Dict:
     if not name:
         return empty
 
+    name = _collapse_age_hyphen(name)
     tokens = _tokenize(name)
     colors: set = set()
     directions: set = set()
@@ -1061,6 +1073,9 @@ def resolve_distinction(
     """
     if not name:
         return None
+    # The length-2/3 recovery below re-splits this same string on hyphens, so the
+    # collapse has to happen here too, not only inside extract_distinctions.
+    name = _collapse_age_hyphen(name)
     d = extract_distinctions(name)
     parts: List[str] = []
 

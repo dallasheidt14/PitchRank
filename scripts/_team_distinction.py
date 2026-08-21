@@ -232,6 +232,17 @@ def _tokenize(name: str) -> list[str]:
     return [w.strip("()[]'*") for w in normalized.split() if w.strip("()[]'*")]
 
 
+def _collapse_age_hyphen(name: str) -> str:
+    """Spell "GU-12" and "U-12" the one way the age passes recognise.
+
+    Every tokenizer here splits on the hyphen, so the hyphenated forms arrive as
+    a bare "gu"/"u" plus a number: the age passes never see an age, and the
+    length-2/3 recovery emits the prefix as a distinction. "LB GU-12 Grey"
+    resolved to "grey|gu".
+    """
+    return re.sub(r"(?<![A-Za-z0-9])([BbGgMmFf]?[Uu])-(?=[0-9]{1,2}(?![0-9]))", r"\1", name or "")
+
+
 def extract_distinctions(name: str, club_name: str = "") -> dict:
     """Extract every distinguishing feature from a team name.
 
@@ -260,6 +271,7 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
     if not name:
         return empty
 
+    name = _collapse_age_hyphen(name)
     tokens = _tokenize(name)
 
     # Strip club name words so they don't become phantom squad_words

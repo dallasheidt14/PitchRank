@@ -82,3 +82,36 @@ class TestNothingElseChanged:
         # The pattern anchors on <gender letter>U<digits>; a club name that merely
         # starts with one of those letters must be untouched.
         assert expected_token in (resolve_distinction(name, None, None) or "")
+
+
+class TestHyphenatedForms:
+    """Every tokenizer here splits on the hyphen, so "GU-12" arrived as "gu" + "12".
+
+    The age passes then saw no age and the length-2/3 recovery emitted the bare
+    prefix, so `resolve_distinction("LB GU-12 Grey")` returned "grey|gu". Only one
+    live team spells it this way today; the value is in closing the shape, since
+    the plain "U-12" form had the same defect and predates the gendered one.
+    """
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("LB GU-12 Grey", "grey"),
+            ("LB U-12 Grey", "grey"),
+            ("BU-08 White", "white"),
+            ("Hereford TX FC BU-10", "hereford"),
+        ],
+    )
+    def test_hyphen_does_not_leak_the_prefix(self, name, expected):
+        assert resolve_distinction(name, None, None) == expected
+
+    def test_hyphenated_matches_unhyphenated(self):
+        assert resolve_distinction("LB GU-12 Grey", None, None) == resolve_distinction(
+            "LB GU12 Grey", None, None
+        )
+
+    def test_a_real_hyphenated_club_name_is_untouched(self):
+        # The collapse only fires on <gender letter>U-<digits>; an ordinary
+        # hyphenated place name must still yield its tokens.
+        got = resolve_distinction("Real Salt Lake-Arizona Red", "Real Salt Lake", None)
+        assert got == "red|arizona"
