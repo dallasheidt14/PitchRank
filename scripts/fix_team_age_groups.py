@@ -2,8 +2,18 @@
 """
 Fix team age_groups based on birth year in team names.
 
-This script finds teams where the age_group doesn't match the birth year
-indicated in the team name (e.g., "ILLINOIS MAGIC FC 2014" should be U12, not U13).
+DISABLED. Both callers gate this script off: data-hygiene-weekly.yml and
+fix-age-year-discrepancies.yml each set AGE_DERIVATION_ENABLED: 'false'. It
+derives a cohort as CURRENT_YEAR - birth_year + 1, which assumed one birth year
+per age group. Age groups band two birth years now (U14 is 2013/2012), so a lone
+birth year does not determine a cohort and no function of one can be right.
+teams.age_group is the source of truth. Do not re-enable without a source that
+carries a birth DATE or a registered band.
+
+Kept because the parsing here is still the best record of the formats providers
+use. What it does: finds teams whose age_group disagrees with a birth year read
+out of the name (e.g. "ILLINOIS MAGIC FC 2014" against a u14 label, when 2014 is
+U13 in the 2026-27 season) and rewrites age_group to match the name.
 
 Usage:
     python scripts/fix_team_age_groups.py --dry-run  # Preview changes
@@ -93,14 +103,21 @@ def extract_birth_year(
 
     Handles multiple formats:
     - Single year: "Team 2014" → 2014
-    - Two years with slash: "Team 2013/2014" → 2013 (older/primary cohort)
-    - Two years with dash: "Team 2009-2010" → 2009 (older/primary cohort)
-    - Two years after letter: "B2013/2014" → 2013 (older/primary cohort)
+    - Two years with slash: "Team 2013/2014" → 2013
+    - Two years with dash: "Team 2009-2010" → 2009
+    - Two years after letter: "B2013/2014" → 2013
 
-    PitchRank business rule (per Dallas, 2026-05-01): for dual-age teams
-    we always take the OLDER cohort — older birth year (smaller number) for
-    year pairs, higher U-age for U-age pairs. Both forms refer to the
-    same older players. So 2012/2013 → 2012 (= U14), and u10/u11 → u11.
+    Those three take the OLDER year, via min() below, and that is now the WRONG
+    rule. A two-year band is named by its YOUNGER year: U_N = {SEASON+1-N,
+    SEASON-N}, so U14 is 2013/2012 and "2013/2014" names U13, not U14. The rule
+    recorded here as a business decision dated 2026-05-01 predates the Aug 2026
+    move to Aug 1 - Jul 31 cohorts and did not survive it.
+
+    The code is left as-is rather than corrected because this script is gated off
+    (see the module docstring) and changing what a disabled path computes would
+    only make the next reader trust it. scripts/normalize_team_names._resolve_band
+    and scripts/scrape_tgs_event.extract_age_group are the live implementations,
+    and both read the younger year.
 
     Source preference:
       When ``team_name_original`` is provided and non-empty, parse from it

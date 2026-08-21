@@ -43,9 +43,18 @@ env:
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
-  # Mirrors the flag in data-hygiene-weekly.yml, which runs the same script.
-  # Lift both together, and only once the rollover is verified.
+  # Mirrors the rollover flag in data-hygiene-weekly.yml, which runs the same
+  # script. Lift both together, and only once the rollover is verified.
   AGE_ROLLOVER_FREEZE: 'false'
+  # The SECOND gate on the same script, and the longer-lived one. It is not part
+  # of the rollover cycle: leave it 'false' when lifting or re-arming
+  # AGE_ROLLOVER_FREEZE. fix_team_age_groups.py derives a cohort as
+  # CURRENT_YEAR - birth_year + 1, which assumed one birth year per age group.
+  # Age groups band two birth years now, so no function of a birth year alone can
+  # be right. Without this flag a manual dispatch performs exactly the write the
+  # weekly pipeline was disabled to refuse. Gates test == 'true' so a renamed or
+  # deleted flag leaves the step skipped rather than writing unguarded.
+  AGE_DERIVATION_ENABLED: 'false'
 
 jobs:
   fix-age-groups:
@@ -109,7 +118,7 @@ jobs:
       # ── Step 2: Fix Age Group Discrepancies ─────────────────
       - name: 'Step 2: Fix age group discrepancies'
         id: step2
-        if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ env.AGE_ROLLOVER_FREEZE == 'false' && env.AGE_DERIVATION_ENABLED == 'true' }}
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           TEAM_NAME: ${{ github.event.inputs.team_name }}
