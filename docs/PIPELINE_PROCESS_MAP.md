@@ -257,7 +257,7 @@ When a game arrives and we need to identify which master team it belongs to, we 
 - Used for: Modular11 data
 - **Ultra-conservative** — designed to avoid false matches
 - Thresholds: minimum confidence=0.93, minimum gap=0.07 between best and 2nd-best
-- Age-strict: validates birth year matches age_group (U14 → 2012)
+- Age-strict: validates birth year matches age_group. A cohort spans TWO birth years now (U14 is 2013/2012), so this is a membership test, not an equality one — `teams.age_group` is the source of truth
 - Division-aware: HD vs AD matching bonus/penalty
 - Token overlap requirement: must share at least one meaningful token
 - Creates new teams when no confident match found
@@ -621,8 +621,13 @@ The hygiene pipeline is a 4-step post-import cleanup that runs AFTER games are i
  │  Script: scripts/normalize_team_names.py                   │
  │                                                            │
  │  Normalizes team_name column across DB:                    │
- │  • Birth year formats: '12B' → '2012', '14B' → '2014'     │
- │  • Age group formats: 'U14B' → 'U14'                      │
+ │  • Two-year bands → the cohort they name, from the         │
+ │    younger year: '13/14B' → 'U13', '2014-15' → 'U12'      │
+ │  • A U-age is re-rendered from teams.age_group, which is    │
+ │    the only age token that goes stale                      │
+ │  • A lone birth year is left untouched: it re-derives its   │
+ │    own cohort every Aug 1                                  │
+ │  • Short forms expanded: '12B' → '2012', 'U14B' → 'U14'    │
  │  • Strips gender words: "2014 Boys Black" → "2014 Black"   │
  │  • Preserves squad identifiers (colors, coach names, etc.) │
  │  • Backs up original as team_name_original                 │
@@ -896,12 +901,14 @@ The hygiene script learned the hard way that metadata `age_group` fields from pr
 ```python
 # Priority chain:
 # 1. U-age format from name:  "U13" → u13
-# 2. Gender+year from name:   "B14" → 2014 → u12,  "G2013" → u13
-# 3. Standalone birth year:   "2014" → u12
+# 2. Gender+year from name:   "B14" → 2014,  "G2013" → 2013, then the season rule
+# 3. Standalone birth year:   "2014" → the season rule
+#    (age = CURRENT_YEAR - birth_year + 1, so it moves every Aug 1;
+#     in 2026-27 that makes 2014 a u13 and 2013 a u14)
 # 4. FALLBACK ONLY: metadata  details['age_group']
 ```
 
-**Where to port:** `GameHistoryMatcher._match_team()` currently trusts the `age_group` parameter passed by the pipeline. It should validate by parsing the team name and flagging mismatches. This would catch cases where a provider labels "FC Dallas B14 Blue" as `u14` (wrong — B14 = birth year 2014 = U12).
+**Where to port:** `GameHistoryMatcher._match_team()` currently trusts the `age_group` parameter passed by the pipeline. It should validate by parsing the team name and flagging mismatches. This would catch cases where a provider labels a team at a cohort its name contradicts. Derive the expected cohort rather than hardcoding one: `B14` is birth year 2014, which is U13 in 2026-27 and shifts every Aug 1.
 
 ### 12.2 Pattern: Enhanced Coach Name Detection
 
@@ -1009,8 +1016,8 @@ This function handles **12+ age format combinations** that no other part of the 
 
 ```
 Format           → (age, gender)
-'14B'            → ('2012', 'Male')    # 2-digit year + gender suffix
-'B14'            → ('2012', 'Male')    # gender prefix + 2-digit year
+'14B'            → ('2014', 'Male')    # 2-digit year + gender suffix
+'B14'            → ('2014', 'Male')    # gender prefix + 2-digit year
 '2014B'          → ('2014', 'Male')    # 4-digit year + gender suffix
 'B2014'          → ('2014', 'Male')    # gender prefix + 4-digit year
 'U14B'           → ('U14', 'Male')     # U-age + gender suffix

@@ -172,9 +172,10 @@ The **"U" prefix is the signal:**
 
 ### Canonicalization at comparison time
 
-Stored `team_name` values retain their original form — birth-year names stay birth-year
-(required by `scripts/fix_team_age_groups.py`, which derives `age_group` from the 4-digit
-year in the name). Matchers canonicalize age tokens to a shared cohort key only at
+Stored `team_name` values retain their original form — birth-year names stay birth-year.
+That is deliberate rather than incidental: a birth year re-derives its own cohort from the
+wall clock every Aug 1, so `normalize_team_names.py` leaves one untouched. Only a U-age is
+re-rendered, from `teams.age_group`, because a U-age is frozen text and goes stale. Matchers canonicalize age tokens to a shared cohort key only at
 comparison time, inside `_canonicalize_age_token` (`src/utils/team_name_utils.py`). So
 `EBU 14U Premier 1` and `EBU 2012 Premier 1` both resolve to the `u14` cohort during
 duplicate detection without either name being rewritten on disk.

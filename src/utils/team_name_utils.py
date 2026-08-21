@@ -533,12 +533,16 @@ def _canonicalize_age_token(tok: str) -> str | None:
     """Map any age token to a canonical cohort key like 'u14'.
 
     Accepts (case-insensitive; caller may pass lowercased and apostrophe-stripped):
-      4-digit birth year:   '2012' -> 'u14'
-      2-digit shorthand:    '12' via birth-year rule -> 'u14' (apostrophe-strip context)
+      4-digit birth year:   '2012' -> calculate_age_group_from_birth_year(2012)
+      2-digit shorthand:    '12' via the same birth-year rule (apostrophe-strip context)
       U-age form:           'U14', 'u-14' -> 'u14'
       Digit-then-U form:    '14U', '14u' -> 'u14'
       With gender suffix:   '14ub', 'u14b', '14b', 'b14', 'b2012', '2012b' -> canonical + drop gender
-      Slash dual-age:       '10/11' -> 'u15' (take LARGER 2-digit year = younger cohort)
+      Slash dual-age:       '10/11' -> the LARGER 2-digit year, 2011, then the same rule
+
+    A birth year is deliberately NOT written as a fixed cohort here. The mapping
+    re-derives from the wall clock every Aug 1, so any literal example rots: in
+    the 2026-27 season 2012 is u15, and it was u14 the season before.
 
     Returns None for:
       - Out-of-range ages (outside U6-U19 after canonicalization)
@@ -550,8 +554,9 @@ def _canonicalize_age_token(tok: str) -> str | None:
 
     Slash-form rationale:
       Dual-age divisions are "play-up gates, not cohort labels" — the team is primarily
-      the younger cohort (larger 2-digit year). So '10/11 -> 2011 -> U15. A single '10
-      resolves to 2010 -> U16, so slash teams remain distinct from single-cohort teams.
+      the younger cohort (larger 2-digit year). So '10/11 resolves from 2011 and a
+      single '10 resolves from 2010, one cohort apart, which is what keeps slash
+      teams distinct from single-cohort teams. In 2026-27 that is u16 and u17.
 
     Bare 2-digit rationale:
       In the extract_distinctions path, bare 2-digit strings arrive only from the
@@ -846,7 +851,10 @@ def extract_distinctions(name: str) -> Dict:
 
     # Pass 2: extract canonical age tokens; mask age spans for secondary_nums.
     # Same shape as scripts/find_fuzzy_duplicate_teams.py.extract_distinctions — both
-    # must canonicalize so '14U', 'U14', '2012', "'12" all collapse to the same key.
+    # must canonicalize so the U-forms and the birth-year forms of the SAME cohort
+    # collapse to one key. Note they are not interchangeable across forms: '14U' and
+    # 'U14' are u14, while '2012' and "'12" go through the birth-year rule and land on
+    # whatever cohort 2012 names this season (u15 in 2026-27).
     age_tokens: list = []
     age_spans: list = []
     for m in AGE_PATTERN.finditer(name):
@@ -875,7 +883,8 @@ def extract_distinctions(name: str) -> Dict:
         age_gender = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
         if age_gender:
             # Pass the original token — the helper distinguishes 4-digit birth year,
-            # 2-digit shorthand ('14b' -> U12), and U-forms ('u14b' -> U14).
+            # 2-digit shorthand ('14b' -> birth year 2014, then the season's rule),
+            # and U-forms ('u14b' -> U14, which never moves).
             canonical = _canonicalize_age_token(tok)
             if canonical is not None:
                 age_tokens.append(canonical)
