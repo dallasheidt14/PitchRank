@@ -160,9 +160,16 @@ class Modular11GameMatcher(GameHistoryMatcher):
         In the 2026-27 season (season_year 2027) U14 is 2013.
 
         This yields the YOUNGER of the cohort's two birth years, which is the one
-        that names it: U_N = {SEASON+1-N, SEASON-N}, and U14 is 2013/2012. A team
-        carrying the older year in its name is matched through
-        _candidate_birth_year_tokens rather than here.
+        that names it: U_N = {SEASON+1-N, SEASON-N}, and U14 is 2013/2012.
+
+        Only that year matches. Both callers take this single value:
+        _candidate_birth_year_tokens builds its tokens from it, and
+        _contains_wrong_birth_year uses it as a HARD FILTER that rejects any
+        candidate whose name carries a different year. So a U14 team named with
+        2012 -- the older half of its own band -- is rejected rather than matched.
+        That is a real limitation of this matcher, not an oversight in this
+        docstring: covering both halves means teaching the filter that a cohort
+        has two valid years.
 
         Returns None if age_group is invalid or out of range.
         """
