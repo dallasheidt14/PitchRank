@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from '@/lib/api/rateLimit';
 import { requirePremium } from '@/lib/api/requirePremium';
 
 export async function POST(request: NextRequest) {
@@ -8,6 +9,15 @@ export async function POST(request: NextRequest) {
     // route (middleware.ts), so every user who can see it must be able to submit.
     const auth = await requirePremium();
     if (auth.error) return auth.error;
+
+    // Keyed by user, not IP: the caller is authenticated by here, so the cap
+    // survives IP rotation and two people behind one address do not collide.
+    // Every row lands at priority 1, ahead of the automated priority 2-4
+    // enqueues that share the same 40-per-15-minute drain, so an unbounded
+    // caller here starves them. MissingGamesForm's 60s limit is client-side.
+    if (!checkRateLimit(`scrape-missing-game:${auth.user.id}`, 10, 3_600_000)) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
 
     // Check for service key
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

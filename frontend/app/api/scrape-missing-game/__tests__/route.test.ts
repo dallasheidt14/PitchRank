@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse, type NextRequest } from 'next/server';
 import { serviceClientMock } from '@/test/supabase-mock';
 
-const { mockRequirePremium, mockCreateClient } = vi.hoisted(() => ({
+const { mockRequirePremium, mockCheckRateLimit, mockCreateClient } = vi.hoisted(() => ({
   mockRequirePremium: vi.fn(),
+  mockCheckRateLimit: vi.fn(),
   mockCreateClient: vi.fn(),
 }));
 
 vi.mock('@/lib/api/requirePremium', () => ({ requirePremium: mockRequirePremium }));
+vi.mock('@/lib/api/rateLimit', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: mockCreateClient }));
 
 import { POST } from '../route';
@@ -34,6 +36,7 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://project.supabase.co';
   mockRequirePremium.mockResolvedValue({ user: { id: 'user-1' }, supabase: {}, error: null });
+  mockCheckRateLimit.mockReturnValue(true);
   mockCreateClient.mockReturnValue(svc.client);
 });
 
@@ -62,6 +65,16 @@ describe('POST /api/scrape-missing-game', () => {
     const res = await POST(makeRequest(validBody));
 
     expect(res.status).toBe(403);
+    expect(mockCreateClient).not.toHaveBeenCalled();
+  });
+
+  it('caps a scripted caller by user id before anything reaches the queue', async () => {
+    mockCheckRateLimit.mockReturnValue(false);
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(429);
+    expect(mockCheckRateLimit).toHaveBeenCalledWith('scrape-missing-game:user-1', 10, 3_600_000);
     expect(mockCreateClient).not.toHaveBeenCalled();
   });
 });
