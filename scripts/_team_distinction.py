@@ -215,7 +215,12 @@ US_STATES = frozenset(
 )
 
 # Age/year patterns
-AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
+# The optional gender letter before the U is load-bearing: "GU12" and "BU08" are
+# ages, but a bare  before [Uu] cannot see them because the U is preceded by a
+# word character. Without it they escape every age pass and surface as squad
+# distinctions -- "LB GU12 Grey" resolved to "grey|gu12", which renders to a
+# reader as "LB Gu12 Grey". _canonicalize_age_token already maps gu12 -> u12.
+AGE_PATTERN = re.compile(r"\b(20\d{2})\b|'(\d{2})(?:/(\d{2}))?|\b[BbGgMmFf]?[Uu]-?(\d{1,2})\b|\b(\d{1,2})[Uu]\b")
 
 
 def _tokenize(name: str) -> list[str]:
@@ -323,7 +328,12 @@ def extract_distinctions(name: str, club_name: str = "") -> dict:
     for idx, tok in enumerate(tokens):
         if idx in classified:
             continue
-        age_gender_match = re.fullmatch(r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]", tok)
+        age_gender_match = re.fullmatch(
+            # Gender-prefixed U-age ("gu12", "bu08") is the last alternative.
+            # Kept in step with src/utils/team_name_utils.extract_distinctions.
+            r"(\d{1,4})u?[bgmf]|[bgmf](\d{1,4})u?|u(\d{1,2})[bgmf]|[bgmf]u\d{1,2}",
+            tok,
+        )
         if age_gender_match:
             canonical = _canonicalize_age_token(tok)
             if canonical is not None:

@@ -115,7 +115,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install supabase psycopg2-binary python-dotenv
+          # truststore and rich are imported by backfill_team_distinction.py and are
+          # NOT in this list's history: Step 1b has died at `import truststore` on
+          # every run since 2026-06-01 and reported success anyway.
+          pip install supabase psycopg2-binary python-dotenv truststore rich
           echo "✅ Dependencies installed"
 
       - name: Verify Supabase secrets
@@ -167,10 +170,16 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
 
+          # Without pipefail the step takes tee's exit status, so a Python crash
+          # reports success. That is how the outage above went unnoticed for 12 weeks.
+          set -o pipefail
           python scripts/backfill_team_distinction.py $DRY_RUN_FLAG 2>&1 | tee logs/step1b_distinction.log
 
-          DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1 || echo "0")
-          echo "distinction_updated=$DISTINCTION_UPDATED" >> $GITHUB_OUTPUT
+          # `|| echo 0` cannot fire on a pipeline whose last command is tail, which
+          # exits 0 on empty input -- the fallback yielded "" and the summary printed
+          # "skipped", indistinguishable from skip_steps=1b. Default the variable instead.
+          DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1)
+          echo "distinction_updated=${DISTINCTION_UPDATED:-0}" >> $GITHUB_OUTPUT
 
       # ── Step 2: Fix Age Year Discrepancies ─────────────────
       - name: 'Step 2: Fix Age Year Discrepancies'
