@@ -25,10 +25,13 @@ from datetime import datetime
 
 # Add parent dir to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment
 from dotenv import load_dotenv
 from team_name_normalizer import parse_age_gender
+
+from src.utils.team_utils import calculate_age_group_from_birth_year
 
 _env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_env_dir, ".env.local"))
@@ -148,16 +151,115 @@ def _normalizer_club_tokens(club_name):
     return out
 
 
-def normalize_team_name(team_name: str, club_name: str = None) -> str:
+def _cohort_label(age_group) -> "str | None":
+    """teams.age_group as the token to render, e.g. "u14" -> "U14".
+
+    Returns None for anything outside the tracked U6-U19 range, so the sentinels
+    and stray values that live in that column (u0, u20, u99x) never reach a name.
+    """
+    if not age_group:
+        return None
+    digits = re.sub(r"[^0-9]", "", str(age_group))
+    if not digits:
+        return None
+    age = int(digits)
+    return f"U{age}" if 6 <= age <= 19 else None
+
+
+# A band as providers actually write it: two years joined by a slash or a dash,
+# with or without spaces, with or without a gender letter at either end —
+# "15/16", "B14/15", "2014/15", "2013/2012", "2014-15", "2013 - 2014".
+_BAND_RE = re.compile(r"(?<![\w'])[BbGgMmFf]?(\d{2}|\d{4})\s*[/\-–]\s*(\d{2}|\d{4})[BbGgMmFf]?(?![\w'])")
+
+
+# A four-digit birth year standing on its own in the name.
+_YEAR_RE = re.compile(r"(?<![A-Za-z0-9])(20[0-2]\d)(?![A-Za-z0-9])")
+
+
+def _column_contradicted(name: str, cohort_label: str) -> bool:
+    """Whether a birth year in the name disagrees with teams.age_group.
+
+    Names that carry both a year and a U-age settle the question by themselves.
+    A birth year re-derives its cohort from the wall clock, so it cannot have
+    gone stale; a U-age is frozen text and can. Where the two disagree it is
+    therefore the U-age that rotted — which is the whole reason the column may
+    overwrite it.
+
+    Where the YEAR disagrees with the column instead, that reasoning inverts:
+    the column is the suspect side, and rendering it into the name would write an
+    error over the one token that could have caught it. About 90 teams are in
+    that state, most of them wildly off (`U08B Cook Inlet SC Navy 2019` against a
+    `u15` column). Those names are left exactly as they are.
+    """
+    cohorts = {calculate_age_group_from_birth_year(int(y)) for y in _YEAR_RE.findall(name)}
+    cohorts.discard(None)
+    return bool(cohorts) and cohort_label not in cohorts
+
+
+def _full_year(value: str) -> int:
+    """'14' -> 2014, '2014' -> 2014."""
+    year = int(value)
+    if year >= 1900:
+        return year
+    return 2000 + year if year < 30 else 1900 + year
+
+
+def _resolve_band(name: str):
+    """Replace a two-year band with the cohort it names: "13/14B Summer" -> "U14 Summer".
+
+    A band states BOTH birth years of a cohort, so unlike a lone birth year it
+    identifies the cohort outright: U_N = {SEASON+1-N, SEASON-N}, and the
+    younger year gives N. U14 is 2013/2012, U19 is 2008/2007. That is why a band
+    is resolved from itself and never rendered from teams.age_group — the name
+    already carries the more specific fact, and the column can only agree or be
+    wrong.
+
+    Matched against the whole name rather than token by token, because providers
+    write the band with spaces often enough ("2013 - 2014") that a per-token scan
+    sees two separate years and consumes the first one as the age.
+
+    Returns (name, label) with the band replaced, or (name, None) if there is none.
+    """
+    match = _BAND_RE.search(name)
+    if not match:
+        return name, None
+
+    first, second = _full_year(match.group(1)), _full_year(match.group(2))
+    # Consecutive years only. Anything else is a club founding pair, a score, or
+    # an address — "1570 FC - 1570" and "10-3 Red" are not cohorts.
+    if abs(first - second) != 1:
+        return name, None
+
+    label = calculate_age_group_from_birth_year(max(first, second))
+    if not label:
+        return name, None
+    return name[: match.start()] + label + name[match.end() :], label
+
+
+def normalize_team_name(team_name: str, club_name: str = None, age_group: str = None) -> str:
     """
     Normalize a team name following Jan 2026 rules.
 
-    - Age normalized: birth year → 4-digit, age group → U##
+    - Age rendered from teams.age_group when supplied: the age token becomes U##
     - Gender words stripped EVERYWHERE (B/G in age tokens normalized, standalone words removed)
     - Squad identifiers (colors, divisions, coach names) preserved
     - Case normalized for known keywords
     - Club-name number fragments are NOT rewritten (e.g., "10" in
       "Union 10 FC" stays as "10", not "2010").
+
+    age_group:
+        The team's cohort from teams.age_group. When given, the age token in the
+        name is RENDERED FROM IT rather than derived from the name's own digits,
+        so the name is a view of the column instead of an independent claim.
+
+        That is what makes the annual rollover cheap. Age groups band two birth
+        years and shift every Aug 1, so a birth year written into a name means a
+        different cohort each season and cannot be corrected without knowing when
+        it was written. Rendering from the column means the rollover is: update
+        age_group, re-run this job, and every name follows.
+
+        When age_group is absent the old behaviour applies, so callers that only
+        have a name (import-time matching, tests) are unaffected.
 
     Returns: Normalized team name string
     """
@@ -166,6 +268,20 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
 
     original = team_name.strip()
     club_skip_tokens = _normalizer_club_tokens(club_name)
+    cohort_label = _cohort_label(age_group)
+    original, band_label = _resolve_band(original)
+
+    # The column may rewrite a U-age, and only a U-age. A birth year in a name is
+    # a fact that re-maps itself every Aug 1 and so never needs correcting; a
+    # U-age is a label frozen at the season it was typed, and 18,958 of them have
+    # since gone stale. Rendering the column over a birth year would delete the
+    # one self-checking token in the name and put an unverifiable one in its
+    # place, which is why only the U-age case is eligible here.
+    column_may_drive = (
+        cohort_label is not None
+        and band_label is None
+        and not _column_contradicted(original, cohort_label)
+    )
 
     # Tokenize the entire name
     all_tokens = re.split(r"[\s]+", original)
@@ -173,6 +289,7 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
 
     result_tokens = []
     age_found = None
+    u_rendered = False
 
     for token in all_tokens:
         clean_token = token.strip("()[]")
@@ -185,34 +302,49 @@ def normalize_team_name(team_name: str, club_name: str = None) -> str:
         # Try to parse as age/gender token (skip club-name number fragments
         # so "Union 10 FC 2008" doesn't get rewritten to "Union 2010 FC 2008").
         parsed_age, _ = parse_age_gender(clean_token, club_skip_tokens=club_skip_tokens)
-        if parsed_age and age_found is None:
-            age_found = parsed_age
-            result_tokens.append(parsed_age)
-            continue
 
-        # A dual-year token is a BAND. Collapse it to the YOUNGER year, which is
-        # the one that names the group: every band satisfies
-        # U_N = {SEASON+1-N, SEASON-N}, so "15/16" is U11 (2016/15) and 2016 is
-        # its year. This previously kept the OLDER year and landed one group too
-        # old on every band in the table.
+        # A U-age outside U6-U19 is not an age at all. parse_age_gender's
+        # bare-two-digit branch returns U{n} for ANY two-digit token outside
+        # 6-18, so a club's founding year parses as U94 and "Summer 26" as U26 —
+        # and the normalizer then writes that into the name. Treating them as
+        # ordinary text leaves 49 such names as their clubs wrote them.
+        if parsed_age and parsed_age.startswith("U") and not 6 <= int(parsed_age[1:]) <= 19:
+            parsed_age = None
+
+        if parsed_age:
+            is_u_age = parsed_age.startswith("U")
+
+            # Not gated on being the FIRST age token. 2,561 names carry a birth
+            # year ahead of their U-age ("2014 U12 PRE MLS I"), and those are the
+            # best-evidenced rewrites of all — the year corroborates the column
+            # from inside the same name. Taking only the first token would leave
+            # exactly them stale.
+            if is_u_age and column_may_drive and not u_rendered:
+                u_rendered = True
+                age_found = age_found or cohort_label
+                result_tokens.append(cohort_label)
+                continue
+
+            if age_found is None:
+                age_found = parsed_age
+                result_tokens.append(parsed_age)
+                continue
+            # A second age token is left exactly as written — rewriting it too
+            # would render the same cohort twice into one name.
+
+        # Bands are handled by _resolve_band before tokenizing — a second path
+        # here would see only the slash forms and would disagree with the first
+        # on every spaced band.
         #
         # The band is NOT preserved as written, tempting though that is. Reading
         # it back needs both years, and the consumers of teams.team_name cannot:
         # _team_distinction tokenizes on "/" and its two-digit pattern requires a
-        # leading apostrophe, so "14/15" yields NO age token where "2015" yields
-        # u12 -- should_skip_pair then refuses the pair outright, ahead of the
+        # leading apostrophe, so "14/15" yields NO age token where "U13" yields
+        # one -- should_skip_pair then refuses the pair outright, ahead of the
         # birth-year guard that would have accepted it. frontend/lib/utils.ts is
         # worse: its standalone two-digit pattern matches "14" inside "14/15" and
-        # derives U13, overriding the correct age from the database. Preserving
-        # bands needs those parsers taught first.
-        slash_match = re.match(r"^(\d{2})/(\d{2})([BbGgMmFf])?$", clean_token)
-        if slash_match and age_found is None:
-            y1, y2 = int(slash_match.group(1)), int(slash_match.group(2))
-            younger = max(y1, y2)
-            birth_year = 2000 + younger if younger < 30 else 1900 + younger
-            age_found = str(birth_year)
-            result_tokens.append(age_found)
-            continue
+        # derives U13 for a U14 team. Preserving bands needs those parsers taught
+        # first.
 
         # Preserve league keywords with proper casing
         if t_lower in LEAGUE_KEYWORDS:
@@ -298,7 +430,7 @@ def run_with_psycopg2(args):
     limit_sql = f" LIMIT {args.limit}" if args.limit else ""
     cur.execute(
         f"""
-        SELECT id, team_name, club_name, team_name_original
+        SELECT id, team_name, club_name, team_name_original, age_group
         FROM teams
         WHERE {where_sql}
         {limit_sql}
@@ -314,8 +446,8 @@ def run_with_psycopg2(args):
     skipped = 0
     samples = []
 
-    for team_id, team_name, club_name, team_name_original in teams:
-        normalized = normalize_team_name(team_name, club_name)
+    for team_id, team_name, club_name, team_name_original, age_group in teams:
+        normalized = normalize_team_name(team_name, club_name, age_group)
 
         if normalized != team_name:
             if len(samples) < 15:
@@ -366,7 +498,7 @@ def run_with_supabase(args):
     print("Using Supabase REST API (slower)")
 
     # This is the original implementation - kept for fallback
-    query = supabase.table("teams").select("id, team_name, club_name, team_name_original")
+    query = supabase.table("teams").select("id, team_name, club_name, team_name_original, age_group")
 
     if args.state:
         query = query.eq("state_code", args.state.upper())
@@ -412,8 +544,9 @@ def run_with_supabase(args):
         team_id = team["id"]
         team_name = team["team_name"]
         club_name = team.get("club_name")
+        age_group = team.get("age_group")
 
-        normalized = normalize_team_name(team_name, club_name)
+        normalized = normalize_team_name(team_name, club_name, age_group)
 
         if normalized != team_name:
             if len(samples) < 15:
