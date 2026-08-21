@@ -44,7 +44,6 @@ import argparse
 import collections
 import csv
 import os
-import re
 import sys
 from datetime import datetime
 from typing import Optional
@@ -64,6 +63,7 @@ for _base in (_REPO, r"C:\PitchRank"):
     load_dotenv(os.path.join(_base, ".env"))
 
 from normalize_team_names import _cohort_label, _resolve_band, normalize_team_name  # noqa: E402
+
 from src.utils.team_utils import CURRENT_YEAR, calculate_age_group_from_birth_year  # noqa: E402
 
 # A 4-digit token is only a plausible birth year for a cohort that still plays.
@@ -421,7 +421,9 @@ def main() -> None:
         default=365,
         help="Game window for opponent evidence (default: 365, matching the ranking window)",
     )
-    parser.add_argument("--all-rows", action="store_true", help="Write every team, not just the ones needing a decision")
+    parser.add_argument(
+        "--all-rows", action="store_true", help="Write every team, not just the ones needing a decision"
+    )
     args = parser.parse_args()
 
     database_url = os.getenv("DATABASE_URL")
@@ -433,7 +435,10 @@ def main() -> None:
     )
     os.makedirs(os.path.dirname(out), exist_ok=True)
 
-    print(f"Season year: {CURRENT_YEAR}  (plausible birth years {OLDEST_PLAUSIBLE_BIRTH_YEAR}-{YOUNGEST_PLAUSIBLE_BIRTH_YEAR})")
+    print(
+        f"Season year: {CURRENT_YEAR}  "
+        f"(plausible birth years {OLDEST_PLAUSIBLE_BIRTH_YEAR}-{YOUNGEST_PLAUSIBLE_BIRTH_YEAR})"
+    )
 
     conn = psycopg2.connect(database_url)
     with conn, conn.cursor() as cur:

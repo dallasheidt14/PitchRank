@@ -127,6 +127,26 @@ def test_legacy_birth_year_labels_still_convert():
     assert extract_age_group("G2013") == "u14"
 
 
+def test_a_season_stamp_is_not_a_birth_year():
+    """TGS appends the season to a division name, and it is not a cohort.
+
+    The single-year branch counts every four-digit number in the string, so the
+    2026 in "B2015 (2026-27)" made a one-cohort label look like two and the
+    flight was rejected before it was ever fetched. The band branch was never
+    affected: it reads an adjacent pair.
+    """
+    assert extract_age_group("B2015 (2026-27)") == "u12"
+    assert extract_age_group("B2015 (2026-2027)") == "u12"
+    assert extract_age_group("2015 Boys (2026-27)") == "u12"
+    assert extract_age_group("B2016/2015 (2026-27)") == "u11"
+
+
+def test_two_real_cohorts_in_one_label_are_still_rejected():
+    """The season strip must not turn a genuinely ambiguous label into a guess."""
+    assert extract_age_group("B2016/2014") is None
+    assert extract_age_group("2015 2013") is None
+
+
 def test_legacy_labels_survive_an_aged_out_half():
     assert extract_age_group("B2008/2007") == "u19"
     assert extract_age_group("B2007/2006") is None

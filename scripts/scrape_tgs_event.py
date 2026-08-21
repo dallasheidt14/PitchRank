@@ -141,6 +141,13 @@ def u_age_of(division_name: str) -> Optional[int]:
 # season suffix elsewhere in the label cannot join the band.
 _ADJACENT_BAND = re.compile(r"(?<!\d)(20\d{2})\s*/\s*(20\d{2})(?!\d)")
 
+# A season stamp TGS appends to a division name: "B2015 (2026-27)". It is not a
+# birth year, and counting it as one makes a single-year label look as though it
+# named two cohorts, so names_a_cohort rejects the flight before it is fetched.
+# The band branch never saw this because it reads an ADJACENT pair; the
+# single-year branch below counts every four-digit number in the string.
+_SEASON_SUFFIX = re.compile(r"\(\s*20\d{2}\s*[-/]\s*(?:20)?\d{2}\s*\)")
+
 
 def _tracked_age_group(age: int) -> Optional[str]:
     """Cohort label for a U-age, or None outside the tracked U10-U19 range."""
@@ -198,7 +205,7 @@ def extract_age_group(division_name: str, label_season: Optional[int] = None) ->
         # NOT applied: a bare 2007 is U19, but the BAND 2007/06 has aged out.
         return _tracked_age_group(CURRENT_YEAR + 1 - max(first, second))
 
-    years = [int(y) for y in re.findall(r"\d{4}", division_name)]
+    years = [int(y) for y in re.findall(r"\d{4}", _SEASON_SUFFIX.sub("", division_name))]
     if len(set(years)) != 1:
         return None
     group = calculate_age_group_from_birth_year(years[0])
