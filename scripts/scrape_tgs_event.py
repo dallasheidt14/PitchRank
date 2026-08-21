@@ -137,6 +137,18 @@ def u_age_of(division_name: str) -> Optional[int]:
     return max(ages)
 
 
+# A band written as two adjacent four-digit years. Anchored to the pair so a
+# season suffix elsewhere in the label cannot join the band.
+_ADJACENT_BAND = re.compile(r"(?<!\d)(20\d{2})\s*/\s*(20\d{2})(?!\d)")
+
+# A season stamp TGS appends to a division name: "B2015 (2026-27)". It is not a
+# birth year, and counting it as one makes a single-year label look as though it
+# named two cohorts, so names_a_cohort rejects the flight before it is fetched.
+# The band branch never saw this because it reads an ADJACENT pair; the
+# single-year branch below counts every four-digit number in the string.
+_SEASON_SUFFIX = re.compile(r"\(\s*20\d{2}\s*[-/]\s*(?:20)?\d{2}\s*\)")
+
+
 def _tracked_age_group(age: int) -> Optional[str]:
     """Cohort label for a U-age, or None outside the tracked U10-U19 range."""
     age = 19 if age == 18 else age
@@ -170,19 +182,36 @@ def extract_age_group(division_name: str, label_season: Optional[int] = None) ->
         return _tracked_age_group(age + CURRENT_YEAR - label_season)
 
     # A dual-year label names a BAND, not two separate cohorts: the season runs
-    # Aug 1 - Jul 31, so one band straddles Jan 1 and is written from both ends.
-    # "B2008/2007" is U19 (2008/07); "B2007/2006" is the band above it, which has
-    # aged out. Deriving each year independently and keeping the oldest COHORT
-    # gets that second case wrong, because 2007 alone maps into U19 while the
-    # 2007/06 band does not -- so read the band from its OLDEST year, which
-    # identifies it either way.
-    years = [int(y) for y in re.findall(r"\d{4}", division_name)]
-    if not years:
+    # Aug 1 - Jul 31, so a band straddles Jan 1 and gets written from both ends.
+    # Every band satisfies U_N = {SEASON+1-N, SEASON-N}, so N = SEASON+1 minus the
+    # YOUNGER year -- U11 is 2016/15 and 2016 is the year that names it. Reading a
+    # band from its older year lands one group too old on every band in the table.
+    #
+    # The fold that maps a lone 2007 into U19 must NOT apply here. A bare 2007 is
+    # genuinely U19, because U19 (2008/07) is the only band containing it -- but
+    # the BAND 2007/06 is the group above U19 and has aged out. Folding it would
+    # file an aged-out band as U19, which is what hid this error the first time:
+    # "B2008/2007" comes out right under either rule, purely by coincidence.
+    # Only an ADJACENT consecutive pair is a band. Taking every four-digit number
+    # in the string mis-reads a season suffix ("B2016/2015 (2026-27)" would derive
+    # from 2026) and silently files malformed multi-cohort labels ("B2016/2014")
+    # as though they named one band.
+    band = _ADJACENT_BAND.search(division_name)
+    if band:
+        first, second = int(band.group(1)), int(band.group(2))
+        if abs(first - second) != 1:
+            return None
+        # N = SEASON + 1 - the YOUNGER year, and the age-20 fold is deliberately
+        # NOT applied: a bare 2007 is U19, but the BAND 2007/06 has aged out.
+        return _tracked_age_group(CURRENT_YEAR + 1 - max(first, second))
+
+    years = [int(y) for y in re.findall(r"\d{4}", _SEASON_SUFFIX.sub("", division_name))]
+    if len(set(years)) != 1:
         return None
-    group = calculate_age_group_from_birth_year(min(years))
-    if not group or not _tracked_age_group(int(group[1:])):
+    group = calculate_age_group_from_birth_year(years[0])
+    if not group:
         return None
-    return group.lower()
+    return _tracked_age_group(int(group[1:]))
 
 
 def u_label_season(game_dates: List[str]) -> Optional[int]:

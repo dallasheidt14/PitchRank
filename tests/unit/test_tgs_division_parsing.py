@@ -127,6 +127,26 @@ def test_legacy_birth_year_labels_still_convert():
     assert extract_age_group("G2013") == "u14"
 
 
+def test_a_season_stamp_is_not_a_birth_year():
+    """TGS appends the season to a division name, and it is not a cohort.
+
+    The single-year branch counts every four-digit number in the string, so the
+    2026 in "B2015 (2026-27)" made a one-cohort label look like two and the
+    flight was rejected before it was ever fetched. The band branch was never
+    affected: it reads an adjacent pair.
+    """
+    assert extract_age_group("B2015 (2026-27)") == "u12"
+    assert extract_age_group("B2015 (2026-2027)") == "u12"
+    assert extract_age_group("2015 Boys (2026-27)") == "u12"
+    assert extract_age_group("B2016/2015 (2026-27)") == "u11"
+
+
+def test_two_real_cohorts_in_one_label_are_still_rejected():
+    """The season strip must not turn a genuinely ambiguous label into a guess."""
+    assert extract_age_group("B2016/2014") is None
+    assert extract_age_group("2015 2013") is None
+
+
 def test_legacy_labels_survive_an_aged_out_half():
     assert extract_age_group("B2008/2007") == "u19"
     assert extract_age_group("B2007/2006") is None
@@ -149,7 +169,8 @@ def test_a_dual_year_label_is_one_band_not_two_cohorts():
     assert extract_age_group("B2007") == "u19", "a bare 2007 is U19; only the BAND 2007/06 is aged out"
     assert extract_age_group("B2007/2006") is None
     # And the same shape lower down the range, where nothing is near aging out.
-    assert extract_age_group("B2015/2014") == "u13"
+    # U12 is 2015/14, so the band reads from 2015 -- its YOUNGER year.
+    assert extract_age_group("B2015/2014") == "u12"
     assert extract_age_group("B2014") == "u13"
 
 
@@ -188,3 +209,81 @@ def test_gender_still_reads_the_u_age_prefix():
 def test_cutover_date_is_the_documented_relabel_boundary():
     assert tgs.U_FORMAT_CUTOVER_DATE == "2026-08-01"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", tgs.U_FORMAT_CUTOVER_DATE)
+
+
+@pytest.mark.parametrize(
+    ("division_name", "expected"),
+    [
+        # U9 is outside the tracked U10-U19 range and is dropped, not mislabelled.
+        # The previous code read the older year and filed it as u10.
+        ("B2018/2017", None),
+        ("B2017/2016", "u10"),
+        ("B2016/2015", "u11"),
+        ("B2015/2014", "u12"),
+        ("B2014/2013", "u13"),
+        ("B2013/2012", "u14"),
+        ("B2012/2011", "u15"),
+        ("B2011/2010", "u16"),
+        ("B2010/2009", "u17"),
+        # The published band is U18, but _tracked_age_group folds 18 into 19 and
+        # NO team is stored as u18, so ingestion must meet storage where it is.
+        ("B2009/2008", "u19"),
+        ("B2008/2007", "u19"),
+    ],
+)
+def test_every_band_matches_the_published_table(division_name, expected):
+    """The full 2026-27 band table, so an off-by-one cannot hide behind one case.
+
+    Every band satisfies U_N = {SEASON+1-N, SEASON-N}, so N is SEASON+1 minus the
+    YOUNGER year. An earlier version read the OLDER year and was wrong on 10 of
+    these 11 rows -- and shipped, because the single case it was tested against
+    ("B2008/2007") is correct under either rule by coincidence: 2007 falls out of
+    range and folds back to U19.
+    """
+    assert extract_age_group(division_name) == expected
+
+
+def test_the_aged_out_band_is_not_folded_back():
+    """A lone 2007 is U19; the BAND 2007/06 is the group above and has aged out.
+
+    calculate_age_group_from_birth_year folds age 20 to 19 so a bare 2007 lands in
+    U19, which is right -- U19 (2008/07) is the only band containing 2007. That
+    fold must not reach the band path, or an aged-out band files as U19.
+    """
+    assert extract_age_group("B2007") == "u19"
+    assert extract_age_group("B2007/2006") is None
+    assert extract_age_group("B2006/2005") is None
+
+
+@pytest.mark.parametrize(
+    ("division_name", "expected"),
+    [
+        # A season suffix must not join the band -- taking every four-digit number
+        # in the label derived from 2026 here and rejected a valid U11 flight.
+        ("B2016/2015 (2026-27)", "u11"),
+        ("2026-27 B2016/2015", "u11"),
+        # Non-consecutive years are not a band at all.
+        ("B2016/2014", None),
+        ("B2016/2012", None),
+        # Single years still route through the bare-year path, fold included.
+        ("B2015", "u12"),
+        ("B2007", "u19"),
+        ("B2006", None),
+    ],
+)
+def test_only_an_adjacent_consecutive_pair_is_a_band(division_name, expected):
+    """A band is two ADJACENT consecutive years, not every year in the string."""
+    assert extract_age_group(division_name) == expected
+
+
+def test_no_division_ever_yields_an_untracked_cohort():
+    """Nothing may emit a label the teams table does not use.
+
+    _tracked_age_group folds 18 to 19 and rejects anything outside U10-U19, and
+    the database holds zero rows at u18 or u9. A band that derives U18 must come
+    back as u19 or ingestion files teams under a cohort nothing can match.
+    """
+    tracked = {f"u{n}" for n in range(10, 20)} - {"u18"}
+    for first in range(2004, 2021):
+        got = extract_age_group(f"B{first}/{first - 1}")
+        assert got is None or got in tracked, f"B{first}/{first - 1} produced {got!r}"
