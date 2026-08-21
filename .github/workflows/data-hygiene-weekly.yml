@@ -149,6 +149,9 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
 
+          # tee returns 0 even when the python before it dies, so without this the
+          # step reports success on a crash. Step 1b hid a 12-week outage that way.
+          set -o pipefail
           python scripts/normalize_team_names.py --all-teams $DRY_RUN_FLAG 2>&1 | tee logs/step1_normalize_names.log
 
           NORMALIZED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1_normalize_names.log || echo "0")
@@ -200,6 +203,9 @@ jobs:
             AGE_FLAGS="--dry-run"
           fi
 
+          # tee returns 0 even when the python before it dies, so without this the
+          # step reports success on a crash. Step 1b hid a 12-week outage that way.
+          set -o pipefail
           python scripts/fix_team_age_groups.py $AGE_FLAGS 2>&1 | tee logs/step2_fix_age.log
 
           AGE_FIXED=$(grep -oP 'SUMMARY: Fixed \K\d+' logs/step2_fix_age.log || grep -oP 'Found \K\d+(?= teams with age)' logs/step2_fix_age.log || echo "0")
@@ -277,6 +283,9 @@ jobs:
             EXECUTE_FLAG="--execute --yes"
           fi
 
+          # tee returns 0 even when the python before it dies, so without this the
+          # step reports success on a crash. Step 1b hid a 12-week outage that way.
+          set -o pipefail
           python scripts/find_queue_matches.py --limit 0 --force $EXECUTE_FLAG 2>&1 | tee logs/step4_queue_matches.log
 
           EXACT=$(grep -oP 'EXACT \(95%\+\):\s+\K\d+' logs/step4_queue_matches.log || echo "0")
