@@ -120,7 +120,9 @@ which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
 A band is named by its **younger** year: that division is U12 because
 `2026 - 2015 + 1 = 12`. Reading it from the leading year, 2014, gives U13 and is
 wrong. `normalize_team_names._resolve_band` and `scrape_tgs_event.extract_age_group`
-both take the younger year; nothing takes the older one.
+both take the younger year. The one parser that still takes the older year,
+`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its
+callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
