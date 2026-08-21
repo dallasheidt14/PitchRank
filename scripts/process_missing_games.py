@@ -29,7 +29,7 @@ from supabase import Client, create_client
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError
 
 # Load environment variables
 load_dotenv()
@@ -57,8 +57,19 @@ class MissingGamesProcessor:
             # Add other scrapers as needed
         }
 
+        # Games are buffered here and imported once per batch by
+        # _flush_pending_imports; each import_games call is a subprocess spawn.
+        self._pending_imports: List[tuple] = []
+
         # Stats tracking
-        self.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
+        self.stats = {
+            "processed": 0,
+            "successful": 0,
+            "failed": 0,
+            "games_found": 0,
+            "games_imported": 0,
+            "waf_aborted": 0,
+        }
 
     def get_pending_requests(self, limit: int = 40) -> List[Dict]:
         """Fetch pending scrape requests from database, ordered by priority then age."""
@@ -468,19 +479,18 @@ class MissingGamesProcessor:
                         tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids, scrape_provider_code
                     )
 
-            # Import games if found
-            games_imported = 0
+            # Buffer for the end-of-batch import rather than spawning a
+            # subprocess per request.
             if games:
-                games_imported = self.import_games(games, scrape_provider_code)
+                self._pending_imports.append((scrape_provider_code, games))
                 self.stats["games_found"] += len(games)
-                self.stats["games_imported"] += games_imported
 
             # Update request as completed
             self.update_request_status(request_id, "completed", games_found=len(games))
 
             logger.info(
                 f"Successfully processed request {request_id}: "
-                f"{len(games)} games found in 181-day window, {games_imported} imported"
+                f"{len(games)} games found in 181-day window, buffered for import"
             )
 
             self.stats["successful"] += 1
@@ -497,6 +507,18 @@ class MissingGamesProcessor:
 
             self.stats["failed"] += 1
             return False
+
+        except WAFBlockedError as e:
+            error_msg = f"WAF blocked: {e}"
+            logger.error(f"Failed to process request {request_id}: {error_msg}")
+
+            # Write the terminal status before re-raising: nothing reclaims a row
+            # left in 'processing', and resetting it to 'pending' can collide with
+            # idx_scrape_requests_pending_team.
+            self.update_request_status(request_id, "failed", error_message=error_msg[:500])
+
+            self.stats["failed"] += 1
+            raise
 
         except Exception as e:
             error_msg = str(e)
@@ -533,19 +555,56 @@ class MissingGamesProcessor:
             try:
                 self.process_request(request)
 
-                # Add a small delay between requests to be nice to the API
-                time.sleep(2)
-
             except KeyboardInterrupt:
                 logger.info("Processing interrupted by user")
+                break
+            except WAFBlockedError:
+                # Session-wide lockout: every remaining row would fail for the same
+                # reason, and a 'failed' row has no retry path. Stopping leaves them
+                # pending for the next run.
+                remaining = len(requests) - self.stats["processed"]
+                self.stats["waf_aborted"] += 1
+                logger.error(
+                    f"GotSport WAF abort after {self.stats['processed']} of {len(requests)} requests; "
+                    f"{remaining} left pending for the next run"
+                )
                 break
             except Exception as e:
                 logger.error(f"Unexpected error processing request: {e}")
                 continue
 
+        self._flush_pending_imports()
+
         # Log summary
         self.log_summary()
         return self.stats
+
+    def _flush_pending_imports(self) -> None:
+        """Import every buffered request's games, one subprocess per provider.
+
+        A failed batch is retried a chunk at a time so one unimportable game costs
+        its own request's games rather than the whole run's.
+        """
+        if not self._pending_imports:
+            return
+
+        chunks_by_provider: Dict[str, List[List[Dict]]] = {}
+        for provider_code, games in self._pending_imports:
+            chunks_by_provider.setdefault(provider_code, []).append(games)
+        self._pending_imports = []
+
+        for provider_code, chunks in chunks_by_provider.items():
+            batch = [game for chunk in chunks for game in chunk]
+            try:
+                self.stats["games_imported"] += self.import_games(batch, provider_code)
+            except Exception as e:
+                logger.error(f"Batched import of {len(batch)} {provider_code} games failed: {e}")
+                logger.info(f"Retrying {len(chunks)} buffered requests individually")
+                for chunk in chunks:
+                    try:
+                        self.stats["games_imported"] += self.import_games(chunk, provider_code)
+                    except Exception as chunk_error:
+                        logger.error(f"Import of {len(chunk)} {provider_code} games failed: {chunk_error}")
 
     def log_summary(self):
         """Log processing summary"""
@@ -556,6 +615,8 @@ class MissingGamesProcessor:
         logger.info(f"  Requests Failed: {self.stats['failed']}")
         logger.info(f"  Total Games Found: {self.stats['games_found']}")
         logger.info(f"  Total Games Imported: {self.stats['games_imported']}")
+        if self.stats["waf_aborted"]:
+            logger.info(f"  WAF Aborts: {self.stats['waf_aborted']} (remaining rows left pending)")
         logger.info("=" * 50)
 
 
