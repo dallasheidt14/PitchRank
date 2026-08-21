@@ -131,3 +131,54 @@ def test_abort_from_the_real_breaker_stops_the_batch():
         assert processor.stats["waf_aborted"] == 1
     finally:
         _waf_breaker.reset()
+
+
+def test_reset_stats_keeps_every_counter_log_summary_reads():
+    """Continuous mode re-initialises stats between polls; a counter missing from
+    that reset raises KeyError on the next summary instead of finishing the poll."""
+    processor = _build_processor([])
+
+    processor.reset_stats()
+
+    processor.log_summary()
+    assert set(processor.stats) == {
+        "processed",
+        "successful",
+        "failed",
+        "games_found",
+        "games_imported",
+        "waf_aborted",
+    }
+
+
+def test_continuous_mode_stops_after_terminal_waf_abort(monkeypatch):
+    """The module-global breaker stays aborted for the life of the process, so a
+    later poll would raise on its first row forever. The process must end instead."""
+    import scripts.process_missing_games as pmg
+
+    polls = []
+
+    class FakeProcessor:
+        def __init__(self, *args, **kwargs):
+            self.stats = {"processed": 1, "successful": 0, "failed": 1, "games_found": 0,
+                          "games_imported": 0, "waf_aborted": 1}
+
+        def process_all(self, limit=40):
+            polls.append(limit)
+            if len(polls) > 1:
+                # Bound the test: without the fix this loop never terminates.
+                raise KeyboardInterrupt
+            return self.stats
+
+        def reset_stats(self):
+            pass
+
+    monkeypatch.setattr(pmg, "create_client", lambda url, key: Mock())
+    monkeypatch.setattr(pmg, "MissingGamesProcessor", FakeProcessor)
+    monkeypatch.setattr(pmg.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(pmg.os, "getenv", lambda key, default=None: "x")
+    monkeypatch.setattr(pmg.sys, "argv", ["process_missing_games.py", "--continuous", "--interval", "1"])
+
+    pmg.main()
+
+    assert len(polls) == 1, f"continuous mode must stop after a terminal WAF abort, polled {len(polls)}x"
