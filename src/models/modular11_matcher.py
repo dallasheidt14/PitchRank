@@ -155,13 +155,14 @@ class Modular11GameMatcher(GameHistoryMatcher):
         """
         Convert age group (e.g., 'u16', 'U14') to birth year.
 
-        Birth year mapping (as used in team names):
-        - U13 → 2013
-        - U14 → 2012
-        - U15 → 2011
-        - U16 → 2010
-        - U17 → 2009
-        - U18 → 2008
+        The mapping is season_year - age, computed below from the wall clock, so
+        it moves every Aug 1 and is deliberately not written out as a table here.
+        In the 2026-27 season (season_year 2027) U14 is 2013.
+
+        This yields the YOUNGER of the cohort's two birth years, which is the one
+        that names it: U_N = {SEASON+1-N, SEASON-N}, and U14 is 2013/2012. A team
+        carrying the older year in its name is matched through
+        _candidate_birth_year_tokens rather than here.
 
         Returns None if age_group is invalid or out of range.
         """
@@ -181,7 +182,7 @@ class Modular11GameMatcher(GameHistoryMatcher):
 
         # Calculate birth year dynamically from age group.
         # Season year runs Aug-Jul: if current month >= 8, season_year = current_year + 1
-        # U14 in the 2025/2026 season (season_year=2026) means born in 2012: 2026 - 14 = 2012
+        # U14 in the 2026-27 season (season_year=2027) means born in 2013: 2027 - 14 = 2013
         now = datetime.now()
         season_year = now.year + 1 if now.month >= 8 else now.year
         return season_year - age

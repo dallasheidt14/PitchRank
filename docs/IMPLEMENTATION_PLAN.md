@@ -131,7 +131,7 @@ The base `GameHistoryMatcher` is used for GotSport (the primary data source). Th
 
 **What changes:**
 - In `_create_alias()` (lines 1149-1205), cap fuzzy match confidence at 0.99: `confidence = min(0.99, confidence)` for any `match_method` that isn't `direct_id`
-- In `_match_team()`, add age validation: parse age from team_name using `parse_age_token()` (Phase 1.4) and compare against the `age_group` parameter. If they conflict (e.g., name says "B14" = birth year 2014 = U12 but parameter says U14), log a warning and prefer the name-parsed age.
+- In `_match_team()`, add age validation: parse age from team_name using `parse_age_token()` (Phase 1.4) and compare against the `age_group` parameter. If they conflict, log a warning for review — do not silently override, and never prefer the name over `teams.age_group`, which is the source of truth. Derive the expected cohort rather than hardcoding one: `B14` is birth year 2014, which is U13 in 2026-27 and shifts every Aug 1, so a "conflict" against a hardcoded pair is usually the hardcoding.
 
 **Files modified:**
 - `src/models/game_matcher.py` (methods `_create_alias`, `_match_team`)

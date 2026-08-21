@@ -153,7 +153,7 @@ def test_legacy_labels_survive_an_aged_out_half():
 
 
 def test_a_dual_year_label_is_one_band_not_two_cohorts():
-    """Pins WHY the band is read from its oldest year.
+    """Pins WHY the band is read from its younger year.
 
     The season runs Aug 1 - Jul 31, so a band straddles Jan 1 and gets written
     from either end. "B2008/2007" and "B2007/2006" are adjacent bands, not
@@ -162,8 +162,14 @@ def test_a_dual_year_label_is_one_band_not_two_cohorts():
 
     Deriving each year independently and keeping the oldest COHORT gets the
     second wrong, because a bare 2007 maps into U19 -- U19 *is* 2008/07 -- while
-    the 2007/06 band does not. Reading from the oldest year identifies the band
-    either way. This passed for the wrong reason while 2007 was unmappable.
+    the 2007/06 band does not. The pair below is the one place the older year
+    happens to identify the band too, because 2007 folds back into U19; that
+    coincidence is why this passed for the wrong reason while 2007 was
+    unmappable, and why the U12 case at the bottom is the one that actually
+    pins the rule.
+
+    Season-dependent: the expected values are for 2026-27 and want re-pinning at
+    the next rollover, at which point they fail loudly rather than drift.
     """
     assert extract_age_group("B2008/2007") == extract_age_group("B2008")
     assert extract_age_group("B2007") == "u19", "a bare 2007 is U19; only the BAND 2007/06 is aged out"

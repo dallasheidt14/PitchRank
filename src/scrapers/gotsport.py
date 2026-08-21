@@ -1240,11 +1240,13 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
             birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
             if birth_year_match:
                 birth_year = int(birth_year_match.group(1))
-                # Calculate age group: U11 = 2015, U12 = 2014, etc.
-                # Age group is the year they turn that age, not current age
+                # Age group is the year they turn that age, not current age.
+                # Formula: age_group = current_year - birth_year + 1, which
+                # re-derives every Aug 1 — in 2026-27 that makes 2015 a U12 and
+                # 2016 a U11. Do not write the pairs out as a table; they move.
+                # This gives the YOUNGER of a cohort's two birth years, the one
+                # that names it (U12 is 2015/2014).
                 current_year = CURRENT_YEAR
-                # For 2025: U11 = 2015 birth year, U12 = 2014 birth year
-                # Formula: age_group = current_year - birth_year + 1
                 age_group_number = current_year - birth_year + 1
                 if 7 <= age_group_number <= 19:  # Valid age range
                     actual_age_group = f"U{age_group_number}"

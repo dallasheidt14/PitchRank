@@ -167,10 +167,21 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         team for cosmetic differences. This helper:
           * Slash-token birth-year pairs (``07/08``, ``09/10/11/12``) anywhere
             in the name → 4-digit year for the *oldest* cohort (smaller digit).
-            Confirmed pattern in PlayMetrics: every slash-token observed maps
-            to a division whose U-cohort matches the older year (e.g. ``07/08``
-            → U19, ``10/11`` → U16). U-age slash tokens (``U10/U11``) are NOT
-            used by PlayMetrics — only birth-year pairs.
+            U-age slash tokens (``U10/U11``) are NOT used by PlayMetrics — only
+            birth-year pairs.
+
+            NOTE: the older year is what this produces, and it is not the year
+            that names the band. A band is U_N = {SEASON+1-N, SEASON-N}, named by
+            its YOUNGER year, so ``10/11`` is U16 from 2011 while 2010 alone is
+            U17. The comment this replaces cited ``10/11`` → U16 as evidence for
+            the older-year rule, which its own arithmetic contradicts; ``07/08``
+            → U19 holds under either rule only because 2007 folds back into U19.
+
+            Left as the older year deliberately. This is token normalization for
+            fuzzy matching, not cohort derivation — it only has to agree with how
+            the DB names the same team, and changing it moves every PlayMetrics
+            tournament match. Whether it should switch wants measuring against
+            the alias table first, not a comment fix.
           * Leading single 2-digit cohort token (``00``-``19``) → 4-digit
             (``2000``-``2019``) so birth-year matches become token-aligned.
           * Strips separator characters (``|``, en/em dashes) that fragment tokens.

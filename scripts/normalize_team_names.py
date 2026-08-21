@@ -213,7 +213,7 @@ def _full_year(value: str) -> int:
 
 
 def _resolve_band(name: str):
-    """Replace a two-year band with the cohort it names: "13/14B Summer" -> "U14 Summer".
+    """Replace a two-year band with the cohort it names: "13/14B Summer" -> "U13 Summer".
 
     A band states BOTH birth years of a cohort, so unlike a lone birth year it
     identifies the cohort outright: U_N = {SEASON+1-N, SEASON-N}, and the
@@ -284,21 +284,14 @@ def normalize_team_name(
     original = team_name.strip()
     club_skip_tokens = _normalizer_club_tokens(club_name)
     cohort_label = _cohort_label(age_group)
-    # Bands are read from the ORIGINAL name, because collapsing one destroys the
-    # evidence that it was ever there. "13/14B Summer" becomes "U13 Summer" on the
-    # first pass, and on the second the U13 is indistinguishable from an ordinary
-    # stale label — the column would roll it to U15 and the band's answer would
-    # survive exactly one weekly run. teams.team_name_original is what makes the
-    # job idempotent here. It also recovers bands that an earlier version already
-    # flattened to a single year, where team_name says "2014" and the original
-    # still says "13/14B".
     original, band_label = _resolve_band(original)
 
     # The ORIGINAL name is consulted only to VETO the column, never as a source to
     # write from. Collapsing a band destroys the evidence it was there: after
     # "13/14B Summer" becomes "U13 Summer", the U13 is indistinguishable from an
-    # ordinary stale label and the next weekly run would roll it to the column's
-    # U15 -- the band's answer would survive exactly one run. Knowing the original
+    # ordinary stale label and the next weekly run would roll it to whatever the
+    # column says -- the band's answer would survive exactly one run. (The literal
+    # cohorts in that example move every Aug 1; the shape does not.) Knowing the original
     # held a band is enough to leave the name alone, and unlike re-rendering the
     # label it cannot put the cohort in the wrong place: "U17 Stingers 07/08"
     # normalizes to "U17 Stingers U19", where the first age token is not the band.
