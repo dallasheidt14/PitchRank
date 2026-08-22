@@ -51,7 +51,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
 
     // Resolve merged team IDs so games stored under deprecated IDs are included
     // (without this, streak/consistency stop at the first pre-merge gap).
-    const { teamIdsToQuery, teamIdList } = await resolveMergedTeamIds(supabase, teamId);
+    const { teamIdsToQuery, teamIdList, canonicalTeamId } = await resolveMergedTeamIds(supabase, teamId);
 
     // Fetch games with opponent rankings (across canonical + all merged team IDs)
     const orConditions = teamIdList
@@ -129,17 +129,35 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       ])
     );
 
-    // Fetch ranking history
-    const { data: rankingHistory, error: historyError } = await supabase
+    // Fetch ranking history across the merged-ID set, for the same reason the games query
+    // uses it: ranking_history is keyed by the raw team_id and a merge never rewrites those
+    // rows, so reading teamId alone loses every snapshot filed under an absorbed ID.
+    const { data: rankingHistoryRows, error: historyError } = await supabase
       .from('ranking_history')
-      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
-      .eq('team_id', teamId)
+      .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
+      .in('team_id', teamIdList)
       .order('snapshot_date', { ascending: false })
-      .limit(30);
+      .limit(30 * teamIdList.length);
 
     if (historyError && historyError.code !== 'PGRST116') {
       console.error('Error fetching ranking history:', historyError);
     }
+
+    // Weeks before a merge hold one snapshot per team, so keep a single row per date —
+    // the canonical team's own rank where it has one — before taking the most recent 30.
+    const seenSnapshotDates = new Set<string>();
+    const rankingHistory = ((rankingHistoryRows || []) as Array<RankingHistoryRow & { team_id: string }>)
+      .sort((a, b) =>
+        a.snapshot_date === b.snapshot_date
+          ? Number(b.team_id === canonicalTeamId) - Number(a.team_id === canonicalTeamId)
+          : b.snapshot_date.localeCompare(a.snapshot_date)
+      )
+      .filter((row) => {
+        if (seenSnapshotDates.has(row.snapshot_date)) return false;
+        seenSnapshotDates.add(row.snapshot_date);
+        return true;
+      })
+      .slice(0, 30);
 
     // PostgREST caps un-ranged selects at 1,000 rows, which silently truncates
     // large cohorts and skews totals/percentiles/medians — page through the set

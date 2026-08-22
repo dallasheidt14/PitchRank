@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
+import { resolveMergedTeamIds } from './team-merge';
 
 // Vanilla Supabase client for public data queries (rankings, teams, games).
 // Uses createClient (not createBrowserClient) because this module is imported
@@ -1340,10 +1341,15 @@ export const api = {
     cutoff.setFullYear(cutoff.getFullYear() - 1);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
+    // Read history for the canonical team AND every team merged into it. ranking_history is
+    // keyed by the raw team_id and a merge never rewrites those rows, so a freshly merged
+    // team otherwise shows an empty chart: its own snapshots are filed under absorbed ids.
+    const { canonicalTeamId, teamIdList } = await resolveMergedTeamIds(supabase, id);
+
     const { data, error } = await supabase
       .from('ranking_history')
-      .select('snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final')
-      .eq('team_id', id)
+      .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final')
+      .in('team_id', teamIdList)
       .gte('snapshot_date', cutoffStr)
       .order('snapshot_date', { ascending: true });
 
@@ -1353,6 +1359,15 @@ export const api = {
     }
 
     if (!data || data.length === 0) return [];
+
+    // Two teams can hold a snapshot for the same week — the weeks before a merge have one
+    // row per team. The dedupe below keeps whichever it sees first, so order the canonical
+    // team ahead of its absorbed ones and let the surviving team's own rank win.
+    (data as Array<{ team_id: string; snapshot_date: string }>).sort((a, b) =>
+      a.snapshot_date === b.snapshot_date
+        ? Number(b.team_id === canonicalTeamId) - Number(a.team_id === canonicalTeamId)
+        : a.snapshot_date.localeCompare(b.snapshot_date)
+    );
 
     // Exclude the Glicko-2 engine cutover window (Apr 1–10, 2026) — transient
     // ranks during this period are noise from the engine swap, not real movement.
