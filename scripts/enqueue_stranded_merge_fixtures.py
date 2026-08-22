@@ -49,6 +49,20 @@ def get_client():
     return create_client(url, key)
 
 
+def load_merge_map(sb) -> dict[str, str]:
+    mapping, off = {}, 0
+    while True:
+        res = (sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id")
+               .range(off, off + 999).execute())
+        rows = res.data or []
+        for r in rows:
+            mapping[r["deprecated_team_id"]] = r["canonical_team_id"]
+        if len(rows) < 1000:
+            break
+        off += 1000
+    return mapping
+
+
 def merged_pairs(sb, since: str | None, merged_by: str | None):
     rows, off = [], 0
     while True:
@@ -86,7 +100,26 @@ def main() -> int:
     if not pairs:
         return 0
 
-    canonical_of = {p["deprecated_team_id"]: p["canonical_team_id"] for p in pairs}
+    # The audit records the canonical a team was merged into at the time, which a later merge
+    # can supersede: after A -> B and then B -> C, the audit still maps A to B, and B is now
+    # deprecated and skipped, so A's fixtures are never enqueued. team_merge_map is kept flat
+    # by execute_team_merge's cascade, so resolving through it lands on the live canonical.
+    live_canonical = load_merge_map(sb)
+
+    def resolve(tid: str) -> str:
+        seen: set[str] = set()
+        while tid in live_canonical and tid not in seen:
+            seen.add(tid)
+            tid = live_canonical[tid]
+        return tid
+
+    canonical_of = {p["deprecated_team_id"]: resolve(p["canonical_team_id"]) for p in pairs}
+    # Every team that resolves to one of those canonicals may hold stranded fixtures, not just
+    # the ones named in the audit window.
+    for deprecated_id, canonical_id in live_canonical.items():
+        final = resolve(canonical_id)
+        if final in set(canonical_of.values()):
+            canonical_of.setdefault(deprecated_id, final)
     dep_ids = sorted(canonical_of)
 
     cutoff = date.today().isoformat()

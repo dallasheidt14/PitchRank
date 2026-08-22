@@ -113,7 +113,9 @@ def fetch_candidates(sb):
 
 
 def opponent_names(sb, ids):
-    opps = defaultdict(list)
+    # A set, not a list: a team that plays the same opponent six times would otherwise cast
+    # six votes and outweigh several distinct opponents that disagree.
+    opps = defaultdict(set)
     for i in range(0, len(ids), 50):
         batch = ids[i : i + 50]
         for side in ("home_team_master_id", "away_team_master_id"):
@@ -130,7 +132,7 @@ def opponent_names(sb, ids):
                 for g in d:
                     other = g["away_team_master_id"] if side == "home_team_master_id" else g["home_team_master_id"]
                     if other:
-                        opps[g[side]].append(other)
+                        opps[g[side]].add(other)
                 if len(d) < 1000:
                     break
                 off += 1000
@@ -196,6 +198,11 @@ def main() -> int:
         top, n = votes.most_common(1)[0]
         if top != t["says"]:
             rejected["opponents' names disagree"] += 1
+            continue
+        # most_common breaks a tie by insertion order, so an even split would otherwise read
+        # as agreement. Gender moves a team between ranking boards, so require a real majority.
+        if n * 2 <= sum(votes.values()):
+            rejected["opponents' names are evenly split"] += 1
             continue
         confirmed.append({**t, "opp_votes": dict(votes), "opp_agree": n, "opp_total": sum(votes.values())})
 

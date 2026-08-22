@@ -300,8 +300,13 @@ def decide(pair, ev):
     dates_b = {d for d, _ in gb}
     seasons_a = {season_of(d) for d in dates_a}
     seasons_b = {season_of(d) for d in dates_b}
-    opponents_a = {o for _, o in ga if o}
-    opponents_b = {o for _, o in gb if o}
+    # Shared opponents are evidence of one split schedule only when both records met them in
+    # the SAME season. Two squads that each faced the same clubs in different years share
+    # opponents without ever sharing a schedule, and counting those clears the merge branch
+    # below on nothing.
+    both_seasons = seasons_a & seasons_b
+    opponents_a = {o for d, o in ga if o and season_of(d) in both_seasons}
+    opponents_b = {o for d, o in gb if o and season_of(d) in both_seasons}
     shared_opponents = opponents_a & opponents_b
 
     canon_a, canon_b = ev["canonical"](a), ev["canonical"](b)
