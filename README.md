@@ -29,8 +29,13 @@ A comprehensive ranking system for youth soccer teams with cross-age and cross-s
 2. **Configure**:
 
    ```bash
+   # Backend (Python)
    cp .env.example .env
    # Edit .env with your Supabase credentials
+
+   # Frontend (Next.js) - reads its own directory, not the repo root
+   cp frontend/.env.example frontend/.env.local
+   # Edit frontend/.env.local with the same Supabase project
    ```
 
 3. **Database setup**:
