@@ -3,6 +3,13 @@ data/backtest_results/raw_backtest.csv
 data/master/all_games_master.csv
 psql/postgresql_16.exe
 
+# Generated data (rebuilt by the pipeline; fixtures fall back to skip when absent)
+data/cache/
+data/backtest_results/
+data/validation/
+data/exports/
+data/raw/
+
 # Python cache
 __pycache__/
 *.py[cod]
@@ -13,6 +20,9 @@ __pycache__/
 venv/
 env/
 ENV/
+
+# Node dependencies
+node_modules/
 
 # IDE
 .vscode/
@@ -38,3 +48,6 @@ credentials/
 
 # Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
+
+# Playwright MCP page dumps (scratch output)
+.playwright-mcp/

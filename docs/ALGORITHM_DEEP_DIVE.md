@@ -114,16 +114,16 @@ PitchRank v53e is a **12-layer ranking engine**. Here's what each layer does:
 ### Layer 10: PowerScore Calculation
 **Formula:**
 ```
-PowerScore = (0.25 * Offense + 0.25 * Defense + 0.50 * SOS + 0.15 * Performance) / 1.075
+PowerScore = 0.20 * Offense + 0.20 * Defense + 0.60 * SOS
 ```
 
 **Weight breakdown:**
-- 25% Offense (goals scored, opponent-adjusted)
-- 25% Defense (goals allowed, opponent-adjusted)
-- **50% Strength of Schedule** ← This is the differentiator
-- 15% Performance (beating expectations)
+- 20% Offense (goals scored, opponent-adjusted)
+- 20% Defense (goals allowed, opponent-adjusted)
+- **60% Strength of Schedule** ← This is the differentiator
+- Performance is disabled (`PERF_BLEND_WEIGHT = 0.00` since v54)
 
-**Why 50% SOS?** Because *who you play matters more than how much you win by*.
+**Why 60% SOS?** Because *who you play matters more than how much you win by*.
 
 ### Layer 11: Age Anchoring (Cross-Age Scaling)
 - **What it does:** Scales PowerScore by age group

@@ -25,6 +25,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Always verify you are on the correct branch before committing. Never commit to main directly.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+- Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -65,26 +66,26 @@ PitchRank/
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
-│   │   ├── api/            # Shared route utilities (requirePremium, validatePagination, parseJsonBody)
+│   │   ├── api/            # Shared route utilities (requirePremium, parseJsonBody, rateLimit)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
 │   └── middleware.ts       # Auth + route protection
 │
-├── scripts/                # 210+ operational scripts (import, ranking, hygiene)
+├── scripts/                # 158 Python scripts + SQL (import, ranking, hygiene)
 ├── scrapers/               # Scrapy-based scrapers (Modular11/MLS NEXT)
-├── config/                 # Centralized settings.py (12K+ lines)
+├── config/                 # Centralized settings.py (299 lines)
 ├── data/                   # Cache, master data, raw imports, backtests
 ├── models/                 # ML model artifacts
-├── supabase/               # Database migrations (70+ files)
+├── supabase/               # Database migrations (141 files)
 ├── tests/                  # Python test suite
-├── docs/                   # 110+ documentation files
+├── docs/                   # 81 documentation files
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # SEO sub-agent definitions
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
-├── .github/workflows/      # 19 automated workflows
-├── dashboard.py            # Streamlit admin dashboard (248K lines)
+├── .github/workflows/      # 41 automated workflows
+├── dashboard.py            # Streamlit admin dashboard (6,180 lines)
 └── agent_skills/           # Standalone agent skill packages
 ```
 
@@ -214,7 +215,7 @@ Games (Supabase, 365-day window)
 
 ### v53e Layers
 
-1. **Window**: 365-day lookback, 180-day inactivity threshold
+1. **Window**: 365-day lookback, 365-day inactivity threshold (`INACTIVE_HIDE_DAYS`)
 2. **Offense/Defense**: Goal difference capped at 6
 3. **Recency**: Exponential decay (rate=0.08), recent 15 games at 65% weight
 4. **Defense Ridge**: Ridge regression (factor=0.25)
@@ -362,8 +363,8 @@ npm run analyze
 | `enqueue-safety-net.yml` | Sun 4:00 PM UTC | Queue never-scraped / 90d+ teams (priority 4) |
 | `process-missing-games.yml` | Every 15 min | Drain the queue, 40 teams per run |
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
-| `calculate-rankings.yml` | Mon 4:45 PM UTC | Recalculate rankings (v53e + ML) |
-| `auto-gotsport-event-scrape.yml` | Mon & Thu 6:00 AM UTC | Tournament bracket scraping |
+| `calculate-rankings.yml` | Mon 12:30 PM UTC | Recalculate rankings (v53e + ML) |
+| `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`) |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
@@ -478,7 +479,7 @@ Required variables are documented in `.env.example`. Key groups:
 - **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Email**: `RESEND_API_KEY`
 
-**Never commit `.env` or `.env.local` files.**
+**Never commit `.env` or `.env.local` files.** This repo is **public** (`dallasheidt14/PitchRank`), so a committed secret is disclosed the moment it is pushed, and stays readable in history after the file is untracked. Removing it from the tip is not a remediation; rotating the credential is.
 
 ---
 
@@ -529,7 +530,6 @@ const { user, supabase } = auth;
 |---------|------|---------|
 | `requirePremium()` | `lib/api/requirePremium.ts` | Auth + premium/admin plan check, returns supabase client |
 | `requireAdmin()` | `lib/supabase/admin.ts` | Auth + admin plan check |
-| `validatePagination()` | `lib/api/validatePagination.ts` | Limit/offset parsing and validation |
 | `parseJsonBody()` | `lib/api/parseJsonBody.ts` | Safe JSON body parsing with error response |
 | `checkRateLimit()` | `lib/api/rateLimit.ts` | In-memory IP-based rate limiting |
 
@@ -634,14 +634,13 @@ const { user, supabase } = auth;
 | ML Layer 13 | `src/rankings/layer13_predictive_adjustment.py` |
 | Supabase ↔ v53e adapter | `src/rankings/data_adapter.py` |
 | Merge resolver | `src/utils/merge_resolver.py` |
-| Merge suggester | `src/utils/merge_suggester.py` |
 | Game matcher | `src/models/game_matcher.py` |
 | Club normalizer | `src/utils/club_normalizer.py` |
 | Centralized config | `config/settings.py` |
 | Main scraper script | `scripts/scrape_games.py` |
 | Ranking calculation script | `scripts/calculate_rankings.py` |
 | Frontend API client | `frontend/lib/api.ts` |
-| Shared route utilities | `frontend/lib/api/` (requirePremium, validatePagination, parseJsonBody) |
+| Shared route utilities | `frontend/lib/api/` (requirePremium, parseJsonBody, rateLimit) |
 | Frontend types | `frontend/lib/types.ts` |
 | Supabase migrations | `supabase/migrations/` |
 | GH Actions workflows | `.github/workflows/` |
