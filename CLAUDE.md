@@ -25,6 +25,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Always verify you are on the correct branch before committing. Never commit to main directly.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+- Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -478,7 +479,7 @@ Required variables are documented in `.env.example`. Key groups:
 - **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Email**: `RESEND_API_KEY`
 
-**Never commit `.env` or `.env.local` files.**
+**Never commit `.env` or `.env.local` files.** This repo is **public** (`dallasheidt14/PitchRank`), so a committed secret is disclosed the moment it is pushed, and stays readable in history after the file is untracked. Removing it from the tip is not a remediation; rotating the credential is.
 
 ---
 
