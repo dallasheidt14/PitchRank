@@ -29,7 +29,7 @@ from supabase import Client, create_client
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError
+from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError
 
 # Load environment variables
 load_dotenv()
@@ -57,8 +57,26 @@ class MissingGamesProcessor:
             # Add other scrapers as needed
         }
 
-        # Stats tracking
-        self.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
+        # Games are buffered here and imported once per batch by
+        # _flush_pending_imports; each import_games call is a subprocess spawn.
+        self._pending_imports: List[tuple] = []
+
+        self.reset_stats()
+
+    def reset_stats(self) -> None:
+        """Single source for the counter set.
+
+        Continuous mode re-initialises stats between polls; a counter missing from
+        that reset raises KeyError on the next summary instead of finishing the poll.
+        """
+        self.stats = {
+            "processed": 0,
+            "successful": 0,
+            "failed": 0,
+            "games_found": 0,
+            "games_imported": 0,
+            "waf_aborted": 0,
+        }
 
     def get_pending_requests(self, limit: int = 40) -> List[Dict]:
         """Fetch pending scrape requests from database, ordered by priority then age."""
@@ -468,19 +486,19 @@ class MissingGamesProcessor:
                         tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids, scrape_provider_code
                     )
 
-            # Import games if found
-            games_imported = 0
+            # Buffer for the end-of-batch import rather than spawning a subprocess
+            # per request. The row stays 'processing' until _flush_pending_imports
+            # confirms the import: 'completed' has to mean the games reached the
+            # database, because get_pending_requests only ever returns 'pending'.
             if games:
-                games_imported = self.import_games(games, scrape_provider_code)
+                self._pending_imports.append((scrape_provider_code, games, request_id))
                 self.stats["games_found"] += len(games)
-                self.stats["games_imported"] += games_imported
-
-            # Update request as completed
-            self.update_request_status(request_id, "completed", games_found=len(games))
+            else:
+                self.update_request_status(request_id, "completed", games_found=0)
 
             logger.info(
                 f"Successfully processed request {request_id}: "
-                f"{len(games)} games found in 181-day window, {games_imported} imported"
+                f"{len(games)} games found in 181-day window, buffered for import"
             )
 
             self.stats["successful"] += 1
@@ -497,6 +515,18 @@ class MissingGamesProcessor:
 
             self.stats["failed"] += 1
             return False
+
+        except WAFBlockedError as e:
+            error_msg = f"WAF blocked: {e}"
+            logger.error(f"Failed to process request {request_id}: {error_msg}")
+
+            # Write the terminal status before re-raising: nothing reclaims a row
+            # left in 'processing', and resetting it to 'pending' can collide with
+            # idx_scrape_requests_pending_team.
+            self.update_request_status(request_id, "failed", error_message=error_msg[:500])
+
+            self.stats["failed"] += 1
+            raise
 
         except Exception as e:
             error_msg = str(e)
@@ -533,19 +563,70 @@ class MissingGamesProcessor:
             try:
                 self.process_request(request)
 
-                # Add a small delay between requests to be nice to the API
-                time.sleep(2)
-
             except KeyboardInterrupt:
                 logger.info("Processing interrupted by user")
+                break
+            except WAFBlockedError:
+                # Session-wide lockout: every remaining row would fail for the same
+                # reason, and a 'failed' row has no retry path. Stopping leaves them
+                # pending for the next run.
+                remaining = len(requests) - self.stats["processed"]
+                self.stats["waf_aborted"] += 1
+                logger.error(
+                    f"GotSport WAF abort after {self.stats['processed']} of {len(requests)} requests; "
+                    f"{remaining} left pending for the next run"
+                )
                 break
             except Exception as e:
                 logger.error(f"Unexpected error processing request: {e}")
                 continue
 
+        self._flush_pending_imports()
+
         # Log summary
         self.log_summary()
         return self.stats
+
+    def _flush_pending_imports(self) -> None:
+        """Import every buffered request's games, one subprocess per provider.
+
+        A failed batch is retried a chunk at a time so one unimportable game costs
+        its own request's games rather than the whole run's.
+        """
+        if not self._pending_imports:
+            return
+
+        chunks_by_provider: Dict[str, List[tuple]] = {}
+        for provider_code, games, request_id in self._pending_imports:
+            chunks_by_provider.setdefault(provider_code, []).append((request_id, games))
+        self._pending_imports = []
+
+        for provider_code, chunks in chunks_by_provider.items():
+            batch = [game for _, games in chunks for game in games]
+            try:
+                self.stats["games_imported"] += self.import_games(batch, provider_code)
+            except Exception as e:
+                logger.error(f"Batched import of {len(batch)} {provider_code} games failed: {e}")
+                logger.info(f"Retrying {len(chunks)} buffered requests individually")
+                self._import_chunks_individually(chunks, provider_code)
+                continue
+
+            for request_id, games in chunks:
+                self.update_request_status(request_id, "completed", games_found=len(games))
+
+    def _import_chunks_individually(self, chunks: List[tuple], provider_code: str) -> None:
+        """Fallback for a failed batch, so one unimportable game costs only its own request."""
+        for request_id, games in chunks:
+            try:
+                self.stats["games_imported"] += self.import_games(games, provider_code)
+                self.update_request_status(request_id, "completed", games_found=len(games))
+            except Exception as chunk_error:
+                logger.error(f"Import of {len(games)} {provider_code} games failed: {chunk_error}")
+                self.update_request_status(
+                    request_id, "failed", error_message=f"Import failed: {chunk_error}"[:500]
+                )
+                self.stats["successful"] -= 1
+                self.stats["failed"] += 1
 
     def log_summary(self):
         """Log processing summary"""
@@ -556,6 +637,8 @@ class MissingGamesProcessor:
         logger.info(f"  Requests Failed: {self.stats['failed']}")
         logger.info(f"  Total Games Found: {self.stats['games_found']}")
         logger.info(f"  Total Games Imported: {self.stats['games_imported']}")
+        if self.stats["waf_aborted"]:
+            logger.info(f"  WAF Aborts: {self.stats['waf_aborted']} (remaining rows left pending)")
         logger.info("=" * 50)
 
 
@@ -592,12 +675,18 @@ def main():
 
         while True:
             try:
-                processor.process_all(limit=args.limit)
+                stats = processor.process_all(limit=args.limit)
+
+                if stats["waf_aborted"]:
+                    # The breaker's aborted state is terminal for the life of the
+                    # process, so every later poll would raise on its first row.
+                    logger.error("Terminal WAF abort - exiting so the next run starts with a fresh breaker")
+                    break
+
                 logger.info(f"Sleeping for {args.interval} seconds...")
                 time.sleep(args.interval)
 
-                # Reset stats for next run
-                processor.stats = {"processed": 0, "successful": 0, "failed": 0, "games_found": 0, "games_imported": 0}
+                processor.reset_stats()
 
             except KeyboardInterrupt:
                 logger.info("Stopped by user")
