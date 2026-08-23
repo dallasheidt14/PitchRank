@@ -78,7 +78,7 @@ PitchRank/
 ├── models/                 # ML model artifacts
 ├── supabase/               # Database migrations (141 files)
 ├── tests/                  # Python test suite
-├── docs/                   # 81 documentation files
+├── docs/                   # 80 documentation files
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # Sub-agents: ranking-engine + read-only reviewers
