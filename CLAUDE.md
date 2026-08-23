@@ -81,7 +81,7 @@ PitchRank/
 ├── docs/                   # 81 documentation files
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
-│   ├── agents/             # SEO sub-agent definitions
+│   ├── agents/             # Sub-agents: ranking-engine + read-only reviewers
 │   ├── hooks/              # Claude Code hooks wired by .claude/settings.json (git guard, secrets, ruff, dry-run, session sync)
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
 ├── .github/workflows/      # 41 automated workflows
