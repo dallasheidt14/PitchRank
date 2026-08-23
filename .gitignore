@@ -1,14 +1,15 @@
-# Large data files (exceed GitHub's 100MB limit)
-data/backtest_results/raw_backtest.csv
-data/master/all_games_master.csv
+# Exceeds GitHub's 100MB limit
 psql/postgresql_16.exe
 
-# Generated data (rebuilt by the pipeline; fixtures fall back to skip when absent)
-data/cache/
-data/backtest_results/
-data/validation/
-data/exports/
-data/raw/
+# data/ is pipeline scratch. The trailing /* is required: "data/" alone
+# excludes the directory, so git cannot descend and the negations go dead.
+# Fixtures fall back to skip when the generated dirs are absent.
+data/*
+!data/calibration/
+!data/profiles/
+
+# Ad-hoc CSV export that lands in the repo root
+/teams.csv
 
 # Python cache
 __pycache__/

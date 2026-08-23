@@ -23,7 +23,7 @@ PitchRank processes game data from multiple providers (GotSport, TGS, US Club So
 4. Create direct ID mappings in `team_alias_map` with `match_method='direct_id'`
 5. Batch insert teams (default: 500 per batch)
 
-**Example:**
+**Example** (the input is a provider export with a `team_id` column; the GotSport one is not tracked in git):
 ```bash
 python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport
 ```

@@ -222,13 +222,14 @@ python scripts/review_matches.py
 
 ```bash
 # This creates both teams AND their ID mappings with match_method='direct_id'
-python scripts/import_teams_enhanced.py data/master_teams.csv gotsport
+# Input is a provider export with a team_id column (not tracked in git)
+python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport
 
 # Verify the mappings were created
 python scripts/verify_team_mappings.py gotsport
 
 # With dry-run
-python scripts/import_teams_enhanced.py data/master_teams.csv gotsport --dry-run
+python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport --dry-run
 ```
 
 #### 2. Import Games (Will Use Direct ID Matches)
