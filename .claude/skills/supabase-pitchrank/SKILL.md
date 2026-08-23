@@ -19,6 +19,10 @@ supabase = create_client(
 )
 ```
 
+The service-role key bypasses RLS entirely. It is correct for server-side scripts that must
+write, but prefer `SUPABASE_KEY` (anon) for read-only lookups, and never let it reach a
+browser or a log line. Keys live in `.env.local`, which is gitignored.
+
 ## Core Tables
 
 ### `teams`
@@ -119,7 +123,7 @@ for i in range(0, len(records), BATCH_SIZE):
 .eq('state_code', 'CA')
 
 # Filter by list
-.in_('team_id_master', team_ids[:150])  # Keep lists under 150!
+.in_('team_id_master', team_ids[:100])  # Keep lists at 100 or fewer (URI length)
 
 # Filter by null
 .is_('resolved_at', 'null')
@@ -163,7 +167,7 @@ client.table('teams').update({'is_deprecated': True}).execute()
 .in_('team_id', list_of_1000_ids)
 
 # GOOD - batch the calls
-for batch in chunks(ids, 150):
+for batch in chunks(ids, 100):
     .in_('team_id', batch)
 ```
 
@@ -205,13 +209,20 @@ else:
 ### Transaction-like Pattern
 ```python
 # Supabase doesn't have transactions in Python SDK
-# Use RPC functions for atomic operations
-result = client.rpc('execute_team_merge', {
-    'p_deprecated_team_id': deprecated_id,
-    'p_canonical_team_id': canonical_id,
-    'p_merged_by': 'agent-name',
-    'p_merge_reason': 'reason'
-}).execute()
+# Use RPC functions for atomic operations. execute_team_merge inserts one
+# team_merge_map row and cascades team_alias_map/teams (games are immutable and
+# resolve through the map at read time) — still effectively irreversible, so
+# dry-run is the default and writing is opt-in.
+def merge_team(client, deprecated_id: str, canonical_id: str, *, dry_run: bool = True):
+    if dry_run:
+        print(f"would merge {deprecated_id} -> {canonical_id}")
+        return
+    return client.rpc('execute_team_merge', {
+        'p_deprecated_team_id': deprecated_id,
+        'p_canonical_team_id': canonical_id,
+        'p_merged_by': 'agent-name',
+        'p_merge_reason': 'reason'
+    }).execute()
 ```
 
 ## Read-Only Queries (SAFE)
@@ -228,7 +239,9 @@ result = client.rpc('execute_team_merge', {
 ## Write Operations (CAUTION)
 
 ```python
-# These modify data - use carefully
+# These modify data - every script or method that calls them needs a --dry-run /
+# dry_run guard (CLAUDE.md). Policy: games rows are immutable — quarantine bad
+# data instead of updating
 .insert(records)       # Add new rows
 .upsert(records)       # Insert or update
 .update(data)          # Modify existing (NEEDS filter!)

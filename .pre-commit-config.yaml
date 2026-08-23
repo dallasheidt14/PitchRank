@@ -1,6 +1,6 @@
 # Python pre-commit hooks. Mirrors the CI ruff lint gate (.github/workflows/ci.yml).
-# Frontend already has husky/lint-staged; this covers *.py, which CI lints but no
-# local hook enforced. Install once: pip install pre-commit && pre-commit install
+# Not installable here: frontend husky owns core.hooksPath, so `pre-commit install`
+# refuses. CI (ci.yml) is the ruff gate; this file documents the intended scope.
 #
 # Lint only. ruff-format is intentionally omitted — repo-wide format enforcement is
 # deferred (it would reformat the rankings engine, which is currently frozen).

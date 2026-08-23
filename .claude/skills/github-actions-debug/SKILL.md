@@ -57,20 +57,23 @@ jobs:
 
 ## PitchRank Workflows
 
-| Workflow | Schedule | Typical Duration | Timeout |
-|----------|----------|------------------|---------|
-| Scrape Games | Mon 6am, 11:15am UTC | 2-4h | 360min |
-| Process Missing Games | Hourly | 5-15min | 30min |
-| Calculate Rankings | Mon 7pm UTC | 15-30min | 60min |
-| TGS Event Scrape | Sun 11:30pm | 3-4h | 360min |
+Schedules live in CLAUDE.md's workflow table; check the yml when it matters. Durations
+and timeouts for the heavy jobs:
+
+| Workflow | Typical Duration | Timeout |
+|----------|------------------|---------|
+| Scrape Games (manual dispatch) | 2-4h | 120min per shard |
+| Process Missing Games | 5-15min | none set (360min GitHub default) |
+| Calculate Rankings | 1-3h | none set |
+| TGS Event Scrape + Import | 1-3h | 120min |
 
 ## Workflow Files
-Location: `/Users/pitchrankio-dev/Projects/PitchRank/.github/workflows/`
+Location: `C:/PitchRank/.github/workflows/`
 
 - `scrape-games.yml` - Team game scraping
 - `process-missing-games.yml` - Missing games backfill
 - `calculate-rankings.yml` - Weekly rankings
-- `tgs-event-scrape.yml` - TGS tournament scraping
+- `tgs-event-scrape-import.yml` - TGS tournament scraping
 
 ## Re-run Commands
 ```bash
@@ -83,8 +86,9 @@ gh run rerun <run-id> --repo dallasheidt14/PitchRank
 # Manually trigger workflow
 gh workflow run "Workflow Name" --repo dallasheidt14/PitchRank
 
-# With inputs
-gh workflow run "Scrape Games" --repo dallasheidt14/PitchRank -f limit_teams=25000
+# With inputs. Confirm with the operator before dispatching scrape or ranking jobs:
+# they run for hours against production and spend the ZenRows budget. Probe small first.
+gh workflow run "Scrape Games" --repo dallasheidt14/PitchRank -f limit_teams=50
 ```
 
 ## When to Escalate

@@ -35,8 +35,8 @@ comments or docs.
 | 2008 / 2007 | U19 | u19 |
 
 A cohort's birth window runs Aug 1 - Jul 31, so it spans two calendar years.
-The system stores the **leading** year only, matching birth-year registration:
-`calculate_age_group_from_birth_year(2016)` is `U11`.
+The band is named by its **younger** year; `calculate_age_group_from_birth_year(2016)` is `U11`
+because 2026 − 2016 + 1 = 11. Reading a `2015/2016` division from the older year gives U12 and is wrong.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
@@ -114,16 +114,16 @@ Example: "Phoenix Premier FC 14B Black"
 
 ## Ranking Algorithm
 
-### v53e Engine
-1. Base score from win/loss/draw records
-2. Strength of Schedule (SOS) - 3 iterations
-3. Goal differential (capped)
-4. Recency weighting (recent games matter more)
+### Glicko-2 Engine (production; v53e is legacy, reachable only via `--engine v53e`)
+1. Two-pass Glicko-2 convergence per (age, gender) cohort; log-margin outcomes, goal
+   difference capped at 6, recency-weighted inside the convergence loop
+2. Strength of Schedule from opponent mu (repeat cap, trim) with SCF dampening for regional bubbles
+3. Within-cohort sigmoid normalization → PowerScore, then age anchors for cross-age scale
 
 ### ML Layer 13
 - XGBoost model for predictive adjustment
 - Trained on historical outcomes
-- Adjusts base v53e scores
+- Adjusts the Glicko-2 PowerScore (`powerscore_adj` → `powerscore_ml`)
 
 ### PowerScore
 - Final ranking metric
