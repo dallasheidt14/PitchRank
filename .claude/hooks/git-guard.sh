@@ -64,6 +64,15 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   if [ "$branch" = main ]; then
     deny "BLOCKED: branch is main. Run 'git checkout -b <feature> origin/main' first (CLAUDE.md: never commit to main)."
   fi
+  # A `cd` earlier in the command moves where git runs, so check that checkout too.
+  cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
+  if [[ $stripped =~ $cd_re ]]; then
+    cd_target=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]//$'\001'/ }
+    case "$cd_target" in /*|[A-Za-z]:*) ;; *) cd_target="$cwd/$cd_target" ;; esac
+    if [ "$(branch_of "$cd_target")" = main ]; then
+      deny "BLOCKED: this command changes into a checkout that is on main before committing or pushing (CLAUDE.md: never commit to main)."
+    fi
+  fi
   if [[ $stripped =~ ${git_cmd}(checkout|switch)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*main${end}(.*) ]] \
     && [[ ${BASH_REMATCH[${#BASH_REMATCH[@]}-1]} =~ ${git_cmd}(commit|push)${end} ]]; then
     deny "BLOCKED: this command switches to main before committing or pushing (CLAUDE.md: never commit to main)."
@@ -75,8 +84,11 @@ fi
 if [[ $stripped =~ ${git_cmd}add[[:space:]]+(--[[:space:]]+)?(-A|--all|-u|--update|\.|\./)${end} ]]; then
   deny "BLOCKED: git add -A/-u/. stages everything. Stage by path (CLAUDE.md: stage selectively)."
 fi
-if [[ $stripped =~ ${push_args}(-f|--force[a-z-]*|\+[^[:space:]]+)${end_or_eq} ]]; then
+if [[ $stripped =~ ${push_args}(-[A-Za-z]*f[A-Za-z]*|--force[a-z-]*|\+[^[:space:]]+)${end_or_eq} ]]; then
   deny "BLOCKED: force push rewrites shared history and main forbids it. Push a new commit instead (CLAUDE.md: never force-push)."
+fi
+if [[ $stripped =~ ${push_args}(--all|--branches|--mirror)${end} ]]; then
+  deny "BLOCKED: git push --all/--mirror includes local main. Push the current branch explicitly."
 fi
 if [[ $stripped =~ ${git_cmd}reset[[:space:]]+(--hard|--merge)${end} ]]; then
   deny "BLOCKED: git reset --hard discards work. Use 'git stash' then 'git stash pop --index', or 'git checkout -- <path>' (.claude/rules/git-workflow.md)."

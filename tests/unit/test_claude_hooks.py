@@ -139,6 +139,10 @@ BLOCKED_COMMANDS = [
     "git push -f origin x",
     "git push --force-with-lease",
     "git push --force-with-lease=origin/feat/x",
+    "git push -fu origin feat/x",
+    "git push -uf origin feat/x",
+    "git push --all origin",
+    "git push --mirror origin",
     "git push origin +HEAD:feat/x",
     "git push origin HEAD:main",
     "git push origin main",
@@ -175,6 +179,7 @@ def test_git_guard_blocks_commit_on_main(repo: Path, tmp_path: Path) -> None:
     assert _bash("git commit -m x", repo, cwd=main_checkout).returncode == 2
     assert _bash('echo "Bob\'s note" && git commit -m "that\'s it"', repo, cwd=main_checkout).returncode == 2
     assert _bash(f'git -C "{main_checkout.as_posix()}" commit -m x', repo, cwd=repo).returncode == 2
+    assert _bash(f'cd "{main_checkout.as_posix()}" && git commit -m x', repo, cwd=repo).returncode == 2
     assert _bash("git commit -m x", repo, cwd=repo).returncode == 0
 
 
