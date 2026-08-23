@@ -3,8 +3,10 @@
 ## Verify branch before every commit
 Always run `git branch --show-current` before `git commit`. The sandbox resets CWD between Bash calls, which can silently switch back to main. Commits have landed on main instead of feature branches because of this.
 
-## Never git stash
-Use branches instead. `git stash pop` fails on .pyc binary conflicts and the stash cannot be cleanly recovered. This has caused complete loss of implementation work. When you need to compare against main, use `git diff` or a worktree.
+## git stash works; preserve the staged split
+The old prohibition existed because 9,381 `.pyc` files were tracked, so every stash swept up binary bytecode that could not pop cleanly, and implementation work was lost outright. Those files were untracked in #1005. Verified 2026-08-22 with 473 `.pyc` on disk: a one-line edit stashed to 341 bytes carrying one file, and popped clean.
+
+What still bites: a plain `git stash pop` restores everything as unstaged, so a carefully staged set comes back flattened. Use `git stash pop --index` when the staged/unstaged split matters.
 
 ## Code review before pushing ranking changes
 Always run a code review (e.g., /review-code or /peer-review) before pushing code that triggers production ranking workflows. A 5-minute review is always cheaper than a failed 60-minute ranking run. This has been learned the hard way.
