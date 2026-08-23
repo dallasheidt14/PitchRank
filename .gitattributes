@@ -1,0 +1,3 @@
+# Shell scripts must stay LF even on autocrlf=true checkouts, or bash chokes on \r.
+# Scoped to *.sh on purpose; a repo-wide rule would renormalize every file at once.
+*.sh text eol=lf
