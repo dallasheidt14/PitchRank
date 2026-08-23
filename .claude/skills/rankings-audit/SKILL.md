@@ -7,7 +7,7 @@ description: Audit and investigate PitchRank ranking changes. Use when power sco
 
 ## Quick Health Check
 ```bash
-cd /Users/pitchrankio-dev/Projects/PitchRank && python3 scripts/orchestrator_status.py
+cd C:/PitchRank && python scripts/orchestrator_status.py
 ```
 
 ## Key Tables
@@ -94,13 +94,15 @@ Typical sizes:
 - u11 male: ~4500 teams
 - u10 male: ~2300 teams
 
-## Ranking Algorithm (v53e)
-- PowerScore = weighted combination of win %, SOS, recent form
-- ML Layer 13 adjustments for age-specific patterns
+## Ranking Algorithm (Glicko-2 + ML Layer 13)
+- Two-pass Glicko-2 convergence per cohort, then SOS/SCF dampening and a within-cohort sigmoid → `powerscore_core`; the `rankings-algorithm` skill has the full pipeline
+- ML Layer 13 residual adjustment (positive corrections gated by `sos_norm`, negative always full)
 - State rankings = PowerScore rank within state+cohort
-- National rankings = PowerScore rank across all states in cohort
+- National rankings = `rank_in_cohort_final` (`rankings_full.national_rank` is always NULL; views compute display ranks)
 
 ## When to Escalate
+- PowerScore outside [0.0, 1.0]
+- `sos_norm` > 0.95 for teams with < 12 games
 - PowerScore swings > 30% with no games played
 - Entire cohort shifts dramatically (possible algorithm bug)
 - Rankings not updating (calculation failing)

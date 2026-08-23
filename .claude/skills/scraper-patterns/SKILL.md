@@ -23,7 +23,7 @@ import random
 import time
 
 def polite_delay():
-    """Random delay to avoid detection."""
+    """Random delay so request spacing stays under the provider's rate limit."""
     delay = random.uniform(0.1, 2.5)
     time.sleep(delay)
 
@@ -39,7 +39,7 @@ for team in teams:
 for team in teams:
     scrape_team(team)  # Will get IP banned
 
-# BAD - Fixed delay (detectable pattern)
+# BAD - Fixed delay (bursts line up with other workers and trip the limiter)
 time.sleep(1.0)
 
 # GOOD - Random delay
@@ -67,10 +67,12 @@ Cooldown defaults to 300 s (`_WAF_COOLDOWN_DEFAULT`), overridable via
 `GOTSPORT_WAF_COOLDOWN_SEC`.
 
 CLI default `--concurrency` is **5** for residential IPs in
-`scripts/scrape_games.py`. CI uses **20 per shard** (×5 shards = 100 aggregate)
-via the explicit `--concurrency` flag in `.github/workflows/scrape-games.yml`.
-Do not raise the local default without testing against a fresh IP — empirically
-~15 req/s sustained from one IP trips the WAF (measured 2026-05-18).
+`scripts/scrape_games.py`. CI picks concurrency adaptively in
+`.github/workflows/scrape-games.yml`: **8 per shard** with ZenRows, **10** for direct
+requests (20 was rolled back after a 97% WAF error rate).
+Do not raise the local default without re-measuring the sustained rate — empirically
+~15 req/s sustained from one IP trips the WAF (measured 2026-05-18). Back off when it
+trips; do not route around it.
 
 ## GotSport Endpoint Quirks
 
@@ -149,7 +151,7 @@ session = create_session()
 response = session.get(url, timeout=30)
 ```
 
-### Headers (Match Browser)
+### Headers
 ```python
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -308,13 +310,13 @@ with ThreadPoolExecutor(max_workers=10) as executor:
 
 ### ❌ No User-Agent
 ```python
-# BAD - Looks like a bot
+# BAD - some endpoints return degraded HTML to an unset UA
 requests.get(url)
 ```
 
 ### ❌ Ignore Robots.txt for Heavy Scraping
 ```python
-# Be respectful of rate limits even if not in robots.txt
+# Honor robots.txt Disallow rules, and respect rate limits even when robots.txt is silent
 ```
 
 ### ❌ Retry Immediately

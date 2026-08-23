@@ -1,8 +1,6 @@
 # CLAUDE.md — PitchRank AI Assistant Guide
 
-> Last updated: 2026-03-31
-
-PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings using a proprietary 13-layer algorithm (v53e + ML), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
+PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings with a two-pass Glicko-2 rating engine plus an XGBoost residual layer (ML Layer 13), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
 
 ---
 
@@ -22,7 +20,8 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 ---
 
 ## Git Discipline
-- Always verify you are on the correct branch before committing. Never commit to main directly.
+- Never commit to main directly; verify the branch before every commit. `main` requires a PR and the `ci.yml` checks (squash only, no force-push).
+- `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, and `.env` edits. A `BLOCKED:` message is the hook, not a transient error.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
@@ -52,7 +51,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 PitchRank/
 ├── src/                    # Core Python backend (rankings, ETL, matching)
 │   ├── api/                # REST API endpoints
-│   ├── etl/                # ETL pipelines + v53e ranking engine
+│   ├── etl/                # ETL pipelines + Glicko-2 ranking engine (v53e legacy)
 │   ├── models/             # Game/team matching (fuzzy, provider-specific)
 │   ├── rankings/           # Ranking orchestration, ML Layer 13, data adapter
 │   ├── scrapers/           # Web scrapers (GotSport, SincSports, AthleteOne, Surf)
@@ -83,6 +82,7 @@ PitchRank/
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # SEO sub-agent definitions
+│   ├── hooks/              # Claude Code hooks wired by .claude/settings.json (git guard, secrets, ruff, dry-run, session sync)
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
 ├── .github/workflows/      # 41 automated workflows
 ├── dashboard.py            # Streamlit admin dashboard (6,180 lines)
@@ -199,47 +199,52 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 
 ---
 
-## Ranking Algorithm (v53e + ML)
+## Ranking Algorithm (Glicko-2 + ML Layer 13)
+
+Production runs the Glicko-2 engine: `calculate-rankings.yml` calls
+`scripts/calculate_rankings.py --ml --force-rebuild --engine glicko`, and `glicko` is the
+default everywhere. v53e
+(`src/etl/v53e.py`) is the legacy engine, reachable only via `--engine v53e`; nothing in the
+Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_config.py` and
+`src/rankings/constants.py`; the `rankings-algorithm` skill documents them.
 
 ### Pipeline Flow
 
 ```
-Games (Supabase, 365-day window)
+Games (Supabase; 365-day window + 28-day grace taper)
   → Merge Resolution (deprecated → canonical team IDs)
-  → v53e Base Calculation (11 layers)
-  → ML Layer 13 (XGBoost residual adjustment, alpha=0.08)
-  → Two-Pass SOS Normalization (cross-age, national, state)
-  → Age Anchor Scaling (U10=0.40 → U19=1.00)
-  → Save to rankings_full + current_rankings
+  → Pass 1: Glicko-2 convergence per (age, gender) cohort, no cross-age knowledge
+  → Global strength map {team_id: mu} from Pass 1
+  → Pass 2: re-run each cohort warm-started from Pass 1; cross-age opponents rated
+            from the global map + anchor offset
+  → Per cohort, post-convergence: OFF/DEF → SOS (repeat cap + trim) → SCF dampening
+            → sigmoid(z-score) → powerscore_core → × provisional_mult → powerscore_adj
+  → ML Layer 13 per cohort: powerscore_ml = powerscore_adj + 0.08·ml_norm
+  → Pass 3: national/state SOS columns — display only, never feeds PowerScore
+  → Same-age evidence gates (SOS-gated ML authority, shrink, play-up bonus, caps)
+            → power_score_true
+  → power_score_final = power_score_true × AGE_TO_ANCHOR[age]
+  → rank_in_cohort_final by power_score_true DESC (Active only) → 7d/30d changes
+  → Clip PowerScore columns to [0, 1] → ranking_history → rankings_full + current_rankings
 ```
-
-### v53e Layers
-
-1. **Window**: 365-day lookback, 365-day inactivity threshold (`INACTIVE_HIDE_DAYS`)
-2. **Offense/Defense**: Goal difference capped at 6
-3. **Recency**: Exponential decay (rate=0.08), recent 15 games at 65% weight
-4. **Defense Ridge**: Ridge regression (factor=0.25)
-5. **Adaptive K**: Dynamic K-factor (alpha=0.5, beta=0.6)
-6. **Performance**: Goal-based residuals (scale=5.0, decay=0.08) — **DISABLED** (PERF_BLEND_WEIGHT=0.00)
-7. **Bayesian Shrinkage**: Tau=8.0 for small-sample correction
-8. **SOS**: Iterative, 1 pass, unranked base=0.35, repeat cap=2
-9. **Normalize**: OFF/DEF normalization
-10. **PowerScore Blend**: OFF:0.20, DEF:0.20, SOS:0.60
-11. **Rank & Status**: Final ranking and status assignment
 
 ### PowerScore
 
-- Range: **always 0.0–1.0** (clamp after calculation)
-- 0.95+ = elite national | 0.80–0.95 = top tier | 0.50–0.80 = competitive
-- Higher = better
+- Column chain in `rankings_full`: `powerscore_core` → `powerscore_adj` → `powerscore_ml`
+  → `power_score_true` (post-gates, unanchored) → `power_score_final` (× `AGE_TO_ANCHOR`).
+  `rank_in_cohort_final` is the published rank; `national_rank` and `state_rank` are
+  always NULL in `rankings_full` (views compute display ranks).
+- Two traps: there is no `powerscore` column, and `sos` is on the raw 1500-centred
+  scale — the 0.45 / 0.60 gates read `sos_norm`.
+- Range: **always 0.0–1.0** (clamped at every stage and before save). Nothing in code
+  defines "elite / top tier" bands — the `rankings-algorithm` skill explains how to read
+  a score.
 
 ### ML Layer 13
 
-- XGBoost (220 estimators, max_depth=5, learning_rate=0.08)
-- Fallback: RandomForest (240 estimators, max_depth=18)
-- 30-day time-split prevents data leakage
-- Residuals clipped ±3.5 goals, normalized by cohort
-- Blend: `powerscore_ml = powerscore_adj + α * ml_norm` (α=0.08)
+- The `--ml` CLI flag is a no-op under Glicko: `Layer13Config` takes `enabled` from
+  `ML_CONFIG`, i.e. env `ML_LAYER_ENABLED` (default true). Set it to `false` to run
+  without ML. Model, thresholds, and gating live in the `rankings-algorithm` skill.
 
 ---
 
@@ -297,14 +302,14 @@ supabase.table('teams').select('*').in_('team_id_master', master_ids).execute()
 # Install dependencies
 pip install -r requirements.txt
 
-# Run ranking calculation
-python scripts/calculate_rankings.py --ml --lookback-days 365
+# Run ranking calculation (engine defaults to glicko)
+python scripts/calculate_rankings.py --lookback-days 365
 
-# Dry run (no DB write)
-python scripts/calculate_rankings.py --ml --dry-run
+# Dry run (skips the rankings_full save; residuals/history still persist — known gap)
+python scripts/calculate_rankings.py --dry-run
 
 # Force rebuild (ignore cache)
-python scripts/calculate_rankings.py --ml --force-rebuild
+python scripts/calculate_rankings.py --force-rebuild
 
 # Run game scraper
 python scripts/scrape_games.py
@@ -363,7 +368,7 @@ npm run analyze
 | `enqueue-safety-net.yml` | Sun 4:00 PM UTC | Queue never-scraped / 90d+ teams (priority 4) |
 | `process-missing-games.yml` | Every 15 min | Drain the queue, 40 teams per run |
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
-| `calculate-rankings.yml` | Mon 12:30 PM UTC | Recalculate rankings (v53e + ML) |
+| `calculate-rankings.yml` | Mon 12:30 PM UTC | Recalculate rankings (Glicko-2 + ML) |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`) |
@@ -428,7 +433,7 @@ cannot undo.
 Continuous → Enqueue jobs fill scrape_requests; process_missing_games drains
              it every 15 min (40 teams/run, ~3,840/day)
 Monday AM  → Data hygiene jobs
-Monday PM  → Calculate rankings (v53e + ML Layer 13)
+Monday PM  → Calculate rankings (Glicko-2 + ML Layer 13)
 Sunday     → Event scraping, discovery + safety-net enqueue
 As needed  → "Help Clear Queue" (manual) for bulk catch-up
 ```
@@ -472,7 +477,7 @@ claims rows without going on to scrape them must release them explicitly.
 Required variables are documented in `.env.example`. Key groups:
 
 - **Database**: `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Ranking params**: 40+ vars for v53e layers (window, weights, thresholds)
+- **Ranking params**: Glicko engine flags and thresholds (`src/etl/glicko_config.py`), plus the inert legacy v53e layer vars
 - **ML config**: `ML_LAYER_ENABLED`, `ML_ALPHA`, `ML_XGB_N_ESTIMATORS`, etc.
 - **Scraping**: `ZENROWS_API_KEY`, `GOTSPORT_DELAY_MIN/MAX`
 - **Frontend**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`
@@ -577,7 +582,7 @@ const { user, supabase } = auth;
 
 ## Git Workflow
 
-- Never commit directly to main. Always create a feature branch, make changes there, and open a PR unless explicitly told otherwise.
+- Never commit directly to main. Create a feature branch and open a PR; the ruleset and the git guard both refuse direct commits.
 - When the user asks for git operations (commit, push, merge), do them immediately without requiring a second ask.
 - Keep the working tree clean — stage selectively (`git add <paths>`), not `git add -A`.
 
@@ -591,7 +596,7 @@ const { user, supabase } = auth;
 
 ## Editing Rules
 
-- After editing files, re-read them to confirm changes persisted. External processes (linters, pre-commit hooks, ruff) may silently revert edits.
+- After editing a Python file, re-read it when the post-edit hook reports that `ruff check --fix` rewrote it. The pre-commit ruff hook does not run locally (husky owns `core.hooksPath`); CI and the hook are the ruff gates.
 
 ---
 
@@ -629,10 +634,13 @@ const { user, supabase } = auth;
 
 | Purpose | File |
 |---------|------|
-| Ranking engine (v53e) | `src/etl/v53e.py` |
+| Ranking engine (Glicko-2, production) | `src/etl/glicko_engine.py` |
+| Glicko-2 config (`GlickoConfig`) | `src/etl/glicko_config.py` |
+| Ranking engine (v53e, `--engine v53e` only) | `src/etl/v53e.py` |
+| Age anchors, gate thresholds, league tier multipliers | `src/rankings/constants.py` |
 | Ranking orchestrator | `src/rankings/calculator.py` |
 | ML Layer 13 | `src/rankings/layer13_predictive_adjustment.py` |
-| Supabase ↔ v53e adapter | `src/rankings/data_adapter.py` |
+| Supabase ↔ engine adapter | `src/rankings/data_adapter.py` |
 | Merge resolver | `src/utils/merge_resolver.py` |
 | Game matcher | `src/models/game_matcher.py` |
 | Club normalizer | `src/utils/club_normalizer.py` |

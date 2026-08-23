@@ -45,15 +45,26 @@ async def process_in_batches(items: list, batch_size: int = 1000):
 
 ### Supabase Upsert Pattern
 ```python
-def safe_upsert(client, table: str, records: list, batch_size: int = 1000):
-    """Upsert with retry logic and batch splitting."""
+import time
+
+
+def safe_upsert(client, table: str, records: list, batch_size: int = 1000, dry_run: bool = False):
+    """Upsert with retry logic and batch splitting.
+
+    Never point this at `games`: game rows are immutable by policy, and with no
+    on_conflict key an upsert inserts duplicate rows on the UUID primary key.
+    Quarantine bad games instead.
+    """
+    if dry_run:
+        print(f"[dry-run] would upsert {len(records)} rows into {table}")
+        return
     for i in range(0, len(records), batch_size):
         batch = records[i:i + batch_size]
         for attempt in range(3):
             try:
                 client.table(table).upsert(batch).execute()
                 break
-            except Exception as e:
+            except Exception:
                 if attempt == 2:
                     raise
                 time.sleep(2 ** attempt)
