@@ -1,129 +1,63 @@
 ---
 name: seo
 description: >
-  Comprehensive SEO analysis for any website or business type. Performs full site
-  audits, single-page deep analysis, technical SEO checks (crawlability, indexability,
-  Core Web Vitals with INP), schema markup detection/validation/generation, content
-  quality assessment (E-E-A-T framework per Dec 2025 update extending to all
-  competitive queries), image optimization, sitemap analysis, and Generative Engine
-  Optimization (GEO) for AI Overviews, ChatGPT, and Perplexity citations. Analyzes
-  AI crawler accessibility (GPTBot, ClaudeBot, PerplexityBot), llms.txt compliance,
-  brand mention signals, and passage-level citability. Industry detection for SaaS,
-  e-commerce, local business, publishers, agencies. Triggers on: "SEO", "audit",
-  "schema", "Core Web Vitals", "sitemap", "E-E-A-T", "AI Overviews", "GEO",
-  "technical SEO", "content quality", "page speed", "structured data".
+  PitchRank-specific SEO surfaces and rules — state pillar pages, llms.txt
+  regeneration, the blog frontmatter contract, the topic backlog, and analytics
+  access. Use for any SEO, blog, llms.txt, state-pillar, or search-visibility
+  task on pitchrank.io. Generic SEO methodology (audits, schema, E-E-A-T, Core
+  Web Vitals) lives in the toprank and marketing-skills plugins (user-level,
+  not tracked in this repo), not here.
 allowed-tools:
   - Read
   - Grep
   - Glob
+  - Edit
+  - Write
   - Bash
-  - WebFetch
 ---
 
-# SEO — Universal SEO Analysis Skill
+# SEO — PitchRank Surfaces
 
-Comprehensive SEO analysis across all industries (SaaS, local services,
-e-commerce, publishers, agencies). Orchestrates 12 specialized sub-skills
-and 6 subagents.
+## Surfaces
 
-## Quick Reference
+| Surface | Where | Notes |
+|---------|-------|-------|
+| State pillar pages | `frontend/lib/cohort-seo.ts` — `STATE_PILLAR_SLUGS` | Canonical slug + title per state; feeds llms.txt (pillar posts reach the sitemap via their blog slugs) |
+| llms.txt | `frontend/scripts/generate-llms-txt.ts` → `frontend/public/llms.txt` | Generated file — never hand-edit the output |
+| Blog posts | MDX frontmatter + TSX `BlogPost` objects | Field shape: `BlogPost` in `frontend/lib/blog.tsx`; date rules: `frontend/CLAUDE.md` → Content Authoring |
+| Topic backlog | `brand/blog-topics.json` | Pre-vetted topics with target keyword, tags, and FAQ pairs |
+| Structured data | `RankingsSchema`, `TeamSchema`, `BlogPostSchema`, `FAQSchema`, `BreadcrumbSchema` components | JSON-LD, rendered per page |
+| Sitemap | `frontend/app/sitemap.ts` | Dynamic; no manual sitemap files |
 
-| Command | What it does |
-|---------|-------------|
-| `/seo audit <url>` | Full website audit with parallel subagent delegation |
-| `/seo page <url>` | Deep single-page analysis |
-| `/seo sitemap <url or generate>` | Analyze or generate XML sitemaps |
-| `/seo schema <url>` | Detect, validate, and generate Schema.org markup |
-| `/seo images <url>` | Image optimization analysis |
-| `/seo technical <url>` | Technical SEO audit (8 categories) |
-| `/seo content <url>` | E-E-A-T and content quality analysis |
-| `/seo geo <url>` | AI Overviews / Generative Engine Optimization |
-| `/seo plan <business-type>` | Strategic SEO planning |
-| `/seo programmatic [url\|plan]` | Programmatic SEO analysis and planning |
-| `/seo competitor-pages [url\|generate]` | Competitor comparison page generation |
-| `/seo hreflang [url]` | Hreflang/i18n SEO audit and generation |
+## Hard Rules
 
-## Orchestration Logic
+Canonical source for rules 1 and 2: `frontend/CLAUDE.md` (Content Authoring
+and Content Generation) — it wins on any disagreement.
 
-When the user invokes `/seo audit`, delegate to subagents in parallel:
-1. Detect business type (SaaS, local, ecommerce, publisher, agency, other)
-2. Spawn subagents: seo-technical, seo-content, seo-schema, seo-sitemap, seo-performance, seo-visual
-3. Collect results and generate unified report with SEO Health Score (0-100)
-4. Create prioritized action plan (Critical → High → Medium → Low)
+1. **Regenerate llms.txt after any blog or pillar change.** Any blog post edit
+   or `STATE_PILLAR_SLUGS` change requires:
 
-For individual commands, load the relevant sub-skill directly.
+   ```bash
+   cd frontend && npm run generate-llms
+   ```
 
-## Industry Detection
+   Commit the regenerated `public/llms.txt` in the same PR. The
+   `frontend-llms-drift` CI job fails the PR if the committed file is stale.
 
-Detect business type from homepage signals:
-- **SaaS**: pricing page, /features, /integrations, /docs, "free trial", "sign up"
-- **Local Service**: phone number, address, service area, "serving [city]", Google Maps embed
-- **E-commerce**: /products, /collections, /cart, "add to cart", product schema
-- **Publisher**: /blog, /articles, /topics, article schema, author pages, publication dates
-- **Agency**: /case-studies, /portfolio, /industries, "our work", client logos
+2. **Bump `modifiedDate` on every blog edit.** Format is ISO-8601 UTC:
+   `'YYYY-MM-DDT00:00:00Z'` — a bare `YYYY-MM-DD` triggers Google Rich Results
+   "missing timezone" warnings. New posts set both `date` and `modifiedDate`
+   to the publish date. No lint rule enforces this; it is checked at PR review.
 
-## Quality Gates
+3. **Verify every stat before publishing.** Cross-check claims against current
+   in-window sources and against previously published posts. Never fabricate
+   or infer claims (e.g., seeding rules) without a cited source.
 
-Read `references/quality-gates.md` for thin content thresholds per page type.
-Hard rules:
-- ⚠️ WARNING at 30+ location pages (enforce 60%+ unique content)
-- 🛑 HARD STOP at 50+ location pages (require user justification)
-- Never recommend HowTo schema (deprecated Sept 2023)
-- FAQ schema only for government and healthcare sites
-- All Core Web Vitals references use INP, never FID
+## Analytics Access
 
-## Reference Files
-
-Load these on-demand as needed — do NOT load all at startup:
-- `references/cwv-thresholds.md` — Current Core Web Vitals thresholds and measurement details
-- `references/schema-types.md` — All supported schema types with deprecation status
-- `references/eeat-framework.md` — E-E-A-T evaluation criteria (Sept 2025 QRG update)
-- `references/quality-gates.md` — Content length minimums, uniqueness thresholds
-
-## Scoring Methodology
-
-### SEO Health Score (0-100)
-Weighted aggregate of all categories:
-
-| Category | Weight |
-|----------|--------|
-| Technical SEO | 25% |
-| Content Quality | 25% |
-| On-Page SEO | 20% |
-| Schema / Structured Data | 10% |
-| Performance (CWV) | 10% |
-| Images | 5% |
-| AI Search Readiness | 5% |
-
-### Priority Levels
-- **Critical**: Blocks indexing or causes penalties (immediate fix required)
-- **High**: Significantly impacts rankings (fix within 1 week)
-- **Medium**: Optimization opportunity (fix within 1 month)
-- **Low**: Nice to have (backlog)
-
-## Sub-Skills
-
-This skill orchestrates 12 specialized sub-skills:
-
-1. **seo-audit** — Full website audit with parallel delegation
-2. **seo-page** — Deep single-page analysis
-3. **seo-technical** — Technical SEO (8 categories)
-4. **seo-content** — E-E-A-T and content quality
-5. **seo-schema** — Schema markup detection and generation
-6. **seo-images** — Image optimization
-7. **seo-sitemap** — Sitemap analysis and generation
-8. **seo-geo** — AI Overviews / GEO optimization
-9. **seo-plan** — Strategic planning with templates
-10. **seo-programmatic** — Programmatic SEO analysis and planning
-11. **seo-competitor-pages** — Competitor comparison page generation
-12. **seo-hreflang** — Hreflang/i18n SEO audit and generation
-
-## Subagents
-
-For parallel analysis during audits:
-- `seo-technical` — Crawlability, indexability, security, CWV
-- `seo-content` — E-E-A-T, readability, thin content
-- `seo-schema` — Detection, validation, generation
-- `seo-sitemap` — Structure, coverage, quality gates
-- `seo-performance` — Core Web Vitals measurement
-- `seo-visual` — Screenshots, mobile testing, above-fold
+- **GA4 credentials are Vercel-only** and cannot be pulled locally. Use the
+  site's `/analytics` dashboard instead of trying to query GA4 directly.
+- **GSC** goes through the `google-search-console` skill (user-level, not
+  tracked in this repo). Mind privacy thresholds: low numbers are often
+  dimension undercounting — retry with aggregate queries before concluding
+  traffic is missing.

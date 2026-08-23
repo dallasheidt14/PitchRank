@@ -10,3 +10,7 @@ What still bites: a plain `git stash pop` restores everything as unstaged, so a 
 
 ## Code review before pushing ranking changes
 Always run a code review (e.g., /review-code or /peer-review) before pushing code that triggers production ranking workflows. A 5-minute review is always cheaper than a failed 60-minute ranking run. This has been learned the hard way.
+
+Two read-only reviewer agents in `.claude/agents/` support pre-push review:
+- `ranking-change-reviewer` — ranking-engine diffs (scope list in its frontmatter).
+- `migration-reviewer` — changed `supabase/migrations/*.sql`.
