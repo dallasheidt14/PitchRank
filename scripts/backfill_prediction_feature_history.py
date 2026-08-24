@@ -3,9 +3,10 @@
 Backfill point-in-time prediction_feature_history snapshots.
 
 This replays historical ranking dates using the current ranking pipeline with
-an as-of date, then persists only predictor feature snapshots. It does not
-rewrite rankings_full/current_rankings, and it deliberately skips persisting
-historical game residuals back onto the live games table.
+an as-of date, then persists only predictor feature snapshots. Every other
+writer inside compute_all_cohorts is disabled: ranking_history snapshots,
+historical game residuals, and per-game explainability rows computed from the
+replayed board are deliberately not persisted.
 """
 
 from __future__ import annotations
@@ -152,6 +153,7 @@ async def replay_prediction_snapshot(
         merge_resolver=merge_resolver,
         use_glicko=use_glicko,
         persist_game_residuals=False,
+        persist_game_explainability=False,
         calculate_rank_changes_enabled=False,
         save_snapshot=False,
     )
