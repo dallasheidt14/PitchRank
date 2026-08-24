@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.rankings.constants import AGE_TO_ANCHOR
+from src.utils.team_utils import CURRENT_YEAR
 
 # Load environment variables. ``.env.local`` takes precedence (Vercel /
 # Next.js convention; this worktree carries Supabase creds there), then
@@ -87,18 +88,10 @@ PROVIDERS = {
 
 # Age Groups with metadata
 # anchor_score derived from AGE_TO_ANCHOR (src/rankings/constants.py) — single source of truth
-# U19 encompasses both birth years 2007 and 2008 (formerly U18+U19)
-_BIRTH_YEARS = {
-    10: 2016,
-    11: 2015,
-    12: 2014,
-    13: 2013,
-    14: 2012,
-    15: 2011,
-    16: 2010,
-    17: 2009,
-    19: 2007,
-}
+# birth_year is the band's younger year (CURRENT_YEAR is fixed at process start).
+# u19 holds three birth years: CURRENT_YEAR - 17 (the U18 band merges in; there is
+# no u18 board), CURRENT_YEAR - 18 (stored here), and CURRENT_YEAR - 19 (the band's older year).
+_BIRTH_YEARS = {age: CURRENT_YEAR - age + 1 for age in (10, 11, 12, 13, 14, 15, 16, 17, 19)}
 AGE_GROUPS = {f"u{age}": {"birth_year": by, "anchor_score": AGE_TO_ANCHOR[age]} for age, by in _BIRTH_YEARS.items()}
 
 # Ranking Configuration (aligned with v53e V53EConfig)

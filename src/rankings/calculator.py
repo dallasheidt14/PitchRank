@@ -3280,7 +3280,7 @@ async def compute_all_cohorts(
             # the same ordering as power_score_final (anchor is a constant multiplier).
             # team_id ASC is the deterministic tie-break (matches UI sort behavior).
             #
-            # NOTE: The SQL views remap age 18 → 19 (U19 encompasses 2007+2008 birth years).
+            # NOTE: The SQL views remap age 18 → 19.
             # The calculator ranks by raw age_num (before remap), so U18 and U19 are ranked
             # as separate cohorts here. The view layer merges them for display.
             if "power_score_true" in teams_combined.columns:
