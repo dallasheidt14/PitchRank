@@ -909,6 +909,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### URGENT: scrape-eligibility filters roll on the calendar year, excluding real U10 teams every Aug-Dec
 
+- **Resolved**: 2026-08-24 by fix/scrape-eligibility-season-year (PR #1018) — season-year derivation in the five RPCs + drain_queue/scrape_games/dashboard via team_utils.scrape_excluded_birth_years. Still open from this entry: the audit of teams.birth_year rows the old dashboard write stamped (name/provider-sourced correction).
+
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/drain_queue.py:84-93` (`_excluded_birth_years`), `scripts/scrape_games.py:389` (hardcoded `[2005, 2006, 2017, 2018, 2019]`), and six RPCs using `c.yr - 9` (`get_teams_to_scrape_limited`, `get_scrape_eligibility_counts`, `find_discovery_teams`, `find_stale_teams`, `find_recently_active_teams`, `resolve_merges_in_scrape_enqueue_rpcs`) — the RPC fix needs a migration; mind the CREATE OR REPLACE overload trap

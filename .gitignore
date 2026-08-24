@@ -62,5 +62,6 @@ credentials/
 !.turbo/handoff/
 !.turbo/reports/
 !.turbo/improvements.md
-# Contains customer emails and account states - stays local:
+# Customer PII and security-incident notes stay local:
 .turbo/plans/auth-onboarding-lockout-fixes.md
+.turbo/handoff/2026-08-20-team-matching-and-age-correctness.md
