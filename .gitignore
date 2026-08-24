@@ -52,3 +52,15 @@ credentials/
 
 # Playwright MCP page dumps (scratch output)
 .playwright-mcp/
+# Planning artifacts travel with the repo (a user-global ignore hides .turbo otherwise);
+# everything else under .turbo/ stays local scratch.
+!.turbo/
+.turbo/*
+!.turbo/plans/
+!.turbo/shells/
+!.turbo/specs/
+!.turbo/handoff/
+!.turbo/reports/
+!.turbo/improvements.md
+# Contains customer emails and account states - stays local:
+.turbo/plans/auth-onboarding-lockout-fixes.md

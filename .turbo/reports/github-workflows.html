@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PitchRank · Automated GitHub Workflows</title>
+<style>
+  :root {
+    --bg:#0b1020; --panel:#121933; --line:#1f2a4d; --ink:#e6ebff; --mute:#9aa6cc;
+    --accent:#7aa2ff; --good:#5ad19e; --warn:#f5b454; --bad:#ef6f6f;
+    --pill-scrape:#3b82f6; --pill-rank:#a855f7; --pill-hygiene:#10b981;
+    --pill-predict:#f59e0b; --pill-ops:#ef4444; --pill-ci:#6b7280;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:28px 32px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e1530,#0b1020)}
+  header h1{margin:0 0 6px;font-size:22px;letter-spacing:.2px}
+  header p{margin:0;color:var(--mute);font-size:13px}
+  main{max-width:1280px;margin:0 auto;padding:24px 32px 64px}
+
+  /* Legend */
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#0b1020}
+  .pill .dot{width:8px;height:8px;border-radius:50%;background:#0b1020;opacity:.5}
+  .p-scrape{background:var(--pill-scrape);color:#fff}
+  .p-rank{background:var(--pill-rank);color:#fff}
+  .p-hygiene{background:var(--pill-hygiene);color:#fff}
+  .p-predict{background:var(--pill-predict);color:#1b1100}
+  .p-ops{background:var(--pill-ops);color:#fff}
+  .p-ci{background:var(--pill-ci);color:#fff}
+
+  /* Week grid */
+  h2{font-size:15px;margin:24px 0 12px;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;font-weight:700}
+  .week{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+  .day{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:280px}
+  .day h3{margin:0 0 10px;font-size:13px;color:var(--mute);letter-spacing:.5px;text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:6px}
+  .slot{margin:8px 0;padding:8px 10px;border-radius:8px;background:#0e1530;border:1px solid var(--line)}
+  .slot .t{font-weight:700;color:var(--ink);font-size:12px}
+  .slot .n{display:block;margin-top:2px;font-size:12px;color:var(--ink)}
+  .slot .meta{display:block;margin-top:4px;font-size:11px;color:var(--mute)}
+  .slot.scrape{border-left:3px solid var(--pill-scrape)}
+  .slot.rank{border-left:3px solid var(--pill-rank)}
+  .slot.hygiene{border-left:3px solid var(--pill-hygiene)}
+  .slot.predict{border-left:3px solid var(--pill-predict)}
+  .slot.ops{border-left:3px solid var(--pill-ops)}
+
+  /* Continuous + event-driven */
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card .h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .card .h .name{font-weight:700;font-size:13px}
+  .card .desc{font-size:12px;color:var(--mute);margin-top:4px}
+  .card .cron{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--accent);margin-top:6px}
+
+  /* Flow chain section */
+  .chain{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:8px}
+  .chain h4{margin:0 0 12px;font-size:13px;color:var(--mute);text-transform:uppercase;letter-spacing:.6px}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .node{background:#0e1530;border:1px solid var(--line);border-left:3px solid var(--pill-scrape);border-radius:8px;padding:8px 12px;font-size:12px;min-width:170px}
+  .node.rank{border-left-color:var(--pill-rank)}
+  .node.predict{border-left-color:var(--pill-predict)}
+  .node .label{display:block;font-weight:700}
+  .node .when{display:block;color:var(--mute);font-size:11px;margin-top:2px}
+  .arrow{color:var(--mute);font-size:18px;line-height:1}
+
+  /* Table */
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px}
+  td code{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--accent)}
+  .muted{color:var(--mute)}
+  .disabled{opacity:.45;text-decoration:line-through}
+  footer{margin-top:32px;padding-top:16px;border-top:1px solid var(--line);color:var(--mute);font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>PitchRank · Automated GitHub Workflows</h1>
+  <p>Snapshot of <code>.github/workflows/</code> · generated 2026-05-17 · times shown in Mountain Time (currently MDT, UTC-6)</p>
+</header>
+
+<main>
+  <div class="legend">
+    <span class="pill p-scrape">Scrape / Ingest</span>
+    <span class="pill p-rank">Rankings</span>
+    <span class="pill p-hygiene">Data Hygiene</span>
+    <span class="pill p-predict">Predictions / ML</span>
+    <span class="pill p-ops">Ops / Billing</span>
+    <span class="pill p-ci">CI / Bots</span>
+  </div>
+
+  <!-- ====================== WEEKLY GRID ====================== -->
+  <h2>Weekly Schedule</h2>
+  <div class="week">
+
+    <div class="day">
+      <h3>Sunday</h3>
+      <div class="slot scrape">
+        <span class="t">11:00 PM MT</span>
+        <span class="n">Scrape Games (GotSport)</span>
+        <span class="meta">6-link chain · 25K teams/link · 150K/week</span>
+      </div>
+      <div class="slot scrape">
+        <span class="t">11:00 PM MT</span>
+        <span class="n">Affinity WA Scraper</span>
+        <span class="meta">DST-gated (6 + 7 UTC, in-job filter)</span>
+      </div>
+      <div class="slot scrape">
+        <span class="t">11:30 PM MT</span>
+        <span class="n">PlayMetrics League Scrape & Import</span>
+        <span class="meta">2 URLs sequentially (SECL + league 1926 / div 12084)</span>
+      </div>
+      <div class="slot scrape">
+        <span class="t">11:30 PM MT</span>
+        <span class="n">TGS Event Scrape & Import</span>
+        <span class="meta">Chain: 3400 → 4600 event IDs</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <h3>Monday</h3>
+      <div class="slot hygiene">
+        <span class="t">4:00 AM MT</span>
+        <span class="n">Update Missing Club &amp; State</span>
+        <span class="meta">6-step backfill pipeline</span>
+      </div>
+      <div class="slot hygiene">
+        <span class="t">5:00 AM MT</span>
+        <span class="n">Weekly Data Hygiene</span>
+        <span class="meta">Normalize → fix ages → fuzzy merge → review queue</span>
+      </div>
+      <div class="slot rank">
+        <span class="t">6:30 AM MT</span>
+        <span class="n">Calculate Rankings</span>
+        <span class="meta">Also workflow_run after Modular11 scrapes</span>
+      </div>
+      <div class="slot predict">
+        <span class="t">9:00 AM MT</span>
+        <span class="n">Weekly Prospective Settle &amp; Evaluate</span>
+        <span class="meta">cron <code>0 16 * * 1</code></span>
+      </div>
+    </div>
+
+    <div class="day">
+      <h3>Tuesday</h3>
+      <div class="slot hygiene">
+        <span class="t">12:00 PM MT</span>
+        <span class="n">Unknown Opponent Hygiene</span>
+        <span class="meta">Discover teams from no_match opponents</span>
+      </div>
+      <div class="slot predict">
+        <span class="t">1:00 PM MT</span>
+        <span class="n">Weekly Prospective Refresh</span>
+        <span class="meta">Freeze upcoming-fixture predictions</span>
+      </div>
+    </div>
+
+    <div class="day"><h3>Wednesday</h3><p class="muted" style="font-size:12px;margin:8px 0">— no scheduled runs —</p></div>
+    <div class="day"><h3>Thursday</h3><p class="muted" style="font-size:12px;margin:8px 0">— no scheduled runs —</p></div>
+    <div class="day"><h3>Friday</h3><p class="muted" style="font-size:12px;margin:8px 0">— no scheduled runs —</p></div>
+    <div class="day"><h3>Saturday</h3><p class="muted" style="font-size:12px;margin:8px 0">— no scheduled runs —</p></div>
+  </div>
+
+  <!-- ====================== CONTINUOUS ====================== -->
+  <h2>Continuous (24/7)</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="h"><span class="name">Process Missing Games</span><span class="pill p-scrape">scrape</span></div>
+      <div class="cron">cron: 0 * * * *  ·  every hour</div>
+      <div class="desc">Sweeps the missing-games queue, 10 rows per run.</div>
+    </div>
+    <div class="card">
+      <div class="h"><span class="name">Reconcile Stripe Subscriptions</span><span class="pill p-ops">ops</span></div>
+      <div class="cron">cron: 0 */6 * * *  ·  every 6h (00/06/12/18 UTC)</div>
+      <div class="desc">Reconciles Stripe state against Supabase users / subscriptions.</div>
+    </div>
+  </div>
+
+  <!-- ====================== CHAIN ====================== -->
+  <h2>Weekly Pipeline Flow (Mon → Tue)</h2>
+  <div class="chain">
+    <h4>Scrape → Rank → Marketing chain</h4>
+    <div class="flow">
+      <div class="node"><span class="label">Sun 11pm — Scrape Games</span><span class="when">6-link chain through Mon</span></div>
+      <span class="arrow">→</span>
+      <div class="node"><span class="label">Sun 11:30pm — PlayMetrics / TGS</span><span class="when">league + event ingest</span></div>
+      <span class="arrow">→</span>
+      <div class="node rank"><span class="label">Mon 6:30am — Calculate Rankings</span><span class="when">scheduled + workflow_run gated</span></div>
+      <span class="arrow">→</span>
+      <div class="node predict disabled"><span class="label">Marketing Pipeline</span><span class="when">workflow_run · currently <strong>disabled</strong> (if: false)</span></div>
+    </div>
+    <h4 style="margin-top:18px">Prediction lifecycle (manual + scheduled)</h4>
+    <div class="flow">
+      <div class="node predict"><span class="label">Tue 1pm — Refresh</span><span class="when">freeze upcoming fixtures</span></div>
+      <span class="arrow">→</span>
+      <div class="node predict"><span class="label">…game played…</span><span class="when">background</span></div>
+      <span class="arrow">→</span>
+      <div class="node predict"><span class="label">Mon 9am — Settle &amp; Evaluate</span><span class="when">scored vs actuals</span></div>
+    </div>
+  </div>
+
+  <!-- ====================== EVENT-DRIVEN ====================== -->
+  <h2>Event-Driven (no schedule)</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="h"><span class="name">CI Quality Gate</span><span class="pill p-ci">ci</span></div>
+      <div class="cron">on: push (main), pull_request (main)</div>
+      <div class="desc">Python ruff + tests. Required check for merges.</div>
+    </div>
+    <div class="card">
+      <div class="h"><span class="name">Claude Code Review</span><span class="pill p-ci">ci</span></div>
+      <div class="cron">on: pull_request [opened, synchronize, ready_for_review, reopened]</div>
+      <div class="desc">Auto-reviews every PR.</div>
+    </div>
+    <div class="card">
+      <div class="h"><span class="name">Claude Code (mentions)</span><span class="pill p-ci">ci</span></div>
+      <div class="cron">on: issue_comment / PR review / issue with “@claude”</div>
+      <div class="desc">On-demand agent inside the GitHub UI.</div>
+    </div>
+    <div class="card">
+      <div class="h"><span class="name">Calculate Rankings (chained)</span><span class="pill p-rank">rank</span></div>
+      <div class="cron">workflow_run: Modular11 Weekly Scrape / Events Weekly Scrape (completed)</div>
+      <div class="desc">Re-ranks automatically after MLS NEXT ingests succeed.</div>
+    </div>
+    <div class="card disabled">
+      <div class="h"><span class="name">Marketing Pipeline</span><span class="pill p-ci">disabled</span></div>
+      <div class="cron">workflow_run: Calculate Rankings  ·  <strong>if: false</strong></div>
+      <div class="desc">Gated off in the workflow. Re-enable by restoring the original <code>if:</code> block.</div>
+    </div>
+  </div>
+
+  <!-- ====================== FULL TABLE ====================== -->
+  <h2>All Scheduled Workflows · Cron Reference</h2>
+  <table>
+    <thead>
+      <tr><th>Workflow</th><th>Cron (UTC)</th><th>Local (MT)</th><th>Category</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>scrape-games</td><td><code>0 6 * * 1</code></td><td>Sun 11:00 PM</td><td>Scrape</td></tr>
+      <tr><td>wa-scraper</td><td><code>0 6 * * 1</code> + <code>0 7 * * 1</code></td><td>Sun 11:00 PM (DST-gated)</td><td>Scrape</td></tr>
+      <tr><td>playmetrics-scrape-import</td><td><code>30 6 * * 1</code></td><td>Sun 11:30 PM</td><td>Scrape</td></tr>
+      <tr><td>tgs-event-scrape-import</td><td><code>30 6 * * 1</code></td><td>Sun 11:30 PM</td><td>Scrape</td></tr>
+      <tr><td>update-missing-club-and-state</td><td><code>0 10 * * 1</code></td><td>Mon 4:00 AM</td><td>Hygiene</td></tr>
+      <tr><td>data-hygiene-weekly</td><td><code>0 11 * * 1</code></td><td>Mon 5:00 AM</td><td>Hygiene</td></tr>
+      <tr><td>calculate-rankings</td><td><code>30 12 * * 1</code></td><td>Mon 6:30 AM</td><td>Rankings</td></tr>
+      <tr><td>weekly-prospective-settle-evaluate</td><td><code>0 16 * * 1</code></td><td>Mon 9:00 AM (Phoenix 9 AM)</td><td>Predictions</td></tr>
+      <tr><td>unknown-opponent-hygiene-weekly</td><td><code>0 18 * * 2</code></td><td>Tue 12:00 PM</td><td>Hygiene</td></tr>
+      <tr><td>weekly-prospective-refresh</td><td><code>0 19 * * 2</code></td><td>Tue 1:00 PM (Phoenix 12 PM)</td><td>Predictions</td></tr>
+      <tr><td>process-missing-games</td><td><code>0 * * * *</code></td><td>hourly</td><td>Scrape</td></tr>
+      <tr><td>reconcile-stripe-daily</td><td><code>0 */6 * * *</code></td><td>every 6 hours</td><td>Ops</td></tr>
+      <tr class="disabled"><td>auto-gotsport-event-scrape</td><td><em>disabled 2026-05-17</em></td><td>manual only</td><td>Scrape (disabled)</td></tr>
+      <tr class="disabled"><td>modular11-weekly-scrape</td><td><em>commented out</em></td><td>manual only</td><td>Scrape (disabled)</td></tr>
+      <tr class="disabled"><td>modular11-events-weekly-scrape</td><td><em>commented out</em></td><td>manual only</td><td>Scrape (disabled)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Manual-Only Workflows (workflow_dispatch)</h2>
+  <p class="muted" style="margin-top:-4px">No automatic trigger — run from the GitHub Actions tab.</p>
+  <table>
+    <tbody>
+      <tr><td>auto-gotsport-upcoming-event-scrape</td><td>Scrape upcoming GotSport fixtures</td></tr>
+      <tr><td>auto-merge-queue</td><td>Process team merge queue (also workflow_call-able)</td></tr>
+      <tr><td>backfill-prediction-feature-history</td><td>Replay historical prediction features</td></tr>
+      <tr><td>enrich-instagram-handles</td><td>IG handle enrichment sweeps</td></tr>
+      <tr><td>evaluate-prospective-match-predictions</td><td>One-off evaluation pass</td></tr>
+      <tr><td>fix-age-year-discrepancies</td><td>Folded into data-hygiene Step 6, still dispatchable</td></tr>
+      <tr><td>playmetrics-tournament-scrape-import</td><td>One-shot tournament URL ingest</td></tr>
+      <tr><td>prepare-prospective-match-predictions</td><td>Ingest fixture artifact into shadow log</td></tr>
+      <tr><td>process-match-prediction-shadow</td><td>Process shadow predictions with a trained model</td></tr>
+      <tr><td>process-prospective-heuristic-predictions</td><td>Freeze heuristic baselines</td></tr>
+      <tr><td>scrape-specific-event</td><td>Targeted single-event scrape</td></tr>
+      <tr><td>settle-prospective-match-predictions</td><td>Manual settlement pass</td></tr>
+      <tr><td>sincsports-team-discovery</td><td>SincSports discovery (runner IP blocked — run locally)</td></tr>
+      <tr><td>train-point-in-time-match-model</td><td>Train the point-in-time match model</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Source: <code>C:\PitchRank\.github\workflows\</code> · 33 workflow files total · 12 active scheduled + 2 hourly/6h + 4 event-driven (1 disabled) + 15 manual-only.
+  </footer>
+</main>
+</body>
+</html>
