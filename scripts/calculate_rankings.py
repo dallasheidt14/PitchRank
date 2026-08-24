@@ -751,6 +751,9 @@ async def main():
                 merge_resolver=merge_resolver,
                 timing_report=timing_report,
                 use_glicko=(args.engine == "glicko"),
+                persist_game_residuals=not args.dry_run,
+                persist_game_explainability=not args.dry_run,
+                save_snapshot=not args.dry_run,
             )
         else:
             if args.engine == "glicko":
@@ -765,6 +768,9 @@ async def main():
                     merge_resolver=merge_resolver,
                     timing_report=timing_report,
                     use_glicko=True,
+                    persist_game_residuals=not args.dry_run,
+                    persist_game_explainability=not args.dry_run,
+                    save_snapshot=not args.dry_run,
                 )
             else:
                 result = await compute_rankings_v53e_only(

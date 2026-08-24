@@ -2992,7 +2992,7 @@ async def compute_all_cohorts(
     """
 
     # Diagnostic: Log distribution stats for sos_norm and powerscore_adj per cohort
-    if save_snapshot and not teams_combined.empty:
+    if not teams_combined.empty:
         logger.info("📊 Distribution diagnostics per age/gender cohort:")
         for (age, gender), cohort_df in teams_combined.groupby(["age", "gender"]):
             if "sos_norm" in cohort_df.columns:

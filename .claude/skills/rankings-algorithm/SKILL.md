@@ -24,8 +24,9 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
    from the global map + anchor offset, at RD 350 so g(φ) discounts them. Per cohort,
    post-convergence: OFF/DEF → SOS → SCF → sigmoid(z-score) → `powerscore_core`
    → × provisional_mult → `powerscore_adj`, then ML Layer 13 → `powerscore_ml`
-6. `_persist_game_residuals()` — batch RPC to Supabase (called inside
-   `compute_rankings_with_ml` per cohort, skipped for Pass 1)
+6. `_persist_game_residuals()` + `_persist_game_explainability()` — batch RPCs to
+   Supabase (called inside `compute_rankings_with_ml` per cohort; skipped for Pass 1
+   and when their `persist_game_*` flags are False, e.g. --dry-run)
 7. **Pass 3**: national/state SOS columns (`sos_norm_national/state`, `sos_rank_*`) —
    display only, never feeds PowerScore
 8. Same-age evidence gates: SOS/evidence-gated ML delta → raw shrink → play-up bonus
@@ -224,9 +225,7 @@ python scripts/calculate_rankings.py \
     --ml                    # No-op under Glicko: ML runs unless env ML_LAYER_ENABLED=false
     --engine glicko         # Engine: glicko (default) or v53e (legacy)
     --lookback-days 365     # Game window
-    --dry-run              # Gates only the rankings_full save; dry_run never
-                           # reaches calculator.py, so residuals, explainability,
-                           # and the ranking_history snapshot still write
+    --dry-run              # No database writes
     --force-rebuild        # Ignore cache
     --age-group u14        # Filter age group
     --gender Male          # Filter gender

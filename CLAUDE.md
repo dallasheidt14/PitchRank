@@ -305,7 +305,7 @@ pip install -r requirements.txt
 # Run ranking calculation (engine defaults to glicko)
 python scripts/calculate_rankings.py --lookback-days 365
 
-# Dry run (skips the rankings_full save; residuals/history still persist — known gap)
+# Dry run (no database writes)
 python scripts/calculate_rankings.py --dry-run
 
 # Force rebuild (ignore cache)
