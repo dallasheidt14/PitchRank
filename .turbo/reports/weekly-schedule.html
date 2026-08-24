@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PitchRank · Weekly Schedule</title>
+<style>
+  :root{
+    --bg:#0a0e1a; --panel:#131a2e; --panel2:#1a2342; --line:#222b4a;
+    --ink:#eef2ff; --mute:#8b95b8; --dim:#5b6488;
+    --scrape:#3b82f6; --rank:#a855f7; --hygiene:#10b981; --predict:#f59e0b;
+    --ops:#ef4444; --accent:#7aa2ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,Segoe UI,Roboto,Inter,sans-serif}
+
+  header{padding:36px 40px 24px;border-bottom:1px solid var(--line);
+    background:radial-gradient(1200px 300px at 10% 0%,#1a234280,transparent 70%),#0b1124}
+  header .eyebrow{color:var(--accent);font-size:12px;font-weight:700;
+    letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+  header h1{margin:0;font-size:28px;letter-spacing:-.3px}
+  header p{margin:6px 0 0;color:var(--mute);font-size:13px}
+
+  main{max-width:1100px;margin:0 auto;padding:32px 40px 64px}
+
+  /* Stat strip */
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:0 0 36px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .stat .v{font-size:22px;font-weight:800;letter-spacing:-.5px}
+  .stat .k{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+  .stat.s{border-left:3px solid var(--scrape)}
+  .stat.r{border-left:3px solid var(--rank)}
+  .stat.h{border-left:3px solid var(--hygiene)}
+  .stat.p{border-left:3px solid var(--predict)}
+  .stat.o{border-left:3px solid var(--ops)}
+
+  /* Day blocks (vertical timeline) */
+  .day{margin:0 0 22px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden}
+  .day header{padding:18px 22px;background:linear-gradient(90deg,#1a2342,#131a2e);
+    border-bottom:1px solid var(--line);display:flex;align-items:center;
+    justify-content:space-between}
+  .day header .dayname{font-size:18px;font-weight:800;letter-spacing:.3px}
+  .day header .daymeta{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:1.2px}
+
+  .events{padding:8px 22px 18px}
+  .row{display:grid;grid-template-columns:120px 14px 1fr;gap:14px;padding:14px 0;
+    border-bottom:1px dashed var(--line)}
+  .row:last-child{border-bottom:none}
+  .time{color:var(--ink);font-weight:700;font-size:13px;text-align:right;padding-top:2px}
+  .time small{display:block;color:var(--dim);font-weight:500;font-size:11px;margin-top:2px}
+  .bullet{position:relative}
+  .bullet::before{content:"";position:absolute;left:4px;top:6px;width:8px;height:8px;
+    border-radius:50%;background:var(--mute);box-shadow:0 0 0 3px var(--panel)}
+  .row.s .bullet::before{background:var(--scrape)}
+  .row.r .bullet::before{background:var(--rank)}
+  .row.h .bullet::before{background:var(--hygiene)}
+  .row.p .bullet::before{background:var(--predict)}
+  .row.o .bullet::before{background:var(--ops)}
+  .body .title{font-weight:700;font-size:14px}
+  .body .desc{color:var(--mute);font-size:12.5px;margin-top:3px}
+  .body .tags{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+  .tag{background:var(--panel2);border:1px solid var(--line);color:var(--mute);
+    font-size:10.5px;padding:2px 7px;border-radius:999px;
+    font-family:ui-monospace,Consolas,monospace;letter-spacing:.2px}
+  .cat{font-size:10.5px;font-weight:700;color:#0a0e1a;padding:2px 8px;border-radius:999px;
+    text-transform:uppercase;letter-spacing:.6px}
+  .cat.s{background:var(--scrape);color:#fff}
+  .cat.r{background:var(--rank);color:#fff}
+  .cat.h{background:var(--hygiene);color:#fff}
+  .cat.p{background:var(--predict);color:#1a1100}
+  .cat.o{background:var(--ops);color:#fff}
+
+  .empty{padding:20px 0;color:var(--dim);font-size:13px;text-align:center}
+
+  /* Continuous strip */
+  .always{margin:32px 0 0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
+  .always h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent)}
+  .always .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .always .item{display:flex;justify-content:space-between;align-items:center;
+    background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .always .item .l .n{font-weight:700;font-size:13px}
+  .always .item .l .d{color:var(--mute);font-size:12px;margin-top:2px}
+  .always .item .r{font-family:ui-monospace,Consolas,monospace;color:var(--accent);font-size:12px}
+
+  footer{margin-top:30px;color:var(--dim);font-size:11px;text-align:center}
+
+  @media (max-width:760px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .always .grid{grid-template-columns:1fr}
+    .row{grid-template-columns:96px 14px 1fr}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">PitchRank · GitHub Actions</div>
+  <h1>Weekly Automation Schedule</h1>
+  <p>All times shown in Mountain Time (MDT, UTC&minus;6) · 12 scheduled workflows · snapshot 2026-05-17</p>
+</header>
+
+<main>
+
+  <div class="stats">
+    <div class="stat s"><div class="v">4</div><div class="k">Scrape jobs</div></div>
+    <div class="stat r"><div class="v">1</div><div class="k">Ranking job</div></div>
+    <div class="stat h"><div class="v">3</div><div class="k">Hygiene jobs</div></div>
+    <div class="stat p"><div class="v">2</div><div class="k">Prediction jobs</div></div>
+    <div class="stat o"><div class="v">2</div><div class="k">Always-on jobs</div></div>
+  </div>
+
+  <!-- SUNDAY -->
+  <section class="day">
+    <header>
+      <div class="dayname">Sunday</div>
+      <div class="daymeta">Ingest night · 4 jobs</div>
+    </header>
+    <div class="events">
+
+      <div class="row s">
+        <div class="time">11:00 PM<small>06:00 UTC Mon</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat s">Scrape</span>
+          <div class="title" style="margin-top:6px">Scrape Games (GotSport)</div>
+          <div class="desc">Seeds a 6-link chain — 25K teams per link, 150K teams/week, sweeps the full ~137K pool.</div>
+          <div class="tags"><span class="tag">0 6 * * 1</span><span class="tag">scrape-games.yml</span></div>
+        </div>
+      </div>
+
+      <div class="row s">
+        <div class="time">11:00 PM<small>06+07 UTC Mon</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat s">Scrape</span>
+          <div class="title" style="margin-top:6px">Affinity WA Scraper</div>
+          <div class="desc">Washington state games. Two crons (6+7 UTC) gated in-job by Pacific TZ to survive DST.</div>
+          <div class="tags"><span class="tag">DST-gated</span><span class="tag">wa-scraper.yml</span></div>
+        </div>
+      </div>
+
+      <div class="row s">
+        <div class="time">11:30 PM<small>06:30 UTC Mon</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat s">Scrape</span>
+          <div class="title" style="margin-top:6px">PlayMetrics League Scrape &amp; Import</div>
+          <div class="desc">Loops sequentially over 2 PlayMetrics URLs: SECL &amp; State League Fall 2025, plus league 1926 / division 12084. Per-URL failure isolated.</div>
+          <div class="tags"><span class="tag">30 6 * * 1</span></div>
+        </div>
+      </div>
+
+      <div class="row s">
+        <div class="time">11:30 PM<small>06:30 UTC Mon</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat s">Scrape</span>
+          <div class="title" style="margin-top:6px">TGS Event Scrape &amp; Import</div>
+          <div class="desc">Chained TGS events: 3400 → 4600. Each run dispatches the next link, serialized via workflow concurrency.</div>
+          <div class="tags"><span class="tag">30 6 * * 1</span><span class="tag">7-link chain</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- MONDAY -->
+  <section class="day">
+    <header>
+      <div class="dayname">Monday</div>
+      <div class="daymeta">Hygiene → score → rank · 4 jobs</div>
+    </header>
+    <div class="events">
+
+      <div class="row h">
+        <div class="time">4:00 AM<small>10:00 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat h">Hygiene</span>
+          <div class="title" style="margin-top:6px">Update Missing Club Names &amp; State Codes</div>
+          <div class="desc">6-step backfill: GotSport API → heuristic extraction → club standardization → state matching → API residual → opponent inference.</div>
+          <div class="tags"><span class="tag">0 10 * * 1</span></div>
+        </div>
+      </div>
+
+      <div class="row h">
+        <div class="time">5:00 AM<small>11:00 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat h">Hygiene</span>
+          <div class="title" style="margin-top:6px">Weekly Data Hygiene</div>
+          <div class="desc">Normalize team names → fix age groups → fuzzy duplicate merge → review queue matcher. 5-step dependency chain.</div>
+          <div class="tags"><span class="tag">0 11 * * 1</span></div>
+        </div>
+      </div>
+
+      <div class="row r">
+        <div class="time">6:30 AM<small>12:30 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat r">Rank</span>
+          <div class="title" style="margin-top:6px">Calculate Rankings</div>
+          <div class="desc">Glicko-2 engine + ML layer. Runs right after the two Monday hygiene jobs. Also chain-triggered when Modular11 scrapes complete.</div>
+          <div class="tags"><span class="tag">30 12 * * 1</span><span class="tag">+ workflow_run</span></div>
+        </div>
+      </div>
+
+      <div class="row p">
+        <div class="time">9:00 AM<small>16:00 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat p">Predict</span>
+          <div class="title" style="margin-top:6px">Weekly Prospective Settle &amp; Evaluate</div>
+          <div class="desc">Settles last week's frozen predictions against actual game results and scores model performance.</div>
+          <div class="tags"><span class="tag">0 16 * * 1</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TUESDAY -->
+  <section class="day">
+    <header>
+      <div class="dayname">Tuesday</div>
+      <div class="daymeta">Cleanup &amp; refresh · 2 jobs</div>
+    </header>
+    <div class="events">
+
+      <div class="row h">
+        <div class="time">12:00 PM<small>18:00 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat h">Hygiene</span>
+          <div class="title" style="margin-top:6px">Unknown Opponent Hygiene</div>
+          <div class="desc">Resolves <code>no_match</code> opponents from the review queue and discovers new teams.</div>
+          <div class="tags"><span class="tag">0 18 * * 2</span></div>
+        </div>
+      </div>
+
+      <div class="row p">
+        <div class="time">1:00 PM<small>19:00 UTC</small></div>
+        <div class="bullet"></div>
+        <div class="body">
+          <span class="cat p">Predict</span>
+          <div class="title" style="margin-top:6px">Weekly Prospective Refresh</div>
+          <div class="desc">Scrapes upcoming fixtures, freezes offline predictions + heuristic baselines for the coming week.</div>
+          <div class="tags"><span class="tag">0 19 * * 2</span></div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- WED → SAT -->
+  <section class="day">
+    <header>
+      <div class="dayname">Wednesday → Saturday</div>
+      <div class="daymeta">Quiet · only continuous jobs run</div>
+    </header>
+    <div class="events"><div class="empty">No scheduled workflows. Hourly + 6-hour jobs continue (see below).</div></div>
+  </section>
+
+  <!-- CONTINUOUS -->
+  <div class="always">
+    <h2>Always On</h2>
+    <div class="grid">
+      <div class="item">
+        <div class="l">
+          <div class="n">Process Missing Games</div>
+          <div class="d">Sweeps the queue 10 rows at a time</div>
+        </div>
+        <div class="r">every hour</div>
+      </div>
+      <div class="item">
+        <div class="l">
+          <div class="n">Reconcile Stripe Subscriptions</div>
+          <div class="d">Stripe ↔ Supabase reconciliation</div>
+        </div>
+        <div class="r">every 6 hours</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Source: <code>C:\PitchRank\.github\workflows\</code> · click any tag to view the cron expression in plain UTC.
+  </footer>
+
+</main>
+</body>
+</html>
