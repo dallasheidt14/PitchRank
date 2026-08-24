@@ -313,7 +313,7 @@ export function normalizeAgeGroup(ageGroup: string | number | null | undefined):
     }
   }
 
-  // U18 → U19 remap: U19 encompasses both birth years 2007 and 2008
+  // PitchRank runs no u18 board — U18 merges into U19
   if (age === 18) age = 19;
 
   return age;

@@ -139,11 +139,10 @@ The season is derived from the wall clock, not configured:
 onward and `now.year - 1` before it, so `calculate_age_group_from_birth_year`
 re-maps itself every Aug 1 with no code change.
 
-**`config/settings.py` `_BIRTH_YEARS` has NOT rolled and now disagrees with that
-derivation on all nine entries** — it still says U12 is 2014, and `AGE_GROUPS` is
-built from it. The table above documents the wall-clock derivation, which is what
-ingestion and matching use. Treat `_BIRTH_YEARS` as stale for cohort questions;
-see `.turbo/improvements.md`.
+`config/settings.py` derives `_BIRTH_YEARS` from the same wall-clock season.
+`AGE_GROUPS[..]["birth_year"]` is the band's younger year, not any team's birth
+year — never stamp it onto `teams.birth_year`. `CURRENT_YEAR` is fixed at
+import, so a process running across Aug 1 keeps last season's map until restart.
 
 ### Gender Normalization
 

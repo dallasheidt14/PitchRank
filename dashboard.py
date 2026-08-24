@@ -4414,7 +4414,6 @@ elif section == "✏️ Manual Team Edit":
                                 'state_code': new_state_code if new_state_code else None,
                                 'age_group': new_age_group,
                                 'gender': new_gender,
-                                'birth_year': AGE_GROUPS.get(new_age_group, {}).get('birth_year'),
                                 'updated_at': datetime.now().isoformat()
                             }
 

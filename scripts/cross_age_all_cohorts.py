@@ -80,7 +80,7 @@ def age_group_to_int(ag: str | None) -> int | None:
     ag = str(ag).strip().lower().replace("u", "")
     try:
         num = int(ag)
-        # U18 -> 19 mapping (U19 encompasses both birth years)
+        # PitchRank runs no u18 board — U18 merges into U19
         if num == 18:
             num = 19
         return num
