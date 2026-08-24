@@ -5,19 +5,31 @@ from datetime import datetime
 from typing import Optional
 
 
-def _soccer_season_year() -> int:
-    """Return the current soccer season year based on Aug 1 cutoff.
+def _soccer_season_year(now=None) -> int:
+    """Return the soccer season year for a date (default: today), Aug 1 cutoff.
 
     Soccer seasons run Aug 1 – Jul 31.  Before Aug 1 the season year is the
     previous calendar year (e.g. March 2026 → 2025 season).  On or after Aug 1
     the season year equals the calendar year (e.g. Sep 2026 → 2026 season).
     """
-    now = datetime.now()
+    now = now or datetime.now()
     return now.year if now.month >= 8 else now.year - 1
 
 
 # Season year for age calculations — auto-updates every Aug 1
 CURRENT_YEAR = _soccer_season_year()
+
+
+def scrape_excluded_birth_years(today=None) -> list[int]:
+    """Birth years outside PitchRank's u10-u19 range for the season of `today`.
+
+    The old end is age 21+ (yr-21, yr-20); yr-19 stays eligible because the
+    age-20 collapse files it into u19. The young end is U9 and younger
+    (yr-8, yr-7, yr-6). Mirrors the SQL in the scrape-eligibility RPCs
+    (migration 20260824120000); change both together or they diverge.
+    """
+    yr = _soccer_season_year(today)
+    return [yr - 21, yr - 20, yr - 8, yr - 7, yr - 6]
 
 
 def extract_birth_year_from_name(team_name: str) -> Optional[int]:

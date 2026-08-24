@@ -26,6 +26,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
+from src.utils.team_utils import scrape_excluded_birth_years
 from supabase import create_client
 
 console = Console()
@@ -385,8 +386,8 @@ async def scrape_games(
             skipped_count += 1
             continue
 
-        # Skip if birth_year is 2017, 2018, 2019 (U8/U9) or 2005, 2006 (U20+)
-        if birth_year in [2005, 2006, 2017, 2018, 2019]:
+        # Skip cohorts outside u10-u19 for the current season (U9-and-under, U21+)
+        if birth_year in scrape_excluded_birth_years():
             logger.debug(f"Skipping out-of-range team (birth_year={birth_year}): {team.get('team_name', 'Unknown')}")
             skipped_count += 1
             continue

@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from config.settings import AGE_GROUPS, PROJECT_NAME, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERSION
+from src.utils.team_utils import scrape_excluded_birth_years
 from supabase import create_client
 
 # Optional Stripe SDK for account reconciliation
@@ -844,8 +845,7 @@ elif section == "📈 Database Import Stats":
             # placeholder teams in a list claiming "teams needing scraping."
             if stale_count > 0 or never_count > 0:
                 with st.expander(f"View Teams Needing Scraping ({stale_count + never_count:,} teams)"):
-                    current_year = datetime.now().year
-                    excluded_birth_years = [current_year - y for y in (21, 20, 9, 8, 7)]
+                    excluded_birth_years = scrape_excluded_birth_years()
                     # Case variants on age_group cover stored 'u8' vs 'U8'.
                     excluded_age_groups = ['U8', 'U-8', 'U9', 'U-9', 'u8', 'u-8', 'u9', 'u-9']
 
