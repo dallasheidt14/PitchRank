@@ -42,6 +42,20 @@ PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
 Do not "fix" this by splitting the cohort.
 
+### Season-year vs calendar-year trap
+
+Cohorts roll on Aug 1; the calendar rolls on Jan 1. Any year-offset cohort
+arithmetic computed from the calendar year (e.g. an excluded birth year as
+`date.today().year - 9`) names the wrong cohort from Aug 1 to Dec 31 — inside
+that window the offset points at real U10 (2017-born) teams while labelled "U9",
+silently excluding them from scraping (`scripts/drain_queue.py`
+`_excluded_birth_years()`, mirrored in SQL by the scrape-eligibility RPCs via
+`extract(year from now())`). `scripts/scrape_games.py` hardcodes the same 2026
+set, which is wrong for the whole season and stops matching the computed sets
+on Jan 1 — fix all of them together or they diverge. Derive the year from the
+season instead: U9 is `CURRENT_YEAR - 8` (`src/utils/team_utils.py`
+`_soccer_season_year()` / `CURRENT_YEAR`), never `date.today().year - 9`.
+
 ### Common Formats
 - `14B` = 2014 birth year, Boys = **U13 Male**
 - `U14B` = U14 age group, Boys = **U14 Male**
