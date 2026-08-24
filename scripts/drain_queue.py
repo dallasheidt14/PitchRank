@@ -82,14 +82,15 @@ _EXCLUDED_AGE_GROUPS = ("U8", "U-8", "U9", "U-9")
 
 
 def _excluded_birth_years(today: Optional[date] = None) -> List[int]:
-    """Birth years outside PitchRank's U10-U19 range for the current season.
+    """Birth years outside PitchRank's u10-u19 range for the current season.
 
-    Mirrors the list the SQL side computes as ``extract(year from now())``
-    minus (21, 20, 9, 8, 7): the U20/U21 old end and the U7/U8/U9 young end.
-    Computed rather than hardcoded so it rolls over on Jan 1 like the SQL does.
+    Delegates to team_utils.scrape_excluded_birth_years, which derives the
+    SEASON year (rolls Aug 1) — the calendar-year version excluded the U10
+    cohort every Aug-Dec. Mirrors the SQL in the scrape-eligibility RPCs.
     """
-    yr = (today or date.today()).year
-    return [yr - 21, yr - 20, yr - 9, yr - 8, yr - 7]
+    from src.utils.team_utils import scrape_excluded_birth_years
+
+    return scrape_excluded_birth_years(today)
 
 
 def _is_scrapeable_team(team: Dict) -> bool:

@@ -372,14 +372,21 @@ def test_real_run_releases_claims_when_topup_fails():
     assert releases == 1
 
 
-def test_excluded_birth_years_is_dynamic():
-    """Mirrors the SQL side's extract(year from now()) minus (21,20,9,8,7)."""
+def test_excluded_birth_years_follow_the_season():
+    """Exclusions derive from the Aug-1 season year, not the calendar year."""
     import datetime as _dt
 
     from scripts.drain_queue import _excluded_birth_years
 
-    assert _excluded_birth_years(_dt.date(2026, 8, 11)) == [2005, 2006, 2017, 2018, 2019]
-    assert _excluded_birth_years(_dt.date(2027, 1, 1)) == [2006, 2007, 2018, 2019, 2020]
+    season_2026 = [2005, 2006, 2018, 2019, 2020]
+    assert _excluded_birth_years(_dt.date(2026, 8, 11)) == season_2026
+    # Jan 1 does not roll the season: same exclusions through Jul 31.
+    assert _excluded_birth_years(_dt.date(2027, 1, 1)) == season_2026
+    assert _excluded_birth_years(_dt.date(2027, 7, 31)) == season_2026
+    assert _excluded_birth_years(_dt.date(2027, 8, 1)) == [2006, 2007, 2019, 2020, 2021]
+    # 2017-born are U10 in 2026-27 and 2007-born are u19 (age-20 collapse):
+    assert 2017 not in season_2026
+    assert 2007 not in season_2026
     # Defaults to today rather than a frozen list.
     assert _excluded_birth_years() == _excluded_birth_years(_dt.date.today())
 
