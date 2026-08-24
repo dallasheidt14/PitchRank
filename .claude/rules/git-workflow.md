@@ -9,7 +9,7 @@ The old prohibition existed because 9,381 `.pyc` files were tracked, so every st
 What still bites: a plain `git stash pop` restores everything as unstaged, so a carefully staged set comes back flattened. Use `git stash pop --index` when the staged/unstaged split matters.
 
 ## Code review before pushing ranking changes
-Always run a code review (e.g., /review-code or /peer-review) before pushing code that triggers production ranking workflows. A 5-minute review is always cheaper than a failed 60-minute ranking run. This has been learned the hard way.
+Always run a code review (e.g., /review-code or /peer-review) before pushing code that triggers production ranking workflows. A 5-minute review is always cheaper than a failed ranking run — the weekly run takes 2.5-3.7 hours (four runs, Aug 2026). This has been learned the hard way.
 
 Two read-only reviewer agents in `.claude/agents/` support pre-push review:
 - `ranking-change-reviewer` — ranking-engine diffs (scope list in its frontmatter).

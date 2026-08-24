@@ -25,6 +25,8 @@ from src.scrapers.gotsport_tier_parser import (
     enrich_teams_with_tiers,
 )
 
+pytestmark = pytest.mark.slow
+
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "gotsport"
 
 

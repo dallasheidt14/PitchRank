@@ -28,7 +28,9 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.lock
-      - run: pytest tests/ -v --tb=short --ignore=tests/test_enhanced_pipeline.py
+      # ruff is exercised by the hook-ordering test, not only the lint job
+      - run: pip install ruff
+      - run: pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 
   frontend-lint:
     name: Frontend Lint

@@ -32,14 +32,16 @@ def _gnu_realpath() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    BASH is None or shutil.which("jq") is None or not _gnu_realpath(),
+    BASH is None or shutil.which("jq") is None or shutil.which("python") is None or not _gnu_realpath(),
     reason="hooks need bash, jq and GNU realpath on PATH",
 )
 
 
 def _exec(hook: str, stdin: str, project_dir: Path) -> subprocess.CompletedProcess:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(project_dir)}
-    return subprocess.run([BASH, str(HOOKS / hook)], input=stdin, capture_output=True, text=True, env=env, timeout=60)
+    return subprocess.run(
+        [BASH, str(HOOKS / hook)], input=stdin, capture_output=True, text=True, encoding="utf-8", env=env, timeout=60
+    )
 
 
 def _run(hook: str, payload: dict, project_dir: Path, cwd: Path | None = None) -> subprocess.CompletedProcess:
@@ -54,8 +56,8 @@ def _edit(file_path: str, project_dir: Path, cwd: Path | None = None) -> subproc
     return _run("protect-paths.sh", {"tool_input": {"file_path": file_path}}, project_dir, cwd)
 
 
-def _post_edit(file_path: Path, project_dir: Path) -> str | None:
-    result = _run("post-edit.sh", {"tool_input": {"file_path": str(file_path)}}, project_dir)
+def _post_edit(file_path: Path, project_dir: Path, **tool_input: object) -> str | None:
+    result = _run("post-edit.sh", {"tool_input": {"file_path": str(file_path), **tool_input}}, project_dir)
     assert result.returncode == 0, result.stderr
     if not result.stdout.strip():
         return None
@@ -253,7 +255,7 @@ def test_dry_run_check_warns_only_for_new_unguarded_supabase_writers(repo: Path)
 
 
 @pytest.mark.skipif(
-    subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
+    shutil.which("python") is None or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
     reason="ruff not importable",
 )
 def test_ruff_fix_reports_only_real_rewrites(repo: Path) -> None:
@@ -275,3 +277,73 @@ def test_cohort_line_comes_from_team_utils() -> None:
     result = subprocess.run(["python", str(HOOKS / "cohort_line.py")], capture_output=True, text=True, env=env)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith(f"so 14B = {calculate_age_group_from_birth_year(2014)} Male")
+
+
+def test_replace_all_multi_site_edits_get_flagged(repo: Path) -> None:
+    target = repo / "notes.md"
+    target.write_text("alpha\nalpha\nalpha\n")
+    flagged = _post_edit(target, repo, replace_all=True, old_string="beta", new_string="alpha")
+    assert flagged is not None and "3 occurrences" in flagged
+    target.write_text("alpha\n")
+    assert _post_edit(target, repo, replace_all=True, old_string="beta", new_string="alpha") is None
+    target.write_text("alpha\nalpha\n")
+    assert _post_edit(target, repo, old_string="beta", new_string="alpha") is None
+
+
+def test_replace_all_counts_the_exact_multiline_needle(repo: Path) -> None:
+    target = repo / "block.md"
+    # Lopsided on purpose: the needle's first line appears three times but the
+    # full needle only twice, so a truncated needle inflates the count.
+    target.write_text("def f():\n    x = 1\ndef f():\n    x = 1\ndef f():\n    y = 2\n")
+    flagged = _post_edit(target, repo, replace_all=True, old_string="q", new_string="def f():\n    x = 1\n")
+    assert flagged is not None and "2 occurrences" in flagged
+    # A site missing the trailing newline is not a match for the full needle.
+    target.write_text("def f():\n    x = 1\ndef f():\n    x = 1")
+    assert _post_edit(target, repo, replace_all=True, old_string="q", new_string="def f():\n    x = 1\n") is None
+
+
+def test_replace_all_normalizes_crlf_needles(repo: Path) -> None:
+    target = repo / "crlf.md"
+    target.write_text("aa\nbb\naa\nbb\n")
+    flagged = _post_edit(target, repo, replace_all=True, old_string="q", new_string="aa\r\nbb\r\n")
+    assert flagged is not None and "2 occurrences" in flagged
+
+
+def test_replace_all_deletion_stays_silent(repo: Path) -> None:
+    target = repo / "notes.md"
+    target.write_text("alpha\nalpha\n")
+    assert _post_edit(target, repo, replace_all=True, old_string="alpha", new_string="") is None
+
+
+def test_replace_all_handles_raw_utf8_payloads(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Force the locale-codepage stdin path the explicit UTF-8 decode exists to defeat.
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
+    target = repo / "utf8.md"
+    target.write_text("alpha — beta\nalpha — beta\n", encoding="utf-8")
+    payload = {
+        "cwd": str(repo),
+        "tool_input": {
+            "file_path": str(target),
+            "replace_all": True,
+            "old_string": "q",
+            "new_string": "alpha — beta\n",
+        },
+    }
+    result = _exec("post-edit.sh", json.dumps(payload, ensure_ascii=False), repo)
+    assert result.returncode == 0, result.stderr
+    note = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "2 occurrences" in note
+
+
+@pytest.mark.skipif(
+    shutil.which("python") is None or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
+    reason="ruff not importable",
+)
+def test_replace_all_counts_before_ruff_rewrites(repo: Path) -> None:
+    target = repo / "scripts" / "ordered.py"
+    target.write_text('import os\nimport os\nsb.table("teams").update({}).execute()\n')
+    note = _post_edit(target, repo, replace_all=True, old_string="q", new_string="import os\n") or ""
+    assert "2 occurrences" in note
+    assert "rewrote" in note
+    assert "no --dry-run" in note

@@ -1,6 +1,6 @@
 ---
 name: github-actions-debug
-description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, or runner issues.
+description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, runner issues, or profiling where a slow multi-hour run spends its time.
 ---
 
 # GitHub Actions Debug
@@ -64,7 +64,7 @@ and timeouts for the heavy jobs:
 |----------|------------------|---------|
 | Scrape Games (manual dispatch) | 2-4h | 120min per shard |
 | Process Missing Games | 5-15min | none set (360min GitHub default) |
-| Calculate Rankings | 1-3h | none set |
+| Calculate Rankings | 2.5-3.7h | none set (360min GitHub default) |
 | TGS Event Scrape + Import | 1-3h | 120min |
 
 ## Workflow Files
@@ -74,6 +74,27 @@ Location: `C:/PitchRank/.github/workflows/`
 - `process-missing-games.yml` - Missing games backfill
 - `calculate-rankings.yml` - Weekly rankings
 - `tgs-event-scrape-import.yml` - TGS tournament scraping
+
+## Profile a Slow Run
+
+Locate where a multi-hour run spends its wall clock before proposing fixes.
+
+1. Download the full log: `gh run view <run-id> --repo dallasheidt14/PitchRank --log > run.log`.
+   Lines are `job<TAB>step<TAB>2026-01-01T00:00:00.0000000Z message`; long steps often
+   appear as `UNKNOWN STEP`.
+2. Parse each line's timestamp, then build three views:
+   - **Silent gaps** — deltas between consecutive lines, sorted descending. The top
+     entries are the silent single operations (a batched DB write, a row-wise pandas apply).
+   - **10-minute buckets** — first message plus line count per bucket. Shows which phase
+     owns each stretch even when it logs constantly (iteration spam hides in gap analysis).
+   - **Phase timeline** — dedup non-progress lines by their digit-stripped pattern, keep
+     the first-seen offset. Yields one line per pipeline stage.
+3. Attribute minutes to phases, not log volume: a phase logging every 200 ms can still own an hour.
+
+Known decomposition of the `Calculate Rankings` step of `calculate-rankings.yml`
+(~150 min; run 32033951303, 2026-08-17): games fetch ~14m, Glicko-2 Pass 1 ~28m, Pass 2 + ML residual/explainability
+persistence ~55m (mostly DB writes, not math), same-age evidence gates ~17m silent,
+snapshot/rankings saves ~24m with statement-timeout retries.
 
 ## Re-run Commands
 ```bash

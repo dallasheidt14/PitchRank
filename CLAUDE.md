@@ -82,7 +82,7 @@ PitchRank/
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # Sub-agents: ranking-engine + read-only reviewers
-│   ├── hooks/              # Claude Code hooks wired by .claude/settings.json (git guard, secrets, ruff, dry-run, session sync)
+│   ├── hooks/              # Claude Code hooks wired by .claude/settings.json (git guard, secrets, ruff, dry-run, replace-all advisory, session sync)
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
 ├── .github/workflows/      # 41 automated workflows
 ├── dashboard.py            # Streamlit admin dashboard (6,180 lines)

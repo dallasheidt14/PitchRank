@@ -27,7 +27,7 @@ Reference for Watchy and system health monitoring.
 |----------|------------------|-------------|
 | Scrape Games | 2-4 hours | 6 hours |
 | Process Missing | 5-15 min | 30 min |
-| Calculate Rankings | 15-30 min | 60 min |
+| Calculate Rankings | 2.5-3.7 h (four runs, Aug 2026; step profile: run 32033951303) | 360 min (GitHub default) |
 | TGS Scrape | 3-4 hours | 6 hours |
 
 ## Database Size Trends

@@ -11,7 +11,12 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-ra --tb=short"
+# The ini key, not an addopts flag: pytest 9.0.x silently ignores --strict-markers from addopts.
+strict_markers = true
+markers = [
+    "slow: long-running tests, deselected in quick runs (-m 'not slow')",
+]
 
 [tool.ruff]
 line-length = 120
