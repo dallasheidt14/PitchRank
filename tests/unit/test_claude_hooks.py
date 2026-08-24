@@ -255,7 +255,8 @@ def test_dry_run_check_warns_only_for_new_unguarded_supabase_writers(repo: Path)
 
 
 @pytest.mark.skipif(
-    shutil.which("python") is None or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
+    shutil.which("python") is None
+    or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
     reason="ruff not importable",
 )
 def test_ruff_fix_reports_only_real_rewrites(repo: Path) -> None:
@@ -337,7 +338,8 @@ def test_replace_all_handles_raw_utf8_payloads(repo: Path, monkeypatch: pytest.M
 
 
 @pytest.mark.skipif(
-    shutil.which("python") is None or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
+    shutil.which("python") is None
+    or subprocess.run(["python", "-P", "-m", "ruff", "--version"], capture_output=True).returncode != 0,
     reason="ruff not importable",
 )
 def test_replace_all_counts_before_ruff_rewrites(repo: Path) -> None:
