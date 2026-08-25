@@ -557,8 +557,7 @@ export default function WatchlistPage() {
                           >
                             {team.rank_in_cohort_final ?? '—'}
                           </div>
-                          {/* Rank delta */}
-                          <DeltaIndicator value={team.rank_change_7d} inverse />
+                          <DeltaIndicator value={team.rank_change_7d} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-display text-lg leading-tight truncate">{team.team_name}</h3>
