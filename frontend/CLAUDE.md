@@ -32,6 +32,8 @@ Seven checks gate a merge; five of them are here. CI invokes the binaries direct
 equivalent — an agent grepping `ci.yml` for a script name will not find one.
 
 ```bash
+cd frontend           # every command below runs from here; there is no root package.json
+
 npm run dev           # Dev server
 npm run build         # Production build
 npm run lint          # ESLint — CI gate
