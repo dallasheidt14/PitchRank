@@ -29,7 +29,7 @@ at Windows User scope and validated against the Management API.
 ## State right now
 
 - **Item 3 is complete.** Its three parts shipped as #1024 (the parity test), #1025 (the seven
-  contradictions) and PR3 (this branch, `docs/one-owner-per-fact`).
+  contradictions) and #1026.
 - Full CI gate run locally, all seven green: ruff, pytest, eslint, prettier, tsc, vitest,
   llms.txt drift.
 
