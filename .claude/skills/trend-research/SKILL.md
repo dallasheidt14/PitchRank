@@ -5,9 +5,9 @@ description: "Produce the weekly PitchRank youth-soccer trend-research file (bra
 
 # Weekly Trend Research
 
-Generate the trend-research file the Monday marketing pipeline consumes. Work in `C:/PitchRank` on a fresh `trend-research-<ISO-week>` branch off `origin/main`.
+Generate the trend-research file the Monday marketing pipeline consumes. Work in the main checkout on a fresh `trend-research-<ISO-week>` branch off `origin/main`.
 
-The full procedure — rotation index, JSON schema, per-post rules, brand voice, and PR steps — lives in `docs/marketing/trend-research-routine.md`. Read that file and follow it, with the three changes below. If the file is absent on the current branch, read it from main: `git -C C:/PitchRank cat-file -p origin/main:docs/marketing/trend-research-routine.md`.
+The full procedure — rotation index, JSON schema, per-post rules, brand voice, and PR steps — lives in `docs/marketing/trend-research-routine.md`. Read that file and follow it, with the three changes below. If the file is absent on the current branch, read it from main: `git show origin/main:docs/marketing/trend-research-routine.md`.
 
 ## Override 1: Research via WebSearch
 

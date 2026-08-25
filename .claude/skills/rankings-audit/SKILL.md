@@ -7,7 +7,7 @@ description: Audit and investigate PitchRank ranking changes. Use when power sco
 
 ## Quick Health Check
 ```bash
-cd C:/PitchRank && python scripts/orchestrator_status.py
+python scripts/orchestrator_status.py
 ```
 
 ## Key Tables

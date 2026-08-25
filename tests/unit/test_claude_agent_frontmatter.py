@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 AGENTS_DIR = PROJECT_ROOT / ".claude" / "agents"
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 AGENTS = sorted(AGENTS_DIR.rglob("*.md"))
+SKILLS = sorted(SKILLS_DIR.glob("*/SKILL.md"))
 
 
 def _frontmatter(path: Path) -> dict:
@@ -49,3 +50,24 @@ def test_agent_skills_resolve(path: Path) -> None:
     for name in skills:
         skill = SKILLS_DIR / name / "SKILL.md"
         assert skill.is_file(), f"{path.name} preloads skill {name!r} but {skill} does not exist"
+
+
+def test_skills_directory_is_not_empty() -> None:
+    assert SKILLS
+
+
+@pytest.mark.parametrize("path", SKILLS, ids=lambda p: p.parent.name)
+def test_skill_frontmatter_is_loadable(path: Path) -> None:
+    """A SKILL.md with absent or malformed frontmatter is skipped as silently as an agent."""
+    parsed = _frontmatter(path)
+    for key in ("name", "description"):
+        assert parsed.get(key), f"{path.parent.name}/SKILL.md frontmatter must define {key}"
+
+
+@pytest.mark.parametrize("path", SKILLS, ids=lambda p: p.parent.name)
+def test_skill_name_matches_its_directory(path: Path) -> None:
+    """Claude Code addresses a skill by directory; a mismatched name is unreachable."""
+    declared = _frontmatter(path)["name"]
+    assert declared == path.parent.name, (
+        f"{path.parent.name}/SKILL.md declares name {declared!r}; it must match the directory"
+    )

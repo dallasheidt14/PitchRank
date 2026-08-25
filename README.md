@@ -77,7 +77,7 @@ PitchRank/
 
 - **Game Matcher** (`src/models/game_matcher.py`): Fuzzy matching system for team identification
 - **ETL Pipeline** (`src/etl/pipeline.py`): Framework for data extraction, transformation, and loading
-- **Validators** (`src/utils/validators.py`): Data validation for games and teams
+- **Validators** (`src/utils/enhanced_validators.py`): Data validation for games and teams
 - **Base Providers** (`src/base/__init__.py`): Abstract base classes for data providers
 
 ### Database Schema
