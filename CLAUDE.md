@@ -41,6 +41,24 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Automated pipelines and manual operator tools are separate concerns. Do not modify a scheduled, hands-off job to improve a manually-triggered one — fix the manual tool in its own script.
 - When a change needs different behavior from a database function shared by several callers, prefer a direct PostgREST query in the calling script. Adding parameters to a Postgres function creates an overload rather than replacing it, so every existing call fails with "function is not unique" until the old signature is dropped, and the drop also wipes its GRANTs.
 
+## Improvement Backlog
+
+Out-of-scope ideas noticed during work go to `.turbo/improvements.md` via
+`/note-improvement`, rather than being acted on or dropped. Closed entries move to
+`.turbo/improvements-archive.md`.
+
+Nothing on the PR path closes an entry automatically, so **when a change finishes a
+backlog item, close it in the same PR**: set `- **Status**: done` and add a `- **Refs**:`
+line naming the PR or branch. An entry that shipped but still reads `open` is worse than
+no entry — it sends the next agent to redo finished work.
+
+`Status` is one of `open`, `done`, `deferred`, `dropped`, and nothing else; a dated
+progress note is `- **Update (YYYY-MM-DD)**:`, never a `Status` variant.
+`tests/unit/test_improvements_backlog.py` enforces that, because this file previously
+recorded closure five different ways and no single grep could find a finished item. The
+`sweep-improvements` skill runs the periodic pass; `scripts/sweep_improvements.py` is its
+mechanical half and takes `--dry-run`.
+
 ## Data Accuracy
 - Never fabricate or guess external identifiers (Wikidata Q-numbers, API entity IDs, etc.). Always look them up.
 - When querying analytics APIs (GSC, GA4), be aware of privacy thresholds and dimension limitations. If numbers seem low, check whether the query dimension is causing undercounting and try aggregate queries.
@@ -82,6 +100,7 @@ PitchRank/
 ├── supabase/               # Database migrations
 ├── tests/                  # Python test suite
 ├── docs/                   # Documentation
+├── .turbo/                 # Improvement backlog + archive, plans, shells, specs, handoffs
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # Sub-agents: ranking-engine + read-only reviewers

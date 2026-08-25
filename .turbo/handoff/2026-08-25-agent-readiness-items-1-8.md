@@ -75,14 +75,39 @@ decision from this one.
 
 ## Next concrete action
 
-Items 4–8 below. Item 4 (backlog lifecycle) is the natural next one: it is self-contained,
-and every later item wants a working way to close an entry.
+Items 5–8 below. Item 5 (per-change wait) is the natural next one — it is the only remaining
+item that costs time on every single PR rather than once.
 
-## Then items 4–8
+## Item 4 — done
 
-4. **Backlog lifecycle** — `.turbo/improvements.md` is append-only by construction; nothing on
-   the PR path closes an entry. Add ID/Status/Refs fields, a close step in `/ship`, a
-   `/sweep-improvements` pass, and an archive file.
+Shipped as the backlog-lifecycle PR. What landed, and the two decisions inside it:
+
+- `.turbo/improvements.md` moved onto an `ID` / `Status` / `Refs`-or-`Trigger` schema. 118
+  entries, `Status` one of `open` / `done` / `deferred` / `dropped` and nothing else. Five
+  spellings of "done" collapsed to one; a dated progress note is now `**Update (date)**`,
+  which is not a lifecycle value.
+- **Three entries were written with `##` instead of `###`**, so every heading-based tool —
+  including the count in the file's own header — had been silently skipping them. That is why
+  the field counts said 118 while the heading count said 115. Promoted, and the test now fails
+  on a stray `##`.
+- `.turbo/improvements-archive.md` holds `done` and `dropped`; the live file is open work only.
+  **`.gitignore` allow-listed `improvements.md` but not the archive**, so the new file was
+  invisible to git until `!.turbo/improvements-archive.md` was added — check that first if the
+  archive ever seems to vanish.
+- `scripts/sweep_improvements.py` (with `--dry-run`) is the mechanical half: assigns IDs,
+  archives closed entries, reports missing companion fields and untracked `Where` anchors. The
+  `sweep-improvements` skill is the judgment half.
+- `tests/unit/test_improvements_backlog.py` pins the vocabulary. Eight injected violations were
+  each confirmed to fail it before shipping.
+
+**The decision that shaped it:** `/note-improvement`, `/self-improve` and `/ship` all live in
+`~/.claude/skills/`, not this repo — editing them would change every project and would not
+appear in any PR. So everything lives in-repo instead, and the test is deliberately lenient
+about a *missing* `ID`/`Status` (a freshly appended entry has neither, and failing CI for that
+punishes the wrong person) while being strict about a *wrong* one. The sweep backfills.
+
+## Then items 5–8
+
 5. **Per-change wait** — median PR is 63 min against a 3.2-min CI. Use `gh pr merge --auto`,
    a bounded Codex poll, commit the permission allowlist to tracked `settings.json`, replace
    the 102-line Nov-2025 PR template, add a CI `concurrency` group.
