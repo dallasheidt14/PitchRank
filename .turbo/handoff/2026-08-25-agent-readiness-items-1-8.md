@@ -118,7 +118,10 @@ and every later item wants a working way to close an entry.
   pointer still asserts *where* the value comes from, and that assertion is as checkable — and
   was as wrong — as the number it replaced. Before writing a Form C pointer, confirm the named
   source is really the one that decides the value at runtime, not merely a place the name
-  appears.
+  appears. #1026 then hit the second variant: a pointer that *relocates* content silently drops
+  that content's preconditions. Moving the frontend command list out of root `CLAUDE.md` left
+  `cd frontend` behind, and there is no root `package.json`, so every command in the relocated
+  block failed from the repo root. Move the preconditions with the text.
 - **`claude-review` is red on every PR and is not a required check.** It reads
   `CLAUDE_CODE_OAUTH_TOKEN` (present); the run fails on the first turn with `$0` spend, which
   is an auth rejection, not a missing secret. Do not diagnose it as a code problem.
