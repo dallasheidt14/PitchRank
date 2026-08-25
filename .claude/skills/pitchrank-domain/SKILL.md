@@ -152,9 +152,10 @@ Example: "Phoenix Premier FC 14B Black"
 | `games` | Individual game records (immutable) |
 | `teams` | Master team registry |
 | `rankings_full` | Current rankings with all metrics |
-| `current_rankings` | Legacy compatibility view |
+| `current_rankings` | Legacy rankings table the ranking run writes (a table, not a view over `rankings_full`) |
 | `team_alias_map` | Provider ID → Master ID mapping |
-| `team_quarantine` | Unmatched teams awaiting review |
+| `quarantine_games` / `quarantine_teams` | Rows rejected at import (games are quarantined, never edited) |
+| `team_match_review_queue` | Uncertain team matches awaiting review (0.75–0.90 confidence) |
 | `team_merge_map` | Deprecated → Canonical team mapping |
 
 ## Game Identification

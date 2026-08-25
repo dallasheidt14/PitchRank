@@ -221,15 +221,18 @@ by distance from its cohort mean, never by an absolute band.
 ## Calculation Arguments
 
 ```bash
-python scripts/calculate_rankings.py \
-    --ml                    # No-op under Glicko: ML runs unless env ML_LAYER_ENABLED=false
-    --engine glicko         # Engine: glicko (default) or v53e (legacy)
-    --lookback-days 365     # Game window
-    --dry-run              # No database writes
-    --force-rebuild        # Ignore cache
-    --age-group u14        # Filter age group
-    --gender Male          # Filter gender
+python scripts/calculate_rankings.py --engine glicko --lookback-days 365 --dry-run
 ```
+
+| Flag | Effect |
+|------|--------|
+| `--ml` | No-op under Glicko: ML runs unless env `ML_LAYER_ENABLED=false` |
+| `--engine glicko` | Engine: glicko (default) or v53e (legacy) |
+| `--lookback-days 365` | Game window |
+| `--dry-run` | No database writes |
+| `--force-rebuild` | Ignore cache |
+| `--age-group u14` | Filter age group |
+| `--gender Male` | Filter gender |
 
 ## Output Tables
 
@@ -239,7 +242,7 @@ python scripts/calculate_rankings.py \
 team_id                 UUID
 national_power_score    FLOAT (0.0-1.0)  -- derived from power_score_true
 national_rank           INT    -- always NULL in rankings_full (current_rankings aliases rank_in_cohort_final)
-state_rank              INT
+state_rank              INT    -- always NULL in rankings_full; views compute display ranks
 rank_in_cohort          INT    -- engine order by mu
 rank_in_cohort_ml       INT    -- order by powerscore_ml
 rank_in_cohort_final    INT    -- published rank (Active only)

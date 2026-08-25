@@ -338,8 +338,13 @@ for attempt in range(3):
 
 1. **Small sample first**
    ```bash
-   python scrape.py --provider gotsport --limit-teams 5 --dry-run
+   python scripts/scrape_games.py --provider gotsport --limit-teams 5
    ```
+
+   There is no `--dry-run` on this script. Omitting `--auto-import` skips the game
+   import, but the run still writes `team_scrape_log` rows and updates
+   `teams.last_scraped_at` (`scripts/scrape_games.py:511`, before the import branch),
+   so even a 5-team sample touches the database.
 
 2. **Check output format**
    ```python

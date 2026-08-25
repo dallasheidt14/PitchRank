@@ -65,27 +65,27 @@ PitchRank/
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
-│   │   ├── api/            # Shared route utilities (requirePremium, parseJsonBody, rateLimit)
+│   │   ├── api/            # Shared route utilities (requireAuth, requirePremium, optionalAuth, parseJsonBody, rateLimit, watchlist)
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
 │   └── middleware.ts       # Auth + route protection
 │
-├── scripts/                # 158 Python scripts + SQL (import, ranking, hygiene)
+├── scripts/                # Python scripts + SQL (import, ranking, hygiene)
 ├── scrapers/               # Scrapy-based scrapers (Modular11/MLS NEXT)
-├── config/                 # Centralized settings.py (299 lines)
+├── config/                 # Centralized settings.py
 ├── data/                   # Cache, master data, raw imports, backtests
 ├── models/                 # ML model artifacts
-├── supabase/               # Database migrations (141 files)
+├── supabase/               # Database migrations
 ├── tests/                  # Python test suite
-├── docs/                   # 80 documentation files
+├── docs/                   # Documentation
 ├── memory/                 # Investigation notes & working logs
 ├── .claude/                # Claude agent configs + skills
 │   ├── agents/             # Sub-agents: ranking-engine + read-only reviewers
 │   ├── hooks/              # Claude Code hooks wired by .claude/settings.json (git guard, secrets, ruff, dry-run, replace-all advisory, session sync)
 │   └── skills/             # Domain skills (ranking, scraping, SEO, etc.)
-├── .github/workflows/      # 41 automated workflows
-├── dashboard.py            # Streamlit admin dashboard (6,180 lines)
+├── .github/workflows/      # Automated workflows (ci.yml is the merge gate)
+├── dashboard.py            # Streamlit admin dashboard
 └── agent_skills/           # Standalone agent skill packages
 ```
 
@@ -194,7 +194,7 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 
 - If state is only on a per-team detail page (not on the index/flight pages), a two-pass scrape (flights → unique team enrichment) is acceptable when the team count is bounded (~hundreds, not tens of thousands).
 - Default to auto-create with full metadata (mirrors SincSports/Affinity-WA/PlayMetrics matchers). Strict review-queue-only is only appropriate when meaningful canonical fields cannot be sourced.
-- The matcher subclass writes the alias in its overridden `_match_team` via `self._create_alias(...)`, NOT in the `_create_new_<provider>_team` helper. See `src/models/sincsports_matcher.py:555-640` for the canonical pattern.
+- The matcher subclass writes the alias in its overridden `_match_team` via `self._create_alias(...)`, NOT in the `_create_new_<provider>_team` helper. See `src/models/sincsports_matcher.py:549-640` for the canonical pattern.
 
 ---
 
@@ -256,7 +256,7 @@ Games (Supabase; 365-day window + 28-day grace taper)
 | `team_alias_map` | Provider ID → master ID | `match_method`: direct_id, fuzzy, manual |
 | `team_merge_map` | Deprecated → canonical ID | Cascade merge support |
 | `rankings_full` | All ranking metrics | Primary output table |
-| `current_rankings` | Legacy rankings view | Backward compatibility |
+| `current_rankings` | Legacy rankings table | Written by the ranking run; kept for backward compatibility |
 | `team_match_review_queue` | Uncertain matches | 0.75–0.90 confidence range |
 | `ranking_history` | Historical snapshots | 7d/30d rank change tracking |
 
@@ -266,18 +266,14 @@ Games (Supabase; 365-day window + 28-day grace taper)
 # Pagination (1000-row limit)
 supabase.table('games').select('*').range(offset, offset + 999).execute()
 
-# Batch queries (100-ID limit for URI length)
-supabase.table('teams').select('*').in_('id', batch_of_100).execute()
+# Batch queries (100-ID limit for URI length). games.home_team_master_id /
+# away_team_master_id join teams.team_id_master, NOT teams.id — filtering teams
+# by .id returns zero rows for a game's team. Resolve merges first, too:
+# deprecated team_id values yield duplicate or missing rows.
+supabase.table('teams').select('*').in_('team_id_master', batch_of_100).execute()
 
 # RPC for bulk operations
 supabase.rpc('batch_update_ml_overperformance', {'updates': data}).execute()
-
-# Querying team data directly: resolve merges first (team_id_master) —
-# deprecated team_id values yield duplicate or missing rows
-
-# games.home_team_master_id / away_team_master_id join teams.team_id_master,
-# NOT teams.id — filtering teams by .id returns zero rows for a game's team
-supabase.table('teams').select('*').in_('team_id_master', master_ids).execute()
 ```
 
 ---
@@ -298,8 +294,8 @@ supabase.table('teams').select('*').in_('team_id_master', master_ids).execute()
 ### Backend (Python)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (CI installs requirements.lock; ruff is in neither file)
+pip install -r requirements.txt ruff
 
 # Run ranking calculation (engine defaults to glicko)
 python scripts/calculate_rankings.py --lookback-days 365
@@ -313,15 +309,23 @@ python scripts/calculate_rankings.py --force-rebuild
 # Run game scraper
 python scripts/scrape_games.py
 
-# Import games from CSV
-python scripts/import_games_enhanced.py --file <path>
+# Import games from CSV (both args are positional)
+python scripts/import_games_enhanced.py <path> <provider>   # provider codes: src/etl/enhanced_pipeline.py
 
-# Run tests
-python -m pytest tests/
+# Lint — the path list is what the python-lint CI job checks
+python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
+
+# Run tests — CI's exact form
+python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 
 # Diagnose ranking for specific teams (validates algorithm + simulates path to #1)
 python scripts/diagnose_ranking.py <team_uuid> [<team_uuid> ...]
 ```
+
+`ruff` and `pytest` are not on PATH on a stock Windows checkout — invoke both through
+`python -m`. Neither flag above is optional: `tests/test_enhanced_pipeline.py` holds three
+failures CI excludes by name, so a bare `pytest tests/` exits 1 and tells you nothing about
+your change, and a bare `ruff check .` walks 557 findings in paths the job never scans.
 
 ### Frontend (Next.js)
 
@@ -337,15 +341,24 @@ npm run dev
 # Production build
 npm run build
 
-# Lint
+# Lint (CI runs `npx eslint .`; the bare script is equivalent)
 npm run lint
 
-# Unit tests (Vitest)
-npm run test              # Run once
-npm run test:watch        # Watch mode
-npm run test:coverage     # With coverage
+# Format check (CI gate — `npm run format` rewrites, `format:check` only verifies)
+npm run format:check
 
-# E2E tests (Playwright)
+# Typecheck (CI gate)
+npm run typecheck
+
+# Unit tests (Vitest)
+npm run test              # Run once — CI gate
+npm run test:watch        # Watch mode
+npm run test:coverage     # Needs `npm i -D @vitest/coverage-v8` first (not installed)
+
+# llms.txt drift (CI gate — regenerates, then fails if the file changed)
+npm run generate-llms && git diff --exit-code public/llms.txt
+
+# E2E tests (Playwright — not a CI gate; targets production unless PLAYWRIGHT_BASE_URL is set)
 npm run test:e2e
 npm run test:e2e:smoke    # Smoke tests only
 npm run test:e2e:api      # API tests only
@@ -354,12 +367,34 @@ npm run test:e2e:api      # API tests only
 npm run analyze
 ```
 
+### Reproducing the CI gate locally
+
+`ci.yml` is the only merge gate: seven required checks, all of which run here. The whole
+set takes roughly four minutes on a warm checkout, nearly all of it pytest.
+
+```bash
+python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
+python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
+
+cd frontend
+npx eslint .
+npx prettier --check .
+npm run typecheck
+npm run test
+npm run generate-llms && git diff --exit-code public/llms.txt
+```
+
+Each line maps 1:1 to a required check, so a non-zero exit is a red PR. Nothing else blocks
+a merge — `claude-review` runs on every PR and currently fails on a rejected token, and the
+Codex bot's review is advisory.
+
 ---
 
 ## GitHub Actions Workflows
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
+| `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint, Python Tests, Frontend Lint, Frontend Format, Frontend Typecheck, Frontend Tests, Frontend llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
 | `enqueue-yesterday-games.yml` | Daily 7:00 AM UTC | Queue teams whose yesterday games have null scores (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:00 AM UTC | Queue teams active in the last 3 days (priority 2) |
@@ -374,6 +409,15 @@ npm run analyze
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
+| `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
+| `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
+| `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
+| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and `state_code` |
+| `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
+| `weekly-prospective-refresh.yml` | Tue 7:00 PM UTC | Scrape upcoming GotSport events, prepare new prospective predictions |
+| `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
+| `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
+| `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
@@ -452,10 +496,13 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
 | `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
 | `enqueue_safety_net.py` | Weekly | 4 | Never scraped, or not in 90+ days |
+| `enqueue_stranded_merge_fixtures.py` | Operator-run | 2 | Surviving teams whose unplayed fixtures a merge stranded — dry run unless `--execute`, and no workflow runs it |
 
-That is every caller of `enqueue_scrape_request` — the two `new_team` paths are easy to
+That is every caller of `enqueue_scrape_request`. The two `new_team` paths are easy to
 miss when tracing why a team entered the queue, because neither lives in an
-`enqueue_*.py` script. The RPC keeps at most one pending row per team and promotes
+`enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
+opposite reason — it is shaped like the scheduled enqueue jobs but only an operator runs
+it. The RPC keeps at most one pending row per team and promotes
 priority via `LEAST`. Consumers:
 
 - `process_missing_games.py` — the automatic drainer, every 15 min, `--limit 40`.
@@ -473,13 +520,14 @@ claims rows without going on to scrape them must release them explicitly.
 
 ## Environment Variables
 
-Required variables are documented in `.env.example`. Key groups:
+Two templates: backend variables in root `.env.example`, frontend variables in
+`frontend/.env.example`. Key groups:
 
 - **Database**: `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Ranking params**: Glicko engine flags and thresholds (`src/etl/glicko_config.py`), plus the inert legacy v53e layer vars
 - **ML config**: `ML_LAYER_ENABLED`, `ML_ALPHA`, `ML_XGB_N_ESTIMATORS`, etc.
-- **Scraping**: `ZENROWS_API_KEY`, `GOTSPORT_DELAY_MIN/MAX`
-- **Frontend**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`
+- **Scraping**: `ZENROWS_API_KEY`; the `GOTSPORT_DELAY_MIN`/`MAX` throttle knobs are in no template — `src/scrapers/gotsport.py` defaults them and the scrape workflows set them inline
+- **Frontend**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`, `CRON_SECRET` — these live in `frontend/.env.example`, not the root one
 - **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Email**: `RESEND_API_KEY`
 
@@ -529,7 +577,7 @@ file here carries it (`.env.example` says why).
 
 ### Auth for API Routes
 
-All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. Two shared helpers:
+All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. The shared helpers are listed under Shared API Utilities below; the two most common:
 
 ```typescript
 // Admin-only routes (mission control, team management)
@@ -550,8 +598,10 @@ const { user, supabase } = auth;
 |---------|------|---------|
 | `requirePremium()` | `lib/api/requirePremium.ts` | Auth + premium/admin plan check, returns supabase client |
 | `requireAdmin()` | `lib/supabase/admin.ts` | Auth + admin plan check |
+| `requireAuth()` | `lib/api/requireAuth.ts` | Auth only (any signed-in user), returns supabase client |
+| `optionalAuth()` | `lib/api/optionalAuth.ts` | Resolves the user if signed in, never errors |
 | `parseJsonBody()` | `lib/api/parseJsonBody.ts` | Safe JSON body parsing with error response |
-| `checkRateLimit()` | `lib/api/rateLimit.ts` | In-memory IP-based rate limiting |
+| `checkRateLimit()` / `getClientIp()` | `lib/api/rateLimit.ts` | In-memory IP-based rate limiting |
 
 ### Design System
 
@@ -582,7 +632,7 @@ const { user, supabase } = auth;
 
 - Use App Router conventions (server components by default, `"use client"` when needed)
 - Import paths use `@/` alias (e.g., `@/lib/api`, `@/components/ui/button`)
-- Supabase client: use `supabaseBrowserClient.ts` for client components, server-side for API routes
+- Supabase client: `createClientSupabase()` from `lib/supabase/client.ts` in client components (a singleton — never construct your own), `createServerSupabase()` from `lib/supabase/server.ts` in API routes and server components
 - Data fetching via React Query hooks (`useRankings`, `useTeamSearch`, etc.)
 - Styling: Tailwind utility classes, no CSS modules
 - UI components: shadcn/ui pattern (Radix + Tailwind)
@@ -619,7 +669,7 @@ const { user, supabase } = auth;
 
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
 - A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
-- Run `ruff check` before committing Python changes; a Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
+- Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 - Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.
 
 ---

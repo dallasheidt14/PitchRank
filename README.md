@@ -46,10 +46,10 @@ A comprehensive ranking system for youth soccer teams with cross-age and cross-s
    # Or manually run: supabase/migrations/20240101000000_initial_schema.sql
    ```
 
-4. **Test**:
+4. **Run the test suite** (offline; it does not check your Supabase credentials):
 
    ```bash
-   python test_connection.py
+   python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
    ```
 
 ## 📁 Architecture
@@ -225,9 +225,6 @@ python scripts/review_matches.py
 # Input is a provider export with a team_id column (not tracked in git)
 python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport
 
-# Verify the mappings were created
-python scripts/verify_team_mappings.py gotsport
-
 # With dry-run
 python scripts/import_teams_enhanced.py data/master/all_teams_master.csv gotsport --dry-run
 ```
@@ -257,11 +254,6 @@ ORDER BY count DESC;
 SELECT * FROM match_type_statistics WHERE provider_name = 'GotSport';
 ```
 
-```bash
-# Or use the verification script
-python scripts/verify_team_mappings.py gotsport
-```
-
 #### 4. Find Unmapped Teams
 
 ```sql
@@ -285,13 +277,6 @@ ORDER BY game_count DESC
 LIMIT 20;
 ```
 
-
-### Create Sample Data
-
-```bash
-python scripts/create_sample_data.py 20 15
-# Creates 20 teams with 15 games each
-```
 
 ### Review Team Aliases
 
@@ -319,11 +304,12 @@ Environment variables (`.env`):
 ## 🧪 Testing
 
 ```bash
-# Run tests
-pytest
+# Run tests — CI ignores tests/test_enhanced_pipeline.py, which has three known
+# failures; without the flag pytest exits 1
+python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 
 # With coverage
-pytest --cov=src --cov-report=html
+python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py --cov=src --cov-report=html
 ```
 
 ## 📝 Development
