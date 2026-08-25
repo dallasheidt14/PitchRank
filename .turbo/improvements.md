@@ -932,3 +932,11 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 - **Where**: `CLAUDE.md` "Age Groups (2026-27 Season)" vs `.claude/skills/pitchrank-domain/SKILL.md:16-53`
 - **Why**: Near-verbatim twins (same table, naming rule, U18-merge paragraph, counts) that drift independently — the season-trap note landed only in the skill copy. One owner (or generation from one source) keeps a future rollover edit from leaving them disagreeing.
 - **Noted**: 2026-08-24
+
+### Move the Supabase MCP server to Supabase's hosted HTTP/OAuth endpoint
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.mcp.json`; the `SUPABASE_ACCESS_TOKEN` block in `.env.example`; CLAUDE.md § Environment Variables
+- **Why**: Supabase's Claude Code docs prescribe `https://mcp.supabase.com/mcp` (`read_only=true`, `project_ref`) over the npx stdio package, removing the account-wide PAT — which `--read-only`/`--project-ref` do not constrain — and the local `npx -y` execution surface. Costs a browser login per machine/worktree, and headless/CI runs would still need a token, so stdio + PAT stays the default.
+- **Noted**: 2026-08-24
