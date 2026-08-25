@@ -27,17 +27,24 @@
 
 ## Commands
 
+Seven checks gate a merge; five of them are here. CI invokes the binaries directly
+(`npx eslint .`, `npx prettier --check .`) rather than these scripts, but they are
+equivalent — an agent grepping `ci.yml` for a script name will not find one.
+
 ```bash
-npm run dev          # Dev server
-npm run build        # Production build
-npm run lint         # ESLint
-npm run format       # Prettier (write)
-npm run format:check # Prettier (check only, used in CI)
-npm run analyze      # Bundle analysis (set ANALYZE=true)
-npm run test         # Unit tests (Vitest, run once)
-npm run test:watch   # Unit tests (watch mode)
+npm run dev           # Dev server
+npm run build         # Production build
+npm run lint          # ESLint — CI gate
+npm run format        # Prettier (write)
+npm run format:check  # Prettier (check only) — CI gate
+npm run typecheck     # tsc --noEmit — CI gate
+npm run test          # Unit tests (Vitest, run once) — CI gate
+npm run generate-llms # Regenerate public/llms.txt; CI gates on it being unchanged
+npm run analyze       # Bundle analysis (set ANALYZE=true)
+npm run test:watch    # Unit tests (watch mode)
 npm run test:coverage # Needs `npm i -D @vitest/coverage-v8` first (not installed)
-npm run test:e2e     # All Playwright E2E tests
+npm run test:e2e      # All Playwright E2E tests — not a CI gate, and it targets
+                      # production unless PLAYWRIGHT_BASE_URL is set
 npm run test:e2e:smoke  # Smoke tests only
 npm run test:e2e:api    # API tests only
 ```

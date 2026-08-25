@@ -31,7 +31,7 @@ id                UUID PRIMARY KEY  -- Row id; NOT what games join on
 team_id_master    UUID NOT NULL UNIQUE  -- Canonical id; games.home/away_team_master_id join THIS
 team_name         TEXT              -- Display name
 club_name         TEXT              -- Parent club
-age_group         TEXT              -- "12", "u12", "U12" (normalize!)
+age_group         TEXT              -- stored lowercase u-form: "u12". Normalize before comparing
 gender            TEXT              -- "Male" or "Female"
 state_code        TEXT              -- 2-letter state code
 provider_id       UUID              -- FK to providers(id); there is no provider_code column
@@ -54,22 +54,16 @@ event_name        TEXT
 ```
 
 ### `rankings_full`
-```sql
-team_id              UUID PRIMARY KEY
-powerscore_core      FLOAT          -- pre-ML, pre-gates (0.0-1.0)
-powerscore_adj       FLOAT
-powerscore_ml        FLOAT
-power_score_true     FLOAT          -- post-gates, unanchored
-power_score_final    FLOAT          -- power_score_true x AGE_TO_ANCHOR
-rank_in_cohort_final INT            -- the published rank
-national_power_score FLOAT          -- legacy column, still written
-national_rank        INT            -- ALWAYS NULL; views compute display ranks
-state_rank           INT            -- ALWAYS NULL; views compute display ranks
-games_played         INT
-wins, losses, draws  INT
-last_calculated      TIMESTAMPTZ
--- 73 columns total; this is the subset worth knowing
-```
+
+> Canonical: the `rankings-algorithm` skill, § Output Tables → "`rankings_full` (Primary)".
+> It lists the columns with the meaning the pipeline gives each one, which is what you need
+> the moment a value looks wrong. Invoke that skill rather than reading a thinner copy here.
+
+Three traps bite anyone writing a query against it, whichever skill is loaded: there is no
+`powerscore` column (the chain is `powerscore_core` → `powerscore_adj` → `powerscore_ml` →
+`power_score_true` → `power_score_final`); `national_rank` and `state_rank` are **always
+NULL** here, because the views compute display ranks; and `sos` is raw and 1500-centred,
+so every threshold reads `sos_norm` instead.
 
 ### `team_alias_map`
 ```sql
