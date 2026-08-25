@@ -348,7 +348,8 @@ RESEND_API_KEY
 ### Unit Tests (Vitest)
 
 - Config: `vitest.config.ts` (happy-dom environment, `@` path alias)
-- Test location: `__tests__/` dirs next to route files (e.g., `app/api/stripe/webhook/__tests__/route.test.ts`)
+- Test location: `*.test.ts(x)` colocated beside the module under test (`lib/movers.test.ts`, `components/RecentMovers.test.tsx`); API route tests live in a `__tests__/` dir beside the route (`app/api/stripe/webhook/__tests__/route.test.ts`)
+- Shared fixtures, setup, and mocks live in `test/` (`test/fixtures.ts`, `test/setup.ts`, `test/supabase-mock.ts`)
 - Mock Stripe/Supabase with `vi.mock()` and `vi.hoisted()` for hoisted mock refs
 - CI: `frontend-test` job in `.github/workflows/ci.yml`
 
@@ -376,4 +377,5 @@ RESEND_API_KEY
 10. **Three components share search-row rendering** — `GlobalSearch`, `TeamSelector`, and `UnknownOpponentLink` all consume `useTeamSearch`. Grep every consumer before changing a row's markup, or the fix lands on one surface and not the others
 11. **Never redeem an emailed one-time token on GET** — mail scanners fetch every link before the recipient sees it, so a GET that calls `verifyOtp`/`exchangeCodeForSession` spends the token and locks the customer out. Redeem behind a POST (`/auth/confirm`). Next also aliases `HEAD` to the `GET` handler unless `HEAD` is exported, so any route handler with side effects needs its own `HEAD`.
 12. **Credential-bearing URLs must be in `SECRET_QUERY_PATHS`** — a page that renders with `token_hash`, `session_id`, or similar in its URL leaks it to analytics: gtag and fbevents read `document.location` for the document's lifetime. Add the path to `SECRET_QUERY_PATHS` (tags skip it) and the param to `SECRET_QUERY_PARAMS` (both in `lib/constants.ts`).
-13. **`headers()` in `next.config.ts` is last-wins** — every matching rule applies, so a per-route override of a key the catch-all `/(.*)` also sets must be listed _after_ it or the catch-all silently wins.
+13. **`composeTeamDisplay` renders the club, not `team_name`** — it composes `abbreviateClubName(club_name)` + league + distinction, falling back to `team_name` only when `club_name` is null (or a modular11 alias / distinction leakage forces the raw name). A test fixture that distinguishes rows by `team_name` alone renders identical club text for all of them; override `club_name` instead.
+14. **`headers()` in `next.config.ts` is last-wins** — every matching rule applies, so a per-route override of a key the catch-all `/(.*)` also sets must be listed _after_ it or the catch-all silently wins.

@@ -6,19 +6,23 @@ import { SeasonRolloverNotice } from '@/components/SeasonRolloverNotice';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
-import { selectTopMovers } from '@/lib/movers';
+import { formatGender } from '@/lib/constants';
+import { RANK_BAND, selectTopMovers } from '@/lib/movers';
 import type { RankingRow } from '@/types/RankingRow';
 
 // Revalidate hourly so above-the-fold stats and movers are server-rendered
 // rather than fetched on the client after first paint.
 export const revalidate = 3600;
 
+// The cohort featured in the Recent Movers card.
+const MOVERS_AGE = 'u12';
+const MOVERS_GENDER = 'M';
+const MOVERS_COHORT_LABEL = `${MOVERS_AGE.toUpperCase()} ${formatGender(MOVERS_GENDER)}`;
+
 export default async function Home() {
-  // Fetch above-the-fold data server-side; degrade to fallbacks on failure so a
-  // Supabase hiccup never breaks the static render. Stats (a cheap cached read)
-  // and movers (a heavy national-cohort scan that can hit the anon statement
-  // timeout during the bulk static build) are fetched independently so a movers
-  // failure can't blank the stats.
+  // Stats and movers get separate try blocks: the movers RPC sorts the whole
+  // cohort before applying the limit, so it can hit the anon statement timeout
+  // during the bulk static build, and that must not blank the stats.
   let totalGames: number | undefined;
   let totalTeams: number | undefined;
   let movers7d: RankingRow[] = [];
@@ -33,7 +37,9 @@ export default async function Home() {
   }
 
   try {
-    const national = await api.getRankings(null, 'u12', 'M');
+    // The RPC returns rows ordered by rank and the selector discards anything
+    // past RANK_BAND, so bounding the fetch there costs no eligible rows.
+    const national = await api.getRankings(null, MOVERS_AGE, MOVERS_GENDER, { limit: RANK_BAND });
     movers7d = selectTopMovers(national, '7d', 5);
     movers30d = selectTopMovers(national, '30d', 5);
   } catch (e) {
@@ -118,7 +124,7 @@ export default async function Home() {
 
           {/* Sidebar Column */}
           <div className="space-y-6">
-            <RecentMovers initialMovers7d={movers7d} initialMovers30d={movers30d} />
+            <RecentMovers initialMovers7d={movers7d} initialMovers30d={movers30d} cohortLabel={MOVERS_COHORT_LABEL} />
           </div>
         </div>
       </div>
