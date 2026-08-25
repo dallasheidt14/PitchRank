@@ -76,7 +76,7 @@ frontend/
 │   └── skeletons/          # Loading states
 ├── hooks/                  # Custom React hooks
 ├── lib/                    # Utilities, API client, types
-│   ├── api/                # Shared route utilities (requireAuth, requirePremium, optionalAuth, parseJsonBody, rateLimit, watchlist)
+│   ├── api/                # Shared route utilities (table under "API Route Auth")
 │   ├── supabase/           # Supabase client (client.ts, server.ts, admin.ts)
 │   ├── stripe/             # Stripe client + server
 │   ├── insights/           # AI insight generators
@@ -163,6 +163,16 @@ const auth = await requirePremium();
 if (auth.error) return auth.error;
 const { user, supabase } = auth;
 ```
+
+| Utility                              | File                        | Purpose                                                    |
+| ------------------------------------ | --------------------------- | ---------------------------------------------------------- |
+| `requireAuth()`                      | `lib/api/requireAuth.ts`    | Auth only (any signed-in user), returns supabase client    |
+| `requirePremium()`                   | `lib/api/requirePremium.ts` | Auth + premium/admin plan check, returns supabase client   |
+| `requireAdmin()`                     | `lib/supabase/admin.ts`     | Auth + admin plan check                                    |
+| `optionalAuth()`                     | `lib/api/optionalAuth.ts`   | Resolves the user if signed in, never errors               |
+| `parseJsonBody()`                    | `lib/api/parseJsonBody.ts`  | Safe JSON body parsing with error response                 |
+| `checkRateLimit()` / `getClientIp()` | `lib/api/rateLimit.ts`      | In-memory IP-based rate limiting                           |
+| `resolveDefaultWatchlist()`          | `lib/api/watchlist.ts`      | The `is_default` watchlist, else the newest one, else null |
 
 ### React Query
 

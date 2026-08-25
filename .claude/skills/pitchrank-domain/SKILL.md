@@ -76,7 +76,7 @@ season instead: U9 is `CURRENT_YEAR - 8` (`src/utils/team_utils.py`
 ### Primary: GotSport
 - Largest dataset (25K+ teams)
 - Provider code: `gotsport`
-- Rate limit: 0.1-2.5 sec between requests
+- Rate limit: env-overridable, and the two scraper classes default differently — read `GOTSPORT_DELAY_MIN` / `GOTSPORT_DELAY_MAX` in `src/scrapers/gotsport.py`
 - Primary source of team schedules
 
 ### Secondary: TGS (Total Global Sports)

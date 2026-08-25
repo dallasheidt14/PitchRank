@@ -98,8 +98,7 @@ AND g.game_date > NOW() - INTERVAL '90 days';
 - **Single source of truth** — no dual computation paths; all ranking logic flows through `glicko_engine.py` + `calculator.py`
 
 ### pandas Gotchas
-- `fillna(None)` crashes — use `where(cond, other=np.nan)` or `fillna(np.nan)` instead
-- Columns initialized with `None` stay `object` dtype — always specify dtype or use `pd.array`
+- `fillna(None)` and `object`-dtype columns: `.claude/rules/data-safety.md` is canonical. Use its remedy, not a second one
 - Check `.dtypes` after merge/concat operations; mixed types cause silent bugs
 
 ### Algorithm Change Protocol

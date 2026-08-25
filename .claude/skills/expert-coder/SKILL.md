@@ -164,15 +164,6 @@ tests/
   integration/     # Integration tests
 ```
 
-## Git Commit Style
-
-```
-<type>: <short description>
-
-Types: feat, fix, refactor, docs, test, chore
-Example: feat: add TGS event scraper for IDs 4150-4200
-```
-
 ## Before Submitting Code
 
 1. ✅ Runs without errors
