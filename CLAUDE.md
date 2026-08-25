@@ -483,13 +483,15 @@ Required variables are documented in `.env.example`. Key groups:
 - **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Email**: `RESEND_API_KEY`
 
-Keep every variable in root `.env` — every loader reads it. `.env.local` is an override that
-`config/settings.py` and the entry-point scripts prefer when it exists; most scripts call bare
-`load_dotenv()` and never see it. Set both Supabase keys: the documented entry points
-(`calculate_rankings.py`, `drain_queue.py`, `scrape_games.py`, `import_games_enhanced.py`)
-read `SUPABASE_SERVICE_ROLE_KEY`, and `--dry-run` does not remove the need — the client is
-built from it at startup; a few scripts build their client from the anon `SUPABASE_KEY`,
-which suffices for reads.
+Python reads root `.env` — keep backend variables there, since most scripts call bare
+`load_dotenv()` and never see the `.env.local` override that `config/settings.py` and the
+entry-point scripts prefer. Next.js reads only `frontend/.env.local`, never root `.env`, so
+the Frontend group above belongs there; the variables both sides read (`STRIPE_SECRET_KEY`,
+`RESEND_API_KEY`, `NEXT_PUBLIC_SITE_URL`) go in both files. Set both Supabase keys: the
+documented entry points (`calculate_rankings.py`, `drain_queue.py`, `scrape_games.py`,
+`import_games_enhanced.py`) read `SUPABASE_SERVICE_ROLE_KEY`, and `--dry-run` does not
+remove the need — the client is built from it at startup; a few scripts build their client
+from the anon `SUPABASE_KEY`, which suffices for reads.
 
 From a session, read the database through `supabase-py` over PostgREST (scripts, through
 `config.settings`) or the read-only `mcp__supabase__*` tools from `.mcp.json`. The MCP
