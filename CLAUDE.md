@@ -86,7 +86,7 @@ PitchRank/
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
-│   │   ├── api/            # Shared route utilities (requireAuth, requirePremium, optionalAuth, parseJsonBody, rateLimit, watchlist)
+│   │   ├── api/            # Shared route utilities — inventory in frontend/CLAUDE.md
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
