@@ -1,9 +1,27 @@
 # Improvements
 
-Out-of-scope improvement opportunities captured during work sessions. Review periodically and pull items into active work when appropriate.
+Out-of-scope improvement opportunities captured during work sessions.
+
+Every entry carries an `ID` (stable, never reused) and a `Status`:
+
+| Status | Meaning | Also required |
+|--------|---------|---------------|
+| `open` | Still wanted, nobody has done it | — |
+| `done` | Shipped | `Refs` — the PR, branch or commit |
+| `deferred` | Deliberately not now | `Trigger` — what would make it now |
+| `dropped` | Will not do | `Refs` — why |
+
+A deferred entry has no closing reference, it has a resumption condition, so it carries
+a `Trigger` rather than a `Refs`.
+
+`done` and `dropped` entries move to `.turbo/improvements-archive.md` so this file
+stays the list of live work. `tests/unit/test_improvements_backlog.py` pins the
+vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Restructure middleware to cover API routes or audit self-contained auth
 
+- **ID**: IMP-001
+- **Status**: open
 - **Category**: reliability
 - **Where**: `frontend/middleware.ts:128`
 - **Why**: Middleware excludes all /api paths. Premium-gated APIs must self-enforce auth, creating fragile dual-auth surface. `/api/chat` and `/api/create-team` have zero auth enforcement (confirmed 2026-04-13).
@@ -11,6 +29,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Deprecate national_power_score in favor of power_score_true
 
+- **ID**: IMP-002
+- **Status**: open
 - **Category**: refactor
 - **Where**: `src/rankings/data_adapter.py` (national_power_score derivation at lines ~614 and ~921), `src/etl/glicko_engine.py:1378`, `scripts/calculate_rankings.py:276`, `rankings_full` table, `rankings_view`, frontend API consumers
 - **Why**: After PR #540, `national_power_score` is derived from `power_score_true` with a legacy fallback. The column is still actively written in 3+ places despite a DEPRECATED comment. Frontend types already mark it as `?: never`. Full removal requires migrating all write paths, updating DB migrations, and auditing ~15 consuming files.
@@ -18,27 +38,33 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix data leakage in ML training (temporal splitting)
 
+- **ID**: IMP-003
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/train_ml_match_predictor.py:79-123`, `src/predictions/ml_match_predictor.py:301`
 - **Why**: Backtest fixed in PR #551 (temporal split + point-in-time snapshots via `prediction_feature_history`). Training script still uses current rankings snapshot as features for historical games and sklearn random train/test split. The `prediction_feature_history` infrastructure needed for the fix already exists but is not wired into the training pipeline.
 - **Noted**: 2026-03-27 (updated 2026-04-13)
-- **Status**: Backtest fully fixed. Training script still affected.
+- **Update**: Backtest fully fixed. Training script still affected.
 
 ### Upgrade TypeScript 5→6
 
+- **ID**: IMP-004
+- **Status**: open
 - **Category**: dx
 - **Where**: `frontend/package.json`
 - **Why**: TypeScript 6.0 released stable 2026-03-23. Project is on TypeScript 5.9.3. Large scope, needs separate PR.
 - **Noted**: 2026-03-27 (updated 2026-04-13)
-- **Status**: Now actionable — TS 6.0 is stable.
+- **Update**: Now actionable — TS 6.0 is stable.
 
 ### Test coverage gaps (consolidated)
 
+- **ID**: IMP-005
+- **Status**: open
 - **Category**: testing
 - **Where**: Backend (`src/`, `scripts/`) and frontend (`frontend/app/api/`)
 - **Why**: Significant test coverage gaps remain across the codebase. Progress has been made on ML pipeline, ETL, calculator, and payment routes, but critical API routes and utility modules remain untested.
 - **Noted**: 2026-03-26 (consolidated 2026-04-13, updated 2026-04-13)
-- **Checklist**:
+- **Checklist**: 
   - [x] `layer13_predictive_adjustment.py` — `test_ml_layer13_sos_scaling.py` exists
   - [x] `data_adapter.py` — `test_data_adapter_predictive_priors.py` exists
   - [x] `handleCheckoutCompleted` — `route.test.ts` exists
@@ -61,6 +87,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Vectorize compute_game_explainability inner loop
 
+- **ID**: IMP-006
+- **Status**: open
 - **Category**: performance
 - **Where**: `src/etl/glicko_engine.py` `compute_game_explainability()` inner per-game loop
 - **Why**: The scalar Python loop over each team's games (~15K iterations per cohort) could be vectorized with NumPy for 5-10x speedup. The non-cross-age path (majority case) is pure math suitable for array ops. The sibling `derive_offense_defense` already demonstrates the vectorized pattern.
@@ -68,6 +96,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Consolidate duplicated code patterns (Q-5, Q-7)
 
+- **ID**: IMP-007
+- **Status**: open
 - **Category**: refactor
 - **Where**: Q-5: `_fuzzy_match_team`/`_create_new_*_team`/`_match_team` in 5 provider matchers in `src/models/` (~80 lines each; TGS+SincSports are 95% identical). Q-7: watchlist fallback in 3 route files (`frontend/app/api/watchlist/{add,init,remove}/route.ts`).
 - **Why**: Two cross-file duplication issues. Q-5 is highest impact (~300+ lines across 5 files).
@@ -75,6 +105,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Replace in-memory rate limiter with external store
 
+- **ID**: IMP-008
+- **Status**: open
 - **Category**: reliability
 - **Where**: `frontend/lib/api/rateLimit.ts`
 - **Why**: In-memory Map grows unbounded and is ineffective on serverless (Vercel) where each invocation may get a fresh instance. Actively used by 3 routes: `newsletter`, `match-prediction`, `reports/team-card`. Replace with Upstash Redis or similar for production rate limiting.
@@ -82,14 +114,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Audit P2 code quality refactors (Q-8, Q-9, Q-10)
 
+- **ID**: IMP-009
+- **Status**: open
 - **Category**: refactor
 - **Where**: Q-8: `_determine_result` in 4 scrapers (gotsport, sincsports, surfsports, template). Q-9: `_init_http_session()` in 5 scrapers (gotsport, gotsport_event, sincsports, surfsports, template). Q-10: TEAM_COLORS drift — `game_matcher.py` has 16 colors (set), `team_name_utils.py` has 19 (frozenset, includes royal/crimson/teal).
 - **Why**: Three P2 quality findings involving duplicated logic and drifted constants. Lower priority than Q-5/Q-7 but contribute to maintenance burden. (Q-11, Q-12, Q-13, Q-14, Q-15 resolved as of 2026-04-13.)
 - **Noted**: 2026-04-07 (updated 2026-04-13 — Q-11 through Q-15 removed as resolved)
-- **Status (2026-05-07 audit)**: All three still valid. Q-8: 4 scrapers; Q-9: 6 occurrences across 5 scrapers (sincsports has 2 — see also separate `_sincsports_http` extraction item); Q-10: still 16 vs 19 colors.
+- **Update (2026-05-07 audit)**: All three still valid. Q-8: 4 scrapers; Q-9: 6 occurrences across 5 scrapers (sincsports has 2 — see also separate `_sincsports_http` extraction item); Q-10: still 16 vs 19 colors.
 
 ### Add reverse-sync for orphaned Stripe customers
 
+- **ID**: IMP-010
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/reconcile_stripe_subscriptions.py` or new script
 - **Why**: If the anonymous checkout webhook fails (e.g., Supabase down during user creation), the user pays in Stripe but has no `stripe_customer_id` in DB. Current reconciliation only queries users WITH `stripe_customer_id`, so these orphans are invisible. A reverse-sync would query all active Stripe subscriptions and check for missing DB links.
@@ -97,15 +133,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add user_id column to report_card_leads for authenticated user tracking
 
+- **ID**: IMP-011
+- **Status**: open
 - **Category**: feature
 - **Where**: `supabase/migrations/`, `frontend/app/api/reports/team-card/route.ts`
 - **Why**: The spec requires `optionalAuth` on `/api/reports/team-card` to track authenticated users, but `report_card_leads` has no `user_id` column. Add `ALTER TABLE report_card_leads ADD COLUMN user_id UUID` migration, then wire `user?.id` into the insert payload to capture which authenticated users request report cards.
 - **Noted**: 2026-04-13
-- **Status (2026-05-07 audit)**: Migration `20260329000000_create_report_card_leads.sql` defines table without `user_id` (anonymous-by-design); route uses `optionalAuth()` correctly. Confirm whether spec intent is still to track authenticated users, or accept anonymous-only as the design.
-
+- **Update (2026-05-07 audit)**: Migration `20260329000000_create_report_card_leads.sql` defines table without `user_id` (anonymous-by-design); route uses `optionalAuth()` correctly. Confirm whether spec intent is still to track authenticated users, or accept anonymous-only as the design.
 
 ### Consolidate duplicated matcher/scraper logic across TGS, Affinity WA, and PlayMetrics
 
+- **ID**: IMP-012
+- **Status**: open
 - **Category**: refactor
 - **Where**: `src/models/{tgs,affinity_wa,playmetrics}_matcher.py`, `scripts/scrape_{playmetrics_league,affinity_wa_tournament}.py`, `src/utils/team_utils.py`
 - **Why**: Three drift points worth closing before a fourth provider is added: (1) Autocreate-on-miss is triplicated in the matchers — MD5 fallback for missing `provider_team_id`, pre-lookup on `(provider_id, provider_team_id)`, UUID insert, gender normalization, `23505` duplicate-key race recovery, and the surrounding `_match_team` override (base miss → autocreate → `_create_alias` with `direct_id`/`import` + `confidence=1.0` + `review_status=approved` → `{matched: True, created: True}`). Extract a `CreatingMatcherMixin` or `_auto_create_team_on_miss()` helper on the base `GameHistoryMatcher`. (2) HTTP retry helpers drift between scrapers (`_post` in PlayMetrics: `1*(attempt+1)` backoff; `_fetch` in Affinity: `1+attempt`; neither jitters). Extract `src/utils/http_retry.py` with a single idiom. (3) `"Male" if gender.upper() in ("M","MALE","BOYS","B") else "Female"` is inlined 3x. Add a single `normalize_gender_label()` helper in `src/utils/team_utils.py`.
@@ -113,6 +152,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix pipeline metric attribution for PlayMetrics (and likely AffinityWA) matchers
 
+- **ID**: IMP-013
+- **Status**: open
 - **Category**: reliability
 - **Where**: `src/etl/enhanced_pipeline.py` (metric-increment logic), `src/models/playmetrics_matcher.py`, `src/models/affinity_wa_matcher.py`
 - **Why**: First PlayMetrics import reported `Teams created: 0` and `Auto-matched: 0` while actually creating 431 new teams and fuzzy-matching ~92 to existing TGS teams (verified via SQL counts on `teams` and `team_alias_map`). The matcher returns `{"matched": True, "created": True, "method": "direct_id", ...}` from the autocreate branch but the pipeline isn't crediting that to `teams_created`. Likely because the counter branches on `method` (treating `direct_id` as an existing-team match) rather than on the `created` flag. AffinityWA returns the same shape so it probably has the same misreport. Data integrity is fine; only the console/build_log summaries are wrong. Fix by having the pipeline read `metrics.teams_created` from the `created=True` signal, independent of `method`.
@@ -120,6 +161,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Make the Python birth-year filter dynamic so it stays in sync with SQL RPC
 
+- **ID**: IMP-014
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/scrape_games.py:352`
 - **Why**: Hardcoded `birth_year in [2005, 2006, 2017, 2018, 2019]` will drift on 2027-01-01 from the SQL RPC `get_teams_to_scrape_limited` (which computes the same set via `EXTRACT(YEAR FROM NOW())`). Correct today; wrong next year. Either derive from `datetime.now().year` (`[yr-21, yr-20, yr-9, yr-8, yr-7]`) or drop the Python post-filter entirely now that the RPC enforces it. Flagged by review-correctness during /polish-code on scrape-games-perf; the plan's own tech-debt section also called this out.
@@ -127,6 +170,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add integration tests for the three scrape-games RPCs
 
+- **ID**: IMP-015
+- **Status**: open
 - **Category**: testing
 - **Where**: `supabase/migrations/20260422*_*.sql`, a new `tests/integration/test_scrape_rpcs.py` or similar
 - **Why**: `bulk_update_last_scraped_at`, `get_approved_aliases`, and `get_teams_to_scrape_limited` encode real business logic (hash sharding via `hashtext() % p_shard_count`, dynamic birth-year exclusion, NULLS-FIRST priority order, covering partial index) that Python `FakeSupabase` tests cannot verify. A migration-level test against real Postgres (pytest-postgres or a disposable Supabase local instance) would verify: (a) 5-shard disjointness sums to full set, no duplicates; (b) birth-year filter element-parity with the Python post-filter; (c) NULLS-FIRST ordering preserved; (d) `bulk_update_last_scraped_at` returns correct rowcount when some team_id_master values miss; (e) covering partial index is actually picked by the planner. Noted from /polish-code /review-test-coverage on scrape-games-perf.
@@ -134,22 +179,28 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add explicit `REVOKE EXECUTE FROM PUBLIC, anon, authenticated` to service-role RPCs
 
+- **ID**: IMP-016
+- **Status**: open
 - **Category**: reliability
 - **Where**: `supabase/migrations/20260422000000_*.sql`, `20260422000001_*.sql`, `20260422000002_*.sql` (and retroactively on earlier service-role-only RPCs for consistency)
 - **Why**: The new RPCs rely on the Supabase platform default (which revokes EXECUTE from `anon`/`authenticated`) rather than stating the access posture in the migration. With `SECURITY INVOKER` + RLS, there is no exploit path today, but an explicit REVOKE makes the grant-level intent auditable in the migration file itself and hardens against future Supabase platform default changes. Flagged by review-security on scrape-games-perf as P3 hygiene.
 - **Noted**: 2026-04-22
-- **Status (2026-05-07 audit)**: All 3 migration headers state "service_role-only RPC; no GRANT needed", suggesting REVOKE omission is intentional. Decide: keep platform-default reliance (close item) or add explicit REVOKE for auditability (hygiene-only).
+- **Update (2026-05-07 audit)**: All 3 migration headers state "service_role-only RPC; no GRANT needed", suggesting REVOKE omission is intentional. Decide: keep platform-default reliance (close item) or add explicit REVOKE for auditability (hygiene-only).
 
 ### Consolidate duplicated `STATE_CODE_TO_NAME` mapping into `src/utils/us_states.py`
 
+- **ID**: IMP-017
+- **Status**: open
 - **Category**: refactor
 - **Where**: `scripts/backfill_state_from_state_code.py:28-80`, `scripts/backfill_missing_state_codes.py:35-87`, `scripts/match_state_from_club.py:37+`, `scripts/match_missing_state_codes.py:41+`, `scripts/update_single_team_state.py:28+`
 - **Why**: The 50-state postal-code → full-name dict is duplicated across 5 scripts with no shared source. Some copies include DC, others don't, showing real drift risk. The SincSports discovery plan (`.turbo/plans/sincsports-team-discovery.md`) extracts the mapping to a new `src/utils/us_states.py` for the new scraper only (scope control). Once that lands, sweep the 5 existing scripts to import from the shared module — one commit per script for easy review, no functional change. Every future change to state handling (territories, DC normalization, etc.) currently requires 5 parallel edits.
 - **Noted**: 2026-04-23
-- **Status (2026-05-07 audit)**: `src/utils/us_states.py` now exists; `discover_sincsports_teams.py:57` migrated. The 5 older scripts still inline STATE_CODE_TO_NAME (consciously deferred per us_states.py:13 header). 5 of 6 callers pending.
+- **Update (2026-05-07 audit)**: `src/utils/us_states.py` now exists; `discover_sincsports_teams.py:57` migrated. The 5 older scripts still inline STATE_CODE_TO_NAME (consciously deferred per us_states.py:13 header). 5 of 6 callers pending.
 
 ### Make `match_state_from_club.py:617` UPDATE write-time monotonic
 
+- **ID**: IMP-018
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/match_state_from_club.py:617` (invoked by `.github/workflows/data-hygiene-weekly.yml` Step 2)
 - **Why**: The UPDATE uses `.in_("team_id_master", batch)` with no `state_code IS NULL` re-assertion at write time; the batch is built from a stale snapshot at line 173. Any concurrent process that writes `state_code` between the snapshot and the UPDATE gets its authoritative value overwritten by the club-inferred inference. Real concrete risk: the SincSports discovery workflow writes authoritative `state_code` from explicit filter inputs; a concurrent hygiene run silently overwrites with a guess. One-line fix: add `.is_("state_code", "null")` to the UPDATE filter. Backward-compat for the intended use case (NULL rows are what the script targets). **Deployment blocker** for automating discovery on a schedule — until this lands, discovery and hygiene must be manually serialized (discovery workflow has a best-effort pre-flight `gh run list` check but can't prevent a hygiene run that starts mid-discovery).
@@ -157,6 +208,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Extract shared `_init_http_session` between SincSports scrapers
 
+- **ID**: IMP-019
+- **Status**: open
 - **Category**: refactor
 - **Where**: `src/scrapers/sincsports.py:85-112`, `src/scrapers/sincsports_clubs.py:_init_http_session`
 - **Why**: The new discovery scraper's `_init_http_session` is byte-identical to the existing event scraper's: same `HTTPAdapter(pool_connections=10, pool_maxsize=10)`, same `Retry(total=3, backoff_factor=0.5, status_forcelist=[500,502,503,504], allowed_methods=["GET","HEAD"])`, same browser UA + headers block. The clubs scraper only adds docstring prose. Next UA bump or retry-policy tweak will silently drift between the two. Move to `src/scrapers/_sincsports_http.py` exposing `build_sincsports_session()` and import from both.
@@ -164,6 +217,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Consolidate Supabase / provider / alias-pre-check boilerplate across driver scripts
 
+- **ID**: IMP-020
+- **Status**: open
 - **Category**: refactor
 - **Where**: `scripts/discover_sincsports_teams.py` (load_dotenv block at :65-69, `ensure_provider_exists` at :87-102, `bulk_existing_aliases` at :280-298), `scripts/extract_and_import_tgs_teams.py:39-44,144-161,296-300`, `scripts/import_sincsports_teams.py:47-68`
 - **Why**: Three recurring blocks are now cloned across 3+ driver scripts: (1) the `.env.local`→`.env` fallback loader, (2) the 100-row batched `team_alias_map.in_()` pre-check, (3) `ensure_provider_exists` (the new discovery driver even has an inline comment flagging it as a "Synchronous copy of scripts/import_sincsports_teams.py::ensure_provider_exists"). The TGS and SincSports-discovery drivers also silently differ on Supabase key fallback (TGS reads only `SUPABASE_SERVICE_ROLE_KEY`; discovery accepts either). Extract to `src/utils/provider_bootstrap.py` exposing `load_env()`, `ensure_provider(supabase, code, name, base_url)`, `bulk_existing_aliases(supabase, provider_id, ids)`. One cleanup commit per caller for easy review.
@@ -171,6 +226,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add driver-level unit tests for SincSports discovery classification, resume gate, and enrich batching
 
+- **ID**: IMP-021
+- **Status**: open
 - **Category**: testing
 - **Where**: `scripts/discover_sincsports_teams.py` — bucket classifier (`:543-570`), `load_resume_artifacts` + mode/fingerprint/integrity gates (`:198-234`, `:393-420`), `enrich_state_codes` grouping + chunking (`:288-325`)
 - **Why**: The 596-line driver has zero unit tests despite branch-heavy pure logic. The scraper + matcher extensions are well-covered (37 tests), but the driver's classification (5 buckets + unclassified `else`), resume gating (mode / scope-fingerprint / integrity), and state-code enrichment (51 buckets × 100-row chunking with monotonic `.is_("state_code", "null")`) only get exercised by the live dry-run today. A silent regression in any of these would corrupt a 1,020-combo run. Mock `supabase` + `scraper` and add a small targeted suite.
@@ -178,6 +235,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### SincSports discovery workflow blocked on GitHub-hosted runners
 
+- **ID**: IMP-022
+- **Status**: open
 - **Category**: reliability
 - **Where**: `.github/workflows/sincsports-team-discovery.yml`, `src/scrapers/sincsports_clubs.py::_validate_response_shape`
 - **Why**: The ubuntu-latest runner IP range gets a 29 MB non-envelope response from `sicclubs.aspx` (vs. the expected ~100 KB-700 KB EO callback CDATA from residential IPs). Observed on PR #663 first live GHA invocation with WI/u14/female (2026-04-24). The scraper correctly treats the malformed response as a shape-fail, hits the 3-strike block threshold, and aborts with `CaptchaOrBlockError("blocked")`. No regression — the discovery workflow is simply unusable from GHA today. Operator workaround: run the driver locally (residential IP), which works cleanly. Three long-term options: (1) route the scraper through a residential-IP proxy (ScraperAPI / Bright Data, cost per run); (2) self-hosted runner on a residential connection; (3) script a Playwright warm-up step inside the workflow to pre-acquire cookies before the requests-level scrape. Until then, the workflow stays in-repo for the GHA ergonomics (pre-flight hygiene check, artifact upload, permissions) but documented as operator-local-only in the workflow file's top comment.
@@ -185,6 +244,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### [HIGH PRIORITY] SincSports re-scrape path breaks after team merges
 
+- **ID**: IMP-023
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/scrape_games.py` (sources teams via `teams.provider_id = sincsports`), `src/utils/merge_resolver.py`, `supabase/migrations/20251230000001_fix_merge_idempotency.sql::execute_team_merge`
 - **Why**: `scrape_games.py --provider sincsports` queries the `teams` table filtering on `provider_id = sincsports`. When `find_fuzzy_duplicate_teams.py` (or the weekly `data-hygiene-weekly.yml` Step 5) merges a SincSports-originated team into a canonical GotSport team, the canonical row's `provider_id` stays `gotsport`. The merged team's SincSports alias lives in `team_alias_map` pointing to the canonical `team_id_master`, but the scraper driver never looks at `team_alias_map` — so future `--provider sincsports` invocations silently skip every merged team. Concrete scope from the 2026-04-24 u14 Female full-grid discovery: ~666 teams `fuzzy_auto_linked` at run time, plus another ~5-8 hygiene merges on Tuesdays. All of them lose their SincSports re-scrape path after merge. GotSport's weekly cron still covers their GotSport games, but SincSports-only events (regional tournaments, certain leagues) go un-scraped going forward. **Fix (~1-3 hours)**: write `scripts/scrape_sincsports_games_via_aliases.py` that sources teams from `team_alias_map WHERE provider_id = sincsports AND match_method = direct_id` joined to `teams` for `last_scraped_at`, then runs the same scrape loop as `scrape_games.py`. Provider-agnostic, safe alongside existing crons. Longer-term: refactor `scrape_games.py` to always query via `team_alias_map`, deprecating the `teams.provider_id` sourcing path — that's the root-cause fix but heavier. Flagged by operator 2026-04-24 immediately after the u14 Female full-grid run as "super super important to take care of asap."
@@ -192,14 +253,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### [HIGH PRIORITY] import_games_enhanced.py drops records silently when ingesting tournament-schedule data
 
+- **ID**: IMP-024
+- **Status**: open
 - **Category**: reliability
 - **Where**: `scripts/import_games_enhanced.py`, `src/etl/enhanced_pipeline.py` (especially around `_check_duplicates` and the master-id-regenerated `game_uid` recheck at line ~485)
 - **Why**: The pipeline reports four buckets in IMPORT_RESULT (`accepted`, `duplicates_skipped`, `duplicates_found`, `quarantined`). Validated 2026-04-25 against Puri Cup schedule.aspx ingest: 882 records processed → 442 dup, 0 accepted, 0 quarantined, 0 duplicates_found. **440 records vanished into an unreported 5th bucket.** Plus, because `game_uid` is symmetric (sorted team IDs), per-team-perspective JSONL emits two records per physical game that collide within a single batch, accounting for the 442 dup. Net: ~219 genuinely-new schedule.aspx games for Puri Cup didn't land. Scope: every tournament we scrape via `scripts/scrape_sincsports_tournament_schedule.py` will under-import until this is fixed. Diagnostic path: (1) feed 3 known-new games through the importer in isolation, query `build_logs` table for their disposition, identify the silent filter; (2) decide whether the scraper-side emit shape should change (one record per game instead of H+A perspectives) or the importer should accept a non-perspective shape; (3) handle master-id `game_uid` overlap with prior per-team imports — likely UPDATE-on-match for richer schedule fields (clean scores, division name, game number) rather than skip. Estimated 1-2 hours diagnostic + 30 min fix on each side. Validation: re-ingest Puri Cup, expect ~219 new games inserted on top of the existing 224.
 - **Noted**: 2026-04-25
-- **Status (2026-05-07 audit)**: Per build_logs query 2026-04-29, all 9 internal counters DO sum (drift=0). The "5th drop" is `failed_games_count` already in IMPORT_RESULT JSON (line 636) but hidden from rich-console summary at `enhanced_pipeline.py:2395-2454` — surface it in `print_modular11_summary()`. Downscoped from data-loss to console-UX fix; symmetric H+A collision still warrants validation.
+- **Update (2026-05-07 audit)**: Per build_logs query 2026-04-29, all 9 internal counters DO sum (drift=0). The "5th drop" is `failed_games_count` already in IMPORT_RESULT JSON (line 636) but hidden from rich-console summary at `enhanced_pipeline.py:2395-2454` — surface it in `print_modular11_summary()`. Downscoped from data-loss to console-UX fix; symmetric H+A collision still warrants validation.
 
 ### Auto GotSport Event Scrape never re-scrapes events after first capture
 
+- **ID**: IMP-025
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/scrape_new_gotsport_events.py:822` (`excluded_event_ids = scraped_event_ids | blocked_event_ids`) + `data/raw/scraped_events.json`
@@ -208,62 +273,70 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Bump `lookback_days` default for Scrape Specific GotSport Event workflow
 
+- **ID**: IMP-026
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `.github/workflows/scrape-specific-event.yml:13` (input default `'30'`) + `scripts/scrape_specific_event.py:246` (argparse default `30`)
 - **Why**: Filter applied at `src/scrapers/gotsport.py:2287-2290` drops `game_date < (today − N)` post-parse. For manual runs against season-long events (now the dominant use case after PR #703's per-team walk surfaces full history), 30d silently drops most of the season — confirmed on event 51028 (games back to Feb 15; 30d run only captured Apr 4 onward). Doesn't reduce HTTP work either, since per-team page is fetched whole then filtered. Bump default to 365 in both places, OR treat `0` as "no filter" and switch the workflow default to 0. Don't touch the auto-scrape default (different script).
 - **Noted**: 2026-04-30
 
-
 ### canonicalize_age_group slash branch contradicts the older-cohort business rule
 
+- **ID**: IMP-027
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/utils/team_name_utils.py:503-512` (logic), `:443` (docstring example), `:453-456` (rationale comment)
 - **Why**: Slash dual-age branch uses `max(y1, y2)` for 2-digit slash tokens like `'10/11`, picking the YOUNGER birth year (→ u15 in 2025-2026). PR #711 just merged the older-cohort fix into `scripts/fix_team_age_groups.py` and `scripts/normalize_team_names.py` per the PitchRank business rule (Dallas, 2026-05-01): dual-age teams classify as the OLDER cohort — older birth year for year pairs, higher U-age for U-age pairs. The canonical helper still has the inverted logic. Low blast radius today (helper takes single fullmatch token, narrow scope vs. the scripts' free-form parsing) but any caller that flows slash 2-digit tokens silently gets the wrong cohort. Fix: flip `max` → `min` on `:508`, update docstring example `'10/11 → u15` to `→ u16`, rewrite rationale comment to state older-cohort rule. Audit callers of `canonicalize_age_group` and `_RE_SLASH_DUAL` first to confirm no downstream depends on younger-cohort behavior. Add tests for both 2-digit (`'10/11`, `15/16U`) and 4-digit (`2010/2011`) slash forms.
 - **Noted**: 2026-05-01
 
-
 ### Matcher autocreate writes ignore pipeline dry_run
 
+- **ID**: IMP-028
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/models/game_matcher.py` (base `_create_alias`), `src/models/playmetrics_matcher.py`, `src/models/tgs_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/sincsports_matcher.py`, `src/models/modular11_matcher.py` (each subclass `_create_new_*_team`), `src/etl/enhanced_pipeline.py` (`_ensure_initialized`)
 - **Why**: `EnhancedETLPipeline.dry_run` only gates the games-table insert. Base `_create_alias` writes to `team_alias_map` and each subclass `_create_new_*_team` writes to `teams` unconditionally. Confirmed live 2026-05-01: `import_games_enhanced.py --dry-run` for `playmetrics_tournament` provider silently inserted 193 `teams` + 262 `team_alias_map` rows into production despite the flag — required manual SQL DELETE cleanup. Affects all 5 matcher subclasses. Fix: add `dry_run: bool = False` to `GameHistoryMatcher.__init__` (partially started — base accepts kwarg, but `_create_alias` and `_create_new_*_team` don't gate yet); gate all writes; return a deterministic stub UUID (`uuid.uuid5` over `(team_name, age, gender, provider_team_id)`) without inserting; thread `dry_run=self.dry_run` from `EnhancedETLPipeline._ensure_initialized()` to all 5 matcher constructors. Until landed, treat `import_games_enhanced.py --dry-run` as unsafe — use a standalone analytics dryrun that monkey-patches `_create_new_*_team` and `_create_alias` post-construction for safe simulation.
 - **Noted**: 2026-05-01
-- **Status (2026-05-07 audit)**: PR #729 (origin/main `136e292c0`) added dry_run gating for playmetrics path. Verify scope — base `_create_alias` and the other 4 subclasses (tgs, affinity_wa, sincsports, modular11) likely still write unconditionally.
-- **Status (2026-08-19)**: Hit again in production. A `--dry-run` TGS import of event 4125 created 118 `teams` and 117 `team_match_review_queue` rows while printing "Teams created: 0" and "no changes were made"; the queue rows were deleted, the teams were kept since the authorized real import would have created them. Root cause was two-part and the same shape everywhere: `_ensure_initialized` never passed `dry_run` to `TGSGameMatcher`, so the base class's *existing* gates on `_create_alias` and the review-queue insert saw `dry_run=False`, and `tgs_matcher._create_new_tgs_team` had no gate of its own. **Fixed for tgs in PR #974** (constructor threads the flag, insert is gated, 5 regression tests in `tests/unit/test_tgs_matcher_dry_run.py` incl. one asserting the pipeline wiring). **Still open: `sincsports` and `affinity_wa`** — both constructed without `dry_run` in `_ensure_initialized`, both with unconditional inserts (`sincsports_matcher.py:741`, `affinity_wa_matcher.py:396`). modular11 and playmetrics already receive the flag. The stub-UUID idea above was not adopted: the TGS fix returns the real generated UUID unwritten, which keeps downstream match reporting accurate.
-
+- **Update (2026-05-07 audit)**: PR #729 (origin/main `136e292c0`) added dry_run gating for playmetrics path. Verify scope — base `_create_alias` and the other 4 subclasses (tgs, affinity_wa, sincsports, modular11) likely still write unconditionally.
+- **Update (2026-08-19)**: Hit again in production. A `--dry-run` TGS import of event 4125 created 118 `teams` and 117 `team_match_review_queue` rows while printing "Teams created: 0" and "no changes were made"; the queue rows were deleted, the teams were kept since the authorized real import would have created them. Root cause was two-part and the same shape everywhere: `_ensure_initialized` never passed `dry_run` to `TGSGameMatcher`, so the base class's *existing* gates on `_create_alias` and the review-queue insert saw `dry_run=False`, and `tgs_matcher._create_new_tgs_team` had no gate of its own. **Fixed for tgs in PR #974** (constructor threads the flag, insert is gated, 5 regression tests in `tests/unit/test_tgs_matcher_dry_run.py` incl. one asserting the pipeline wiring). **Still open: `sincsports` and `affinity_wa`** — both constructed without `dry_run` in `_ensure_initialized`, both with unconditional inserts (`sincsports_matcher.py:741`, `affinity_wa_matcher.py:396`). modular11 and playmetrics already receive the flag. The stub-UUID idea above was not adopted: the TGS fix returns the real generated UUID unwritten, which keeps downstream match reporting accurate.
 
 ### Add `.vercel/` to repo-root `.gitignore`
 
+- **ID**: IMP-029
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `.gitignore` (repo root)
 - **Why**: The Vercel CLI generates a `.vercel/` link directory containing project IDs and a deployment-protection bypass token. Currently untracked but un-ignored, so a careless `git add -A` would leak the token. Discovered while running `vercel curl` against preview deployments during /finalize on PR #722.
 - **Noted**: 2026-05-05
 
-
 ### Token-aware truncation for canvas infographic renderers
 
+- **ID**: IMP-030
+- **Status**: open
 - **Type**: plan
 - **Category**: readability
 - **Where**: `frontend/components/infographics/{canvasRenderer,headToHeadRenderer,rankingMoversRenderer,stateChampionsRenderer,teamSpotlightRenderer}.ts` — the `while (ctx.measureText(name).width > max && name.length > N) { name = name.slice(0, -4) + '...' }` block in each
 - **Why**: After PR #722 + the composeTeamDisplay rollout PR, all 5 renderers truncate the post-`composeTeamDisplay(team).toUpperCase()` string. Composition deliberately puts the differentiator at the end (e.g., `Carolina Rapids ECNL White`); end-anchored slice-by-4 truncation removes the squad-distinguishing tail first, collapsing distinct teams into `{club abbrev}…` on tight platforms (Instagram landscape rows in BiggestMovers/rankingMovers; small State Champions cards). Two adjacent fallers can lose their distinction simultaneously and become indistinguishable. Fix: token-aware truncator that drops `formatLeague(league)` before `formatDistinction(distinction)`, or drops common-prefix tokens before differentiator tokens. Pre-existing pattern from PR #722's renderer truncation; flagged 2026-05-05 during /polish-code on the rollout PR.
 - **Noted**: 2026-05-05
 
-
 ### UnknownOpponentLink subline duplicates club_name visible in composed line above
 
+- **ID**: IMP-031
+- **Status**: open
 - **Type**: plan
 - **Category**: readability
 - **Where**: `frontend/components/UnknownOpponentLink.tsx` (search dropdown row :549-552 + selected-team confirmation panel :677-679); same pattern likely exists in `RankingsTable.tsx` after PR #722
 - **Why**: After the composeTeamDisplay rollout, the composed top line begins with `abbreviateClubName(club_name)`, and the muted subline immediately below renders raw `team.club_name` again — e.g. `Phoenix Rising SC ECNL White` / `Phoenix Rising Soccer Club • AZ • U14 Boys`. Visually duplicates club identity in two forms. PR #722 introduced this for the rankings table by design ("keep club identity and region visible at a glance"), but in a search dropdown row where vertical space matters more, the redundancy is more pronounced. Fix: drop `club_name` from subline in UnknownOpponentLink dropdown + selected-team confirmation; keep state/age/gender. Consider mirroring in rankings table for consistency. Pre-existing PR #722 design choice; flagged 2026-05-05 during /polish-code on the rollout PR. **Partially addressed 2026-08-18** (branch fix/search-result-labels): both sublines now delegate state/age/gender to composeTeamMeta, fixing a literal U0 and a double bullet in the confirmation panel. The club_name redundancy this entry describes is unchanged and still open.
 - **Noted**: 2026-05-05
 
-
 ### Finish the composeTeamDisplay unit tests (now partially covered)
 
+- **ID**: IMP-032
+- **Status**: open
 - **Type**: plan
 - **Category**: testing
 - **Where**: new `frontend/lib/utils.test.ts` (or co-located test file)
@@ -272,6 +345,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add CI integration smoke test + parity/regression guard for ranking RPCs
 
+- **ID**: IMP-033
+- **Status**: open
 - **Type**: plan
 - **Category**: testing
 - **Where**: new `tests/integration/test_ranking_rpcs.py` (or `tests/sql/`) + CI workflow gated on `supabase/migrations/*.sql` changes; `frontend/lib/utils.ts:219-251` (normalizeAgeGroup contract); `scripts/backfill_rankings_full.py:112` (storage-invariant watch item)
@@ -280,6 +355,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix `fetchModular11TeamIds` silent empty-Set under anon RLS — MLS Next short-circuit no-op in global search
 
+- **ID**: IMP-034
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds`, lines ~24-46); Supabase RLS on `team_alias_map` + `providers`
@@ -288,96 +365,108 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Parallelize watchlist bulk remove
 
+- **ID**: IMP-035
+- **Status**: open
 - **Type**: direct
 - **Category**: performance
 - **Where**: `frontend/app/watchlist/page.tsx:182-185` (`removeTeams` callback)
 - **Why**: `removeTeams` loops `await removeFromSupabaseWatchlist(id)` sequentially per ID. Selecting N teams and hitting Remove makes N round-trips back-to-back. Switch the loop to `Promise.all(teamIds.map(removeFromSupabaseWatchlist))` so the API calls fire in parallel. Bulk-delete UX feels slow because of this. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Persist watchlist filter + sort state to localStorage
 
+- **ID**: IMP-036
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `frontend/app/watchlist/page.tsx:47-50` (`filterAge`, `filterState`, `filterGender`, `sortBy` useState calls)
 - **Why**: Dropdown filter values + sort key reset on every page load. Save the chosen values to localStorage keyed by user id and restore on mount so returning users keep their last-used view. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Show next-game on watchlist card
 
+- **ID**: IMP-037
+- **Status**: open
 - **Type**: plan
 - **Category**: feature
 - **Where**: `frontend/app/api/watchlist/route.ts` (add upcoming game query) + `frontend/app/watchlist/page.tsx` (card UI)
 - **Why**: Highest user-facing improvement for the Season Dashboard. For each watched team, pull the next scheduled game from `games` (where `game_date >= today` AND scores are null) and render "vs Lightning FC, Sat 11/15" on the card. The current card answers only "what happened" — next-game answers "what's next", which is the watchlist's actual purpose. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Wire ComparePanel to watchlist multi-select
 
+- **ID**: IMP-038
+- **Status**: open
 - **Type**: plan
 - **Category**: feature
 - **Where**: `frontend/app/watchlist/page.tsx` (batch actions row near `removeSelected`); reuse `frontend/components/ComparePanel.tsx`
 - **Why**: The ComparePanel component is already built. The watchlist already has a multi-select checkbox UX (`selectedIds`). Add a "Compare (N)" button next to Remove that opens the panel with the selected team IDs. Highest "feature ROI" because the heavy lifting already exists. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Inline insight badge on watchlist cards
 
+- **ID**: IMP-039
+- **Status**: open
 - **Type**: plan
 - **Category**: feature
 - **Where**: `frontend/app/watchlist/page.tsx` (card body, near the stats grid)
 - **Why**: API already returns `rank_change_7d` and `new_games_count`. Surface a one-line insight ("↑5 this week — biggest mover", "3 games in last 7 days", "Tournament winner") inline on the card so users don't have to click into the Insights modal to see meaningful changes at a glance. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Per-team notification preferences in watchlist UI
 
+- **ID**: IMP-040
+- **Status**: open
 - **Type**: plan
 - **Category**: feature
 - **Where**: `frontend/app/watchlist/page.tsx` (card actions row); reuse `frontend/components/NotificationBell.tsx`
 - **Why**: The NotificationBell exists on the team header but per-team preference management is one team at a time. The watchlist is the natural place to bulk-manage which teams trigger weekly digests / rank-change alerts. Deferred from PR #774 session.
 - **Noted**: 2026-05-14
 
-
 ### Audit frontend `/api/*` routes for missing team_merge_map resolution
 
+- **ID**: IMP-041
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `frontend/app/api/**/route.ts` — any route that reads a user-stored `team_id_master` (watchlist_items, future favorites/saves, comparisons, etc.)
 - **Why**: PR #774 found that `/api/watchlist` (read) and `/api/watchlist/remove` (write) both ignored `team_merge_map`, so deprecated team IDs in `watchlist_items` returned stale pre-merge data and Remove silently failed when the canonical ID was posted back. The team detail page at `app/teams/[id]/page.tsx:140-144` already resolves correctly via redirect, and the insights API was fixed previously (see `gotcha_insights_api_no_merge_map.md`). Sweep every remaining `/api/*` route plus server components for the same gap. When the third surface adds inline merge-resolution logic, extract a shared `resolveCanonicalTeamIds(ids: string[])` helper into `frontend/lib/` so the rule lives in one place. See [[architecture_frontend_merge_resolution]] for the read/write resolution pattern.
 - **Noted**: 2026-05-14
 
-
 ### Make GotSport event-side scrape paths WAF-breaker-aware
 
+- **ID**: IMP-042
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/scrapers/gotsport.py` — `_resolve_api_team_id_from_event_page` (~line 2096-2208), `extract_event_teams` (~line 1670-1740), `extract_event_teams_by_bracket` (~line 1820-1880)
 - **Why**: PR `feat/gotsport-waf-circuit-breaker` (2026-05-18) scoped the CloudFront WAF breaker to `scrape_team_games` only. The three event-side methods above hit the same `system.gotsport.com/api/v1/*` host but silently convert CloudFront 403 to "team/event not found" or generic transient errors and drop the row — partial data loss instead of the clean abort the breaker provides. Defensive `except WAFBlockedError: raise` guards are already in place in two of the three methods. Wire `_is_cloudfront_waf_block(e.response)` checks + `_waf_breaker.trip(...)` calls into their HTTPError branches following the `scrape_team_games` pattern. Surfaced by codex peer review.
 - **Noted**: 2026-05-18
 
-
 ### Investigate ~13K gotsport teams with successful scrapes but zero games in `games`
 
+- **ID**: IMP-043
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `src/etl/enhanced_pipeline.py`, `src/models/game_matcher.py`, `team_alias_map`, `quarantine_games`
 - **Why**: 2026-05-19 deprecation candidate-detection found 13,215 gotsport `teams` rows with recent `last_scraped_at` (i.e., the scrape pipeline ran on them) but zero rows in `games` joined on their `team_id_master`. Eyeball sample showed real club teams ("SLSG MO B 2010 Aberdeen", "Broomfield SC 2010 Academy NPL", "2009 MLS NEXT", etc.) — not test data or dead IDs. Hypothesis: gotsport returns matches for these provider_team_ids, but the importer's team-matching pipeline fails to attribute them to the existing master, so games land in `quarantine_games` or under a different master. Triage: pick 3–5 candidate provider_team_ids, hit `system.gotsport.com/api/v1/teams/{id}/matches?past=true` via ZenRows MCP, trace where the returned games end up. This blocks any "is this team active?" criteria built on `games` table absence (see [[feedback-deprecation-criteria-gotcha]] in auto memory).
 - **Noted**: 2026-05-19
 
-
 ### WAFBreaker doesn't propagate to outer drain loop — cascade-fails entire batch after first trip
 
+- **ID**: IMP-044
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `src/scrapers/gotsport.py:114` (WAFBreaker) + `scripts/process_missing_games.py:501-514` (broad except) and `:516` (process_all loop)
 - **Why**: When `WAFBlockedError` is raised on second WAF trip, the broad `except Exception` in `process_request` catches it and the outer `process_all` loop continues to the next request. Each subsequent request still hits the GotSport API, gets blocked, and is marked `failed`. Observed 2026-05-26 manual run at limit=150: 40 succeeded, 110 cascade-failed in sequence (~110 wasted API calls keeping the WAF counter pegged). PR #838 (limit=40) mitigates but doesn't fix — bug bites again if threshold drifts or priority-1 requests bunch up. Fix: catch `WAFBlockedError` explicitly in `process_all`, break the loop, leave remaining requests as `pending` (don't mark `failed` if they never fetched). ~10-line patch.
 - **Noted**: 2026-05-26
 
-
 ### Add `--date` CLI flag to `enqueue_yesterday_games.py` for backfilling missed-cron days
 
+- **ID**: IMP-045
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `scripts/enqueue_yesterday_games.py:60` (hard-coded `date.today() - timedelta(days=1)`)
@@ -386,6 +475,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Pin Scrapy to a tested major; stop unpinned installs in scraper workflows
 
+- **ID**: IMP-046
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `requirements.txt` (`scrapy>=2.13.0`); `.github/workflows/modular11-events-weekly-scrape.yml` + `modular11-weekly-scrape.yml` (`pip install scrapy twisted`)
@@ -394,6 +485,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Untrack committed Python bytecode (`__pycache__/*.pyc`)
 
+- **ID**: IMP-047
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: tracked `*.pyc` under `scrapers/`, `config/`, `src/` (and elsewhere)
@@ -402,6 +495,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Wire brand fonts + logo into `@vercel/og` infographic endpoints
 
+- **ID**: IMP-048
+- **Status**: open
 - **Type**: direct
 - **Category**: refactor
 - **Where**: `frontend/app/api/infographic/{movers,spotlight,state}/route.tsx`
@@ -410,6 +505,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Rewrite `SOCIAL_TEMPLATES` with brand-voice-aware copy
 
+- **ID**: IMP-049
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `scripts/marketing_pipeline.py` (`SOCIAL_TEMPLATES` constant)
@@ -418,6 +515,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Classify remaining modular11 events + handle MIXED-division events (Fest)
 
+- **ID**: IMP-050
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `scrapers/modular11_scraper/modular11_scraper/spiders/modular11_events.py` (`EVENT_DIVISIONS` map)
@@ -426,42 +525,49 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Backfill HD division label on the 37 division-less U19 Cup teams
 
+- **ID**: IMP-051
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `teams` table (`{num}_U19` records that played event 87)
 - **Why**: 37 U19 Cup teams are `{num}_U19` with no `HD` distinction/label (created division-less by earlier events scrapes). Games are correctly placed, but the cohort label is missing. Deferred from this session because rewriting `provider_team_id`/alias to `_U19_HD` risks breaking the match that currently works; safe minimal version is `distinction=hd` only. Needs a verified approach.
 - **Noted**: 2026-06-03
 
-## Align SOM Sports import-time scoring with Monday hygiene queue resolver
+### Align SOM Sports import-time scoring with Monday hygiene queue resolver
 
+- **ID**: IMP-052
 - **Status**: deferred
 - **Where**: `src/models/somsports_matcher.py::SomSportsGameMatcher._calculate_match_score` + `src/models/game_matcher.py::GameHistoryMatcher._fuzzy_match_team` (lines ~1245-1274)
 - **Why**: The override delegates to hygiene's `score_team_pair` (which already applies +0.15 club / +0.05 RL/ECNL / -0.08 RL-mismatch). Base `_fuzzy_match_team` then applies the SAME boosts AGAIN on top of the returned score, so SOM Sports import-time auto-merges score higher than the same pair would in the Monday queue resolver. Net effect on U15: ~1-2 extra auto-merges per cohort. Accepted for now because the user explicitly wanted more matches and the missed ones still flow through the queue → Monday hygiene path. The docstring documents this divergence honestly.
-- **Fix path**: Override `_fuzzy_match_team` to copy the gated funnel from base but skip the post-score boost block (~40 lines). Strictly mirrors hygiene scoring; reduces auto-merges to ~7-8 per cohort.
-- **Trigger**: revisit if a false-positive merge surfaces from the SOM Sports import that hygiene's review queue would have caught.
 - **Noted**: 2026-06-05
+- **Trigger**: revisit if a false-positive merge surfaces from the SOM Sports import that hygiene's review queue would have caught.
+- **Fix path**: Override `_fuzzy_match_team` to copy the gated funnel from base but skip the post-score boost block (~40 lines). Strictly mirrors hygiene scoring; reduces auto-merges to ~7-8 per cohort.
 
-## Extract cross-provider canonicalize-club wire-in into shared helper
+### Extract cross-provider canonicalize-club wire-in into shared helper
 
+- **ID**: IMP-053
 - **Status**: deferred
 - **Where**: `src/models/{sincsports,playmetrics,affinity_wa,somsports}_matcher.py` — each has a near-identical 5-line block: extract club if missing → canonicalize via state → log if changed.
 - **Why**: The pattern is now duplicated in 4 places (extraction threshold passed per three-strikes principle). Each matcher freelances small variations: log prefix format (`[SincSports]` vs `[PlayMetrics]`), state source (call arg vs `self.default_state_code` vs module `STATE_CODE`), edge handling on empty inputs. A shared `canonicalize_provider_club(club_name, state_code, logger, provider_tag) -> str` helper in `src/utils/` would consolidate this.
-- **Fix path**: Create `src/utils/canonicalize_provider_club.py` (~30 lines), update 4 matchers each lose ~5 lines and gain 1 call. Add tests asserting the shared helper logs uniformly and handles None inputs.
-- **Trigger**: do alongside the next provider matcher addition, or before the 5th `canonicalize_club_name` wire-in.
 - **Noted**: 2026-06-05
+- **Trigger**: do alongside the next provider matcher addition, or before the 5th `canonicalize_club_name` wire-in.
+- **Fix path**: Create `src/utils/canonicalize_provider_club.py` (~30 lines), update 4 matchers each lose ~5 lines and gain 1 call. Add tests asserting the shared helper logs uniformly and handles None inputs.
 
-## Complete the openclaw decommission — ambiguous-docs judgment pass (clearly-dead set now planned)
+### Complete the openclaw decommission — ambiguous-docs judgment pass (clearly-dead set now planned)
 
-- **Type**: plan
+- **ID**: IMP-054
 - **Status**: deferred
+- **Type**: plan
 - **Where**: ~14 persona-mentioning SEO/content/data-quality docs that may be live references: `docs/{SEO_ACTION_PLAN,BLOG_CONTENT_PLAN,CONTENT_TEMPLATES,SOCIAL_MEDIA_IDEAS,PARENT_PAIN_POINTS,INSTAGRAM_SETUP,METRICS_BASELINE,DATA_QUALITY_CHECKLIST,DATA_QUALITY_ROADMAP,ALGORITHM_DEEP_DIVE,CANONICAL_TAG_AUDIT,blog-platform-summary(.md/.pages),SEO_OPPORTUNITIES,SEO_WEEKLY_REPORT}.md`, `scripts/blog_research.py`.
 - **Why**: The 12 clearly-dead persona artifacts (8 docs + 3 scripts + 1 report) #879 missed are now captured in plan `.turbo/plans/complete-openclaw-decommission-conservative.md` (status: ready) — run that via `/implement-plan` first. This remaining entry is the per-file judgment pass on the AMBIGUOUS docs: verified 2026-06-08 that NONE are consumed by live code/workflows, so each is a standalone-value keep/delete (and de-persona) decision, not a breakage risk.
-- **Fix path** (per-file judgment, do NOT bulk-delete): DELETE the pure persona operational artifacts / stale reports — SEO_ACTION_PLAN, BLOG_CONTENT_PLAN, CONTENT_TEMPLATES, SEO_OPPORTUNITIES, SEO_WEEKLY_REPORT, blog-platform-summary(.md/.pages). KEEP + strip persona attribution from genuine standalone assets — PARENT_PAIN_POINTS, SOCIAL_MEDIA_IDEAS, ALGORITHM_DEEP_DIVE, METRICS_BASELINE, DATA_QUALITY_CHECKLIST, DATA_QUALITY_ROADMAP. BORDERLINE (decide) — INSTAGRAM_SETUP (likely obsolete, Instagram now via Postiz), CANONICAL_TAG_AUDIT (stale point-in-time), scripts/blog_research.py (working but orphaned). Exclude `memory/2026-02-15.md` and `frontend/supabase/migrations/*`.
-- **Trigger**: after the conservative-cleanup PR merges. Validate footprint against `origin/main` (a follow-up branch may predate the cleanup). See auto-memory `feedback_decommission_full_vocab_grep`.
 - **Noted**: 2026-06-08 (clearly-dead set split out into a ready plan 2026-06-08)
+- **Trigger**: after the conservative-cleanup PR merges. Validate footprint against `origin/main` (a follow-up branch may predate the cleanup). See auto-memory `feedback_decommission_full_vocab_grep`.
+- **Fix path** (per-file judgment, do NOT bulk-delete): DELETE the pure persona operational artifacts / stale reports — SEO_ACTION_PLAN, BLOG_CONTENT_PLAN, CONTENT_TEMPLATES, SEO_OPPORTUNITIES, SEO_WEEKLY_REPORT, blog-platform-summary(.md/.pages). KEEP + strip persona attribution from genuine standalone assets — PARENT_PAIN_POINTS, SOCIAL_MEDIA_IDEAS, ALGORITHM_DEEP_DIVE, METRICS_BASELINE, DATA_QUALITY_CHECKLIST, DATA_QUALITY_ROADMAP. BORDERLINE (decide) — INSTAGRAM_SETUP (likely obsolete, Instagram now via Postiz), CANONICAL_TAG_AUDIT (stale point-in-time), scripts/blog_research.py (working but orphaned). Exclude `memory/2026-02-15.md` and `frontend/supabase/migrations/*`.
 
 ### Extract shared PostgREST 1,000-row pagination helper
 
+- **ID**: IMP-055
+- **Status**: open
 - **Type**: direct
 - **Category**: refactor
 - **Where**: `frontend/app/api/insights/[teamId]/route.ts` (fetchAllRows), `frontend/app/api/mission-control/model-snapshot/route.ts` (fetchAllProspectiveRows), `frontend/app/api/instagram-review/route.ts`
@@ -470,24 +576,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Test compute_rankings_with_ml cache-invalidation branch
 
+- **ID**: IMP-056
+- **Status**: open
 - **Type**: plan
 - **Category**: testing
 - **Where**: `src/rankings/calculator.py` (~line 2113, games_used cache load)
 - **Why**: Corrupt games_used parquet on a cache hit now raises to force a full rebuild (audit C15); behavior is unpinned — needs parquet cache fixtures + engine mocks.
 - **Noted**: 2026-06-11
 
-### calculate_rankings.py --dry-run still persists game residuals + explainability
-
-- **Resolved**: 2026-08-24 by fix/dry-run-skip-residual-history-writes (persist flags + save_snapshot wired at both call sites; test_dry_run_skips_persistence.py)
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/calculate_rankings.py` (compute_all_cohorts call sites ~745-770), `src/rankings/calculator.py:50`
-- **Why**: `--dry-run` gates the rankings save (lines 987-997) but never passes `persist_game_residuals=False`, so a `--dry-run --ml` run still writes `batch_update_ml_overperformance` + explainability to prod games during Pass 2. Fix: pass `persist_game_residuals=not args.dry_run` at all compute_all_cohorts call sites.
-- **Noted**: 2026-06-11
-
 ### Commit the Glicko backtest harness to the repo
 
+- **ID**: IMP-058
+- **Status**: open
 - **Type**: plan
 - **Category**: testing
 - **Where**: `experiments/glicko_backtest/` (fetch_data.py, glicko_engine_exp.py, backtest.py, analyze_scf_split.py, guardrail_isolated.py, verify_port.py, test_fork_equivalence.py)
@@ -496,23 +596,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Verify email recipients before sending (double-opt-in)
 
+- **ID**: IMP-059
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/app/api/reports/team-card/route.ts`, `frontend/app/api/newsletter/route.ts`
 - **Why**: Both public endpoints email attacker-supplied addresses unverified (audit S9) — sender-domain reputation risk. Needs a confirm-before-send step designed around the report-card lead funnel and Beehiiv flows; per-IP rate limits currently blunt volume.
 - **Noted**: 2026-06-12
 
-### Fix main-red test: _DummySupabase mock missing .table after #884
-
-- **Type**: direct
-- **Category**: testing
-- **Where**: `tests/unit/test_ranking_history_relocation.py` (test_compute_all_cohorts_invokes_calculate_rank_changes_after_final_rank)
-- **Status**: Fix authored in PR #886 (2026-06-12), awaiting merge
-- **Why**: Red on main at 8044d8477 — #884's metadata fetch path now calls `client.table(...)` which the `_DummySupabase` mock lacks (`AttributeError`). Every PR inherits the failure. Fix: add a `table()` stub returning the dummy query chain (test_glicko_sos_role.py's `_DummySupabaseQuery` has the pattern).
-- **Noted**: 2026-06-12
-
 ### Add a pytest job to CI
 
+- **ID**: IMP-061
+- **Status**: open
 - **Type**: direct
 - **Category**: testing
 - **Where**: `.github/workflows/ci.yml`
@@ -521,6 +616,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Age-group rankings page — progressive loading (Option B) to cut mobile interaction jank (TBT)
 
+- **ID**: IMP-062
+- **Status**: open
 - **Type**: plan
 - **Category**: performance
 - **Where**: `frontend/app/rankings/[region]/[ageGroup]/[gender]/page.tsx`, `frontend/components/RankingsTable.tsx`, `frontend/hooks/useRankings.ts`
@@ -529,6 +626,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Dedupe ML∩cap overlap in diagnose_bubble_teams attribution math
 
+- **ID**: IMP-063
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/diagnose_bubble_teams.py` `check_attribution()`
@@ -537,6 +636,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### GoogleAnalytics leaks Stripe session_id to GA4 on /upgrade/success
 
+- **ID**: IMP-064
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/components/GoogleAnalytics.tsx` (GoogleAnalyticsContent gtag config)
@@ -545,6 +646,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Complete the prod→base rename in ranking_stability_check.py compare functions
 
+- **ID**: IMP-065
+- **Status**: open
 - **Type**: direct
 - **Category**: readability
 - **Where**: `scripts/ranking_stability_check.py` (compare_movement / compare_top_movers / compare_stage_shift / compare_topn_composition)
@@ -553,6 +656,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Switch the webhook set-password email to a token_hash callback URL (not raw action_link)
 
+- **ID**: IMP-066
+- **Status**: open
 - **Type**: investigate-then-plan
 - **Category**: reliability
 - **Where**: `frontend/app/api/stripe/webhook/route.ts` (anonymous-checkout set-password email: `linkData.properties.action_link` → `sendPasswordSetupEmail`)
@@ -561,6 +666,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### De-dup the stuck-signup monitor so it doesn't rotate recovery tokens every run
 
+- **ID**: IMP-067
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/check_stuck_signups.py` (`find_stuck_users` calls `generate_recovery_link` for every stuck user every 6h run)
@@ -569,6 +676,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Align HomeStats fallback floors with getPublicStats to avoid outage-time cross-page mismatch
 
+- **ID**: IMP-068
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `frontend/components/HomeStats.tsx` (`fallbackGames=16000`, `fallbackTeams=2800` defaults) vs `frontend/lib/stats.ts` (`FALLBACK_STATS` 59,000 / 1,100,000)
@@ -577,6 +686,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Reconcile remaining hardcoded site stats (blog MDX teams + games count) with the live-count approach
 
+- **ID**: IMP-069
+- **Status**: open
 - **Type**: plan
 - **Category**: docs
 - **Where**: `frontend/content/blog/what-predicts-winning-beyond-goals.mdx` ("77,000+ teams" / "700,000+ games", 2 spots); games-count copy: `1.1M+` in report-card/upgrade tiles vs `700K+` in `app/rankings/[region]/page.tsx` national metadata + `RankingsPillar.tsx` prose
@@ -585,6 +696,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix blog FAQ schema/body drift and add a question→answer parity test
 
+- **ID**: IMP-070
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/lib/blog-faqs.ts` (32 slugs), post bodies in `frontend/content/blog/*.mdx`, new test
@@ -593,24 +706,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Add a deterministic sort tiebreak to getAllBlogPosts
 
+- **ID**: IMP-071
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/lib/blog.tsx:54,62` (5 consumers incl. `app/blog/page.tsx:41`, `app/sitemap.ts:61`)
 - **Why**: Sorts by date only, over an unsorted `fs.readdirSync`, so same-date markdown posts inherit filesystem order — alphabetical on Windows/NTFS, hash order on Ubuntu CI ext4. `public/llms.txt` is generated from that order and drift-checked in CI (`ci.yml:97-114`), so local and CI output can disagree and fail the build despite correct regeneration. Latent today: nine duplicate-date groups exist but none yet pairs two non-pillar markdown posts. Needs its own PR — two of the five consumers are user/crawler-facing, so adding a tiebreak reshuffles the live `/blog` order and `sitemap.xml` and is not an additive change.
 - **Noted**: 2026-07-27
 
-### Roll config/settings.py _BIRTH_YEARS forward for the 2026-27 season
-
-- **Resolved**: 2026-08-24 by fix/derive-birth-years-from-season (derived from team_utils.CURRENT_YEAR; consumer audit done — display sites auto-correct, and the dashboard's birth_year write was removed: a band year is not a team's actual birth year)
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `config/settings.py:88-102` (`_BIRTH_YEARS` feeding `AGE_GROUPS`), consumer `dashboard.py:4407`, stale copy `dashboard.py:641,658`, stale comment `config/settings.py:90`
-- **Why**: `_BIRTH_YEARS` hardcodes the 2025-season map (`10: 2016 … 17: 2009, 19: 2007`) and never rolls, while `_soccer_season_year()` advances on its own every Aug 1. `dashboard.py:4407` writes `'birth_year': AGE_GROUPS.get(new_age_group, {}).get('birth_year')` on every admin team edit, so once the Aug 2026 rollover relabels `teams.age_group`, setting a team to u11 writes `birth_year` 2015 when a 2026-27 u11 is born 2016 — and `scripts/fix_team_age_groups.py` then reads that wrong year and rolls the team's `age_group` back down a cohort. Goes live the moment the migration is applied. Deferred out of the rollover PR (plan item 6) because the constant has 12+ consumers whose blast radius was never surveyed; start with that audit. Surfaced by review-consistency during /polish-code on the age rollover.
-- **Noted**: 2026-07-31
-
 ### Make U18-named queue entries matchable after the age rollover
 
+- **ID**: IMP-073
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/find_queue_matches.py` `extract_age_group` Priority 1/1b (U-age-token paths, ~592-605)
@@ -619,6 +726,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Escape the bare % in find_queue_matches argparse help so --help stops crashing
 
+- **ID**: IMP-074
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `scripts/find_queue_matches.py:1425` (`--include-high` help string)
@@ -627,6 +736,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Drive age-group matching and ingestion from explicit U labels, not birth-year inference
 
+- **ID**: IMP-075
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/find_queue_matches.py` (`extract_age_group`), `scripts/fix_team_age_groups.py`, `src/etl/enhanced_pipeline.py:467-473`, `src/utils/team_utils.py:calculate_age_group_from_birth_year`, plus the five provider matchers that auto-create teams from the derived value
@@ -635,6 +746,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Rotate and untrack the live Supabase service-role key committed to the public repo
 
+- **ID**: IMP-076
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `.env.local` (tracked since `904e8a809`, 2026-03-25), `.gitignore`
@@ -643,22 +756,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Correct the drain-rate figure in four enqueue script docstrings
 
+- **ID**: IMP-077
+- **Status**: open
 - **Type**: direct
 - **Category**: docs
 - **Where**: `scripts/enqueue_active_teams.py:10`, `enqueue_discovery_teams.py:8`, `enqueue_safety_net.py:8-9`, `enqueue_yesterday_games.py:7`
 - **Why**: All four state "process_missing_games (every 15min, 200/run) drains", but `.github/workflows/process-missing-games.yml:42` runs `--limit 40`. Real throughput is ~3,840 teams/day, not 19,200 — a 5x overstatement. The figure is load-bearing for capacity reasoning: it is why the queue backs up and why the manual "Help Clear Queue" action exists at all. Either correct the docstrings to 40/run or raise the workflow limit, but stop them disagreeing.
 - **Noted**: 2026-08-11
 
-### Set the ANTHROPIC_API_KEY secret so automated PR review runs again
-
-- **Type**: direct
-- **Category**: dx
-- **Where**: repo secrets, consumed by `.github/workflows/claude-code-review.yml`
-- **Why**: The `claude-review` check logs `ANTHROPIC_API_KEY:` empty and fails. It has failed on **every** PR for at least 10 days (verified back through 2026-08-01), including PRs that were merged. Every PR therefore shows a red check that reviewers learn to ignore, which also masks a genuine failure if one appears. Either set the secret or remove the workflow.
-- **Noted**: 2026-08-11
-
 ### Extract one shared highlightMatch and settle which yellow is the brand yellow
 
+- **ID**: IMP-079
+- **Status**: open
 - **Type**: direct
 - **Category**: refactor
 - **Where**: `frontend/components/GlobalSearch.tsx:19-49`, `TeamSelector.tsx:23-52`, `UnknownOpponentLink.tsx:51-80`, `ScopedTeamSelector.tsx:26-50`
@@ -667,6 +776,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Converge MergeTeamsDialog's team metadata line onto composeTeamMeta
 
+- **ID**: IMP-080
+- **Status**: open
 - **Type**: plan
 - **Category**: readability
 - **Where**: `frontend/components/MergeTeamsDialog.tsx:263-267`, `frontend/lib/utils.ts` (composeTeamMeta)
@@ -675,6 +786,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Use composeTeamDisplay for the report-card selector's team label
 
+- **ID**: IMP-081
+- **Status**: open
 - **Type**: plan
 - **Category**: readability
 - **Where**: `frontend/components/ScopedTeamSelector.tsx:207-211,222-224`, `frontend/app/api/teams/search/route.ts`
@@ -683,6 +796,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Cover UnknownOpponentLink's search rows with a component test
 
+- **ID**: IMP-082
+- **Status**: open
 - **Type**: plan
 - **Category**: testing
 - **Where**: `frontend/components/UnknownOpponentLink.tsx:549-552`, new `frontend/components/UnknownOpponentLink.test.tsx`
@@ -691,6 +806,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Give TeamSelector and UnknownOpponentLink the combobox roles GlobalSearch has
 
+- **ID**: IMP-083
+- **Status**: open
 - **Type**: direct
 - **Category**: refactor
 - **Where**: `frontend/components/TeamSelector.tsx:234-248`, `frontend/components/UnknownOpponentLink.tsx:537-557`; reference in `frontend/components/GlobalSearch.tsx:236-247`
@@ -699,6 +816,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Test useTeamSearch — it silently feeds every search subtitle
 
+- **ID**: IMP-084
+- **Status**: open
 - **Type**: direct
 - **Category**: testing
 - **Where**: `frontend/hooks/useTeamSearch.ts` (select list ~:60, transforms ~:83 and :139-142), new `frontend/hooks/useTeamSearch.test.ts`
@@ -707,6 +826,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Make the e2e search test fail when zero results render
 
+- **ID**: IMP-085
+- **Status**: open
 - **Type**: direct
 - **Category**: testing
 - **Where**: `frontend/e2e/search.spec.ts:40-51`
@@ -715,6 +836,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Consolidate the six-plus independent team-metadata line implementations
 
+- **ID**: IMP-086
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `frontend/lib/utils.ts` (`composeTeamMeta`), `MergeTeamsDialog.tsx:265-266`, `RankingsTable.tsx:264`, `UnknownOpponentLink.tsx`, `app/api/infographic/movers/route.tsx:73`, `app/api/infographic/spotlight/route.tsx:78`, `TeamHeader.tsx:354`, `RankingsStickyFilters.tsx:45`
@@ -723,6 +846,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Middleware drops rotated Supabase session cookies on early redirects
 
+- **ID**: IMP-087
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `frontend/middleware.ts` (the `NextResponse.redirect` returns after `getUser()`)
@@ -731,6 +856,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Emailed auth tokens are not bound to the recipient (session fixation)
 
+- **ID**: IMP-088
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/app/auth/confirm/`, `frontend/app/auth/callback/route.ts`
@@ -739,6 +866,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Extract a shared redeemEmailToken module
 
+- **ID**: IMP-089
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `frontend/app/auth/callback/route.ts`, `frontend/app/auth/confirm/actions.ts`
@@ -747,6 +876,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### PKCE ?code= links are still redeemed by a plain GET
 
+- **ID**: IMP-090
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/app/auth/callback/route.ts` (the `if (code)` branch)
@@ -755,6 +886,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Weekly digest emails a live recovery token to a shared admin mailbox
 
+- **ID**: IMP-091
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/check_stuck_signups.py` `generate_recovery_link` (~line 156)
@@ -763,24 +896,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### normalize_gender turns an unknown gender into "Male"
 
+- **ID**: IMP-092
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/extract_and_import_tgs_teams.py:226` (empty input) and `:234` (else fallback)
 - **Why**: An unparseable gender becomes a confidently wrong one instead of a rejection, so the team is created as Male at confidence 1.0 with `review_status: approved` and no queue entry for anyone to catch it. Reachable from any division label without a B/G prefix — `U11 Girls`, `U10 GIRLS 7v7`. The TGS scraper now resolves gender from the provider's `divisionGender` field so it no longer feeds this path, but the default is still live for every other caller. Prefer returning None and queueing for review over guessing. Related to the shared `normalize_gender_label()` helper proposed above.
 - **Noted**: 2026-08-19
 
-### Two GotSport tier-persistence tests are failing on main
-
-- **Type**: investigate
-- **Category**: testing
-- **Where**: `tests/integration/test_gotsport_tier_persistence.py` (`test_golden_path_persists_tier_fields_to_jsonl`, `test_u7_micro_cohort_dropped_loose_age_kept`), raised from `src/scrapers/gotsport_tier_parser.py:764`
-- **Why**: Both fail with `TierSubfetchError: event 42433 group 365847 subfetch failed (malformed_html) ... zero ?team= anchors; residue='Red'`.
-- **Noted**: 2026-08-19
-- **Resolved (2026-08-19)**: Not a main-is-red problem — CI was green throughout; I mischaracterised it. The tests fail only where `ZENROWS_API_KEY` is set, which flips `use_zenrows` so `_subpage_fetcher` routes through `_make_zenrows_request` instead of the mocked `session.get`; the unmocked call returns a MagicMock whose `.text` yields zero anchors. Fixture and parser were both fine. Fixed in PR #978 by pinning `use_zenrows = False` in the fixture.
-
-
 ### Implement validatePagination and route the hand-rollers through it
 
+- **ID**: IMP-094
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/lib/api/validatePagination.ts` (to create), `frontend/app/api/teams/search/route.ts:74`, `frontend/app/api/announcements/route.ts:17`, plus four other `/api` routes
@@ -789,6 +916,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Decide whether data/master belongs in git
 
+- **ID**: IMP-095
+- **Status**: open
 - **Type**: plan
 - **Category**: dx
 - **Where**: `data/master/` (11 CSVs, 345 MB), `scripts/weekly/update.py:255`
@@ -797,6 +926,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Retire the "never git stash" rule once PR #1005 merges
 
+- **ID**: IMP-096
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `.claude/rules/git-workflow.md`
@@ -805,6 +936,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Stop calculate-rankings from starting while data-hygiene is still merging teams
 
+- **ID**: IMP-097
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `.github/workflows/calculate-rankings.yml:8`, `.github/workflows/data-hygiene-weekly.yml`
@@ -813,6 +946,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Route the weekly blog commit through a PR now that main has a ruleset
 
+- **ID**: IMP-098
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/marketing_pipeline.py:976`, `.github/workflows/marketing-pipeline.yml`
@@ -821,24 +956,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix the .pre-commit-config.yaml install instruction, or route ruff through lint-staged
 
+- **ID**: IMP-099
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: `.pre-commit-config.yaml:3`, `frontend/package.json` (lint-staged), `CLAUDE.md:594`
 - **Why**: The header says `pip install pre-commit && pre-commit install`, which refuses while husky owns `core.hooksPath`, so the Python pre-commit hook has never run on any clone. Either add a `*.py` lint-staged entry that runs `python -m ruff check --fix` (same scope) or rewrite the header to say CI and `.claude/hooks/ruff-fix.sh` are the ruff gates. CLAUDE.md:594 also still says pre-commit "may silently revert edits".
 - **Noted**: 2026-08-23
 
-### Make calculate_rankings --dry-run actually skip every write
-
-- **Resolved**: 2026-08-24 by fix/dry-run-skip-residual-history-writes (persist flags + save_snapshot wired at both call sites; test_dry_run_skips_persistence.py)
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/calculate_rankings.py:741-768`, `src/rankings/calculator.py:2306-2335,2476,3347`
-- **Why**: `--dry-run` prints "no database writes" but calls `compute_all_cohorts` without passing it, so game residuals (`_persist_game_residuals`) and the `ranking_history` snapshot (`save_snapshot=True` default) are persisted before the CLI's guards. Pass `persist_residuals=False, save_snapshot=False` when `args.dry_run`.
-- **Noted**: 2026-08-23
-
 ### Add the missing power_score_true migration for rankings_full
 
+- **ID**: IMP-101
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `supabase/migrations/`, `src/rankings/data_adapter.py:1006-1065`
@@ -847,6 +976,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Make the reviewer agents' fallback diff survive a missing origin/main ref
 
+- **ID**: IMP-102
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `.claude/agents/ranking-change-reviewer.md`, `.claude/agents/migration-reviewer.md`
@@ -855,6 +986,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Strip or explain the retired-pack provenance stamps in brand/*.md
 
+- **ID**: IMP-103
+- **Status**: open
 - **Type**: direct
 - **Category**: docs
 - **Where**: `brand/learnings.md`, `brand/stack.md`, `brand/voice-profile.md`, `brand/positioning.md`
@@ -863,13 +996,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix or disable the always-failing claude-review workflow
 
+- **ID**: IMP-104
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
-- **Where**: `.github/workflows/` Claude Code Review workflow + repo Actions secrets
-- **Why**: `ANTHROPIC_API_KEY` secret is empty, so the check fails in ~2s on every PR ($0 spend, no comments posted) and shows a permanent red X beside real checks. Set the secret or remove/disable the workflow.
-- **Noted**: 2026-08-23
+- **Where**: `.github/workflows/claude-code-review.yml` + repo Actions secrets
+- **Why**: The check fails on every PR and is not required, so a permanent red X sits beside the seven that are — which trains reviewers to ignore red. Still live as of 2026-08-25 (#1025, #1026). The remedy is **not** the `ANTHROPIC_API_KEY` secret this entry and IMP-078 both named: the workflow reads `CLAUDE_CODE_OAUTH_TOKEN` at line 38, that secret is present, and the run fails on its first turn with $0 spend — an auth rejection, not a missing secret. Diagnose the token, or disable the workflow.
+- **Noted**: 2026-08-23 (premise corrected 2026-08-25; absorbed IMP-078)
+
 ### Speed up ML residual + explainability persistence in the weekly ranking run
 
+- **ID**: IMP-105
+- **Status**: open
 - **Type**: plan
 - **Category**: performance
 - **Where**: `src/rankings/calculator.py:1883` (`_persist_game_residuals`), `src/rankings/calculator.py:91` (`_persist_game_explainability`)
@@ -878,6 +1016,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Fix _backfill_game_stats_python NOT NULL failures for unpublished teams
 
+- **ID**: IMP-106
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/calculate_rankings.py:564` (`_backfill_game_stats_python`)
@@ -886,6 +1026,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Silence the false "SUPABASE_KEY is not set" warning in ranking runs
 
+- **ID**: IMP-107
+- **Status**: open
 - **Type**: direct
 - **Category**: dx
 - **Where**: startup logging in the calculate-rankings path (module logs "SUPABASE_KEY is not set — database calls will fail" while the run proceeds on SUPABASE_SERVICE_ROLE_KEY)
@@ -894,13 +1036,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Give compute_all_cohorts a single no-persistence preset instead of four loose kwargs
 
+- **ID**: IMP-108
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/rankings/calculator.py:2473-2477` (`compute_all_cohorts` flags; `RankingContext` at :49-51 already groups three)
 - **Why**: Callers hand-assemble persist_game_residuals / persist_game_explainability / save_snapshot / calculate_rank_changes_enabled, and the three non-production callers disagreed three ways — which produced the backfill_prediction_feature_history explainability leak fixed 2026-08-24. A `read_only` flag or NO_PERSISTENCE kwargs constant would make a future fifth writer fail closed. Escalated from the dry-run-fix code review; deferred by scope discipline. Would also obsolete the two hand-enumerated flag lists (replay test in tests/unit/test_backfill_prediction_feature_history.py and the caller kwarg blocks), closing the round-3 P3 about a future persist_* flag slipping the replay path.
 - **Noted**: 2026-08-24
+
 ### Add the prediction-feature snapshot writer to SKILL.md's stage 10
 
+- **ID**: IMP-109
+- **Status**: open
 - **Type**: direct
 - **Category**: docs
 - **Where**: `.claude/skills/rankings-algorithm/SKILL.md` stage 10 vs `src/rankings/calculator.py:3347-3358`
@@ -909,16 +1056,19 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### URGENT: scrape-eligibility filters roll on the calendar year, excluding real U10 teams every Aug-Dec
 
-- **Resolved**: 2026-08-24 by fix/scrape-eligibility-season-year (PR #1018) — season-year derivation in the five RPCs + drain_queue/scrape_games/dashboard via team_utils.scrape_excluded_birth_years. Still open from this entry: the audit of teams.birth_year rows the old dashboard write stamped (name/provider-sourced correction).
-
+- **ID**: IMP-110
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `scripts/drain_queue.py:84-93` (`_excluded_birth_years`), `scripts/scrape_games.py:389` (hardcoded `[2005, 2006, 2017, 2018, 2019]`), and six RPCs using `c.yr - 9` (`get_teams_to_scrape_limited`, `get_scrape_eligibility_counts`, `find_discovery_teams`, `find_stale_teams`, `find_recently_active_teams`, `resolve_merges_in_scrape_enqueue_rpcs`) — the RPC fix needs a migration; mind the CREATE OR REPLACE overload trap
 - **Why**: The "U8/U9" exclusions derive years from `date.today().year` while cohorts roll Aug 1, so from Aug 1 to Dec 31 they exclude the U10 cohort: 2017-born U10 teams are dropped from every enqueue path, drain_queue, and scrape_games right now. Surfaced by the birth-year-derivation review 2026-08-24. Follow-up in the same pass: audit `teams.birth_year` rows the dashboard's old stale-map write overwrote (needs name/provider-sourced correction, not a blanket increment; the write itself was removed 2026-08-24). `scripts/enrich_instagram_handles.py` searches and scores on the stored year, so corrupted rows actively mislead it. The same off-by-one also fails open on the old end: 2007-born (real U20) teams are NOT excluded Aug-Dec.
 - **Noted**: 2026-08-24
+- **Refs**: #1018 closed the derivation half. Still open: the audit of teams.birth_year rows the old dashboard write stamped
 
 ### Single-source modular11's age-to-birth-year derivation
 
+- **ID**: IMP-111
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `src/models/modular11_matcher.py:184-196` (`_birth_year_from_age_group`)
@@ -927,6 +1077,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Pick one owner for the age-groups reference (CLAUDE.md vs pitchrank-domain skill)
 
+- **ID**: IMP-112
+- **Status**: open
 - **Type**: plan
 - **Category**: docs
 - **Where**: `CLAUDE.md` "Age Groups (2026-27 Season)" vs `.claude/skills/pitchrank-domain/SKILL.md:16-53`
@@ -935,6 +1087,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Move the Supabase MCP server to Supabase's hosted HTTP/OAuth endpoint
 
+- **ID**: IMP-113
+- **Status**: open
 - **Type**: plan
 - **Category**: dx
 - **Where**: `.mcp.json`; the `SUPABASE_ACCESS_TOKEN` block in `.env.example`; CLAUDE.md § Environment Variables
@@ -943,6 +1097,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Infographics Biggest Movers generator fabricates rank changes
 
+- **ID**: IMP-114
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `frontend/components/infographics/rankingMoversRenderer.ts:247`, call sites in `frontend/app/infographics/page.tsx`
@@ -951,6 +1107,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Decide whether all movers surfaces adopt the homepage's stricter definition
 
+- **ID**: IMP-115
+- **Status**: open
 - **Type**: plan
 - **Category**: feature
 - **Where**: `frontend/lib/movers.ts` (band+recency filters), `frontend/lib/cohort-seo.ts:56-80` (Rising/Falling), `get_biggest_movers` RPC → `/api/infographic/movers`
@@ -959,6 +1117,8 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Extract one shared rank-delta badge component
 
+- **ID**: IMP-116
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `components/RecentMovers.tsx`, `components/RankingsTable.tsx:549-570`, `components/CohortSEOContent.tsx:86-125`, `components/insights/InsightModal.tsx` (`DeltaIndicator`)
@@ -967,14 +1127,18 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 
 ### Work through items 2–8 of the 2026-08-24 agent-readiness review
 
+- **ID**: IMP-117
+- **Status**: open
 - **Type**: plan
 - **Category**: dx
 - **Where**: https://claude.ai/code/artifact/9e4525fa-4bb1-4844-9ea4-873e36de5d6f (98 cited findings); CLAUDE.md, .claude/, .github/workflows, docs/
-- **Why**: The review's ranked plan lives only in the artifact. Shipped: item 1 agent-reachable credentials (#1019), item 2 documented commands = CI commands plus the wrong code patterns (#1023), item 3 part 1 the doc-reference parity test (#1024), item 3 part 2 the seven remaining contradictions given one owner each (#1025), item 3 part 3 the prose de-duplication — seven duplicated bodies each given one owner, measured rather than estimated (the "31 bodies" figure was a duplicated-*line* count) (#1026). **Item 3 is done.** Still open: item 4 improvements.md lifecycle incl. `/sweep-improvements`; item 5 per-change wait (auto-merge, tracked allowlist, PR template, CI concurrency); item 6 a richer session-start hook; item 7 the git-guard gaps; item 8 retiring contradicting docs, the always-red claude-review workflow, and the stale worktree/branches.
-- **Noted**: 2026-08-24 (updated 2026-08-25, after #1025)
+- **Why**: The review's ranked plan lives only in the artifact. Shipped: item 1 agent-reachable credentials (#1019), item 2 documented commands = CI commands plus the wrong code patterns (#1023), item 3 part 1 the doc-reference parity test (#1024), item 3 part 2 the seven remaining contradictions given one owner each (#1025), item 3 part 3 the prose de-duplication — seven duplicated bodies each given one owner, measured rather than estimated (the "31 bodies" figure was a duplicated-*line* count) (#1026). **Item 3 is done.** Item 4 is done too: this file's own lifecycle — the ID/Status schema, `scripts/sweep_improvements.py`, the `sweep-improvements` skill, `.turbo/improvements-archive.md` and `tests/unit/test_improvements_backlog.py`. Still open: item 5 per-change wait (auto-merge, tracked allowlist, PR template, CI concurrency); item 6 a richer session-start hook; item 7 the git-guard gaps; item 8 retiring contradicting docs, the always-red claude-review workflow (tracked separately as IMP-104), and the stale worktree/branches.
+- **Noted**: 2026-08-24 (updated 2026-08-25, after item 4)
 
 ### Extract the React mount/unmount test harness into frontend/test/
 
+- **ID**: IMP-118
+- **Status**: open
 - **Type**: direct
 - **Category**: testing
 - **Where**: `frontend/test/`, `frontend/components/{GlobalSearch,ComparePanel,RecentMovers}.test.tsx`, `frontend/components/insights/DeltaIndicator.test.tsx`
