@@ -19,7 +19,7 @@ agent-readiness review".
 | #1019 `40e0a48b7` | 1 | Supabase reachable for agents: `.mcp.json` pinned to 0.11.0 with `--project-ref` and fail-closed `${SUPABASE_ACCESS_TOKEN:-}`; `enabledMcpjsonServers` in tracked settings; `/.mcp.json` in CODEOWNERS; `.env.example` Agent Tooling section; `tests/unit/test_claude_config_json.py` |
 | #1023 `b9f82f6ff` | 2 | Documented commands now match CI exactly + a "Reproducing the CI gate locally" block; four paste-fatal patterns fixed; wrong DB columns in the Supabase/domain skills corrected; ten missing workflow rows; README's three deleted-script commands |
 | #1024 `5b97c8c08` | 3 (part 1) | `tests/unit/test_agent_doc_references.py` — six checks over the 25 agent-loaded markdown files; `test_claude_agent_frontmatter.py` extended to all 12 skills; five live violations fixed |
-| #1025 **open** | 3 (part 2) | The seven contradictions, each fact given one owner: expert-coder's commit style deleted, age groups fixed to the `u14` form, both GotSport rate-limit statements replaced with pointers at the code, PlayMetrics + Affinity WA added to the provider table (README's list dropped), the pandas remedy deferred to the rule, the `lib/api` inventory moved to `frontend/CLAUDE.md`, the u19 count rounded |
+| #1025 `8b8255eb1` | 3 (part 2) | The seven contradictions, each fact given one owner: expert-coder's commit style deleted, age groups fixed to the `u14` form, both GotSport rate-limit statements replaced with pointers at the code, PlayMetrics + Affinity WA added to the provider table (README's list dropped), the pandas remedy deferred to the rule, the `lib/api` inventory moved to `frontend/CLAUDE.md`, the u19 count rounded |
 
 Item 1's operator half is also **done**: root `.env` now carries `SUPABASE_URL` /
 `SUPABASE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (verified against the live DB — 200,051 teams),
@@ -28,41 +28,55 @@ at Windows User scope and validated against the Management API.
 
 ## State right now
 
-- On branch `docs/resolve-agent-doc-contradictions` at `31cf4f58f`, pushed, **PR #1025 open**.
-- Working tree clean. That PR also carries the two files that had no route to `main` of their
-  own: this handoff and the `.turbo/improvements.md` backlog entry.
-- Full CI gate run locally against the PR head, all seven green: ruff, pytest (2450 passed,
-  4 skipped), eslint, prettier, tsc, vitest (519 passed), llms.txt drift.
+- **Item 3 is complete.** Its three parts shipped as #1024 (the parity test), #1025 (the seven
+  contradictions) and #1026.
+- Full CI gate run locally, all seven green: ruff, pytest, eslint, prettier, tsc, vitest,
+  llms.txt drift.
+
+## What PR3 actually was
+
+**The "31 duplicated bodies" figure in earlier drafts of this handoff was wrong** — it was a
+count of duplicated *lines*, not blocks, and it made PR3 sound roughly four times larger than
+it was. Measured on the merged tree with a normalized line-match across all 25 corpus files,
+64 lines appeared in 2+ files, resolving to seven real bodies. Those seven are done:
+
+| Body | Owner | Copy that now points at it |
+|------|-------|----------------------------|
+| Birth-year table, `14B` shorthands, U18→U19 rule | `CLAUDE.md` | `pitchrank-domain` |
+| API-route auth snippet | `frontend/CLAUDE.md` | `CLAUDE.md` |
+| Frontend command list | `frontend/CLAUDE.md` | `CLAUDE.md` |
+| Branching / staging / push rules | `CLAUDE.md` § Git Discipline | two other CLAUDE.md sections |
+| `rankings_full` column semantics | `rankings-algorithm` | `supabase-pitchrank` |
+| Escalation criteria | `rankings-audit` | `ranking-engine` agent |
+| `age_group` stored format | `CLAUDE.md` | `supabase-pitchrank` |
+
+After the change, 33 shared lines remain and every one is deliberate: the reviewer SHIP/HOLD
+protocol (below), a `for i in range(0, len(records), ...)` Python idiom, `| Table | Purpose |`
+markdown headers, and frontmatter `skills:` lists. **There is no de-duplication work left** —
+re-run `find_dupes`-style line matching before believing any future claim that there is.
+
+Two things PR3 turned up that were not de-duplication and were fixed in passing: the domain
+skill still carried "26,442 `u19`" after #1025 corrected it in CLAUDE.md (the predicted
+divergence, live), and its "Season-year vs calendar-year trap" told an agent to go fix code
+that #1018 had already fixed, naming a hardcoded 2026 set that no longer exists.
+
+Explicitly **left alone**, and still the right call: the two `AGENTS.md` shims (the imperative
+"Read CLAUDE.md" line is what works; a bare `@import` is inert), the
+workflow-table/github-actions-debug overlap (already a clean owner/delta split), README's
+outsider-facing repeats, and the shared SHIP/HOLD block in the two reviewer agents — rules
+load into every session, so homing agent-only protocol in `.claude/rules/` would tax every
+unrelated conversation to save six lines, and the parity check in the guard covers it.
+
+Also deliberately **not** done: `CLAUDE.md`'s Coding Conventions and Common Pitfalls sections
+restate four of the same rules (pagination, merge resolution, game immutability, PowerScore
+bounds). That is a checklist deliberately mirroring the conventions, not accidental
+duplication — collapsing it would be a restructure of the always-loaded file, and a separate
+decision from this one.
 
 ## Next concrete action
 
-The seven contradictions shipped in #1025. What is left of item 3 is
-**PR3** (large, splittable by tier): insert the one-line pointers and delete the
-duplicated prose bodies — 16 blocks owned by `CLAUDE.md`, 5 by `frontend/CLAUDE.md`, 10 by a
-skill or rule. Two fixed pointer forms, applied mechanically:
-
-- Form P: `> Canonical: CLAUDE.md "<exact heading>". This file adds only <the delta>.`
-- Form C: `> Source of truth: <repo-relative path>. Check it when the value matters.`
-  (preferred wherever a code constant exists — it removes the fact from markdown entirely)
-
-Ownership rule so nothing needs re-deciding: **a fact is owned by the narrowest file
-guaranteed loaded when the fact is needed.** Always-loaded and needed unprompted → CLAUDE.md.
-Frontend-scoped → frontend/CLAUDE.md. Trigger-time depth → the skill. Change-approach
-mechanics → `.claude/rules/`.
-
-#1025 already applied that rule to one block, and what forced its shape is worth knowing:
-root `CLAUDE.md`'s "Shared API Utilities" table could not simply be deleted, because
-`test_shared_api_utility_files_match_the_directory` in the new guard reads `lib/api/*.ts`
-references out of **both** CLAUDE.md files and asserts the set is non-empty. The table had to
-move into `frontend/CLAUDE.md` § API Route Auth intact. Expect the same wherever PR3 deletes
-a block one of the guard's parsers feeds on — check what the parser reads before deleting.
-
-Explicitly **leave alone**: the two `AGENTS.md` shims (the imperative "Read CLAUDE.md" line is
-what works; a bare `@import` is inert), the workflow-table/github-actions-debug overlap
-(already a clean owner/delta split), and README's outsider-facing repeats. Do **not** create
-`.claude/rules/reviewer-protocol.md` for the shared SHIP/HOLD block — rules load into every
-session, so homing agent-only protocol there taxes every unrelated conversation to save six
-lines; the parity check in the new test covers it instead.
+Items 4–8 below. Item 4 (backlog lifecycle) is the natural next one: it is self-contained,
+and every later item wants a working way to close an entry.
 
 ## Then items 4–8
 
@@ -104,7 +118,10 @@ lines; the parity check in the new test covers it instead.
   pointer still asserts *where* the value comes from, and that assertion is as checkable — and
   was as wrong — as the number it replaced. Before writing a Form C pointer, confirm the named
   source is really the one that decides the value at runtime, not merely a place the name
-  appears.
+  appears. #1026 then hit the second variant: a pointer that *relocates* content silently drops
+  that content's preconditions. Moving the frontend command list out of root `CLAUDE.md` left
+  `cd frontend` behind, and there is no root `package.json`, so every command in the relocated
+  block failed from the repo root. Move the preconditions with the text.
 - **`claude-review` is red on every PR and is not a required check.** It reads
   `CLAUDE_CODE_OAUTH_TOKEN` (present); the run fails on the first turn with `$0` spend, which
   is an auth rejection, not a missing secret. Do not diagnose it as a code problem.

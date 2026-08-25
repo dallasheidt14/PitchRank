@@ -25,6 +25,9 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
+- Keep the working tree clean — stage selectively (`git add <paths>`), never `git add -A`.
+- When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
+- `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -65,7 +68,7 @@ PitchRank/
 │   ├── app/                # App Router pages + API routes
 │   ├── components/         # React components (shadcn/ui + custom)
 │   ├── lib/                # API client, types, utilities, Supabase clients
-│   │   ├── api/            # Shared route utilities (requireAuth, requirePremium, optionalAuth, parseJsonBody, rateLimit, watchlist)
+│   │   ├── api/            # Shared route utilities — inventory in frontend/CLAUDE.md
 │   ├── hooks/              # Custom React hooks
 │   ├── types/              # TypeScript type definitions
 │   ├── e2e/                # Playwright E2E tests
@@ -331,43 +334,11 @@ your change, and a bare `ruff check .` walks 557 findings in paths the job never
 
 ### Frontend (Next.js)
 
-```bash
-cd frontend
+> Canonical: `frontend/CLAUDE.md` § Commands — every script, with the CI gates marked and
+> the E2E caveat. It loads whenever you are working under `frontend/`.
 
-# Install dependencies
-npm install
-
-# Development server
-npm run dev
-
-# Production build
-npm run build
-
-# Lint (CI runs `npx eslint .`; the bare script is equivalent)
-npm run lint
-
-# Format check (CI gate — `npm run format` rewrites, `format:check` only verifies)
-npm run format:check
-
-# Typecheck (CI gate)
-npm run typecheck
-
-# Unit tests (Vitest)
-npm run test              # Run once — CI gate
-npm run test:watch        # Watch mode
-npm run test:coverage     # Needs `npm i -D @vitest/coverage-v8` first (not installed)
-
-# llms.txt drift (CI gate — regenerates, then fails if the file changed)
-npm run generate-llms && git diff --exit-code public/llms.txt
-
-# E2E tests (Playwright — not a CI gate; targets production unless PLAYWRIGHT_BASE_URL is set)
-npm run test:e2e
-npm run test:e2e:smoke    # Smoke tests only
-npm run test:e2e:api      # API tests only
-
-# Bundle analysis
-npm run analyze
-```
+The merge-gate subset is reproduced below rather than pointed at, because that block is
+about `ci.yml` and must stay copy-pasteable from here.
 
 ### Reproducing the CI gate locally
 
@@ -579,20 +550,10 @@ file here carries it (`.env.example` says why).
 
 ### Auth for API Routes
 
-All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. `frontend/CLAUDE.md` § API Route Auth carries the full helper inventory; the two most common:
+All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication — a route that forgets is simply public.
 
-```typescript
-// Admin-only routes (mission control, team management)
-import { requireAdmin } from '@/lib/supabase/admin';
-const auth = await requireAdmin();
-if (auth.error) return auth.error;
-
-// Premium routes (watchlist, insights) — returns supabase client for downstream queries
-import { requirePremium } from '@/lib/api/requirePremium';
-const auth = await requirePremium();
-if (auth.error) return auth.error;
-const { user, supabase } = auth;
-```
+> Canonical: `frontend/CLAUDE.md` § API Route Auth. It carries the helper inventory and the
+> copy-paste snippets, and it loads whenever you are working under `frontend/`.
 
 ### Design System
 
@@ -631,16 +592,9 @@ const { user, supabase } = auth;
 ### Git
 
 - Commit messages: imperative mood, plain descriptions (e.g., "Fix N+1 query in mission-control status endpoint")
-- Don't commit `.env`, `.env.local`, or large CSV files
+- Don't commit large CSV files. For `.env` / `.env.local` the rule under Environment Variables is stronger than a style preference — the repo is public, so a committed key is disclosed, not just untidy
 - The `.gitignore` excludes: `venv/`, `__pycache__/`, `*.log`, `logs/`, credentials, large data files
-
----
-
-## Git Workflow
-
-- Never commit directly to main. Create a feature branch and open a PR; the ruleset and the git guard both refuse direct commits.
-- When the user asks for git operations (commit, push, merge), do them immediately without requiring a second ask.
-- Keep the working tree clean — stage selectively (`git add <paths>`), not `git add -A`.
+- Branching, staging and pushing: Git Discipline at the top of this file
 
 ---
 

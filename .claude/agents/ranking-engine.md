@@ -135,12 +135,13 @@ enable any of them without a dry run and a `diagnose_ranking.py` comparison.
 ## Escalation Criteria
 
 **Likely bugs** (investigate immediately):
-- PowerScore swing > 30% with zero new games
-- Entire cohort shifts dramatically in one snapshot
-- Rankings not updating (calculation failure)
-- Duplicate team_ids in rankings_full
-- PowerScore outside [0.0, 1.0]
-- `sos_norm` > 0.95 for teams with < 12 games
+
+> Canonical: the `rankings-audit` skill's "When to Escalate" list. This agent already loads
+> that skill (see `skills:` in the frontmatter above), so read the list there.
+
+One signal is specific to engine work and is not on that list:
+- Duplicate `team_id`s in `rankings_full` — the audit skill's "duplicate teams" entry is about
+  duplicate team rows upstream, not a malformed output table
 
 **Normal variance** (investigate but likely correct):
 - SOS cascades when common opponents have major results

@@ -13,55 +13,31 @@ You are working on PitchRank, a youth soccer ranking platform. This skill teache
 - U10, U11, U12, U13, U14, U15, U16, U17, U18, U19
 - "U" = "Under" (U14 = Under 14 years old)
 
-### Birth Year to Age (2026-27 Season)
+### Birth Year to Age
 
-Rolled over on 2026-08-01. Seasons run Aug 1 - Jul 31, so every cohort moves up
-one each Aug 1 and this table is only valid for the season named above. Check
-the current season before trusting any birth-year mapping you find in code
-comments or docs.
+> Canonical: CLAUDE.md "### Age Groups (2026-27 Season)". The birth-year table, the
+> `14B` / `U14B` / `G2016` shorthands and the U18-into-U19 rule all live there, and
+> `tests/unit/test_agent_doc_references.py` pins that table to
+> `calculate_age_group_from_birth_year`. CLAUDE.md is always loaded, so it is in context
+> whenever this skill is.
 
-| Birth years (Aug 1 - Jul 31) | Real-world | PitchRank |
-|---|---|---|
-| 2018 / 2017 | U9  | u9 |
-| 2017 / 2016 | U10 | u10 |
-| 2016 / 2015 | U11 | u11 |
-| 2015 / 2014 | U12 | u12 |
-| 2014 / 2013 | U13 | u13 |
-| 2013 / 2012 | U14 | u14 |
-| 2012 / 2011 | U15 | u15 |
-| 2011 / 2010 | U16 | u16 |
-| 2010 / 2009 | U17 | u17 |
-| 2009 / 2008 | U18 | **u19** (merged) |
-| 2008 / 2007 | U19 | u19 |
-
-A cohort's birth window runs Aug 1 - Jul 31, so it spans two calendar years.
-The band is named by its **younger** year; `calculate_age_group_from_birth_year(2016)` is `U11`
-because 2026 − 2016 + 1 = 11. Reading a `2015/2016` division from the older year gives U12 and is wrong.
-
-PitchRank deliberately files U18 into U19 rather than running a separate U18
-board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
-Do not "fix" this by splitting the cohort.
+Do not re-add a copy here. The last one drifted — still reading "26,442 `u19`" after
+CLAUDE.md's count was corrected — and it made every Aug 1 rollover a two-file edit. This
+skill adds only the season-arithmetic trap below.
 
 ### Season-year vs calendar-year trap
 
-Cohorts roll on Aug 1; the calendar rolls on Jan 1. Any year-offset cohort
-arithmetic computed from the calendar year (e.g. an excluded birth year as
-`date.today().year - 9`) names the wrong cohort from Aug 1 to Dec 31 — inside
-that window the offset points at real U10 (2017-born) teams while labelled "U9",
-silently excluding them from scraping (`scripts/drain_queue.py`
-`_excluded_birth_years()`, mirrored in SQL by the scrape-eligibility RPCs via
-`extract(year from now())`). `scripts/scrape_games.py` hardcodes the same 2026
-set, which is wrong for the whole season and stops matching the computed sets
-on Jan 1 — fix all of them together or they diverge. Derive the year from the
-season instead: U9 is `CURRENT_YEAR - 8` (`src/utils/team_utils.py`
-`_soccer_season_year()` / `CURRENT_YEAR`), never `date.today().year - 9`.
+Cohorts roll on Aug 1; the calendar rolls on Jan 1. Year-offset cohort arithmetic computed
+from the *calendar* year (`date.today().year - 9`) names the wrong cohort from Aug 1 to
+Dec 31 — inside that window it points at real U10 (2017-born) teams while labelled "U9",
+silently excluding them from scraping.
 
-### Common Formats
-- `14B` = 2014 birth year, Boys = **U13 Male**
-- `U14B` = U14 age group, Boys = **U14 Male**
-- `G2016` = Girls, 2016 birth year = **U11 Female**
-
-**CRITICAL**: B/G = Gender (Boys/Girls), NOT part of age number!
+Derive from the season instead. `scrape_excluded_birth_years` in `src/utils/team_utils.py`
+does it, off `_soccer_season_year()`, and is already what both Python callers use
+(`scripts/drain_queue.py`, `scripts/scrape_games.py`); the scrape-eligibility RPCs mirror
+the same offsets in SQL via `now() - interval '7 months'` (migration
+`supabase/migrations/20260824120000_scrape_eligibility_uses_season_year.sql`). Call the
+helper rather than recomputing an offset, and change the SQL with it if the range moves.
 
 ## Gender
 
