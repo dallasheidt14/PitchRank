@@ -14,18 +14,19 @@ interface RecentMoversProps {
   initialMovers7d: RankingRow[];
   /** Top movers for the 30-day window, computed server-side. */
   initialMovers30d: RankingRow[];
+  /** Cohort the movers were selected from, e.g. "U12 Boys". */
+  cohortLabel: string;
   /** Default time window. Defaults to '7d' */
   defaultTimeWindow?: MoversWindow;
 }
 
-/**
- * RecentMovers - displays teams with the biggest rank changes over 7 or 30 days.
- *
- * Movers are computed server-side and passed in as props, so the homepage no
- * longer ships a client fetch of the full national cohort. Users toggle between
- * the two prebuilt windows.
- */
-export function RecentMovers({ initialMovers7d, initialMovers30d, defaultTimeWindow = '7d' }: RecentMoversProps) {
+/** Both windows are prebuilt server-side, so switching between them costs no fetch. */
+export function RecentMovers({
+  initialMovers7d,
+  initialMovers30d,
+  cohortLabel,
+  defaultTimeWindow = '7d',
+}: RecentMoversProps) {
   // Start from the default for SSR parity; read the saved preference after mount
   // so server and client first render match (no hydration mismatch).
   const [timeWindow, setTimeWindow] = useState<MoversWindow>(defaultTimeWindow);
@@ -49,10 +50,10 @@ export function RecentMovers({ initialMovers7d, initialMovers30d, defaultTimeWin
           <div className="flex-1">
             <CardTitle className="flex items-center gap-2 text-xl">
               <TrendingUp className="h-5 w-5 text-primary" />
-              Recent Movers
+              Recent Movers (Nationally)
             </CardTitle>
             <CardDescription className="text-sm">
-              Biggest rank changes • {timeWindow === '7d' ? '7 days' : '30 days'}
+              {cohortLabel} • {timeWindow === '7d' ? '7 days' : '30 days'}
             </CardDescription>
           </div>
           <div className="flex gap-1 flex-shrink-0">
@@ -89,6 +90,7 @@ export function RecentMovers({ initialMovers7d, initialMovers30d, defaultTimeWin
             {recentMovers.map((team) => {
               const rankChange = timeWindow === '7d' ? (team.rank_change_7d ?? 0) : (team.rank_change_30d ?? 0);
               const isImprovement = rankChange > 0;
+              const currentRank = team.rank_in_cohort_final;
               const displayName = composeTeamDisplay(team);
 
               return (
@@ -103,30 +105,25 @@ export function RecentMovers({ initialMovers7d, initialMovers30d, defaultTimeWin
                     <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
                       {displayName}
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <span className="font-mono">
-                        {team.rank_in_cohort_final != null ? `#${team.rank_in_cohort_final}` : '—'}
-                      </span>
-                      {team.state && (
-                        <>
-                          <span>•</span>
-                          <span>{team.state}</span>
-                        </>
-                      )}
-                    </div>
+                    {team.state && <div className="text-xs text-muted-foreground">{team.state}</div>}
                   </div>
-                  <div
-                    className={`flex items-center gap-1.5 text-sm font-bold px-2 py-1 rounded ${
-                      isImprovement ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}
-                    aria-label={`${isImprovement ? 'Improved' : 'Declined'} by ${Math.abs(rankChange)} ranks`}
-                  >
-                    {isImprovement ? (
-                      <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
-                    ) : (
-                      <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+                  <div className="flex flex-col items-end gap-0.5">
+                    <div
+                      className={`flex items-center gap-1.5 text-sm font-bold px-2 py-1 rounded ${
+                        isImprovement ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}
+                      aria-label={`${isImprovement ? 'Improved' : 'Declined'} ${Math.abs(rankChange)} spots`}
+                    >
+                      {isImprovement ? (
+                        <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      <span>{Math.abs(rankChange)}</span>
+                    </div>
+                    {currentRank != null && (
+                      <span className="text-xs text-muted-foreground font-mono">Now #{currentRank}</span>
                     )}
-                    <span>{Math.abs(rankChange)}</span>
                   </div>
                 </Link>
               );

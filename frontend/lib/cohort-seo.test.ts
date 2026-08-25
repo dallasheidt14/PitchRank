@@ -1,35 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeCohortModules } from './cohort-seo';
-import type { RankingRow } from '@/types/RankingRow';
-
-function makeTeam(overrides: Partial<RankingRow> = {}): RankingRow {
-  return {
-    team_id_master: '11111111-1111-1111-1111-111111111111',
-    team_name: 'Test FC 2014',
-    club_name: 'Test FC',
-    league: null,
-    distinction: null,
-    state: 'AZ',
-    age: 12,
-    gender: 'M',
-    power_score_final: 0.5,
-    sos_norm: 0.5,
-    offense_norm: 0.5,
-    defense_norm: 0.5,
-    rank_in_cohort_final: 1,
-    wins: 5,
-    losses: 2,
-    draws: 1,
-    games_played: 8,
-    total_games_played: 8,
-    total_wins: 5,
-    total_losses: 2,
-    total_draws: 1,
-    win_percentage: 62.5,
-    status: 'Active',
-    ...overrides,
-  };
-}
+import { makeRankingRow as makeTeam } from '@/test/fixtures';
 
 describe('computeCohortModules', () => {
   it('uses activeCount for totalTeams, not the capped teams-array length', () => {
