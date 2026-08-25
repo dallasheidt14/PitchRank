@@ -126,7 +126,7 @@ both take the younger year. The one parser that still takes the older year,
 callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
-board, so 2009 resolves to `u19`. There are 0 `u18` teams and 26,442 `u19`.
+board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
 Do not "fix" this by splitting the cohort.
 
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
@@ -163,6 +163,8 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Modular11 | `modular11` | Scrapy spider | MLS NEXT/HD leagues |
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
+| PlayMetrics | `playmetrics` | League JSON API | SECL + state leagues (events use `playmetrics_tournament`) |
+| Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -577,7 +579,7 @@ file here carries it (`.env.example` says why).
 
 ### Auth for API Routes
 
-All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. The shared helpers are listed under Shared API Utilities below; the two most common:
+All routes under `/api` are excluded from middleware auth (the negative lookahead in `config.matcher` at the bottom of `middleware.ts`), so each route must self-enforce authentication. `frontend/CLAUDE.md` § API Route Auth carries the full helper inventory; the two most common:
 
 ```typescript
 // Admin-only routes (mission control, team management)
@@ -591,17 +593,6 @@ const auth = await requirePremium();
 if (auth.error) return auth.error;
 const { user, supabase } = auth;
 ```
-
-### Shared API Utilities
-
-| Utility | File | Purpose |
-|---------|------|---------|
-| `requirePremium()` | `lib/api/requirePremium.ts` | Auth + premium/admin plan check, returns supabase client |
-| `requireAdmin()` | `lib/supabase/admin.ts` | Auth + admin plan check |
-| `requireAuth()` | `lib/api/requireAuth.ts` | Auth only (any signed-in user), returns supabase client |
-| `optionalAuth()` | `lib/api/optionalAuth.ts` | Resolves the user if signed in, never errors |
-| `parseJsonBody()` | `lib/api/parseJsonBody.ts` | Safe JSON body parsing with error response |
-| `checkRateLimit()` / `getClientIp()` | `lib/api/rateLimit.ts` | In-memory IP-based rate limiting |
 
 ### Design System
 
@@ -622,7 +613,7 @@ const { user, supabase } = auth;
 - Team IDs are UUIDs — never use integer IDs
 - Game records are **immutable** — never update, only quarantine bad data
 - Use `MergeResolver` for any team ID lookup (handles deprecated teams)
-- Age groups: always normalize to integer format (`"U14"` → `"14"`, `"u11"` → `"11"`)
+- Age groups: the stored form is lowercase `u` + number, so normalize to it and compare on it (`"U14"` → `"u14"`). `teams.age_group` holds `u14`, and `AGE_GROUPS` in `config/settings.py` keys on `f"u{age}"`. The bare integer is engine-internal: `age_group_to_age` in `src/rankings/data_adapter.py` strips the `u` for the `age` column, and the adapter rebuilds the `u` form before writing rankings back.
 - Gender: always normalize to `"Male"` or `"Female"`
 - PowerScore must be clamped to [0.0, 1.0] after calculation
 - Configuration lives in `config/settings.py` — avoid hardcoding values
@@ -713,7 +704,7 @@ const { user, supabase } = auth;
 | Main scraper script | `scripts/scrape_games.py` |
 | Ranking calculation script | `scripts/calculate_rankings.py` |
 | Frontend API client | `frontend/lib/api.ts` |
-| Shared route utilities | `frontend/lib/api/` (requirePremium, parseJsonBody, rateLimit) |
+| Shared route utilities | `frontend/lib/api/` — inventory in `frontend/CLAUDE.md` |
 | Frontend types | `frontend/lib/types.ts` |
 | Supabase migrations | `supabase/migrations/` |
 | GH Actions workflows | `.github/workflows/` |

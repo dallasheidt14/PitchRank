@@ -10,27 +10,33 @@ You are working on PitchRank's web scrapers. Follow these patterns to match exis
 ## Rate Limiting (CRITICAL)
 
 ### GotSport Limits
-```python
-GOTSPORT_DELAY_MIN = 0.1   # Minimum seconds between requests
-GOTSPORT_DELAY_MAX = 2.5   # Maximum seconds between requests
-GOTSPORT_TIMEOUT = 30      # Request timeout
-GOTSPORT_MAX_RETRIES = 2   # Retry attempts
-```
+
+Do not copy numbers from here or from any other doc. Every knob is an env
+override — `GOTSPORT_DELAY_MIN`, `GOTSPORT_DELAY_MAX`, `GOTSPORT_MAX_RETRIES`,
+`GOTSPORT_TIMEOUT`, `GOTSPORT_RETRY_DELAY` — and the two classes in
+`src/scrapers/gotsport.py` deliberately default differently: `GotSportScraper`
+(team API, polite) and `GotsportScraper` (event scraping, aggressive). Read the
+constructor you are subclassing, then the workflow that runs it — the scrape
+workflows override the delay pair inline, and most of them the retry count and
+timeout too. None sets `GOTSPORT_RETRY_DELAY`, and no env template carries any
+of them, so in CI the constructor default is the only value that knob has.
 
 ### Delay Pattern
 ```python
 import random
 import time
 
-def polite_delay():
-    """Random delay so request spacing stays under the provider's rate limit."""
-    delay = random.uniform(0.1, 2.5)
-    time.sleep(delay)
+class MyScraper(BaseScraper):
+    def _delay(self) -> None:
+        """Random spacing so requests stay under the provider's rate limit."""
+        if self.delay_min > 0 or self.delay_max > 0:
+            time.sleep(random.uniform(self.delay_min, self.delay_max))
 
-# Use between EVERY request
-for team in teams:
-    data = scrape_team(team)
-    polite_delay()  # Always delay
+    def scrape_all(self, teams):
+        # Use between EVERY request
+        for team in teams:
+            data = self.scrape_team(team)
+            self._delay()  # Always delay
 ```
 
 ### NEVER Bypass Limits
@@ -42,8 +48,8 @@ for team in teams:
 # BAD - Fixed delay (bursts line up with other workers and trip the limiter)
 time.sleep(1.0)
 
-# GOOD - Random delay
-time.sleep(random.uniform(0.1, 2.5))
+# GOOD - Random delay across the range this scraper was configured with
+time.sleep(random.uniform(self.delay_min, self.delay_max))
 ```
 
 ## CloudFront WAF (gotsport)

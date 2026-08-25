@@ -11,7 +11,7 @@ A comprehensive ranking system for youth soccer teams with cross-age and cross-s
 - **Cross-Age Support**: Unified power scoring system handles cross-age games fairly
 - **Smart Matching**: Automated team matching using provider IDs and fuzzy logic
 - **Weekly Updates**: Automated ranking calculations with new game data
-- **Multi-Provider Support**: Ready for GotSport, TGS, US Club Soccer
+- **Multi-Provider Support**: Several league and tournament sources feed one pipeline — see the Data Providers table in [`CLAUDE.md`](CLAUDE.md)
 - **Scalable Architecture**: Built to handle millions of games
 
 ## 🚀 Quick Start
@@ -288,7 +288,7 @@ python scripts/review_aliases.py
 
 Configuration is managed in `config/settings.py`:
 
-- **Providers**: GotSport, TGS, US Club Soccer
+- **Providers**: see the Data Providers table in [`CLAUDE.md`](CLAUDE.md)
 - **Age Groups**: U10-U19 with anchor scores
 - **Ranking Config**: Window days, max games, weights
 - **Matching Config**: Fuzzy thresholds, auto-approve settings

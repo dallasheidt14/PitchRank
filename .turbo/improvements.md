@@ -940,3 +940,43 @@ Out-of-scope improvement opportunities captured during work sessions. Review per
 - **Where**: `.mcp.json`; the `SUPABASE_ACCESS_TOKEN` block in `.env.example`; CLAUDE.md § Environment Variables
 - **Why**: Supabase's Claude Code docs prescribe `https://mcp.supabase.com/mcp` (`read_only=true`, `project_ref`) over the npx stdio package, removing the account-wide PAT — which `--read-only`/`--project-ref` do not constrain — and the local `npx -y` execution surface. Costs a browser login per machine/worktree, and headless/CI runs would still need a token, so stdio + PAT stays the default.
 - **Noted**: 2026-08-24
+
+### Infographics Biggest Movers generator fabricates rank changes
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/components/infographics/rankingMoversRenderer.ts:247`, call sites in `frontend/app/infographics/page.tsx`
+- **Why**: `generateMoverData` fills `change` with `Math.floor(Math.random()*15)-7`, so downloaded social graphics name real teams with invented rank changes; the rows already carry real `rank_change_7d/30d` and `/api/infographic/movers` shows the correct pattern. Violates the no-fabricated-data rule.
+- **Noted**: 2026-08-24
+
+### Decide whether all movers surfaces adopt the homepage's stricter definition
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `frontend/lib/movers.ts` (band+recency filters), `frontend/lib/cohort-seo.ts:56-80` (Rising/Falling), `get_biggest_movers` RPC → `/api/infographic/movers`
+- **Why**: The homepage now filters movers to the top-500 band (both endpoints) plus played-in-window; cohort SEO pages and the social-graphic RPC still surface churn-driven 2,000-spot swings, so three surfaces answer "who moved most" differently. Product call: unify or document the difference.
+- **Noted**: 2026-08-24
+
+### Extract one shared rank-delta badge component
+
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `components/RecentMovers.tsx`, `components/RankingsTable.tsx:549-570`, `components/CohortSEOContent.tsx:86-125`, `components/insights/InsightModal.tsx` (`DeltaIndicator`)
+- **Why**: Four implementations of icon + abs(change) + green/red each pick their own sign semantics — the watchlist shipped inverted colors because of it (fixed 2026-08-24). Move `DeltaIndicator` out of InsightModal, add a filled-badge variant, and make it the single home for direction semantics.
+- **Noted**: 2026-08-24
+
+### Work through items 2–8 of the 2026-08-24 agent-readiness review
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: https://claude.ai/code/artifact/9e4525fa-4bb1-4844-9ea4-873e36de5d6f (98 cited findings); CLAUDE.md, .claude/, .github/workflows, docs/
+- **Why**: The review's ranked plan lives only in the artifact. Shipped: item 1 agent-reachable credentials (#1019), item 2 documented commands = CI commands plus the wrong code patterns (#1023), item 3 part 1 the doc-reference parity test (#1024), item 3 part 2 the seven remaining contradictions given one owner each (#1025). Still open: item 3 part 3 (the prose de-duplication — 31 duplicated bodies replaced by pointers, ownership already settled); item 4 improvements.md lifecycle incl. `/sweep-improvements`; item 5 per-change wait (auto-merge, tracked allowlist, PR template, CI concurrency); item 6 a richer session-start hook; item 7 the git-guard gaps; item 8 retiring contradicting docs, the always-red claude-review workflow, and the stale worktree/branches.
+- **Noted**: 2026-08-24 (updated 2026-08-25, after #1025)
+
+### Extract the React mount/unmount test harness into frontend/test/
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/test/`, `frontend/components/{GlobalSearch,ComparePanel,RecentMovers}.test.tsx`, `frontend/components/insights/DeltaIndicator.test.tsx`
+- **Why**: Four files hand-roll the same createElement/createRoot/`act(unmount)`/remove lifecycle, so a React `act` semantics change needs four fixes — `ComparePanel.test.tsx` still imports `act` from the removed `react-dom/test-utils` path while the newer files import it from `react`. `frontend/test/` now exists (fixtures.ts, setup.ts, supabase-mock.ts) as a home for a `mountComponent()`/`cleanup()` pair.
+- **Noted**: 2026-08-24
