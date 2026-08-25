@@ -16,8 +16,10 @@ override — `GOTSPORT_DELAY_MIN`, `GOTSPORT_DELAY_MAX`, `GOTSPORT_MAX_RETRIES`,
 `GOTSPORT_TIMEOUT`, `GOTSPORT_RETRY_DELAY` — and the two classes in
 `src/scrapers/gotsport.py` deliberately default differently: `GotSportScraper`
 (team API, polite) and `GotsportScraper` (event scraping, aggressive). Read the
-constructor you are subclassing, and the workflow that runs it, which sets the
-same variables inline.
+constructor you are subclassing, then the workflow that runs it — the scrape
+workflows override the delay pair inline, and most of them the retry count and
+timeout too. None sets `GOTSPORT_RETRY_DELAY`, and no env template carries any
+of them, so in CI the constructor default is the only value that knob has.
 
 ### Delay Pattern
 ```python
