@@ -27,13 +27,14 @@ browser or a log line. Keys live in root `.env` (or its `.env.local` override), 
 
 ### `teams`
 ```sql
-team_id_master    UUID PRIMARY KEY  -- Canonical team identifier
+id                UUID PRIMARY KEY  -- Row id; NOT what games join on
+team_id_master    UUID NOT NULL UNIQUE  -- Canonical id; games.home/away_team_master_id join THIS
 team_name         TEXT              -- Display name
 club_name         TEXT              -- Parent club
 age_group         TEXT              -- "12", "u12", "U12" (normalize!)
 gender            TEXT              -- "Male" or "Female"
 state_code        TEXT              -- 2-letter state code
-provider_code     TEXT              -- "gotsport", "tgs", etc.
+provider_id       UUID              -- FK to providers(id); there is no provider_code column
 is_deprecated     BOOLEAN           -- TRUE if merged into another team
 last_scraped_at   TIMESTAMPTZ
 ```
@@ -47,27 +48,34 @@ away_team_master_id UUID
 home_score        INT
 away_score        INT
 game_date         DATE
-provider_code     TEXT
+provider_id       UUID              -- FK to providers(id), not a code string
 event_name        TEXT
 -- Games are NEVER updated, only inserted
 ```
 
 ### `rankings_full`
 ```sql
-team_id           UUID PRIMARY KEY
-national_power_score FLOAT          -- PowerScore (0.0-1.0)
-national_rank     INT
-state_rank        INT
-games_played      INT
-wins, losses, draws INT
-last_calculated   TIMESTAMPTZ
+team_id              UUID PRIMARY KEY
+powerscore_core      FLOAT          -- pre-ML, pre-gates (0.0-1.0)
+powerscore_adj       FLOAT
+powerscore_ml        FLOAT
+power_score_true     FLOAT          -- post-gates, unanchored
+power_score_final    FLOAT          -- power_score_true x AGE_TO_ANCHOR
+rank_in_cohort_final INT            -- the published rank
+national_power_score FLOAT          -- legacy column, still written
+national_rank        INT            -- ALWAYS NULL; views compute display ranks
+state_rank           INT            -- ALWAYS NULL; views compute display ranks
+games_played         INT
+wins, losses, draws  INT
+last_calculated      TIMESTAMPTZ
+-- 73 columns total; this is the subset worth knowing
 ```
 
 ### `team_alias_map`
 ```sql
 provider_team_id  TEXT              -- Provider's ID for the team
 team_id_master    UUID              -- Our canonical ID
-provider_code     TEXT
+provider_id       UUID              -- FK to providers(id)
 -- Multiple aliases can point to same master
 ```
 

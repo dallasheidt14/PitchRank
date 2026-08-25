@@ -8,7 +8,7 @@
 
 | Item               | Value                                   |
 | ------------------ | --------------------------------------- |
-| **Framework**      | Next.js 16.2.1 (App Router)             |
+| **Framework**      | Next.js 16.2.6 (App Router)             |
 | **React**          | 19.2.1 (Server Components by default)   |
 | **TypeScript**     | 5.9.3 (strict mode)                     |
 | **Styling**        | Tailwind CSS v4, shadcn/ui (Radix), CVA |
@@ -36,7 +36,7 @@ npm run format:check # Prettier (check only, used in CI)
 npm run analyze      # Bundle analysis (set ANALYZE=true)
 npm run test         # Unit tests (Vitest, run once)
 npm run test:watch   # Unit tests (watch mode)
-npm run test:coverage # Unit tests (with coverage)
+npm run test:coverage # Needs `npm i -D @vitest/coverage-v8` first (not installed)
 npm run test:e2e     # All Playwright E2E tests
 npm run test:e2e:smoke  # Smoke tests only
 npm run test:e2e:api    # API tests only
@@ -50,7 +50,8 @@ npm run test:e2e:api    # API tests only
 frontend/
 ├── app/                    # App Router pages
 │   ├── layout.tsx          # Root layout (Providers, Nav, Footer)
-│   ├── providers.tsx       # React Query + Tooltip providers
+│   ├── providers.tsx       # SiteProviders: Tooltip provider + global rejection handler
+│   ├── data-providers.tsx  # DataProviders: React Query client, mounted per-section
 │   ├── page.tsx            # Home page
 │   ├── rankings/           # Rankings routes
 │   │   ├── page.tsx        # National rankings
@@ -68,14 +69,14 @@ frontend/
 │   └── api/                # API routes (see below)
 ├── components/             # React components
 │   ├── ui/                 # shadcn/ui primitives
+│   ├── auth/               # Shared auth page chrome (AuthCardShell)
 │   ├── mission-control/    # Admin panel components
 │   ├── infographics/       # Canvas-rendered infographics
 │   ├── insights/           # AI insights (premium)
-│   ├── subscription/       # Paywall/upgrade UI
 │   └── skeletons/          # Loading states
 ├── hooks/                  # Custom React hooks
 ├── lib/                    # Utilities, API client, types
-│   ├── api/                # Shared route utilities (requirePremium, validatePagination, parseJsonBody, rateLimit)
+│   ├── api/                # Shared route utilities (requireAuth, requirePremium, optionalAuth, parseJsonBody, rateLimit, watchlist)
 │   ├── supabase/           # Supabase client (client.ts, server.ts, admin.ts)
 │   ├── stripe/             # Stripe client + server
 │   ├── insights/           # AI insight generators
@@ -87,7 +88,7 @@ frontend/
 │   ├── errors.ts           # AppError, isNetworkError()
 │   ├── constants.ts        # US_STATES, etc.
 │   ├── analytics.ts        # GA4 helpers
-│   └── events.ts           # 100+ domain event trackers
+│   └── events.ts           # 22 typed GA4 event trackers (`track*`)
 ├── types/                  # Specialized TypeScript types
 ├── e2e/                    # Playwright test specs
 └── middleware.ts           # Auth guard + session refresh
@@ -107,7 +108,7 @@ frontend/
 
 - `GET /auth/callback` — OAuth/PKCE handler; hands emailed `token_hash` links to `/auth/confirm`
 - `GET /auth/confirm` — renders an emailed link without redeeming it; the POST behind its button (a Server Action) does the redemption
-- `POST /api/logout`
+- `POST /logout` — sign-out handler at `app/logout/route.ts`; it sits outside `/api`, so middleware still runs on it
 
 ### Premium
 
@@ -140,8 +141,8 @@ frontend/
 
 ```typescript
 // Browser (singleton) — use in client components
-import { createBrowserClient } from '@/lib/supabase/client';
-const supabase = createBrowserClient();
+import { createClientSupabase } from '@/lib/supabase/client';
+const supabase = createClientSupabase();
 
 // Server — use in API routes and server components
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -166,11 +167,17 @@ const { user, supabase } = auth;
 ### React Query
 
 ```typescript
-// Default config (providers.tsx)
+// Default config (app/data-providers.tsx — `DataProviders`; providers.tsx holds the
+// Tooltip provider only). Mounted per section by the rankings, teams/[id], compare,
+// watchlist, infographics and (internal)/analytics layouts, not by the root layout.
 staleTime: 5 * 60 * 1000    // 5 min (rankings update weekly)
 gcTime: 10 * 60 * 1000      // 10 min
 refetchOnWindowFocus: false
 retry: network errors 3x, others 1x (exponential backoff)
+
+// Nearly every hook overrides staleTime — lib/hooks.ts sets 2 min (team-games,
+// game-explainability), 15 min (team, trajectory, match-prediction) and 30 min
+// (rank-history, common-opponents); useRankings uses 2 min.
 
 // Query keys
 ['rankings', region, ageGroup, gender]
@@ -178,17 +185,21 @@ retry: network errors 3x, others 1x (exponential backoff)
 ['team-trajectory', id, periodDays]
 ['team-games', id, limit]
 ['rank-history', id]
-['team-search']
 ```
+
+`useTeamSearch` is not a React Query hook — it keeps a module-level cache with a 10-minute
+TTL, so the nav search doesn't pull React Query into the anonymous bundle. The
+`['team-search']` invalidations in `UnknownOpponentLink` match no registered query and do
+nothing; call the hook's own refetch instead.
 
 ### Custom Hooks
 
-| Hook               | Purpose                                            |
-| ------------------ | -------------------------------------------------- |
-| `useUser()`        | Auth state, profile, session, `hasPremiumAccess()` |
-| `useRankings()`    | Paginated rankings via API routes                  |
-| `useTeamSearch()`  | All teams with searchable_name field               |
-| `usePerformance()` | Performance metrics                                |
+| Hook              | Purpose                                               |
+| ----------------- | ----------------------------------------------------- |
+| `useUser()`       | Auth state, profile, session, `hasPremiumAccess()`    |
+| `useRankings()`   | Paginated rankings via API routes                     |
+| `useTeamSearch()` | All teams with searchable_name field                  |
+| `useWebVitals()`  | Core Web Vitals reporting (`hooks/usePerformance.ts`) |
 
 ### Component Patterns
 
@@ -327,7 +338,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 NEXT_PUBLIC_GA_MEASUREMENT_ID
 NEXT_PUBLIC_META_PIXEL_ID
 NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID
-NEXT_PUBLIC_SITE_URL          # defaults to pitchrank.io
+NEXT_PUBLIC_SITE_URL          # BASE_URL falls back to https://www.pitchrank.io (apex 301s to www)
 NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
 NEXT_PUBLIC_STRIPE_PRICE_YEARLY
 ```
