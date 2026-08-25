@@ -1,5 +1,7 @@
-# Advisory: hooks in .claude/ execute automatically for anyone who opens the repo
-# in Claude Code. The main ruleset does not require code-owner approval, because
-# GitHub never lets an author approve their own PR and this repo is solo-maintained.
+# Advisory: hooks in .claude/ and the MCP server in .mcp.json execute automatically
+# for anyone who opens the repo in Claude Code. The main ruleset does not require
+# code-owner approval, because GitHub never lets an author approve their own PR
+# and this repo is solo-maintained.
 /.claude/ @dallasheidt14
+/.mcp.json @dallasheidt14
 /.github/CODEOWNERS @dallasheidt14

@@ -483,6 +483,22 @@ Required variables are documented in `.env.example`. Key groups:
 - **Payments**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Email**: `RESEND_API_KEY`
 
+Python reads root `.env` — keep backend variables there, since most scripts call bare
+`load_dotenv()` and never see the `.env.local` override that `config/settings.py` and the
+entry-point scripts prefer. Next.js reads only `frontend/.env.local`, never root `.env`, so
+the Frontend group above belongs there; the variables both sides read (`STRIPE_SECRET_KEY`,
+`RESEND_API_KEY`, `NEXT_PUBLIC_SITE_URL`) go in both files. Set both Supabase keys: the
+documented entry points (`calculate_rankings.py`, `drain_queue.py`, `scrape_games.py`,
+`import_games_enhanced.py`) read `SUPABASE_SERVICE_ROLE_KEY`, and `--dry-run` does not
+remove the need — the client is built from it at startup; a few scripts build their client
+from the anon `SUPABASE_KEY`, which suffices for reads.
+
+From a session, read the database through `supabase-py` over PostgREST (scripts, through
+`config.settings`) or the read-only `mcp__supabase__*` tools from `.mcp.json`. The MCP
+server's `SUPABASE_ACCESS_TOKEN` is separate from the keys above and is not read from any
+env file — `.env.example` says how to set it. `DATABASE_URL` is set only in CI; no local env
+file here carries it (`.env.example` says why).
+
 **Never commit `.env` or `.env.local` files.** This repo is **public** (`dallasheidt14/PitchRank`), so a committed secret is disclosed the moment it is pushed, and stays readable in history after the file is untracked. Removing it from the tip is not a remediation; rotating the credential is.
 
 ---

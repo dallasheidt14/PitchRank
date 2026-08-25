@@ -21,7 +21,7 @@ supabase = create_client(
 
 The service-role key bypasses RLS entirely. It is correct for server-side scripts that must
 write, but prefer `SUPABASE_KEY` (anon) for read-only lookups, and never let it reach a
-browser or a log line. Keys live in `.env.local`, which is gitignored.
+browser or a log line. Keys live in root `.env` (or its `.env.local` override), both gitignored.
 
 ## Core Tables
 
