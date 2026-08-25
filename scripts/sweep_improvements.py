@@ -165,18 +165,30 @@ def main() -> int:
     print(f"live:    {len(live)} entries")
     print(f"archive: {len(archived)} entries")
 
-    # --- assign IDs to anything that arrived without one --------------------- #
+    # --- backfill the schema fields an appended entry arrives without -------- #
+    # /note-improvement is a global skill and writes only Type/Category/Where/
+    # Why/Noted. Both fields have to be filled: an entry with an ID but no Status
+    # is still invisible to the Status grep this schema exists for.
     everything = live + archived
     counter = next_free_id(everything)
-    assigned = []
+    assigned: list[tuple[str, str]] = []
+    statused: list[tuple[str, str]] = []
     for entry in live:
         if "ID" not in entry.fields:
             entry.fields["ID"] = f"IMP-{counter:03d}"
             assigned.append((entry.fields["ID"], entry.title))
             counter += 1
+        if "Status" not in entry.fields:
+            # A newly noted entry is open by definition — nobody has done it yet.
+            entry.fields["Status"] = "open"
+            statused.append((entry.fields["ID"], entry.title))
     if assigned:
         print(f"\nassigned {len(assigned)} new ID(s):")
         for ident, title in assigned:
+            print(f"  {ident}  {title[:70]}")
+    if statused:
+        print(f"\nbackfilled Status: open on {len(statused)} entr(y/ies):")
+        for ident, title in statused:
             print(f"  {ident}  {title[:70]}")
 
     # --- move closed entries to the archive ---------------------------------- #
@@ -225,7 +237,7 @@ def main() -> int:
         print("\n[dry-run] no files written")
         return 1 if problems else 0
 
-    if to_archive or assigned:
+    if to_archive or assigned or statused:
         LIVE.write_text(
             live_header + "\n" + "\n\n".join(e.render() for e in still_live) + "\n", encoding="utf-8"
         )
