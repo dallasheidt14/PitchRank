@@ -92,11 +92,19 @@ lines; the parity check in the new test covers it instead.
 - **The new guard resolves paths against `git ls-files` only, never the working directory.**
   That was deliberate: an untracked local file (`frontend/.env.local`) made the test green
   locally and red in CI. Keep it that way.
-- **Doc fixes need verifying as hard as code fixes.** Two independent review passes each
-  caught false statements introduced *by the fix* — `CRON_SECRET` was claimed absent from both
-  env templates when it is in `frontend/.env.example`, and "omitting `--auto-import` is the dry
-  run" was wrong: `scripts/scrape_games.py:511` writes `team_scrape_log` and
-  `teams.last_scraped_at` before the import branch.
+- **Doc fixes need verifying as hard as code fixes.** Three independent review passes have now
+  each caught a false statement introduced *by the fix* — `CRON_SECRET` was claimed absent from
+  both env templates when it is in `frontend/.env.example`; "omitting `--auto-import` is the dry
+  run" was wrong, because `scripts/scrape_games.py:511` writes `team_scrape_log` and
+  `teams.last_scraped_at` before the import branch; and #1025's own GotSport pointer claimed the
+  scrape workflows set all five `GOTSPORT_*` knobs inline when none of them sets
+  `GOTSPORT_RETRY_DELAY`.
+- **A pointer can overclaim exactly like a value can, and PR3 is nothing but pointers.**
+  Replacing a stale number with "read the code" feels safe, but the sentence carrying the
+  pointer still asserts *where* the value comes from, and that assertion is as checkable — and
+  was as wrong — as the number it replaced. Before writing a Form C pointer, confirm the named
+  source is really the one that decides the value at runtime, not merely a place the name
+  appears.
 - **`claude-review` is red on every PR and is not a required check.** It reads
   `CLAUDE_CODE_OAUTH_TOKEN` (present); the run fails on the first turn with `$0` spend, which
   is an auth rejection, not a missing secret. Do not diagnose it as a code problem.
