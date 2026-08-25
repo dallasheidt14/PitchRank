@@ -12,13 +12,14 @@ https://claude.ai/code/artifact/e7cdb2a1-3b83-4f23-a45d-b967b9a5122d
 Backlog pointer: `.turbo/improvements.md` → "Work through items 2–8 of the 2026-08-24
 agent-readiness review".
 
-## Shipped (all merged to main)
+## Shipped
 
 | PR | Item | What landed |
 |----|------|-------------|
 | #1019 `40e0a48b7` | 1 | Supabase reachable for agents: `.mcp.json` pinned to 0.11.0 with `--project-ref` and fail-closed `${SUPABASE_ACCESS_TOKEN:-}`; `enabledMcpjsonServers` in tracked settings; `/.mcp.json` in CODEOWNERS; `.env.example` Agent Tooling section; `tests/unit/test_claude_config_json.py` |
 | #1023 `b9f82f6ff` | 2 | Documented commands now match CI exactly + a "Reproducing the CI gate locally" block; four paste-fatal patterns fixed; wrong DB columns in the Supabase/domain skills corrected; ten missing workflow rows; README's three deleted-script commands |
 | #1024 `5b97c8c08` | 3 (part 1) | `tests/unit/test_agent_doc_references.py` — six checks over the 25 agent-loaded markdown files; `test_claude_agent_frontmatter.py` extended to all 12 skills; five live violations fixed |
+| #1025 **open** | 3 (part 2) | The seven contradictions, each fact given one owner: expert-coder's commit style deleted, age groups fixed to the `u14` form, both GotSport rate-limit statements replaced with pointers at the code, PlayMetrics + Affinity WA added to the provider table (README's list dropped), the pandas remedy deferred to the rule, the `lib/api` inventory moved to `frontend/CLAUDE.md`, the u19 count rounded |
 
 Item 1's operator half is also **done**: root `.env` now carries `SUPABASE_URL` /
 `SUPABASE_KEY` / `SUPABASE_SERVICE_ROLE_KEY` (verified against the live DB — 200,051 teams),
@@ -27,41 +28,16 @@ at Windows User scope and validated against the Management API.
 
 ## State right now
 
-- On `main` at `5b97c8c08`, in sync with origin, **no open PRs**.
-- One uncommitted file: `.turbo/improvements.md` (the backlog entry, updated to reflect
-  items 1–3-part-1 as shipped). `main` refuses direct commits, so it needs to ride along
-  with the next PR — stage it there rather than committing it alone.
-- The guard passes on main: `python -m pytest tests/unit/test_agent_doc_references.py
-  tests/unit/test_claude_agent_frontmatter.py -q` → 145 passed in ~2s.
+- On branch `docs/resolve-agent-doc-contradictions` at `31cf4f58f`, pushed, **PR #1025 open**.
+- Working tree clean. That PR also carries the two files that had no route to `main` of their
+  own: this handoff and the `.turbo/improvements.md` backlog entry.
+- Full CI gate run locally against the PR head, all seven green: ruff, pytest (2450 passed,
+  4 skipped), eslint, prettier, tsc, vitest (519 passed), llms.txt drift.
 
 ## Next concrete action
 
-Start **item 3, PR2**: the seven remaining contradictions, where two agent-facing files tell
-an agent opposite things. Each was verified against the code this session:
-
-1. `.claude/skills/expert-coder/SKILL.md:167-174` mandates conventional-commit prefixes
-   (`feat:`, `fix:`); `CLAUDE.md` mandates imperative plain subjects, which is what the last
-   15 commits on main actually use. **Delete expert-coder's Git Commit Style section.**
-2. Age-group format: `CLAUDE.md` says normalize to `"14"`; `rankings-algorithm/SKILL.md:278`
-   says `"u14"`. Code settles it — `scripts/calculate_rankings.py:683` help text says
-   `u10, u11`, config keys are `f"u{age}"`. **Correct CLAUDE.md to the `u14` form.**
-3. GotSport rate limits stated identically in `pitchrank-domain:79` and
-   `scraper-patterns:13-18`, matching neither real scraper class
-   (`src/scrapers/gotsport.py:310-313` is 1.5/2.5/3/30; `:1489-1492` is 0.1/0.3/2/15).
-   **Replace both with a pointer at the code, since the values are env-overridable.**
-4. Provider inventory: `CLAUDE.md:157-165` omits PlayMetrics and Affinity-WA, both of which
-   have running workflows. README gives a third list. **CLAUDE.md wins and gains two rows;
-   README drops its list.**
-5. pandas `fillna` remedy differs: `.claude/rules/data-safety.md` says
-   `where(col.notna(), None)`; `.claude/agents/ranking-engine.md:96` says `fillna(np.nan)`.
-   **The rule wins; drop the agent's variant.**
-6. `frontend/lib/api` membership listed three times, three different ways
-   (`CLAUDE.md:595-604` omits `watchlist`, `CLAUDE.md:716` names three, `frontend/CLAUDE.md:79`
-   is correct). **frontend/CLAUDE.md owns it.**
-7. `CLAUDE.md:129` says "26,442 `u19`"; live count is ~27,700. **Reword as "no `u18` teams
-   and roughly 28K `u19`" rather than refreshing an exact number that re-breaks weekly.**
-
-Then **PR3** (large, splittable by tier): insert the one-line pointers and delete the
+The seven contradictions shipped in #1025. What is left of item 3 is
+**PR3** (large, splittable by tier): insert the one-line pointers and delete the
 duplicated prose bodies — 16 blocks owned by `CLAUDE.md`, 5 by `frontend/CLAUDE.md`, 10 by a
 skill or rule. Two fixed pointer forms, applied mechanically:
 
@@ -73,6 +49,13 @@ Ownership rule so nothing needs re-deciding: **a fact is owned by the narrowest 
 guaranteed loaded when the fact is needed.** Always-loaded and needed unprompted → CLAUDE.md.
 Frontend-scoped → frontend/CLAUDE.md. Trigger-time depth → the skill. Change-approach
 mechanics → `.claude/rules/`.
+
+#1025 already applied that rule to one block, and what forced its shape is worth knowing:
+root `CLAUDE.md`'s "Shared API Utilities" table could not simply be deleted, because
+`test_shared_api_utility_files_match_the_directory` in the new guard reads `lib/api/*.ts`
+references out of **both** CLAUDE.md files and asserts the set is non-empty. The table had to
+move into `frontend/CLAUDE.md` § API Route Auth intact. Expect the same wherever PR3 deletes
+a block one of the guard's parsers feeds on — check what the parser reads before deleting.
 
 Explicitly **leave alone**: the two `AGENTS.md` shims (the imperative "Read CLAUDE.md" line is
 what works; a bare `@import` is inert), the workflow-table/github-actions-debug overlap
@@ -117,6 +100,11 @@ lines; the parity check in the new test covers it instead.
 - **`claude-review` is red on every PR and is not a required check.** It reads
   `CLAUDE_CODE_OAUTH_TOKEN` (present); the run fails on the first turn with `$0` spend, which
   is an auth rejection, not a missing secret. Do not diagnose it as a code problem.
+- **CI's prettier gate covers `frontend/CLAUDE.md`.** `ci.yml`'s Frontend Format job runs
+  `npx prettier --check .` from `frontend/`, so any markdown table added there must be
+  prettier-formatted — it pads every cell to the column width. Root `CLAUDE.md` and `README.md`
+  are outside that job and are not checked. `npx prettier --write frontend/CLAUDE.md` touched
+  only the new table, so it is safe to use on that file.
 - **A concurrent Codex session shares this checkout.** It left files in the tree twice during
   this session. Before reverting anything a subagent did not report creating, check
   `git worktree list` and running processes — `C:/PitchRank-movers` appeared mid-session.
