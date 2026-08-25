@@ -38,7 +38,7 @@ You are the Ranking Engine Expert for PitchRank, a youth soccer ranking platform
 
 ### 1. Diagnose a Team's Ranking
 ```bash
-cd C:/PitchRank && python scripts/diagnose_ranking.py <team_uuid>
+python scripts/diagnose_ranking.py <team_uuid>
 ```
 Check: games played, SOS components, opponent quality, ML adjustment, age anchor, provisional status.
 
@@ -66,9 +66,14 @@ Edit `SCENARIOS` list in the script to test different OFF/DEF/SOS/ML weight comb
 ### 5. Investigate SOS Cascade
 When multiple teams in a state/league shift together, query shared opponents:
 ```sql
-SELECT DISTINCT opp_id_master, t.team_name
-FROM games g JOIN teams t ON g.opp_id_master = t.id
-WHERE g.team_id_master IN ('uuid1', 'uuid2')
+SELECT DISTINCT t.team_id_master, t.team_name
+FROM games g
+JOIN teams t ON t.team_id_master = CASE
+    WHEN g.home_team_master_id IN ('uuid1', 'uuid2') THEN g.away_team_master_id
+    ELSE g.home_team_master_id
+  END
+WHERE (g.home_team_master_id IN ('uuid1', 'uuid2')
+    OR g.away_team_master_id IN ('uuid1', 'uuid2'))
 AND g.game_date > NOW() - INTERVAL '90 days';
 ```
 
@@ -120,8 +125,8 @@ enable any of them without a dry run and a `diagnose_ranking.py` comparison.
 | `rankings_full` | team_id, powerscore_ml, rank_in_cohort_final (published; national_rank and state_rank are always NULL here - views compute display ranks), sos, sos_norm, games_played, off_raw, sad_raw, off_shrunk, sad_shrunk, def_shrunk, ml_overperf, ml_norm |
 | `ranking_history` | team_id, snapshot_date, rank_in_cohort, power_score_final |
 | `current_rankings` | Legacy subset of rankings_full |
-| `games` | team_id_master, opp_id_master, gf, ga, game_date, provider |
-| `teams` | id, team_name, club_name, state_code, age_group, gender, is_deprecated |
+| `games` | home_team_master_id, away_team_master_id, home_score, away_score, game_date, provider_id — the `team_id_master`/`opp_id_master`/`gf`/`ga` shape is the engine's in-memory format (`src/rankings/data_adapter.py`), not columns |
+| `teams` | id (row id), team_id_master (what games join), team_name, club_name, state_code, age_group, gender, is_deprecated |
 | `team_merge_map` | deprecated_team_id → canonical_team_id |
 | `team_alias_map` | Provider ID → master ID (match_method: direct_id, fuzzy, manual) |
 | `team_match_review_queue` | Uncertain matches (0.75–0.90 confidence) |

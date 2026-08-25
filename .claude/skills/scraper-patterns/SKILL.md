@@ -357,7 +357,7 @@ for attempt in range(3):
 
 4. **Full run with checkpointing**
    ```bash
-   python scrape.py --provider gotsport --limit-teams 100
+   python scripts/scrape_games.py --provider gotsport --limit-teams 100
    ```
 
 ## Reading a Provider's Age Labels

@@ -68,7 +68,7 @@ and timeouts for the heavy jobs:
 | TGS Event Scrape + Import | 1-3h | 120min |
 
 ## Workflow Files
-Location: `C:/PitchRank/.github/workflows/`
+Location: `.github/workflows/`
 
 - `scrape-games.yml` - Team game scraping
 - `process-missing-games.yml` - Missing games backfill
