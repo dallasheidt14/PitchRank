@@ -95,8 +95,10 @@ PATH_SKIP_EXACT = {
     "dallasheidt14/PitchRank",  # GitHub repo slug, not a path
     "sos_norm_national/state",  # two column names written as one enumeration
 }
-# Top-level dirs that are gitignored, so a tracked-file lookup can never find them.
+# Paths that are gitignored by design, so a tracked-file lookup can never find them.
+# Env files are documented by name deliberately and must never be committed.
 PATH_SKIP_PREFIXES = ("data/", "reports/", "logs/", "venv/", "node_modules/", ".turbo/", "models/")
+ENV_FILE = re.compile(r"(^|/)\.env(\.|$)")
 
 BACKTICKED = re.compile(r"`([^`\n]+)`")
 
@@ -110,7 +112,7 @@ def _path_candidates(path: Path) -> list[tuple[int, str]]:
                 continue
             if token in PATH_SKIP_EXACT or any(p.search(token) for p in PATH_SKIP_PATTERNS):
                 continue
-            if token.startswith(PATH_SKIP_PREFIXES):
+            if token.startswith(PATH_SKIP_PREFIXES) or ENV_FILE.search(token):
                 continue
             if "/" not in token and not token.endswith(CODE_SUFFIXES):
                 continue
@@ -124,27 +126,30 @@ def _resolves(token: str, doc: Path) -> bool:
     Two doc conventions are normalized away first: a trailing `:anchor` (a line
     number, a line range, or a symbol name) and the `module.symbol` form, which
     names a function inside a module rather than a file of its own.
+
+    Resolution runs against the tracked-file index only, never the working
+    directory. An untracked file present on one machine and absent on another
+    would otherwise make this test pass locally and fail in CI, which is how
+    `frontend/.env.local` first broke it.
     """
     cleaned = token.removeprefix("./").rstrip("/")
     if ":" in cleaned:
         cleaned = cleaned.split(":", 1)[0]
-    if cleaned.endswith(CODE_SUFFIXES) is False and "." in cleaned.rsplit("/", 1)[-1]:
-        stem, _, _symbol = cleaned.rpartition(".")
-        if stem and (PROJECT_ROOT / f"{stem}.py").is_file():
-            return True
     if not cleaned:
         return False
-    if cleaned in TRACKED or (PROJECT_ROOT / cleaned).exists():
-        return True
-    doc_dir = doc.parent.relative_to(PROJECT_ROOT).as_posix()
-    for prefix in (doc_dir, "frontend", ""):
-        joined = f"{prefix}/{cleaned}" if prefix else cleaned
-        if joined in TRACKED or (PROJECT_ROOT / joined).exists():
+    if not cleaned.endswith(CODE_SUFFIXES) and "." in cleaned.rsplit("/", 1)[-1]:
+        stem, _, _symbol = cleaned.rpartition(".")
+        if stem and f"{stem}.py" in TRACKED:
             return True
-    if any(t.endswith("/" + cleaned) for t in TRACKED):
-        return True
-    # A bare directory reference such as `scripts/` or `.claude/hooks/`
-    return (PROJECT_ROOT / cleaned).is_dir()
+    doc_dir = doc.parent.relative_to(PROJECT_ROOT).as_posix()
+    for prefix in ("", doc_dir, "frontend"):
+        joined = f"{prefix}/{cleaned}" if prefix else cleaned
+        if joined in TRACKED:
+            return True
+        # A directory reference such as `scripts/` or `.claude/hooks/`
+        if any(tracked.startswith(joined + "/") for tracked in TRACKED):
+            return True
+    return any(tracked.endswith("/" + cleaned) for tracked in TRACKED)
 
 
 @pytest.mark.parametrize("doc", CORPUS, ids=CORPUS_IDS)
