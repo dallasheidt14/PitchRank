@@ -400,18 +400,8 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
   );
 }
 
-/**
- * Delta indicator component for rank/power changes
- */
-export function DeltaIndicator({
-  value,
-  inverse = false,
-  size = 'sm',
-}: {
-  value: number | null;
-  inverse?: boolean; // For ranks, lower is better so we invert the color
-  size?: 'sm' | 'md';
-}) {
+/** Positive means improvement: rank_change_* columns are stored as prior - current. */
+export function DeltaIndicator({ value, size = 'sm' }: { value: number | null; size?: 'sm' | 'md' }) {
   if (value === null || value === 0) {
     return (
       <span className={cn('inline-flex items-center text-muted-foreground', size === 'sm' ? 'text-xs' : 'text-sm')}>
@@ -420,7 +410,7 @@ export function DeltaIndicator({
     );
   }
 
-  const isPositive = inverse ? value < 0 : value > 0;
+  const isPositive = value > 0;
   const displayValue = Math.abs(value);
 
   return (
