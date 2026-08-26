@@ -80,7 +80,7 @@ def gh_pages(endpoint: str) -> list:
 
 
 def resolve_pr(explicit: int | None) -> dict:
-    fields = "number,title,url,baseRefName,createdAt,isDraft,state,statusCheckRollup"
+    fields = "number,title,url,baseRefName,createdAt,headRefOid,isDraft,state,statusCheckRollup"
     args = ["pr", "view", "--json", fields]
     if explicit:
         args.insert(2, str(explicit))
@@ -121,19 +121,30 @@ def check_states(rollup: list[dict], required: set[str]) -> tuple[list[str], lis
     return pending + sorted(missing), failing
 
 
-def codex_findings(number: int) -> list[str] | None:
+def codex_findings(number: int, head: str) -> list[str] | None:
     """Codex's review body and inline comments, or None if it has not posted.
 
     `gh pr checks` reports run status only. The findings live on the review and
     its inline comments, which is the half that has been missed before.
+
+    Codex reviews when a PR opens and not on later pushes, so a finding you have
+    already fixed keeps coming back. Each one carries the commit it was written
+    against, and anything older than the head is labelled rather than dropped:
+    only a reader can tell a fixed finding from one a rewrite moved.
     """
     reviews = gh_pages(f"repos/{{owner}}/{{repo}}/pulls/{number}/reviews")
-    if not any(r["user"]["login"] == CODEX_LOGIN for r in reviews):
+    mine = [r for r in reviews if r["user"]["login"] == CODEX_LOGIN]
+    if not mine:
         return None
-    found = [r["body"].strip() for r in reviews if r["user"]["login"] == CODEX_LOGIN and r["body"].strip()]
+
+    def stamp(item: dict) -> str:
+        against = item.get("commit_id") or item.get("original_commit_id") or ""
+        return "" if against == head else f"  [reviewed {against[:8]}, head is now {head[:8]}]"
+
+    found = [r["body"].strip() + stamp(r) for r in mine if r["body"].strip()]
     for c in gh_pages(f"repos/{{owner}}/{{repo}}/pulls/{number}/comments"):
         if c["user"]["login"] == CODEX_LOGIN:
-            where = f"{c['path']}:{c.get('line') or c.get('original_line')}"
+            where = f"{c['path']}:{c.get('line') or c.get('original_line')}{stamp(c)}"
             found.append(f"{where}\n{c['body'].strip()}")
     return found
 
@@ -169,9 +180,9 @@ def main() -> int:
     deadline = time.monotonic() + args.timeout * 60
     findings, pending, failing = None, [], []
     while True:
-        rollup = resolve_pr(number)["statusCheckRollup"]
-        pending, failing = check_states(rollup, required)
-        findings = codex_findings(number)
+        current = resolve_pr(number)
+        pending, failing = check_states(current["statusCheckRollup"], required)
+        findings = codex_findings(number, current["headRefOid"])
         window_closed = minutes_since(pr["createdAt"]) >= CODEX_WINDOW_MINUTES
         if failing or (not pending and (findings is not None or window_closed)):
             break
