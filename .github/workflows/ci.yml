@@ -8,6 +8,14 @@ on:
   # "ready to merge" having never run this workflow.
   pull_request:
 
+concurrency:
+  # Two pushes to a branch 32 seconds apart each ran the full seven-job gate
+  # (docs/one-owner-per-fact, 2026-08-25). Once the head moves, the older run's
+  # checks gate nothing, so superseding it is free. Runs on main are the only
+  # post-merge signal that main itself is green — those queue rather than cancel.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-lint:
     name: Python Lint

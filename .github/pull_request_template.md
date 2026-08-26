@@ -1,102 +1,25 @@
-# 📦 PitchRank Pull Request
+<!--
+Before merging:
 
-## 🔍 Overview
+- `python scripts/pr_wait.py` waits out the Codex review window (about 10 minutes
+  from open), prints whatever it found, then merges. It exists because `gh pr checks`
+  reports run status only, and the findings live on the review.
+- `claude-review` is red on every PR and is not a required check. The seven `ci.yml`
+  checks are the gate.
+- If this finishes a `.turbo/improvements.md` entry, close it here: set
+  `- **Status**: done` and add a `- **Refs**:` line naming this PR.
+-->
 
-Provide a clear summary of the change.  
+## What changed
 
-Example:
+<!-- What it does and why. Prose beats a bullet list for anything non-obvious. -->
 
-- Updated rankings UI to use ML-enhanced PowerScore
+## Verification
 
-- Implemented SOS Index (sos_norm)
+<!-- What you ran and what it said. A green gate is not verification of a doc change:
+     doc claims need checking against the code they describe. -->
 
-- Added formatting utilities and tooltips
+## Notes for review
 
-- Synced frontend types with backend data contract
-
----
-
-## ✅ Changes Included
-
-### Frontend
-
-- [ ] Updated all PowerScore displays to use `power_score_final`
-
-- [ ] Updated all SOS displays to use `sos_norm`
-
-- [ ] Implemented `formatPowerScore()` (0–100 scale, 2 decimals)
-
-- [ ] Implemented `formatSOSIndex()` (0–100 scale, 1 decimal)
-
-- [ ] Updated RankingsTable
-
-- [ ] Updated TeamHeader
-
-- [ ] Updated ComparePanel
-
-- [ ] Updated HomeLeaderboard & test page
-
-- [ ] Added tooltips ("PowerScore (ML Adjusted)" and "SOS Index")
-
-- [ ] Updated column labels and sorting logic
-
-### Backend / Shared Types
-
-- [ ] Updated `@pitchrank/types` package
-
-- [ ] Verified schema matches `rankings_view` fields
-
-- [ ] Ensured `power_score_final` and `sos_norm` are present
-
-- [ ] Added or reviewed OpenAPI schema
-
----
-
-## 🧪 Testing Checklist
-
-- [ ] Rankings tables load correctly for all age/gender/state filters
-
-- [ ] Team detail page shows correct PowerScore & SOS Index
-
-- [ ] Sorting by PowerScore works
-
-- [ ] Sorting by SOS Index works
-
-- [ ] No remaining references to `strength_of_schedule`, `power_score`, or `national_power_score`
-
-- [ ] All numbers scale correctly (0–100)
-
-- [ ] Tooltip text renders correctly on desktop/mobile
-
----
-
-## 📸 Screenshots (If UI Change)
-
-_Add before/after screenshots here._
-
----
-
-## 📚 Documentation
-
-- [ ] Data Contract updated (if needed)
-
-- [ ] README updated (if needed)
-
----
-
-## 🚀 Deployment Notes
-
-_Add anything special devops should know (usually none)._
-
----
-
-## 📎 Related Issues / Tickets
-
-_Example: Closes #187_
-
----
-
-## 🤝 Reviewer Notes
-
-Anything the reviewer should pay close attention to.
-
+<!-- Anything a reviewer would otherwise have to reconstruct: an alternative you
+     rejected, a line you drew around scope, a follow-up you left open. -->

@@ -1,5 +1,34 @@
 {
   "enabledMcpjsonServers": ["supabase"],
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git fetch --all --prune)",
+      "Bash(git fetch origin)",
+      "Bash(git stash list)",
+      "Bash(git stash push *)",
+      "Bash(git stash pop *)",
+      "Bash(git stash show *)",
+      "Bash(git worktree *)",
+      "Bash(git push origin *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr comment *)",
+      "Bash(python -m ruff check *)",
+      "Bash(python -m ruff format --diff *)",
+      "Bash(python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py)",
+      "Bash(npx eslint .)",
+      "Bash(npx prettier --check .)",
+      "Bash(npm ci)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run test)",
+      "Bash(npm run generate-llms)",
+      "mcp__supabase__*"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
