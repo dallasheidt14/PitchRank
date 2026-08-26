@@ -109,10 +109,10 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
      - **Fuzzy Match** (if no direct match):
        - Query master teams by age_group and gender
        - Calculate weighted similarity score:
-         - Team name: 65% weight
-         - Club name: 25% weight ✨ NEW
-         - Age group: 5% weight
-         - Location: 5% weight
+         - Team name: 35% weight
+         - Club name: 35% weight
+         - Age group: 10% weight
+         - Location: 10% weight
        - Apply normalization (remove punctuation, expand abbreviations, etc.)
        - Match thresholds:
          - ≥0.90: Auto-approve → create alias
@@ -180,7 +180,7 @@ python scripts/review_matches.py
 
 ---
 
-### Phase 3: Ranking Calculation ✨ NEW
+### Phase 3: Ranking Calculation
 
 #### 3.1 Calculate Team Rankings
 
@@ -265,18 +265,29 @@ There is no `powerscore` column, and `sos` is on the raw 1500-centred scale — 
 
 ---
 
-#### 3.2 Calculate State Rankings
+#### 3.2 State Rankings
 
-**Script:** (To be implemented)
+**Where:** the database, not a script.
 
-**Purpose:** Derive state-level rankings from national rankings
+State rankings are not derived by a post-processing step and no column is updated.
+`state_rankings_view` ranks within each `(state, age, gender)` partition directly:
 
-**Process:**
-1. Query `current_rankings` filtered by state
-2. Re-rank teams within each state
-3. Update `state_rank` column in `current_rankings` table
+```sql
+ROW_NUMBER() OVER (
+    PARTITION BY rv.state, rv.age, rv.gender
+    ORDER BY rv.power_score_final DESC, rv.team_id_master ASC
+) AS rank_in_state_final
+```
 
-**Status:** ⏳ Pending - Future enhancement
+Only `Active` teams are ranked; everyone else stays visible with a NULL state rank.
+
+The frontend does not read the view directly — it calls the `get_state_rankings` and
+`get_state_rankings_count` RPCs, which filter before the `ROW_NUMBER()` and so avoid the
+timeout the view hits on a full scan. `/rankings/[region]/[ageGroup]/[gender]` is served
+this way.
+
+This is why `state_rank` is always NULL in `rankings_full`, per the Output section above:
+the display rank is computed at read time, not stored.
 
 ---
 
@@ -369,7 +380,7 @@ python scripts/scrape_games.py --provider gotsport --limit-teams 10
 
 #### 4.3 Data Validation & Review
 
-**Script:** `scripts/analyze_validation_errors.py` ✨ NEW
+**Script:** `scripts/analyze_validation_errors.py`
 
 **Purpose:** Analyze validation errors to understand data quality issues
 
@@ -491,13 +502,18 @@ MATCHING_CONFIG = {
     'fuzzy_threshold': 0.75,          # Minimum score to consider
     'auto_approve_threshold': 0.9,   # Auto-approve matches
     'review_threshold': 0.75,        # Queue for review
+    'max_age_diff': 2,
     'weights': {
-        'team': 0.65,                 # Team name similarity
-        'club': 0.25,                 # Club name similarity ✨ NEW
-        'age': 0.05,                  # Age group match
-        'location': 0.05              # Location match
+        'team': 0.35,                 # Team name similarity
+        'club': 0.35,                 # Club name similarity
+        'age': 0.10,                  # Age group match
+        'location': 0.10              # Location match
     },
-    'club_boost_identical': 0.05,     # Boost for identical clubs
+    'club_boost_identical': 0.10,     # Boost for identical clubs
+    'club_min_similarity': 0.8,
+    'club_variant_match_boost': 0.15,
+    'fuzzy_confidence_ceiling': 0.99,
+    # ... plus the affinity_* gates; see config/settings.py for the full set
 }
 ```
 
@@ -758,7 +774,7 @@ LIMIT 20;
 
 - **Direct ID Matching**: Fastest method, uses provider team IDs
 - **Fuzzy Matching**: Advanced similarity scoring with normalization
-- **Club Name Weighting**: ✨ NEW - Improves accuracy for teams from same club
+- **Club Name Weighting**: club name carries the same 35% as team name
 - **Abbreviation Expansion**: Handles "FC", "SC", "YS", etc.
 - **Manual Review Queue**: For ambiguous matches
 
