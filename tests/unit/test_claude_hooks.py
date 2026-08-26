@@ -420,3 +420,90 @@ def test_dry_run_check_warns_when_a_tracked_file_gains_a_write(tmp_path: Path) -
     assert "no --dry-run" not in (_post_edit(legacy, root) or "")
     legacy.write_text('sb.table("teams").update({}).execute()\nsb.table("games").insert({}).execute()\n')
     assert "no --dry-run" in (_post_edit(legacy, root) or "")
+
+
+def _session_start(project_dir: Path, stub_gh: Path | None = None) -> subprocess.CompletedProcess:
+    """Run the session-start hook, optionally with a `gh` that always fails.
+
+    The stub keeps the test hermetic and fast: a temp repo has no GitHub remote,
+    so every real `gh` call would go out to the network only to error.
+    """
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(project_dir)}
+    if stub_gh is not None:
+        env["PATH"] = f"{stub_gh}{os.pathsep}{env['PATH']}"
+    return subprocess.run(
+        [BASH, str(HOOKS / "session-start.sh")],
+        input=json.dumps({"cwd": str(project_dir)}),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+
+
+@pytest.fixture
+def no_gh(tmp_path: Path) -> Path:
+    return _gh_stub(tmp_path, "stub")
+
+
+def _gh_stub(tmp_path: Path, name: str, rankings: str | None = None) -> Path:
+    """A `gh` that fails, except for a canned answer to the rankings query.
+
+    The hook lets gh run the jq, so the stub prints the finished line rather than
+    JSON. That keeps these tests off the network and lets them pin states a real
+    run only occupies for a few hours a week.
+    """
+    stub = tmp_path / name
+    stub.mkdir()
+    body = ["#!/bin/sh"]
+    if rankings is not None:
+        body += ['case "$*" in', f"  *calculate-rankings*) echo '{rankings}'; exit 0 ;;", "esac"]
+    body.append("exit 1")
+    script = stub / "gh"
+    script.write_text("\n".join(body) + "\n")
+    script.chmod(0o755)
+    return script.parent
+
+
+def test_session_start_still_reports_when_github_is_unreachable(tmp_path: Path, no_gh: Path) -> None:
+    """It runs before every conversation, so it must never be what fails."""
+    root = _fresh_repo(tmp_path, "offline")
+    result = _session_start(root, no_gh)
+    assert result.returncode == 0, result.stderr
+    assert "## Repo state" in result.stdout
+    assert "on feat/x" in result.stdout
+    assert "ATTENTION" not in result.stdout
+
+
+def test_session_start_flags_a_worktree_holding_uncommitted_work(tmp_path: Path, no_gh: Path) -> None:
+    """A worktree with uncommitted work cannot be removed without losing it."""
+    root = _fresh_repo(tmp_path, "worktrees")
+    linked = tmp_path / "linked"
+    _git(root, "worktree", "add", "-q", "-b", "side", str(linked))
+    assert "uncommitted work" not in _session_start(root, no_gh).stdout
+
+    (linked / "scripts" / "legacy_writer.py").write_text("changed\n")
+    out = _session_start(root, no_gh).stdout
+    assert "ATTENTION: worktrees with uncommitted work: linked" in out
+
+
+def test_session_start_does_not_call_a_running_ranking_job_a_failure(tmp_path: Path) -> None:
+    """A run takes 2.5-3.7 hours, so in_progress is the healthy state most of Monday."""
+    root = _fresh_repo(tmp_path, "running")
+    running = _session_start(root, _gh_stub(tmp_path, "gh_running", "2026-08-24 in_progress"))
+    assert "rankings 2026-08-24 in_progress" in running.stdout
+    assert "ATTENTION" not in running.stdout
+
+    failed = _session_start(root, _gh_stub(tmp_path, "gh_failed", "2026-08-24 failure"))
+    assert "ATTENTION: last rankings run 2026-08-24 failure" in failed.stdout
+
+
+def test_session_start_flags_a_worktree_holding_only_untracked_files(tmp_path: Path, no_gh: Path) -> None:
+    """Scratch files nobody committed are the ones that exist in no other copy."""
+    root = _fresh_repo(tmp_path, "scratch_wt")
+    linked = tmp_path / "scratch"
+    _git(root, "worktree", "add", "-q", "-b", "scratchwork", str(linked))
+    assert "uncommitted work" not in _session_start(root, no_gh).stdout
+
+    (linked / "notes.md").write_text("only ever existed here\n")
+    assert "ATTENTION: worktrees with uncommitted work: scratch" in _session_start(root, no_gh).stdout
