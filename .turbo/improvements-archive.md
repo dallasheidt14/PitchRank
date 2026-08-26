@@ -72,3 +72,21 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: The `claude-review` check logs `ANTHROPIC_API_KEY:` empty and fails on every PR.
 - **Noted**: 2026-08-11
 - **Refs**: Duplicate of IMP-104, and the premise is wrong either way — the workflow reads `CLAUDE_CODE_OAUTH_TOKEN` (`claude-code-review.yml:38`), never `ANTHROPIC_API_KEY`; `git log -S ANTHROPIC_API_KEY` on that file returns nothing. Setting the named secret would have changed nothing. Tracked as IMP-104.
+
+### Fix or disable the always-failing claude-review workflow
+
+- **ID**: IMP-104
+- **Status**: done
+- **Type**: direct
+- **Category**: dx
+- **Where**: `.github/workflows/claude-code-review.yml` + repo Actions secrets
+- **Why**: The check fails on every PR and is not required, so a permanent red X sits beside the seven that are — which trains reviewers to ignore red. Still live as of 2026-08-25 (#1025, #1026). The remedy is **not** the `ANTHROPIC_API_KEY` secret this entry and IMP-078 both named: the workflow reads `CLAUDE_CODE_OAUTH_TOKEN` at line 38, that secret is present, and the run fails on its first turn with $0 spend — an auth rejection, not a missing secret. Diagnose the token, or disable the workflow.
+- **Noted**: 2026-08-23 (premise corrected 2026-08-25; absorbed IMP-078)
+- **Refs**: #1039 (`chore/disable-claude-review-trigger`)
+- **Update (2026-08-26)**: the `pull_request` trigger is commented out, so the red X is gone.
+  Traced one more level first: Claude Code initializes and reports `claude-sonnet-5`, then the
+  run ends after one turn in 1.9s with `total_cost_usd` 0 and an empty `modelUsage` — the first
+  model call is rejected, confirming a live-but-rejected `CLAUDE_CODE_OAUTH_TOKEN` rather than a
+  missing secret. Rotating that secret is the remaining work and it is not a repo change;
+  re-enabling afterwards is a two-line edit. `claude.yml` was left alone — it only fires on
+  `@claude` mentions and contributed no red check.

@@ -994,16 +994,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Their "updated_by: /brand-voice" / "Vibe Marketing Skills" stamps point at a pack with zero definitions left in the tree (menu doc deleted 2026-08-23; commands were already dead). Strip the four stamps or add a one-line retirement note.
 - **Noted**: 2026-08-23
 
-### Fix or disable the always-failing claude-review workflow
-
-- **ID**: IMP-104
-- **Status**: open
-- **Type**: direct
-- **Category**: dx
-- **Where**: `.github/workflows/claude-code-review.yml` + repo Actions secrets
-- **Why**: The check fails on every PR and is not required, so a permanent red X sits beside the seven that are — which trains reviewers to ignore red. Still live as of 2026-08-25 (#1025, #1026). The remedy is **not** the `ANTHROPIC_API_KEY` secret this entry and IMP-078 both named: the workflow reads `CLAUDE_CODE_OAUTH_TOKEN` at line 38, that secret is present, and the run fails on its first turn with $0 spend — an auth rejection, not a missing secret. Diagnose the token, or disable the workflow.
-- **Noted**: 2026-08-23 (premise corrected 2026-08-25; absorbed IMP-078)
-
 ### Speed up ML residual + explainability persistence in the weekly ranking run
 
 - **ID**: IMP-105
@@ -1136,7 +1126,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-24 (updated 2026-08-25, after item 4)
 - **Update (2026-08-26)**: item 6 is done. The session-start hook now reports the last rankings run, CI on main, the open-backlog count and the newest handoff, and raises an ATTENTION line for a red main, a rankings run that failed or has not happened in over 8 days, a failing scheduled workflow, or a worktree holding uncommitted work. Standing state stays on one line, because the hook runs before every conversation and a line that never changes is a tax on all of them; only what wants a decision gets its own. The four `gh` queries run concurrently, so it costs 4.8s against 2.6s before. It also had no tests, and now has two. **Only item 8 is left**: retire `PROJECT_FLOW.md`, the orphaned `docs/` files, the always-red `claude-review` workflow (IMP-104), the stale worktree and the old `origin/claude/*` branches.
 - **Update (2026-08-25)**: item 7 is done too. `git-guard.sh` now reads a shell wrapper's quoted argument as a command (`powershell -Command "git push --force"` and four other spellings passed straight through before), refuses `commit --amend` once HEAD is on a remote, and resolves `git -C <dir>` / a leading `cd <dir>` once so the checks read the repository git will actually run in. The review's fourth piece, a content gate on ranking-engine paths, was built and then dropped on request: it was the one part that added a new stop rather than restoring a guarantee CLAUDE.md already made, and the friction was not wanted. `dry-run-check.sh` now fires when a tracked file gains a Supabase write, not only on brand-new files. Measured before changing anything: wrapper-plus-git usage across 5,618 calls was zero, so blocking it costs nothing, while `git commit --amend` had 7 legitimate uses, which is why that one keys on whether HEAD is pushed rather than refusing outright.
-- **Update (2026-08-25)**: item 5 is done — `scripts/pr_wait.py` (bounded Codex poll, then merge), a `ci.yml` concurrency group that supersedes stale PR runs but never a run on main, the curated allowlist in tracked `.claude/settings.json`, and a PR template that is no longer the Nov-2025 PowerScore migration checklist. Auto-merge and the Codex poll turned out to conflict: the gate goes green at 3.1 min and Codex posts at 3.4–8.7, so arming `--auto` on open outruns every review it would ever get. The poll runs first. `--auto` was then dropped entirely: it stays armed across a later push and GitHub decides on the required checks alone, so a commit pushed after arming would merge unreviewed. If checks are still running when the window shuts, the script says so and asks you back.
 
 ### Extract the React mount/unmount test harness into frontend/test/
 
