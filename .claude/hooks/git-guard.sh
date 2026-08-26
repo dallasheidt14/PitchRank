@@ -25,9 +25,17 @@ stripped=$(printf '%s\n' "$cmd" | awk '
     # look like a command, while `git add "."` and `git -C "a dir"` still parse.
     out = ""
     while (match($0, /("[^"]*"|'"'"'[^'"'"']*'"'"')/)) {
+      before = substr($0, 1, RSTART - 1)
       seg = substr($0, RSTART + 1, RLENGTH - 2)
-      gsub(/[ \t;&|()`]/, "\001", seg)
-      out = out substr($0, 1, RSTART - 1) seg
+      # ...except after a shell wrapper flag, where the quoted argument is itself
+      # a command. The flag becomes a `;` so the verb inside lands at a command
+      # position and every rule below reads it. Without this,
+      # `powershell -Command "git push --force"` passed straight through.
+      if (before ~ /(^|[ \t])(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/)
+        sub(/(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/, "; ", before)
+      else
+        gsub(/[ \t;&|()`]/, "\001", seg)
+      out = out before seg
       $0 = substr($0, RSTART + RLENGTH)
     }
     $0 = out $0
@@ -64,6 +72,19 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   if [ "$branch" = main ]; then
     deny "BLOCKED: branch is main. Run 'git checkout -b <feature> origin/main' first (CLAUDE.md: never commit to main)."
   fi
+  # Amending is fine until the commit is on a remote. After that the only way to
+  # land it is a force push, which the guard below blocks, so the branch strands
+  # with no way back.
+  amend_re="${git_cmd}commit[[:space:]][^;&|()]*--amend${end}"
+  if [[ $stripped =~ $amend_re ]]; then
+    amend_dir=$cwd
+    if [[ $stripped =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]] ]]; then
+      amend_dir=${BASH_REMATCH[1]//$'\001'/ }
+    fi
+    if [ -d "$amend_dir" ] && [ -n "$(git -C "$amend_dir" branch -r --contains HEAD 2>/dev/null)" ]; then
+      deny "BLOCKED: HEAD is already pushed, so amending it would need the force push this guard refuses. Add a new commit instead (.claude/rules/git-workflow.md)."
+    fi
+  fi
   # A `cd` earlier in the command moves where git runs, so check that checkout too.
   cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
   if [[ $stripped =~ $cd_re ]]; then
@@ -71,6 +92,15 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
     case "$cd_target" in /*|[A-Za-z]:*) ;; *) cd_target="$cwd/$cd_target" ;; esac
     if [ "$(branch_of "$cd_target")" = main ]; then
       deny "BLOCKED: this command changes into a checkout that is on main before committing or pushing (CLAUDE.md: never commit to main)."
+    fi
+  fi
+  # .claude/rules/git-workflow.md requires a review before pushing anything that
+  # reaches the weekly ranking run, and had no enforcement. A bad run costs
+  # 2.5-3.7 hours, which is why this is a stop rather than a note.
+  ranking_re='^(src/rankings/|src/etl/glicko_|src/etl/v53e\.py|src/utils/merge_resolver\.py|scripts/calculate_rankings\.py|\.github/workflows/calculate-rankings\.yml)'
+  if [[ $stripped =~ ${git_cmd}push${end} ]] && [[ $cmd != *RANKING_REVIEWED=1* ]] && [ -d "$cwd" ]; then
+    if git -C "$cwd" diff --name-only origin/main...HEAD 2>/dev/null | grep -qE "$ranking_re"; then
+      deny "BLOCKED: this push changes the ranking engine, which .claude/rules/git-workflow.md says to review first. Run the ranking-change-reviewer agent, then re-run as 'RANKING_REVIEWED=1 git push ...'."
     fi
   fi
   if [[ $stripped =~ ${git_cmd}(checkout|switch)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*main${end}(.*) ]] \

@@ -21,7 +21,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 
 ## Git Discipline
 - Never commit to main directly; verify the branch before every commit. `main` requires a PR and the `ci.yml` checks (squash only, no force-push).
-- `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, and `.env` edits. A `BLOCKED:` message is the hook, not a transient error.
+- `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, `.env` edits, `commit --amend` once HEAD is on a remote, and a push touching the ranking engine unless it runs as `RANKING_REVIEWED=1 git push ...`. It reads a shell wrapper's quoted argument as a command, so `powershell -Command "git push --force"` is refused too. A `BLOCKED:` message is the hook, not a transient error.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
