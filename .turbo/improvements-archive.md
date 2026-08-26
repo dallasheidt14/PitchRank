@@ -90,3 +90,36 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
   missing secret. Rotating that secret is the remaining work and it is not a repo change;
   re-enabling afterwards is a two-line edit. `claude.yml` was left alone — it only fires on
   `@claude` mentions and contributed no red check.
+
+### Work through items 2–8 of the 2026-08-24 agent-readiness review
+
+- **ID**: IMP-117
+- **Status**: done
+- **Type**: plan
+- **Category**: dx
+- **Where**: https://claude.ai/code/artifact/9e4525fa-4bb1-4844-9ea4-873e36de5d6f (98 cited findings); CLAUDE.md, .claude/, .github/workflows, docs/
+- **Why**: The review's ranked plan lives only in the artifact. Shipped: item 1 agent-reachable credentials (#1019), item 2 documented commands = CI commands plus the wrong code patterns (#1023), item 3 part 1 the doc-reference parity test (#1024), item 3 part 2 the seven remaining contradictions given one owner each (#1025), item 3 part 3 the prose de-duplication — seven duplicated bodies each given one owner, measured rather than estimated (the "31 bodies" figure was a duplicated-*line* count) (#1026). **Item 3 is done.** Item 4 is done too: this file's own lifecycle — the ID/Status schema, `scripts/sweep_improvements.py`, the `sweep-improvements` skill, `.turbo/improvements-archive.md` and `tests/unit/test_improvements_backlog.py`. Still open: item 6 a richer session-start hook; item 7 the git-guard gaps; item 8 retiring contradicting docs, the always-red claude-review workflow (tracked separately as IMP-104), and the stale worktree/branches.
+- **Noted**: 2026-08-24 (updated 2026-08-25, after item 4)
+- **Refs**: #1034, #1035, #1036, #1037, #1038, #1039, #1040
+- **Update (2026-08-26)**: item 8 is done, and with it all eight. `PROJECT_FLOW.md` says
+- **Update (2026-08-25)**: item 7 is done too. `git-guard.sh` now reads a shell wrapper's quoted argument as a command (`powershell -Command "git push --force"` and four other spellings passed straight through before), refuses `commit --amend` once HEAD is on a remote, and resolves `git -C <dir>` / a leading `cd <dir>` once so the checks read the repository git will actually run in. The review's fourth piece, a content gate on ranking-engine paths, was built and then dropped on request: it was the one part that added a new stop rather than restoring a guarantee CLAUDE.md already made, and the friction was not wanted. `dry-run-check.sh` now fires when a tracked file gains a Supabase write, not only on brand-new files. Measured before changing anything: wrapper-plus-git usage across 5,618 calls was zero, so blocking it costs nothing, while `git commit --amend` had 7 legitimate uses, which is why that one keys on whether HEAD is pushed rather than refusing outright.
+  Glicko-2 where production runs Glicko-2, and four adjacent claims in the blocks it touched were
+  wrong too and were corrected against code: ML alpha is 0.08 not 0.12, the residual floor is 12
+  games not 6, `RANKING_CONFIG` is the v53e parameter set rather than the Glicko-2 one, and
+  `rankings_full` is the primary output table rather than `current_rankings`. `--ml` turned out to
+  be a no-op: `Layer13Config.__post_init__` overwrites `enabled` from `ML_CONFIG` whatever the
+  caller passed, so `ML_LAYER_ENABLED` is the real switch (#1035). `docs/` went from 123 files to
+  36 — the 87 that nothing in the repo references, verified afterwards to leave zero dangling
+  links; the stricter reading would have taken 111 and was not used (#1038). The 39
+  `origin/claude/*` branches are deleted, with a manifest committed first because six of them held
+  work that never landed anywhere (#1036). The `C:/PitchRank_tournament_beta` worktree is gone; its
+  branch was already on `origin` at the same commit, so only its loose edits needed keeping
+  (#1037). `claude-review` no longer runs on PRs (#1039, closing IMP-104).
+  **The review's own numbers were wrong twice.** It said 87 orphaned docs and the last handoff
+  re-measured that as 78; two independent methods both return 87, so the review was right and the
+  correction was the error (#1034). Two findings in this arc were also introduced *by* a fix —
+  disabling `claude-review` left `CLAUDE.md` and the PR template telling reviewers it still runs,
+  and the archived `run_intake.ps1` kept a usage line that cannot work from `.turbo/reports`.
+  Codex caught both, plus a real bug in `pr_wait.py`: it read `headRefOid` to check Codex's review
+  and then merged without `--match-head-commit`, so it could merge a commit it never inspected —
+  the exact hole that ruled out `gh pr merge --auto` (#1040).
