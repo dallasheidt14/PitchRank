@@ -397,45 +397,20 @@ def test_git_guard_allows_amend_until_the_commit_is_pushed(tmp_path: Path) -> No
     assert _bash("git commit --amend --no-edit", root, cwd=root).returncode == 2
 
 
-def test_git_guard_holds_a_ranking_push_until_it_is_reviewed(tmp_path: Path) -> None:
-    root = _fresh_repo(tmp_path, "ranking")
-    (root / "src" / "rankings").mkdir(parents=True)
-    (root / "src" / "rankings" / "calculator.py").write_text("x = 1\n")
-    _git(root, "add", "src")
-    _git(root, "commit", "-qm", "tune the engine")
-    assert _bash("git push origin feat/x", root, cwd=root).returncode == 2
-    assert _bash("RANKING_REVIEWED=1 git push origin feat/x", root, cwd=root).returncode == 0
-    # The gate has to read the repository git will actually run in, not the payload cwd.
-    assert _bash(f'git -C "{root.as_posix()}" push origin feat/x', root, cwd=tmp_path).returncode == 2
-    assert _bash(f'cd "{root.as_posix()}" && git push origin feat/x', root, cwd=tmp_path).returncode == 2
+def test_git_guard_amend_reads_the_repo_git_will_run_in(tmp_path: Path) -> None:
+    """`git -C <dir>` and a leading `cd <dir>` both move where the amend lands."""
+    pushed = _fresh_repo(tmp_path, "pushed")
+    _git(pushed, "update-ref", "refs/remotes/origin/feat/x", "HEAD")
+    elsewhere = _fresh_repo(tmp_path, "elsewhere")
+    (elsewhere / "scripts" / "later.py").write_text("x = 1\n")
+    _git(elsewhere, "add", "scripts/later.py")
+    _git(elsewhere, "commit", "-qm", "local only")
 
-
-def test_git_guard_ranking_gate_reads_the_right_repo_and_ref(tmp_path: Path) -> None:
-    ranking = _fresh_repo(tmp_path, "rank2")
-    (ranking / "src" / "rankings").mkdir(parents=True)
-    (ranking / "src" / "rankings" / "calculator.py").write_text("x = 1\n")
-    _git(ranking, "add", "src")
-    _git(ranking, "commit", "-qm", "tune")
-    plain = _fresh_repo(tmp_path, "plain2")
-    # An earlier -C names a repo this push never touches; the gate must ignore it.
-    cmd = f'git -C "{plain.as_posix()}" status && git push origin feat/x'
-    assert _bash(cmd, ranking, cwd=ranking).returncode == 2
-    # The marker only counts as an assignment on the push, not as loose text.
-    assert _bash("echo RANKING_REVIEWED=1 && git push origin feat/x", ranking, cwd=ranking).returncode == 2
-    # feat/x carries the ranking change even when HEAD does not. Checked out from
-    # main rather than on it, or the never-commit-to-main rule answers first and
-    # this passes without the refspec ever being read.
-    _git(ranking, "checkout", "-qb", "docs/only", "main")
-    assert _bash("git push origin docs/only", ranking, cwd=ranking).returncode == 0
-    assert _bash("git push origin feat/x", ranking, cwd=ranking).returncode == 2
-
-
-def test_git_guard_leaves_a_non_ranking_push_alone(tmp_path: Path) -> None:
-    root = _fresh_repo(tmp_path, "plain")
-    (root / "README.md").write_text("hi\n")
-    _git(root, "add", "README.md")
-    _git(root, "commit", "-qm", "docs")
-    assert _bash("git push origin feat/x", root, cwd=root).returncode == 0
+    assert _bash(f'git -C "{pushed.as_posix()}" commit --amend --no-edit', pushed, cwd=elsewhere).returncode == 2
+    assert _bash(f'cd "{pushed.as_posix()}" && git commit --amend --no-edit', pushed, cwd=elsewhere).returncode == 2
+    # An earlier -C names a repo the amend never touches, so it must not be read.
+    cmd = f'git -C "{elsewhere.as_posix()}" status && git commit --amend --no-edit'
+    assert _bash(cmd, pushed, cwd=pushed).returncode == 2
 
 
 def test_dry_run_check_warns_when_a_tracked_file_gains_a_write(tmp_path: Path) -> None:

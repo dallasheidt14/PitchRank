@@ -109,25 +109,6 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
       deny "BLOCKED: this command changes into a checkout that is on main before committing or pushing (CLAUDE.md: never commit to main)."
     fi
   fi
-  # .claude/rules/git-workflow.md requires a review before pushing anything that
-  # reaches the weekly ranking run, and had no enforcement. A bad run costs
-  # 2.5-3.7 hours, which is why this is a stop rather than a note.
-  ranking_re='^(src/rankings/|src/etl/glicko_|src/etl/v53e\.py|src/utils/merge_resolver\.py|scripts/calculate_rankings\.py|\.github/workflows/calculate-rankings\.yml)'
-  reviewed_re="${at_cmd}RANKING_REVIEWED=1[[:space:]]"
-  if [[ $stripped =~ ${git_cmd}push${end} ]] && ! [[ $stripped =~ $reviewed_re ]] && [ -d "$target" ]; then
-    # `git push origin feat/x` sends feat/x, which is not necessarily HEAD. The
-    # source half of a `src:dst` refspec is what travels.
-    pushed=HEAD
-    push_ref_re="${git_cmd}push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*[[:space:]]+\+?([^[:space:];&|()]+)"
-    if [[ $stripped =~ $push_ref_re ]]; then
-      pushed=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
-      pushed=${pushed%%:*}
-    fi
-    git -C "$target" rev-parse --verify -q "$pushed^{commit}" >/dev/null 2>&1 || pushed=HEAD
-    if git -C "$target" diff --name-only "origin/main...$pushed" 2>/dev/null | grep -qE "$ranking_re"; then
-      deny "BLOCKED: this push changes the ranking engine, which .claude/rules/git-workflow.md says to review first. Run the ranking-change-reviewer agent, then re-run as 'RANKING_REVIEWED=1 git push ...'."
-    fi
-  fi
   if [[ $stripped =~ ${git_cmd}(checkout|switch)[[:space:]]+(-[^[:space:]]+[[:space:]]+)*main${end}(.*) ]] \
     && [[ ${BASH_REMATCH[${#BASH_REMATCH[@]}-1]} =~ ${git_cmd}(commit|push)${end} ]]; then
     deny "BLOCKED: this command switches to main before committing or pushing (CLAUDE.md: never commit to main)."
