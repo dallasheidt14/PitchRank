@@ -4,7 +4,7 @@ Complete workflow documentation for the PitchRank youth soccer rankings system.
 
 ## 📊 Overview
 
-PitchRank processes game data from multiple providers (GotSport, TGS, US Club Soccer) to calculate team rankings and strength of schedule metrics. The system uses a sophisticated v53e rankings engine with an optional ML predictive adjustment layer (Layer 13) for enhanced accuracy.
+PitchRank processes game data from multiple providers (GotSport, TGS, US Club Soccer) to calculate team rankings and strength of schedule metrics. Rankings come from a two-pass Glicko-2 engine plus an XGBoost residual layer (ML Layer 13). The older v53e engine is still in the tree but is legacy; nothing in the Glicko path calls it.
 
 ## 🔄 Complete Data Flow
 
@@ -186,69 +186,82 @@ python scripts/review_matches.py
 
 **Script:** `scripts/calculate_rankings.py`
 
-**Purpose:** Calculate team rankings using v53e engine with optional ML enhancement
+**Purpose:** Calculate team rankings using the Glicko-2 engine plus ML Layer 13
 
 **Process:**
 
-**Option A: v53e Only (Deterministic)**
+**What production runs** (`calculate-rankings.yml`, Mondays 12:30 UTC):
+```bash
+python scripts/calculate_rankings.py --ml --force-rebuild --engine glicko
+```
+
+**Default run** — `--engine` defaults to `glicko`, so this is the same engine:
 ```bash
 python scripts/calculate_rankings.py --lookback-days 365
 ```
 
-**Option B: v53e + ML Layer (Enhanced)**
+**With filters:**
 ```bash
-python scripts/calculate_rankings.py --ml --lookback-days 365
-```
-
-**Option C: With Filters**
-```bash
-python scripts/calculate_rankings.py --ml \
+python scripts/calculate_rankings.py \
   --provider gotsport \
   --age-group u10 \
   --gender Male \
   --lookback-days 365
 ```
 
-**Rankings Engine (v53e):**
-- **Layer 1**: Window filter (365-day rolling window)
-- **Layer 2**: Outlier guard + goal diff cap
-- **Layer 3**: Recency weighting (recent games weighted more)
-- **Layer 4**: Defense ridge regression
-- **Layer 5**: Adaptive K (strength-based weighting)
-- **Layer 6**: Performance layer (goal margin analysis)
-- **Layer 7**: Bayesian shrinkage
-- **Layer 8**: Strength of Schedule (iterative transitivity)
-- **Layer 10**: Core PowerScore (OFF + DEF + SOS weights)
-- **Layer 11**: Provisional multiplier + ranking
+**Legacy engine** — reachable only by asking for it by name:
+```bash
+python scripts/calculate_rankings.py --engine v53e
+```
 
-**ML Layer (Layer 13) - Optional:**
-- Uses XGBoost or RandomForest to predict goal margins
-- Calculates residuals (actual - predicted) with recency weighting
-- Normalizes residuals within cohorts (age, gender)
+> **`--ml` does not control the ML layer.** `Layer13Config.__post_init__` overwrites
+> `enabled` from `ML_CONFIG` whatever the caller passed, so the flag only changes the
+> banner the script prints. Turn Layer 13 off with `ML_LAYER_ENABLED=false`.
+
+**Rankings Engine (Glicko-2):** two passes over each (age, gender) cohort.
+
+- **Pass 1** — Glicko-2 convergence per cohort, with no cross-age knowledge.
+- **Global strength map** — `{team_id: mu}` built from Pass 1.
+- **Pass 2** — re-run each cohort warm-started from Pass 1; cross-age opponents are
+  rated from the global map plus an anchor offset.
+- **Post-convergence, per cohort** — OFF/DEF, then SOS (repeat cap + trim), then SCF
+  dampening, then `sigmoid(z-score)` to `powerscore_core`, then the provisional
+  multiplier to `powerscore_adj`.
+- **Pass 3** — national and state SOS columns. Display only; never feeds PowerScore.
+
+Parameters live in `src/etl/glicko_config.py` (`GlickoConfig`) and
+`src/rankings/constants.py`. The `rankings-algorithm` skill documents them.
+
+**ML Layer (Layer 13):**
+- XGBoost predicts goal margins; residuals (actual − predicted) are recency-weighted
+- Residuals are normalized within cohorts (age, gender)
 - Blends into PowerScore: `powerscore_ml = powerscore_adj + alpha * ml_norm`
-- Default alpha: 0.12 (12% ML adjustment)
+- Effective alpha: **0.08**, from `ML_CONFIG` in `config/settings.py` (env `ML_ALPHA`)
+- Uses a 30-day time-split; never trains on the recent data it predicts
 
 **Data Flow:**
-1. Fetch games from Supabase (via `data_adapter.py`)
-2. Convert Supabase format → v53e format:
+1. Fetch games from Supabase (via `data_adapter.py`), 365-day window + 28-day grace taper
+2. Resolve merges — deprecated team IDs map to canonical via `MergeResolver`
+3. Convert Supabase format → engine format:
    - `game_date` → `date`
    - `home_team_master_id` → `team_id` (perspective-based)
    - `age_group` ('u10') → `age` ('10')
    - Each game appears twice (home/away perspectives)
-3. Run v53e `compute_rankings()` function
-4. Apply ML predictive adjustment (if `--ml` flag)
-5. Convert back to Supabase format
-6. Save to `current_rankings` table
+4. Run the two Glicko-2 passes via `compute_all_cohorts()` in `src/rankings/calculator.py`
+5. Apply ML Layer 13, then the same-age evidence gates → `power_score_true`
+6. Multiply by `AGE_TO_ANCHOR[age]` → `power_score_final`
+7. Convert back to Supabase format and save
 
 **Output:**
-- Rankings in `current_rankings` table:
-  - `team_id` (UUID)
-  - `national_power_score` (float)
-  - `national_rank` (integer)
-  - `games_played`, `wins`, `losses`, `draws`
-  - `win_percentage`, `strength_of_schedule`
+- `rankings_full` — the primary output table. Score chain is
+  `powerscore_core` → `powerscore_adj` → `powerscore_ml` → `power_score_true` →
+  `power_score_final`, plus `rank_in_cohort_final` (the published rank).
+  `national_rank` and `state_rank` are always NULL here; the views compute display ranks.
+- `current_rankings` — legacy table, still written for backward compatibility.
+- `ranking_history` — snapshot for 7d/30d rank-change tracking.
 
-**Status:** ✨ Ready - Run after game import completes
+There is no `powerscore` column, and `sos` is on the raw 1500-centred scale — the
+0.45 / 0.60 gates read `sos_norm`. Every PowerScore column is clamped to [0.0, 1.0].
 
 ---
 
@@ -296,7 +309,7 @@ python scripts/weekly/update.py --skip-scrape --skip-rankings --games-file data/
 # Rankings only
 python scripts/weekly/update.py --skip-scrape --skip-import
 
-# v53e only (no ML)
+# Skip the ML layer
 python scripts/weekly/update.py --no-ml
 ```
 
@@ -431,7 +444,14 @@ python scripts/analyze_validation_errors.py data/master/all_games_master.csv --l
 
 ### Ranking Configuration (`config/settings.py`)
 
-**v53e Engine Parameters:**
+**Glicko-2 parameters** live in `src/etl/glicko_config.py` (`GlickoConfig`) — initial mu /
+sigma / volatility, `TAU`, the 365-day window and its 28-day grace, `MAX_GAMES`, goal-diff cap,
+and the balanced-selection knobs. Age anchors, gate thresholds, and league tier multipliers live
+in `src/rankings/constants.py`.
+
+`RANKING_CONFIG` below is the **legacy v53e** parameter set. Each entry names the `V53EConfig`
+field it mirrors. It does not configure the Glicko-2 engine:
+
 ```python
 RANKING_CONFIG = {
     'window_days': 365,              # Rolling window
@@ -442,7 +462,7 @@ RANKING_CONFIG = {
     'def_weight': 0.25,              # Defense weight
     'sos_weight': 0.50,              # Strength of Schedule weight
     'min_games_for_ranking': 5,      # Minimum games required
-    # ... all v53e parameters aligned
+    # ... remaining entries mirror V53EConfig fields
 }
 ```
 
@@ -450,15 +470,19 @@ RANKING_CONFIG = {
 
 ```python
 ML_CONFIG = {
-    'enabled': True,                  # Enable ML layer
-    'alpha': 0.12,                    # Blend weight (5-20% recommended)
-    'recency_decay_lambda': 0.06,    # Recency decay rate
-    'min_team_games_for_residual': 6, # Min games for ML adjustment
-    'residual_clip_goals': 3.5,       # Outlier guardrail
-    'norm_mode': 'percentile',        # Normalization mode
-    # XGBoost/RandomForest parameters
+    'enabled': True,                   # env ML_LAYER_ENABLED; this is the real on/off switch
+    'alpha': 0.08,                     # env ML_ALPHA; tuned via weight simulator
+    'recency_decay_lambda': 0.06,      # env ML_RECENCY_DECAY_LAMBDA
+    'min_team_games_for_residual': 12, # aligned with Glicko's publication floor
+    'residual_clip_goals': 3.5,        # outlier guardrail
+    'norm_mode': 'percentile',         # env ML_NORM_MODE
+    # XGBoost parameters
 }
 ```
+
+`Layer13Config.__post_init__` reads every one of these out of `ML_CONFIG` and overwrites
+whatever the caller passed, so these values win over any `Layer13Config(...)` constructed in
+code.
 
 ### Matching Configuration
 
@@ -513,7 +537,7 @@ DATA_ADAPTER_CONFIG = {
    - Validation error analysis
 
 3. **Rankings Engine** ✅
-   - v53e engine integrated
+   - Glicko-2 engine integrated (v53e retained as legacy)
    - ML layer (Layer 13) integrated
    - Data adapter for Supabase alignment
    - Rankings calculation script
@@ -552,11 +576,11 @@ python scripts/import_games_enhanced.py data/master/all_games_master.csv gotspor
 
 2. **Calculate Rankings**
    ```bash
-   # v53e only
+   # Glicko-2 + ML Layer 13 (the default engine)
    python scripts/calculate_rankings.py
-   
-   # With ML enhancement
-   python scripts/calculate_rankings.py --ml
+
+   # What the weekly workflow runs
+   python scripts/calculate_rankings.py --ml --force-rebuild --engine glicko
    ```
 
 3. **Verify Rankings**
@@ -753,8 +777,8 @@ LIMIT 20;
 
 ### Rankings Engine
 
-- **v53e Engine**: 11-layer deterministic ranking system
-- **ML Layer (Optional)**: XGBoost/RandomForest predictive adjustment
+- **Glicko-2 Engine**: two-pass rating with cross-age anchoring (v53e is legacy)
+- **ML Layer 13**: XGBoost residual adjustment, alpha 0.08
 - **Supabase Integration**: Automatic data fetching and conversion
 - **Age Group Support**: U10-U19 with cross-age normalization
 - **State Rankings**: (Future) State-level ranking derivation
