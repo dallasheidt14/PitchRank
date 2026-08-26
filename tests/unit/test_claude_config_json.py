@@ -55,28 +55,27 @@ def test_supabase_server_stays_read_only_and_project_scoped() -> None:
     assert any(arg.startswith("--project-ref=") for arg in args)
 
 
-# A wildcard on any of these is arbitrary code execution wearing one name.
-UNBOUNDED = (
-    "bash",
-    "sh",
-    "zsh",
-    "eval",
-    "exec",
-    "ssh",
-    "python",
-    "python3",
-    "node",
-    "deno",
-    "bun",
-    "npx",
-    "bunx",
-    "uvx",
-    "npm run",
-    "yarn run",
-    "pnpm run",
-    "make",
-    "gh api",
-)
+# A trailing wildcard lets the caller choose the argument, which is only safe when
+# the command cannot be talked into executing what it is handed. ruff reads Python
+# and never runs it; git and gh act on the repo and the API, and the guard hook
+# covers their destructive verbs. pytest, eslint and prettier all execute what they
+# load -- `python -m pytest <any path>` runs that path -- so those appear in exact
+# form only, where the only code they reach is already tracked in the repo.
+WILDCARD_OK = {
+    "git add",
+    "git commit",
+    "git checkout",
+    "git switch",
+    "git fetch",
+    "git stash",
+    "git worktree",
+    "git push origin",
+    "gh pr create",
+    "gh pr edit",
+    "gh pr comment",
+    "python -m ruff check",
+    "python -m ruff format --diff",
+}
 
 
 def _allowed() -> list[str]:
@@ -85,13 +84,12 @@ def _allowed() -> list[str]:
     return allow
 
 
-def test_allowlist_never_grants_an_interpreter_a_free_hand() -> None:
+def test_a_wildcard_never_reaches_a_command_that_runs_its_argument() -> None:
     for rule in _allowed():
         if not rule.startswith("Bash(") or not rule.endswith("*)"):
             continue
         command = rule[len("Bash(") : -len("*)")].strip()
-        for name in UNBOUNDED:
-            assert command != name, f"{rule} allows anything {name} can run"
+        assert command in WILDCARD_OK, f"{rule} lets the caller pick what {command} runs"
 
 
 def test_allowlist_stops_short_of_landing_a_change() -> None:

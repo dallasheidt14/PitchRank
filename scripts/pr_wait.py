@@ -68,6 +68,17 @@ def gh_json(*args: str):
     return json.loads(gh(*args) or "null")
 
 
+def gh_pages(endpoint: str) -> list:
+    """Every page of a list endpoint, not the first 30.
+
+    A busy PR pushes Codex's review onto a later page, and an unpaginated read
+    would then report no review at all and merge. `--slurp` wraps the pages in an
+    outer list; it cannot be combined with `--jq`, hence the flatten here.
+    """
+    pages = json.loads(gh("api", "--paginate", "--slurp", endpoint))
+    return [item for page in pages for item in page]
+
+
 def resolve_pr(explicit: int | None) -> dict:
     fields = "number,title,url,baseRefName,createdAt,isDraft,state,statusCheckRollup"
     args = ["pr", "view", "--json", fields]
@@ -116,12 +127,11 @@ def codex_findings(number: int) -> list[str] | None:
     `gh pr checks` reports run status only. The findings live on the review and
     its inline comments, which is the half that has been missed before.
     """
-    reviews = gh_json("api", f"repos/{{owner}}/{{repo}}/pulls/{number}/reviews")
+    reviews = gh_pages(f"repos/{{owner}}/{{repo}}/pulls/{number}/reviews")
     if not any(r["user"]["login"] == CODEX_LOGIN for r in reviews):
         return None
     found = [r["body"].strip() for r in reviews if r["user"]["login"] == CODEX_LOGIN and r["body"].strip()]
-    comments = gh_json("api", f"repos/{{owner}}/{{repo}}/pulls/{number}/comments")
-    for c in comments:
+    for c in gh_pages(f"repos/{{owner}}/{{repo}}/pulls/{number}/comments"):
         if c["user"]["login"] == CODEX_LOGIN:
             where = f"{c['path']}:{c.get('line') or c.get('original_line')}"
             found.append(f"{where}\n{c['body'].strip()}")
