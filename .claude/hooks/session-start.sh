@@ -24,22 +24,35 @@ if [ -n "$tmp" ]; then
   # only falls back on null.
   gh run list --workflow=ci.yml --branch main --limit 1 --json conclusion,status \
     -q '.[0] | if (.conclusion // "") == "" then .status else .conclusion end' >"$tmp/ci" 2>/dev/null &
-  gh run list --workflow=calculate-rankings.yml --limit 1 --json conclusion,status,createdAt \
+  # --branch main because the workflow also takes a manual dispatch, and an
+  # experiment run from a feature branch is not production health either way it
+  # lands: green it hides a stalled weekly run, red it invents an outage.
+  gh run list --workflow=calculate-rankings.yml --branch main --limit 1 \
+    --json conclusion,status,createdAt \
     -q '.[0] | "\(.createdAt[0:10]) \(if (.conclusion // "") == "" then .status else .conclusion end)"' \
     >"$tmp/rank" 2>/dev/null &
-  # Filtered to failures on purpose. A plain recent-runs window is dominated by
-  # the two every-15-minute schedules, which spend 60 entries in about seven
-  # hours and push a weekly job's failure out of sight; 30 scheduled *failures*
-  # reaches back months instead.
-  gh run list --event schedule --status failure --created ">=$(date -d '7 days ago' +%F)" \
-    --limit 30 --json name -q '[.[].name] | unique | .[]' >"$tmp/sched" 2>/dev/null &
+  # One query per scheduled workflow rather than a window over recent runs. Any
+  # shared window is measured in runs, so a single 15-minute job failing in a
+  # loop fills it and hides everything else. Reading the workflow files means a
+  # new schedule is covered without editing this.
+  mkdir -p "$tmp/sched"
+  for wf in $(grep -lE '^[[:space:]]*schedule:' "$root"/.github/workflows/*.yml 2>/dev/null); do
+    name=${wf##*/}
+    gh run list --workflow "$name" --event schedule --limit 1 --json conclusion,name \
+      -q '.[0] | select(.conclusion == "failure") | .name' >"$tmp/sched/$name" 2>/dev/null &
+  done
   wait
 fi
 read_tmp() { [ -n "$tmp" ] && cat "$tmp/$1" 2>/dev/null; }
 prs=$(read_tmp prs)
 ci=$(read_tmp ci)
 rank=$(read_tmp rank)
-sched=$(read_tmp sched)
+sched=""
+for f in "$tmp"/sched/*; do
+  [ -s "$f" ] || continue
+  sched="$sched, $(cat "$f")"
+done
+sched=${sched#, }
 [ -n "$tmp" ] && rm -rf "$tmp"
 
 branch=$(git branch --show-current)
@@ -85,17 +98,6 @@ if [ -n "$rank" ]; then
     *) rank_note="last rankings run $rank_day $rank_state" ;;
   esac
 fi
-
-# A workflow that failed and then recovered is not worth a line, so its latest
-# scheduled run decides. Costs nothing on the usual day, when nothing failed.
-still_failing=""
-while IFS= read -r wf; do
-  [ -n "$wf" ] || continue
-  latest=$(gh run list --workflow "$wf" --event schedule --limit 1 --json conclusion \
-    -q '.[0].conclusion' 2>/dev/null)
-  [ "$latest" = failure ] && still_failing="$still_failing, $wf"
-done <<<"$sched"
-sched=${still_failing#, }
 
 echo "## Repo state $(date +%F)"
 echo "- checkout $root on $branch: behind origin/main ${behind:-?}, ahead ${ahead:-?}$ff; dirty tracked files $dirty$sync_note"
