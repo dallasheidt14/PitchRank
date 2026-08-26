@@ -127,6 +127,10 @@ ALLOWED_COMMANDS = [
     "bash scripts/run-enhanced-validation.sh",
     'powershell -NoProfile -Command "Get-ChildItem"',
     'powershell -Command "git status"',
+    # A bare -c is a count flag far more often than a command string.
+    'rg -c "git add -A" CLAUDE.md',
+    'grep -c "git push --force" CLAUDE.md',
+    'sort -c "git add -A"',
 ]
 
 BLOCKED_COMMANDS = [
@@ -180,6 +184,9 @@ BLOCKED_COMMANDS = [
     'bash -lc "git reset --hard HEAD~1"',
     'sh -c "git add -A"',
     'cmd /c "git reset --hard HEAD~1"',
+    # An escaped quote does not end the argument, so the force push is still in it.
+    'bash -c "git commit -m \\"x\\"; git push --force origin x"',
+    'powershell -Command "git commit -m \\"msg\\"; git add -A"',
 ]
 
 
@@ -395,6 +402,9 @@ def test_git_guard_holds_a_ranking_push_until_it_is_reviewed(tmp_path: Path) -> 
     _git(root, "commit", "-qm", "tune the engine")
     assert _bash("git push origin feat/x", root, cwd=root).returncode == 2
     assert _bash("RANKING_REVIEWED=1 git push origin feat/x", root, cwd=root).returncode == 0
+    # The gate has to read the repository git will actually run in, not the payload cwd.
+    assert _bash(f'git -C "{root.as_posix()}" push origin feat/x', root, cwd=tmp_path).returncode == 2
+    assert _bash(f'cd "{root.as_posix()}" && git push origin feat/x', root, cwd=tmp_path).returncode == 2
 
 
 def test_git_guard_leaves_a_non_ranking_push_alone(tmp_path: Path) -> None:
