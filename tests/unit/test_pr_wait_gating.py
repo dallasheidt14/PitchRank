@@ -65,8 +65,12 @@ def test_a_gate_naming_no_checks_stops_the_run(monkeypatch, capsys) -> None:
     assert "refusing to merge" in capsys.readouterr().out
 
 
-def test_a_still_running_check_reaches_the_auto_fallback(monkeypatch, capsys) -> None:
-    """Blocking on the checks as well as Codex left --auto unreachable."""
+def test_a_still_running_check_stops_short_of_merging(monkeypatch, capsys) -> None:
+    """The wait ends on Codex, so a gate still moving lands here rather than merging.
+
+    This used to arm `gh pr merge --auto`, which stays armed across a later push
+    and would merge a commit Codex never saw.
+    """
     ran = []
     monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1"])
     monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: REQUIRED)
@@ -85,9 +89,9 @@ def test_a_still_running_check_reaches_the_auto_fallback(monkeypatch, capsys) ->
             "statusCheckRollup": [_run("Python Tests", status="IN_PROGRESS", conclusion=None), _run("Frontend Lint")],
         },
     )
-    assert main() == 0
-    assert ran == [("pr", "merge", "1", "--squash", "--auto")]
-    assert "armed auto-merge" in capsys.readouterr().out
+    assert main() == 1
+    assert ran == []
+    assert "Still running: Python Tests" in capsys.readouterr().out
 
 
 def test_legacy_status_contexts_are_read_too() -> None:

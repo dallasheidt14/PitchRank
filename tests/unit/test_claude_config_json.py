@@ -76,8 +76,11 @@ WILDCARD_OK = {
     "git commit",
     "git checkout",
     "git switch",
-    "git fetch",
-    "git stash",
+    "git stash push",
+    "git stash pop",
+    "git stash show",
+    # Not bare `git stash`: `clear` and `drop` delete saved WIP with no undo,
+    # and the guard hook does not look at stash at all.
     "git worktree",
     "git push origin",
     # Not `git fetch`: `--upload-pack=` names a program git then runs, and against

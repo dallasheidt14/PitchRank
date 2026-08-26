@@ -19,9 +19,11 @@ auto-merge up front would instead merge at the 3-minute mark and outrun every
 Codex review that ever arrives -- #1019 shipped a false statement exactly that
 way, by reading `gh pr checks` and never reading the review comments.
 
-`--auto` is still the fallback for the case the wait cannot cover: the review
-window closes while checks are somehow still running (the slowest observed gate
-was 12 minutes). GitHub finishes the merge on its own once they pass.
+`gh pr merge --auto` is deliberately not used, though the plan for this called
+for it. Arming it hands the decision to GitHub, which knows the required checks
+and nothing about Codex, so a commit pushed after arming merges unreviewed. This
+merges exactly the commit it inspected and asks you back if the gate is still
+moving, which the numbers above make rare.
 
 Which checks count is read from the base branch's ruleset rather than guessed, so
 the always-red advisory `claude-review` job never blocks and never needs naming
@@ -30,11 +32,11 @@ here.
 Usage:
     python scripts/pr_wait.py                  # the PR for the current branch
     python scripts/pr_wait.py --pr 1028
-    python scripts/pr_wait.py --dry-run        # report; never merge or arm
+    python scripts/pr_wait.py --dry-run        # report; never merge
     python scripts/pr_wait.py --no-merge       # wait and report only
 
-Exit status: 0 merged or armed, 1 a required check failed or the wait timed out,
-2 Codex left findings to read.
+Exit status: 0 merged, 1 a required check failed or is still running or the wait
+timed out, 2 Codex left findings to read.
 """
 
 from __future__ import annotations
@@ -159,7 +161,7 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--pr", type=int, help="PR number (default: the current branch's PR)")
-    parser.add_argument("--dry-run", action="store_true", help="Report without merging or arming")
+    parser.add_argument("--dry-run", action="store_true", help="Report without merging")
     parser.add_argument("--no-merge", action="store_true", help="Wait and report only")
     parser.add_argument(
         "--timeout", type=int, default=TIMEOUT_MINUTES, help=f"Give up after N minutes (default {TIMEOUT_MINUTES})"
@@ -219,14 +221,16 @@ def main() -> int:
         print("--no-merge: stopping here.")
         return 0
 
-    # Checks that are still running only reach here once the review window closed,
-    # which is the one case auto-merge is for.
-    merge = ["pr", "merge", str(number), MERGE_METHOD] + (["--auto"] if pending else [])
+    if pending:
+        print(f"\nStill running: {', '.join(pending)}. Re-run once they finish.")
+        return 1
+
+    merge = ["pr", "merge", str(number), MERGE_METHOD]
     if args.dry_run:
         print(f"[dry-run] would run: gh {' '.join(merge)}")
         return 0
     gh(*merge)
-    print("armed auto-merge" if pending else "merged")
+    print("merged")
     return 0
 
 
