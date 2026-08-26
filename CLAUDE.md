@@ -28,6 +28,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Keep the working tree clean — stage selectively (`git add <paths>`), never `git add -A`.
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
 - `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
+- Stacking a PR on another open PR costs you one predictable step: `main` takes squash merges, so merging the base rewrites its commits and the stacked branch then reports a conflict against `main` even though the content is identical. Resolve with `git merge origin/main` — a rebase would need the force-push the guard blocks — and expect the conflicts to be exactly the lines both branches edited. Prefer branching from `main` unless the second change genuinely cannot be reviewed without the first.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.

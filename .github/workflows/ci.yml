@@ -3,8 +3,10 @@ name: CI Quality Gate
 on:
   push:
     branches: [main]
+  # No `branches:` filter on purpose. Filtering to main skips any PR whose base is
+  # another branch, so a stacked PR merged silently ungated — #1027 reached
+  # "ready to merge" having never run this workflow.
   pull_request:
-    branches: [main]
 
 jobs:
   python-lint:
