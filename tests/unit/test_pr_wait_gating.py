@@ -12,7 +12,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.pr_wait import check_states
+from scripts.pr_wait import check_states, main
 
 REQUIRED = {"Python Tests", "Frontend Lint"}
 
@@ -51,6 +51,18 @@ def test_advisory_checks_are_ignored_entirely() -> None:
     # claude-review is red on every PR and is not in the ruleset, so it never counts.
     rollup = [_run("Python Tests"), _run("Frontend Lint"), _run("claude-review", conclusion="FAILURE")]
     assert check_states(rollup, REQUIRED) == ([], [])
+
+
+def test_a_gate_naming_no_checks_stops_the_run(monkeypatch, capsys) -> None:
+    """An empty required set reads as "nothing outstanding" to every check below."""
+    monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1"])
+    monkeypatch.setattr(
+        "scripts.pr_wait.resolve_pr",
+        lambda _: {"number": 1, "title": "t", "url": "u", "baseRefName": "main", "state": "OPEN"},
+    )
+    monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: set())
+    assert main() == 1
+    assert "refusing to merge" in capsys.readouterr().out
 
 
 def test_legacy_status_contexts_are_read_too() -> None:

@@ -175,6 +175,11 @@ def main() -> int:
         return 0
 
     required = required_contexts(pr["baseRefName"])
+    if not required:
+        # An empty set reads as "nothing outstanding" everywhere downstream, so a
+        # ruleset that stops naming checks would turn this into merge-on-sight.
+        print("  no ruleset names a required check; refusing to merge on an unknown gate")
+        return 1
     print(f"  {len(required)} required check(s); Codex window closes {CODEX_WINDOW_MINUTES} min after open")
 
     deadline = time.monotonic() + args.timeout * 60
