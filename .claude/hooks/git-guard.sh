@@ -24,10 +24,23 @@ stripped=$(printf '%s\n' "$cmd" | awk '
     # Inside quotes, separators and spaces become a control byte: prose cannot
     # look like a command, while `git add "."` and `git -C "a dir"` still parse.
     out = ""
-    while (match($0, /("[^"]*"|'"'"'[^'"'"']*'"'"')/)) {
+    # `\"` inside a double-quoted argument does not end it. Stopping there split
+    # `bash -c "git commit -m \"x\"; git push --force"` so the force push landed
+    # in a second segment and was neutralised as prose.
+    while (match($0, /("([^"\\]|\\.)*"|'"'"'[^'"'"']*'"'"')/)) {
+      before = substr($0, 1, RSTART - 1)
       seg = substr($0, RSTART + 1, RLENGTH - 2)
-      gsub(/[ \t;&|()`]/, "\001", seg)
-      out = out substr($0, 1, RSTART - 1) seg
+      # ...except after a shell wrapper flag, where the quoted argument is itself
+      # a command. The flag becomes a `;` so the verb inside lands at a command
+      # position and every rule below reads it. Without this,
+      # `powershell -Command "git push --force"` passed straight through.
+      # The wrapper name has to be there: on a bare `-c`, `rg -c "git add -A"`
+      # would read its own search pattern as a command and refuse it.
+      if (before ~ /(^|[ \t;&|(`])(powershell|pwsh|bash|sh|zsh|cmd)(\.exe)?([ \t]+(-[A-Za-z]+|--[A-Za-z][A-Za-z-]*(=[^ \t]*)?))*[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/)
+        sub(/[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/, " ; ", before)
+      else
+        gsub(/[ \t;&|()`]/, "\001", seg)
+      out = out before seg
       $0 = substr($0, RSTART + RLENGTH)
     }
     $0 = out $0
@@ -57,12 +70,35 @@ branch_of() { [ -d "$1" ] && git -C "$1" branch --show-current 2>/dev/null; }
 if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
   [ -d "$cwd" ] || cwd=$CLAUDE_PROJECT_DIR
+  # Where git will actually run: `git -C <dir>` wins, else a `cd` earlier in the
+  # command, else the payload's cwd. Every check below that reads repository state
+  # answers about the wrong repository otherwise.
+  cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
+  target=$cwd
+  # The -C has to belong to the guarded verb: in `git -C /elsewhere status && git
+  # push`, the first -C names a repository this push never touches.
+  target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end}"
+  if [[ $stripped =~ $target_re ]]; then
+    target=${BASH_REMATCH[1]//$'\001'/ }
+  elif [[ $stripped =~ $cd_re ]]; then
+    target=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]//$'\001'/ }
+    case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
+  fi
   branch=$(branch_of "$cwd")
   if [[ $stripped =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end} ]]; then
     branch=$(branch_of "${BASH_REMATCH[1]//$'\001'/ }")
   fi
   if [ "$branch" = main ]; then
     deny "BLOCKED: branch is main. Run 'git checkout -b <feature> origin/main' first (CLAUDE.md: never commit to main)."
+  fi
+  # Amending is fine until the commit is on a remote. After that the only way to
+  # land it is a force push, which the guard below blocks, so the branch strands
+  # with no way back.
+  amend_re="${git_cmd}commit[[:space:]][^;&|()]*--amend${end}"
+  if [[ $stripped =~ $amend_re ]]; then
+    if [ -d "$target" ] && [ -n "$(git -C "$target" branch -r --contains HEAD 2>/dev/null)" ]; then
+      deny "BLOCKED: HEAD is already pushed, so amending it would need the force push this guard refuses. Add a new commit instead (.claude/rules/git-workflow.md)."
+    fi
   fi
   # A `cd` earlier in the command moves where git runs, so check that checkout too.
   cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"

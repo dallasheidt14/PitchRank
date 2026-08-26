@@ -88,6 +88,14 @@ def _init_repo(root: Path) -> None:
     _git(root, "checkout", "-qb", "feat/x")
 
 
+def _fresh_repo(parent: Path, name: str) -> Path:
+    """A repo of its own, for the checks that depend on commit and remote state."""
+    root = parent / name
+    root.mkdir()
+    _init_repo(root)
+    return root
+
+
 @pytest.fixture(scope="module")
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("hookrepo")
@@ -115,6 +123,14 @@ ALLOWED_COMMANDS = [
     "ruff format --check .",
     "python -m ruff check --fix src/x.py",
     "python -m pytest tests/unit -q",
+    'python -c "print(1)"',
+    "bash scripts/run-enhanced-validation.sh",
+    'powershell -NoProfile -Command "Get-ChildItem"',
+    'powershell -Command "git status"',
+    # A bare -c is a count flag far more often than a command string.
+    'rg -c "git add -A" CLAUDE.md',
+    'grep -c "git push --force" CLAUDE.md',
+    'sort -c "git add -A"',
 ]
 
 BLOCKED_COMMANDS = [
@@ -158,6 +174,22 @@ BLOCKED_COMMANDS = [
     "uv run ruff format src/x.py",
     "git diff --check && python -m ruff format src/x.py",
     "python -m ruff format --diff a.py && python -m ruff format a.py",
+    # A shell wrapper's quoted argument is a command, not prose. Every one of
+    # these passed straight through before the flag became a separator.
+    'powershell -Command "git push --force origin main"',
+    'powershell -NoProfile -Command "git push --force origin x"',
+    'pwsh -Command "git push -f origin x"',
+    'bash -c "git push --force origin x"',
+    "bash -c 'git add -A'",
+    'bash -lc "git reset --hard HEAD~1"',
+    'sh -c "git add -A"',
+    'cmd /c "git reset --hard HEAD~1"',
+    # An escaped quote does not end the argument, so the force push is still in it.
+    'bash -c "git commit -m \\"x\\"; git push --force origin x"',
+    'powershell -Command "git commit -m \\"msg\\"; git add -A"',
+    # A wrapper's own long options come before its command flag.
+    'bash --noprofile -c "git push --force origin x"',
+    'bash --norc --noprofile -c "git add -A"',
 ]
 
 
@@ -349,3 +381,42 @@ def test_replace_all_counts_before_ruff_rewrites(repo: Path) -> None:
     assert "2 occurrences" in note
     assert "rewrote" in note
     assert "no --dry-run" in note
+
+
+def test_git_guard_allows_amend_until_the_commit_is_pushed(tmp_path: Path) -> None:
+    """Amending a pushed commit strands the branch: only a force push lands it."""
+    root = _fresh_repo(tmp_path, "amend")
+    # HEAD is still origin/main's commit here, so an amend would rewrite main's tip.
+    assert _bash("git commit --amend --no-edit", root, cwd=root).returncode == 2
+    (root / "scripts" / "later.py").write_text("x = 1\n")
+    _git(root, "add", "scripts/later.py")
+    _git(root, "commit", "-qm", "local only")
+    assert _bash("git commit --amend --no-edit", root, cwd=root).returncode == 0
+    assert _bash('git commit --amend -m "reword"', root, cwd=root).returncode == 0
+    _git(root, "update-ref", "refs/remotes/origin/feat/x", "HEAD")
+    assert _bash("git commit --amend --no-edit", root, cwd=root).returncode == 2
+
+
+def test_git_guard_amend_reads_the_repo_git_will_run_in(tmp_path: Path) -> None:
+    """`git -C <dir>` and a leading `cd <dir>` both move where the amend lands."""
+    pushed = _fresh_repo(tmp_path, "pushed")
+    _git(pushed, "update-ref", "refs/remotes/origin/feat/x", "HEAD")
+    elsewhere = _fresh_repo(tmp_path, "elsewhere")
+    (elsewhere / "scripts" / "later.py").write_text("x = 1\n")
+    _git(elsewhere, "add", "scripts/later.py")
+    _git(elsewhere, "commit", "-qm", "local only")
+
+    assert _bash(f'git -C "{pushed.as_posix()}" commit --amend --no-edit', pushed, cwd=elsewhere).returncode == 2
+    assert _bash(f'cd "{pushed.as_posix()}" && git commit --amend --no-edit', pushed, cwd=elsewhere).returncode == 2
+    # An earlier -C names a repo the amend never touches, so it must not be read.
+    cmd = f'git -C "{elsewhere.as_posix()}" status && git commit --amend --no-edit'
+    assert _bash(cmd, pushed, cwd=pushed).returncode == 2
+
+
+def test_dry_run_check_warns_when_a_tracked_file_gains_a_write(tmp_path: Path) -> None:
+    """The old check exited on any file already on main, so an added write never warned."""
+    root = _fresh_repo(tmp_path, "gains")
+    legacy = root / "scripts" / "legacy_writer.py"
+    assert "no --dry-run" not in (_post_edit(legacy, root) or "")
+    legacy.write_text('sb.table("teams").update({}).execute()\nsb.table("games").insert({}).execute()\n')
+    assert "no --dry-run" in (_post_edit(legacy, root) or "")
