@@ -21,7 +21,7 @@ What was unique to that disk was 12 modified/deleted tracked files and 8 untrack
 | File | What it is |
 |---|---|
 | `tournament-beta-src-2026-08-26.patch` | The uncommitted `src/` changes — 5 files, net −90 lines. Apply with `git apply` from the repo root against `shell/gotsport-tier-section-parser-02`. |
-| `tournament-beta-run_intake.ps1` | The only hand-written untracked file. |
+| `tournament-beta-run_intake.ps1` | The only hand-written untracked file. **It will not run from `.turbo/reports/`** — it resolves every path from `$PSScriptRoot`, which was the repository root in the worktree. Copy it to the repository root first. A header comment on the file itself says so; the script body is otherwise unchanged. |
 
 The `src/` patch reads as a **half-finished backout of a `cohort_champions` feature**:
 `schema.py` drops the field from `EventReportCard` and both its serializers, and
