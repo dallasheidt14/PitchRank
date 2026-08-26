@@ -231,7 +231,11 @@ def main() -> int:
         print(f"\nStill running: {', '.join(pending)}. Re-run once they finish.")
         return 1
 
-    merge = ["pr", "merge", str(number), MERGE_METHOD]
+    # Pin the merge to the commit this run actually inspected. Without it, a push landing
+    # between the last poll and this call would be merged on the strength of a review of
+    # an earlier commit -- the same hole that ruled out `gh pr merge --auto`. GitHub
+    # rejects the merge rather than taking the newer head.
+    merge = ["pr", "merge", str(number), MERGE_METHOD, "--match-head-commit", current["headRefOid"]]
     if args.dry_run:
         print(f"[dry-run] would run: gh {' '.join(merge)}")
         return 0

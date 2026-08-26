@@ -12,7 +12,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.pr_wait import check_states, main
+from scripts.pr_wait import MERGE_METHOD, check_states, main
 
 REQUIRED = {"Python Tests", "Frontend Lint"}
 
@@ -120,3 +120,32 @@ def test_legacy_status_contexts_are_read_too() -> None:
     ]
     pending, failing = check_states(rollup, REQUIRED)
     assert pending == ["Frontend Lint"] and failing == ["Python Tests"]
+
+
+def test_the_merge_is_pinned_to_the_commit_that_was_inspected(monkeypatch) -> None:
+    """A green run merges the polled head by SHA, not whatever the head is by then.
+
+    Codex reviews one commit. Without `--match-head-commit`, a push landing between
+    the last poll and the merge call would be merged on the strength of a review of
+    the commit before it -- the same hole that ruled out `gh pr merge --auto`.
+    """
+    ran = []
+    monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1"])
+    monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: REQUIRED)
+    monkeypatch.setattr("scripts.pr_wait.codex_findings", lambda *_: [])
+    monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: ran.append(a) or "")
+    monkeypatch.setattr(
+        "scripts.pr_wait.resolve_pr",
+        lambda _: {
+            "number": 1,
+            "title": "t",
+            "url": "u",
+            "baseRefName": "main",
+            "state": "OPEN",
+            "createdAt": "2020-01-01T00:00:00Z",
+            "headRefOid": "deadbeef",
+            "statusCheckRollup": [_run(name) for name in REQUIRED],
+        },
+    )
+    assert main() == 0
+    assert ran == [("pr", "merge", "1", MERGE_METHOD, "--match-head-commit", "deadbeef")]
