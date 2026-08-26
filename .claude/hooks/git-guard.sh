@@ -36,7 +36,7 @@ stripped=$(printf '%s\n' "$cmd" | awk '
       # `powershell -Command "git push --force"` passed straight through.
       # The wrapper name has to be there: on a bare `-c`, `rg -c "git add -A"`
       # would read its own search pattern as a command and refuse it.
-      if (before ~ /(^|[ \t;&|(`])(powershell|pwsh|bash|sh|zsh|cmd)(\.exe)?([ \t]+-[A-Za-z]+)*[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/)
+      if (before ~ /(^|[ \t;&|(`])(powershell|pwsh|bash|sh|zsh|cmd)(\.exe)?([ \t]+(-[A-Za-z]+|--[A-Za-z][A-Za-z-]*(=[^ \t]*)?))*[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/)
         sub(/[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/, " ; ", before)
       else
         gsub(/[ \t;&|()`]/, "\001", seg)
@@ -75,7 +75,10 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   # answers about the wrong repository otherwise.
   cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
   target=$cwd
-  if [[ $stripped =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]] ]]; then
+  # The -C has to belong to the guarded verb: in `git -C /elsewhere status && git
+  # push`, the first -C names a repository this push never touches.
+  target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end}"
+  if [[ $stripped =~ $target_re ]]; then
     target=${BASH_REMATCH[1]//$'\001'/ }
   elif [[ $stripped =~ $cd_re ]]; then
     target=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]//$'\001'/ }
@@ -110,8 +113,18 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   # reaches the weekly ranking run, and had no enforcement. A bad run costs
   # 2.5-3.7 hours, which is why this is a stop rather than a note.
   ranking_re='^(src/rankings/|src/etl/glicko_|src/etl/v53e\.py|src/utils/merge_resolver\.py|scripts/calculate_rankings\.py|\.github/workflows/calculate-rankings\.yml)'
-  if [[ $stripped =~ ${git_cmd}push${end} ]] && [[ $cmd != *RANKING_REVIEWED=1* ]] && [ -d "$target" ]; then
-    if git -C "$target" diff --name-only origin/main...HEAD 2>/dev/null | grep -qE "$ranking_re"; then
+  reviewed_re="${at_cmd}RANKING_REVIEWED=1[[:space:]]"
+  if [[ $stripped =~ ${git_cmd}push${end} ]] && ! [[ $stripped =~ $reviewed_re ]] && [ -d "$target" ]; then
+    # `git push origin feat/x` sends feat/x, which is not necessarily HEAD. The
+    # source half of a `src:dst` refspec is what travels.
+    pushed=HEAD
+    push_ref_re="${git_cmd}push([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*[[:space:]]+\+?([^[:space:];&|()]+)"
+    if [[ $stripped =~ $push_ref_re ]]; then
+      pushed=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+      pushed=${pushed%%:*}
+    fi
+    git -C "$target" rev-parse --verify -q "$pushed^{commit}" >/dev/null 2>&1 || pushed=HEAD
+    if git -C "$target" diff --name-only "origin/main...$pushed" 2>/dev/null | grep -qE "$ranking_re"; then
       deny "BLOCKED: this push changes the ranking engine, which .claude/rules/git-workflow.md says to review first. Run the ranking-change-reviewer agent, then re-run as 'RANKING_REVIEWED=1 git push ...'."
     fi
   fi

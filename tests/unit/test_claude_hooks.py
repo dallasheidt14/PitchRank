@@ -187,6 +187,9 @@ BLOCKED_COMMANDS = [
     # An escaped quote does not end the argument, so the force push is still in it.
     'bash -c "git commit -m \\"x\\"; git push --force origin x"',
     'powershell -Command "git commit -m \\"msg\\"; git add -A"',
+    # A wrapper's own long options come before its command flag.
+    'bash --noprofile -c "git push --force origin x"',
+    'bash --norc --noprofile -c "git add -A"',
 ]
 
 
@@ -405,6 +408,26 @@ def test_git_guard_holds_a_ranking_push_until_it_is_reviewed(tmp_path: Path) -> 
     # The gate has to read the repository git will actually run in, not the payload cwd.
     assert _bash(f'git -C "{root.as_posix()}" push origin feat/x', root, cwd=tmp_path).returncode == 2
     assert _bash(f'cd "{root.as_posix()}" && git push origin feat/x', root, cwd=tmp_path).returncode == 2
+
+
+def test_git_guard_ranking_gate_reads_the_right_repo_and_ref(tmp_path: Path) -> None:
+    ranking = _fresh_repo(tmp_path, "rank2")
+    (ranking / "src" / "rankings").mkdir(parents=True)
+    (ranking / "src" / "rankings" / "calculator.py").write_text("x = 1\n")
+    _git(ranking, "add", "src")
+    _git(ranking, "commit", "-qm", "tune")
+    plain = _fresh_repo(tmp_path, "plain2")
+    # An earlier -C names a repo this push never touches; the gate must ignore it.
+    cmd = f'git -C "{plain.as_posix()}" status && git push origin feat/x'
+    assert _bash(cmd, ranking, cwd=ranking).returncode == 2
+    # The marker only counts as an assignment on the push, not as loose text.
+    assert _bash("echo RANKING_REVIEWED=1 && git push origin feat/x", ranking, cwd=ranking).returncode == 2
+    # feat/x carries the ranking change even when HEAD does not. Checked out from
+    # main rather than on it, or the never-commit-to-main rule answers first and
+    # this passes without the refspec ever being read.
+    _git(ranking, "checkout", "-qb", "docs/only", "main")
+    assert _bash("git push origin docs/only", ranking, cwd=ranking).returncode == 0
+    assert _bash("git push origin feat/x", ranking, cwd=ranking).returncode == 2
 
 
 def test_git_guard_leaves_a_non_ranking_push_alone(tmp_path: Path) -> None:
