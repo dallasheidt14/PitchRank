@@ -39,27 +39,32 @@ tree at `57c961e54`:
 | Piece | Review said | Actually |
 |---|---|---|
 | `PROJECT_FLOW.md` | "2024, describes v53e" | Last touched **2026-08-23**, but by #1008 (untracking CSVs), a mechanical edit. The **substance holds**: line 7 says "The system uses a sophisticated v53e rankings engine", and lines 189-299 document v53e as the engine. Production runs Glicko-2; v53e is reachable only via `--engine v53e`. So it is a live contradiction with CLAUDE.md, just not a 2024 one. |
-| orphaned `docs/` files | "87 orphaned" | **123** `docs/*.md` total. **112** unreferenced outside `docs/`; **78** unreferenced by anything at all. Neither is 87. |
+| orphaned `docs/` files | "87 orphaned" | **123** `docs/*.md` total. **112** unreferenced outside `docs/`; **87** unreferenced by anything at all. The review's 87 was right. |
 | `claude-review` workflow | always red | Confirmed. Two files: `.github/workflows/claude-code-review.yml` and `claude.yml`. Tracked as **IMP-104**. |
 | stale worktree | "has uncommitted work" | Confirmed and worse than it sounds: `C:/PitchRank_tournament_beta` on `shell/gotsport-tier-section-parser-02`, **20 changed files**, including `src/tournaments/reports/compute.py` — source, not just reports. |
 | `origin/claude/*` branches | "39, 4-9 months old" | Confirmed. 39 branches, **2025-11-15 to 2026-04-13**. |
 
-**Where the 87 probably came from.** `git log -- PROJECT_FLOW.md` contains
-`fix: restore all 87 files accidentally deleted by Cursor in 2679b46` (2026-02-07). The review
-most likely picked that number up from there. Re-measure before quoting it.
+**An earlier draft of this file said 78, and that was wrong.** Re-measured 2026-08-26 by two
+independent methods (basename match, and basename-or-path match, each excluding the file's own
+self-reference); both return 87. A third definition — unreachable from outside `docs/` by
+following references transitively — gives 111, because only 11 docs are referenced from code,
+`CLAUDE.md`, or workflows, and those 11 reach just 1 more between them.
 
-Re-measure the orphan count yourself before deleting anything — the two counts above differ by 34
-depending on whether a doc referenced only by another doc counts as orphaned, and that is a
-judgment call nobody has made yet.
+The coincidence worth knowing: `git log -- PROJECT_FLOW.md` contains
+`fix: restore all 87 files accidentally deleted by Cursor in 2679b46` (2026-02-07). That 87 is
+unrelated to this 87. Two different sets of files that happen to be the same size.
 
 ## Traps
 
 - **Doc fixes need verifying as hard as code fixes.** Four separate review passes in this arc each
   caught a false statement introduced *by the fix*. Item 8 is almost entirely deletion, which is
   the easiest to review and the easiest to get wrong.
-- **The worktree is not safe to `git worktree remove`.** 20 files of uncommitted work, some of it
-  source. Decide what happens to that work *first*, with the user. Its branch
-  `shell/gotsport-tier-section-parser-02` also exists locally.
+- **The worktree's *commits* are safe; only its loose edits are not.**
+  `shell/gotsport-tier-section-parser-02` is on `origin` at the same commit the worktree has
+  checked out (`0818f99d6`), so its 33 unmerged commits cannot be lost by removing the worktree.
+  What is unique to that disk is 12 modified/deleted tracked files and 8 untracked paths. The
+  `src/tournaments/reports/` edits are net -90 lines and read as a half-finished backout of a
+  `cohort_champions` feature, not as finished work.
 - **Check the PR's review comments, not just its checks.** `gh pr checks` reports run status only;
   Codex's findings live on the review. `python scripts/pr_wait.py` now does both. It exits 2 on
   findings and refuses to merge.
@@ -92,11 +97,19 @@ Two scheduled workflows are failing and are **not** part of item 8:
 
 The user said to leave `weekly-prospective-refresh` for now.
 
-## Next concrete action
+## The two gating decisions, now settled
 
-Start item 8 by settling the two questions that gate the rest, because both are the user's call
-and neither is reversible: **what happens to the 20 files of uncommitted work in
-`C:/PitchRank_tournament_beta`**, and **which definition of "orphaned" governs the `docs/` sweep**
-(112 unreferenced outside `docs/`, or 78 unreferenced anywhere). Then do the safe, mechanical
-parts first — `PROJECT_FLOW.md` and the 39 `origin/claude/*` branches — and land the `docs/`
-deletion separately so its diff can be read on its own.
+Both were the user's call and both were made on 2026-08-26:
+
+- **The worktree's loose edits are archived, not committed and not discarded.** Capture the diff
+  and the untracked files to a patch/archive, then `git worktree remove`. Nothing half-finished
+  lands on the branch, and `origin` keeps the 33 commits either way.
+- **The `docs/` sweep deletes the 87 that nothing in the repo references**, not the 111 that are
+  merely unreachable from outside `docs/`. A doc kept alive by a link from another doc survives
+  this pass.
+
+## Order of work
+
+`PROJECT_FLOW.md` and the 39 `origin/claude/*` branches first, then the worktree, then the
+`docs/` deletion as its own PR so its diff can be read on its own. IMP-104 (`claude-review`)
+is the remaining piece after that.
