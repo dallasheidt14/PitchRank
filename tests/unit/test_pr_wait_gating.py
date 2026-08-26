@@ -36,6 +36,24 @@ def test_a_check_that_has_not_reported_at_all_is_pending() -> None:
     assert pending == ["Python Tests"] and failing == []
 
 
+def test_a_finished_check_counts_even_when_status_lags() -> None:
+    """GitHub returned IN_PROGRESS alongside conclusion SUCCESS and a completedAt.
+
+    Reading status there stranded the poll on a check that had already finished.
+    """
+    rollup = [
+        {"__typename": "CheckRun", "name": "Python Tests", "status": "IN_PROGRESS", "conclusion": "SUCCESS"},
+        _run("Frontend Lint"),
+    ]
+    assert check_states(rollup, REQUIRED) == ([], [])
+
+
+def test_a_check_with_no_conclusion_yet_is_pending() -> None:
+    rollup = [_run("Python Tests", status="COMPLETED", conclusion=None), _run("Frontend Lint")]
+    pending, failing = check_states(rollup, REQUIRED)
+    assert pending == ["Python Tests"] and failing == []
+
+
 def test_cancelled_counts_as_failing() -> None:
     rollup = [_run("Python Tests", conclusion="CANCELLED"), _run("Frontend Lint")]
     pending, failing = check_states(rollup, REQUIRED)

@@ -111,9 +111,15 @@ def check_states(rollup: list[dict], required: set[str]) -> tuple[list[str], lis
         if name not in required:
             continue
         if check.get("__typename") == "CheckRun":
-            if check.get("status") != "COMPLETED":
+            # `conclusion` decides, not `status`. GitHub returned Python Lint as
+            # IN_PROGRESS with conclusion SUCCESS and a completedAt seven seconds
+            # after it started (#1030), and reading status stranded the poll on a
+            # check that had finished. A conclusion is null until a run ends, so
+            # having one is the same statement status was supposed to make.
+            conclusion = check.get("conclusion")
+            if not conclusion:
                 pending.append(name)
-            elif check.get("conclusion") not in ("SUCCESS", "NEUTRAL", "SKIPPED"):
+            elif conclusion not in ("SUCCESS", "NEUTRAL", "SKIPPED"):
                 failing.append(name)
         elif check.get("state") == "PENDING":
             pending.append(name)
