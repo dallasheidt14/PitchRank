@@ -65,6 +65,31 @@ def test_a_gate_naming_no_checks_stops_the_run(monkeypatch, capsys) -> None:
     assert "refusing to merge" in capsys.readouterr().out
 
 
+def test_a_still_running_check_reaches_the_auto_fallback(monkeypatch, capsys) -> None:
+    """Blocking on the checks as well as Codex left --auto unreachable."""
+    ran = []
+    monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1"])
+    monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: REQUIRED)
+    monkeypatch.setattr("scripts.pr_wait.codex_findings", lambda *_: [])
+    monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: ran.append(a) or "")
+    monkeypatch.setattr(
+        "scripts.pr_wait.resolve_pr",
+        lambda _: {
+            "number": 1,
+            "title": "t",
+            "url": "u",
+            "baseRefName": "main",
+            "state": "OPEN",
+            "createdAt": "2020-01-01T00:00:00Z",
+            "headRefOid": "abc",
+            "statusCheckRollup": [_run("Python Tests", status="IN_PROGRESS", conclusion=None), _run("Frontend Lint")],
+        },
+    )
+    assert main() == 0
+    assert ran == [("pr", "merge", "1", "--squash", "--auto")]
+    assert "armed auto-merge" in capsys.readouterr().out
+
+
 def test_legacy_status_contexts_are_read_too() -> None:
     # Vercel and other integrations post StatusContext, which has no conclusion field.
     rollup = [

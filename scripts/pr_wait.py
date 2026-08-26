@@ -188,14 +188,16 @@ def main() -> int:
         current = resolve_pr(number)
         pending, failing = check_states(current["statusCheckRollup"], required)
         findings = codex_findings(number, current["headRefOid"])
-        window_closed = minutes_since(pr["createdAt"]) >= CODEX_WINDOW_MINUTES
-        if failing or (not pending and (findings is not None or window_closed)):
+        # Codex is the only thing worth blocking on. Waiting for the checks too
+        # would strand a still-running gate here instead of handing it to --auto.
+        codex_settled = findings is not None or minutes_since(pr["createdAt"]) >= CODEX_WINDOW_MINUTES
+        if failing or codex_settled:
             break
         if time.monotonic() > deadline:
             print(f"  timed out after {args.timeout} min waiting on: {', '.join(pending) or 'Codex'}")
             return 1
-        waiting = ", ".join(pending) if pending else "Codex review"
-        print(f"  waiting on {waiting}")
+        alongside = f", plus {', '.join(pending)}" if pending else ""
+        print(f"  waiting on Codex review{alongside}")
         time.sleep(POLL_SECONDS)
 
     if failing:
