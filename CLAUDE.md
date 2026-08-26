@@ -29,6 +29,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
 - `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
 - Stacking a PR on another open PR costs you one predictable step: `main` takes squash merges, so merging the base rewrites its commits and the stacked branch then reports a conflict against `main` even though the content is identical. Resolve with `git merge origin/main` — a rebase would need the force-push the guard blocks — and expect the conflicts to be exactly the lines both branches edited. Prefer branching from `main` unless the second change genuinely cannot be reviewed without the first.
+- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.

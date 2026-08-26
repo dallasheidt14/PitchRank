@@ -1,6 +1,13 @@
 """The two hand-edited Claude Code config files parse, every .mcp.json server
-that .claude/settings.json pre-approves is one .mcp.json defines, and the
-supabase server stays read-only and project-scoped.
+that .claude/settings.json pre-approves is one .mcp.json defines, the supabase
+server stays read-only and project-scoped, and the tracked permission allowlist
+stays inside the line it was drawn on.
+
+That last one matters because this repo is public. `.claude/settings.json` is
+tracked, so anything it allows is pre-approved for every clone, on every machine,
+with no prompt. The allowlist deliberately covers verifying a change and never
+landing one: an entry that grants a shell or interpreter a free hand, or that
+pre-approves `gh pr merge`, hands an agent the whole loop.
 
 A settings file that fails to parse is dropped — behind a Settings Error dialog
 in an interactive session, silently in headless `-p` runs — which unwires every
@@ -46,3 +53,50 @@ def test_supabase_server_stays_read_only_and_project_scoped() -> None:
     args = _load(MCP)["mcpServers"]["supabase"]["args"]
     assert "--read-only" in args
     assert any(arg.startswith("--project-ref=") for arg in args)
+
+
+# A wildcard on any of these is arbitrary code execution wearing one name.
+UNBOUNDED = (
+    "bash",
+    "sh",
+    "zsh",
+    "eval",
+    "exec",
+    "ssh",
+    "python",
+    "python3",
+    "node",
+    "deno",
+    "bun",
+    "npx",
+    "bunx",
+    "uvx",
+    "npm run",
+    "yarn run",
+    "pnpm run",
+    "make",
+    "gh api",
+)
+
+
+def _allowed() -> list[str]:
+    allow = _load(SETTINGS)["permissions"]["allow"]
+    assert allow, "settings.json allows nothing; the point is to stop per-machine approvals"
+    return allow
+
+
+def test_allowlist_never_grants_an_interpreter_a_free_hand() -> None:
+    for rule in _allowed():
+        if not rule.startswith("Bash(") or not rule.endswith("*)"):
+            continue
+        command = rule[len("Bash(") : -len("*)")].strip()
+        for name in UNBOUNDED:
+            assert command != name, f"{rule} allows anything {name} can run"
+
+
+def test_allowlist_stops_short_of_landing_a_change() -> None:
+    # pr_wait.py merges, so pre-approving the wrapper pre-approves the merge just
+    # as surely as naming `gh pr merge` would.
+    for rule in _allowed():
+        for lands in ("gh pr merge", "git push origin main", "pr_wait"):
+            assert lands not in rule, f"{rule} lets an agent land a change without asking"
