@@ -279,7 +279,12 @@ ROW_NUMBER() OVER (
 ) AS rank_in_state_final
 ```
 
-Only `Active` teams are ranked; everyone else stays visible with a NULL state rank.
+Only `Active` teams get a rank. Rows with status `Not Enough Ranked Games` appear
+in the cohort with a NULL rank, and **every other status is excluded outright** — the
+view and the RPCs both close with
+`WHERE ... status IN ('Active', 'Not Enough Ranked Games')`. The view's own
+`COMMENT` says "Non-active teams visible with NULL state rank", which overstates it
+the same way; the outer `WHERE`, not the CTE, is what decides visibility.
 
 The frontend does not read the view directly — it calls the `get_state_rankings` and
 `get_state_rankings_count` RPCs, which filter before the `ROW_NUMBER()` and so avoid the
