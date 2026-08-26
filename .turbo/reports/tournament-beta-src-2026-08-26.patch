@@ -1,0 +1,258 @@
+diff --git a/src/tournaments/reports/compute.py b/src/tournaments/reports/compute.py
+index afa364306..a9f37df4e 100644
+--- a/src/tournaments/reports/compute.py
++++ b/src/tournaments/reports/compute.py
+@@ -875,18 +875,18 @@ def _compute_optimized_standings(
+ def _compute_experience_shifts(
+     actual: tuple[StandingsRow, ...],
+     optimized: tuple[StandingsRow, ...],
+-    *,
+-    top_n: int = 5,
+ ) -> tuple[tuple[BetterExperienceRow, ...], tuple[BetterExperienceRow, ...]]:
+     """Compute both better- and worse-experience leaderboards in one pass.
+ 
+     Returns ``(better, worse)``:
+-    - ``better`` — top N teams by pain reduction (largest drop in
+-      ``|avg GD|``); the optimizer would give them closer games.
+-    - ``worse`` — top N teams asked to step up: dominant teams whose
+-      ``|opt avg GD|`` is materially smaller than ``|actual avg GD|`` AND
+-      they were winning in the actual event (actual_avg_gd > 0). These are
+-      the teams whose results "compress" — they no longer dominate.
++    - ``better`` — every team with positive pain reduction (drop in
++      ``|avg GD|``); the optimizer would give them closer games. List
++      length flexes with the event — small/well-built events surface
++      few teams, mis-built events surface many.
++    - ``worse`` — every dominant team asked to step up: ``|opt avg GD|``
++      smaller than ``|actual avg GD|`` AND they were winning in the
++      actual event (actual_avg_gd > 0). Their results "compress" —
++      they no longer dominate.
+ 
+     Tournament-balance interpretation: ``worse`` is also a balance win
+     (the tournament becomes more competitive), but the dominant team
+@@ -913,16 +913,19 @@ def _compute_experience_shifts(
+             )
+         )
+ 
+-    better = sorted(candidates, key=lambda r: (-r.pain_reduction, r.team_name))[:top_n]
++    # Better experience = anyone whose |avg GD| would shrink under the
++    # optimized seeding. Negative pain_reduction means the optimized side
++    # makes the team's experience MORE lopsided, which doesn't belong here.
++    better_candidates = [r for r in candidates if r.pain_reduction > 0]
++    better_candidates.sort(key=lambda r: (-r.pain_reduction, r.team_name))
+ 
+     # "Asked to step up" = teams dominating actual (actual_avg_gd > 0) whose
+     # margin compresses in the optimized side. Filter to actual_avg_gd > 0
+     # so we don't surface teams already getting blown out who got blown out
+     # MORE — those are a separate "miscalibration" concern, not "step up".
+     step_up_candidates = [r for r in candidates if r.actual_avg_gd > 0 and r.pain_reduction > 0]
+-    # Sort by largest absolute compression of a positive actual GD.
+     step_up_candidates.sort(key=lambda r: (-r.pain_reduction, r.team_name))
+-    return tuple(better), tuple(step_up_candidates[:top_n])
++    return tuple(better_candidates), tuple(step_up_candidates)
+ 
+ 
+ def _build_headline_summary(
+diff --git a/src/tournaments/reports/event_compute.py b/src/tournaments/reports/event_compute.py
+index 777a06d21..ddc58065f 100644
+--- a/src/tournaments/reports/event_compute.py
++++ b/src/tournaments/reports/event_compute.py
+@@ -21,9 +21,7 @@ Per-cohort run resolution:
+ 
+ from __future__ import annotations
+ 
+-from collections import defaultdict
+ from pathlib import Path
+-from typing import Any
+ 
+ from src.tournaments.reports.compute import compute_report_card, read_comparison_json
+ from src.tournaments.reports.schema import (
+@@ -47,9 +45,6 @@ __all__ = [
+     "event_report_path",
+ ]
+ 
+-# Top N teams per event-wide leaderboard. 10 is the user-stated cut.
+-EVENT_LEADERBOARD_TOP_N: int = 10
+-
+ 
+ def event_report_path(event_key: str, scenario: str, *, base_dir: Path | str = "reports") -> Path:
+     return Path(base_dir) / event_key / "scenarios" / scenario / "event_report.json"
+@@ -169,9 +164,14 @@ def _build_cohort_scorecard(card: ReportCard) -> CohortScorecardRow:
+ 
+ 
+ def _aggregate_event_leaderboards(
+-    cards: list[ReportCard], *, top_n: int = EVENT_LEADERBOARD_TOP_N
++    cards: list[ReportCard],
+ ) -> tuple[tuple[BetterExperienceRow, ...], tuple[BetterExperienceRow, ...]]:
+-    """Combine all cohorts' better/worse leaderboards into event-wide top N."""
++    """Combine all cohorts' better/worse leaderboards into event-wide lists.
++
++    Per-cohort lists are already filtered to teams with positive pain
++    reduction (compute._compute_experience_shifts), so the event roll-up
++    just concatenates them — no further cap. Length flexes with the event.
++    """
+     all_better: list[BetterExperienceRow] = []
+     all_worse: list[BetterExperienceRow] = []
+     for card in cards:
+@@ -179,7 +179,7 @@ def _aggregate_event_leaderboards(
+         all_worse.extend(card.worse_experience)
+     all_better.sort(key=lambda r: (-r.pain_reduction, r.team_name))
+     all_worse.sort(key=lambda r: (-r.pain_reduction, r.team_name))
+-    return tuple(all_better[:top_n]), tuple(all_worse[:top_n])
++    return tuple(all_better), tuple(all_worse)
+ 
+ 
+ def _aggregate_event_concerns(cards: list[ReportCard]) -> tuple[EarlyMeetingConcern, ...]:
+@@ -230,31 +230,6 @@ def compute_event_report_card(
+     event_better, event_worse = _aggregate_event_leaderboards(cards)
+     event_concerns = _aggregate_event_concerns(cards)
+ 
+-    # Per-cohort champion roll-up: one row per (cohort, division) with both
+-    # actual and projected winners side by side. Stored as plain dicts (not
+-    # Champion dataclasses) so the event template can render them in a single
+-    # table without a complex zip; also lets the JSON consumer walk this
+-    # without importing the Champion class.
+-    cohort_champions: list[dict[str, Any]] = []
+-    for card in cards:
+-        actual_by_div = {c.division_name: c for c in card.actual_champions}
+-        proj_by_div = {c.division_name: c for c in card.projected_champions}
+-        for division in sorted(set(actual_by_div) | set(proj_by_div)):
+-            ac = actual_by_div.get(division)
+-            pc = proj_by_div.get(division)
+-            cohort_champions.append({
+-                "age_group": card.age_group,
+-                "gender": card.gender,
+-                "division_name": division,
+-                "actual_team_name": ac.team_name if ac else None,
+-                "actual_record": f"{ac.wins}-{ac.losses}-{ac.ties}" if ac else None,
+-                "actual_goal_differential": ac.goal_differential if ac else None,
+-                "projected_team_name": pc.team_name if pc else None,
+-                "projected_record": f"{pc.wins}-{pc.losses}-{pc.ties}" if pc else None,
+-                "projected_goal_differential": pc.goal_differential if pc else None,
+-                "same_team": bool(ac and pc and ac.canonical_team_id == pc.canonical_team_id),
+-            })
+-
+     return EventReportCard(
+         event_key=event_key,
+         scenario=scenario,
+@@ -275,7 +250,6 @@ def compute_event_report_card(
+         event_better_experience=event_better,
+         event_worse_experience=event_worse,
+         event_concerns=event_concerns,
+-        cohort_champions=tuple(cohort_champions),
+     )
+ 
+ 
+diff --git a/src/tournaments/reports/schema.py b/src/tournaments/reports/schema.py
+index 48cb08ed0..6fd66d682 100644
+--- a/src/tournaments/reports/schema.py
++++ b/src/tournaments/reports/schema.py
+@@ -601,7 +601,6 @@ class EventReportCard:
+     event_better_experience: tuple[BetterExperienceRow, ...]
+     event_worse_experience: tuple[BetterExperienceRow, ...]
+     event_concerns: tuple[EarlyMeetingConcern, ...]
+-    cohort_champions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+     schema_version: int = 1
+ 
+     def to_dict(self) -> dict[str, Any]:
+@@ -625,7 +624,6 @@ class EventReportCard:
+             "event_better_experience": [b.to_dict() for b in self.event_better_experience],
+             "event_worse_experience": [b.to_dict() for b in self.event_worse_experience],
+             "event_concerns": [c.to_dict() for c in self.event_concerns],
+-            "cohort_champions": list(self.cohort_champions),
+             "schema_version": self.schema_version,
+         }
+ 
+@@ -651,6 +649,5 @@ class EventReportCard:
+             event_better_experience=tuple(BetterExperienceRow.from_dict(b) for b in payload.get("event_better_experience") or ()),
+             event_worse_experience=tuple(BetterExperienceRow.from_dict(b) for b in payload.get("event_worse_experience") or ()),
+             event_concerns=tuple(EarlyMeetingConcern.from_dict(c) for c in payload.get("event_concerns") or ()),
+-            cohort_champions=tuple(payload.get("cohort_champions") or ()),
+             schema_version=int(payload.get("schema_version", 1)),
+         )
+diff --git a/src/tournaments/reports/templates/event_report_card.html b/src/tournaments/reports/templates/event_report_card.html
+index 0373bd407..5e2669bfa 100644
+--- a/src/tournaments/reports/templates/event_report_card.html
++++ b/src/tournaments/reports/templates/event_report_card.html
+@@ -48,44 +48,6 @@
+     </ul>
+   </section>
+ 
+-  {% if event_card.cohort_champions %}
+-    <section class="rc-section">
+-      <div class="rc-eyebrow">Champions across the event &middot; actual vs projected</div>
+-      <p class="rc-subtle">
+-        One row per cohort/division: who actually won vs who would have won under MatchBalance's seeding.
+-        "(same)" indicates the optimizer would have produced the same champion the actual tournament did.
+-      </p>
+-      <table class="rc-table rc-mono">
+-        <thead>
+-          <tr>
+-            <th>Cohort</th>
+-            <th>Division</th>
+-            <th>Actual champion</th>
+-            <th class="rc-num">Record</th>
+-            <th class="rc-num">GD</th>
+-            <th>Projected champion</th>
+-            <th class="rc-num">Record</th>
+-            <th class="rc-num">GD</th>
+-          </tr>
+-        </thead>
+-        <tbody>
+-          {% for r in event_card.cohort_champions %}
+-            <tr>
+-              <td><strong>{{ r.gender | capitalize }} {{ r.age_group | upper }}</strong></td>
+-              <td>{{ r.division_name }}</td>
+-              <td>{{ r.actual_team_name or '—' }}</td>
+-              <td class="rc-num">{{ r.actual_record or '—' }}</td>
+-              <td class="rc-num">{% if r.actual_goal_differential is not none %}{{ '%+d' | format(r.actual_goal_differential) }}{% else %}—{% endif %}</td>
+-              <td>{{ r.projected_team_name or '—' }}{% if r.same_team %} <span class="rc-to">(same)</span>{% endif %}</td>
+-              <td class="rc-num">{{ r.projected_record or '—' }}</td>
+-              <td class="rc-num">{% if r.projected_goal_differential is not none %}{{ '%+d' | format(r.projected_goal_differential) }}{% else %}—{% endif %}</td>
+-            </tr>
+-          {% endfor %}
+-        </tbody>
+-      </table>
+-    </section>
+-  {% endif %}
+-
+   {% if event_card.cohort_scorecards %}
+     <section class="rc-section">
+       <div class="rc-eyebrow">Cohort scorecard &middot; sortable summary of every cohort</div>
+@@ -134,7 +96,7 @@
+   {%- macro experience_table(rows, label, blurb) -%}
+     {% if rows %}
+       <section class="rc-section">
+-        <div class="rc-eyebrow">{{ label }} &middot; top {{ rows | length }} event-wide</div>
++        <div class="rc-eyebrow">{{ label }} &middot; {{ rows | length }} team{{ '' if rows | length == 1 else 's' }} event-wide</div>
+         <p class="rc-subtle">{{ blurb }}</p>
+         <table class="rc-table rc-mono">
+           <thead>
+@@ -167,13 +129,13 @@
+   {{ experience_table(
+     event_card.event_better_experience,
+     'Teams with the most-improved experience',
+-    'Top 10 teams across the entire event whose simulated experience would be most competitive vs what they actually got.'
++    'Every team across the event whose simulated experience would have been more competitive than what they actually got. Sorted by largest swing.'
+   ) }}
+ 
+   {{ experience_table(
+     event_card.event_worse_experience,
+     'Teams asked to step up',
+-    'Top 10 teams across the entire event who dominated their actual division and would face stiffer competition optimized.'
++    'Every team across the event who dominated their actual division and would face stiffer competition optimized. Sorted by largest compression.'
+   ) }}
+ 
+   {% if event_card.event_concerns %}
+diff --git a/src/tournaments/reports/templates/report_card.html b/src/tournaments/reports/templates/report_card.html
+index 70041d3ca..a38887310 100644
+--- a/src/tournaments/reports/templates/report_card.html
++++ b/src/tournaments/reports/templates/report_card.html
+@@ -163,7 +163,7 @@ delta-flat
+   {%- macro experience_table(rows, label, blurb) -%}
+     {% if rows %}
+       <section class="rc-section">
+-        <div class="rc-eyebrow">{{ label }} &middot; top {{ rows | length }}</div>
++        <div class="rc-eyebrow">{{ label }} &middot; {{ rows | length }} team{{ '' if rows | length == 1 else 's' }}</div>
+         <p class="rc-subtle">{{ blurb }}</p>
+         <table class="rc-table rc-mono">
+           <thead>
