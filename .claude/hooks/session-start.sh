@@ -24,11 +24,15 @@ if [ -n "$tmp" ]; then
   # only falls back on null.
   gh run list --workflow=ci.yml --branch main --limit 1 --json conclusion,status \
     -q '.[0] | if (.conclusion // "") == "" then .status else .conclusion end' >"$tmp/ci" 2>/dev/null &
-  gh run list --workflow=calculate-rankings.yml --limit 1 --json conclusion,createdAt \
-    -q '.[0] | "\(.createdAt[0:10]) \(.conclusion)"' >"$tmp/rank" 2>/dev/null &
-  gh run list --limit 60 --json conclusion,event,name \
-    -q '[.[] | select(.event == "schedule" and .conclusion == "failure") | .name] | unique | join(", ")' \
-    >"$tmp/sched" 2>/dev/null &
+  gh run list --workflow=calculate-rankings.yml --limit 1 --json conclusion,status,createdAt \
+    -q '.[0] | "\(.createdAt[0:10]) \(if (.conclusion // "") == "" then .status else .conclusion end)"' \
+    >"$tmp/rank" 2>/dev/null &
+  # Filtered to failures on purpose. A plain recent-runs window is dominated by
+  # the two every-15-minute schedules, which spend 60 entries in about seven
+  # hours and push a weekly job's failure out of sight; 30 scheduled *failures*
+  # reaches back months instead.
+  gh run list --event schedule --status failure --created ">=$(date -d '7 days ago' +%F)" \
+    --limit 30 --json name -q '[.[].name] | unique | .[]' >"$tmp/sched" 2>/dev/null &
   wait
 fi
 read_tmp() { [ -n "$tmp" ] && cat "$tmp/$1" 2>/dev/null; }
@@ -59,7 +63,9 @@ worktrees=$(git worktree list | tail -n +2 | wc -l | tr -d ' ')
 unclean=""
 while IFS= read -r wt; do
   [ -d "$wt" ] || continue
-  [ "$(git -C "$wt" status --porcelain -uno 2>/dev/null | wc -l)" -gt 0 ] && unclean="$unclean ${wt##*/}"
+  # Untracked counts here, unlike the tracked-drift count above: a scratch file
+  # nobody committed is the one that exists in no other copy.
+  [ "$(git -C "$wt" status --porcelain 2>/dev/null | wc -l)" -gt 0 ] && unclean="$unclean ${wt##*/}"
 done < <(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | tail -n +2)
 
 backlog=$(grep -c '^- \*\*Status\*\*: open' .turbo/improvements.md 2>/dev/null)
@@ -71,9 +77,25 @@ rank_note=""
 if [ -n "$rank" ]; then
   read -r rank_day rank_state <<<"$rank"
   age=$(( ( $(date +%s) - $(date -d "$rank_day" +%s 2>/dev/null || echo 0) ) / 86400 ))
-  [ "$rank_state" != success ] && rank_note="last rankings run $rank_day FAILED"
-  [ "$rank_state" = success ] && [ "$age" -gt 8 ] && rank_note="no rankings run in $age days (weekly job stalled?)"
+  case "$rank_state" in
+    success) [ "$age" -gt 8 ] && rank_note="no rankings run in $age days (weekly job stalled?)" ;;
+    # A run takes 2.5-3.7 hours, so in_progress is the healthy state for most of
+    # a Monday and must never read as a failure.
+    in_progress | queued | requested | waiting | "") ;;
+    *) rank_note="last rankings run $rank_day $rank_state" ;;
+  esac
 fi
+
+# A workflow that failed and then recovered is not worth a line, so its latest
+# scheduled run decides. Costs nothing on the usual day, when nothing failed.
+still_failing=""
+while IFS= read -r wf; do
+  [ -n "$wf" ] || continue
+  latest=$(gh run list --workflow "$wf" --event schedule --limit 1 --json conclusion \
+    -q '.[0].conclusion' 2>/dev/null)
+  [ "$latest" = failure ] && still_failing="$still_failing, $wf"
+done <<<"$sched"
+sched=${still_failing#, }
 
 echo "## Repo state $(date +%F)"
 echo "- checkout $root on $branch: behind origin/main ${behind:-?}, ahead ${ahead:-?}$ff; dirty tracked files $dirty$sync_note"

@@ -443,11 +443,26 @@ def _session_start(project_dir: Path, stub_gh: Path | None = None) -> subprocess
 
 @pytest.fixture
 def no_gh(tmp_path: Path) -> Path:
-    stub = tmp_path / "stub"
+    return _gh_stub(tmp_path, "stub")
+
+
+def _gh_stub(tmp_path: Path, name: str, rankings: str | None = None) -> Path:
+    """A `gh` that fails, except for a canned answer to the rankings query.
+
+    The hook lets gh run the jq, so the stub prints the finished line rather than
+    JSON. That keeps these tests off the network and lets them pin states a real
+    run only occupies for a few hours a week.
+    """
+    stub = tmp_path / name
     stub.mkdir()
-    (stub / "gh").write_text("#!/bin/sh\nexit 1\n")
-    (stub / "gh").chmod(0o755)
-    return stub
+    body = ["#!/bin/sh"]
+    if rankings is not None:
+        body += ['case "$*" in', f"  *calculate-rankings*) echo '{rankings}'; exit 0 ;;", "esac"]
+    body.append("exit 1")
+    script = stub / "gh"
+    script.write_text("\n".join(body) + "\n")
+    script.chmod(0o755)
+    return script.parent
 
 
 def test_session_start_still_reports_when_github_is_unreachable(tmp_path: Path, no_gh: Path) -> None:
@@ -470,3 +485,25 @@ def test_session_start_flags_a_worktree_holding_uncommitted_work(tmp_path: Path,
     (linked / "scripts" / "legacy_writer.py").write_text("changed\n")
     out = _session_start(root, no_gh).stdout
     assert "ATTENTION: worktrees with uncommitted work: linked" in out
+
+
+def test_session_start_does_not_call_a_running_ranking_job_a_failure(tmp_path: Path) -> None:
+    """A run takes 2.5-3.7 hours, so in_progress is the healthy state most of Monday."""
+    root = _fresh_repo(tmp_path, "running")
+    running = _session_start(root, _gh_stub(tmp_path, "gh_running", "2026-08-24 in_progress"))
+    assert "rankings 2026-08-24 in_progress" in running.stdout
+    assert "ATTENTION" not in running.stdout
+
+    failed = _session_start(root, _gh_stub(tmp_path, "gh_failed", "2026-08-24 failure"))
+    assert "ATTENTION: last rankings run 2026-08-24 failure" in failed.stdout
+
+
+def test_session_start_flags_a_worktree_holding_only_untracked_files(tmp_path: Path, no_gh: Path) -> None:
+    """Scratch files nobody committed are the ones that exist in no other copy."""
+    root = _fresh_repo(tmp_path, "scratch_wt")
+    linked = tmp_path / "scratch"
+    _git(root, "worktree", "add", "-q", "-b", "scratchwork", str(linked))
+    assert "uncommitted work" not in _session_start(root, no_gh).stdout
+
+    (linked / "notes.md").write_text("only ever existed here\n")
+    assert "ATTENTION: worktrees with uncommitted work: scratch" in _session_start(root, no_gh).stdout
