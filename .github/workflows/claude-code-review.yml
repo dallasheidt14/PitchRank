@@ -1,14 +1,31 @@
 name: Claude Code Review
 
+# The pull_request trigger is disabled -- IMP-104.
+#
+# This check failed on every PR and is not one of the seven required by ci.yml, so it
+# sat permanently red beside checks that mean something, which trains reviewers to read
+# red as normal. It is not a missing secret: CLAUDE_CODE_OAUTH_TOKEN is present, Claude
+# Code initializes and reports its model, then the run ends after one turn in under two
+# seconds with total_cost_usd 0 and an empty modelUsage. The first model call is being
+# rejected, so the token needs rotating -- which happens in the repository's Actions
+# secrets, not in this file.
+#
+# To re-enable once the token is rotated: delete the workflow_dispatch line below and
+# uncomment the pull_request block.
 on:
-  pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+  # pull_request:
+  #   types: [opened, synchronize, ready_for_review, reopened]
+  #   # Optional: Only run on specific file changes
+  #   # paths:
+  #   #   - "src/**/*.ts"
+  #   #   - "src/**/*.tsx"
+  #   #   - "src/**/*.js"
+  #   #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
@@ -38,7 +55,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number || inputs.pr_number }}'
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 

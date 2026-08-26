@@ -379,8 +379,11 @@ npm run generate-llms && git diff --exit-code public/llms.txt
 ```
 
 Each line maps 1:1 to a required check, so a non-zero exit is a red PR. Nothing else blocks
-a merge — `claude-review` runs on every PR and currently fails on a rejected token, and the
-Codex bot's review is advisory.
+a merge — the Codex bot's review is advisory, and `claude-review` no longer runs on PRs at
+all. Its `pull_request` trigger is commented out (IMP-104) because it failed on every PR
+while not being required, so a permanent red X sat beside checks that mean something. It is
+`workflow_dispatch`-only until `CLAUDE_CODE_OAUTH_TOKEN` is rotated; re-enabling is a
+two-line edit in `.github/workflows/claude-code-review.yml`.
 
 ---
 
