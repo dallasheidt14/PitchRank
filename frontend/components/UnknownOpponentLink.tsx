@@ -24,7 +24,8 @@ import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
 import { AGE_GROUPS_ALL } from '@/lib/constants';
-import { composeTeamDisplay, composeTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 interface UnknownOpponentLinkProps {
   game: GameWithTeams;
@@ -241,7 +242,7 @@ export function UnknownOpponentLink({
 
   const handleSelectTeam = (team: RankingRow) => {
     setSelectedTeam(team);
-    setSearchQuery(composeTeamDisplay(team, { includeAge: true }));
+    setSearchQuery(teamDisplayName(team));
     setIsSearchOpen(false);
     setSelectedIndex(0);
   };
@@ -439,8 +440,6 @@ export function UnknownOpponentLink({
     }
   };
 
-  const selectedTeamMeta = selectedTeam ? composeTeamMeta(selectedTeam) : '';
-
   return (
     <>
       <button
@@ -537,8 +536,8 @@ export function UnknownOpponentLink({
                       ) : (
                         <div className="space-y-1">
                           {filteredTeams.map((team, index) => {
-                            const displayName = composeTeamDisplay(team, { includeAge: true });
-                            const meta = composeTeamMeta(team);
+                            const displayName = teamDisplayName(team);
+                            const spokenMeta = spokenTeamMeta(team);
                             return (
                               <button
                                 key={team.team_id_master}
@@ -546,14 +545,14 @@ export function UnknownOpponentLink({
                                 className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
                                   index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                                 }`}
-                                aria-label={`Select ${displayName}${meta ? ` ${meta}` : ''}`}
+                                aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
                               >
                                 <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  {team.club_name && <span>{highlightMatch(team.club_name, deferredSearchQuery)}</span>}
-                                  {team.club_name && meta ? ' • ' : ''}
-                                  {meta}
-                                </div>
+                                <TeamRowSubtitle
+                                  team={team}
+                                  highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                                  className="text-xs text-muted-foreground truncate"
+                                />
                               </button>
                             );
                           })}
@@ -673,14 +672,8 @@ export function UnknownOpponentLink({
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">
-                    {composeTeamDisplay(selectedTeam, { includeAge: true })}
-                  </p>
-                  <p className="text-green-600 dark:text-green-300 text-xs">
-                    {selectedTeam.club_name}
-                    {selectedTeam.club_name && selectedTeamMeta ? ' • ' : ''}
-                    {selectedTeamMeta}
-                  </p>
+                  <p className="font-medium text-green-800 dark:text-green-200">{teamDisplayName(selectedTeam)}</p>
+                  <TeamRowSubtitle team={selectedTeam} className="text-green-600 dark:text-green-300 text-xs" />
                 </div>
               </div>
             </div>

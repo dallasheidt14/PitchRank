@@ -123,3 +123,27 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
   Codex caught both, plus a real bug in `pr_wait.py`: it read `headRefOid` to check Codex's review
   and then merged without `--match-head-commit`, so it could merge a commit it never inspected —
   the exact hole that ruled out `gh pr merge --auto` (#1040).
+
+### UnknownOpponentLink subline duplicates club_name visible in composed line above
+
+- **ID**: IMP-031
+- **Status**: dropped
+- **Type**: plan
+- **Category**: readability
+- **Where**: `frontend/components/UnknownOpponentLink.tsx` (search dropdown row :549-552 + selected-team confirmation panel :677-679); same pattern likely exists in `RankingsTable.tsx` after PR #722
+- **Why**: After the composeTeamDisplay rollout, the composed top line begins with `abbreviateClubName(club_name)`, and the muted subline immediately below renders raw `team.club_name` again — e.g. `Phoenix Rising SC ECNL White` / `Phoenix Rising Soccer Club • AZ • U14 Boys`. Visually duplicates club identity in two forms. PR #722 introduced this for the rankings table by design ("keep club identity and region visible at a glance"), but in a search dropdown row where vertical space matters more, the redundancy is more pronounced. Fix: drop `club_name` from subline in UnknownOpponentLink dropdown + selected-team confirmation; keep state/age/gender. Consider mirroring in rankings table for consistency. Pre-existing PR #722 design choice; flagged 2026-05-05 during /polish-code on the rollout PR. **Partially addressed 2026-08-18** (branch fix/search-result-labels): both sublines now delegate state/age/gender to composeTeamMeta, fixing a literal U0 and a double bullet in the confirmation panel. The club_name redundancy this entry describes is unchanged as of that date.
+- **Noted**: 2026-05-05
+- **Refs**: branch `show-team-name-in-rankings` (teamDisplayName rollout, which inverted this entry's premise)
+- **Update (2026-08-27)**: Premise inverted, closing as dropped. The rankings/search top line is no longer `abbreviateClubName(club_name)` — `teamDisplayName` renders the registered `team_name` (branch `show-team-name-in-rankings`), so the subline's club is no longer a second form of the line above it. The same PR *added* the subline to `GlobalSearch` and `TeamSelector` for exactly that reason: `useTeamSearch` matches on `club_name`, so without it a row matched by club looks unrelated to the query. The redundancy this entry describes does survive for the ~39% of ranked teams whose `team_name` embeds its `club_name` (46,248 of 119,949 measured 2026-08-27) — that is now an accepted cost of club-matched search legibility, not an oversight.
+
+### Fix `fetchModular11TeamIds` silent empty-Set under anon RLS — MLS Next short-circuit no-op in global search
+
+- **ID**: IMP-034
+- **Status**: dropped
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds`, lines ~24-46); Supabase RLS on `team_alias_map` + `providers`
+- **Why**: PR #722 added a `has_modular11_alias` short-circuit in `composeTeamDisplay` so MLS Next teams render their clean raw `team_name`. The flag is populated by `fetchModular11TeamIds()` querying `team_alias_map` joined to `providers!inner` filtered by `code = 'modular11'`. Under the anon Supabase key, this returns an empty Set — verified live during PR #726 testing: `Phoenix Rising AD` search showed MLS Next teams as `Phoenix Rising FC MLS Next AD AD` instead of clean `Phoenix Rising FC U13 AD`. ~14k MLS Next teams affected. No console warning fires (zero rows ≠ error), so the failure was invisible until manual UI verification. Likely RLS on `team_alias_map` and/or the embedded join blocking anon SELECT — service-role queries from Python confirm the data is present. Fix candidates: (a) grant anon SELECT on `team_alias_map` + `providers` (low risk, both reference data), or (b) move the modular11 lookup server-side and ship the flag in `useTeamSearch`'s payload (cleaner). Either way, also harden `fetchModular11TeamIds` to log a warning when the Set is empty so future regressions surface in the console. PR #726 (`70d9a097c`) mitigates the UX impact via the disambiguator subline but the short-circuit itself remains broken.
+- **Noted**: 2026-05-06
+- **Refs**: superseded by IMP-119 (remove `has_modular11_alias` end-to-end)
+- **Update (2026-08-27)**: Superseded by IMP-119 — do not fix this, remove it. `teamDisplayName` (branch `show-team-name-in-rankings`) means `composeTeamDisplay` now runs only for blank/`unknown_` names, so the short-circuit this entry wants working can no longer affect any rendered string. Repairing the RLS grant would restore a branch that IMP-119 shows is counterproductive.

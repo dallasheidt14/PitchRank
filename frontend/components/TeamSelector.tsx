@@ -8,7 +8,8 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
-import { composeTeamDisplay, composeTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 interface TeamSelectorProps {
   label: string;
@@ -83,6 +84,10 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
     return allTeams.find((r) => r.team_id_master === value) || null;
   }, [value, allTeams]);
 
+  // Registered names carry no cohort and repeat across age groups, and nothing else on
+  // /compare shows one, so the confirmation must.
+  const selectedTeamMeta = selectedTeam ? spokenTeamMeta(selectedTeam) : '';
+
   // Configure Fuse.js for fuzzy search with optimized settings
   const fuse = useMemo(() => {
     if (!allTeams || !FuseClass) return null;
@@ -144,7 +149,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
 
   const handleSelect = (team: RankingRow) => {
     onChange(team.team_id_master, team);
-    setSearchQuery(composeTeamDisplay(team, { includeAge: true }));
+    setSearchQuery(teamDisplayName(team));
     setIsOpen(false);
     setSelectedIndex(0);
   };
@@ -232,8 +237,8 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
               ) : (
                 <div className="space-y-1">
                   {filteredTeams.map((team, index) => {
-                    const displayName = composeTeamDisplay(team, { includeAge: true });
-                    const meta = composeTeamMeta(team);
+                    const displayName = teamDisplayName(team);
+                    const spokenMeta = spokenTeamMeta(team);
                     return (
                       <button
                         key={team.team_id_master}
@@ -241,10 +246,14 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                         className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
                           index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                         }`}
-                        aria-label={`Select ${displayName}${meta ? ` ${meta}` : ''}`}
+                        aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
                       >
                         <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                        <div className="text-xs text-muted-foreground">{meta}</div>
+                        <TeamRowSubtitle
+                          team={team}
+                          highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                          className="text-xs text-muted-foreground truncate"
+                        />
                       </button>
                     );
                   })}
@@ -256,7 +265,8 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
       </div>
       {selectedTeam && (
         <div className="mt-2 text-sm text-muted-foreground">
-          Selected: <span className="font-medium">{composeTeamDisplay(selectedTeam, { includeAge: true })}</span>
+          Selected: <span className="font-medium">{teamDisplayName(selectedTeam)}</span>
+          {selectedTeamMeta && <span> — {selectedTeamMeta}</span>}
         </div>
       )}
     </div>

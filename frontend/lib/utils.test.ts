@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeTeamDisplay, composeTeamMeta, formatDistinction, formatLeague } from './utils';
+import { composeTeamDisplay, composeTeamMeta, formatDistinction, formatLeague, teamDisplayName } from './utils';
 
 describe('composeTeamDisplay', () => {
   it('composes club + league + distinction for clean data', () => {
@@ -113,74 +113,81 @@ describe('composeTeamDisplay', () => {
       }
     );
   });
+});
 
-  describe('with includeAge', () => {
-    it('appends the age group so same-club teams are distinguishable', () => {
-      expect(
-        composeTeamDisplay(
-          {
-            team_name: 'Dynamos SC - Dynamos SC 2017 SC',
-            club_name: 'Dynamos SC',
-            league: null,
-            distinction: null,
-            age: 10,
-          },
-          { includeAge: true }
-        )
-      ).toBe('Dynamos SC U10');
-    });
-
-    it('appends the age group after league and distinction', () => {
-      expect(
-        composeTeamDisplay(
-          {
-            team_name: 'OK Energy FC 2014 Black',
-            club_name: 'Oklahoma Energy FC',
-            league: 'ECNL',
-            distinction: 'black',
-            age: 13,
-          },
-          { includeAge: true }
-        )
-      ).toBe('Oklahoma Energy FC ECNL Black U13');
-    });
-
-    it('omits the age group when age is unresolved', () => {
-      expect(
-        composeTeamDisplay(
-          { team_name: 'Dynamos SC 2017', club_name: 'Dynamos SC', league: null, distinction: null, age: 0 },
-          { includeAge: true }
-        )
-      ).toBe('Dynamos SC');
-    });
-
-    it('leaves MLS NEXT team_name verbatim rather than appending a second age', () => {
-      expect(
-        composeTeamDisplay(
-          {
-            team_name: 'Cedar Stars Academy Bergen U14 HD',
-            club_name: 'Cedar Stars Academy - Bergen',
-            league: 'MLS_NEXT_HD',
-            distinction: 'hd',
-            has_modular11_alias: true,
-            age: 14,
-          },
-          { includeAge: true }
-        )
-      ).toBe('Cedar Stars Academy Bergen U14 HD');
-    });
+describe('teamDisplayName', () => {
+  it('tells apart squads that compose to the same club label', () => {
+    const squads = [
+      { team_name: '2014/15G Copper', club_name: 'Colorado United', league: null, distinction: null },
+      { team_name: 'Colorado United - Dash', club_name: 'Colorado United', league: null, distinction: null },
+      { team_name: 'Aspire 13/14', club_name: 'Colorado United', league: null, distinction: null },
+    ];
+    expect(squads.map((t) => composeTeamDisplay(t))).toEqual(['Colorado United', 'Colorado United', 'Colorado United']);
+    expect(squads.map((t) => teamDisplayName(t))).toEqual([
+      '2014/15G Copper',
+      'Colorado United - Dash',
+      'Aspire 13/14',
+    ]);
   });
 
-  it('ignores age entirely when no options are passed', () => {
+  it('composes instead when the name is still an unresolved placeholder', () => {
     expect(
-      composeTeamDisplay({
-        team_name: 'Dynamos SC 2017',
-        club_name: 'Dynamos SC',
+      teamDisplayName({
+        team_name: 'unknown_4482913',
+        club_name: 'Oklahoma Energy FC',
         league: null,
-        distinction: null,
-        age: 10,
+        distinction: 'black',
       })
-    ).toBe('Dynamos SC');
+    ).toBe('Oklahoma Energy FC Black');
+  });
+
+  // Most placeholder-named teams have no club on file, so the fallback usually cannot improve
+  // on the placeholder.
+  it('leaves an unresolved placeholder alone when no club is on file', () => {
+    expect(teamDisplayName({ team_name: 'unknown_4482913', club_name: null })).toBe('unknown_4482913');
+  });
+
+  // Only `unknown_<numeric provider id>` is a placeholder; the backend's
+  // _is_placeholder_unknown_team draws the same line. Treating any `unknown_` prefix as one
+  // would swap a real name for its club label, which is the collapse teamDisplayName prevents.
+  it('keeps a registered name that merely starts with unknown_', () => {
+    expect(teamDisplayName({ team_name: 'unknown_elite', club_name: 'Oklahoma Energy FC' })).toBe('unknown_elite');
+    expect(teamDisplayName({ team_name: 'unknown_Playoffs AWinner', club_name: 'Some Club' })).toBe(
+      'unknown_Playoffs AWinner'
+    );
+  });
+
+  // composeTeamDisplay returns the raw name for these two, which for a placeholder is the one
+  // string the fallback exists to avoid — so teamDisplayName must not route through its guards.
+  it('composes a placeholder even when the raw-name guards would fire', () => {
+    expect(
+      teamDisplayName({
+        team_name: 'unknown_4482913',
+        club_name: 'Cedar Stars Academy',
+        league: 'MLS_NEXT_HD',
+        has_modular11_alias: true,
+      })
+    ).toBe('Cedar Stars Academy MLS Next');
+    expect(
+      teamDisplayName({ team_name: 'unknown_4482913', club_name: 'Dallas Texans', distinction: 'salazar|pre' })
+    ).toBe('Dallas Texans Pre Salazar');
+  });
+
+  it('composes instead when the name is blank', () => {
+    expect(teamDisplayName({ team_name: '   ', club_name: 'Dynamos SC', league: null, distinction: null })).toBe(
+      'Dynamos SC'
+    );
+  });
+
+  // A registered label freezes while the cohort rolls every Aug 1, so a name's own U-token
+  // usually contradicts its stored age.
+  it('never appends the cohort age to the registered name', () => {
+    expect(
+      teamDisplayName({ team_name: 'RU ORANGE U10B ELITE 1', club_name: 'Richmond United', league: null, age: 11 })
+    ).toBe('RU ORANGE U10B ELITE 1');
+    expect(teamDisplayName({ team_name: 'BUCKS BYRNES U15', club_name: 'Bucks Soccer Club', age: 19 })).toBe(
+      'BUCKS BYRNES U15'
+    );
   });
 });
 

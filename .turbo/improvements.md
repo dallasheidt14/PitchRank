@@ -322,16 +322,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/infographics/{canvasRenderer,headToHeadRenderer,rankingMoversRenderer,stateChampionsRenderer,teamSpotlightRenderer}.ts` — the `while (ctx.measureText(name).width > max && name.length > N) { name = name.slice(0, -4) + '...' }` block in each
 - **Why**: After PR #722 + the composeTeamDisplay rollout PR, all 5 renderers truncate the post-`composeTeamDisplay(team).toUpperCase()` string. Composition deliberately puts the differentiator at the end (e.g., `Carolina Rapids ECNL White`); end-anchored slice-by-4 truncation removes the squad-distinguishing tail first, collapsing distinct teams into `{club abbrev}…` on tight platforms (Instagram landscape rows in BiggestMovers/rankingMovers; small State Champions cards). Two adjacent fallers can lose their distinction simultaneously and become indistinguishable. Fix: token-aware truncator that drops `formatLeague(league)` before `formatDistinction(distinction)`, or drops common-prefix tokens before differentiator tokens. Pre-existing pattern from PR #722's renderer truncation; flagged 2026-05-05 during /polish-code on the rollout PR.
 - **Noted**: 2026-05-05
-
-### UnknownOpponentLink subline duplicates club_name visible in composed line above
-
-- **ID**: IMP-031
-- **Status**: open
-- **Type**: plan
-- **Category**: readability
-- **Where**: `frontend/components/UnknownOpponentLink.tsx` (search dropdown row :549-552 + selected-team confirmation panel :677-679); same pattern likely exists in `RankingsTable.tsx` after PR #722
-- **Why**: After the composeTeamDisplay rollout, the composed top line begins with `abbreviateClubName(club_name)`, and the muted subline immediately below renders raw `team.club_name` again — e.g. `Phoenix Rising SC ECNL White` / `Phoenix Rising Soccer Club • AZ • U14 Boys`. Visually duplicates club identity in two forms. PR #722 introduced this for the rankings table by design ("keep club identity and region visible at a glance"), but in a search dropdown row where vertical space matters more, the redundancy is more pronounced. Fix: drop `club_name` from subline in UnknownOpponentLink dropdown + selected-team confirmation; keep state/age/gender. Consider mirroring in rankings table for consistency. Pre-existing PR #722 design choice; flagged 2026-05-05 during /polish-code on the rollout PR. **Partially addressed 2026-08-18** (branch fix/search-result-labels): both sublines now delegate state/age/gender to composeTeamMeta, fixing a literal U0 and a double bullet in the confirmation panel. The club_name redundancy this entry describes is unchanged and still open.
-- **Noted**: 2026-05-05
+- **Update (2026-08-27)**: The rationale above is now wrong and the fix must change with it. The renderers truncate `teamDisplayName(team).toUpperCase()` as of branch `show-team-name-in-rankings`, so there are no longer `formatLeague`/`formatDistinction` tokens to drop in a preferred order — the input is the registered `team_name`. Registered names are also materially longer than the club label they replaced, so the loop now fires on rows that never truncated before. Re-scope to a single shared `truncateToWidth(name, maxWidth, measure, floor)` helper (the loop is duplicated six times inline against a live `CanvasRenderingContext2D`, which is why none of it is tested) and decide truncation strategy against raw names.
 
 ### Finish the composeTeamDisplay unit tests (now partially covered)
 
@@ -352,16 +343,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: new `tests/integration/test_ranking_rpcs.py` (or `tests/sql/`) + CI workflow gated on `supabase/migrations/*.sql` changes; `frontend/lib/utils.ts:219-251` (normalizeAgeGroup contract); `scripts/backfill_rankings_full.py:112` (storage-invariant watch item)
 - **Why**: PR #722 shipped a `get_state_rankings` regression that threw `22P02` on every call ("Network connection" on every state page); the bug only surfaces at call time, so SQL-syntax migration tests didn't catch it. A smoke test that exercises each ranking RPC across u10–u19, both genders, and ≥5 states would have failed CI before merge. This is the **second** time `get_state_rankings` regressed similarly (see also `feedback_check_all_rpc_fix_migrations.md`). Run via supabase-py against a `SUPABASE_TEST_URL` secret, assert non-error response + non-empty rows for known-populated cohorts. Hotfix landed in PR #724 / migration `20260505200000`. **Extended 2026-06-04 (migration `20260603000000_sargable_age_filter_rankings_rpcs`):** the sargable age-filter rewrite was proven byte-identical to the prior regex behavior only via a one-off EXCEPT parity diff + EXPLAIN in a session transcript — nothing in the repo encodes it. The new equality-list predicate silently depends on two invariants the test should also pin: (a) callers always pass `p_age` as a bare integer string via `normalizeAgeGroup` — the new `p_age::INTEGER` cast raises `22P02` on `'u12'`-style input that the old regex tolerated; (b) `rankings_full.age_group` is stored exclusively as lowercase `uNN` — non-canonical forms (`u14b`, `14-ECNL`, `U12`, `2014`) the old regex's 3rd arm matched are now silently dropped (fails closed). The committed test should encode a per-RPC EXCEPT parity check and assert the 18→19 fold divergence (national list/count + state count fold; state list does not). Project currently has **no SQL test harness**, so this was out of scope for the timeout-fix PR.
 - **Noted**: 2026-05-05 (extended 2026-06-04 with sargable-rewrite parity-guard + age_group storage/input invariants)
-
-### Fix `fetchModular11TeamIds` silent empty-Set under anon RLS — MLS Next short-circuit no-op in global search
-
-- **ID**: IMP-034
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds`, lines ~24-46); Supabase RLS on `team_alias_map` + `providers`
-- **Why**: PR #722 added a `has_modular11_alias` short-circuit in `composeTeamDisplay` so MLS Next teams render their clean raw `team_name`. The flag is populated by `fetchModular11TeamIds()` querying `team_alias_map` joined to `providers!inner` filtered by `code = 'modular11'`. Under the anon Supabase key, this returns an empty Set — verified live during PR #726 testing: `Phoenix Rising AD` search showed MLS Next teams as `Phoenix Rising FC MLS Next AD AD` instead of clean `Phoenix Rising FC U13 AD`. ~14k MLS Next teams affected. No console warning fires (zero rows ≠ error), so the failure was invisible until manual UI verification. Likely RLS on `team_alias_map` and/or the embedded join blocking anon SELECT — service-role queries from Python confirm the data is present. Fix candidates: (a) grant anon SELECT on `team_alias_map` + `providers` (low risk, both reference data), or (b) move the modular11 lookup server-side and ship the flag in `useTeamSearch`'s payload (cleaner). Either way, also harden `fetchModular11TeamIds` to log a warning when the Set is empty so future regressions surface in the console. PR #726 (`70d9a097c`) mitigates the UX impact via the disambiguator subline but the short-circuit itself remains broken.
-- **Noted**: 2026-05-06
 
 ### Parallelize watchlist bulk remove
 
@@ -1124,3 +1105,74 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/test/`, `frontend/components/{GlobalSearch,ComparePanel,RecentMovers}.test.tsx`, `frontend/components/insights/DeltaIndicator.test.tsx`
 - **Why**: Four files hand-roll the same createElement/createRoot/`act(unmount)`/remove lifecycle, so a React `act` semantics change needs four fixes — `ComparePanel.test.tsx` still imports `act` from the removed `react-dom/test-utils` path while the newer files import it from `react`. `frontend/test/` now exists (fixtures.ts, setup.ts, supabase-mock.ts) as a home for a `mountComponent()`/`cleanup()` pair.
 - **Noted**: 2026-08-24
+
+### Remove `has_modular11_alias` end-to-end
+
+- **ID**: IMP-119
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds` :23-46, field at :139), `frontend/lib/api.ts:301-314,536`, `frontend/lib/matchPredictionService.ts:249-262`, `frontend/lib/types.ts:60`, `frontend/types/RankingRow.ts:14`, plus fixtures in four test files
+- **Why**: After `teamDisplayName` (branch `show-team-name-in-rankings`) the flag's only reader is `utils.ts:192` inside `composeTeamDisplay`, reachable only when `team_name` is blank or `unknown_`-prefixed. Production count of teams meeting both conditions was 0 on 2026-08-27; only a newly scraped modular11 team makes it nonzero, and in that window it is actively harmful — it forces `return team.team_name`, rendering the literal `unknown_12345` instead of the club-composed label. Supersedes IMP-034. Not urgent: `useTeamSearch` has a module-level 10-minute cache, so its ~3 serial PostgREST round-trips cost once per session, not per search. Remove all three writers together — deleting only the `useTeamSearch` fetch leaves the field populated on some paths and not others.
+- **Noted**: 2026-08-27
+
+### Get RankingsTable under unit test despite the virtualizer
+
+- **ID**: IMP-120
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `frontend/components/RankingsTable.tsx` (648 lines, no test file), `frontend/vitest.config.ts`
+- **Why**: The rankings table is the primary surface of the team-name display change and has zero unit coverage — a revert of any of its four `teamDisplayName` call sites (visible cell :582, sort comparator :148-149, aria-label :525, Schema.org payload :337) would ship with all seven required `ci.yml` checks green. `e2e/rankings.spec.ts` does not gate: `vitest.config.ts:9` excludes `e2e/**` and Playwright is not a required check. The obvious test is not writable as-is — a scratch probe reusing this repo's harness showed `useVirtualizer` renders **zero** rows under happy-dom (the scroll element measures zero height), so everything inside `virtualItems.map` never executes. Either mock `@tanstack/react-virtual` (no precedent here) or scope the test to the Schema.org payload and sort comparator, both of which sit outside the virtual list.
+- **Noted**: 2026-08-27
+
+### ComparePanel's tests cannot fail on a team-name regression
+
+- **ID**: IMP-121
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/components/ComparePanel.test.tsx:199,231-236`, `frontend/components/EnhancedPredictionCard.tsx:87`
+- **Why**: The suite's only assertions are `toContain('Match Prediction')` and a mocked `explanation.summary` string that `EnhancedPredictionCard` renders verbatim, independent of the `teamAName`/`teamBName` props. All ten team-name call sites in `ComparePanel.tsx` are therefore unfalsifiable — reverting every one of them leaves both tests green. The fixtures compound it: `team_name: 'Alpha FC'` with `club_name: 'Alpha'` differ only by a suffix no assertion reads. Assert on the two comparison-table `<th>` cells with a fixture whose `club_name` is not a prefix of its `team_name`.
+- **Noted**: 2026-08-27
+
+### No tests anywhere under components/infographics/
+
+- **ID**: IMP-122
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `frontend/components/infographics/` (10 modules: 5 canvas renderers + 5 preview components), `frontend/components/infographics/Top10Infographic.tsx:254-266`
+- **Why**: Ten modules, zero tests. `smoke-infographics.yml` checks HTTP status on the OG routes daily, not rendered text, and is not a required `ci.yml` check. The five `*Preview.tsx` components need no canvas and are assertable today. Pairs with IMP-030, which covers the truncation helper the renderers should share.
+- **Noted**: 2026-08-27
+
+### Fold ScopedTeamSelector into the shared search-row pattern
+
+- **ID**: IMP-123
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `frontend/components/ScopedTeamSelector.tsx:120,207-212,222-223`, `frontend/components/TeamSelector.tsx`, `frontend/app/api/teams/search/route.ts:33`, `frontend/hooks/useTeamSearch.ts:90`, `frontend/CLAUDE.md` pitfall 10
+- **Why**: `ScopedTeamSelector` is a near-clone of `TeamSelector` — same `highlightMatch`, same `selectedIndex` keyboard model, same markup — but hand-rolls its row label three different ways and has no `aria-label` at all, where its three siblings do. Pitfall 10 lists only the three `useTeamSearch` consumers, so this fourth surface is missed by exactly the grep the pitfall tells you to run; it fetches `/api/teams/search`, whose select list returns neither `league` nor `distinction`.
+- **Noted**: 2026-08-27
+
+### Clamp the Top10 infographic preview so it matches the canvas export
+
+- **ID**: IMP-124
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `frontend/components/infographics/Top10Infographic.tsx:254-266`, compare `frontend/components/infographics/StateChampionsPreview.tsx:181-186`
+- **Why**: The name div sets `lineHeight: 1.2` with no `whiteSpace: 'nowrap'` and no line clamp, while its sibling preview clamps at 2 lines and the canvas export truncates by measured width. Registered names are materially longer than the club labels they replaced (see IMP-030), so a long name wraps and grows the row in the preview while the exported PNG ellipsizes it — the operator approves one image and ships another. Split out of IMP-122 so it does not close with that entry's test work.
+- **Noted**: 2026-08-27
+
+### Correct the searchable_name comment in useTeamSearch
+
+- **ID**: IMP-125
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `frontend/hooks/useTeamSearch.ts:89-91`
+- **Why**: The comment says the `searchable_name` tokens exist "so users can search using the same string they see in the rankings table". The rankings table now renders `teamDisplayName` over club + state, so U{age}, league and distinction appear in no visible row — they are index-only, feeding the hidden filter string at `RankingsTable.tsx:201`. State what the index actually widens past. Split out of IMP-123, which is a component refactor this does not depend on.
+- **Noted**: 2026-08-27
+
