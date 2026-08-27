@@ -56,7 +56,12 @@ def get_gotsport_provider_id(supabase):
 
 
 def find_teams_to_enqueue(supabase, gotsport_provider_id, limit=DEFAULT_LIMIT):
-    """Stale GotSport teams (never scraped or last_scraped_at > 90d). Uses find_stale_teams RPC."""
+    """Stale GotSport teams (never scraped or last_scraped_at > 90d). Uses find_stale_teams RPC.
+
+    The RPC also applies the shared scrape-activity predicate, so a team with no
+    recent fixture, no ranking and no game in 12 months is skipped even when its
+    last_scraped_at qualifies. Staleness alone is no longer the whole rule.
+    """
     r = supabase.rpc("find_stale_teams", {
         "p_provider_id": gotsport_provider_id,
         "p_row_limit": limit,

@@ -20,7 +20,7 @@ TEAM_KEYS = {
 
 
 def _team_row(team_id):
-    """A row shaped like a public.teams select, with an extra column to drop."""
+    """A row shaped like a find_topup_teams result, with an extra column to drop."""
     return {
         "team_id_master": team_id,
         "team_name": f"Team {team_id}",
@@ -34,92 +34,67 @@ def _team_row(team_id):
 
 
 def _supabase_paging(pages):
-    """Mock the .table().select()...range().execute() chain, one entry per page.
+    """Mock the .rpc().execute() chain, one entry per page.
 
-    Each call to .range() returns the next page. `pages` is a list of row lists.
-    Records the builder calls so tests can assert on the query that was built.
+    Each call to .rpc() returns the next page. `pages` is a list of row lists.
+    Records the RPC name and payload so tests can assert on what was requested.
     """
     supabase = Mock()
-    builder = Mock()
-    calls = {"eq": [], "lt": [], "or_": [], "order": [], "range": []}
-
-    def _record(name):
-        def inner(*args, **kwargs):
-            calls[name].append((args, kwargs))
-            return builder
-
-        return inner
-
-    supabase.table.return_value.select.return_value = builder
-    builder.eq.side_effect = _record("eq")
-    builder.lt.side_effect = _record("lt")
-    builder.or_.side_effect = _record("or_")
-    builder.order.side_effect = _record("order")
+    calls = {"rpc": []}
 
     seq = list(pages)
 
-    def _range(*args, **kwargs):
-        calls["range"].append((args, kwargs))
+    def _rpc(*args, **kwargs):
+        calls["rpc"].append((args, kwargs))
         result = Mock()
         result.execute.return_value = Mock(data=seq.pop(0) if seq else [])
         return result
 
-    builder.range.side_effect = _range
+    supabase.rpc.side_effect = _rpc
     supabase._calls = calls
     return supabase
 
 
 def _supabase_returning(rows):
-    """Single-page adapter so the pre-existing tests keep working unchanged.
-
-    They were written against the RPC's one-shot result; a single page of the
-    same rows is the exact equivalent under the paged table query.
-    """
+    """Single-page adapter so the row-filtering tests read as one result set."""
     return _supabase_paging([rows if rows is not None else None])
 
 
-def test_query_uses_14_day_cutoff_provider_and_descending_order():
+def _payloads(supabase):
+    return [c[0][1] for c in supabase._calls["rpc"]]
+
+
+def test_calls_find_topup_teams_with_provider_and_14_day_cutoff():
+    """Eligibility lives in the RPC now; the caller supplies provider, cutoff and page."""
     import datetime as _dt
 
-    from scripts.drain_queue import _fetch_topup_teams
+    from scripts.drain_queue import _TOPUP_PAGE_SIZE, _fetch_topup_teams
 
     supabase = _supabase_paging([[_team_row("t-0")]])
     _fetch_topup_teams(supabase, "prov-1", 1, set())
 
-    c = supabase._calls
-    assert c["eq"][0][0] == ("provider_id", "prov-1")
-    col, cutoff = c["lt"][0][0]
-    assert col == "last_scraped_at"
-    delta = _dt.datetime.now() - _dt.datetime.fromisoformat(cutoff)
+    (call,) = supabase._calls["rpc"]
+    assert call[0][0] == "find_topup_teams"
+    payload = call[0][1]
+    assert payload["p_provider_id"] == "prov-1"
+    assert payload["p_row_limit"] == _TOPUP_PAGE_SIZE
+    assert payload["p_offset"] == 0
+    delta = _dt.datetime.now() - _dt.datetime.fromisoformat(payload["p_cutoff"])
     assert 13.9 < delta.days + delta.seconds / 86400 < 14.1
-    assert c["order"][0][0] == ("last_scraped_at",)
-    assert c["order"][0][1] == {"desc": True}
 
 
-def test_orders_by_a_unique_tiebreaker_for_stable_paging():
-    """last_scraped_at is stamped per-run, so tie groups span thousands of rows.
-    Without a unique secondary key, OFFSET paging can repeat or skip rows."""
+def test_cutoff_is_computed_once_and_reused_across_pages():
+    """An absolute cutoff is what makes OFFSET paging over last_scraped_at DESC
+    coherent: a now()-relative gate would let a team cross the boundary mid-run
+    and push unread rows past the offset."""
     from scripts.drain_queue import _fetch_topup_teams
 
-    supabase = _supabase_paging([[_team_row("t-0")]])
+    junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
+    supabase = _supabase_paging([junk, [_team_row("g-0")]])
     _fetch_topup_teams(supabase, "prov-1", 1, set())
 
-    orders = supabase._calls["order"]
-    assert orders[0][0] == ("last_scraped_at",)
-    assert orders[0][1] == {"desc": True}
-    assert orders[1][0] == ("team_id_master",), "needs a unique tiebreaker"
-
-
-def test_query_excludes_birth_years_dynamically():
-    from scripts.drain_queue import _excluded_birth_years, _fetch_topup_teams
-
-    supabase = _supabase_paging([[_team_row("t-0")]])
-    _fetch_topup_teams(supabase, "prov-1", 1, set())
-
-    clause = supabase._calls["or_"][0][0][0]
-    assert clause.startswith("birth_year.is.null,birth_year.not.in.(")
-    for yr in _excluded_birth_years():
-        assert str(yr) in clause
+    cutoffs = {p["p_cutoff"] for p in _payloads(supabase)}
+    assert len(cutoffs) == 1
 
 
 def test_pages_until_shortfall_is_satisfied():
@@ -134,7 +109,7 @@ def test_pages_until_shortfall_is_satisfied():
     result = _fetch_topup_teams(supabase, "prov-1", 5, set())
 
     assert [t["team_id_master"] for t in result] == [f"g-{i}" for i in range(5)]
-    assert len(supabase._calls["range"]) == 2
+    assert len(supabase._calls["rpc"]) == 2
 
 
 def test_does_not_return_the_same_team_twice_across_pages():
@@ -160,17 +135,17 @@ def test_stops_paging_on_a_short_page():
     result = _fetch_topup_teams(supabase, "prov-1", 50, set())
 
     assert [t["team_id_master"] for t in result] == ["t-0"]
-    assert len(supabase._calls["range"]) == 1
+    assert len(supabase._calls["rpc"]) == 1
 
 
 def test_paging_offsets_advance_by_page_size():
-    from scripts.drain_queue import _fetch_topup_teams
+    from scripts.drain_queue import _TOPUP_PAGE_SIZE, _fetch_topup_teams
 
     junk = [{**_team_row(f"j-{i}"), "team_name": f"unknown_pt-j-{i}"} for i in range(1000)]
     supabase = _supabase_paging([junk, [_team_row("g-0")]])
     _fetch_topup_teams(supabase, "prov-1", 1, set())
 
-    assert [c[0] for c in supabase._calls["range"]] == [(0, 999), (1000, 1999)]
+    assert [p["p_offset"] for p in _payloads(supabase)] == [0, _TOPUP_PAGE_SIZE]
 
 
 def test_drops_excluded_ids_and_filtered_rows():
@@ -192,7 +167,7 @@ def test_no_query_when_batch_is_already_full():
     supabase = _supabase_returning([])
     assert _fetch_topup_teams(supabase, "prov-1", 0, {"t-1"}) == []
     assert _fetch_topup_teams(supabase, "prov-1", -5, {"t-1"}) == []
-    supabase.table.assert_not_called()
+    supabase.rpc.assert_not_called()
 
 
 def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
@@ -202,7 +177,7 @@ def test_drops_overlap_with_claimed_batch_and_truncates_to_shortfall():
 
 
 def test_preserves_source_order():
-    """The helper preserves whatever order the source returns rows in; it must not reorder them."""
+    """The RPC orders by last_scraped_at DESC; the helper must not reorder its rows."""
     supabase = _supabase_returning([_team_row("t-9"), _team_row("t-4"), _team_row("t-7")])
     result = _fetch_topup_teams(supabase, "prov-1", 3, set())
     assert [t["team_id_master"] for t in result] == ["t-9", "t-4", "t-7"]
@@ -228,15 +203,14 @@ def test_returns_only_the_keys_the_scrape_path_reads():
 
 def test_postgrest_errors_propagate():
     """Swallowing this would silently return a short batch with no explanation.
-    The caller's claim-release guard depends on the exception escaping."""
+    The caller's claim-release guard depends on the exception escaping — and
+    without the find_topup_teams migration applied, this is the error shape."""
     from postgrest.exceptions import APIError
 
     from scripts.drain_queue import _fetch_topup_teams
 
-    supabase = _supabase_paging([[]])
-    supabase.table.return_value.select.return_value.eq.side_effect = APIError(
-        {"code": "42P01", "message": "boom", "hint": "", "details": ""}
-    )
+    supabase = Mock()
+    supabase.rpc.side_effect = APIError({"code": "42883", "message": "boom", "hint": "", "details": ""})
     try:
         _fetch_topup_teams(supabase, "prov-1", 5, set())
     except APIError:
@@ -255,8 +229,7 @@ def test_finalize_only_touches_claimed_queue_rows():
 
     This pins the finalize helper's behavior only — it does not exercise
     drain_queue(), so it cannot verify that top-up teams never end up in
-    queue_map. That call-site guarantee is checked separately by the manual
-    dry-run in the plan's Task 4.
+    queue_map.
     """
     from scripts.drain_queue import _finalize_queue_items
 
@@ -433,3 +406,16 @@ def test_is_scrapeable_team_tolerates_null_age_and_birth_year():
     from scripts.drain_queue import _is_scrapeable_team
 
     assert _is_scrapeable_team({"team_name": "T", "provider_team_id": "1", "age_group": None, "birth_year": None})
+
+
+def test_is_scrapeable_team_does_not_read_the_activity_columns():
+    """_is_scrapeable_team also runs over queue-claimed rows, whose metadata comes
+    from _fetch_team_metadata and carries none of the activity columns. A dormancy
+    branch here would reject every queued team — and a rejected team is dropped from
+    the scrape list but stays in queue_map, so _finalize_queue_items would mark its
+    request completed with games_found=0, silently consuming a revival enqueue."""
+    from scripts.drain_queue import _is_scrapeable_team
+
+    assert _is_scrapeable_team(
+        {"team_id_master": "t-1", "team_name": "T", "provider_team_id": "1", "age_group": "u12", "birth_year": 2014}
+    )

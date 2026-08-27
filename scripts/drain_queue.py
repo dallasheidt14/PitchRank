@@ -97,9 +97,21 @@ def _is_scrapeable_team(team: Dict) -> bool:
     """True when a team passes PitchRank's scrape-eligibility rules.
 
     Both team sources run through this — claimed queue rows and teams-table
-    top-ups — so the two cannot diverge. The placeholder rule compares two
-    columns and ``age_group`` is stored lowercase but compared uppercase, so
-    neither is expressible as a PostgREST filter and both must be applied here.
+    top-ups — so the two cannot diverge.
+
+    ``find_topup_teams`` now applies these same three rules in SQL, so for the
+    top-up this is a redundant second pass rather than the only enforcement. It
+    stays because claimed queue rows never go through that RPC: they arrive from
+    ``scrape_requests`` and are enriched by ``_fetch_team_metadata``, so this is
+    the only place they are checked at all. Keep the two definitions in step.
+
+    Read only columns ``_fetch_team_metadata`` selects. It fetches
+    ``team_id_master, age_group, birth_year, last_scraped_at`` and nothing else,
+    so a rule added here that reads any other column silently rejects every
+    queued team — and a rejected team is dropped from the scrape list while
+    staying in ``queue_map``, so ``_finalize_queue_items`` marks its request
+    completed with ``games_found=0``, consuming a revival enqueue without
+    scraping it.
     """
     if _is_placeholder_unknown_team(team):
         return False
@@ -260,37 +272,46 @@ def _fetch_topup_teams(
     has had reason to touch it. Ascending order is anti-correlated with
     activity, which is why this reads the column descending.
 
-    Queries ``teams`` directly rather than through
-    ``get_teams_to_scrape_limited``: that RPC is shared with scrape_games.py
-    and orders ascending, so reversing it there would mean altering a function
-    another script depends on.
+    Goes through ``find_topup_teams`` rather than querying ``teams`` directly so
+    that scrape eligibility has one definition: that function carries the same
+    canonical predicate as ``find_stale_teams`` and ``find_discovery_teams``, which
+    keeps dormant and never-productive teams out of the top-up too.
 
-    Pages until ``shortfall`` teams survive ``_is_scrapeable_team`` — roughly
-    40% of fetched rows do not (1,186 of 3,000 sampled 2026-08-11) — or the
-    source is exhausted, in which case it returns fewer. Never-scraped teams
-    are excluded, since ``last_scraped_at < cutoff`` is NULL for them; they
-    carry no activity signal, and enqueue_safety_net already routes them
-    through the queue.
+    ``cutoff`` is computed once, here, and passed as an absolute timestamp. A
+    now()-relative gate inside the RPC would be re-evaluated per page, so a team
+    crossing the 14-day boundary mid-run would insert at the head of the descending
+    order and push rows this loop has not read yet past its own offset.
+
+    Pages until ``shortfall`` teams survive ``_is_scrapeable_team``, or the
+    source is exhausted, in which case it returns fewer. Attrition here used to
+    run near 40% (1,186 of 3,000 sampled 2026-08-11) against the raw teams
+    query, which filtered only birth year; ``find_topup_teams`` applies the age,
+    birth-year and placeholder rules server-side, so most pages now survive
+    intact and the loop rarely needs a second one.
+
+    Never-scraped teams are excluded, since ``last_scraped_at < cutoff`` is NULL
+    for them; they carry no activity signal, and enqueue_safety_net already
+    routes them through the queue.
     """
     if shortfall <= 0:
         return []
 
     cutoff = (datetime.now() - timedelta(days=_TOPUP_STALE_DAYS)).isoformat()
-    excluded_years = ",".join(str(y) for y in _excluded_birth_years())
 
     topup: List[Dict] = []
     seen: Set[str] = set()
     offset = 0
     while len(topup) < shortfall:
         page = (
-            supabase.table("teams")
-            .select(",".join(_TEAM_KEYS))
-            .eq("provider_id", provider_id)
-            .lt("last_scraped_at", cutoff)
-            .or_(f"birth_year.is.null,birth_year.not.in.({excluded_years})")
-            .order("last_scraped_at", desc=True)
-            .order("team_id_master")
-            .range(offset, offset + _TOPUP_PAGE_SIZE - 1)
+            supabase.rpc(
+                "find_topup_teams",
+                {
+                    "p_provider_id": provider_id,
+                    "p_cutoff": cutoff,
+                    "p_row_limit": _TOPUP_PAGE_SIZE,
+                    "p_offset": offset,
+                },
+            )
             .execute()
             .data
         ) or []
