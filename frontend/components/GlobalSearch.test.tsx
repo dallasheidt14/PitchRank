@@ -21,9 +21,7 @@ vi.mock('next/navigation', () => ({
 
 import { GlobalSearch } from './GlobalSearch';
 
-// useTeamSearch builds every row from the raw teams table, so rank_in_cohort_final is
-// always 0. The fixtures keep that 0: a `{rank && ...}` guard renders it as a literal
-// "0" in the subtitle.
+// useTeamSearch builds every row from the raw teams table, so rank_in_cohort_final is always 0.
 const dynamosU10 = {
   team_id_master: 'team-u10',
   team_name: 'Dynamos SC - Dynamos SC 2017 SC',
@@ -59,8 +57,7 @@ const dynamosU14 = {
   age: 14,
 };
 
-// A truthy rank with no state: pins that rank stays out of the subtitle even when it
-// would render, and that a missing state leaves no leading separator behind.
+// No state: pins that a missing state leaves no leading separator behind in the subtitle.
 const dynamosRanked = {
   ...dynamosU10,
   team_id_master: 'team-ranked',
@@ -126,15 +123,15 @@ describe('GlobalSearch result rows', () => {
     container = null;
   });
 
-  it('renders the club name with its age group above a bulleted state/age/gender line', async () => {
+  it('renders the registered team name above a bulleted club/state/age/gender line', async () => {
     await flushRender(root!);
     await typeQuery(container!, 'dynamos');
 
     const options = container!.querySelectorAll('[role="option"]');
     expect(options).toHaveLength(3);
-    expect(options[0].textContent).toBe('Dynamos SC U10AZ • U10 Boys');
-    expect(options[1].textContent).toBe('Dynamos SC U14AZ • U14 Boys');
-    expect(options[2].textContent).toBe('Dynamos SC U15U15 Boys');
+    expect(options[0].textContent).toBe('Dynamos SC - Dynamos SC 2017 SCDynamos SC • AZ • U10 Boys');
+    expect(options[1].textContent).toBe('Dynamos SC 2013 SCDynamos SC • AZ • U14 Boys');
+    expect(options[2].textContent).toBe('Dynamos SC 2012 SCDynamos SC • U15 Boys');
   });
 
   it('announces the disambiguating metadata in the accessible name', async () => {
@@ -142,8 +139,36 @@ describe('GlobalSearch result rows', () => {
     await typeQuery(container!, 'dynamos');
 
     const options = container!.querySelectorAll('[role="option"]');
-    expect(options[0].getAttribute('aria-label')).toBe('Select Dynamos SC U10 AZ • U10 Boys');
-    expect(options[1].getAttribute('aria-label')).toBe('Select Dynamos SC U14 AZ • U14 Boys');
-    expect(options[2].getAttribute('aria-label')).toBe('Select Dynamos SC U15 U15 Boys');
+    expect(options[0].getAttribute('aria-label')).toBe(
+      'Select Dynamos SC - Dynamos SC 2017 SC Dynamos SC • AZ • U10 Boys'
+    );
+    expect(options[1].getAttribute('aria-label')).toBe('Select Dynamos SC 2013 SC Dynamos SC • AZ • U14 Boys');
+    expect(options[2].getAttribute('aria-label')).toBe('Select Dynamos SC 2012 SC Dynamos SC • U15 Boys');
+  });
+
+  // The query can match club_name alone, and then the registered name shares no text with it.
+  // The club has to be on the row, and highlighted, or the result looks unrelated to what was
+  // typed. textContent flattens the <mark> away, so the highlight needs its own assertion.
+  it('shows and highlights the club when the query matched it rather than the team name', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      data: [
+        {
+          ...dynamosU10,
+          team_name: '2014/15G Copper',
+          club_name: 'Colorado United',
+          searchable_name: '2014/15G Copper Colorado United U10 14',
+        },
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'colorado');
+
+    const option = container!.querySelector('[role="option"]');
+    expect(option!.textContent).toBe('2014/15G CopperColorado United • AZ • U10 Boys');
+    expect(option!.querySelector('mark')!.textContent).toBe('Colorado');
   });
 });

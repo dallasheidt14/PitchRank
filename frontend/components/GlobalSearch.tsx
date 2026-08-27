@@ -11,7 +11,8 @@ import { Search, X } from 'lucide-react';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
-import { composeTeamDisplay, composeTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 /**
  * Escape special regex characters in a string
@@ -235,8 +236,8 @@ export function GlobalSearch() {
             ) : (
               <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
                 {searchResults.map((team, index) => {
-                  const displayName = composeTeamDisplay(team, { includeAge: true });
-                  const meta = composeTeamMeta(team);
+                  const displayName = teamDisplayName(team);
+                  const spokenMeta = spokenTeamMeta(team);
                   return (
                     <button
                       key={team.team_id_master}
@@ -246,10 +247,14 @@ export function GlobalSearch() {
                       className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
                         index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
                       }`}
-                      aria-label={`Select ${displayName}${meta ? ` ${meta}` : ''}`}
+                      aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
                     >
                       <div className="font-medium truncate">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                      <div className="text-xs text-muted-foreground mt-1">{meta}</div>
+                      <TeamRowSubtitle
+                        team={team}
+                        highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                        className="text-xs text-muted-foreground mt-1 truncate"
+                      />
                     </button>
                   );
                 })}

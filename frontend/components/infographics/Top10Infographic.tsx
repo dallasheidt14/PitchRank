@@ -3,7 +3,7 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
-import { composeTeamDisplay } from '@/lib/utils';
+import { teamDisplayName } from '@/lib/utils';
 
 interface Top10InfographicProps {
   teams: RankingRow[];
@@ -262,7 +262,7 @@ function RankingRowItem({ rank, team, rankSize, teamNameSize, statsSize, isVerti
             lineHeight: 1.2,
           }}
         >
-          {composeTeamDisplay(team)}
+          {teamDisplayName(team)}
         </div>
         <div
           style={{

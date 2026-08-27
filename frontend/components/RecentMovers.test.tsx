@@ -89,10 +89,10 @@ describe('RecentMovers', () => {
 
   it('switches to the 30-day movers and persists the choice', async () => {
     await renderMovers(
-      [makeTeam({ team_id_master: 'week', club_name: 'Week FC' })],
+      [makeTeam({ team_id_master: 'week', team_name: 'Week FC' })],
       // 7d and 30d disagree in sign and magnitude, so a badge reading the wrong
       // field shows the wrong direction.
-      [makeTeam({ team_id_master: 'month', club_name: 'Month FC', rank_change_7d: 40, rank_change_30d: -120 })]
+      [makeTeam({ team_id_master: 'month', team_name: 'Month FC', rank_change_7d: 40, rank_change_30d: -120 })]
     );
 
     await act(async () => {
@@ -111,8 +111,8 @@ describe('RecentMovers', () => {
     localStorage.setItem('recentMoversTimeWindow', '30d');
 
     await renderMovers(
-      [makeTeam({ team_id_master: 'week', club_name: 'Week FC' })],
-      [makeTeam({ team_id_master: 'month', club_name: 'Month FC', rank_change_30d: 120 })]
+      [makeTeam({ team_id_master: 'week', team_name: 'Week FC' })],
+      [makeTeam({ team_id_master: 'month', team_name: 'Month FC', rank_change_30d: 120 })]
     );
 
     expect(container!.textContent).toContain('Month FC');

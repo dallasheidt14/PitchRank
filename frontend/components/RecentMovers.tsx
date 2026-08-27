@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { composeTeamDisplay } from '@/lib/utils';
+import { teamDisplayName } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import type { MoversWindow } from '@/lib/movers';
 
@@ -91,7 +91,7 @@ export function RecentMovers({
               const rankChange = timeWindow === '7d' ? (team.rank_change_7d ?? 0) : (team.rank_change_30d ?? 0);
               const isImprovement = rankChange > 0;
               const currentRank = team.rank_in_cohort_final;
-              const displayName = composeTeamDisplay(team);
+              const displayName = teamDisplayName(team);
 
               return (
                 <Link

@@ -10,7 +10,7 @@ import { usePrefetchTeam } from '@/lib/hooks';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatPowerScore, composeTeamDisplay, formatLeague, formatDistinction } from '@/lib/utils';
+import { formatPowerScore, teamDisplayName, formatLeague, formatDistinction } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -145,8 +145,8 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
           bValue = getDisplayRank(b) ?? Infinity;
           break;
         case 'team':
-          aValue = composeTeamDisplay(a).toLowerCase();
-          bValue = composeTeamDisplay(b).toLowerCase();
+          aValue = teamDisplayName(a).toLowerCase();
+          bValue = teamDisplayName(b).toLowerCase();
           break;
         case 'powerScore':
           aValue = a.power_score_final ?? 0;
@@ -334,7 +334,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
     .filter((team) => getDisplayRank(team) != null)
     .slice(0, 10)
     .map((team) => ({
-      teamName: composeTeamDisplay(team),
+      teamName: teamDisplayName(team),
       clubName: team.club_name ?? undefined,
       rank: getDisplayRank(team)!,
       powerScore: team.power_score_final ?? undefined,
@@ -522,7 +522,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                               rank_in_state_final: team.rank_in_state_final ?? undefined,
                             })
                           }
-                          aria-label={`View ${composeTeamDisplay(team)} team details`}
+                          aria-label={`View ${teamDisplayName(team)} team details`}
                           className={`
                             rankings-row-link touch-auto
                             grid grid-cols-[40px_1fr_50px_64px] sm:grid-cols-[70px_2fr_1fr_1fr_100px] border-b group
@@ -579,7 +579,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                           </div>
                           <div className="px-1 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
                             <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
-                              {composeTeamDisplay(team)}
+                              {teamDisplayName(team)}
                             </span>
                             {(team.club_name || team.state) && (
                               <div className="text-xs sm:text-sm text-muted-foreground truncate w-full">

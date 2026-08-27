@@ -160,39 +160,74 @@ function distinctionHasLeakage(distinction?: string | null): boolean {
   });
 }
 
-/**
- * Compose a display name: "{club (abbreviated)} {league} {distinction}". Age is dropped by
- * default because the page's URL filter already pins the cohort; pass `{ includeAge: true }`
- * where it doesn't, or a club whose teams record no league and no distinction renders every
- * age group as the same bare club name.
- *
- * MLS Next / Modular 11 team_name values are already well formatted (e.g. "Cedar Stars
- * Academy Bergen U14 HD"), so they short-circuit ahead of the distinction checks.
- */
-export function composeTeamDisplay(
-  team: {
-    team_name: string;
-    club_name: string | null;
-    league?: string | null;
-    distinction?: string | null;
-    age?: number | null;
-    has_modular11_alias?: boolean | null;
-  },
-  options?: { includeAge?: boolean }
-): string {
-  if (!team.club_name) return team.team_name;
-  if (team.has_modular11_alias) return team.team_name;
-  // Dirty-data safety net: if the distinction still carries league/tier leakage
-  // (e.g. an orphaned "pre" from "Pre-ECNL"), the composed name reads badly, so
-  // show the raw team_name instead until the underlying data is cleaned.
-  if (distinctionHasLeakage(team.distinction)) return team.team_name;
+export interface TeamNameFields {
+  team_name: string;
+  club_name: string | null;
+  league?: string | null;
+  distinction?: string | null;
+  age?: number | null;
+  has_modular11_alias?: boolean | null;
+}
+
+function composeFromClub(team: TeamNameFields & { club_name: string }): string {
   const parts: string[] = [abbreviateClubName(team.club_name)];
   const league = formatLeague(team.league);
   if (league) parts.push(league);
   const distinction = formatDistinction(team.distinction);
   if (distinction) parts.push(distinction);
-  if (options?.includeAge && team.age) parts.push(`U${team.age}`);
   return parts.join(' ');
+}
+
+/**
+ * Compose a display name: "{club (abbreviated)} {league} {distinction}".
+ *
+ * Every guard below returns the raw team_name because it is the better string in that case:
+ * there is no club to compose from, MLS Next / Modular 11 names are already well formatted
+ * (e.g. "Cedar Stars Academy Bergen U14 HD"), or the distinction still carries league/tier
+ * leakage (an orphaned "pre" from "Pre-ECNL") that would read badly until the data is cleaned.
+ */
+export function composeTeamDisplay(team: TeamNameFields): string {
+  if (!team.club_name) return team.team_name;
+  if (team.has_modular11_alias) return team.team_name;
+  if (distinctionHasLeakage(team.distinction)) return team.team_name;
+  return composeFromClub({ ...team, club_name: team.club_name });
+}
+
+/** `unknown_<provider_team_id>`, the placeholder backfill_unknown_team_names.py has yet to resolve. */
+const UNRESOLVED_NAME = /^unknown_/i;
+
+/**
+ * The name to show for a team: the one it registered under.
+ *
+ * A club whose squads record no league and no distinction composes to one bare club name for
+ * all of them, so a whole cohort of one club renders identically. The registered name is what
+ * tells them apart, and it is what the team page shows.
+ *
+ * No age is appended. Registered names frequently carry a `U<n>` token of their own, and it
+ * freezes while the stored cohort rolls each Aug 1, so the two usually disagree — appending
+ * would render "BUCKS BYRNES U15 U19". Pair this with `composeTeamMeta` where the cohort matters.
+ *
+ * A placeholder name composes from the club instead, skipping `composeTeamDisplay`'s guards:
+ * each of those means "the raw name beats composing", which is false by construction here.
+ * Without a club there is nothing better to show than the placeholder.
+ */
+export function teamDisplayName(team: TeamNameFields): string {
+  const registered = team.team_name?.trim();
+  if (registered && !UNRESOLVED_NAME.test(registered)) return registered;
+  return team.club_name ? composeFromClub({ ...team, club_name: team.club_name }) : team.team_name;
+}
+
+/**
+ * The subtitle as one string, for an `aria-label`. Matches what `TeamRowSubtitle` renders, so
+ * the visible text stays a substring of the accessible name (WCAG 2.5.3 Label in Name).
+ */
+export function spokenTeamMeta(team: {
+  club_name?: string | null;
+  state?: string | null;
+  age?: number | null;
+  gender?: string | null;
+}): string {
+  return [team.club_name, composeTeamMeta(team)].filter(Boolean).join(' • ');
 }
 
 /**

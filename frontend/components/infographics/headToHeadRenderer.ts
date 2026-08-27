@@ -3,7 +3,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
-import { composeTeamDisplay } from '@/lib/utils';
+import { teamDisplayName } from '@/lib/utils';
 
 interface HeadToHeadOptions {
   team1: RankingRow & { rank?: number };
@@ -150,7 +150,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   ctx.fillStyle = BRAND_COLORS.brightWhite;
   ctx.font = `700 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
 
-  let team1Name = composeTeamDisplay(team1).toUpperCase();
+  let team1Name = teamDisplayName(team1).toUpperCase();
   const maxNameWidth = centerX - padding - 80;
   while (ctx.measureText(team1Name).width > maxNameWidth && team1Name.length > 8) {
     team1Name = team1Name.slice(0, -4) + '...';
@@ -179,7 +179,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   ctx.fillStyle = BRAND_COLORS.brightWhite;
   ctx.font = `700 ${teamNameSize}px Oswald, "Arial Black", sans-serif`;
 
-  let team2Name = composeTeamDisplay(team2).toUpperCase();
+  let team2Name = teamDisplayName(team2).toUpperCase();
   while (ctx.measureText(team2Name).width > maxNameWidth && team2Name.length > 8) {
     team2Name = team2Name.slice(0, -4) + '...';
   }

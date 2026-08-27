@@ -3,7 +3,7 @@
 import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
-import { composeTeamDisplay } from '@/lib/utils';
+import { teamDisplayName } from '@/lib/utils';
 
 interface MoverTeam extends RankingRow {
   change: number;
@@ -81,7 +81,7 @@ export const BiggestMoversPreview = forwardRef<HTMLDivElement, BiggestMoversPrev
               whiteSpace: 'nowrap',
             }}
           >
-            {composeTeamDisplay(team)}
+            {teamDisplayName(team)}
           </div>
           <div
             style={{
