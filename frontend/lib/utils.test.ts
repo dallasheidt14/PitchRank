@@ -147,6 +147,16 @@ describe('teamDisplayName', () => {
     expect(teamDisplayName({ team_name: 'unknown_4482913', club_name: null })).toBe('unknown_4482913');
   });
 
+  // Only `unknown_<numeric provider id>` is a placeholder; the backend's
+  // _is_placeholder_unknown_team draws the same line. Treating any `unknown_` prefix as one
+  // would swap a real name for its club label, which is the collapse teamDisplayName prevents.
+  it('keeps a registered name that merely starts with unknown_', () => {
+    expect(teamDisplayName({ team_name: 'unknown_elite', club_name: 'Oklahoma Energy FC' })).toBe('unknown_elite');
+    expect(teamDisplayName({ team_name: 'unknown_Playoffs AWinner', club_name: 'Some Club' })).toBe(
+      'unknown_Playoffs AWinner'
+    );
+  });
+
   // composeTeamDisplay returns the raw name for these two, which for a placeholder is the one
   // string the fallback exists to avoid — so teamDisplayName must not route through its guards.
   it('composes a placeholder even when the raw-name guards would fire', () => {

@@ -193,8 +193,12 @@ export function composeTeamDisplay(team: TeamNameFields): string {
   return composeFromClub({ ...team, club_name: team.club_name });
 }
 
-/** `unknown_<provider_team_id>`, the placeholder backfill_unknown_team_names.py has yet to resolve. */
-const UNRESOLVED_NAME = /^unknown_/i;
+/**
+ * `unknown_<provider_team_id>`, the placeholder backfill_unknown_team_names.py has yet to resolve.
+ * The id is numeric, and `unknown_` followed by anything else is a real registered name — the
+ * backend draws the same line in `_is_placeholder_unknown_team`.
+ */
+const UNRESOLVED_NAME = /^unknown_\d+$/i;
 
 /**
  * The name to show for a team: the one it registered under.
