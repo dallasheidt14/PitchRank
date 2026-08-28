@@ -6,10 +6,15 @@ run-name: >-
 
 on:
   schedule:
-    # 10:00 UTC daily — ~3h after the 07:00 yesterday-game enqueue so its
+    # 10:28 UTC daily — ~3h after the 07:13 yesterday-game enqueue so its
     # enqueue + 15-min drain cycle has cleared first. GH Actions cron is
     # UTC-only, so this drifts ±1h with DST.
-    - cron: '0 10 * * *'
+    #
+    # Minute 28, not 0: minute 0 is the most contended slot on GitHub's
+    # scheduler and scheduled runs are dropped under load. On minute 0 this
+    # drifted to 20:10 on 2026-08-27 and was skipped entirely on 2026-08-28.
+    # The four enqueue jobs use spread minutes so they cannot collide either.
+    - cron: '28 10 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

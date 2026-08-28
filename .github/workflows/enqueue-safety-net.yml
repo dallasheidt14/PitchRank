@@ -6,10 +6,14 @@ run-name: >-
 
 on:
   schedule:
-    # Sunday 16:00 UTC. After discovery enqueue (14:00 UTC) has had time to
+    # Sunday 16:56 UTC. After discovery enqueue (14:41 UTC) has had time to
     # land, so safety-net only picks up teams that neither daily nor discovery
     # could catch.
-    - cron: '0 16 * * 0'
+    #
+    # Minute 56, not 0: minute 0 is the most contended slot on GitHub's
+    # scheduler and scheduled runs are dropped under load. The daily enqueue
+    # jobs on minute 0 drifted ~10h on 2026-08-27 and were skipped on 08-28.
+    - cron: '56 16 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:

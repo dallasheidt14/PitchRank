@@ -6,9 +6,13 @@ run-name: >-
 
 on:
   schedule:
-    # Sunday 14:00 UTC. After the weekend yesterday-game enqueue spike has had
-    # time to drain (daily enqueue runs at 12:00 UTC, drains at 200/15min).
-    - cron: '0 14 * * 0'
+    # Sunday 14:41 UTC. After the weekend yesterday-game enqueue spike has had
+    # time to drain (that daily enqueue runs at 07:13 UTC).
+    #
+    # Minute 41, not 0: minute 0 is the most contended slot on GitHub's
+    # scheduler and scheduled runs are dropped under load. The daily enqueue
+    # jobs on minute 0 drifted ~10h on 2026-08-27 and were skipped on 08-28.
+    - cron: '41 14 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:
