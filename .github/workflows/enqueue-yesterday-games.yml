@@ -6,10 +6,16 @@ run-name: >-
 
 on:
   schedule:
-    # 07:00 UTC = 1am MDT / midnight MST (Mountain). Runs overnight so the
+    # 07:13 UTC = ~1am MDT / midnight MST (Mountain). Runs overnight so the
     # process-missing-games drain (every 15min) has hours to clear the queue
     # before morning. GH Actions cron is UTC-only, so this drifts ±1h with DST.
-    - cron: '0 7 * * *'
+    #
+    # Minute 13, not 0. Scheduled runs are best-effort and are dropped when
+    # GitHub's scheduler is busy, and minute 0 is the most contended slot on the
+    # platform. On minute 0 this drifted to 17:56 on 2026-08-27 and was skipped
+    # entirely on 2026-08-28, which emptied the queue and stopped scraping.
+    # process-missing-games already runs at 7,22,37,52 for the same reason.
+    - cron: '13 7 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
