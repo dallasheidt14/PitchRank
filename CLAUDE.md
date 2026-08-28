@@ -34,6 +34,8 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
 - When running verification/audit scripts, ensure the script does not match its own output files (exclude report files from scans).
+- `ci.yml` applies no migrations, so nothing in CI executes SQL. Tests that guard a migration's contents are standing in for execution, and two shapes fail silently. **Scope each assertion to the statement it is about** — `"IS DISTINCT FROM" in <whole file>` is satisfied by the migration's own header comment and can never fail; extract the `UPDATE ...;` and assert against that. And **assert the structure, not only the parts** — pinning five predicate branches individually still passes when their joining `OR`s all become `AND`s, which can silently make a function return nothing.
+- **Resolve a guarded SQL object by function name across all migrations, never by filename.** Functions here are superseded by new migration files rather than edited in place, so a test pinned to `20260827100300_*.sql` stops covering `find_stale_teams` the moment anyone redefines it — passing green against a file the database no longer reflects. Glob `supabase/migrations/*.sql`, take the newest definition per name, and assert against that.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -393,10 +395,11 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 |----------|----------|---------|
 | `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint, Python Tests, Frontend Lint, Frontend Format, Frontend Typecheck, Frontend Tests, Frontend llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
-| `enqueue-yesterday-games.yml` | Daily 7:00 AM UTC | Queue teams whose yesterday games have null scores (priority 2) |
-| `enqueue-active-teams.yml` | Daily 10:00 AM UTC | Queue teams active in the last 3 days (priority 2) |
-| `enqueue-discovery.yml` | Sun 2:00 PM UTC | Queue teams with no future games (priority 3) |
-| `enqueue-safety-net.yml` | Sun 4:00 PM UTC | Queue never-scraped / 90d+ teams (priority 4) |
+| `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue teams whose yesterday games have null scores (priority 2) |
+| `enqueue-active-teams.yml` | Daily 10:28 UTC | Queue teams active in the last 3 days (priority 2) |
+| `enqueue-discovery.yml` | Sun 14:41 UTC | Queue teams with no future games (priority 3) |
+| `enqueue-safety-net.yml` | Sun 16:56 UTC | Queue never-scraped / 90d+ teams (priority 4) |
+| `refresh-team-scrape-activity.yml` | Sun 12:19 UTC | Recompute the `teams` activity columns the scrape-eligibility rules read |
 | `process-missing-games.yml` | Every 15 min | Drain the queue, 40 teams per run |
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
 | `calculate-rankings.yml` | Mon 12:30 PM UTC | Recalculate rankings (Glicko-2 + ML) |
@@ -512,6 +515,58 @@ priority via `LEAST`. Consumers:
 A claimed row is set to `processing` and **nothing ever reclaims it** — there is no
 lease, expiry, or reaper, and `claim_queue_items` only selects `pending`. Any path that
 claims rows without going on to scrape them must release them explicitly.
+`drain_queue.py` now does, on any exception between claiming and finalizing, but it
+catches `BaseException` rather than `Exception` for a reason: a workflow cancellation
+arrives as SIGINT, and `KeyboardInterrupt` is not an `Exception`. Nothing survives
+SIGKILL, and releasing a large claim costs a round trip per 100 rows, so a cancelled
+bulk drain may still strand part of its batch.
+
+**A stranded row does not block its team.** `idx_scrape_requests_pending_team` is
+`UNIQUE … WHERE status = 'pending'`, so a row sitting in `processing` does not stop
+`enqueue_scrape_request` creating a fresh pending one — verified 2026-08-28, when 1,974
+of 6,392 stranded teams had already been re-queued. The cost is that queue depth becomes
+unreadable, not that teams fall out of the pipeline. Earlier wording here claimed
+otherwise.
+
+Stranding is bursty rather than gradual: a cancelled `clear-queue` run put 5,981 rows
+into `processing` in a single second on 2026-08-23. `scripts/retire_stranded_scrape_requests.py`
+clears them (report-only by default, `--execute` to write), retiring them to `failed`
+rather than `pending` so days-old requests do not jump ahead of current work.
+
+#### Scrape volume is capped by limits, not by who is eligible
+
+Every selector on the path is fixed-N: `enqueue_safety_net.py` and
+`enqueue_discovery_teams.py` default to 500 and 1000 and their crons pass no `--limit`,
+`enqueue_active_teams.py` defaults to 2000, `process-missing-games.yml` runs `--limit 40`,
+and `drain_queue._fetch_topup_teams` pages *until* it has filled its shortfall. Producers
+therefore enqueue their full quota whenever the eligible pool exceeds it, which it always
+does — the never-scraped teams alone number in the tens of thousands.
+
+So **narrowing eligibility changes which teams get scraped, never how many.** A change
+that filters the queue buys targeting quality, not ZenRows spend. To actually reduce cost,
+change the limits or the cadence. Say which of the two a proposal is doing before writing
+it, because the wrong assumption survives a long way into a plan.
+
+#### `team_scrape_log` writers, and the break in its history
+
+`src/scrapers/base.py` `_log_team_scrape` pairs a `team_scrape_log` insert with a
+`teams.last_scraped_at` update, and `drain_queue.py`, `scrape_games.py` and `BaseScraper`
+subclasses reach it. `process_missing_games.py` — the every-15-minute automatic drainer —
+writes both as well, through its own `_flush_scrape_log`, which buffers a run's attempts
+and flushes once.
+
+**It did not before, so the table has a seam.** Rows from that drainer begin only when
+`_flush_scrape_log` shipped; earlier periods carry the bulk and manual paths alone and
+undercount real scraping by roughly 3,840 attempts/day. Any rate, coverage or productivity
+metric spanning that boundary compares two different writer sets — restrict the window, or
+say which side of it you are on.
+
+The per-outcome mapping is load-bearing, not bookkeeping: a scrape that reached the
+provider and found nothing logs `partial` **and advances `last_scraped_at`**, while a WAF
+block or an unexpected failure logs `error` and **must not** advance it. `scrape_attempts`
+excludes `error` rows, so mapping a transient failure to `partial` would let ten WAF blocks
+retire a live team as never-productive; and stamping the timestamp after a scrape that
+never reached the provider restarts the six-month re-probe clock for free.
 
 ---
 

@@ -1176,3 +1176,122 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The comment says the `searchable_name` tokens exist "so users can search using the same string they see in the rankings table". The rankings table now renders `teamDisplayName` over club + state, so U{age}, league and distinction appear in no visible row — they are index-only, feeding the hidden filter string at `RankingsTable.tsx:201`. State what the index actually widens past. Split out of IMP-123, which is a component refactor this does not depend on.
 - **Noted**: 2026-08-27
 
+### Give the unknown_ placeholder predicate one definition
+
+- **ID**: IMP-126
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/drain_queue.py:70` and `scripts/scrape_games.py:51` (byte-identical `_is_placeholder_unknown_team`), `frontend/lib/utils.ts:201` (`UNRESOLVED_NAME`)
+- **Why**: One canonical shape, three definitions, and the frontend one already drifted. It shipped as `/^unknown_/i`, which classifies any name starting with `unknown_` as a placeholder; a real team with a club would then render its club label instead of its name, recreating the cohort collapse PR #1043 fixed. Caught in review and tightened to `/^unknown_\d+$/i`, but `tests/unit/test_scrape_games.py:98` had asserted `unknown_elite` is a real name the whole time and nothing stopped the frontend disagreeing. The two Python copies are identical and want one import. The frontend cannot do the backend's exact `team_name == f"unknown_{provider_team_id}"` comparison because the payload carries no `provider_team_id` — decide whether that column should reach the frontend or whether the regex stays the sanctioned approximation.
+- **Noted**: 2026-08-27
+
+### backfill_total_game_stats is cancelled on every run and its fallback writes nothing
+
+- **ID**: IMP-128
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `supabase/migrations/20260325100000_batch_backfill_game_stats.sql:35`, `scripts/calculate_rankings.py:1006-1016` (`_backfill_game_stats_python`)
+- **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
+- **Noted**: 2026-08-27
+
+### Hoist the team_scrape_log bulk writer into src/etl/bulk_ops.py
+
+- **ID**: IMP-129
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/drain_queue.py:113-153` and `scripts/scrape_games.py:62-103` (byte-identical `_bulk_log_team_scrapes`), `scripts/process_missing_games.py` (`_flush_scrape_log`)
+- **Why**: Three copies of the same writer — same 500-row batching, same row shape, same `update_last_scraped_at` flag, same swallowed-insert warning, same `bulk_update_last_scraped_at` handoff. `src/etl/bulk_ops.py` already hosts that RPC helper and all three files import from it. The third copy is a method rather than a module function and does not share the name, so a grep for the other two misses it. Generalising needs only `provider_id` per entry instead of per call, which `_flush_scrape_log` already does.
+- **Noted**: 2026-08-27
+
+### Give the scrape-eligibility predicate one definition via a security_invoker view
+
+- **ID**: IMP-130
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `supabase/migrations/20260827100200_find_topup_teams.sql`, `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql`, `tests/unit/test_scrape_activity_predicate.py`
+- **Why**: The rule is currently pasted byte-identically into `find_stale_teams`, `find_discovery_teams` and `find_topup_teams`, held together by a drift test. Sharing it as a scalar SQL function genuinely will not work — `inline_function()` refuses a body with `hasSubLinks` and the rule carries an `EXISTS`. A view does: `is_simple_subquery()` does not reject sublinks, so the qual is pulled up into each caller's `WHERE` and the plan is unchanged. Needs an explicit `REVOKE SELECT ... FROM anon, authenticated`, since Supabase's default privileges would otherwise expose it over PostgREST. Would retire three copies, most of the drift test, and the requirement that the block stay schema-qualified to suit whichever caller runs under `search_path = ''`.
+- **Noted**: 2026-08-27
+
+### find_discovery_teams recomputes what teams.last_fixture_at now stores
+
+- **ID**: IMP-131
+- **Status**: open
+- **Type**: direct
+- **Category**: performance
+- **Where**: `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql` (the `team_flags` CTE)
+- **Why**: `has_future` is 1 exactly when `MAX(game_date) > CURRENT_DATE` and `has_recent` exactly when `MAX(game_date) >= CURRENT_DATE - 90`; both are `t.last_fixture_at` comparisons, which the same migration set materialises and refreshes. The column is also more correct, since it resolves `team_merge_map` while the CTE joins raw master ids. The CTE scans ~3M game rows every Sunday to recompute two booleans. Trade-off to accept explicitly: `last_fixture_at` is up to a refresh interval stale, so a fixture imported mid-week would not suppress that team's discovery enqueue until the next refresh — a wasted scrape, not a wrong result.
+- **Noted**: 2026-08-27
+
+### process_missing_games advances last_scraped_at after a window-limited scrape
+
+- **ID**: IMP-132
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/process_missing_games.py` (`scrape_games_for_date`, `_flush_scrape_log`), `scripts/drain_queue.py:687-700` (`scrape_dates_cache`)
+- **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
+- **Noted**: 2026-08-27
+
+### data-hygiene Step 1b goes red when its grep finds nothing
+
+- **ID**: IMP-133
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.github/workflows/data-hygiene-weekly.yml:184`
+- **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
+- **Noted**: 2026-08-27
+
+### `fetch_teams` pages without `.order()`, silently dropping ~16% of every cohort
+
+- **ID**: IMP-134
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/find_fuzzy_duplicate_teams.py:197-225`
+- **Why**: The paginated fetch pulls 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable row order across pages without one, so each cohort scan silently drops and duplicates part of its own input. Reproduced on `u19`: an ordered pass returns 26,756 distinct rows, an unordered one 22,508 — 16% never fetched. Those teams are not skipped by a rule, they never arrive, so they appear in no count, no verdict and no report, and the loss is invisible from the output. Every per-cohort figure the duplicate pipeline produces is therefore a floor. Fix is `.order("team_id_master")`; sweep the other paginated fetches for the same gap while there. Found while building `scripts/check_merge_skill_assumptions.py`, whose own figures disagreed until the clause was added.
+- **Noted**: 2026-08-27
+
+### `has_protected_division` matches ' EA' as a substring, excluding East/Eagles teams from dedup
+
+- **ID**: IMP-135
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py:761-775`
+- **Why**: The check intends the MLS NEXT `EA` division but tests the uppercased name for the substring `' EA'`, so it matches any word beginning EA that is not the first word. Verified: `FC EAST 2012` and `SC EAGLES 2013` are treated as protected, while `EAST MEADOW 2012` is not (leading word, no preceding space). 3,256 live rows contain `' EA'`, 2,148 of them East/Eagles names with no connection to the division — every one silently ineligible for duplicate detection, with no log line. Fix: match a whitespace-delimited `EA` token rather than a substring. Same file's ` AD`/` HD` tests should be checked for the same shape.
+- **Noted**: 2026-08-27
+
+### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
+
+- **ID**: IMP-136
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/utils/team_name_utils.py` (`_GENDER_WORD`, consumed by `birth_years`)
+- **Why**: The compiled pattern holds raw 0x08 bytes in place of word-boundary escapes, so it can never match real input. Verified: `birth_years('Club 12 Boys')` and `birth_years('Club Boys 12')` both return the empty set, while `birth_years('Club 2012 Boys')` returns {2012} via a different branch. 2,953 live rows use the two-digit-plus-gender-word form and so state no birth year at all, which silently disarms `birth_years_conflict` on them — the one guard that stops a 2008 team absorbing a 2009 team. Fix the escapes and add a regression test; `scripts/check_merge_skill_assumptions.py` asserts the current broken behaviour, so that assertion must be inverted in the same commit.
+- **Noted**: 2026-08-27
+
+### Merging a double-import duplicate leaves the fixture recorded twice against the survivor
+
+- **ID**: IMP-137
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/rankings/data_adapter.py:291`, `scripts/cleanup_dupe_games_by_composite.py`
+- **Why**: `execute_team_merge` never touches `games`, so when two rows held the same match because it was imported twice, both rows now resolve to the survivor and its schedule contains the match twice. Nothing downstream removes them: the adapter dedupes with `drop_duplicates(subset=["id"])` — the game row's own id — so both copies feed the engine, and `game_uid` embeds master team ids so they never collided on insert either. Measured 604 duplicated fixture tuples across a 200-merge sample of the 2026-08-27 batch; no ranking run has consumed them yet (last run 101 days ago). `cleanup_dupe_games_by_composite.py` cannot find them — it keys on the raw master ids, which still differ — and it deletes rows outright, against the game-immutability rule. Decide between merge-resolved dedupe in the adapter and marking the redundant copies `is_excluded`.
+- **Noted**: 2026-08-27
+
+### Modular11 import files some U13 fixtures onto the U14 team row
+
+- **ID**: IMP-138
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: Modular11 / MLS NEXT import path; `games` rows whose `source_url` is under `modular11.com`
+- **Why**: `Los Angeles Football Club U14 HD` carries games such as `LAFC U14 HD 6-2 San Diego FC U13 HD` on the same date and with the same score as the real `LAFC U13 HD 6-2 San Diego FC U13 HD`. The same shape repeats against FC Golden State, SoCal Reds, Santa Barbara, LA Galaxy, Total Futbol Academy and Phoenix Rising. Both LAFC rows are genuine squads, so this is game mis-attribution rather than a team duplicate — it inflates the U14 row's record and makes shared-fixture duplicate detection fire on legitimately distinct team pairs across MLS NEXT clubs (Hoover-Vestavia HD/AD, Michigan Wolves U15/U16, Albion SC U15/U16). Surfaced while sizing duplicate candidates on 2026-08-27; Modular11 was excluded from that work by operator decision, so this was noted rather than pursued.
+- **Noted**: 2026-08-27
