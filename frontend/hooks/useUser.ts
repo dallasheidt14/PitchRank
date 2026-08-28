@@ -35,6 +35,23 @@ export function hasAdminAccess(profile: UserProfile | null): boolean {
   return profile.plan === 'admin';
 }
 
+const PROFILE_FETCH_ATTEMPTS = 3;
+const PROFILE_RETRY_BASE_MS = 300;
+
+// PostgREST's code for "`.single()` matched no row". That is a genuine absence of
+// a profile rather than a transient failure, so retrying it only delays the answer.
+const NO_ROWS_ERROR_CODE = 'PGRST116';
+
+/**
+ * `failed` separates "we could not reach the profile" from "there is no profile".
+ * Collapsing the two makes a paying user indistinguishable from a free one, which
+ * is exactly what hasPremiumAccess would then report.
+ */
+interface ProfileFetchResult {
+  profile: UserProfile | null;
+  failed: boolean;
+}
+
 interface UseUserReturn {
   user: User | null;
   profile: UserProfile | null;
@@ -57,23 +74,32 @@ export function useUser(): UseUserReturn {
   const supabase = createClientSupabase();
 
   const fetchProfile = useCallback(
-    async (userId: string) => {
-      try {
-        const { data, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
+    async (userId: string): Promise<ProfileFetchResult> => {
+      for (let attempt = 1; attempt <= PROFILE_FETCH_ATTEMPTS; attempt++) {
+        try {
+          const { data, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
 
-        if (profileError) {
-          console.warn('Error fetching profile:', profileError.message);
-          return null;
+          if (!profileError) {
+            return { profile: data as UserProfile, failed: false };
+          }
+          if (profileError.code === NO_ROWS_ERROR_CODE) {
+            return { profile: null, failed: false };
+          }
+          console.warn(`Error fetching profile (attempt ${attempt}):`, profileError.message);
+        } catch (e) {
+          console.warn(`Profile fetch error (attempt ${attempt}):`, e);
         }
-        return data as UserProfile;
-      } catch (e) {
-        console.warn('Profile fetch error:', e);
-        return null;
+
+        if (attempt < PROFILE_FETCH_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, PROFILE_RETRY_BASE_MS * attempt));
+        }
       }
+
+      return { profile: null, failed: true };
     },
     [supabase]
   );
@@ -99,8 +125,12 @@ export function useUser(): UseUserReturn {
 
       setUser(currentUser);
       if (currentUser) {
-        const userProfile = await fetchProfile(currentUser.id);
-        setProfile(userProfile);
+        const { profile: userProfile, failed } = await fetchProfile(currentUser.id);
+        if (failed) {
+          setError(new Error('Could not load your subscription details'));
+        } else {
+          setProfile(userProfile);
+        }
       } else {
         setProfile(null);
       }
@@ -150,10 +180,14 @@ export function useUser(): UseUserReturn {
         if (currentSession?.user) {
           // Wait for profile to load before setting isLoading to false
           console.log('[useUser] Fetching profile for user:', currentSession.user.id);
-          const userProfile = await fetchProfile(currentSession.user.id);
-          console.log('[useUser] Profile result:', userProfile ? { plan: userProfile.plan } : null);
+          const { profile: userProfile, failed } = await fetchProfile(currentSession.user.id);
+          console.log('[useUser] Profile result:', failed ? 'fetch failed' : (userProfile?.plan ?? null));
           if (isMounted) {
-            setProfile(userProfile);
+            if (failed) {
+              setError(new Error('Could not load your subscription details'));
+            } else {
+              setProfile(userProfile);
+            }
           }
         } else {
           console.log('[useUser] No session, skipping profile fetch');
@@ -203,8 +237,8 @@ export function useUser(): UseUserReturn {
       setUser(currentSession?.user ?? null);
 
       if (currentSession?.user) {
-        const userProfile = await fetchProfile(currentSession.user.id);
-        if (isMounted) {
+        const { profile: userProfile, failed } = await fetchProfile(currentSession.user.id);
+        if (isMounted && !failed) {
           setProfile(userProfile);
         }
       } else {
