@@ -150,4 +150,19 @@ describe('useUser profile loading', () => {
     expect(readout()).toContain('plan:premium');
     expect(readout()).toContain('premium:true');
   });
+
+  it('clears a stale profile when a different account signs in and its fetch fails', async () => {
+    queue([ok(PREMIUM_PROFILE)]);
+    await render();
+    expect(readout()).toContain('premium:true');
+
+    queue([transientFailure()]);
+    await act(async () => {
+      await authCallback!('SIGNED_IN', { user: { id: 'user-2' } });
+    });
+    await settleRetries();
+
+    expect(readout()).toContain('plan:none');
+    expect(readout()).toContain('premium:false');
+  });
 });

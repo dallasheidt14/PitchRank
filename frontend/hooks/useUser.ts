@@ -104,6 +104,13 @@ export function useUser(): UseUserReturn {
     [supabase]
   );
 
+  // A retained profile is only valid for the user it was fetched for. Holding it
+  // across an account switch would hand the incoming user the previous plan.
+  const markProfileUnavailable = useCallback((userId: string) => {
+    setError(new Error('Could not load your subscription details'));
+    setProfile((current) => (current?.id === userId ? current : null));
+  }, []);
+
   const refreshUser = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -127,7 +134,7 @@ export function useUser(): UseUserReturn {
       if (currentUser) {
         const { profile: userProfile, failed } = await fetchProfile(currentUser.id);
         if (failed) {
-          setError(new Error('Could not load your subscription details'));
+          markProfileUnavailable(currentUser.id);
         } else {
           setProfile(userProfile);
         }
@@ -139,7 +146,7 @@ export function useUser(): UseUserReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [supabase, fetchProfile]);
+  }, [supabase, fetchProfile, markProfileUnavailable]);
 
   const signOut = useCallback(async () => {
     try {
@@ -184,7 +191,7 @@ export function useUser(): UseUserReturn {
           console.log('[useUser] Profile result:', failed ? 'fetch failed' : (userProfile?.plan ?? null));
           if (isMounted) {
             if (failed) {
-              setError(new Error('Could not load your subscription details'));
+              markProfileUnavailable(currentSession.user.id);
             } else {
               setProfile(userProfile);
             }
@@ -238,8 +245,12 @@ export function useUser(): UseUserReturn {
 
       if (currentSession?.user) {
         const { profile: userProfile, failed } = await fetchProfile(currentSession.user.id);
-        if (isMounted && !failed) {
-          setProfile(userProfile);
+        if (isMounted) {
+          if (failed) {
+            markProfileUnavailable(currentSession.user.id);
+          } else {
+            setProfile(userProfile);
+          }
         }
       } else {
         if (isMounted) {
@@ -252,7 +263,7 @@ export function useUser(): UseUserReturn {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, fetchProfile, router]);
+  }, [supabase, fetchProfile, router, markProfileUnavailable]);
 
   return {
     user,
