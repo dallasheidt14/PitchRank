@@ -1,9 +1,12 @@
 name: Refresh Team Scrape Activity
 
-# Dispatch-only until the first live backfill has been checked against the
-# eligibility counts. The Sunday cron ('0 12 * * 0', two hours ahead of the
-# discovery enqueue and four ahead of the safety net) is a follow-up commit.
 on:
+  schedule:
+    # Sunday 12:19 UTC, ahead of the discovery enqueue (14:41) and the safety net
+    # (16:56) so both read fresh activity columns. Minute 19, not 0: minute 0 is
+    # the most contended slot on GitHub's scheduler and scheduled runs are dropped
+    # under load. The four enqueue jobs use spread minutes for the same reason.
+    - cron: '19 12 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:

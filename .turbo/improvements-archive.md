@@ -147,3 +147,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-05-06
 - **Refs**: superseded by IMP-119 (remove `has_modular11_alias` end-to-end)
 - **Update (2026-08-27)**: Superseded by IMP-119 — do not fix this, remove it. `teamDisplayName` (branch `show-team-name-in-rankings`) means `composeTeamDisplay` now runs only for blank/`unknown_` names, so the short-circuit this entry wants working can no longer affect any rendered string. Repairing the RLS grant would restore a branch that IMP-119 shows is counterproductive.
+
+### Reclaim scrape_requests rows stranded in 'processing'
+
+- **ID**: IMP-127
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/process_missing_games.py:434` (sets 'processing'), `scripts/drain_queue.py:319-371` (`_finalize_queue_items` / `_release_queue_items`), `supabase/migrations/20260526100000_claim_queue_items.sql` (claims only 'pending')
+- **Why**: Measured 2026-08-27, `scrape_requests` holds **6,482 rows permanently in `processing`** — ~4% of the 169,999 ever created (160,550 completed, 2,690 failed, 279 pending). Nothing reclaims them: no lease, no expiry, no reaper, and `claim_queue_items` selects only `pending`. CLAUDE.md documents the mechanism but not that it has accumulated at this scale. Each stranded row is a team whose scrape never completed and which cannot be re-enqueued, because `enqueue_scrape_request` keeps at most one pending row per team and these are not pending — so those teams are silently dropped from the queue-driven pipeline. It also makes queue depth unreadable: at 279 pending the queue is starved, not backlogged, which the raw table does not make obvious.
+- **Noted**: 2026-08-27
+- **Refs**: PR #1050 (release on interrupt), `scripts/retire_stranded_scrape_requests.py` (cleanup)
+- **Update (2026-08-28)**: the "cannot be re-enqueued" reasoning above is **wrong**. `idx_scrape_requests_pending_team` is `UNIQUE … WHERE status = 'pending'`, so a `processing` row does not block a fresh pending one, and 1,974 of the 6,392 stranded teams had already been re-queued. The cost was unreadable queue depth, not lost teams. Root cause was also not gradual decay: a cancelled `clear-queue` run stranded 5,981 rows in one second on 08-23, and a second event added 500. Fixed by releasing claims on interrupt (`BaseException`, since a cancellation is SIGINT) and by `scripts/retire_stranded_scrape_requests.py`, which retired all 6,482 to `failed`. No lease or reaper was needed.
