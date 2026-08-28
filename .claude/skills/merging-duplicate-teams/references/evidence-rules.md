@@ -23,6 +23,31 @@ is not self-validating. A batch import filed every California row named `GU8`/`G
 on one day as Male, including one at a girls-only club. A merge across that error deprecates a
 live boys squad into a girls team.
 
+**Two of the three preconditions are artifacts, and the code compares them as raw strings.**
+
+`state_code` is not a property of the club. A row auto-created from a tournament inherits the
+**event's** state, so a Pennsylvania club that played a showcase in New York is stamped `NY`.
+FC Delco alone holds live rows stamped PA, NY, MD, NJ and OH for one club. On the 2026-08-27
+placeholder batch, 41% of pairs differed this way. The precondition refuses on that difference
+before reading a single game, and the refusal reason reads `states differ` — indistinguishable
+in the output from two genuinely different clubs. **State is never evidence of distinctness.
+Treat a `states differ` refusal as unexamined, not as answered.**
+
+`club_name` is compared with `(a.get('club_name') or '').strip().lower()`, so NULL coerces to
+`''`. That cuts both ways, and the direction matters:
+
+- **NULL against a named club** mismatches and refuses, on a comparison that never happened.
+  15,046 live rows have no club name, and each is refused against every named row.
+- **NULL against NULL** compares *equal* and passes. Two club-less rows clear the precondition
+  with nothing having been checked, so the club agreement in the verdict is vacuous.
+
+`Chula Vista FC` versus `Chula Vista Soccer Club` is refused as a plain mismatch, even though
+`src/utils/club_normalizer.py` exists to canonicalise exactly that and is not imported here.
+
+Gender is the one precondition compared **case-sensitively** — `Male` against `male` refuses.
+Harmless for scan-generated candidates, since both sides come from one column, but a live
+hazard for any `--candidates` file that normalised gender differently.
+
 Where a name spells out "Boys" or "Girls" in words and the column disagrees, the name wins and
 the pair is refused — fix the column first with
 `scripts/fix_gender_from_registered_name.py`. A bare `B`/`G` letter is not enough to
@@ -41,6 +66,28 @@ conflicting dates.
 
 In one full batch the set of pairs sharing a game date was exactly the set provable as
 different teams — no exception in either direction.
+
+**The code performs none of that verification.** The rule is `elif dates_a & dates_b:` — one
+shared date, no opponent check, no score check. The paragraph above describes the judgement a
+person should make; the script does not make it. Two consequences:
+
+- It fires on the **double import**, whose signature is identical dates. That is the dominant
+  duplicate shape in this database and the reason all 639 merges of 2026-08-27 had to bypass
+  this script. One pair examined in full shared 15 dates, every one of them the same fixture
+  against the same opponent with the same score.
+- It reads unplayed fixtures. Games are selected with no score predicate, so two rows each
+  carrying a scheduled NULL-score fixture on one date refuse as "both played a game on the
+  same day" when no game was played.
+
+So: **identical opponent and identical score on a shared date is evidence of duplication, not
+of distinctness.** Recompute this by hand for every `both played a game on the same day`
+verdict before accepting it.
+
+Differing opponents do **not** finish the argument, because the opposing rows may themselves be
+a duplicate pair — the caveat three paragraphs up, stated as a procedure. Resolve each differing
+opponent to a name and ask whether the two names are one club's row imported twice
+(`W&H America U14 Adrenalina DPL` against `W&H America 15U Adrenalina DPL`). Only opponents that
+survive that check make the shared date a real refusal.
 
 **Their birth years disagree.** After resolving labels, as below.
 
@@ -104,6 +151,17 @@ a person — not from tuning.
 
 Treat any change that raises the merge rate as a regression until it is re-scored against
 adjudicated pairs.
+
+**"True duplicates merged" is measured inside the candidate set the scan already produced.**
+It is a precision-side number and it is **not** end-to-end recall. Everything the scan cannot
+propose — a different `state_code` bucket, a club spelled two ways, a placeholder name, a name
+containing a space before `EA` — is outside the denominator entirely. Reporting 36% as "the
+share of real duplicates we find" is wrong, and it is the specific mistake this table invites.
+
+The last row of the table is also the one that matters for the ceiling: *more yield can only
+come from behavioural evidence or a person*. That sentence licenses a second signal. It does
+not license a looser threshold. Adding an independent axis of evidence and loosening a rule on
+the existing axis are opposite moves, and only the second one is what this table forbids.
 
 ## What none of this establishes
 
