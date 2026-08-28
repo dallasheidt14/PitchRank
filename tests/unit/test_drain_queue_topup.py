@@ -345,6 +345,132 @@ def test_real_run_releases_claims_when_topup_fails():
     assert releases == 1
 
 
+def _drain_interrupted(scrape_error, finalize_error=None):
+    """Drive drain_queue() past the top-up and into the scrape window, then fail.
+
+    Returns (outcome, release_call_count). The claim, metadata fetch and top-up all
+    succeed, so the pre-scrape guard is not what handles the failure.
+    """
+    import asyncio
+    from unittest.mock import patch
+
+    import scripts.drain_queue as d
+
+    released = []
+    supabase = Mock()
+
+    def _table(_name):
+        t = Mock()
+        t.update.return_value.in_.return_value.execute.side_effect = lambda: released.append(1) or Mock()
+        return t
+
+    supabase.table.side_effect = _table
+    claimed = [
+        {
+            "id": "req-1",
+            "team_id_master": "t-1",
+            "team_name": "A",
+            "provider_id": "p",
+            "provider_team_id": "1",
+            "game_date": None,
+            "priority": 1,
+            "request_type": "x",
+        }
+    ]
+    meta = {"t-1": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None}}
+
+    finalize = Mock(side_effect=finalize_error) if finalize_error else Mock()
+
+    with (
+        patch.object(d, "create_client", return_value=supabase),
+        patch.object(d, "GotSportScraper") as gs,
+        patch.object(d, "_claim_queue_items", return_value=claimed),
+        patch.object(d, "_fetch_team_metadata", return_value=meta),
+        patch.object(d, "_fetch_topup_teams", return_value=[]),
+        patch.object(d, "_finalize_queue_items", finalize),
+        patch.object(d, "Progress", side_effect=scrape_error) if scrape_error else patch.object(d, "Progress"),
+    ):
+        gs.return_value._get_provider_id.return_value = "pid"
+        try:
+            asyncio.run(d.drain_queue(limit=50, concurrency=1, dry_run=False))
+            return "completed", len(released)
+        except BaseException as exc:  # noqa: BLE001 - the outcome under test
+            return type(exc).__name__, len(released)
+
+
+def test_cancellation_mid_scrape_releases_claims():
+    """A workflow cancellation arrives as SIGINT. KeyboardInterrupt is not an
+    Exception, so an `except Exception` guard would let every claimed row strand
+    in 'processing', where nothing ever reclaims it."""
+    outcome, releases = _drain_interrupted(KeyboardInterrupt())
+    assert outcome == "KeyboardInterrupt"
+    assert releases == 1
+
+
+def test_unexpected_crash_mid_scrape_releases_claims():
+    outcome, releases = _drain_interrupted(RuntimeError("scraper blew up"))
+    assert outcome == "RuntimeError"
+    assert releases == 1
+
+
+def test_waf_abort_after_finalizing_does_not_release_completed_rows():
+    """The WAF path finalizes and then calls sys.exit(2), and SystemExit is a
+    BaseException. Without the finalized flag the guard would hand those rows back
+    to 'pending' after they were just marked completed, resurrecting finished work
+    and double-scraping it on the next drain."""
+    import asyncio
+    from unittest.mock import patch
+
+    import scripts.drain_queue as d
+
+    released = []
+    supabase = Mock()
+
+    def _table(_name):
+        t = Mock()
+        t.update.return_value.in_.return_value.execute.side_effect = lambda: released.append(1) or Mock()
+        return t
+
+    supabase.table.side_effect = _table
+    claimed = [
+        {
+            "id": "req-1",
+            "team_id_master": "t-1",
+            "team_name": "A",
+            "provider_id": "p",
+            "provider_team_id": "1",
+            "game_date": None,
+            "priority": 1,
+            "request_type": "x",
+        }
+    ]
+    meta = {"t-1": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None}}
+
+    async def _waf(*_a, **_k):
+        raise d.WAFBlockedError(provider="gotsport", url="https://x.test/1", last_retry_after=None, reason="waf")
+
+    finalize = Mock()
+    with (
+        patch.object(d, "create_client", return_value=supabase),
+        patch.object(d, "GotSportScraper") as gs,
+        patch.object(d, "_claim_queue_items", return_value=claimed),
+        patch.object(d, "_fetch_team_metadata", return_value=meta),
+        patch.object(d, "_fetch_topup_teams", return_value=[]),
+        patch.object(d, "_finalize_queue_items", finalize),
+        patch.object(d, "_scrape_team_concurrent", _waf),
+    ):
+        gs.return_value._get_provider_id.return_value = "pid"
+        try:
+            asyncio.run(d.drain_queue(limit=50, concurrency=1, dry_run=False))
+            outcome = "completed"
+        except SystemExit:
+            outcome = "SystemExit"
+
+    assert outcome == "SystemExit", "the WAF path should still exit non-zero"
+    finalize.assert_called_once()
+    assert released == [], "rows were finalized; releasing them would undo completed work"
+
+
 def test_excluded_birth_years_follow_the_season():
     """Exclusions derive from the Aug-1 season year, not the calendar year."""
     import datetime as _dt

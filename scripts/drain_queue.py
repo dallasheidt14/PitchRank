@@ -695,154 +695,184 @@ async def drain_queue(
             _release_queue_items(supabase, list(queue_map.values()))
         raise
 
-    console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
-    console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
-    console.print("[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
-
-    # Build scrape-date cache from team metadata
-    scrape_dates_cache: Dict[str, Optional[datetime]] = {}
-    for t in teams:
-        tid = t.get("team_id_master")
-        if not tid:
-            continue
-        last_scraped = t.get("last_scraped_at")
-        if last_scraped:
-            try:
-                scrape_dates_cache[tid] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                scrape_dates_cache[tid] = None
-        else:
-            scrape_dates_cache[tid] = None
-    console.print(f"[green]✓[/green] Scrape-date cache built for {len(scrape_dates_cache)} teams\n")
-
-    # Set up output file for incremental saving
-    if not output_file:
-        output_file = f"data/raw/scraped_games_{datetime.now().strftime('%Y%m%d_%H%M%S')}_drain.jsonl"
-
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Open file for incremental writing
-    output_file_handle = open(output_path, "w", encoding="utf-8")
-    file_lock = threading.Lock()
-    games_saved_count = 0
-    not_found_count = 0
-    errors = []
-    log_buffer = []
-    flush_counter = [0]
-
+    # From here the claimed rows are already flipped to 'processing', and nothing
+    # ever reclaims them: there is no lease, no expiry, no reaper, and
+    # claim_queue_items only selects 'pending'. A run that dies in this window
+    # therefore strands every row it claimed — 5,981 in a single second when a bulk
+    # drain was cancelled a minute after starting.
+    #
+    # BaseException, not Exception: a workflow cancellation arrives as SIGINT, and
+    # KeyboardInterrupt is not an Exception. The flag keeps the WAF path's
+    # sys.exit(2) — a SystemExit raised *after* finalizing — from handing back rows
+    # that were just completed.
+    queue_finalized = False
     try:
-        semaphore = Semaphore(concurrency)
+        console.print(f"[bold cyan]Scraping games for {len(teams)} teams[/bold cyan]")
+        console.print(f"[cyan]Concurrency: {concurrency} teams at once[/cyan]")
+        console.print("[dim]Using per-team last_scraped_at for incremental scraping[/dim]\n")
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console,
-        ) as progress:
-            task_id = progress.add_task("Draining queue...", total=len(teams))
-
-            tasks = [
-                _scrape_team_concurrent(
-                    semaphore,
-                    scraper,
-                    team,
-                    None,  # no global since_date override — use per-team cache
-                    scrape_dates_cache,
-                    file_lock,
-                    output_file_handle,
-                    log_buffer,
-                    flush_counter,
-                    progress,
-                    task_id,
-                )
-                for team in teams
-            ]
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            waf_aborts = [r for r in results if isinstance(r, WAFBlockedError)]
-
-            for result in results:
-                if isinstance(result, Exception):
-                    errors.append(str(result))
-                elif isinstance(result, tuple):
-                    games_count, error, team_not_found = result
-                    games_saved_count += games_count
-                    if team_not_found:
-                        not_found_count += 1
-                    if error:
-                        errors.append(error)
-
-        output_file_handle.flush()
-
-        # Batch log all scrapes
-        if log_buffer:
-            console.print(f"\n[dim]Logging {len(log_buffer)} team scrapes...[/dim]")
-            _bulk_log_team_scrapes(supabase, provider_id, log_buffer)
-            console.print("[green]✓[/green] Batch logging complete\n")
-
-    finally:
-        output_file_handle.close()
-
-    waf_trip_count = get_waf_breaker().trip_count
-    console.print("\n[bold green]✅ Scraping complete![/bold green]")
-    console.print(f"  Games scraped: {games_saved_count:,}")
-    console.print(f"  Teams processed: {len(teams)}")
-    if not_found_count > 0:
-        console.print(f"  Missing provider teams skipped: {not_found_count}")
-    console.print(f"  Errors: {len(errors)}")
-    if waf_trip_count > 0:
-        console.print(f"  [yellow]CloudFront WAF trips: {waf_trip_count}[/yellow]")
-    console.print(f"  Output file: {output_path}")
-
-    if errors:
-        console.print("\n[yellow]Errors encountered:[/yellow]")
-        for error in errors[:10]:
-            console.print(f"  - {error}")
-        if len(errors) > 10:
-            console.print(f"  ... and {len(errors) - 10} more")
-
-    # Auto-import
-    if games_saved_count > 0:
-        console.print("\n[bold cyan]🔄 Auto-importing games...[/bold cyan]")
-        try:
-            import_script = Path(__file__).parent / "import_games_enhanced.py"
-            cmd = [sys.executable, str(import_script), str(output_path), provider, "--stream", "--batch-size", "1000"]
-
-            result = subprocess.run(cmd, capture_output=False, text=True)
-
-            if result.returncode == 0:
-                console.print("\n[bold green]✅ Auto-import complete![/bold green]")
+        # Build scrape-date cache from team metadata
+        scrape_dates_cache: Dict[str, Optional[datetime]] = {}
+        for t in teams:
+            tid = t.get("team_id_master")
+            if not tid:
+                continue
+            last_scraped = t.get("last_scraped_at")
+            if last_scraped:
+                try:
+                    scrape_dates_cache[tid] = datetime.fromisoformat(last_scraped.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    scrape_dates_cache[tid] = None
             else:
-                console.print(
-                    f"\n[yellow]⚠️  Auto-import completed with warnings (return code: {result.returncode})[/yellow]"
-                )
-                console.print("[dim]You can manually import with:[/dim]")
-                console.print(f"[dim]  python scripts/import_games_enhanced.py {output_path} {provider} --stream[/dim]")
-        except Exception as e:
-            console.print(f"\n[red]❌ Auto-import failed: {e}[/red]")
-            console.print("[yellow]You can manually import with:[/yellow]")
-            console.print(f"  python scripts/import_games_enhanced.py {output_path} {provider} --stream")
-            logger.error(f"Auto-import error: {e}", exc_info=True)
+                scrape_dates_cache[tid] = None
+        console.print(f"[green]✓[/green] Scrape-date cache built for {len(scrape_dates_cache)} teams\n")
 
-    # ---- DIFFERENT FROM scrape_games.py: finalize queue items ----
-    console.print("\n[dim]Finalizing queue items...[/dim]")
-    _finalize_queue_items(supabase, queue_map, log_buffer)
+        # Set up output file for incremental saving
+        if not output_file:
+            output_file = f"data/raw/scraped_games_{datetime.now().strftime('%Y%m%d_%H%M%S')}_drain.jsonl"
 
-    # WAF abort — exit after import + finalize so partial work is preserved
-    if waf_aborts:
-        completed_results = sum(1 for r in results if isinstance(r, tuple))
-        logger.error(
-            "aborting: gotsport CloudFront WAF tripped %d times this run; teams_completed=%d, teams_remaining=%d",
-            waf_trip_count,
-            completed_results,
-            len(teams) - completed_results,
-        )
-        sys.exit(2)
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    return str(output_path)
+        # Open file for incremental writing
+        output_file_handle = open(output_path, "w", encoding="utf-8")
+        file_lock = threading.Lock()
+        games_saved_count = 0
+        not_found_count = 0
+        errors = []
+        log_buffer = []
+        flush_counter = [0]
+
+        try:
+            semaphore = Semaphore(concurrency)
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress:
+                task_id = progress.add_task("Draining queue...", total=len(teams))
+
+                tasks = [
+                    _scrape_team_concurrent(
+                        semaphore,
+                        scraper,
+                        team,
+                        None,  # no global since_date override — use per-team cache
+                        scrape_dates_cache,
+                        file_lock,
+                        output_file_handle,
+                        log_buffer,
+                        flush_counter,
+                        progress,
+                        task_id,
+                    )
+                    for team in teams
+                ]
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                waf_aborts = [r for r in results if isinstance(r, WAFBlockedError)]
+
+                for result in results:
+                    if isinstance(result, Exception):
+                        errors.append(str(result))
+                    elif isinstance(result, tuple):
+                        games_count, error, team_not_found = result
+                        games_saved_count += games_count
+                        if team_not_found:
+                            not_found_count += 1
+                        if error:
+                            errors.append(error)
+
+            output_file_handle.flush()
+
+            # Batch log all scrapes
+            if log_buffer:
+                console.print(f"\n[dim]Logging {len(log_buffer)} team scrapes...[/dim]")
+                _bulk_log_team_scrapes(supabase, provider_id, log_buffer)
+                console.print("[green]✓[/green] Batch logging complete\n")
+
+        finally:
+            output_file_handle.close()
+
+        waf_trip_count = get_waf_breaker().trip_count
+        console.print("\n[bold green]✅ Scraping complete![/bold green]")
+        console.print(f"  Games scraped: {games_saved_count:,}")
+        console.print(f"  Teams processed: {len(teams)}")
+        if not_found_count > 0:
+            console.print(f"  Missing provider teams skipped: {not_found_count}")
+        console.print(f"  Errors: {len(errors)}")
+        if waf_trip_count > 0:
+            console.print(f"  [yellow]CloudFront WAF trips: {waf_trip_count}[/yellow]")
+        console.print(f"  Output file: {output_path}")
+
+        if errors:
+            console.print("\n[yellow]Errors encountered:[/yellow]")
+            for error in errors[:10]:
+                console.print(f"  - {error}")
+            if len(errors) > 10:
+                console.print(f"  ... and {len(errors) - 10} more")
+
+        # Auto-import
+        if games_saved_count > 0:
+            console.print("\n[bold cyan]🔄 Auto-importing games...[/bold cyan]")
+            try:
+                import_script = Path(__file__).parent / "import_games_enhanced.py"
+                cmd = [
+                    sys.executable,
+                    str(import_script),
+                    str(output_path),
+                    provider,
+                    "--stream",
+                    "--batch-size",
+                    "1000",
+                ]
+
+                result = subprocess.run(cmd, capture_output=False, text=True)
+
+                if result.returncode == 0:
+                    console.print("\n[bold green]✅ Auto-import complete![/bold green]")
+                else:
+                    console.print(
+                        f"\n[yellow]⚠️  Auto-import completed with warnings (return code: {result.returncode})[/yellow]"
+                    )
+                    console.print("[dim]You can manually import with:[/dim]")
+                    console.print(
+                        f"[dim]  python scripts/import_games_enhanced.py {output_path} {provider} --stream[/dim]"
+                    )
+            except Exception as e:
+                console.print(f"\n[red]❌ Auto-import failed: {e}[/red]")
+                console.print("[yellow]You can manually import with:[/yellow]")
+                console.print(f"  python scripts/import_games_enhanced.py {output_path} {provider} --stream")
+                logger.error(f"Auto-import error: {e}", exc_info=True)
+
+        # ---- DIFFERENT FROM scrape_games.py: finalize queue items ----
+        console.print("\n[dim]Finalizing queue items...[/dim]")
+        _finalize_queue_items(supabase, queue_map, log_buffer)
+        queue_finalized = True
+
+        # WAF abort — exit after import + finalize so partial work is preserved
+        if waf_aborts:
+            completed_results = sum(1 for r in results if isinstance(r, tuple))
+            logger.error(
+                "aborting: gotsport CloudFront WAF tripped %d times this run; teams_completed=%d, teams_remaining=%d",
+                waf_trip_count,
+                completed_results,
+                len(teams) - completed_results,
+            )
+            sys.exit(2)
+
+        return str(output_path)
+    except BaseException:
+        if queue_map and not queue_finalized:
+            console.print(
+                f"[red]Interrupted mid-scrape — releasing {len(queue_map)} claimed queue items[/red]"
+            )
+            _release_queue_items(supabase, list(queue_map.values()))
+        raise
 
 
 def main():
