@@ -43,14 +43,17 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 console = Console()
 
-env_local = Path(__file__).resolve().parent.parent / ".env.local"
-if env_local.exists():
-    load_dotenv(env_local, override=True)
-else:
-    load_dotenv()
+# Both files, .env.local first so its values win. Root .env is where this repo's
+# SUPABASE_* keys live, so reading it only when .env.local is absent leaves the
+# script without credentials on any machine that has both. Mirrors
+# scripts/enqueue_safety_net.py.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(REPO_ROOT / ".env.local")
+load_dotenv(REPO_ROOT / ".env")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_KEY = SERVICE_ROLE_KEY or os.getenv("SUPABASE_KEY")
 
 # A live drain holds rows in 'processing' for the length of its run. This floor
 # keeps the cleanup off anything a drain might still be working on; the observed
@@ -163,7 +166,22 @@ def main() -> None:
         console.print("[red]ERROR: Missing SUPABASE_URL or SUPABASE_KEY[/red]")
         sys.exit(1)
 
+    # RLS grants UPDATE on scrape_requests to service_role alone
+    # (20251113150557_add_scrape_requests.sql). Under any other key every batch
+    # matches nothing and PostgREST still answers 200, so the run would report a
+    # data problem instead of the permissions problem it actually hit. SELECT is
+    # open to all, so a report-only run needs no service-role key.
+    if not dry_run and not SERVICE_ROLE_KEY:
+        console.print(
+            "[red]ERROR: --execute needs SUPABASE_SERVICE_ROLE_KEY; "
+            "RLS blocks the update under any other key[/red]"
+        )
+        sys.exit(1)
+
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    # processed_at is TIMESTAMPTZ and its writers now stamp UTC, so this compares
+    # like with like. Rows claimed by a local drain before that fix read as their
+    # naive local time, which sits west of UTC and so ages out early.
     cutoff = datetime.now(timezone.utc) - timedelta(hours=args.older_than_hours)
 
     console.print(f"\n[bold]Stranded scrape requests[/bold] claimed before {cutoff.isoformat(timespec='seconds')}\n")

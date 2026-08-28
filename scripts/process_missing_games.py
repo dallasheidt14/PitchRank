@@ -18,7 +18,7 @@ import sys
 import tempfile
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -113,9 +113,9 @@ class MissingGamesProcessor:
 
             # Add timestamps based on status
             if status == "processing":
-                update_data["processed_at"] = datetime.now().isoformat()
+                update_data["processed_at"] = datetime.now(timezone.utc).isoformat()
             elif status in ["completed", "failed"]:
-                update_data["completed_at"] = datetime.now().isoformat()
+                update_data["completed_at"] = datetime.now(timezone.utc).isoformat()
 
             # Add any additional fields
             update_data.update(kwargs)
