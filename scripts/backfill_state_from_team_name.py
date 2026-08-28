@@ -391,18 +391,19 @@ def main() -> None:
         return
 
     # Over PostgREST the scan and the write are no longer one transaction, so
-    # the write repeats the SELECT's own precondition. A row filled by another
-    # writer in between is skipped and reported rather than overwritten.
+    # each write re-asserts the precondition its own row was selected under --
+    # NULL or empty, matching the two passes in fetch_candidates. A row filled
+    # by another writer in between is skipped and reported, not overwritten.
     updated = 0
     for row in planned:
-        applied = (
+        write = (
             sb.table("teams")
             .update({"state_code": row["inferred"]})
             .eq("team_id_master", row["team_id_master"])
-            .is_("state_code", "null")
-            .execute()
-        ).data or []
-        updated += len(applied)
+        )
+        scanned_as = row["state_code"]
+        write = write.is_("state_code", "null") if scanned_as is None else write.eq("state_code", scanned_as)
+        updated += len((write.execute()).data or [])
     log(f"\nUpdated {updated} teams.")
     if updated != len(planned):
         log(f"  {len(planned) - updated} skipped: state_code was set between the scan and the write.")
