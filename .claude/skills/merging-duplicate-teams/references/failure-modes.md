@@ -7,6 +7,8 @@ these to recognise a known shape quickly and to spend review effort hunting for 
 
 - Why the list keeps growing
 - Shapes found in the names
+- The birth-year guard is silent more often than it fires
+- Silent exclusions — pairs the scan drops without saying so
 - Shapes no name rule can reach
 - Shapes found only across a batch
 - What review should hunt for
@@ -24,7 +26,8 @@ prefix and the closeness of two provider ids. Guarded.
 
 **Two different birth years.** `EPIC SC 2008 Dash` against `EPIC SC 2009 Dash` scores 0.941
 plus a club-match bonus. U19 holds two birth years at once, which is why that cohort produced
-the most. Guarded.
+the most. Guarded — **but only when both stored names carry a four-digit year.** Read the next
+section before relying on that word.
 
 **Age label against birth year.** `STA MOSC U19 DPL` against `STA MOSC 2009 DPL`. `birth_years`
 reads nothing from a U-label, and an empty set never disagrees with anything, so the conflict
@@ -49,6 +52,105 @@ have played each other.
 `Academy ECNL 2013` into `Charlotte Soccer Academy - Charlotte SA ECNL 2013` — is the case the
 duplicate scan exists to catch, and that club fields two ECNL 2013 squads that share ten game
 dates.
+
+## The birth-year guard is silent more often than it fires
+
+`birth_years_conflict` is the **first** rule that stops a 2008 team absorbing a 2009 team, not
+the only one — `cohort_of` in `decide_team_merges.py` is a second, independent layer that dates
+U-labels from the seasons actually played and can refuse where the guard was silent. Neither is
+a backstop for the other, and one branch bypasses both (see below).
+
+The guard returns `False` — no conflict — whenever **either** side states no years. Measure the
+blind rate on the cohort you are working rather than assuming; on live `u19`:
+
+```
+u19 live rows: 26,756
+birth_years() returns empty: 5,848  (21.9%)
+```
+
+Measure it with `scripts/check_merge_skill_assumptions.py`, and **order the query**. PostgREST
+leaves row order unspecified without an `.order()` clause, so paging a cohort silently drops
+rows: the same u19 count came back as 22,508 rows and 4,855 blind unordered, against 26,756 and
+5,848 ordered. A 16% undercount, reproducible, in the direction that makes the problem look
+smaller than it is.
+
+Three separate, verified causes make a side state no years, and none is visible in the output.
+
+**1. A U-label carries no year, and the weekly normalizer creates U-labels.**
+`scripts/normalize_team_names.py --all-teams` is Step 1 of the same Monday job, and it is the
+only hygiene step with no freeze flag. It rewrites a birth-year band into a single U-age:
+
+```
+'EPIC SC B09/08 Dash' -> 'EPIC SC U19 Dash'
+'EPIC SC B08/07 Dash' -> 'EPIC SC U19 Dash'      <- two cohorts, identical output
+```
+
+And the guard then reads nothing from either:
+
+```
+birth_years('Club U19 Red')                          -> set()
+birth_years_conflict('Club U19 Red', 'Club 2008 Red') -> False
+birth_years_conflict('Club U19 Red', 'Club 2009 Red') -> False
+```
+
+20,146 live rows carry a U-label and no four-digit year in `team_name`. The normalizer disarms
+the merge scan's own safety check, every week, on the row it just rewrote — and `u19` is the one
+cohort where that check has to earn its keep, because it is the only one holding two birth years.
+
+**The documented fallback does not rescue `u19`.** Reading `team_name_original` is partial
+corpus-wide (90,032 live rows have it NULL) but in `u19` it is effectively useless: of the 5,476
+blind rows, one has a year recoverable that way. Do not plan around the fallback in that cohort.
+
+**2. Gender is erased too.** `'Rush 14B Black'` and `'Rush 14G Black'` both normalize to
+`'Rush 2014 Black'`. 21,214 live rows are byte-identical in (club, name, age group) to an
+opposite-gender team. The stored `gender` column is the only thing separating them.
+
+**3. A dead branch in the extractor.** `_GENDER_WORD` in `team_name_utils.py` was written with
+literal backspace bytes where `\b` was intended, so the branch can never match:
+
+```
+birth_years('Club 12 Boys')  -> set()      # expected {2012}
+birth_years('Club Boys 12')  -> set()
+birth_years('Club 2012 Boys') -> {2012}    # different branch, works
+```
+
+2,953 live rows use that form.
+
+The documented workaround — read `team_name_original` — is partial: **90,032 live rows have
+that column NULL**, because it is stashed only on the first rewrite and rows normalized before
+that behaviour shipped never got one. `birth_years`' own docstring says it reads the raw name
+and that `normalize_team_name` is the wrong substrate; the shipped scanner passes it
+`teams.team_name` anyway.
+
+## Silent exclusions — pairs the scan drops without saying so
+
+These remove pairs from consideration entirely. They produce no verdict, no log line, and no
+entry in `decisions.json`, so nothing downstream can tell they existed.
+
+**A space before `EA`.** `has_protected_division` tests the uppercased name for the substring
+`' EA'`, intending the MLS NEXT `EA` division. It matches any word starting with EA that is not
+the first word:
+
+```
+'FC EAST 2012'     -> protected (excluded)
+'SC EAGLES 2013'   -> protected (excluded)
+'EAST MEADOW 2012' -> not protected     # first word, no leading space
+```
+
+3,256 live rows contain `' EA'`; 2,148 of them are East/Eagles names with no connection to the
+EA division. Every one is silently ineligible for duplicate detection.
+
+**Placeholder names.** `unknown_<digits>` on either side returns `None` before scoring. Correct
+as a name rule — the names carry no information — but it means the whole placeholder class can
+only be reached through Doorway B.
+
+**Rows the fetch never returned.** `fetch_teams` in `find_fuzzy_duplicate_teams.py:197-225`
+pages 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable
+order across pages without one, so every cohort scan silently drops a share of its own input —
+16% when reproduced on `u19`. These rows are not skipped by a rule; they are never fetched, so
+they appear in no count, no verdict and no report, and the loss is invisible from the output.
+A one-line fix in the scan, but until it lands, treat every per-cohort figure this pipeline
+produces as a floor.
 
 ## Shapes no name rule can reach
 
