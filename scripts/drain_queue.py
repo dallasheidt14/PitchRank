@@ -27,7 +27,7 @@ import subprocess
 import sys
 import threading
 from asyncio import Semaphore
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -207,7 +207,7 @@ def _claim_queue_fallback(supabase, provider_id: str, limit: int) -> List[Dict]:
         return []
 
     ids = [item["id"] for item in items]
-    now_iso = datetime.now().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
     for i in range(0, len(ids), 100):
         batch = ids[i : i + 100]
         try:
