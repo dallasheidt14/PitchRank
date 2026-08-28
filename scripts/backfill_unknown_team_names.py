@@ -12,11 +12,18 @@ module-level WAFBreaker from src.scrapers.gotsport, so a trip here pauses any
 concurrent GotSport work on the same IP. The default 12s spacing puts a
 --limit 75 run just inside a 15-minute window.
 
-Provider IDs minted before ~May 2026 no longer exist on GotSport and return 404
-permanently; they are counted separately so a run that only hits those is visibly
-exhausted rather than silently failing. The default --created-after sits at that
-boundary so a scheduled run covers every resolvable placeholder without spending
-requests on the dead ones.
+Two GotSport ID spaces reach this table and only one of them is resolvable here.
+Rankings-space IDs (below 3,000,000) are what team_details knows: 99.97% of the
+168K teams holding one carry a real name. IDs at 3,000,000+ arrive from org_event
+schedule scrapes, identify a team only within its own event, and 404 against this
+endpoint permanently — 4,192 of the 4,200 teams holding one are still placeholders.
+--max-provider-id draws that line so a run spends requests only where a name can
+come back. 404s are still counted separately, so an exhausted run stays visible
+rather than silently failing.
+
+Age is not the discriminator. Both spaces were minted across the same March-April
+2026 window, so no date bound separates them; --created-after / --created-before
+only narrow a manual run.
 
 Updates team_name and club_name only. Age group is deliberately not written —
 GotSport's display_age_group is the registered event cohort, not the birth-year
@@ -26,6 +33,7 @@ Examples:
     python3 scripts/backfill_unknown_team_names.py --dry-run --limit 40
     python3 scripts/backfill_unknown_team_names.py --limit 40
     python3 scripts/backfill_unknown_team_names.py --limit 200 --delay 0.3
+    python3 scripts/backfill_unknown_team_names.py --max-provider-id 0 --limit 20   # include org_event IDs
 """
 
 from __future__ import annotations
@@ -52,6 +60,12 @@ from src.scrapers.gotsport import (  # noqa: E402
 )
 from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from supabase import create_client  # noqa: E402
+
+# Supabase caps a single select at 1000 rows
+PAGE_SIZE = 1000
+
+# GotSport IDs at or above this come from org_event schedules and 404 on team_details
+DEFAULT_MAX_PROVIDER_ID = 3_000_000
 
 # Values from GotSport that mean "no club" - do not update
 NO_CLUB_VALUES: Set[str] = {
@@ -197,13 +211,27 @@ def fetch_gotsport_provider_id(supabase) -> Optional[str]:
     return providers[0]["id"]
 
 
+def _is_rankings_space_id(provider_team_id: str, max_provider_id: int) -> bool:
+    """Return True if team_details can be expected to know this provider ID."""
+    if not max_provider_id:
+        return True
+    try:
+        return int(provider_team_id) < max_provider_id
+    except ValueError:
+        # Bracket slots ("Playoffs AWinner") land in this column too. team_details
+        # keys on a numeric team_id, so they resolve no more than an org_event ID.
+        return False
+
+
 def fetch_placeholder_teams(
     supabase,
     limit: int,
     created_after: Optional[str],
+    created_before: Optional[str],
+    max_provider_id: int,
     gotsport_provider_id: str,
 ) -> List[Dict]:
-    """Placeholder teams, newest first. Recent provider IDs still resolve; old ones 404.
+    """Placeholder teams team_details can resolve, newest first.
 
     Scoped to GotSport because the name is resolved against GotSport:
     discover_teams_from_opponents.py takes a --provider, so another provider's
@@ -213,19 +241,46 @@ def fetch_placeholder_teams(
     The escaped LIKE is a coarse prefilter only — ``_`` is a LIKE wildcard, so
     it is the exact-equality predicate that decides, keeping a real name like
     ``unknown_elite`` out (tests/unit/test_scrape_games.py).
+
+    Paged rather than one ``.limit()`` because both deciding predicates run here
+    instead of in the query: PostgREST would compare the text provider_team_id
+    lexicographically, which orders 640173 above 3000000.
     """
-    query = (
-        supabase.table("teams")
-        .select("team_id_master,team_name,provider_team_id,club_name,gender,age_group,state_code")
-        .like("team_name", "unknown\\_%")
-        .eq("provider_id", gotsport_provider_id)
-        .eq("is_deprecated", False)
-        .not_.is_("provider_team_id", "null")
-    )
-    if created_after:
-        query = query.gte("created_at", created_after)
-    rows = query.order("created_at", desc=True).limit(limit).execute().data or []
-    return [r for r in rows if _is_placeholder_team(r.get("team_name"), str(r.get("provider_team_id") or ""))]
+    teams: List[Dict] = []
+    offset = 0
+
+    while len(teams) < limit:
+        query = (
+            supabase.table("teams")
+            .select("team_id_master,team_name,provider_team_id,club_name,gender,age_group,state_code")
+            .like("team_name", "unknown\\_%")
+            .eq("provider_id", gotsport_provider_id)
+            .eq("is_deprecated", False)
+            .not_.is_("provider_team_id", "null")
+        )
+        if created_after:
+            query = query.gte("created_at", created_after)
+        if created_before:
+            query = query.lt("created_at", created_before)
+        rows = query.order("created_at", desc=True).range(offset, offset + PAGE_SIZE - 1).execute().data or []
+        if not rows:
+            break
+
+        for row in rows:
+            provider_team_id = str(row.get("provider_team_id") or "")
+            if not _is_placeholder_team(row.get("team_name"), provider_team_id):
+                continue
+            if not _is_rankings_space_id(provider_team_id, max_provider_id):
+                continue
+            teams.append(row)
+            if len(teams) == limit:
+                break
+
+        if len(rows) < PAGE_SIZE:
+            break
+        offset += PAGE_SIZE
+
+    return teams
 
 
 def main() -> None:
@@ -249,8 +304,22 @@ def main() -> None:
     )
     parser.add_argument(
         "--created-after",
-        default="2026-05-01",
-        help="Only teams created on/after this date (default: 2026-05-01). Pass '' for all.",
+        default="",
+        help="Only teams created on/after this date (default: no lower bound)",
+    )
+    parser.add_argument(
+        "--created-before",
+        default="",
+        help="Only teams created strictly before this date (default: no upper bound)",
+    )
+    parser.add_argument(
+        "--max-provider-id",
+        type=int,
+        default=DEFAULT_MAX_PROVIDER_ID,
+        help=(
+            f"Skip provider IDs at or above this (default: {DEFAULT_MAX_PROVIDER_ID:,}, "
+            "the org_event space that always 404s). Pass 0 to try every ID."
+        ),
     )
     args = parser.parse_args()
 
@@ -262,13 +331,22 @@ def main() -> None:
         log("ERROR: GotSport provider not found in providers table.")
         return
 
-    teams = fetch_placeholder_teams(supabase, args.limit, args.created_after, gotsport_provider_id)
+    teams = fetch_placeholder_teams(
+        supabase, args.limit, args.created_after, args.created_before, args.max_provider_id, gotsport_provider_id
+    )
     if not teams:
-        log("No placeholder teams remaining.")
+        log("No resolvable placeholder teams remaining.")
         return
 
     log(f"=== Backfill Unknown Team Names ({'DRY RUN' if args.dry_run else 'LIVE'}) ===")
-    scope = f" created on/after {args.created_after}" if args.created_after else ""
+    bounds = []
+    if args.created_after:
+        bounds.append(f"created on/after {args.created_after}")
+    if args.created_before:
+        bounds.append(f"created before {args.created_before}")
+    if args.max_provider_id:
+        bounds.append(f"provider ID under {args.max_provider_id:,}")
+    scope = f" ({', '.join(bounds)})" if bounds else ""
     log(f"Processing {len(teams):,} placeholder teams{scope} at {args.delay}s/call")
     log("")
 
