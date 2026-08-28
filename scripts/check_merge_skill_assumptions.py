@@ -64,9 +64,14 @@ RECORDED_ON = "2026-08-27"
 class Result:
     assertions: list[dict] = field(default_factory=list)
     measurements: list[dict] = field(default_factory=list)
+    manual: list[dict] = field(default_factory=list)
 
     def check(self, name, ok, detail):
         self.assertions.append({"name": name, "ok": bool(ok), "detail": detail})
+
+    def needs_human(self, name, detail):
+        """A claim this script could not establish either way. Never counts as holding."""
+        self.manual.append({"name": name, "detail": detail})
 
     def measure(self, name, value):
         recorded = RECORDED.get(name)
@@ -232,6 +237,7 @@ def check_enqueue_migration_unapplied(r: Result, sb) -> None:
     """Step 7 may only be skipped once this is applied to the database, not merely on disk."""
     on_disk = (ROOT / "supabase" / "migrations" / ENQUEUE_MIGRATION).exists()
     version = ENQUEUE_MIGRATION.split("_")[0]
+    name = "Step 7 is still required (enqueue migration not applied)"
     try:
         rows = (
             sb.schema("supabase_migrations")
@@ -241,17 +247,16 @@ def check_enqueue_migration_unapplied(r: Result, sb) -> None:
             .execute()
             .data
         )
-        applied = bool(rows)
-        detail = f"file on disk: {on_disk}; applied: {applied}"
-    except Exception as exc:  # noqa: BLE001 - schema is often not exposed to PostgREST
-        applied = None
-        detail = f"file on disk: {on_disk}; applied: UNVERIFIED ({type(exc).__name__}) -- check by hand"
+    except Exception as exc:  # noqa: BLE001 - supabase/config.toml exposes only public schemas
+        r.needs_human(
+            name,
+            f"file on disk: {on_disk}. Applied state UNVERIFIED: supabase_migrations is not "
+            f"exposed through PostgREST ({type(exc).__name__}). Query schema_migrations for "
+            f"version {version} directly before skipping Step 7.",
+        )
+        return
 
-    r.check(
-        "Step 7 is still required (enqueue migration not applied)",
-        applied is not True,
-        detail,
-    )
+    r.check(name, not rows, f"file on disk: {on_disk}; applied: {bool(rows)}")
 
 
 U_LABEL = re.compile(r"(^|[^a-zA-Z0-9])[uU]-?\d{1,2}([^a-zA-Z0-9]|$)")
@@ -332,10 +337,21 @@ def render(result: Result) -> None:
         print(f"\n  WARNING: {len(result.drifted)} figure(s) drifted past {DRIFT_TOLERANCE:.0%}.")
         print("  Re-measure and update the skill prose and RECORDED in this script together.")
 
+    if result.manual:
+        print("\nNOT VERIFIED -- this script could not establish these either way\n")
+        for m in result.manual:
+            print(f"  [??] {m['name']}")
+            print(f"         {m['detail']}")
+
     if result.failures:
         print(f"\n{len(result.failures)} assertion(s) failed. Update the skill before relying on it:")
         for a in result.failures:
             print(f"  - {a['name']}")
+    elif result.manual:
+        print(
+            f"\nEvery assertion checked holds, but {len(result.manual)} claim(s) went unverified. "
+            "Confirm those by hand before relying on them."
+        )
     else:
         print("\nAll assertions hold. The skill's claims still match the code.")
 
@@ -361,7 +377,16 @@ def main() -> int:
         measure_names(result, sb)
 
     if args.json:
-        print(json.dumps({"assertions": result.assertions, "measurements": result.measurements}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "assertions": result.assertions,
+                    "measurements": result.measurements,
+                    "unverified": result.manual,
+                },
+                indent=2,
+            )
+        )
     else:
         render(result)
 

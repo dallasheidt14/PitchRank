@@ -99,22 +99,20 @@ Require **at least two** shared fingerprints, and drop any pair that ever played
 shared fixture is noise: measured over one season, 17,476 pairs share one, 1,709 share two, and
 399 of those had met on the pitch.
 
-**There is no committed tool.** The generator that produced the 639 merges of 2026-08-27 exists
-only at
-`%LOCALAPPDATA%\Temp\claude\C--PitchRank\4294a591-08b3-4a60-b3e3-e90baa5940cf\scratchpad\build_regid_merges.py`
-— a finished session's temp directory, untracked, one cleanup from gone. **Copy it into the repo
-before using it.** Read `.turbo/handoff/2026-08-27-regid-duplicate-merges.md` for what ran and
-`.turbo/specs/second-layer-duplicate-detection.md` for the design and the generator's own known
-blind spots.
+`scripts/find_regid_duplicate_merges.py` is the one committed implementation, and it covers only
+the placeholder case — it seeds from `unknown_<id>` rows, so it answers "which named team is this
+placeholder" rather than "which two rows in this cohort are duplicates". Read
+`.turbo/specs/second-layer-duplicate-detection.md` for the design that generalises it, and the
+script's own docstring for the blind spots it ships with. For every other class, Doorway B is a
+hand-built query today.
 
-Re-running it as written returns almost nothing: **the 639 batch exhausted its Tier A.** What
-remains is the held tiers (280 partial, 79 head-to-head, 27 ambiguous, ~1,000 under the 3-game
-floor), and those need a rule change or a person, not a rerun. Establish the remaining count from
-the handoff before proposing to repeat anything.
+Re-running it as written returns almost nothing: **the 639-merge batch of 2026-08-27 exhausted
+its Tier A.** What remains is the held tiers (280 partial, 79 head-to-head, 27 ambiguous, ~1,000
+under the three-game floor), and those need a rule change or a person, not a rerun. Establish the
+remaining count before proposing to repeat anything.
 
-A stale copy of the generator's outputs may also sit in the *current* session's scratchpad. A
-`regid_tierA.json` of `[]` there means nothing — verify against the database, never against a
-scratch file.
+Stale tier output from an earlier run may still be lying around. An empty tier file proves
+nothing on its own — verify against the database, never against a scratch file.
 
 **Loosening a threshold and adding an independent signal are not the same move.** The measured
 table in evidence-rules.md forbids the first. Doorway B is the second, and it is the only route
@@ -161,8 +159,8 @@ produced**. It is not end-to-end recall and must never be reported as one.
 
 ## Step 4: Review the refusals
 
-Every REFUSE in `decisions.json`, not a sample. The rules refuse on three artifacts that look
-identical to real evidence in the output, and each has a specific tell:
+Every REFUSE in the decisions file Step 3 wrote, not a sample. The rules refuse on three
+artifacts that look identical to real evidence in the output, and each has a specific tell:
 
 | Reason string | Artifact tell | What to check |
 |---|---|---|
