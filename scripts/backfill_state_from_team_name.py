@@ -33,13 +33,13 @@ import csv
 import os
 import re
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
-import psycopg2
-import psycopg2.extras
 from dotenv import load_dotenv
+
+from supabase import create_client
 
 _env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_env_dir, ".env.local"))
@@ -121,37 +121,112 @@ _AFFILIATE_CODE = re.compile(r"(?:-\s*|\(\s*)([A-Z]{2})(?![A-Za-z])")
 # "mexico"-adjacent fragments.
 _ORDERED_STATES: List[Tuple[str, str]] = sorted(STATE_NAMES.items(), key=lambda kv: -len(kv[0]))
 
-CANDIDATE_SQL = """
-SELECT team_id_master, team_name, club_name, state, state_code
-FROM teams
-WHERE is_deprecated = false
-  AND (state_code IS NULL OR state_code = '')
-  AND team_name IS NOT NULL
-  AND team_name !~ '^unknown_[0-9]+$'
-"""
+_PLACEHOLDER_NAME = re.compile(r"^unknown_[0-9]+$")
 
-OPPONENT_SQL = """
-SELECT o.state_code AS s
-FROM games g
-JOIN teams o ON o.team_id_master = CASE
-    WHEN g.home_team_master_id = %(team)s THEN g.away_team_master_id
-    ELSE g.home_team_master_id END
-WHERE (g.home_team_master_id = %(team)s OR g.away_team_master_id = %(team)s)
-  AND o.state_code IS NOT NULL
-  AND o.state_code <> ''
-"""
+PAGE_SIZE = 1000
+TEAMS_BATCH = 100  # URI length caps .in_() lists
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
 
-def connect():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        log("ERROR: DATABASE_URL is not set (checked .env.local then .env)")
+def get_supabase():
+    url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    key = (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_KEY")
+    )
+    if not url or not key:
+        log("ERROR: missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (checked .env.local then .env)")
         sys.exit(1)
-    return psycopg2.connect(database_url)
+    return create_client(url, key)
+
+
+def fetch_candidates(sb) -> List[Dict]:
+    """Live teams with no state_code, placeholder names dropped."""
+    teams: List[Dict] = []
+    seen: Set[str] = set()
+    for is_null in (True, False):
+        offset = 0
+        while True:
+            q = (
+                sb.table("teams")
+                .select("team_id_master, team_name, club_name, state, state_code")
+                .eq("is_deprecated", False)
+                .not_.is_("team_name", "null")
+            )
+            q = q.is_("state_code", "null") if is_null else q.eq("state_code", "")
+            rows = q.range(offset, offset + PAGE_SIZE - 1).execute().data or []
+            for row in rows:
+                team_id = row.get("team_id_master")
+                if not team_id or team_id in seen:
+                    continue
+                if _PLACEHOLDER_NAME.match(row.get("team_name") or ""):
+                    continue
+                seen.add(team_id)
+                teams.append(row)
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+    return teams
+
+
+def collect_opponent_states(sb, team_ids: List[str]) -> Dict[str, Counter]:
+    """team_id_master -> Counter of opponent state_codes, one entry per game row.
+
+    Counts game rows rather than distinct opponents, and does not exclude
+    ``is_excluded`` games. Both differ from backfill_state_from_opponents.py on
+    purpose: there the ratio decides a state, here it only ever vetoes one.
+    """
+    opponents_by_team: Dict[str, List[str]] = defaultdict(list)
+    for i in range(0, len(team_ids), TEAMS_BATCH):
+        batch = team_ids[i:i + TEAMS_BATCH]
+        for own_col, other_col in (
+            ("home_team_master_id", "away_team_master_id"),
+            ("away_team_master_id", "home_team_master_id"),
+        ):
+            offset = 0
+            while True:
+                rows = (
+                    sb.table("games")
+                    .select("home_team_master_id, away_team_master_id")
+                    .in_(own_col, batch)
+                    .range(offset, offset + PAGE_SIZE - 1)
+                    .execute().data or []
+                )
+                for game in rows:
+                    team, opponent = game.get(own_col), game.get(other_col)
+                    if team and opponent:
+                        opponents_by_team[team].append(opponent)
+                if len(rows) < PAGE_SIZE:
+                    break
+                offset += PAGE_SIZE
+
+    states = fetch_states(sb, {o for ops in opponents_by_team.values() for o in ops})
+    return {
+        team: Counter(states[o] for o in ops if o in states)
+        for team, ops in opponents_by_team.items()
+    }
+
+
+def fetch_states(sb, team_ids: Set[str]) -> Dict[str, str]:
+    """team_id_master -> state_code, skipping teams that have none."""
+    out: Dict[str, str] = {}
+    ids = [t for t in team_ids if t]
+    for i in range(0, len(ids), TEAMS_BATCH):
+        rows = (
+            sb.table("teams")
+            .select("team_id_master, state_code")
+            .in_("team_id_master", ids[i:i + TEAMS_BATCH])
+            .not_.is_("state_code", "null")
+            .neq("state_code", "")
+            .execute().data or []
+        )
+        for row in rows:
+            out[row["team_id_master"]] = (row.get("state_code") or "").strip()
+    return out
 
 
 def state_from_name(team_name: Optional[str]) -> Optional[str]:
@@ -202,11 +277,6 @@ def _state_to_code(value: str) -> Optional[str]:
     return STATE_NAMES.get(re.sub(r"\s+", " ", text.lower()))
 
 
-def opponent_states(cur, team_id: str) -> Counter:
-    cur.execute(OPPONENT_SQL, {"team": team_id})
-    return Counter(row["s"] for row in cur.fetchall())
-
-
 def write_csv(path: str, planned: List[Dict]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -238,32 +308,34 @@ def main() -> None:
     if args.execute and args.dry_run:
         log("Both --execute and --dry-run given; running as a dry run.")
 
-    conn = connect()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    sb = get_supabase()
 
-    cur.execute(CANDIDATE_SQL)
-    rows = [dict(r) for r in cur.fetchall()]
+    rows = fetch_candidates(sb)
     log(f"Live teams with no state_code (excluding placeholders): {len(rows)}")
 
-    planned, contradicted, overruled = [], [], []
+    named, overruled = [], []
     for row in rows:
         inferred = state_from_name(row["team_name"])
         if not inferred:
             continue
+        row["inferred"] = inferred
 
         # teams.state is a separate column the candidate query does not require.
         # Where it is populated it is a direct statement of location and beats a
         # name heuristic, so a disagreement means skip rather than overwrite.
         stated = (row.get("state") or "").strip()
         if stated and _state_to_code(stated) and _state_to_code(stated) != inferred:
-            row["inferred"] = inferred
             row["opponents"] = f"teams.state={stated!r}"
             overruled.append(row)
             continue
-        counts = opponent_states(cur, row["team_id_master"])
+        named.append(row)
+
+    opponent_counts = collect_opponent_states(sb, [row["team_id_master"] for row in named])
+
+    planned, contradicted = [], []
+    for row in named:
+        counts = opponent_counts.get(row["team_id_master"], Counter())
         total = sum(counts.values())
-        row["inferred"] = inferred
         row["opponents"] = ";".join(f"{s}:{n}" for s, n in counts.most_common(4)) or "none"
 
         # Opponents corroborate where they exist. They are NOT required -- a
@@ -273,7 +345,7 @@ def main() -> None:
         # overwhelmingly one OTHER state, trust neither and skip.
         if total >= 5:
             top_state, top_count = counts.most_common(1)[0]
-            if top_state != inferred and top_count / total >= 0.90:
+            if top_state != row["inferred"] and top_count / total >= 0.90:
                 contradicted.append(row)
                 continue
         planned.append(row)
@@ -316,25 +388,27 @@ def main() -> None:
 
     if not execute:
         log("DRY RUN - no changes were made. Re-run with --execute to apply.")
-        conn.rollback()
-        cur.close()
-        conn.close()
         return
 
+    # Over PostgREST the scan and the write are no longer one transaction, so
+    # the write repeats the SELECT's own precondition. A row filled by another
+    # writer in between is skipped and reported rather than overwritten.
+    updated = 0
     for row in planned:
-        cur.execute(
-            "UPDATE teams SET state_code = %s WHERE team_id_master = %s",
-            (row["inferred"], row["team_id_master"]),
-        )
-    conn.commit()
-    log(f"\nUpdated {len(planned)} teams.")
+        applied = (
+            sb.table("teams")
+            .update({"state_code": row["inferred"]})
+            .eq("team_id_master", row["team_id_master"])
+            .is_("state_code", "null")
+            .execute()
+        ).data or []
+        updated += len(applied)
+    log(f"\nUpdated {updated} teams.")
+    if updated != len(planned):
+        log(f"  {len(planned) - updated} skipped: state_code was set between the scan and the write.")
 
-    cur.execute(CANDIDATE_SQL)
-    remaining = [r for r in cur.fetchall() if state_from_name(r["team_name"])]
+    remaining = [row for row in fetch_candidates(sb) if state_from_name(row["team_name"])]
     log(f"Teams still missing state_code whose name names one: {len(remaining)}")
-
-    cur.close()
-    conn.close()
 
 
 if __name__ == "__main__":
