@@ -61,12 +61,15 @@ BEGIN
     FROM public.team_merge_map m
     JOIN batch b ON b.team_id_master = m.canonical_team_id
   ),
+  -- UNION, not UNION ALL, and the game id is carried so it can dedupe on: when a
+  -- merge pulls both endpoints of an old game onto one canonical team, that game
+  -- matches on both joins and UNION ALL would count it twice in game_row_count.
   game_rows AS (
-    SELECT s.canonical_id, g.game_date, g.home_score, g.away_score
+    SELECT s.canonical_id, g.id AS game_id, g.game_date, g.home_score, g.away_score
     FROM sources s
     JOIN public.games g ON g.home_team_master_id = s.source_id
-    UNION ALL
-    SELECT s.canonical_id, g.game_date, g.home_score, g.away_score
+    UNION
+    SELECT s.canonical_id, g.id, g.game_date, g.home_score, g.away_score
     FROM sources s
     JOIN public.games g ON g.away_team_master_id = s.source_id
   ),
@@ -98,7 +101,14 @@ BEGIN
 
   -- The page's last id, not the last id CHANGED: the caller advances on this,
   -- so a page where nothing moved must still carry the walk forward.
-  SELECT MAX(b.team_id_master) INTO v_last FROM pg_temp._tmp_team_scrape_activity b;
+  --
+  -- ORDER BY ... LIMIT 1 rather than MAX(): PostgreSQL has no max(uuid) aggregate,
+  -- and the error is a plan-time 42883 that fails the whole call. Nothing in CI
+  -- executes this SQL, so only a live run would have surfaced it.
+  SELECT b.team_id_master INTO v_last
+  FROM pg_temp._tmp_team_scrape_activity b
+  ORDER BY b.team_id_master DESC
+  LIMIT 1;
 
   IF p_dry_run THEN
     SELECT COUNT(*) INTO v_changed

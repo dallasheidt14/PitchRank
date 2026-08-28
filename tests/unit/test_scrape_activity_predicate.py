@@ -42,8 +42,21 @@ def _sql(path: Path) -> str:
     """Read a migration with /* */ comments stripped.
 
     Line comments are deliberately kept: the anchor the extraction depends on is one.
+    Use this for LOCATING things. For asserting that SQL *does* something, go through
+    `_executable` — see below.
     """
     return re.sub(r"/\*.*?\*/", "", path.read_text(encoding="utf-8"), flags=re.DOTALL)
+
+
+def _executable(text: str) -> str:
+    """`text` with `--` line comments removed, leaving only SQL the server runs.
+
+    Behavioural assertions must go through this. A substring check against
+    comment-preserving text is satisfied by a commented-out clause: writing
+    `-- WHERE l.status <> 'error'` leaves valid SQL that silently stops excluding
+    error rows, while every raw-substring assertion stays green.
+    """
+    return re.sub(r"--[^\n]*", "", text)
 
 
 def _function_bodies(sql: str, name: str) -> list[str]:
@@ -228,19 +241,26 @@ def test_topup_signature_takes_an_absolute_cutoff_and_an_offset():
     assert "p_offset integer DEFAULT 0" in sql
 
 
-def test_topup_applies_its_offset():
+def test_topup_consumes_every_parameter_it_declares():
     """PostgreSQL accepts a declared-but-unused parameter and CI applies no
-    migrations, so an omitted OFFSET clause would pass every other test here
-    while returning page 0 forever and hanging the caller's paging loop."""
-    _, body = _newest_definition("find_topup_teams")
+    migrations, so a parameter that is declared and then ignored passes every
+    signature test while changing behaviour.
+
+    p_offset: omitting the clause returns page 0 forever and hangs the caller's loop.
+    p_cutoff: replacing it with `NOW() - INTERVAL '14 days'` re-evaluates membership
+    between OFFSET pages, which is the boundary-crossing bug the absolute cutoff exists
+    to prevent — and the caller tests only prove a value is *sent*.
+    """
+    body = _flat(_topup_body())
     assert "OFFSET find_topup_teams.p_offset" in body
+    assert "LIMIT find_topup_teams.p_row_limit" in body
+    assert "t.last_scraped_at < find_topup_teams.p_cutoff" in body
 
 
 def test_topup_orders_by_a_unique_tiebreaker():
     """last_scraped_at is stamped per run, so tie groups span thousands of rows.
     Without a unique secondary key, OFFSET paging can repeat or skip rows."""
-    _, body = _newest_definition("find_topup_teams")
-    assert "ORDER BY t.last_scraped_at DESC, t.team_id_master" in _flat(body)
+    assert "ORDER BY t.last_scraped_at DESC, t.team_id_master" in _flat(_topup_body())
 
 
 def test_topup_returns_exactly_the_columns_the_scrape_path_reads():
@@ -280,7 +300,12 @@ def test_all_four_columns_are_added_idempotently():
 
 def _refresh_body() -> str:
     _, body = _newest_definition(REFRESH_FUNCTION)
-    return body
+    return _executable(body)
+
+
+def _topup_body() -> str:
+    _, body = _newest_definition("find_topup_teams")
+    return _executable(body)
 
 
 def _refresh_update_statement() -> str:
@@ -303,11 +328,27 @@ def test_refresh_pages_by_keyset_rather_than_running_whole_table():
 
 
 def test_refresh_returns_the_pages_last_id_so_the_caller_can_advance():
-    path, body = _newest_definition(REFRESH_FUNCTION)
+    path, _ = _newest_definition(REFRESH_FUNCTION)
     assert "RETURNS TABLE (rows_changed integer, last_team_id uuid)" in _sql(path)
-    # MAX over the page, not over the rows that changed: a page where nothing
+
+    body = _flat(_refresh_body())
+    # Over the whole page, not over the rows that changed: a page where nothing
     # moved must still carry the walk forward or the caller loops forever.
-    assert re.search(r"SELECT MAX\(b\.team_id_master\) INTO v_last", body)
+    assert "SELECT b.team_id_master INTO v_last" in body
+    assert "ORDER BY b.team_id_master DESC LIMIT 1" in body
+    # PostgreSQL has no max(uuid); reaching for it raises 42883 at plan time and
+    # fails the entire call. Nothing in CI executes this SQL, so only a live run
+    # would catch the regression.
+    assert "MAX(b.team_id_master)" not in body
+
+
+def test_refresh_counts_a_game_once_when_a_merge_pulls_both_endpoints_together():
+    """1,045 games across 577 teams currently have both endpoints resolving to one
+    canonical team. UNION ALL over the two endpoint joins counts each of those
+    twice in game_row_count, so the id is carried and the arms are UNIONed."""
+    body = _flat(_refresh_body())
+    assert "g.id AS game_id" in body
+    assert "UNION ALL" not in body
 
 
 def test_refresh_keys_the_batch_off_teams():
