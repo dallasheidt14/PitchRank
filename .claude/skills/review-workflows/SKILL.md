@@ -1,6 +1,6 @@
 ---
 name: review-workflows
-description: "Audits GitHub Actions workflow files in .github/workflows/ for shell injection, cron drift, env precedence conflicts, timeout shielding gaps, missing script references, hardcoded secrets, and mutable-sort matrix sharding. Outputs structured findings to .turbo/workflow-audit.md. Use when the user asks to 'review workflows', 'audit workflows', 'check GitHub Actions', 'review CI workflows', 'workflow audit', or 'check workflow safety'. Also folded into /audit as the workflow leg."
+description: "Audits GitHub Actions workflow files in .github/workflows/ for shell injection, cron drift, env precedence conflicts, timeout shielding gaps, missing script references, hardcoded secrets, mutable-sort matrix sharding, and unguarded command substitution after set -o pipefail. Outputs structured findings to .turbo/workflow-audit.md. Use when the user asks to 'review workflows', 'audit workflows', 'check GitHub Actions', 'review CI workflows', 'workflow audit', or 'check workflow safety'. Also folded into /audit as the workflow leg."
 ---
 
 # Review Workflows
