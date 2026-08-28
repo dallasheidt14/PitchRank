@@ -468,6 +468,131 @@ def check_matrix_sharding(wf: WorkflowFile) -> list[Finding]:
     return findings
 
 
+# Check 8: A command substitution that can abort the step before its own fallback runs.
+# Memory: pipefail-kills-the-step-before-the-default.md
+#
+# Actions runs `run:` blocks under `bash -e {0}`, so errexit is on even when the block
+# never says `set -e`. Once a step also enables pipefail, `VAR=$(cmd | tail -1)` takes the
+# pipeline's status — grep's 1 on no match — and the assignment's non-zero status ends the
+# step. Any `${VAR:-default}` further down is then unreachable, which is the trap: the
+# fallback reads as handling the no-match case while never running. `|| true` restores it.
+PIPEFAIL_ENABLE = re.compile(r"^\s*set\s+(?=[-\w\s]*\bpipefail\b)[-\w\s]*$", re.MULTILINE)
+# A bare-name assignment from a substitution, at the start of a line. `export`, `local`,
+# `readonly` and backtick substitution are out of scope; see references/checks.md.
+SUBST_ASSIGN_OPEN = re.compile(r"^[ \t]*([A-Za-z_]\w*)=\$\(", re.MULTILINE)
+
+
+def _substitution_body(text: str, open_idx: int) -> str | None:
+    """The body of a `$(` substitution starting at open_idx, to its matching paren.
+
+    Depth-counted rather than regex-matched: grep patterns routinely carry their own
+    parens (`'(Would update|Updated)'`), and stopping at the first `)` truncates the
+    body before any trailing `|| true`, which inverts this check's verdict. Quoted
+    spans are skipped so a paren inside them cannot alter the depth.
+
+    Returns None when the substitution never closes, so every malformed case fails
+    toward silence rather than toward a false finding.
+    """
+    depth = 0
+    i = open_idx
+    while i < len(text):
+        char = text[i]
+        if char in "'\"":
+            close = text.find(char, i + 1)
+            if close == -1:
+                return None
+            i = close + 1
+            continue
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[open_idx + 1 : i]
+        i += 1
+    return None
+
+
+def _unquoted_pipes(body: str) -> tuple[bool, bool]:
+    """(contains a real pipeline, contains a real `||` rescue) for a substitution body.
+
+    Quoted spans are skipped, because a `|` inside a grep pattern is not a pipeline and
+    a `||` inside one (`grep -E 'a||b'`) is not a rescue. Testing the raw string for
+    either produces both error directions: `grep -c 'a|b' f` reported as a pipeline, and
+    a genuine `cmd | tail` silently exempted by an alternation in its own pattern.
+    """
+    has_pipe = has_rescue = False
+    i = 0
+    while i < len(body):
+        char = body[i]
+        if char in "'\"":
+            close = body.find(char, i + 1)
+            if close == -1:
+                break
+            i = close + 1
+            continue
+        if char == "|":
+            if i + 1 < len(body) and body[i + 1] == "|":
+                has_rescue = True
+                i += 2
+                continue
+            has_pipe = True
+        i += 1
+    return has_pipe, has_rescue
+
+
+def check_pipefail_substitution(wf: WorkflowFile) -> list[Finding]:
+    if not wf.data:
+        return []
+    findings: list[Finding] = []
+    for job_name, job in iter_jobs(wf.data):
+        for step in iter_steps(job):
+            run = step.get("run")
+            if not isinstance(run, str):
+                continue
+            enable = PIPEFAIL_ENABLE.search(run)
+            if not enable:
+                continue
+            # Advance a cursor through the file so repeated assignments to the same
+            # variable resolve to their own lines, not all to the first occurrence.
+            cursor = 0
+            for match in SUBST_ASSIGN_OPEN.finditer(run, enable.end()):
+                var = match.group(1)
+                body = _substitution_body(run, match.end() - 1)
+                if body is None:
+                    continue
+                has_pipe, has_rescue = _unquoted_pipes(body)
+                if not has_pipe or has_rescue:
+                    continue
+                # Only report when the step leans on a default that cannot be reached.
+                if f"${{{var}:-" not in run:
+                    continue
+                evidence = f"{var}=$({body.strip()})"
+                idx = wf.text.find(f"{var}=$(", cursor)
+                if idx >= 0:
+                    cursor = idx + 1
+                step_name = step.get("name") or step.get("id") or "(unnamed)"
+                findings.append(
+                    Finding(
+                        check_id="pipefail-substitution",
+                        severity="medium",
+                        workflow=wf.rel_path,
+                        line=line_of(wf.text, idx) if idx >= 0 else None,
+                        message=(
+                            f"Step `{step_name}` in job `{job_name}` assigns `{var}` from a "
+                            f"pipeline after enabling pipefail, then falls back on "
+                            f"`${{{var}:-...}}`. Under the default `bash -e`, a failing "
+                            f"element (a grep that matches nothing) ends the step at the "
+                            f"assignment and the fallback never runs. Add `|| true` inside "
+                            f"the substitution."
+                        ),
+                        evidence=evidence,
+                        memory_ref="pipefail-kills-the-step-before-the-default.md",
+                    )
+                )
+    return findings
+
+
 # ---------- driver ----------
 
 
@@ -478,6 +603,7 @@ CHECKS = [
     check_timeout_shielding,
     check_secret_hygiene,
     check_matrix_sharding,
+    check_pipefail_substitution,
 ]
 
 

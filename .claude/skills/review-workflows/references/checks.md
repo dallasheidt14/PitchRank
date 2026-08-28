@@ -10,6 +10,7 @@ Detailed reference for each check the audit script performs. Each check derives 
 - script-missing — referenced scripts that don't exist
 - secret-* — hardcoded tokens
 - matrix-shard-mutable-sort — OFFSET sharding heuristic
+- pipefail-substitution — unreachable `${VAR:-default}` after `set -o pipefail`
 - Tuning false positives
 
 ## shell-injection
@@ -141,6 +142,45 @@ Note the double-modulo: Postgres `%` preserves dividend sign and drops ~48% of r
 
 **Known false positive:** OFFSET+LIMIT used for pagination within a single shard (not for sharding). Triage per finding.
 
+## pipefail-substitution
+
+**Severity:** MEDIUM
+**Memory:** `pipefail-kills-the-step-before-the-default.md`
+
+Actions runs `run:` blocks under `bash -e {0}`, so errexit is always on even when the block never says `set -e`. Once a step also enables `pipefail`, an assignment like `VAR=$(grep ... | tail -1)` takes the *pipeline's* status — and `grep` exits 1 when it matches nothing. The assignment's non-zero status ends the step immediately, so a `${VAR:-0}` written on a later line never executes.
+
+The trap is that the fallback reads as handling exactly the no-match case it cannot reach. A step that succeeded at its real work reports red, and any `$GITHUB_OUTPUT` write after the assignment is skipped, so the run summary shows a blank or a stale value.
+
+**Detected pattern:**
+- A `run:` block has a `set` line whose flags include `pipefail` (`-o pipefail`, `-euo pipefail`, `-e -o pipefail`, `-o errexit -o pipefail`).
+- After it, a line begins with a bare-name assignment from a `$(...)` substitution.
+- The substitution body contains an **unquoted** `|` and no **unquoted** `||`.
+- The block elsewhere references `${VAR:-...}` for that same variable — i.e. it relies on a default.
+
+Two pieces of scanning carry this, both because grep patterns look like shell syntax:
+
+- Substitution bodies are found by depth-counting parens and skipping quoted spans, not by regex. Patterns routinely carry their own parens (`'(Would update|Updated)'`), and stopping at the first `)` truncates the body before any trailing `|| true`, inverting the verdict.
+- Pipes and rescues are counted outside quotes only. Testing the raw string produces an error in each direction: `C=$(grep -c 'a|b' f)` reported as a pipeline when none exists, and a genuine `cmd | tail -1` silently exempted because `grep -E 'a||b'` looks like a rescue.
+
+**Fix pattern:**
+```yaml
+run: |
+  set -o pipefail
+  python scripts/thing.py 2>&1 | tee logs/thing.log
+  # `|| true` so a no-match grep cannot end the step under `bash -e`;
+  # `${VAR:-0}` because the pipeline then yields an empty string.
+  COUNT=$(grep -oP 'Updated: \K\d+' logs/thing.log | tail -1 || true)
+  echo "count=${COUNT:-0}" >> $GITHUB_OUTPUT
+```
+
+**Known false positive:** a step that *wants* to abort when the pattern is absent, and carries `${VAR:-...}` for an unrelated reason. Rare — the two almost always appear together by intent.
+
+**Known false negatives** (all deliberate; the check errs toward silence):
+- `export VAR=$(...)`, `local`, and `readonly` — the assignment must be a bare name at line start.
+- Backtick substitution rather than `$(...)`.
+- A `|| true` inside a *nested* substitution, which exempts the outer one.
+- An unterminated `$(` or quote, which yields no body and is skipped rather than guessed.
+
 ## Tuning false positives
 
 When a finding is a confirmed false positive, the right fix depends on the check:
@@ -154,5 +194,6 @@ When a finding is a confirmed false positive, the right fix depends on the check
 | script-missing | Tighten `SCRIPT_REF` regex to exclude `cd subdir &&` patterns |
 | secret-* | Pattern is conservative; FP usually means a non-secret token shaped like one (e.g. a sample) — move sample to a comment with `# pragma: not-a-secret` and add a guard |
 | matrix-shard-mutable-sort | The check already exits when hash-mod is present. If OFFSET+LIMIT is intentional for pagination, the finding is informational |
+| pipefail-substitution | Only fires when the block also references `${VAR:-...}`. If the abort is intended, drop the unreachable default rather than suppressing the check |
 
 When a new GHA gotcha enters MEMORY.md, add a new check function to `audit_workflows.py` and append it to the `CHECKS` list.
