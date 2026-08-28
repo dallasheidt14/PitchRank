@@ -1295,3 +1295,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: Modular11 / MLS NEXT import path; `games` rows whose `source_url` is under `modular11.com`
 - **Why**: `Los Angeles Football Club U14 HD` carries games such as `LAFC U14 HD 6-2 San Diego FC U13 HD` on the same date and with the same score as the real `LAFC U13 HD 6-2 San Diego FC U13 HD`. The same shape repeats against FC Golden State, SoCal Reds, Santa Barbara, LA Galaxy, Total Futbol Academy and Phoenix Rising. Both LAFC rows are genuine squads, so this is game mis-attribution rather than a team duplicate — it inflates the U14 row's record and makes shared-fixture duplicate detection fire on legitimately distinct team pairs across MLS NEXT clubs (Hoover-Vestavia HD/AD, Michigan Wolves U15/U16, Albion SC U15/U16). Surfaced while sizing duplicate candidates on 2026-08-27; Modular11 was excluded from that work by operator decision, so this was noted rather than pursued.
 - **Noted**: 2026-08-27
+
+### Unknown-name backfill has no record of a failed resolution attempt
+
+- **ID**: IMP-139
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/backfill_unknown_team_names.py` (`fetch_placeholder_teams`), `.github/workflows/backfill-unknown-team-names.yml`
+- **Why**: Candidates are selected only by the placeholder name pattern plus the new provider-ID bound, so nothing marks a team as already tried and 404'd, or tried and returned no usable name. Every rankings-space placeholder that fails to resolve is re-fetched by the every-15-minute cron at 12s/call indefinitely, on the shared per-IP GotSport WAF budget that workflow's own cron comment exists to protect, and the pool cannot drain below its unresolvable residue. The run summary already prints "Gone from GotSport (404, needs marking)" — the marking is the missing half. Wants a persisted attempt/outcome marker (a `teams` column or a small attempts table) that `fetch_placeholder_teams` excludes on. Surfaced by the code review of the max-provider-id change on 2026-08-28; out of scope for that PR.
+- **Noted**: 2026-08-28
