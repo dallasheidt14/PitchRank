@@ -1,0 +1,110 @@
+name: Refresh Team Scrape Activity
+
+# Dispatch-only until the first live backfill has been checked against the
+# eligibility counts. The Sunday cron ('0 12 * * 0', two hours ahead of the
+# discovery enqueue and four ahead of the safety net) is a follow-up commit.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (count changed rows, no writes)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# No AGE_ROLLOVER_FREEZE gate: this writes activity columns, never an age group.
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  # Keep key env vars aligned with other working workflows in this repo.
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  refresh-scrape-activity:
+    name: Refresh Team Scrape Activity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install supabase python-dotenv truststore rich
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Refresh scrape activity columns
+        id: refresh
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "$DRY_RUN" == "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+
+          # Without pipefail the step takes tee's exit status, so a Python crash
+          # reports success.
+          set -o pipefail
+          python scripts/refresh_team_scrape_activity.py $DRY_RUN_FLAG 2>&1 | tee logs/refresh_scrape_activity.log
+
+          # Both guards are needed and neither is redundant. `|| true` because
+          # pipefail is still on: a no-match grep exits 1, the pipeline takes that
+          # status, and the run: block's default `bash -e` would kill the step
+          # before the default below could apply. `${VAR:-0}` because the pipeline
+          # then yields an empty string rather than a number.
+          ROWS_CHANGED=$(grep -oP '(Would update|Updated): \K\d+' logs/refresh_scrape_activity.log | tail -1 || true)
+          echo "rows_changed=${ROWS_CHANGED:-0}" >> $GITHUB_OUTPUT
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: scrape-activity-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}
+          ROWS_CHANGED: ${{ steps.refresh.outputs.rows_changed || 'skipped' }}
+        run: |
+          echo "## 🔄 Team Scrape Activity Refresh" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rows changed | $ROWS_CHANGED |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Refreshes teams.last_played_at / last_fixture_at / game_row_count / scrape_attempts," >> $GITHUB_STEP_SUMMARY
+          echo "which the scrape-eligibility functions read." >> $GITHUB_STEP_SUMMARY

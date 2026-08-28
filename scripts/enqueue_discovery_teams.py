@@ -55,7 +55,12 @@ def get_gotsport_provider_id(supabase):
 
 
 def find_teams_to_enqueue(supabase, gotsport_provider_id, limit=DEFAULT_LIMIT):
-    """GotSport teams with no future games on record. Uses find_discovery_teams RPC."""
+    """GotSport teams with no future games on record. Uses find_discovery_teams RPC.
+
+    The RPC also applies the shared scrape-activity predicate, so a team with no
+    recent fixture, no ranking and no game in 12 months is skipped even when it
+    has no future games. Absence of a future fixture is no longer the whole rule.
+    """
     r = supabase.rpc("find_discovery_teams", {
         "p_provider_id": gotsport_provider_id,
         "p_row_limit": limit,

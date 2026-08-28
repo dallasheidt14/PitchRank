@@ -20,7 +20,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -29,6 +29,7 @@ from supabase import Client, create_client
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.etl.bulk_ops import bulk_update_last_scraped_at
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError
 
 # Load environment variables
@@ -60,6 +61,11 @@ class MissingGamesProcessor:
         # Games are buffered here and imported once per batch by
         # _flush_pending_imports; each import_games call is a subprocess spawn.
         self._pending_imports: List[tuple] = []
+
+        # Scrape attempts are buffered here and written once by
+        # _flush_scrape_log, rather than costing two round-trips per request
+        # on a path that runs every 15 minutes.
+        self._scrape_log_buffer: List[Dict[str, Any]] = []
 
         self.reset_stats()
 
@@ -429,6 +435,11 @@ class MissingGamesProcessor:
         logger.info(f"Processing request {request_id} for {team_name} on {game_date}")
         logger.debug(f"Request data: provider_id={provider_id}, provider_team_id={provider_team_id}")
 
+        # The scrape can be re-routed to a GotSport alias below, and the log row
+        # records the provider actually scraped. Bound out here so the failure
+        # handlers can read it whatever the re-routing did.
+        scrape_provider_id = provider_id
+
         try:
             # Update status to processing
             self.update_request_status(request_id, "processing")
@@ -450,6 +461,7 @@ class MissingGamesProcessor:
                     if gotsport_alias:
                         scrape_provider_code = "gotsport"
                         scrape_team_id = gotsport_alias["provider_team_id"]
+                        scrape_provider_id = gotsport_alias["provider_id"]
                         logger.info(f"Using GotSport alias: team_id={scrape_team_id}")
                     else:
                         raise ValueError(
@@ -479,12 +491,21 @@ class MissingGamesProcessor:
                         alt_alias = self.get_gotsport_alias(team_id_master, exclude_team_ids=tried_team_ids)
                         if alt_alias:
                             scrape_team_id = alt_alias["provider_team_id"]
+                            scrape_provider_id = alt_alias["provider_id"]
                             logger.info(f"Retrying with alternative GotSport team ID: {scrape_team_id}")
                             continue
 
                     raise TeamNotFoundError(
                         tried_team_ids[0] if len(tried_team_ids) == 1 else tried_team_ids, scrape_provider_code
                     )
+
+            self._record_scrape_attempt(
+                team_id_master,
+                scrape_provider_id,
+                len(games),
+                "success" if games else "partial",
+                update_last_scraped_at=True,
+            )
 
             # Buffer for the end-of-batch import rather than spawning a subprocess
             # per request. The row stays 'processing' until _flush_pending_imports
@@ -511,6 +532,14 @@ class MissingGamesProcessor:
             )
             logger.error(f"Failed to process request {request_id}: {error_msg}")
 
+            self._record_scrape_attempt(
+                request.get("team_id_master"),
+                scrape_provider_id,
+                0,
+                "error",
+                update_last_scraped_at=True,
+            )
+
             self.update_request_status(request_id, "failed", error_message=error_msg[:500])
 
             self.stats["failed"] += 1
@@ -519,6 +548,18 @@ class MissingGamesProcessor:
         except WAFBlockedError as e:
             error_msg = f"WAF blocked: {e}"
             logger.error(f"Failed to process request {request_id}: {error_msg}")
+
+            # A block never reached the provider, so this was not a probe. Stamping
+            # last_scraped_at anyway would restart the six-month re-probe clock and
+            # hold the team out of the weekly stale sweep for 90 days on a scrape
+            # that did not happen.
+            self._record_scrape_attempt(
+                request.get("team_id_master"),
+                scrape_provider_id,
+                0,
+                "error",
+                update_last_scraped_at=False,
+            )
 
             # Write the terminal status before re-raising: nothing reclaims a row
             # left in 'processing', and resetting it to 'pending' can collide with
@@ -532,6 +573,17 @@ class MissingGamesProcessor:
             error_msg = str(e)
             logger.error(f"Failed to process request {request_id}: {error_msg}")
             logger.debug(traceback.format_exc())
+
+            # An unexpected failure gives no evidence the provider was reached, so
+            # it logs the attempt without advancing the timestamp — same reasoning
+            # as the WAF branch above.
+            self._record_scrape_attempt(
+                request.get("team_id_master"),
+                scrape_provider_id,
+                0,
+                "error",
+                update_last_scraped_at=False,
+            )
 
             # Update request as failed
             self.update_request_status(
@@ -582,6 +634,7 @@ class MissingGamesProcessor:
                 continue
 
         self._flush_pending_imports()
+        self._flush_scrape_log()
 
         # Log summary
         self.log_summary()
@@ -627,6 +680,90 @@ class MissingGamesProcessor:
                 )
                 self.stats["successful"] -= 1
                 self.stats["failed"] += 1
+
+    def _record_scrape_attempt(
+        self,
+        team_id_master: Optional[str],
+        provider_id: str,
+        games_found: int,
+        status: str,
+        update_last_scraped_at: bool,
+    ) -> None:
+        """Buffer one scrape attempt for the end-of-run write.
+
+        A request without a team_id_master contributes no row: team_scrape_log.team_id
+        is NOT NULL REFERENCES teams(team_id_master), and process_request treats the
+        field as optional.
+        """
+        if not team_id_master:
+            return
+
+        self._scrape_log_buffer.append(
+            {
+                "team_id_master": team_id_master,
+                "provider_id": provider_id,
+                "games_found": games_found,
+                "status": status,
+                "update_last_scraped_at": update_last_scraped_at,
+            }
+        )
+
+    def _flush_scrape_log(self) -> None:
+        """Write the run's buffered scrape attempts, mirroring drain_queue's bulk logger.
+
+        This drainer is the only consumer of the queue that never recorded its work.
+        Two things read what it writes: teams.scrape_attempts counts the non-error
+        rows, and the six-month re-probe reads last_scraped_at — which stops advancing
+        precisely while a team is being filtered out of the weekly enqueue jobs, so a
+        probe that finds nothing has to still bump it or the clock never restarts.
+
+        Both writes are best-effort. A bookkeeping failure is not worth failing an
+        otherwise successful scrape over.
+        """
+        if not self._scrape_log_buffer:
+            return
+
+        buffered = self._scrape_log_buffer
+        self._scrape_log_buffer = []
+
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would log {len(buffered)} scrape attempts")
+            return
+
+        now_iso = datetime.now().isoformat()
+        log_entries = [
+            {
+                "team_id": entry["team_id_master"],
+                "provider_id": entry["provider_id"],
+                "scraped_at": now_iso,
+                "games_found": entry["games_found"],
+                "status": entry["status"],
+            }
+            for entry in buffered
+        ]
+        update_payload = [
+            {"team_id_master": entry["team_id_master"], "last_scraped_at": now_iso}
+            for entry in buffered
+            if entry["update_last_scraped_at"]
+        ]
+
+        log_insert_batch_size = 500
+        inserted_count = 0
+        for i in range(0, len(log_entries), log_insert_batch_size):
+            batch = log_entries[i : i + log_insert_batch_size]
+            try:
+                self.supabase.table("team_scrape_log").insert(batch).execute()
+                inserted_count += len(batch)
+            except Exception as e:
+                logger.warning(f"Error batch inserting scrape logs (batch {i // log_insert_batch_size + 1}): {e}")
+
+        try:
+            updated_count = bulk_update_last_scraped_at(self.supabase, update_payload)
+        except Exception as e:
+            logger.warning(f"Error bulk updating last_scraped_at for {len(update_payload)} teams: {e}")
+            updated_count = 0
+
+        logger.info(f"Logged {inserted_count} scrape attempts and updated {updated_count} team timestamps")
 
     def log_summary(self):
         """Log processing summary"""
