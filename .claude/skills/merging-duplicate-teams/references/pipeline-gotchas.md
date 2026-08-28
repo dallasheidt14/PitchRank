@@ -88,6 +88,11 @@ while the short one holds the live schedule. If the rule changes at all, rank on
 `scripts/revert_fuzzy_auto_merges.py` un-deprecates the team, repoints `team_alias_map` and
 drops the `team_merge_map` row, reading the snapshot from `team_merge_audit`.
 
+**Pass the actor explicitly — the default is wrong for merges this skill applies.** The script
+hardcodes `pitchrank-bot`, which is what the weekly job records; `apply_vetted_team_merges.py`
+records `pitchrank-operator`. Reverting an operator-applied batch with default arguments
+matches zero rows and reports success, which is indistinguishable from a completed revert.
+
 Scope a revert by date and actor. Judge what to revert from the audit snapshots rather than a
 naive birth-year sweep over current names: normalization drops a year from band names, so
 names that agreed at merge time can look disjoint afterwards, and such a sweep over-reports
