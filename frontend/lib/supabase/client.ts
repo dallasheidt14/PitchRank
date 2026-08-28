@@ -31,8 +31,14 @@ export function createClientSupabase(): SupabaseClient {
     throw new Error('Supabase environment variables not configured');
   }
 
-  // Let createBrowserClient handle cookies automatically
-  supabaseInstance = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  supabaseInstance = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    cookieOptions: {
+      // @supabase/ssr's DEFAULT_COOKIE_OPTIONS omit `secure`, so the auth token
+      // is otherwise offered on plaintext requests. Enabled only under HTTPS so
+      // that http://localhost dev sessions still persist.
+      secure: typeof window !== 'undefined' && window.location.protocol === 'https:',
+    },
+  });
 
   return supabaseInstance;
 }
