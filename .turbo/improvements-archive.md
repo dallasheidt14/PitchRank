@@ -159,3 +159,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-27
 - **Refs**: PR #1050 (release on interrupt), `scripts/retire_stranded_scrape_requests.py` (cleanup)
 - **Update (2026-08-28)**: the "cannot be re-enqueued" reasoning above is **wrong**. `idx_scrape_requests_pending_team` is `UNIQUE … WHERE status = 'pending'`, so a `processing` row does not block a fresh pending one, and 1,974 of the 6,392 stranded teams had already been re-queued. The cost was unreadable queue depth, not lost teams. Root cause was also not gradual decay: a cancelled `clear-queue` run stranded 5,981 rows in one second on 08-23, and a second event added 500. Fixed by releasing claims on interrupt (`BaseException`, since a cancellation is SIGINT) and by `scripts/retire_stranded_scrape_requests.py`, which retired all 6,482 to `failed`. No lease or reaper was needed.
+
+### `has_protected_division` matches ' EA' as a substring, excluding East/Eagles teams from dedup
+
+- **ID**: IMP-135
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py:761-775`
+- **Why**: The check intends the MLS NEXT `EA` division but tests the uppercased name for the substring `' EA'`, so it matches any word beginning EA that is not the first word. Verified: `FC EAST 2012` and `SC EAGLES 2013` are treated as protected, while `EAST MEADOW 2012` is not (leading word, no preceding space). 3,256 live rows contain `' EA'`, 2,148 of them East/Eagles names with no connection to the division — every one silently ineligible for duplicate detection, with no log line. Fix: match a whitespace-delimited `EA` token rather than a substring. Same file's ` AD`/` HD` tests should be checked for the same shape.
+- **Noted**: 2026-08-27
+- **Refs**: fix-protected-division-token-match

@@ -1256,16 +1256,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The paginated fetch pulls 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable row order across pages without one, so each cohort scan silently drops and duplicates part of its own input. Reproduced on `u19`: an ordered pass returns 26,756 distinct rows, an unordered one 22,508 — 16% never fetched. Those teams are not skipped by a rule, they never arrive, so they appear in no count, no verdict and no report, and the loss is invisible from the output. Every per-cohort figure the duplicate pipeline produces is therefore a floor. Fix is `.order("team_id_master")`; sweep the other paginated fetches for the same gap while there. Found while building `scripts/check_merge_skill_assumptions.py`, whose own figures disagreed until the clause was added.
 - **Noted**: 2026-08-27
 
-### `has_protected_division` matches ' EA' as a substring, excluding East/Eagles teams from dedup
-
-- **ID**: IMP-135
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/find_queue_matches.py:761-775`
-- **Why**: The check intends the MLS NEXT `EA` division but tests the uppercased name for the substring `' EA'`, so it matches any word beginning EA that is not the first word. Verified: `FC EAST 2012` and `SC EAGLES 2013` are treated as protected, while `EAST MEADOW 2012` is not (leading word, no preceding space). 3,256 live rows contain `' EA'`, 2,148 of them East/Eagles names with no connection to the division — every one silently ineligible for duplicate detection, with no log line. Fix: match a whitespace-delimited `EA` token rather than a substring. Same file's ` AD`/` HD` tests should be checked for the same shape.
-- **Noted**: 2026-08-27
-
 ### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
 
 - **ID**: IMP-136
@@ -1305,3 +1295,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/backfill_unknown_team_names.py` (`fetch_placeholder_teams`), `.github/workflows/backfill-unknown-team-names.yml`
 - **Why**: Candidates are selected only by the placeholder name pattern plus the new provider-ID bound, so nothing marks a team as already tried and 404'd, or tried and returned no usable name. Every rankings-space placeholder that fails to resolve is re-fetched by the every-15-minute cron at 12s/call indefinitely, on the shared per-IP GotSport WAF budget that workflow's own cron comment exists to protect, and the pool cannot drain below its unresolvable residue. The run summary already prints "Gone from GotSport (404, needs marking)" — the marking is the missing half. Wants a persisted attempt/outcome marker (a `teams` column or a small attempts table) that `fetch_placeholder_teams` excludes on. Surfaced by the code review of the max-provider-id change on 2026-08-28; out of scope for that PR.
 - **Noted**: 2026-08-28
+
+### A dry run of the club/state chain reports "Updated: N", which reads as a live write
+
+- **ID**: IMP-140
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `scripts/backfill_missing_club_names.py:404`, `scripts/extract_missing_club_names.py` (same summary line)
+- **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
+- **Noted**: 2026-08-29
+
+### The unknown-opponent exporter reads four payload keys that do not exist, so the matcher filters on the wrong state
+
+- **ID**: IMP-141
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/export_unknown_opponents.py:131-137`, consumed at `scripts/auto_match_unknown_opponents.py:175-195,242-243`
+- **Why**: The resolver reads `full_name`, `state`, `age` and `gender`; team_details returns none of them (the real fields are `team_association`, `display_age_group`, `display_gender`, and there is no `full_name`). So `unknown_state` is `""` on every call, `build_unknown_profile` falls through to `top_known_team_state` — the state of the team this one PLAYED — and `fetch_candidates` uses that as a hard `.eq("state_code", …)` filter, searching the wrong state for exactly the interstate games that generate unknown opponents. Age and gender fall through to the known side's cohort the same way. The identical bug in `discover_teams_from_opponents.py` was fixed on 2026-08-29; this copy was left alone because it feeds MATCHING rather than creation, so correcting it shifts match-versus-create outcomes across ~6,400 teams a week with no test coverage, visible only on the Tuesday cron. Wants a measured before/after over a sample. Note `full_name` has no target and should be dropped rather than repointed, since changing it would change the fuzzy-matching name.
+- **Noted**: 2026-08-29

@@ -54,7 +54,7 @@ RECORDED = {
     "null_team_name_original": 90032,
     "u_label_no_year": 20146,
     "u19_guard_blind": 5848,
-    "space_ea_rows": 3256,
+    "protected_division_rows": 4553,
     "gender_word_year_rows": 2953,
 }
 RECORDED_ON = "2026-08-27"
@@ -141,18 +141,23 @@ def check_birth_year_guard(r: Result) -> None:
 
 
 def check_protected_division(r: Result) -> None:
-    """The ' EA' substring silently removes East/Eagles names from the scan."""
+    """AD/HD/EA are matched as tokens, so East/Eagles names reach the scan (IMP-135)."""
     from scripts.find_queue_matches import has_protected_division
 
     r.check(
-        "' EA' substring wrongly protects a non-first-word EAST/EAGLES name",
-        has_protected_division("FC EAST 2012") and has_protected_division("SC EAGLES 2013"),
-        "has_protected_division('FC EAST 2012') and ('SC EAGLES 2013') both True",
+        "EAST/EAGLES names are no longer withheld as a protected division",
+        not has_protected_division("FC EAST 2012") and not has_protected_division("SC EAGLES 2013"),
+        "has_protected_division('FC EAST 2012') and ('SC EAGLES 2013') both False",
     )
     r.check(
-        "a leading EAST is not protected, so the exclusion is position-dependent",
+        "the exclusion is no longer position-dependent",
         not has_protected_division("EAST MEADOW 2012"),
         "has_protected_division('EAST MEADOW 2012') is False",
+    )
+    r.check(
+        "a real EA division marker keeps its protection",
+        has_protected_division("Club EA 2013") and has_protected_division("Dallas Hornets North U15 AD"),
+        "has_protected_division('Club EA 2013') and ('... U15 AD') both True",
     )
 
 
@@ -288,6 +293,7 @@ def measure_names(r: Result, sb) -> None:
     200k rows silently duplicates and drops some -- which shifted this script's own u19 figure
     by 7% before the clause was added.
     """
+    from scripts.find_queue_matches import has_protected_division
     from src.utils.team_name_utils import birth_years
 
     rows, off = [], 0
@@ -310,7 +316,7 @@ def measure_names(r: Result, sb) -> None:
     u19 = [n for n, age in names if age == "u19"]
 
     r.measure("u_label_no_year", sum(1 for n, _ in names if U_LABEL.search(n) and not FOUR_DIGIT_YEAR.search(n)))
-    r.measure("space_ea_rows", sum(1 for n, _ in names if " EA" in n.upper()))
+    r.measure("protected_division_rows", sum(1 for n, _ in names if has_protected_division(n)))
     r.measure("gender_word_year_rows", sum(1 for n, _ in names if GENDER_WORD_YEAR.search(n)))
     r.measure("u19_guard_blind", sum(1 for n in u19 if not birth_years(n)))
     r.measurements[-1]["of_total"] = len(u19)

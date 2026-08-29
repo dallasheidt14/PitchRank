@@ -127,18 +127,23 @@ and that `normalize_team_name` is the wrong substrate; the shipped scanner passe
 These remove pairs from consideration entirely. They produce no verdict, no log line, and no
 entry in `decisions.json`, so nothing downstream can tell they existed.
 
-**A space before `EA`.** `has_protected_division` tests the uppercased name for the substring
-`' EA'`, intending the MLS NEXT `EA` division. It matches any word starting with EA that is not
-the first word:
+**A division token — `AD`, `HD`, `EA` or `MLS NEXT`.** `has_protected_division` withholds these
+from the scan, 4,553 live rows. That is intended: the tiers must not be merged across.
+
+Until IMP-135 it tested bare substrings, so any name whose second-or-later word merely began
+with those letters read as a division and was excluded with no log line:
 
 ```
-'FC EAST 2012'     -> protected (excluded)
-'SC EAGLES 2013'   -> protected (excluded)
-'EAST MEADOW 2012' -> not protected     # first word, no leading space
+'FC EAST 2012'                         -> was protected, now eligible
+'SC EAGLES 2013'                       -> was protected, now eligible
+'FSA Timberwolves 2016GR (L Adams NR)' -> was protected, now eligible
+'EAST MEADOW 2012'                     -> was not protected   # first word, no leading space
 ```
 
-3,256 live rows contain `' EA'`; 2,148 of them are East/Eagles names with no connection to the
-EA division. Every one is silently ineligible for duplicate detection.
+That withheld 2,660 unrelated rows and made the exclusion position-dependent, which is why a
+leading EAST behaved differently from a trailing one. The check now matches whole tokens, so
+those names reach the scan; 88 rows leading with a real `AD`/`HD`/`EA` token became protected
+in the same change, having previously slipped through for want of a preceding separator.
 
 **Placeholder names.** `unknown_<digits>` on either side returns `None` before scoring. Correct
 as a name rule — the names carry no information — but it means the whole placeholder class can
