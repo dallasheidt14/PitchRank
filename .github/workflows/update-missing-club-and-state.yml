@@ -40,20 +40,21 @@ on:
 #   Step 3: full_club_analysis.py --execute    — Standardize all club_names (incl. NULL-state pass)
 #   Step 4: match_state_from_club.py --yes     — Fill state_code from now-canonical club_names
 #   Step 5: backfill_missing_state_codes.py    — GotSport API → state_code (residual)
-#   Step 6: backfill_state_from_opponents.py   — Infer state_code from opponents' states (catch-all)
+#   Step 6: backfill_state_from_opponents.py   — DISABLED, see the step itself
 #
 # Step 0 runs first because Step 2 REQUIRES a state_code before it will infer a
 # club from a team name, so every state it fills is a team Step 2 can then reach.
-# It also gets teams the other state steps structurally cannot: Step 4 needs a
-# meaningful club ("Oregon Surf" is stored under the national brand "SURF", and
-# "Washington Premier" under the placeholder "No Club Selection"), and Step 6
-# needs 90% of opponents in one state, which border-state clubs never reach --
-# Oregon Surf's opponents are 40% OR and 35% WA.
+# It also gets teams Step 4 structurally cannot: Step 4 needs a meaningful club,
+# and "Oregon Surf" is stored under the national brand "SURF" while
+# "Washington Premier" sits under the placeholder "No Club Selection".
 #
 # Step 4 is the biggest beneficiary: it sees the new club_names from Steps 1-2
-# in their canonical form (Step 3) before doing the lookup. Step 6 catches the
-# residual via the dominance pattern applied to game opponents instead of
-# clubmates (>=5 unique opponents, >=90% in one state).
+# in their canonical form (Step 3) before doing the lookup.
+#
+# Every step reads and writes over PostgREST. Nothing here opens a direct
+# Postgres connection: the Supabase db host resolves to IPv6 only, and GitHub
+# runners have no IPv6 egress, so a psycopg2 connect fails with "Network is
+# unreachable" and takes the whole chain down with it.
 # ─────────────────────────────────────────────────────────────
 
 env:
@@ -62,8 +63,6 @@ env:
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
   NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  # Step 0 connects directly rather than through PostgREST; the rest use Supabase.
-  DATABASE_URL: ${{ secrets.DATABASE_URL }}
   PYTHONUNBUFFERED: '1'
 
 # Don't let an on-demand workflow_dispatch race a scheduled run.
@@ -94,7 +93,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install supabase python-dotenv requests psycopg2-binary
+          pip install supabase python-dotenv requests
           echo "✅ Dependencies installed"
 
       - name: Verify Supabase secrets
@@ -122,18 +121,13 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
         run: |
-          # tee swallows the exit code without this, so a missing dependency or a
-          # missing DATABASE_URL would report zero rows instead of failing.
+          # tee swallows the exit code without this, so a missing dependency
+          # would report zero rows instead of failing.
           set -o pipefail
 
           echo "═══════════════════════════════════════════════════"
           echo "STEP 0: BACKFILL STATE_CODE FROM TEAM_NAME"
           echo "═══════════════════════════════════════════════════"
-
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::Step 0 needs DATABASE_URL. Add the DATABASE_URL secret."
-            exit 1
-          fi
 
           EXEC_FLAG="--execute"
           if [ "$INPUT_DRY_RUN" = "true" ]; then EXEC_FLAG="--dry-run"; fi
@@ -153,6 +147,8 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 1: BACKFILL CLUB_NAME FROM GOTSPORT"
           echo "═══════════════════════════════════════════════════"
@@ -175,6 +171,8 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 2: EXTRACT CLUB_NAME FROM TEAM_NAME"
           echo "═══════════════════════════════════════════════════"
@@ -196,6 +194,8 @@ jobs:
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 3: STANDARDIZE CLUB NAMES"
           echo "═══════════════════════════════════════════════════"
@@ -217,6 +217,8 @@ jobs:
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 4: MATCH STATE CODE VIA CLUB NAME"
           echo "═══════════════════════════════════════════════════"
@@ -251,6 +253,8 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 5: BACKFILL STATE_CODE FROM GOTSPORT"
           echo "═══════════════════════════════════════════════════"
@@ -265,13 +269,22 @@ jobs:
           UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step5_backfill_state.log | tr -d ',' || echo "0")
           echo "state_backfilled=${UPDATED:-0}" >> $GITHUB_OUTPUT
 
-      # ── Step 6: state_code via opponent dominance (residual) ───
+      # ── Step 6: state_code via opponent dominance — DISABLED ───
+      # Opponent dominance measures where a team travels, not where its club is
+      # based, and a team's state means the latter. It is also self-confirming
+      # inside a mislabelled cluster: teams that share an error play each other,
+      # so "96% of opponents are IL" restates the error rather than testing it.
+      # Every state it writes is one the state-assignment tool would have to
+      # correct, so it is off rather than skippable. Re-enabling needs a reason
+      # that answers the travel-versus-home problem, not just a flag flip.
       - name: 'Step 6: Infer state_code from opponents'
         id: step6
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',6,') }}
+        if: false
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
+          set -o pipefail
+
           echo "═══════════════════════════════════════════════════"
           echo "STEP 6: INFER STATE_CODE FROM OPPONENT DOMINANCE"
           echo "═══════════════════════════════════════════════════"
