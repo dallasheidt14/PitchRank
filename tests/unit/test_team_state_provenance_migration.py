@@ -150,12 +150,16 @@ def _statements(pattern: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
-def test_update_trigger_fires_only_when_the_state_changes():
+def test_update_trigger_fires_only_when_the_state_or_its_provenance_changes():
+    """All three columns, because a write that only re-sources a state it agrees with
+    would otherwise succeed unlogged — and none of the three is on the hot path."""
     assert re.search(
         r"(?is)after\s+update\s+on\s+(?:public\.)?teams\s+for\s+each\s+row\s+"
-        r"when\s+\(\s*OLD\.state_code\s+IS\s+DISTINCT\s+FROM\s+NEW\.state_code\s*\)",
+        r"when\s+\(\s*OLD\.state_code IS DISTINCT FROM NEW\.state_code"
+        r" OR OLD\.state_source IS DISTINCT FROM NEW\.state_source"
+        r" OR OLD\.state_confidence IS DISTINCT FROM NEW\.state_confidence\s*\)",
         _flat(_trigger("log_team_state_update")),
-    ), "the UPDATE trigger lost its WHEN clause and now fires on every teams write"
+    ), "the UPDATE trigger's WHEN clause changed"
 
 
 def test_insert_trigger_fires_only_for_a_state_bearing_row():
@@ -341,6 +345,30 @@ def test_revert_writes_through_the_write_function():
     body = _flat(_function(REVERT_FUNCTION))
     assert f"public.{WRITE_FUNCTION}(" in body
     assert "'revert'," in body
+
+
+def test_revert_skips_a_team_another_writer_has_moved_since():
+    """The pre-image is the state the BATCH left, never the team's current state. Passing
+    the current state makes the guard match itself, and a revert then overwrites whatever
+    the weekly writers did in the meantime with a value the operator never saw."""
+    body = _flat(_function(REVERT_FUNCTION))
+    assert (
+        "LAST_VALUE(a.new_state_code) OVER ( PARTITION BY a.team_id_master "
+        "ORDER BY a.applied_at, a.id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING "
+        ") AS batch_state_code"
+    ) in body, "LAST_VALUE without that frame returns the batch's first write, not its last"
+    assert "v_row.batch_state_code::text," in body
+    assert "t.state_code" not in body[body.index("LOOP") :], "the loop reads a live state again"
+
+
+def test_the_dry_run_counts_what_the_write_would_do():
+    """One test, computed once in SQL, so the two branches cannot drift apart."""
+    body = _flat(_function(REVERT_FUNCTION))
+    assert (
+        "(t.team_id_master IS NOT NULL AND t.state_code IS NOT DISTINCT FROM "
+        "p.batch_state_code) AS restorable"
+    ) in body
+    assert "IF v_row.restorable THEN" in body
 
 
 def test_no_function_tries_to_extend_its_own_timeout():

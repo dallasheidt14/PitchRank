@@ -310,11 +310,16 @@ COMMENT ON FUNCTION public.log_team_state_change() IS
   'from transaction-local GUCs set by apply_team_state(), falling back to the database '
   'role name and action ''external'' for writes from any other path.';
 
+-- The provenance columns are in the WHEN clause too, because a write that re-sources a
+-- state it agrees with changes only those and would otherwise succeed unlogged. They
+-- cost nothing on the hot path: nothing but this file's own write function touches them.
 DROP TRIGGER IF EXISTS log_team_state_update ON teams;
 CREATE TRIGGER log_team_state_update
     AFTER UPDATE ON teams
     FOR EACH ROW
-    WHEN (OLD.state_code IS DISTINCT FROM NEW.state_code)
+    WHEN (OLD.state_code IS DISTINCT FROM NEW.state_code
+       OR OLD.state_source IS DISTINCT FROM NEW.state_source
+       OR OLD.state_confidence IS DISTINCT FROM NEW.state_confidence)
     EXECUTE FUNCTION public.log_team_state_change();
 
 DROP TRIGGER IF EXISTS log_team_state_insert ON teams;
@@ -430,7 +435,15 @@ BEGIN
              a.old_confidence,
              ROW_NUMBER() OVER (
                PARTITION BY a.team_id_master ORDER BY a.applied_at, a.id
-             ) AS rn
+             ) AS rn,
+             -- The state the batch left behind, which the restore below requires the
+             -- team to still be sitting on. The frame is not optional: LAST_VALUE
+             -- defaults to a frame ending at the current row, so on rn = 1 it would
+             -- return the batch's first write rather than its last.
+             LAST_VALUE(a.new_state_code) OVER (
+               PARTITION BY a.team_id_master ORDER BY a.applied_at, a.id
+               ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+             ) AS batch_state_code
       FROM public.team_state_audit a
       WHERE a.applied_by = p_applied_by
         AND a.applied_at >= p_applied_after
@@ -441,7 +454,11 @@ BEGIN
     -- rn = 1 is the OLDEST row in scope for the team, which is what returns it to its
     -- pre-batch state where a batch wrote it more than once.
     page AS (
-      SELECT s.team_id_master, s.old_state_code, s.old_source, s.old_confidence
+      SELECT s.team_id_master,
+             s.old_state_code,
+             s.old_source,
+             s.old_confidence,
+             s.batch_state_code
       FROM scope s
       WHERE s.rn = 1
         AND (p_after IS NULL OR s.team_id_master > p_after)
@@ -449,13 +466,16 @@ BEGIN
       LIMIT p_batch_size
     )
     -- LEFT JOIN so a team that has since disappeared still carries the cursor forward
-    -- instead of ending the caller's walk early.
+    -- instead of ending the caller's walk early. `restorable` is the same test
+    -- apply_team_state applies below, so the dry run cannot disagree with the write:
+    -- a team another writer has moved on since the batch is skipped, not dragged back.
     SELECT p.team_id_master,
            p.old_state_code,
            p.old_source,
            p.old_confidence,
-           t.state_code AS current_state_code,
-           (t.team_id_master IS NOT NULL) AS team_exists
+           p.batch_state_code,
+           (t.team_id_master IS NOT NULL
+            AND t.state_code IS NOT DISTINCT FROM p.batch_state_code) AS restorable
     FROM page p
     LEFT JOIN public.teams t ON t.team_id_master = p.team_id_master
     ORDER BY p.team_id_master
@@ -463,12 +483,12 @@ BEGIN
     v_last := v_row.team_id_master;
 
     IF p_dry_run THEN
-      IF v_row.team_exists THEN
+      IF v_row.restorable THEN
         v_changed := v_changed + 1;
       END IF;
     ELSIF public.apply_team_state(
             v_row.team_id_master,
-            v_row.current_state_code::text,
+            v_row.batch_state_code::text,
             v_row.old_state_code::text,
             v_row.old_source,
             v_row.old_confidence,
@@ -491,7 +511,8 @@ COMMENT ON FUNCTION public.revert_team_states(text, timestamptz, timestamptz, te
   'Restore state_code, state_source and state_confidence for one keyset page of the '
   'teams written by p_applied_by between p_applied_after and p_applied_before, oldest '
   'ledger row per team, writing through apply_team_state() so the restore is itself '
-  'logged — as action ''revert'', which the scope excludes. Returns the number of rows '
+  'logged — as action ''revert'', which the scope excludes. A team whose state has moved '
+  'since the batch wrote it is skipped rather than dragged back. Returns the number of rows '
   'written and the page''s last team_id_master; p_dry_run returns the count without '
   'writing. Called in a loop, because one whole-batch call would be cancelled by the 8s '
   'statement_timeout a service-role PostgREST request inherits.';
