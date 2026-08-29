@@ -244,6 +244,7 @@ def _load_rankings_view_age_state_status():
 st.sidebar.title("Navigation")
 _nav_options = [
     "📋 Review Queue",
+    "🗺️ State Review Queue",
     "👥 Age Groups",
     "📈 Database Import Stats",
     "🆕 New Accounts",
@@ -487,6 +488,146 @@ if section == "📋 Review Queue":
             st.error(f"Error loading review queue: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ============================================================================
+# STATE REVIEW QUEUE SECTION
+# ============================================================================
+elif section == "🗺️ State Review Queue":
+    st.header("State Review Queue")
+    db = get_database()
+
+    st.markdown(
+        "State changes `scripts/assign_team_states.py` would not make on its own authority: "
+        "a club that needs curating, a name and a club that disagree, or a tier that may fill "
+        "but never correct. Approving one writes it and mirrors it to the state board; "
+        "rejecting one stops it being raised again while the same state is proposed."
+    )
+
+    srq_col1, srq_col2, srq_col3 = st.columns(3)
+    with srq_col1:
+        srq_status = st.selectbox(
+            "Status", options=["pending", "approved", "rejected", "all"], key="srq_status"
+        )
+    with srq_col2:
+        srq_tier = st.selectbox(
+            "Tier", options=["All", "A", "B", "C", "D", "E", "R9"], key="srq_tier"
+        )
+    with srq_col3:
+        srq_sort = st.selectbox(
+            "Sort By",
+            options=["Newest first", "Oldest first", "Confidence (high first)"],
+            key="srq_sort",
+        )
+
+    srq_reviewer = st.text_input("Your Email (required for approve / reject)", key="srq_reviewer")
+
+    if not db:
+        st.error("Database connection required for State Review Queue")
+        st.stop()
+
+    try:
+        srq_query = db.table('team_state_review_queue').select('*')
+        if srq_status != "all":
+            srq_query = srq_query.eq('status', srq_status)
+        if srq_tier != "All":
+            srq_query = srq_query.eq('tier', srq_tier)
+        if srq_sort == "Confidence (high first)":
+            srq_query = srq_query.order('confidence', desc=True)
+        else:
+            srq_query = srq_query.order('created_at', desc=(srq_sort == "Newest first"))
+
+        srq_items = fetch_all_rows(srq_query)
+
+        srq_team_ids = list({item['team_id_master'] for item in srq_items if item.get('team_id_master')})
+        srq_teams = {}
+        for i in range(0, len(srq_team_ids), 50):
+            batch = srq_team_ids[i:i+50]
+            t_result = execute_with_retry(
+                lambda b=batch: db.table('teams')
+                    .select('team_id_master, team_name, club_name, age_group, gender, state_code')
+                    .in_('team_id_master', b)
+            )
+            for t in (t_result.data or []):
+                srq_teams[t['team_id_master']] = t
+
+        st.caption(f"{len(srq_items):,} rows")
+
+        for idx, item in enumerate(srq_items[:200]):
+            team = srq_teams.get(item.get('team_id_master'), {})
+            status = item.get('status', 'pending')
+            header = (
+                f"#{item['id']}  {team.get('team_name', item.get('team_id_master', '?'))}  "
+                f"— {item.get('current_state_code') or 'no state'} → {item.get('proposed_state_code')}"
+            )
+            with st.expander(header, expanded=False):
+                st.text(f"Club:   {team.get('club_name', 'N/A')}")
+                st.text(f"Age:    {team.get('age_group', '?')}  |  Gender: {team.get('gender', '?')}")
+                st.text(f"State now: {team.get('state_code') or 'none'}")
+                st.text(
+                    f"Tier: {item.get('tier')}  |  Confidence: {item.get('confidence')}  |  "
+                    f"Status: {status}  |  Created: {item.get('created_at', '?')}"
+                )
+                st.text(f"Why: {item.get('reason', '')}")
+                st.caption(f"Team ID: `{item.get('team_id_master', '?')}`")
+
+                # The queue stores the state the team had when the decision was filed.
+                # If it has moved since, approving would overwrite a newer value, and the
+                # RPC refuses -- so say so here rather than letting the button fail.
+                stale = (
+                    team
+                    and (team.get('state_code') or None) != (item.get('current_state_code') or None)
+                )
+                if stale and status == 'pending':
+                    st.warning(
+                        f"Filed against state {item.get('current_state_code') or 'none'}, but the team "
+                        f"is {team.get('state_code') or 'none'} now. Re-run the sweep instead of approving this."
+                    )
+
+                if status == 'pending':
+                    srq_b1, srq_b2, _ = st.columns([1, 1, 3])
+                    with srq_b1:
+                        if st.button(
+                            "Approve", key=f"srq_approve_{item['id']}_{idx}",
+                            type="primary", disabled=not srq_reviewer or stale
+                        ):
+                            try:
+                                execute_with_retry(
+                                    lambda rid=item['id']: db.rpc('approve_team_state', {
+                                        'p_review_id': rid,
+                                        'p_approver': srq_reviewer
+                                    })
+                                )
+                                st.success(f"Approved #{item['id']}")
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Approve failed: {exc}")
+                    with srq_b2:
+                        if st.button(
+                            "Reject", key=f"srq_reject_{item['id']}_{idx}", disabled=not srq_reviewer
+                        ):
+                            try:
+                                execute_with_retry(
+                                    lambda rid=item['id']: db.rpc('reject_team_state', {
+                                        'p_review_id': rid,
+                                        'p_reviewer': srq_reviewer
+                                    })
+                                )
+                                st.warning(f"Rejected #{item['id']}")
+                                st.rerun()
+                            except Exception as exc:
+                                st.error(f"Reject failed: {exc}")
+                else:
+                    st.caption(
+                        f"Reviewed by **{item.get('reviewed_by', '?')}** at {item.get('reviewed_at', '?')}"
+                    )
+
+        if len(srq_items) > 200:
+            st.caption(f"Showing the first 200 of {len(srq_items):,}. Narrow with the filters above.")
+
+    except Exception as e:
+        st.error(f"Error loading state review queue: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ============================================================================
 # UNKNOWN OPPONENT REVIEW SECTION
