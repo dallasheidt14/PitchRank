@@ -428,28 +428,49 @@ BEGIN
   END IF;
 
   FOR v_row IN
-    WITH scope AS (
+    WITH batch AS (
       SELECT a.team_id_master,
              a.old_state_code,
              a.old_source,
              a.old_confidence,
-             ROW_NUMBER() OVER (
-               PARTITION BY a.team_id_master ORDER BY a.applied_at, a.id
-             ) AS rn,
-             -- The state the batch left behind, which the restore below requires the
-             -- team to still be sitting on. The frame is not optional: LAST_VALUE
-             -- defaults to a frame ending at the current row, so on rn = 1 it would
-             -- return the batch's first write rather than its last.
-             LAST_VALUE(a.new_state_code) OVER (
-               PARTITION BY a.team_id_master ORDER BY a.applied_at, a.id
-               ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-             ) AS batch_state_code
+             a.new_state_code,
+             a.applied_at,
+             a.id
       FROM public.team_state_audit a
       WHERE a.applied_by = p_applied_by
         AND a.applied_at >= p_applied_after
         AND a.applied_at < p_applied_before
         -- A revert is not itself a batch a later date-scoped revert can undo.
         AND a.action <> 'revert'
+    ),
+    -- The cursor and the limit come first, so a call windows one page of ledger rows
+    -- rather than every row the batch wrote. team_id_master is the partition key below,
+    -- so narrowing to these teams cannot change either window's answer for them.
+    page_teams AS (
+      SELECT DISTINCT b.team_id_master
+      FROM batch b
+      WHERE p_after IS NULL OR b.team_id_master > p_after
+      ORDER BY b.team_id_master
+      LIMIT p_batch_size
+    ),
+    scope AS (
+      SELECT b.team_id_master,
+             b.old_state_code,
+             b.old_source,
+             b.old_confidence,
+             ROW_NUMBER() OVER (
+               PARTITION BY b.team_id_master ORDER BY b.applied_at, b.id
+             ) AS rn,
+             -- The state the batch left behind, which the restore below requires the
+             -- team to still be sitting on. The frame is not optional: LAST_VALUE
+             -- defaults to a frame ending at the current row, so on rn = 1 it would
+             -- return the batch's first write rather than its last.
+             LAST_VALUE(b.new_state_code) OVER (
+               PARTITION BY b.team_id_master ORDER BY b.applied_at, b.id
+               ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+             ) AS batch_state_code
+      FROM batch b
+      JOIN page_teams pt ON pt.team_id_master = b.team_id_master
     ),
     -- rn = 1 is the OLDEST row in scope for the team, which is what returns it to its
     -- pre-batch state where a batch wrote it more than once.
@@ -461,9 +482,6 @@ BEGIN
              s.batch_state_code
       FROM scope s
       WHERE s.rn = 1
-        AND (p_after IS NULL OR s.team_id_master > p_after)
-      ORDER BY s.team_id_master
-      LIMIT p_batch_size
     )
     -- LEFT JOIN so a team that has since disappeared still carries the cursor forward
     -- instead of ending the caller's walk early. `restorable` is the same test

@@ -298,7 +298,7 @@ def test_revert_excludes_its_own_rows():
 def test_revert_restores_the_oldest_row_per_team():
     """R15: a batch that wrote a team twice must return it to its pre-batch state."""
     body = _flat(_function(REVERT_FUNCTION))
-    assert "ROW_NUMBER() OVER ( PARTITION BY a.team_id_master ORDER BY a.applied_at, a.id ) AS rn" in body
+    assert "ROW_NUMBER() OVER ( PARTITION BY b.team_id_master ORDER BY b.applied_at, b.id ) AS rn" in body
     assert "WHERE s.rn = 1" in body
 
 
@@ -311,10 +311,21 @@ def test_revert_is_driven_from_the_caller_in_pages():
     assert "RETURNS TABLE (rows_changed integer, last_team_id uuid)" in _flat(header)
 
     body = _flat(_function(REVERT_FUNCTION))
-    assert "AND (p_after IS NULL OR s.team_id_master > p_after)" in body, (
+    assert "WHERE p_after IS NULL OR b.team_id_master > p_after" in body, (
         "the page ignores its cursor, so the caller rewrites the same rows forever"
     )
-    assert "ORDER BY s.team_id_master LIMIT p_batch_size" in body
+    assert "ORDER BY b.team_id_master LIMIT p_batch_size" in body
+
+
+def test_revert_pages_before_it_windows():
+    """Both windows run over one page of ledger rows. Applying the limit after them
+    makes every call sort the whole batch, which is the work the 8s budget cannot take
+    on a batch large enough to need paging in the first place."""
+    body = _flat(_function(REVERT_FUNCTION))
+    assert body.index("LIMIT p_batch_size") < body.index("ROW_NUMBER() OVER"), (
+        "the page limit is applied after the windowing it exists to bound"
+    )
+    assert "JOIN page_teams pt ON pt.team_id_master = b.team_id_master" in body
 
 
 def test_revert_refuses_a_scope_that_would_silently_revert_nothing():
@@ -353,8 +364,8 @@ def test_revert_skips_a_team_another_writer_has_moved_since():
     the weekly writers did in the meantime with a value the operator never saw."""
     body = _flat(_function(REVERT_FUNCTION))
     assert (
-        "LAST_VALUE(a.new_state_code) OVER ( PARTITION BY a.team_id_master "
-        "ORDER BY a.applied_at, a.id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING "
+        "LAST_VALUE(b.new_state_code) OVER ( PARTITION BY b.team_id_master "
+        "ORDER BY b.applied_at, b.id ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING "
         ") AS batch_state_code"
     ) in body, "LAST_VALUE without that frame returns the batch's first write, not its last"
     assert "v_row.batch_state_code::text," in body
