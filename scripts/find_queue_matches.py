@@ -758,21 +758,30 @@ def extract_program_tier(name):
     return None
 
 
+_PROTECTED_DIVISION_TOKEN = re.compile(r"(?<![A-Z0-9])(?:AD|HD|EA\s*\d?)(?![A-Z0-9])")
+
+
 def has_protected_division(name):
-    """Check if team name contains AD, HD, or MLS NEXT - needs manual review."""
+    """Check if team name carries an AD, HD, EA or MLS NEXT marker - needs manual review.
+
+    The markers are whole tokens. Testing them as bare substrings also matched the
+    leading letters of ordinary words -- EAST, EAGLES, ADAMS -- which withheld 2,418
+    unrelated teams from every caller with no log line (IMP-135).
+
+    Two shapes have to survive the token boundary, because both name a tier that must
+    not be merged across. A marker is routinely punctuated against the tier it
+    qualifies (``2012 EA/NPL``, ``[MLS Next HD]``), so the boundary is any
+    non-alphanumeric rather than whitespace. And EA carries a numeric suffix that is a
+    separate league: ``EA2`` has its own multiplier in ``src/rankings/constants.py``,
+    and ``backfill_team_leagues`` reads it spaced or tight, so the digit is part of the
+    token rather than something following it.
+    """
     if not name:
         return False
     name_upper = name.upper()
-    # Check for division markers
-    if " AD" in name_upper or "_AD" in name_upper or "-AD" in name_upper:
-        return True
-    if " HD" in name_upper or "_HD" in name_upper or "-HD" in name_upper:
-        return True
     if "MLS NEXT" in name_upper or "MLSNEXT" in name_upper:
         return True
-    if " EA" in name_upper or "_EA" in name_upper:  # Elite Academy
-        return True
-    return False
+    return bool(_PROTECTED_DIVISION_TOKEN.search(name_upper))
 
 
 # Tier tokens to look for in the provider team name. If the provider name

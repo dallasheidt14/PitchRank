@@ -70,8 +70,10 @@ rows agree on **all** of stored gender, stored age group, `state_code` bucket, a
 lowercased `club_name`, and then score >= the threshold.
 
 So these are invisible at any threshold: same club with rows stamped in different states; the
-same club spelled two ways; either row named `unknown_<digits>`; either name containing a space
-followed by `EA` (3,256 live rows, 2,148 of them East/Eagles names — see failure-modes).
+same club spelled two ways; either row named `unknown_<digits>`; either name carrying an `AD`,
+`HD` or `EA` division token, or `MLS NEXT` (4,823 live rows). That last exclusion used to be a
+substring test that also caught EAST, EAGLES and ADAMS, withholding 2,418 unrelated rows; it
+matches whole tokens as of IMP-135, so those names now reach the scan.
 
 A fifth loss sits below all of these: `fetch_teams` pages without an `.order()` clause, so each
 cohort scan silently drops a share of its own input — 16% when reproduced on `u19`. Those rows
