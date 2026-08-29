@@ -26,9 +26,10 @@ EVENTS_TABLE = "tgs_events"
 NEW_TABLES = (AUDIT_TABLE, QUEUE_TABLE, EVENTS_TABLE)
 
 TRIGGER_FUNCTION = "log_team_state_change"
+CLEAR_FUNCTION = "clear_external_state_provenance"
 WRITE_FUNCTION = "apply_team_state"
 REVERT_FUNCTION = "revert_team_states"
-NEW_FUNCTIONS = (TRIGGER_FUNCTION, WRITE_FUNCTION, REVERT_FUNCTION)
+NEW_FUNCTIONS = (TRIGGER_FUNCTION, CLEAR_FUNCTION, WRITE_FUNCTION, REVERT_FUNCTION)
 
 
 def _executable(text: str) -> str:
@@ -151,15 +152,39 @@ def _statements(pattern: str) -> list[str]:
 
 
 def test_update_trigger_fires_only_when_the_state_or_its_provenance_changes():
-    """All three columns, because a write that only re-sources a state it agrees with
-    would otherwise succeed unlogged — and none of the three is on the hot path."""
+    """All four columns. A write that re-sources a state it agrees with moves only the
+    source, and one that re-applies a decision unchanged moves only the timestamp; both
+    would otherwise succeed unlogged. None of the four is on the hot path."""
     assert re.search(
         r"(?is)after\s+update\s+on\s+(?:public\.)?teams\s+for\s+each\s+row\s+"
         r"when\s+\(\s*OLD\.state_code IS DISTINCT FROM NEW\.state_code"
         r" OR OLD\.state_source IS DISTINCT FROM NEW\.state_source"
-        r" OR OLD\.state_confidence IS DISTINCT FROM NEW\.state_confidence\s*\)",
+        r" OR OLD\.state_confidence IS DISTINCT FROM NEW\.state_confidence"
+        r" OR OLD\.state_assigned_at IS DISTINCT FROM NEW\.state_assigned_at\s*\)",
         _flat(_trigger("log_team_state_update")),
     ), "the UPDATE trigger's WHEN clause changed"
+
+
+def test_an_external_state_change_loses_the_provenance_of_the_old_one():
+    """Otherwise the row claims its new state came from the evidence that produced the
+    state before it, which is what state_source is documented not to do."""
+    trigger = _flat(_trigger(CLEAR_FUNCTION))
+    assert re.search(
+        r"(?is)before\s+update\s+on\s+(?:public\.)?teams\s+for\s+each\s+row\s+"
+        r"when\s+\(\s*OLD\.state_code IS DISTINCT FROM NEW\.state_code\s*\)",
+        trigger,
+    ), "the clearing trigger fires on writes that leave the state alone"
+    assert f"public.{CLEAR_FUNCTION}()" in trigger
+
+    body = _flat(_function(CLEAR_FUNCTION))
+    guarded = body[body.index("IF NULLIF(current_setting('pitchrank.action', true), '') IS NULL THEN") :]
+    for cleared in (
+        "NEW.state_source := NULL;",
+        "NEW.state_confidence := NULL;",
+        "NEW.state_assigned_at := NULL;",
+    ):
+        assert cleared in guarded[: guarded.index("END IF;")], f"{cleared} is not inside the GUC guard"
+    assert "RETURN NEW;" in body, "a BEFORE trigger that returns anything else drops the write"
 
 
 def test_insert_trigger_fires_only_for_a_state_bearing_row():

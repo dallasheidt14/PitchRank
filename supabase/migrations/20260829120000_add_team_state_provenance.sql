@@ -20,7 +20,7 @@
 --    transaction. Writes from any other path leave them unset and are stamped with the
 --    database role name and action 'external', which is the point of logging at all.
 --
--- 3. TWO TRIGGERS, NOT ONE. PostgreSQL rejects an INSERT OR UPDATE trigger whose WHEN
+-- 3. TWO LOGGING TRIGGERS, NOT ONE. PostgreSQL rejects an INSERT OR UPDATE trigger whose WHEN
 --    clause references OLD, and the WHEN clauses are not optional: teams takes roughly
 --    3,840 last_scraped_at writes a day from the scrapers, and an unconditional trigger
 --    would fire on every one. Moving the test into the function body is not equivalent —
@@ -310,16 +310,18 @@ COMMENT ON FUNCTION public.log_team_state_change() IS
   'from transaction-local GUCs set by apply_team_state(), falling back to the database '
   'role name and action ''external'' for writes from any other path.';
 
--- The provenance columns are in the WHEN clause too, because a write that re-sources a
--- state it agrees with changes only those and would otherwise succeed unlogged. They
--- cost nothing on the hot path: nothing but this file's own write function touches them.
+-- The provenance columns are in the WHEN clause too, all three of them: a write that
+-- re-sources a state it agrees with changes only the source, and a write that re-applies
+-- a decision unchanged moves only the timestamp. Both would otherwise succeed unlogged.
+-- They cost nothing on the hot path — nothing but apply_team_state() touches them.
 DROP TRIGGER IF EXISTS log_team_state_update ON teams;
 CREATE TRIGGER log_team_state_update
     AFTER UPDATE ON teams
     FOR EACH ROW
     WHEN (OLD.state_code IS DISTINCT FROM NEW.state_code
        OR OLD.state_source IS DISTINCT FROM NEW.state_source
-       OR OLD.state_confidence IS DISTINCT FROM NEW.state_confidence)
+       OR OLD.state_confidence IS DISTINCT FROM NEW.state_confidence
+       OR OLD.state_assigned_at IS DISTINCT FROM NEW.state_assigned_at)
     EXECUTE FUNCTION public.log_team_state_change();
 
 DROP TRIGGER IF EXISTS log_team_state_insert ON teams;
@@ -328,6 +330,42 @@ CREATE TRIGGER log_team_state_insert
     FOR EACH ROW
     WHEN (NEW.state_code IS NOT NULL)
     EXECUTE FUNCTION public.log_team_state_change();
+
+-- Provenance describes the state_code sitting next to it. A path that changes the state
+-- without going through apply_team_state() leaves those columns behind untouched, and
+-- the row then claims its new state came from the evidence that produced the old one —
+-- so the evidence goes when the state does. BEFORE, because it rewrites the row on the
+-- way in; the ledger row the AFTER trigger writes then records the cleared values.
+CREATE OR REPLACE FUNCTION public.clear_external_state_provenance()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF NULLIF(current_setting('pitchrank.action', true), '') IS NULL THEN
+    NEW.state_source := NULL;
+    NEW.state_confidence := NULL;
+    NEW.state_assigned_at := NULL;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.clear_external_state_provenance() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.clear_external_state_provenance() TO service_role;
+
+COMMENT ON FUNCTION public.clear_external_state_provenance() IS
+  'Strip state_source, state_confidence and state_assigned_at from a state_code change '
+  'that did not come through apply_team_state(), identified by the absence of the '
+  'transaction-local action GUC that function sets.';
+
+DROP TRIGGER IF EXISTS clear_external_state_provenance ON teams;
+CREATE TRIGGER clear_external_state_provenance
+    BEFORE UPDATE ON teams
+    FOR EACH ROW
+    WHEN (OLD.state_code IS DISTINCT FROM NEW.state_code)
+    EXECUTE FUNCTION public.clear_external_state_provenance();
 
 -- ============================================================================
 -- THE WRITE PATH
