@@ -29,6 +29,7 @@ Usage:
     python scripts/assign_team_states.py --out run.json                  # dry run
     python scripts/assign_team_states.py --execute --snapshot run.json [--limit 50]
     python scripts/assign_team_states.py --team <uuid> [--execute]       # one team
+    python scripts/assign_team_states.py --team <uuid> --set OH --reason '...'
 
 **The dry run is the only thing that decides.** It snapshots every team's state, writes
 its decisions to ``--out``, and ``--execute`` replays that file -- it never recomputes.
@@ -88,6 +89,7 @@ from scripts.backfill_state_from_team_name import state_from_name  # noqa: E402
 from src.scrapers.gotsport import _zenrows_get  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 console = Console()
 
@@ -101,6 +103,10 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
 ACTOR = "assign_team_states"
+
+# A person's answer is stamped separately from the sweep's, because a revert scopes by
+# actor and undoing a sweep must never undo the answers a person gave.
+OPERATOR_ACTOR = "operator"
 
 TIER_CONFIDENCE = {"A": 0.95, "B": 0.90, "C": 0.85, "D": 0.85, "E": 0.85, "R9": 0.90}
 
@@ -782,6 +788,63 @@ def summarize(snapshot: Dict) -> None:
             console.print(f"[yellow]  {team_id}[/yellow]")
 
 
+def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str]) -> None:
+    """Write the operator's own answer for one team (R21).
+
+    Stamped ``operator`` rather than ``assign_team_states`` so the two are separable
+    forever: a revert scopes by actor, and undoing a sweep must not undo the answers a
+    person gave. Confidence is 1.0 because a person is not a tier -- no evidence was
+    weighed, someone knows.
+    """
+    state = (state or "").strip().upper()
+    if state not in STATE_CODE_TO_NAME and state not in CANADIAN_PROVINCES:
+        console.print(f"[red]ERROR: {state!r} is not a US state, DC, or a Canadian province[/red]")
+        sys.exit(1)
+
+    found = (
+        sb.table("teams")
+        .select("team_id_master,team_name,state_code")
+        .eq("team_id_master", team_id)
+        .limit(1)
+        .execute()
+    )
+    if not found.data:
+        console.print(f"[red]ERROR: no live team {team_id}[/red]")
+        sys.exit(1)
+
+    team = found.data[0]
+    current = (team.get("state_code") or "").strip() or None
+    if current == state:
+        console.print(f"[yellow]{team['team_name']} is already {state}[/yellow]")
+        return
+
+    decision = {
+        "team_id": team_id,
+        "pre_image": current,
+        "proposed": state,
+        "tier": None,
+        "confidence": 1.0,
+    }
+    applied = sb.rpc(
+        "apply_team_state",
+        {
+            "p_team_id": team_id,
+            "p_expected_state_code": current,
+            "p_state_code": state,
+            "p_source": "operator",
+            "p_confidence": 1.0,
+            "p_actor": OPERATOR_ACTOR,
+            "p_action": "fill" if current is None else "correct",
+            "p_reason": reason or "assigned by hand",
+        },
+    ).execute()
+    if not applied.data:
+        console.print("[yellow]Skipped: the team's state moved since it was read[/yellow]")
+        return
+    console.print(f"[green]✓[/green] {team['team_name']}: {current} → {state}")
+    console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, [decision]):,} ranking rows")
+
+
 def report_team(sb, snapshot: Dict, team_id: str, execute: bool) -> None:
     """Show one team's decision, and apply it when asked (R21).
 
@@ -818,6 +881,8 @@ def main() -> None:
     parser.add_argument("--out", help="Where the dry run writes its decisions")
     parser.add_argument("--limit", type=int, help="Apply at most this many of each outcome")
     parser.add_argument("--team", help="Report the decision for one team_id_master")
+    parser.add_argument("--set", dest="set_state", help="Assign this state to --team by hand, no tiers")
+    parser.add_argument("--reason", help="Why, recorded in the ledger beside a --set")
     parser.add_argument("--no-tier-a", action="store_true", help="Skip the GotSport probe")
     parser.add_argument(
         "--workers", type=int, default=DEFAULT_WORKERS, help=f"Probe threads (default {DEFAULT_WORKERS})"
@@ -829,6 +894,13 @@ def main() -> None:
         sys.exit(1)
 
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    if args.set_state:
+        if not args.team:
+            console.print("[red]ERROR: --set needs --team; it assigns one team[/red]")
+            sys.exit(1)
+        assign_by_hand(sb, args.team, args.set_state, args.reason)
+        return
 
     if args.execute and not args.team:
         if not args.snapshot:
