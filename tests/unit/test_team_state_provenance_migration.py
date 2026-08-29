@@ -29,7 +29,16 @@ TRIGGER_FUNCTION = "log_team_state_change"
 CLEAR_FUNCTION = "clear_external_state_provenance"
 WRITE_FUNCTION = "apply_team_state"
 REVERT_FUNCTION = "revert_team_states"
-NEW_FUNCTIONS = (TRIGGER_FUNCTION, CLEAR_FUNCTION, WRITE_FUNCTION, REVERT_FUNCTION)
+APPROVE_FUNCTION = "approve_team_state"
+REJECT_FUNCTION = "reject_team_state"
+NEW_FUNCTIONS = (
+    TRIGGER_FUNCTION,
+    CLEAR_FUNCTION,
+    WRITE_FUNCTION,
+    REVERT_FUNCTION,
+    APPROVE_FUNCTION,
+    REJECT_FUNCTION,
+)
 
 
 def _executable(text: str) -> str:
@@ -496,3 +505,48 @@ def test_every_new_function_is_service_role_only():
         assert f"GRANT EXECUTE ON FUNCTION {signature} TO service_role" in tree, (
             f"{name} is not executable by the role that runs it"
         )
+
+
+# --------------------------------------------------------------------------- #
+# The queue's consumer
+# --------------------------------------------------------------------------- #
+
+
+def test_approving_writes_through_the_ledgered_path():
+    """An approval is a teams write like any other, so it must not touch teams directly:
+    a bare UPDATE here would apply the change with no actor and no audit action."""
+    body = _flat(_function(APPROVE_FUNCTION))
+    assert f"public.{WRITE_FUNCTION}(" in body
+    assert "'approve'" in body
+    assert "UPDATE public.teams" not in body
+
+
+def test_approving_carries_the_queue_row_as_its_pre_image():
+    """The row records the state the team had when the decision was filed. A team another
+    writer has moved since is not the team the operator is looking at."""
+    body = _flat(_function(APPROVE_FUNCTION))
+    assert "v_row.current_state_code::text" in body
+    assert "IF NOT v_applied THEN" in body
+    assert body.index("IF NOT v_applied THEN") < body.index("SET status = 'approved'")
+
+
+def test_approving_mirrors_the_board_with_an_update():
+    """Monday's ranking run re-derives this column from teams, so an inserted row would be
+    a ranking no run produced."""
+    body = _flat(_function(APPROVE_FUNCTION))
+    assert "UPDATE public.rankings_full SET state_code = v_row.proposed_state_code" in body
+    assert "INSERT INTO public.rankings_full" not in body
+
+
+def test_rejecting_changes_no_team():
+    body = _flat(_function(REJECT_FUNCTION))
+    assert "UPDATE public.team_state_review_queue" in body
+    assert "public.teams" not in body
+    assert f"public.{WRITE_FUNCTION}(" not in body
+
+
+def test_both_actions_only_act_on_a_pending_row():
+    for name in (APPROVE_FUNCTION, REJECT_FUNCTION):
+        body = _flat(_function(name))
+        assert "status = 'pending'" in body, name
+        assert "RAISE EXCEPTION" in body, name
