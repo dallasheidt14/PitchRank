@@ -247,6 +247,21 @@ def fetch_gotsport_aliases(sb, team_ids: List[str]) -> Dict[str, str]:
     return aliases
 
 
+def ranked_and_active(sb, team_ids: List[str]) -> List[str]:
+    """Which of these teams a visitor can actually see on a board today."""
+    visible: List[str] = []
+    for start in range(0, len(team_ids), IN_BATCH):
+        page = (
+            sb.table("rankings_full")
+            .select("team_id")
+            .eq("status", "Active")
+            .in_("team_id", team_ids[start : start + IN_BATCH])
+            .execute()
+        )
+        visible.extend(row["team_id"] for row in page.data or [])
+    return visible
+
+
 def tgs_events_available(sb) -> bool:
     """Whether Tier D's tournament-vs-league gate can be evaluated at all."""
     result = sb.table("tgs_events").select("event_id", count="exact").limit(1).execute()
@@ -586,12 +601,26 @@ def build_snapshot(sb, use_tier_a: bool, workers: int, only_team: Optional[str] 
         )
         if d and only_team in (None, d["team_id"])
     ]
+    # Teams no tier can decide never reach the review queue either, because a queue row
+    # has to carry a proposal. Most of them are dormant and nobody would notice; the ones
+    # ranked Active are on a state board right now with no state, so the run names them
+    # rather than leaving them to be silently unfixable.
+    decided = {d["team_id"] for d in decisions}
+    undecided = [
+        t["team_id_master"]
+        for t in teams
+        if not (t.get("state_code") or "").strip() and t["team_id_master"] not in decided
+    ]
+    stranded = ranked_and_active(sb, undecided) if undecided else []
+
     return {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "actor": ACTOR,
         "live_teams": len(teams),
         "tier_a_probed": len(association_states),
         "tier_d_available": tier_d_ready,
+        "undecidable": len(undecided),
+        "undecidable_and_visible": stranded,
         "decisions": decisions,
     }
 
@@ -738,6 +767,19 @@ def summarize(snapshot: Dict) -> None:
     )
     if not snapshot["tier_d_available"]:
         console.print("[yellow]Tier D did not fire: tgs_events is empty[/yellow]")
+
+    stranded = snapshot.get("undecidable_and_visible") or []
+    console.print(
+        f"[dim]{snapshot.get('undecidable', 0):,} teams have no state and no tier that can "
+        f"decide them; they cannot be queued either, because a queue row needs a proposal.[/dim]"
+    )
+    if stranded:
+        console.print(
+            f"[yellow]{len(stranded)} of them are ranked and Active, so they are on a state "
+            f"board today with no state. These need a person:[/yellow]"
+        )
+        for team_id in stranded[:20]:
+            console.print(f"[yellow]  {team_id}[/yellow]")
 
 
 def report_team(sb, snapshot: Dict, team_id: str, execute: bool) -> None:
