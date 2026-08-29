@@ -74,6 +74,23 @@ def test_markers_punctuated_against_their_tier_stay_protected(name):
     assert has_protected_division(name) is True
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Chula Vista FC 2010 EA2",
+        "2010 EA2",
+        "SD Surf 2012 ea2",
+        "Club EA 2 2011",
+        "Team EA1 2014",
+    ],
+)
+def test_numbered_ea_tiers_stay_protected(name):
+    """EA2 is a separate league from EA, with its own multiplier in
+    src/rankings/constants.py, so the digit belongs to the token. Dropping it here
+    would put 255 live rows into cross-tier auto-matching."""
+    assert has_protected_division(name) is True
+
+
 def test_empty_name_is_not_protected():
     assert has_protected_division("") is False
     assert has_protected_division(None) is False

@@ -128,7 +128,7 @@ These remove pairs from consideration entirely. They produce no verdict, no log 
 entry in `decisions.json`, so nothing downstream can tell they existed.
 
 **A division token — `AD`, `HD`, `EA` or `MLS NEXT`.** `has_protected_division` withholds these
-from the scan, 4,568 live rows. That is intended: the tiers must not be merged across.
+from the scan, 4,823 live rows. That is intended: the tiers must not be merged across.
 
 Until IMP-135 it tested bare substrings, so any name whose second-or-later word merely began
 with those letters read as a division and was excluded with no log line:
@@ -140,11 +140,12 @@ with those letters read as a division and was excluded with no log line:
 'EAST MEADOW 2012'                     -> was not protected   # first word, no leading space
 ```
 
-That withheld 2,651 unrelated rows and made the exclusion position-dependent, which is why a
+That withheld 2,418 unrelated rows and made the exclusion position-dependent, which is why a
 leading EAST behaved differently from a trailing one. The check now matches whole tokens, so
-those names reach the scan; 94 rows became protected in the same change, either leading with a
+those names reach the scan; 116 rows became protected in the same change, either leading with a
 real token or punctuating it against the tier it qualifies (`2012 EA/NPL`, `[MLS Next HD]`).
-The token boundary is any non-alphanumeric for that reason, not whitespace alone.
+The token boundary is any non-alphanumeric for that reason, not whitespace alone, and `EA`
+carries its numeric suffix into the token because `EA2` is a separate league from `EA`.
 
 **Placeholder names.** `unknown_<digits>` on either side returns `None` before scoring. Correct
 as a name rule — the names carry no information — but it means the whole placeholder class can
