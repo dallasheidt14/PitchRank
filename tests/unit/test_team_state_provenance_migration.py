@@ -550,6 +550,9 @@ def test_both_actions_only_act_on_a_pending_row():
         body = _flat(_function(name))
         assert "status = 'pending'" in body, name
         assert "RAISE EXCEPTION" in body, name
+    # The approve path claims the row, so an approve and a reject cannot both see it
+    # pending and both report success.
+    assert "FOR UPDATE" in _flat(_function(APPROVE_FUNCTION))
 
 
 def test_reverting_puts_the_board_back_too():
@@ -558,4 +561,9 @@ def test_reverting_puts_the_board_back_too():
     body = _flat(_function(REVERT_FUNCTION))
     assert "UPDATE public.rankings_full SET state_code = v_row.old_state_code" in body
     assert "INSERT INTO public.rankings_full" not in body
-    assert body.index(f"public.{WRITE_FUNCTION}(") < body.index("UPDATE public.rankings_full")
+    # Inside the branch that writes, not merely after the call. Below END IF it would
+    # still read as "after the apply" while mirroring on a dry run and on skipped teams.
+    branch = body.index("ELSIF")
+    mirror = body.index("UPDATE public.rankings_full")
+    # The END IF that closes the loop's branch, not the argument guard's near the top.
+    assert branch < mirror < body.index("END IF", branch), "the mirror escaped the applied branch"

@@ -1,3 +1,11 @@
+-- APPLY ORDER MATTERS, because this file supersedes a function rather than adding one.
+--
+-- 20260829120000 is applied to this database but is NOT in supabase_migrations. Repair
+-- that row BEFORE repairing this one. Otherwise the next `supabase db push` sees 120000
+-- as unapplied, re-runs it -- it is fully idempotent, so it succeeds in silence -- and its
+-- CREATE OR REPLACE puts revert_team_states back to the version without the mirror, while
+-- this file stays marked applied and is skipped. The fix below is undone with no error.
+--
 -- Carry a reverted state onto the board with the team.
 --
 -- revert_team_states restored teams.state_code and stopped there, so the boards -- which
@@ -33,7 +41,7 @@ DECLARE
 BEGIN
   -- Every argument below fails silently rather than loudly when it is missing: a NULL
   -- bound matches no ledger row, and a NULL or non-positive p_batch_size is either
-  -- LIMIT NULL -- no limit at all, the whole-batch scan the 8s budget cannot afford --
+  -- LIMIT NULL — no limit at all, the whole-batch scan the 8s budget cannot afford —
   -- or an empty page, which ends the caller's walk on its first call. Both report a
   -- successful revert of nothing.
   IF p_applied_by IS NULL OR p_applied_after IS NULL OR p_applied_before IS NULL

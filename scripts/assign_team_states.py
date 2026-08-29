@@ -723,6 +723,9 @@ def apply_snapshot(sb, snapshot: Dict, limit: Optional[int]) -> None:
     to_apply = [d for d in decisions if d["action"] == "apply"]
     to_queue = [d for d in decisions if d["action"] == "queue"]
     if limit is not None:
+        if limit < 0:
+            console.print("[red]ERROR: --limit cannot be negative; it would apply all but the last[/red]")
+            sys.exit(1)
         to_apply = to_apply[:limit]
         to_queue = to_queue[:limit]
 
@@ -839,21 +842,32 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
 
     found = (
         sb.table("teams")
-        .select("team_id_master,team_name,state_code")
+        .select("team_id_master,team_name,state_code,is_deprecated")
         .eq("team_id_master", team_id)
         .limit(1)
         .execute()
     )
     if not found.data:
-        console.print(f"[red]ERROR: no live team {team_id}[/red]")
+        console.print(f"[red]ERROR: no team {team_id}[/red]")
         sys.exit(1)
 
     team = found.data[0]
-    current = (team.get("state_code") or "").strip() or None
-    if current == state:
-        console.print(f"[yellow]{team['team_name']} is already {state}[/yellow]")
-        return
+    if team.get("is_deprecated"):
+        merged = (
+            sb.table("team_merge_map")
+            .select("canonical_team_id")
+            .eq("deprecated_team_id", team_id)
+            .limit(1)
+            .execute()
+        )
+        canonical = merged.data[0]["canonical_team_id"] if merged.data else "unknown"
+        console.print(
+            f"[red]ERROR: {team_id} is deprecated, so nothing reads its state. "
+            f"Assign the team it merged into: {canonical}[/red]"
+        )
+        sys.exit(1)
 
+    current = (team.get("state_code") or "").strip() or None
     decision = {
         "team_id": team_id,
         "pre_image": current,
@@ -861,6 +875,14 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
         "tier": None,
         "confidence": 1.0,
     }
+    if current == state:
+        # Already there, which is also what a retry looks like after the write committed
+        # and the mirror did not. The mirror is the only half left to finish.
+        console.print(f"[yellow]{team['team_name']} is already {state}[/yellow]")
+        if execute:
+            console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, [decision]):,} ranking rows")
+        return
+
     if not execute:
         console.print(
             f"[yellow]Would set {team['team_name']}: {current} → {state}. "

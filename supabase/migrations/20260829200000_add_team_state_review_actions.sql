@@ -62,7 +62,7 @@ BEGIN
 
   IF NOT v_applied THEN
     RAISE EXCEPTION
-      'Team % has moved since review % was filed; re-run the sweep rather than approving a stale decision',
+      'Team % has moved or gone since review % was filed; re-run the sweep rather than approving a stale decision',
       v_row.team_id_master, p_review_id;
   END IF;
 
