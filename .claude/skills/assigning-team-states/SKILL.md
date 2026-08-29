@@ -148,7 +148,7 @@ what the run reported as undecidable. A team that is ranked and Active with no s
 visible on a board today; use `--set` with the reason:
 
 ```bash
-python scripts/assign_team_states.py --team <uuid> --set OH --reason "why you know this"
+python scripts/assign_team_states.py --team <uuid> --set OH --reason "why you know this" --execute
 ```
 
 That writes your answer at confidence 1.0, stamped `operator`. Use it when the evidence a

@@ -29,7 +29,7 @@ Usage:
     python scripts/assign_team_states.py --out run.json                  # dry run
     python scripts/assign_team_states.py --execute --snapshot run.json [--limit 50]
     python scripts/assign_team_states.py --team <uuid> [--execute]       # one team
-    python scripts/assign_team_states.py --team <uuid> --set OH --reason '...'
+    python scripts/assign_team_states.py --team <uuid> --set OH --reason '...' --execute
 
 **The dry run is the only thing that decides.** It snapshots every team's state, writes
 its decisions to ``--out``, and ``--execute`` replays that file -- it never recomputes.
@@ -55,9 +55,10 @@ Two limits, both deliberate and both reported by the run:
   another tier disputes. It is one HTTP call per team against GotSport, so probing all
   200,164 live teams to find the ones nothing else disputes is not a thing this tool
   does. A team every other tier agrees with is left alone.
-* **Tier D needs ``tgs_events``**, which is populated by its own backfill. While that
-  table is empty the tier cannot evaluate its tournament-vs-league gate for any event,
-  so it does not fire -- and the run says so rather than reporting a silent zero.
+* **Tier D is not implemented.** It would need ``tgs_events``, which is not populated,
+  and the per-event participant aggregation behind its gate. Of the teams it would
+  serve, four were visible on a state board and none of them needed it. The run says
+  the tier did not fire rather than reporting a silent zero.
 """
 
 from __future__ import annotations
@@ -266,12 +267,6 @@ def ranked_and_active(sb, team_ids: List[str]) -> List[str]:
         )
         visible.extend(row["team_id"] for row in page.data or [])
     return visible
-
-
-def tgs_events_available(sb) -> bool:
-    """Whether Tier D's tournament-vs-league gate can be evaluated at all."""
-    result = sb.table("tgs_events").select("event_id", count="exact").limit(1).execute()
-    return bool(result.count)
 
 
 # --------------------------------------------------------------------------- #
@@ -565,9 +560,11 @@ def build_snapshot(sb, use_tier_a: bool, workers: int, only_team: Optional[str] 
     if revert_blocks:
         console.print(f"  {len(revert_blocks):,} reverted (team, state) pairs to respect")
 
-    tier_d_ready = tgs_events_available(sb)
-    if not tier_d_ready:
-        console.print("  [yellow]Tier D unavailable: tgs_events is empty[/yellow]")
+    # Not "is tgs_events populated": the tier has no implementation, so a populated
+    # table would silence this warning while changing nothing. Filling the table is the
+    # smaller half of building it.
+    tier_d_ready = False
+    console.print("  [yellow]Tier D is not implemented; it fires for nothing[/yellow]")
 
     # Two passes. The first finds the teams any tier disputes, which is the only set
     # worth spending a GotSport call on; the second re-decides them with Tier A in hand.
@@ -577,11 +574,16 @@ def build_snapshot(sb, use_tier_a: bool, workers: int, only_team: Optional[str] 
     if only_team:
         candidates = [only_team]
     else:
-        candidates = [
+        disputed = {
             d["team_id"]
             for d in (decide(t, club_index, locality_index, {}, revert_blocks) for t in teams)
             if d
-        ]
+        }
+        # Plus every team with no state at all, decided or not. A stateless team no other
+        # tier reaches would otherwise never be probed and would be reported undecidable
+        # without anyone having asked the one source that could answer.
+        stateless = {t["team_id_master"] for t in teams if not (t.get("state_code") or "").strip()}
+        candidates = sorted(disputed | stateless)
 
     association_states: Dict[str, str] = {}
     if use_tier_a and candidates:
@@ -716,6 +718,23 @@ def apply_snapshot(sb, snapshot: Dict, limit: Optional[int]) -> None:
         to_apply = to_apply[:limit]
         to_queue = to_queue[:limit]
 
+    # Re-read the ledger rather than trusting the snapshot's reading of it. Between a
+    # limited batch and the run that finishes it, an operator may have reverted one of the
+    # rows already written -- and a revert restores the pre-image, so replaying that
+    # decision would find its predicate satisfied and quietly undo the rollback.
+    blocked_now = fetch_revert_blocks(sb)
+    blocked = [d for d in to_apply if (d["team_id"], d["proposed"]) in blocked_now]
+    if blocked:
+        to_apply = [d for d in to_apply if (d["team_id"], d["proposed"]) not in blocked_now]
+        to_queue = to_queue + [
+            dict(d, action="queue", reason=f"{d['reason']}; reverted since the snapshot")
+            for d in blocked
+        ]
+        console.print(
+            f"[yellow]{len(blocked):,} decisions reverted since the snapshot; "
+            f"queued instead[/yellow]"
+        )
+
     reason = f"snapshot {snapshot['created_at']}"
     applied: List[Dict] = []
     skipped = 0
@@ -772,7 +791,7 @@ def summarize(snapshot: Dict) -> None:
         f"across {len(fills):,} fills and {len(corrections):,} corrections."
     )
     if not snapshot["tier_d_available"]:
-        console.print("[yellow]Tier D did not fire: tgs_events is empty[/yellow]")
+        console.print("[yellow]Tier D did not fire: it is not implemented[/yellow]")
 
     stranded = snapshot.get("undecidable_and_visible") or []
     console.print(
@@ -788,7 +807,7 @@ def summarize(snapshot: Dict) -> None:
             console.print(f"[yellow]  {team_id}[/yellow]")
 
 
-def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str]) -> None:
+def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute: bool) -> None:
     """Write the operator's own answer for one team (R21).
 
     Stamped ``operator`` rather than ``assign_team_states`` so the two are separable
@@ -825,6 +844,12 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str]) -> None:
         "tier": None,
         "confidence": 1.0,
     }
+    if not execute:
+        console.print(
+            f"[yellow]Would set {team['team_name']}: {current} → {state}. "
+            f"Re-run with --execute to write it.[/yellow]"
+        )
+        return
     applied = sb.rpc(
         "apply_team_state",
         {
@@ -899,7 +924,7 @@ def main() -> None:
         if not args.team:
             console.print("[red]ERROR: --set needs --team; it assigns one team[/red]")
             sys.exit(1)
-        assign_by_hand(sb, args.team, args.set_state, args.reason)
+        assign_by_hand(sb, args.team, args.set_state, args.reason, execute=args.execute)
         return
 
     if args.execute and not args.team:

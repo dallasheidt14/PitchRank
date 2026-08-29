@@ -14,7 +14,9 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+import scripts.assign_team_states as assign  # noqa: E402
 from scripts.assign_team_states import (  # noqa: E402
+    apply_snapshot,
     build_locality_index,
     club_derived_state,
     decide,
@@ -220,3 +222,38 @@ def test_a_decision_carries_the_state_it_was_computed_against():
     than overwrite a newer value."""
     result = decision(team(state_code="WY", club_name="clean club"), CLEAN_CLUB)
     assert result["pre_image"] == "WY"
+
+
+# --------------------------------------------------------------------------- #
+# Replaying a snapshot
+# --------------------------------------------------------------------------- #
+
+
+def test_a_decision_reverted_since_the_snapshot_is_queued_not_re_applied(monkeypatch):
+    """The hard case for a limited batch. A revert restores the pre-image, so replaying
+    the decision would find its predicate satisfied and quietly undo the rollback -- the
+    snapshot's own reading of the ledger is too old to catch it."""
+    applied, queued = [], []
+    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: {("reverted", "OH")})
+    monkeypatch.setattr(assign, "fetch_queue_rows", lambda sb: {})
+    monkeypatch.setattr(assign, "mirror_rankings", lambda sb, rows: len(rows))
+    monkeypatch.setattr(
+        assign, "apply_decision", lambda sb, d, reason: applied.append(d["team_id"]) or True
+    )
+    monkeypatch.setattr(
+        assign, "queue_decision", lambda sb, d, existing: queued.append(d["team_id"]) or "queued"
+    )
+
+    snapshot = {
+        "created_at": "2026-08-29T00:00:00+00:00",
+        "decisions": [
+            {"team_id": "reverted", "pre_image": None, "proposed": "OH", "tier": "B",
+             "confidence": 0.9, "action": "apply", "reason": "fill"},
+            {"team_id": "fine", "pre_image": None, "proposed": "OH", "tier": "B",
+             "confidence": 0.9, "action": "apply", "reason": "fill"},
+        ],
+    }
+    apply_snapshot(None, snapshot, None)
+
+    assert applied == ["fine"]
+    assert queued == ["reverted"]
