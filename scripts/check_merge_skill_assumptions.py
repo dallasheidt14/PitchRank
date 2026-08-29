@@ -54,7 +54,7 @@ RECORDED = {
     "null_team_name_original": 90032,
     "u_label_no_year": 20146,
     "u19_guard_blind": 5848,
-    "protected_division_rows": 4553,
+    "protected_division_rows": 4568,
     "gender_word_year_rows": 2953,
 }
 RECORDED_ON = "2026-08-27"

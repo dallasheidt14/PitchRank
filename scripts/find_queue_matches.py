@@ -758,15 +758,19 @@ def extract_program_tier(name):
     return None
 
 
-_PROTECTED_DIVISION_TOKEN = re.compile(r"(?:^|[\s_-])(?:AD|HD|EA)(?:$|[\s_-])")
+_PROTECTED_DIVISION_TOKEN = re.compile(r"(?<![A-Z0-9])(?:AD|HD|EA)(?![A-Z0-9])")
 
 
 def has_protected_division(name):
     """Check if team name carries an AD, HD, EA or MLS NEXT marker - needs manual review.
 
     The markers are whole tokens. Testing them as bare substrings also matched the
-    leading letters of ordinary words -- EAST, EAGLES, ADAMS -- which withheld 2,148
+    leading letters of ordinary words -- EAST, EAGLES, ADAMS -- which withheld 2,651
     unrelated teams from every caller with no log line (IMP-135).
+
+    The boundary is any non-alphanumeric, not whitespace alone: these markers are
+    routinely punctuated against the tier they qualify, as in ``2012 EA/NPL`` and
+    ``[MLS Next HD]``, and admitting those to matching is a cross-tier merge risk.
     """
     if not name:
         return False

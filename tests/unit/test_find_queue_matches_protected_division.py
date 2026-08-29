@@ -54,6 +54,26 @@ def test_division_markers_stay_protected(name):
     assert has_protected_division(name) is True
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ALBION SC Central Valley 2012 EA/NPL",
+        "Albion SC Central Valley - 2009 NPL/EA",
+        "ALBION SC Central Valley 2009 ECNL-RL/EA",
+        "Albion SC Fairfield B2010 (EA)",
+        "**BU12 PRE NPL (EA)",
+        "SGA U15 [MLS Next HD]",
+        "Copper Mountain 2013 EA/DO",
+        "BU11-PRE MLS(EA MD",
+    ],
+)
+def test_markers_punctuated_against_their_tier_stay_protected(name):
+    """A marker is routinely written against the tier it qualifies, so the token
+    boundary has to be any non-alphanumeric rather than whitespace alone. These are
+    live rows; admitting them to matching is the cross-tier merge CLAUDE.md forbids."""
+    assert has_protected_division(name) is True
+
+
 def test_empty_name_is_not_protected():
     assert has_protected_division("") is False
     assert has_protected_division(None) is False
