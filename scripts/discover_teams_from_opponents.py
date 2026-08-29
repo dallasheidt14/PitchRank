@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 import time
 import uuid
 from datetime import date, datetime
@@ -45,6 +46,14 @@ import requests
 from dotenv import load_dotenv
 
 from supabase import create_client
+
+# The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
+# path and not the repo root, and installs only supabase, python-dotenv and
+# requests. team_association_map imports nothing beyond typing, so it is safe to
+# reach for here where the shared triage predicate below is not.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -140,13 +149,17 @@ class GotSportResolver:
         except Exception:
             payload = {}
 
+        # team_details has no full_name, state, age or gender key. Those four
+        # names returned "" on every call, so state fell through to the
+        # opponent's and age and gender to the known side's cohort. The real
+        # fields are team_association, display_age_group and display_gender.
         resolved = {
             "name": str(payload.get("name") or "").strip(),
-            "full_name": str(payload.get("full_name") or "").strip(),
             "club_name": str(payload.get("club_name") or "").strip(),
-            "state": str(payload.get("state") or "").strip(),
-            "age": str(payload.get("age") or "").strip(),
-            "gender": str(payload.get("gender") or "").strip(),
+            "state": to_state_code(payload.get("team_association")) or "",
+            "city_state_country": str(payload.get("city_state_country") or "").strip(),
+            "age": str(payload.get("display_age_group") or "").strip(),
+            "gender": str(payload.get("display_gender") or "").strip(),
         }
         self.cache[key] = resolved
         return resolved
@@ -175,12 +188,17 @@ def _build_team_metadata(
     provider_code = (row.get("provider_code") or "").strip().lower()
     unknown_pid = (row.get("unknown_provider_team_id") or "").strip()
 
-    # Start with CSV fields from the match report
+    # Start with CSV fields from the match report. State is deliberately not
+    # among them: unknown_state_used holds the state of the team this one
+    # PLAYED, which auto_match needs to narrow its candidate pool and which is
+    # wrong for every interstate game -- the population that produces unknown
+    # opponents in the first place. A team's own record supplies its state here,
+    # or it stays empty for the state backfills to fill from club evidence.
     team_name = (row.get("unknown_team_name_used") or "").strip()
     club_name = (row.get("unknown_club_name_used") or "").strip()
     age_group = _normalize_age_group(row.get("unknown_age_group_used"))
     gender = _normalize_gender(row.get("unknown_gender_used"))
-    state_code = (row.get("unknown_state_used") or "").strip()
+    state_code = ""
 
     # Resolve from GotSport API if available and fields are missing
     if resolver and provider_code == "gotsport" and unknown_pid:
@@ -195,7 +213,7 @@ def _build_team_metadata(
             club_name = club_name or resolved.get("club_name", "")
             age_group = age_group or _normalize_age_group(resolved.get("age"))
             gender = gender or _normalize_gender(resolved.get("gender"))
-            state_code = state_code or resolved.get("state", "").upper()
+            state_code = resolved.get("state", "")
 
     return {
         "team_name": team_name or None,

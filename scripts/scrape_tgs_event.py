@@ -732,7 +732,7 @@ def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
 
     # Get event details to extract event name
     event_details = get_event_details(event_id)
-    event_name = event_details.get("eventName", f"Event {event_id}") if event_details else f"Event {event_id}"
+    event_name = event_details.get("name", f"Event {event_id}") if event_details else f"Event {event_id}"
     print(f"  Event Name: {event_name}")
 
     # Step 1: Get event navigation to discover flights
