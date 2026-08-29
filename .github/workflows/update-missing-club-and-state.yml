@@ -114,9 +114,13 @@ jobs:
         run: mkdir -p logs
 
       # ── Step 0: state_code from a state named in the team name ──
+      # Retired: scripts/assign_team_states.py decides this now, from ranked evidence
+      # rather than one heuristic, and records where every state came from so a wrong one
+      # can be found and undone. This step could only fill a blank, never fix a wrong
+      # value, and it wrote nothing that said where the value had come from.
       - name: 'Step 0: Backfill state_code from team_name'
         id: step0
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',0,') }}
+        if: false
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
@@ -211,9 +215,13 @@ jobs:
           echo "teams_standardized=$TEAMS_AFFECTED" >> $GITHUB_OUTPUT
 
       # ── Step 4: state_code via club_name lookup ───────────
+      # Retired: scripts/assign_team_states.py decides this now, from ranked evidence
+      # rather than one heuristic, and records where every state came from so a wrong one
+      # can be found and undone. This step could only fill a blank, never fix a wrong
+      # value, and it wrote nothing that said where the value had come from.
       - name: 'Step 4: Match state_code via club_name'
         id: step4
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',4,') }}
+        if: false
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
@@ -246,9 +254,13 @@ jobs:
           echo "excluded_multistate=$EXCLUDED" >> $GITHUB_OUTPUT
 
       # ── Step 5: GotSport state_code backfill (residual) ───
+      # Retired: scripts/assign_team_states.py decides this now, from ranked evidence
+      # rather than one heuristic, and records where every state came from so a wrong one
+      # can be found and undone. This step could only fill a blank, never fix a wrong
+      # value, and it wrote nothing that said where the value had come from.
       - name: 'Step 5: Backfill state_code from GotSport API'
         id: step5
-        if: ${{ !contains(format(',{0},', github.event.inputs.skip_steps || ''), ',5,') }}
+        if: false
         env:
           INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
           INPUT_LIMIT: ${{ github.event.inputs.limit }}
