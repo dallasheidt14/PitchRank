@@ -550,3 +550,12 @@ def test_both_actions_only_act_on_a_pending_row():
         body = _flat(_function(name))
         assert "status = 'pending'" in body, name
         assert "RAISE EXCEPTION" in body, name
+
+
+def test_reverting_puts_the_board_back_too():
+    """The boards read their own copy of state_code and only Monday refreshes it, so an
+    undo that stops at teams leaves the rejected value on display all week."""
+    body = _flat(_function(REVERT_FUNCTION))
+    assert "UPDATE public.rankings_full SET state_code = v_row.old_state_code" in body
+    assert "INSERT INTO public.rankings_full" not in body
+    assert body.index(f"public.{WRITE_FUNCTION}(") < body.index("UPDATE public.rankings_full")

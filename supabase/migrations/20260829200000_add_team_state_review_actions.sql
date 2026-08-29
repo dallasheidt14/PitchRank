@@ -34,9 +34,13 @@ BEGIN
     RAISE EXCEPTION 'approve_team_state requires an approver: the ledger stamps it';
   END IF;
 
+  -- FOR UPDATE, so an approve and a reject of the same row cannot both observe it
+  -- pending and both report success. One operator makes concurrency unlikely rather
+  -- than impossible, and the loser here waits rather than losing its answer.
   SELECT * INTO v_row
   FROM public.team_state_review_queue
-  WHERE id = p_review_id AND status = 'pending';
+  WHERE id = p_review_id AND status = 'pending'
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'State review % not found or already reviewed', p_review_id;

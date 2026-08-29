@@ -686,6 +686,14 @@ def queue_decision(sb, decision: Dict, existing: Dict[Tuple[str, str], Dict]) ->
     return "deduped_pending"
 
 
+def state_of(sb, team_id: str) -> Optional[str]:
+    """One team's state as it stands right now."""
+    found = (
+        sb.table("teams").select("state_code").eq("team_id_master", team_id).limit(1).execute()
+    )
+    return ((found.data[0].get("state_code") if found.data else None) or "").strip() or None
+
+
 def mirror_rankings(sb, applied: List[Dict]) -> int:
     """Carry applied states into ``rankings_full`` so the boards agree today.
 
@@ -737,13 +745,21 @@ def apply_snapshot(sb, snapshot: Dict, limit: Optional[int]) -> None:
 
     reason = f"snapshot {snapshot['created_at']}"
     applied: List[Dict] = []
-    skipped = 0
+    moved: List[Dict] = []
     for decision in to_apply:
         if apply_decision(sb, decision, reason):
             applied.append(decision)
         else:
-            skipped += 1
-    console.print(f"[green]✓[/green] Applied {len(applied):,}, skipped {skipped:,} that moved")
+            moved.append(decision)
+    console.print(f"[green]✓[/green] Applied {len(applied):,}, skipped {len(moved):,} that moved")
+
+    # A team already sitting at its proposed state was written by an earlier run of this
+    # same snapshot, and that run may have died between the write and the mirror. The
+    # write is committed and cannot be replayed -- its pre-image is gone -- so the mirror
+    # is the only half left to finish, and nothing else would ever retry it.
+    already = [d for d in moved if state_of(sb, d["team_id"]) == d["proposed"]]
+    if already:
+        console.print(f"[dim]  {len(already):,} were already at their proposed state[/dim]")
 
     existing = fetch_queue_rows(sb)
     outcomes: Counter = Counter()
@@ -754,8 +770,9 @@ def apply_snapshot(sb, snapshot: Dict, limit: Optional[int]) -> None:
         + ", ".join(f"{count:,} {name}" for name, count in sorted(outcomes.items()))
     )
 
-    if applied:
-        console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, applied):,} ranking rows")
+    to_mirror = applied + already
+    if to_mirror:
+        console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, to_mirror):,} ranking rows")
 
 
 # --------------------------------------------------------------------------- #

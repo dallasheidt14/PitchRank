@@ -494,6 +494,8 @@ if section == "📋 Review Queue":
 # ============================================================================
 elif section == "🗺️ State Review Queue":
     st.header("State Review Queue")
+    db = get_database()
+
     st.markdown(
         "State changes `scripts/assign_team_states.py` would not make on its own authority: "
         "a club that needs curating, a name and a club that disagree, or a tier that may fill "
@@ -518,6 +520,10 @@ elif section == "🗺️ State Review Queue":
         )
 
     srq_reviewer = st.text_input("Your Email (required for approve / reject)", key="srq_reviewer")
+
+    if not db:
+        st.error("Database connection required for State Review Queue")
+        st.stop()
 
     try:
         srq_query = db.table('team_state_review_queue').select('*')
