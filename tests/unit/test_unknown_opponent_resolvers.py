@@ -27,6 +27,8 @@ import discover_teams_from_opponents  # noqa: E402
 import due_diligence_unknown_opponents  # noqa: E402
 import export_unknown_opponents  # noqa: E402
 
+from src.utils import gotsport_team_details  # noqa: E402
+
 TEAM_DETAILS = {
     "id": 742007,
     "name": "B12 ECNL RL",
@@ -83,6 +85,19 @@ EXPECTATIONS = [
         id="due_diligence",
     ),
     pytest.param(
+        gotsport_team_details,
+        {
+            "name": "B12 ECNL RL",
+            "club_name": "Seattle United",
+            "city_state_country": "US",
+            "state_code": "WA",
+            "age_group": "u15",
+            "gender": "Male",
+            "raw_age_group": "U15",
+        },
+        id="shared_module",
+    ),
+    pytest.param(
         discover_teams_from_opponents,
         {
             "name": "B12 ECNL RL",
@@ -97,8 +112,17 @@ EXPECTATIONS = [
 ]
 
 
-@pytest.mark.parametrize("module,expected", EXPECTATIONS)
-def test_the_script_still_imports_when_run_as_the_workflow_runs_it(module, expected):
+# The shared module is imported, not executed, so it is not in this one.
+SCRIPT_MODULES = [
+    export_unknown_opponents,
+    auto_match_unknown_opponents,
+    due_diligence_unknown_opponents,
+    discover_teams_from_opponents,
+]
+
+
+@pytest.mark.parametrize("module", SCRIPT_MODULES, ids=lambda m: m.__name__)
+def test_the_script_still_imports_when_run_as_the_workflow_runs_it(module):
     """These four reach into src/ now, and `python3 scripts/x.py` puts scripts/ on
     sys.path rather than the repo root -- so the bootstrap each one adds is
     load-bearing in production and inert under pytest, which adds its own."""
@@ -138,7 +162,10 @@ def test_a_resolved_group_is_not_overwritten_by_a_later_row():
 
 
 def _state_key(expected):
-    return "unknown_state" if "unknown_state" in expected else "state"
+    for key in ("unknown_state", "state", "state_code"):
+        if key in expected:
+            return key
+    raise AssertionError(f"no state key in {expected}")
 
 
 class _FakeResponse:
@@ -169,8 +196,13 @@ class _FakeSession:
         return _FakeResponse(self._payload, self._status_code)
 
 
+def _make_resolver(module):
+    cls = getattr(module, "GotSportResolver", None) or module.TeamDetailsResolver
+    return cls()
+
+
 def _resolve(module, payload, status_code=200):
-    resolver = module.GotSportResolver()
+    resolver = _make_resolver(module)
     session = _FakeSession(payload, status_code)
     resolver.session = session
     return resolver.resolve("742007"), session
@@ -206,7 +238,7 @@ def test_can_resolves_to_california_north_not_canada(module, expected):
 
 @pytest.mark.parametrize("module,expected", EXPECTATIONS)
 def test_the_lookup_is_cached_per_team_id(module, expected):
-    resolver = module.GotSportResolver()
+    resolver = _make_resolver(module)
     session = _FakeSession(TEAM_DETAILS)
     resolver.session = session
     resolver.resolve("742007")
@@ -233,7 +265,7 @@ def test_a_transport_failure_is_not_cached_as_an_answer(module, expected):
     """Caching the empty result made one WAF block permanent for the run, and
     an empty resolve is indistinguishable from a team with no metadata -- which
     is what sends the caller back to the opponent's cohort."""
-    resolver = module.GotSportResolver()
+    resolver = _make_resolver(module)
     resolver.session = _FailingThenWorkingSession(TEAM_DETAILS)
 
     assert resolver.resolve("742007") == {}
@@ -251,7 +283,7 @@ def test_a_404_body_is_never_parsed_as_a_team(module, expected):
 
 @pytest.mark.parametrize("module,expected", EXPECTATIONS)
 def test_a_404_is_cached_because_it_is_a_permanent_answer(module, expected):
-    resolver = module.GotSportResolver()
+    resolver = _make_resolver(module)
     session = _FakeSession({"message": "Can not find team"}, status_code=404)
     resolver.session = session
     resolver.resolve("742007")
