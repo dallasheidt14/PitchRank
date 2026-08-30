@@ -82,7 +82,9 @@ trips; do not route around it.
 
 ## GotSport Endpoint Quirks
 
-### `team_ranking_data/team_details` payload contract
+### Team details payload contract
+
+`https://system.gotsport.com/api/v1/team_ranking_data/team_details?team_id=<id>`
 
 Verified live 2026-08-30 across 32 samples. The response holds exactly:
 
