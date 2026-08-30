@@ -53,6 +53,7 @@ from supabase import create_client
 # reach for here where the shared triage predicate below is not.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
@@ -111,17 +112,6 @@ def _normalize_gender(v: Optional[str]) -> Optional[str]:
     return None
 
 
-def _normalize_age_group(v: Optional[str]) -> Optional[str]:
-    if not v:
-        return None
-    s = str(v).strip().lower()
-    if s.startswith("u") and s[1:].isdigit():
-        return s
-    if s.isdigit():
-        return f"u{s}"
-    return None
-
-
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
@@ -142,17 +132,21 @@ class GotSportResolver:
                 params={"team_id": key},
                 timeout=self.timeout,
             )
+            if response.status_code == 404:
+                # "Can not find team" is a permanent answer, so cache it.
+                self.cache[key] = {}
+                return {}
             response.raise_for_status()
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
                 payload = {}
         except Exception:
-            payload = {}
+            # A WAF block, timeout or 429 says nothing about this team, so it is
+            # not cached -- a later row retries.
+            return {}
 
-        # team_details has no full_name, state, age or gender key. Those four
-        # names returned "" on every call, so state fell through to the
-        # opponent's and age and gender to the known side's cohort. The real
-        # fields are team_association, display_age_group and display_gender.
+        # team_details has no full_name, state, age or gender key; the real fields
+        # are team_association, display_age_group and display_gender.
         resolved = {
             "name": str(payload.get("name") or "").strip(),
             "club_name": str(payload.get("club_name") or "").strip(),
@@ -196,7 +190,7 @@ def _build_team_metadata(
     # or it stays empty for the state backfills to fill from club evidence.
     team_name = (row.get("unknown_team_name_used") or "").strip()
     club_name = (row.get("unknown_club_name_used") or "").strip()
-    age_group = _normalize_age_group(row.get("unknown_age_group_used"))
+    age_group = normalize_age_group(row.get("unknown_age_group_used"))
     gender = _normalize_gender(row.get("unknown_gender_used"))
     state_code = ""
 
@@ -211,8 +205,11 @@ def _build_team_metadata(
             if not team_name or _is_placeholder_name(team_name, unknown_pid):
                 team_name = resolved.get("name", "") or team_name
             club_name = club_name or resolved.get("club_name", "")
-            age_group = age_group or _normalize_age_group(resolved.get("age"))
-            gender = gender or _normalize_gender(resolved.get("gender"))
+            # The CSV column carries the previous stage's last-resort guess,
+            # which is the cohort of the team this one played, so the team's own
+            # record outranks it.
+            age_group = normalize_age_group(resolved.get("age")) or age_group
+            gender = _normalize_gender(resolved.get("gender")) or gender
             state_code = resolved.get("state", "")
 
     return {

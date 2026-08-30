@@ -1306,12 +1306,82 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
 - **Noted**: 2026-08-29
 
-### The unknown-opponent exporter reads four payload keys that do not exist, so the matcher filters on the wrong state
+### Seven hand-copied GotSport resolvers, two of them still reading keys that do not exist
 
-- **ID**: IMP-141
+- **ID**: IMP-142
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `scripts/export_unknown_opponents.py:131-137`, consumed at `scripts/auto_match_unknown_opponents.py:175-195,242-243`
-- **Why**: The resolver reads `full_name`, `state`, `age` and `gender`; team_details returns none of them (the real fields are `team_association`, `display_age_group`, `display_gender`, and there is no `full_name`). So `unknown_state` is `""` on every call, `build_unknown_profile` falls through to `top_known_team_state` — the state of the team this one PLAYED — and `fetch_candidates` uses that as a hard `.eq("state_code", …)` filter, searching the wrong state for exactly the interstate games that generate unknown opponents. Age and gender fall through to the known side's cohort the same way. The identical bug in `discover_teams_from_opponents.py` was fixed on 2026-08-29; this copy was left alone because it feeds MATCHING rather than creation, so correcting it shifts match-versus-create outcomes across ~6,400 teams a week with no test coverage, visible only on the Tuesday cron. Wants a measured before/after over a sample. Note `full_name` has no target and should be dropped rather than repointed, since changing it would change the fuzzy-matching name.
-- **Noted**: 2026-08-29
+- **Where**: `scripts/backfill_missing_state_codes.py:152-157`, `scripts/backfill_missing_club_names.py:103-108`, plus five more copies in `scripts/`
+- **Why**: Seven scripts carry a byte-identical `GotSportResolver` against `team_ranking_data/team_details`, differing only in timeout default and output key prefixes. Four were corrected on `fix/opponent-cohort-inheritance`; these two still read `full_name`/`state`/`age`/`gender`, which that endpoint has never returned. Both run in `update-missing-club-and-state.yml` (Mon 10:00 UTC), currently failing — the state backfill's entire GotSport tier is inert because `_normalize_to_state_code` receives `""` on every call while the run reports success. `state_code` is load-bearing for location-scoped fuzzy matching. Fix both, then extract one dependency-free resolver into `src/utils` so the next copy cannot drift; `src/utils/team_association_map.py` and `src/utils/age_group.py` are the precedent for a module these three-package workflows can import. Note `src/scrapers/gotsport.py:1008` `_zenrows_get` already probes this endpoint with a retry policy and an outcome taxonomy, and `scripts/assign_team_states.py:395-414` uses it -- but it imports bs4, which the hygiene workflow does not install, so it can be the model rather than the import. `tests/unit/test_team_association_map.py` now derives the script list from the endpoint and names these two in `KNOWN_BROKEN`; fixing one turns that list red until it is removed.
+- **Noted**: 2026-08-30
+
+### The unknown-opponent due-diligence gate approves when it has no evidence
+
+- **ID**: IMP-143
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/due_diligence_unknown_opponents.py:362-450`
+- **Why**: Every component of `core_ok` is spelled `!= "mismatch"`, so a missing provider field scores `"unknown"` and passes. A GotSport outage therefore disables the gate wholesale rather than closing it, and `apply_unknown_opponent_matches.py` then upserts `team_alias_map` and updates `games` FKs under the service-role key on matches nothing compared. Games are immutable, so a bad backfill is not cleanly reversible. Should require positive cohort evidence to approve rather than absence of contradiction. Related: IMP-144 makes the no-evidence path more likely. Round-two review measured the other side of the same gate: `team_association` agrees with stored `state_code` on only 91.3% of probes, so activating `state_check` demotes roughly one correct link in twelve to manual review. The verdict logic is inline in `main()` between two Supabase round trips and cannot be tested; lifting it into a pure `_verdict(unknown, team, ...)` is the precondition for measuring either effect.
+- **Noted**: 2026-08-30
+
+### No GotSport resolver throttles, retries, or identifies itself
+
+- **ID**: IMP-144
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: all seven `GotSportResolver` copies in `scripts/`
+- **Why**: Each uses a bare `session.get` with no `Retry` adapter, no inter-request delay and the default `python-requests` User-Agent, against an endpoint family the `scraper-patterns` skill documents as CloudFront-WAF-fronted with a multi-minute per-IP lockout. A 403 lockout, a 429, a timeout and a genuine 404 are indistinguishable at the `except Exception` boundary. Partly addressed on `fix/opponent-cohort-inheritance`: a 404 is now cached as the permanent answer it is, and transient failures are no longer cached, so a WAF block costs one retry per row rather than poisoning the id for the run (measured at ~1.6 resolve calls per team). Still absent everywhere: the prescribed `Retry(total=2, backoff_factor=1, status_forcelist=[429,500,502,503,504])`, an explicit User-Agent, and a `random.uniform` delay. Do not hand-roll an eighth policy -- `src/scrapers/gotsport.py` already has `get_waf_breaker()` and `_zenrows_get`; the open question is how to reach them from a workflow that installs only supabase, python-dotenv and requests.
+- **Noted**: 2026-08-30
+
+### The repo asserts two contradictory readings of GotSport's display_age_group
+
+- **ID**: IMP-145
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/backfill_unknown_team_names.py:27-29` vs `scripts/discover_teams_from_opponents.py:_build_team_metadata`
+- **Why**: The backfill states as a deliberate decision that `display_age_group` is the registered event cohort rather than the birth-year cohort, that the two disagree across the Aug 1 rollover, and that it therefore never writes `age_group`. Discovery now treats the same field as its highest-precedence cohort source, and due diligence compares it against stored rows. Live sampling on 2026-08-30 found them agreeing, but that is one point in the season — the claimed divergence is a rollover effect. One position is wrong; whichever loses, the other's comment should be corrected in the same change so the contradiction does not outlive it. Same hazard class as the TGS U-age labels in CLAUDE.md.
+- **Noted**: 2026-08-30
+
+### Due diligence batches .in_() at 500 ids against the documented 100-id limit
+
+- **ID**: IMP-146
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/due_diligence_unknown_opponents.py:405`
+- **Why**: Root `CLAUDE.md` and the `supabase-pitchrank` skill both cap `.in_()` at 100 ids for URI length. This call passes 500, so it works only while the ids stay short enough; it fails as a request-too-long error rather than a partial result, which makes it a silent-until-sudden break.
+- **Noted**: 2026-08-30
+
+### Repair the 2,937 teams stored outside the boarded cohorts
+
+- **ID**: IMP-147
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `teams.age_group` (database column) — follow-up to the opponent-cohort-inheritance fix
+- **Why**: 2,937 rows sit outside `u10`-`u19`: u20 1,597, u8 1,260, u3 44, plus u0/u4/u5/u6/u21. The u20 and any u18 rows should fold into u19, since `team_utils.calculate_age_group_from_birth_year` folds both boundary ages and there is no u20 in youth soccer. The rest need re-resolving against GotSport, where a real U8/U9 team is recorded accurately and only the opponent-inherited ones (u3, u0, u4-u6) are actually wrong. None appear in `rankings_full`, so nothing is publicly visible, but 4,248 unboarded teams hold games whose results are therefore off the boards. Needs a dry-run mode and a reversible batch log, mirroring `assigning-team-states`.
+- **Noted**: 2026-08-30
+
+### Carry provenance on a derived cohort so an opponent's can never be persisted
+
+- **ID**: IMP-148
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/auto_match_unknown_opponents.py::build_unknown_profile`, `scripts/discover_teams_from_opponents.py::_build_team_metadata`
+- **Why**: The derivation ladder ends in `top_known_team_age_group`, the cohort of the team this one played, and the CSV column that carries it downstream is indistinguishable from a cohort the team's own record supplied. `fix/opponent-cohort-inheritance` made the provider tier work so the fallback fires far less, but it is still reachable: a row with no provider data and an unparseable name is created in its opponent's cohort. The same applies to state, which is worse after that change — the export now writes the team's own mapped association into `unknown_state_used`, so discovery's comment calling it "the opponent's state" is stale and it discards authoritative data on a transient lookup failure. Tag each field with the tier that produced it, let candidate narrowing use an opponent-derived value, and refuse to persist one.
+- **Noted**: 2026-08-30
+
+### GotSport labels aged-out teams U21, and the chain now creates them
+
+- **ID**: IMP-149
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/utils/age_group.py`, consumed by `scripts/discover_teams_from_opponents.py`
+- **Why**: `team_utils.calculate_age_group_from_birth_year` returns None for a computed age of 21 because 2006 has aged out, but the shared normalizer passes `u21` through, so discovery creates the team and the queue scrapes it forever. Live probing found 11 of 12 sampled 2006-cohort teams labelled `U21`, roughly 21 of 2,553 distinct unknown ids per weekly run. Refusing it outright is not the fix — a bare None hands the row to the opponent fallback — so this wants an explicit aged-out outcome that skips creation with a reason, alongside the IMP-147 cleanup of the 8 `u21` rows already stored.
+- **Noted**: 2026-08-30

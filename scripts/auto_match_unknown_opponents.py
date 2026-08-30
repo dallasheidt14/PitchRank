@@ -36,10 +36,19 @@ from supabase import create_client
 
 # Ensure sibling scripts are importable when invoked from repo root.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # Reuse existing queue/step-3 matching logic
 from find_fuzzy_duplicate_teams import score_team_pair
-from find_queue_matches import extract_age_group, extract_gender, has_protected_division
+from find_queue_matches import (
+    UNMATCHABLE_AGE_GROUP,
+    extract_age_group,
+    extract_gender,
+    has_protected_division,
+)
+
+from src.utils.age_group import normalize_age_group
+from src.utils.team_association_map import to_state_code
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -97,18 +106,6 @@ def _to_gender_full(v: Optional[str]) -> Optional[str]:
     return None
 
 
-def _to_age_group(v: Optional[str]) -> Optional[str]:
-    if not v:
-        return None
-    s = str(v).strip().lower()
-    if s.startswith("u") and s[1:].isdigit():
-        return s
-    if s.isdigit():
-        return f"u{s}"
-    # unknown_age from gotsport may be "12", already handled above
-    return None
-
-
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
@@ -129,20 +126,27 @@ class GotSportResolver:
                 params={"team_id": key},
                 timeout=self.timeout,
             )
+            if response.status_code == 404:
+                # "Can not find team" is a permanent answer, so cache it.
+                self.cache[key] = {}
+                return {}
             response.raise_for_status()
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
                 payload = {}
         except Exception:
-            payload = {}
+            # A WAF block, timeout or 429 says nothing about this team, so it is
+            # not cached -- a later row retries.
+            return {}
 
+        # team_details has no full_name, state, age or gender key; the real fields
+        # are team_association, display_age_group and display_gender.
         resolved = {
             "unknown_team_name": str(payload.get("name") or "").strip(),
-            "unknown_team_full_name": str(payload.get("full_name") or "").strip(),
             "unknown_club_name": str(payload.get("club_name") or "").strip(),
-            "unknown_state": str(payload.get("state") or "").strip(),
-            "unknown_age": str(payload.get("age") or "").strip(),
-            "unknown_gender": str(payload.get("gender") or "").strip(),
+            "unknown_state": to_state_code(payload.get("team_association")) or "",
+            "unknown_age": str(payload.get("display_age_group") or "").strip(),
+            "unknown_gender": str(payload.get("display_gender") or "").strip(),
         }
         self.cache[key] = resolved
         return resolved
@@ -166,39 +170,42 @@ def build_unknown_profile(row: Dict[str, str], resolver: Optional[GotSportResolv
     short_name = (row.get("unknown_team_name") or "").strip()
     club_name = (row.get("unknown_club_name") or "").strip()
     state = (row.get("unknown_state") or "").strip()
-    age_group = _to_age_group(row.get("unknown_age"))
+    age_group = normalize_age_group(row.get("unknown_age"))
     gender = _to_gender_full(row.get("unknown_gender"))
 
-    # Optional resolver backfill
-    if resolver and provider_code == "gotsport":
-        if not full_name and unknown_provider_team_id:
-            resolved = resolver.resolve(unknown_provider_team_id)
-            full_name = full_name or resolved.get("unknown_team_full_name", "")
-            short_name = short_name or resolved.get("unknown_team_name", "")
-            club_name = club_name or resolved.get("unknown_club_name", "")
-            state = state or resolved.get("unknown_state", "")
-            age_group = age_group or _to_age_group(resolved.get("unknown_age"))
-            gender = gender or _to_gender_full(resolved.get("unknown_gender"))
+    # Optional resolver backfill.
+    if resolver and provider_code == "gotsport" and unknown_provider_team_id:
+        resolved = resolver.resolve(unknown_provider_team_id)
+        short_name = short_name or resolved.get("unknown_team_name", "")
+        club_name = club_name or resolved.get("unknown_club_name", "")
+        state = state or resolved.get("unknown_state", "")
+        age_group = age_group or normalize_age_group(resolved.get("unknown_age"))
+        gender = gender or _to_gender_full(resolved.get("unknown_gender"))
 
     # Prefer full_name for fuzzy matching, then short_name
     name = full_name or short_name or f"unknown_{unknown_provider_team_id}"
 
-    # Fallback age/gender/state from known-side context in export row
+    # Parse the team's own name before reaching for the team it played. A cohort
+    # written in the name describes this team; the opponent's describes a
+    # fixture, and same-age is a convention rather than a rule.
+    # Both parsers read `details` only as a fallback for the value each call is
+    # already guarded on, so there is nothing for them to read.
     if not age_group:
-        age_group = _to_age_group(row.get("top_known_team_age_group"))
+        parsed = extract_age_group(name, {})
+        # UNMATCHABLE_AGE_GROUP survives the fold: it exists so a name yielding no
+        # real cohort keeps the age filter on in fetch_candidates. Normalizing it
+        # to None would drop that filter and search every cohort instead.
+        age_group = parsed if parsed == UNMATCHABLE_AGE_GROUP else normalize_age_group(parsed)
+    if not gender:
+        gender = _to_gender_full(extract_gender(name, {}))
+
+    # Last resort: known-side context from the export row.
+    if not age_group:
+        age_group = normalize_age_group(row.get("top_known_team_age_group"))
     if not gender:
         gender = _to_gender_full(row.get("top_known_team_gender"))
     if not state:
         state = (row.get("top_known_team_state") or "").strip()
-
-    # Parse from name if still missing
-    details = {"age_group": age_group, "gender": gender}
-    parsed_age = extract_age_group(name, details)
-    parsed_gender = extract_gender(name, details)
-    if not age_group and parsed_age:
-        age_group = parsed_age.lower()
-    if not gender and parsed_gender:
-        gender = _to_gender_full(parsed_gender)
 
     return UnknownProfile(
         team_name=name,

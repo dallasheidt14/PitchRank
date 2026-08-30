@@ -170,3 +170,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: The check intends the MLS NEXT `EA` division but tests the uppercased name for the substring `' EA'`, so it matches any word beginning EA that is not the first word. Verified: `FC EAST 2012` and `SC EAGLES 2013` are treated as protected, while `EAST MEADOW 2012` is not (leading word, no preceding space). 3,256 live rows contain `' EA'`, 2,148 of them East/Eagles names with no connection to the division — every one silently ineligible for duplicate detection, with no log line. Fix: match a whitespace-delimited `EA` token rather than a substring. Same file's ` AD`/` HD` tests should be checked for the same shape.
 - **Noted**: 2026-08-27
 - **Refs**: fix-protected-division-token-match
+
+### The unknown-opponent exporter reads four payload keys that do not exist, so the matcher filters on the wrong state
+
+- **ID**: IMP-141
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/export_unknown_opponents.py:131-137`, consumed at `scripts/auto_match_unknown_opponents.py:175-195,242-243`
+- **Why**: The resolver reads `full_name`, `state`, `age` and `gender`; team_details returns none of them (the real fields are `team_association`, `display_age_group`, `display_gender`, and there is no `full_name`). So `unknown_state` is `""` on every call, `build_unknown_profile` falls through to `top_known_team_state` — the state of the team this one PLAYED — and `fetch_candidates` uses that as a hard `.eq("state_code", …)` filter, searching the wrong state for exactly the interstate games that generate unknown opponents. Age and gender fall through to the known side's cohort the same way. The identical bug in `discover_teams_from_opponents.py` was fixed on 2026-08-29; this copy was left alone because it feeds MATCHING rather than creation, so correcting it shifts match-versus-create outcomes across ~6,400 teams a week with no test coverage, visible only on the Tuesday cron. Wants a measured before/after over a sample. Note `full_name` has no target and should be dropped rather than repointed, since changing it would change the fuzzy-matching name.
+- **Noted**: 2026-08-29
+- **Refs**: `fix/opponent-cohort-inheritance`
+- **Update (2026-08-30)**: Fixed on `fix/opponent-cohort-inheritance`. The keys now read `team_association`, `display_age_group` and `display_gender`, and `full_name` was dropped rather than repointed, as this entry recommended. The measured before/after over a sample was NOT done: the fix shipped because review established this is the only stage the weekly workflow passes `--resolve-gotsport-details` to, so leaving it broken made every other stage's fix inert. Behavioral coverage now exists (`tests/unit/test_unknown_opponent_resolvers.py`), but the match-versus-create shift across ~6,400 teams/week is still unmeasured — watch the first Tuesday run.
