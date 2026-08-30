@@ -183,11 +183,13 @@ def _build_team_metadata(
     unknown_pid = (row.get("unknown_provider_team_id") or "").strip()
 
     # Start with CSV fields from the match report. State is deliberately not
-    # among them: unknown_state_used holds the state of the team this one
-    # PLAYED, which auto_match needs to narrow its candidate pool and which is
-    # wrong for every interstate game -- the population that produces unknown
-    # opponents in the first place. A team's own record supplies its state here,
-    # or it stays empty for the state backfills to fill from club evidence.
+    # among them: unknown_state_used holds whichever state auto_match reached
+    # last, which is the team's own where the export resolved it and the state of
+    # the team this one PLAYED where it did not. Nothing on the column separates
+    # the two, and the opponent's is wrong for every interstate game -- the
+    # population that produces unknown opponents in the first place. So a team's
+    # own record supplies its state here, or it stays empty for the state
+    # backfills to fill from club evidence.
     team_name = (row.get("unknown_team_name_used") or "").strip()
     club_name = (row.get("unknown_club_name_used") or "").strip()
     age_group = normalize_age_group(row.get("unknown_age_group_used"))
