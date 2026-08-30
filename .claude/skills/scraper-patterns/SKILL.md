@@ -82,6 +82,35 @@ trips; do not route around it.
 
 ## GotSport Endpoint Quirks
 
+### Team details payload contract
+
+`https://system.gotsport.com/api/v1/team_ranking_data/team_details?team_id=<id>`
+
+Verified live 2026-08-30 across 32 samples. The response holds exactly:
+
+```
+id, name, club_name, city_state_country, website_url, login_url,
+primary_coach_name, coach_names, primary_manager_name, manager_names,
+team_logo_url_full, image, team_association, display_gender, display_age_group
+```
+
+There is **no `full_name`, `state`, `age` or `gender` key**. Reading those four returns `""`
+on every call and never raises, so the failure is silent and the caller falls through to
+whatever fallback it has. Seven hand-copied resolvers in `scripts/` read the wrong set; the
+symptom was discovered teams inheriting their opponent's cohort and state.
+
+- `team_association` is a registration body, not a postal code. Map it with
+  `src/utils/team_association_map.to_state_code` — `CAN` is California North, not Canada.
+- `display_age_group` is a label, not a number: `Open` for adult teams, `U8`/`U9` for cohorts
+  PitchRank does not board, `U18` and `U20` for the u19 board (`U19` itself appeared in none
+  of the 32 samples), and `U21` for aged-out 2006 teams. Normalize with
+  `src/utils/age_group.normalize_age_group`, which folds both boundary ages into u19.
+- A missing id answers **HTTP 404** with a valid JSON body (`{"message": "Can not find team"}`).
+  Without `raise_for_status()` that body parses into an all-empty dict that looks like a real
+  team with no metadata. A 404 is a permanent answer worth caching; a 403 WAF block is not.
+
+### Schedule pages
+
 GotSport event pages expose three different schedule URLs with very different
 contents. Pick the right one for the event type, or you will silently miss
 games.

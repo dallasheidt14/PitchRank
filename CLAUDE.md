@@ -35,11 +35,17 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
 - When running verification/audit scripts, ensure the script does not match its own output files (exclude report files from scans).
 - `ci.yml` applies no migrations, so nothing in CI executes SQL. Tests that guard a migration's contents are standing in for execution, and two shapes fail silently. **Scope each assertion to the statement it is about** — `"IS DISTINCT FROM" in <whole file>` is satisfied by the migration's own header comment and can never fail; extract the `UPDATE ...;` and assert against that. And **assert the structure, not only the parts** — pinning five predicate branches individually still passes when their joining `OR`s all become `AND`s, which can silently make a function return nothing.
+- **Derive a guarded file list; never hand-write one.** A test that enumerates the files it
+  checks cannot fail for a file it omits, which is how the same wrong GotSport payload keys
+  survived in seven hand-copied resolvers while a guard sat green over three of them. Glob for
+  the thing itself — the endpoint URL, the function name — and name known-broken members in an
+  explicit set with a second test that fails when one is fixed and left listed.
 - **Resolve a guarded SQL object by function name across all migrations, never by filename.** Functions here are superseded by new migration files rather than edited in place, so a test pinned to `20260827100300_*.sql` stops covering `find_stale_teams` the moment anyone redefines it — passing green against a file the database no longer reflects. Glob `supabase/migrations/*.sql`, take the newest definition per name, and assert against that.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
 - When diagnosing issues, verify your initial hypothesis with data before proposing or implementing a fix. Do not jump to implementation.
+- In a multi-stage chain, confirm which stage actually performs the operation before fixing it anywhere. The stages here are near-identical copies, and the flags differ: `unknown-opponent-hygiene-weekly.yml` passes `--resolve-gotsport-details` to `export_unknown_opponents.py` alone, so the other three never construct a resolver on the weekly run. Three correct fixes landed there and changed nothing in production until the export stage was found. Read the workflow's arguments, not just the scripts.
 - If the user redirects or corrects your diagnosis, fully abandon the prior theory and start fresh from their correction.
 - When estimating data sizes (row counts, backfill scope), query the actual database for counts rather than estimating.
 - Automated pipelines and manual operator tools are separate concerns. Do not modify a scheduled, hands-off job to improve a manually-triggered one — fix the manual tool in its own script.
