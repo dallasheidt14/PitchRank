@@ -25,6 +25,7 @@ import argparse
 import csv
 import os
 import re
+import sys
 import time
 from collections import Counter
 from datetime import datetime
@@ -35,6 +36,14 @@ import requests
 from dotenv import load_dotenv
 
 from supabase import create_client
+
+# The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
+# path and not the repo root. team_association_map imports nothing beyond
+# typing, so it is safe to reach for from a job that installs three packages.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from src.utils.age_group import normalize_age_group  # noqa: E402
+from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -89,19 +98,6 @@ def _normalize_gender(g: Optional[str]) -> Optional[str]:
         return "male"
     if s in {"f", "female", "girl", "girls", "g"}:
         return "female"
-    return None
-
-
-def _normalize_age_group(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    s = str(value).strip().lower()
-    if not s:
-        return None
-    if s.startswith("u") and s[1:].isdigit():
-        return s
-    if s.isdigit():
-        return f"u{s}"
     return None
 
 
@@ -221,20 +217,27 @@ class GotSportResolver:
                 params={"team_id": key},
                 timeout=self.timeout,
             )
+            if response.status_code == 404:
+                # "Can not find team" is a permanent answer, so cache it.
+                self.cache[key] = {}
+                return {}
             response.raise_for_status()
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
                 payload = {}
         except Exception:
-            payload = {}
+            # A WAF block, timeout or 429 says nothing about this team, so it is
+            # not cached -- a later row retries.
+            return {}
 
+        # team_details has no full_name, state, age or gender key; the real fields
+        # are team_association, display_age_group and display_gender.
         resolved = {
-            "full_name": str(payload.get("full_name") or "").strip(),
             "name": str(payload.get("name") or "").strip(),
             "club_name": str(payload.get("club_name") or "").strip(),
-            "state": str(payload.get("state") or "").strip().upper(),
-            "age_group": _normalize_age_group(payload.get("age")),
-            "gender": _normalize_gender(payload.get("gender")),
+            "state": to_state_code(payload.get("team_association")) or "",
+            "age_group": normalize_age_group(payload.get("display_age_group")),
+            "gender": _normalize_gender(payload.get("display_gender")),
         }
         self.cache[key] = resolved
         return resolved
@@ -340,9 +343,9 @@ def main() -> None:
         unknown_gender = unknown.get("gender")
         unknown_state = unknown.get("state")
         unknown_club = unknown.get("club_name", "")
-        unknown_full_name = unknown.get("full_name", "") or unknown.get("name", "")
+        unknown_name = unknown.get("name", "")
 
-        team_age = _normalize_age_group(team.get("age_group"))
+        team_age = normalize_age_group(team.get("age_group"))
         team_gender = _normalize_gender(team.get("gender"))
         team_state = str(team.get("state_code") or "").upper() or None
         team_club = str(team.get("club_name") or "")
@@ -359,10 +362,10 @@ def main() -> None:
         club_check = _club_compare(unknown_club, team_club)
 
         # Division tier check: Premier ≠ Elite, ECNL ≠ ECNL-RL, etc.
-        tier_check = _tier_check(unknown_full_name, str(team.get("team_name") or ""))
+        tier_check = _tier_check(unknown_name, str(team.get("team_name") or ""))
 
         # Name literal check: relaxed contains/substring matching.
-        norm_full = _normalize_text(unknown_full_name)
+        norm_full = _normalize_text(unknown_name)
         norm_team = _normalize_text(str(team.get("team_name") or ""))
         name_literal_check = bool(norm_full and norm_team and (norm_team in norm_full or norm_full in norm_team))
 
@@ -403,7 +406,7 @@ def main() -> None:
                     ).data
                     or []
                 )
-            age_counter = Counter(_normalize_age_group(r.get("age_group")) for r in cohort_rows if r.get("age_group"))
+            age_counter = Counter(normalize_age_group(r.get("age_group")) for r in cohort_rows if r.get("age_group"))
             gen_counter = Counter(_normalize_gender(r.get("gender")) for r in cohort_rows if r.get("gender"))
             cohort_age = age_counter.most_common(1)[0][0] if age_counter else None
             cohort_gender = gen_counter.most_common(1)[0][0] if gen_counter else None
@@ -460,7 +463,7 @@ def main() -> None:
             "tier_check": tier_check,
             "cohort_age_check": cohort_age_check,
             "cohort_gender_check": cohort_gender_check,
-            "unknown_api_full_name": unknown_full_name,
+            "unknown_api_full_name": unknown_name,
             "unknown_api_club_name": unknown_club,
             "unknown_api_age_group": unknown_age or "",
             "unknown_api_gender": unknown_gender or "",

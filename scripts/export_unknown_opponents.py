@@ -9,7 +9,9 @@ and the other side is still NULL, then exports:
 2) Detail CSV (one row per game)
 
 Optional:
-- Resolve GotSport team details (full_name, club_name, age, state) for unknown IDs.
+- Resolve GotSport team details (name, club_name, age group, gender, state) for
+  unknown IDs. This is the only stage the weekly workflow resolves with, so these
+  columns are where every downstream stage gets its cohort.
 
 Examples:
     python3 scripts/export_unknown_opponents.py
@@ -22,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,6 +35,13 @@ import requests
 from dotenv import load_dotenv
 
 from supabase import create_client
+
+# The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
+# path and not the repo root. team_association_map imports nothing beyond
+# typing, so it is safe to reach for from a job that installs three packages.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
 def load_env() -> None:
@@ -121,20 +131,27 @@ class GotSportResolver:
                 params={"team_id": key},
                 timeout=self.timeout,
             )
+            if response.status_code == 404:
+                # "Can not find team" is a permanent answer, so cache it.
+                self.cache[key] = {}
+                return {}
             response.raise_for_status()
             payload = response.json() if response.content else {}
             if not isinstance(payload, dict):
                 payload = {}
         except Exception:
-            payload = {}
+            # A WAF block, timeout or 429 says nothing about this team, so it is
+            # not cached -- a later row retries.
+            return {}
 
+        # team_details has no full_name, state, age or gender key; the real fields
+        # are team_association, display_age_group and display_gender.
         resolved = {
             "unknown_team_name": str(payload.get("name") or "").strip(),
-            "unknown_team_full_name": str(payload.get("full_name") or "").strip(),
             "unknown_club_name": str(payload.get("club_name") or "").strip(),
-            "unknown_state": str(payload.get("state") or "").strip(),
-            "unknown_age": str(payload.get("age") or "").strip(),
-            "unknown_gender": str(payload.get("gender") or "").strip(),
+            "unknown_state": to_state_code(payload.get("team_association")) or "",
+            "unknown_age": str(payload.get("display_age_group") or "").strip(),
+            "unknown_gender": str(payload.get("display_gender") or "").strip(),
         }
         self.cache[key] = resolved
         return resolved
@@ -200,6 +217,29 @@ def fetch_team_lookup(supabase, team_ids: List[str]) -> Dict[str, Dict]:
         for row in data:
             lookup[row["team_id_master"]] = row
     return lookup
+
+
+def ensure_group(groups: Dict, key: Tuple, got_details: Dict[str, str]) -> Dict:
+    """Return the group for ``key``, creating it or filling in a late resolution.
+
+    The aggregate CSV is the only cohort source the rest of the chain reads, and a
+    group keeps whatever its first game row resolved. A lookup that failed on that
+    row and succeeded on a later one has to reach it.
+    """
+    group = groups.get(key)
+    if group is None:
+        group = groups[key] = {
+            "games_count": 0,
+            "first_game_date": None,
+            "last_game_date": None,
+            "known_team_counts": Counter(),
+            "competition_counts": Counter(),
+            "sample_game_ids": [],
+            "resolved_unknown": got_details,
+        }
+    elif got_details and not group["resolved_unknown"]:
+        group["resolved_unknown"] = got_details
+    return group
 
 
 def write_csv(path: Path, fieldnames: List[str], rows: List[Dict]) -> None:
@@ -276,18 +316,7 @@ def main() -> None:
         if resolver and pcode == "gotsport":
             got_details = resolver.resolve(unknown.unknown_provider_team_id)
 
-        if key not in groups:
-            groups[key] = {
-                "games_count": 0,
-                "first_game_date": None,
-                "last_game_date": None,
-                "known_team_counts": Counter(),
-                "competition_counts": Counter(),
-                "sample_game_ids": [],
-                "resolved_unknown": got_details,
-            }
-
-        g = groups[key]
+        g = ensure_group(groups, key, got_details)
         g["games_count"] += 1
         game_date = game.get("game_date")
         if game_date:

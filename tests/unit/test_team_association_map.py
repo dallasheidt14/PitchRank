@@ -17,6 +17,7 @@ thousands of teams a year off this field, and a Brazilian or Canadian club
 guessed into a US state board is worse than one with no state at all.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -32,6 +33,20 @@ from src.utils.team_association_map import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DISCOVERY_SCRIPT = PROJECT_ROOT / "scripts" / "discover_teams_from_opponents.py"
+
+TEAM_DETAILS_URL = "team_ranking_data/team_details"
+
+# Derived, never listed. Every copy of this resolver has been fixed one incident at
+# a time, and a hand-written tuple is why: it cannot fail for a script it omits.
+RESOLVER_SCRIPTS = tuple(
+    sorted(p for p in (PROJECT_ROOT / "scripts").glob("*.py") if TEAM_DETAILS_URL in p.read_text(encoding="utf-8"))
+)
+
+# Two copies still read the absent keys. They are in update-missing-club-and-state.yml
+# rather than the hygiene chain, and IMP-142 tracks them; naming them here keeps the
+# guard derived and makes the deferral impossible to lose. Delete an entry as it is
+# fixed -- the test below fails if one is fixed and left listed.
+KNOWN_BROKEN = frozenset({"backfill_missing_club_names.py", "backfill_missing_state_codes.py"})
 
 # Keys the team_details payload does not have. Reading any of them returns "" on
 # every call, which is how the opponent's state came to be persisted as the
@@ -85,17 +100,49 @@ def test_identity_holds_only_real_two_letter_codes():
     assert all(re.fullmatch(r"[A-Z]{2}", code) for code in IDENTITY)
 
 
+def _payload_reading_source(script):
+    """Source of the functions that read the response body, and nothing else.
+
+    Scoped rather than whole-file so a comment or docstring naming a key cannot
+    satisfy the check. Not every copy spells the reader `resolve` -- assign_team_states
+    goes through the hardened `_zenrows_get` probe -- so it is found by what it does.
+    """
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    bodies = [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and "payload.get(" in ast.unparse(node)
+    ]
+    assert bodies, f"{script.name} reaches team_details but no function reads payload.get()"
+    return "\n".join(bodies)
+
+
+def test_every_script_reaching_team_details_is_accounted_for():
+    """A new copy of the resolver has to be fixed or listed, never just added."""
+    assert RESOLVER_SCRIPTS, "the glob matched nothing; the URL constant has moved"
+    assert KNOWN_BROKEN <= {p.name for p in RESOLVER_SCRIPTS}
+
+
+@pytest.mark.parametrize("script", RESOLVER_SCRIPTS, ids=lambda p: p.stem)
 @pytest.mark.parametrize("key", ABSENT_PAYLOAD_KEYS)
-def test_discovery_resolver_does_not_read_absent_payload_keys(key):
-    """The resolver dict must not go back to keys team_details never returns."""
-    source = DISCOVERY_SCRIPT.read_text(encoding="utf-8")
-    assert f'payload.get("{key}")' not in source
+def test_resolvers_do_not_read_absent_payload_keys(script, key):
+    """Scoped to resolve() because the behavioral tests miss one shape: an
+    additive fallback such as `payload.get("name") or payload.get("full_name")`
+    never fires against a payload whose real key is populated."""
+    if script.name in KNOWN_BROKEN:
+        pytest.skip(f"{script.name} still reads absent keys; tracked as IMP-142")
+    assert f'payload.get({key!r})' not in _payload_reading_source(script)
 
 
-def test_discovery_reads_the_real_locality_and_cohort_fields():
-    source = DISCOVERY_SCRIPT.read_text(encoding="utf-8")
-    for key in ("team_association", "display_age_group", "display_gender"):
-        assert f'payload.get("{key}")' in source
+@pytest.mark.parametrize("name", sorted(KNOWN_BROKEN))
+def test_deferred_scripts_are_still_broken(name):
+    """Keeps the deferral honest in both directions: fix one and this fails until
+    it is taken off the list, so the guard above starts covering it."""
+    script = PROJECT_ROOT / "scripts" / name
+    source = _payload_reading_source(script)
+    assert any(f'payload.get({key!r})' in source for key in ABSENT_PAYLOAD_KEYS), (
+        f"{name} no longer reads absent keys -- remove it from KNOWN_BROKEN (IMP-142)"
+    )
 
 
 def test_discovery_does_not_persist_the_opponents_state():
