@@ -19,8 +19,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from repair_out_of_board_cohorts import decide  # noqa: E402
 
 
-def _resolved(age_group):
-    return {"age_group": age_group, "raw_age_group": (age_group or "").upper()}
+def _resolved(age_group, raw=None):
+    return {"age_group": age_group, "raw_age_group": raw if raw is not None else (age_group or "").upper()}
 
 
 @pytest.mark.parametrize("new", ["u10", "u12", "u14", "u15", "u19"])
@@ -28,7 +28,9 @@ def test_a_boarded_cohort_is_written(new):
     assert decide("u3", "742007", _resolved(new)) == ("updated", new)
 
 
-@pytest.mark.parametrize("new", ["u4", "u5", "u6", "u7", "u8", "u9", "u20", "u21"])
+# u20 is absent on purpose: normalize_age_group folds it into u19, so it can never
+# be the resolved value. test_a_label_that_folds_into_u19_is_not_written owns that case.
+@pytest.mark.parametrize("new", ["u4", "u5", "u6", "u7", "u8", "u9", "u21"])
 def test_an_unboarded_cohort_is_never_written(new):
     """The +1 rollover shift: u3 reads back as u4 a season later."""
     action, proposed = decide("u3", "742007", _resolved(new))
@@ -67,3 +69,24 @@ def test_every_skip_reason_is_distinct():
         decide("u3", "1", _resolved("u14"))[0],
     }
     assert len(actions) == 6
+
+
+def test_the_season_evidence_skip_is_distinct():
+    assert decide("u3", "1", _resolved("u19", raw="U20"))[0] not in {
+        decide("u3", "1", _resolved("u4"))[0],
+        decide("u3", "1", _resolved("u14"))[0],
+    }
+
+
+@pytest.mark.parametrize("raw", ["U18", "U20", "u18", " u20 "])
+def test_a_label_that_folds_into_u19_is_not_written(raw):
+    """normalize_age_group collapses U18 and U20 into u19, which is right for a fresh
+    label. Here it would write the oldest board off a label that never says which
+    season produced it, so an aged-out 2006 squad could land on the U19 board."""
+    action, proposed = decide("u3", "742007", _resolved("u19", raw=raw))
+    assert action == "skipped_needs_season_evidence"
+    assert proposed == "u19"
+
+
+def test_a_genuine_u19_label_is_still_written():
+    assert decide("u3", "742007", _resolved("u19", raw="U19")) == ("updated", "u19")

@@ -44,6 +44,10 @@ from src.utils.gotsport_team_details import TeamDetailsResolver  # noqa: E402
 # u20 needs season evidence this script does not have.
 IMPOSSIBLE_COHORTS = ("u0", "u1", "u2", "u3", "u4", "u5", "u6", "u7", "u21", "u22")
 
+# Labels normalize_age_group collapses into u19. Accepting one here would write the
+# oldest board from a label that does not say which season produced it.
+FOLDED_INTO_U19 = frozenset({"U18", "U20"})
+
 EXPORTS_DIR = Path("data/exports")
 
 
@@ -69,15 +73,26 @@ def get_supabase():
 
 
 def fetch_target_teams(supabase, cohorts: List[str], limit: Optional[int]) -> List[Dict]:
-    rows = (
-        supabase.table("teams")
-        .select("team_id_master,team_name,age_group,gender,state_code")
-        .eq("is_deprecated", False)
-        .in_("age_group", cohorts)
-        .execute()
-        .data
-        or []
-    )
+    page_size = 1000
+    offset = 0
+    rows: List[Dict] = []
+    while True:
+        batch = (
+            supabase.table("teams")
+            .select("team_id_master,team_name,age_group,gender,state_code")
+            .eq("is_deprecated", False)
+            .in_("age_group", cohorts)
+            .order("team_id_master")
+            .range(offset, offset + page_size - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
     rows.sort(key=lambda r: (r.get("age_group") or "", r.get("team_name") or ""))
     return rows[:limit] if limit else rows
 
@@ -121,6 +136,11 @@ def decide(old: Optional[str], pid: Optional[str], resolved: Optional[Dict]) -> 
     new = resolved.get("age_group")
     if new is None:
         return "skipped_provider_has_no_cohort", None
+    if str(resolved.get("raw_age_group", "")).strip().upper() in FOLDED_INTO_U19:
+        # normalize_age_group folds U18 and U20 into u19, which is right for a fresh
+        # label but not decidable here: the provider does not say whether the team
+        # is a 2007 U19 squad or an aged-out 2006 one. Same reason u20 is out of scope.
+        return "skipped_needs_season_evidence", new
     if new == old:
         return "skipped_already_correct", new
     if new not in AGE_GROUPS:
@@ -215,14 +235,29 @@ def main() -> None:
             }
         )
 
-        if action == "updated":
-            print(f"  {(team.get('team_name') or '')[:44]:44s} {old} -> {new}   (GotSport: {raw})")
-            if execute:
-                supabase.table("teams").update({"age_group": new}).eq("team_id_master", tid).execute()
-
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = EXPORTS_DIR / f"repair_out_of_board_cohorts_{stamp}.csv"
+    planned = [r for r in log_rows if r["action"] == "updated"]
+    # The log is the only way back, so it lands before the first write and again
+    # after the last. A run that dies mid-loop still leaves every applied row on disk.
     write_log(log_rows, log_path)
+
+    applied = set()
+    try:
+        for row in planned:
+            print(f"  {row['team_name'][:44]:44s} {row['old_age_group']} -> {row['new_age_group']}"
+                  f"   (GotSport: {row['provider_label']})")
+            if execute:
+                supabase.table("teams").update({"age_group": row["new_age_group"]}).eq(
+                    "team_id_master", row["team_id_master"]
+                ).execute()
+            applied.add(row["team_id_master"])
+    finally:
+        if execute:
+            for row in planned:
+                if row["team_id_master"] not in applied:
+                    row["action"] = "planned_not_applied"
+        write_log(log_rows, log_path)
 
     print("\n=== Summary ===")
     for action in sorted(counts):
