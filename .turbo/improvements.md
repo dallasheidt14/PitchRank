@@ -1399,3 +1399,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/assign_team_states.py` `_decision` / `apply_decision`, `apply_team_state` in `supabase/migrations/20260829120000_add_team_state_provenance.sql`
 - **Why**: `_decision` normalizes `state_code` with `(... or "").strip() or None`, so a team stored blank rather than NULL records `pre_image: None` and is classified as a fill. `apply_team_state` then predicates on `state_code IS NOT DISTINCT FROM p_expected_state_code::character(2)`, which NULL cannot match against a blank-padded `'  '`, so the write returns false, the run reports the team as "moved", and the next run decides it identically — a team that can never be filled and is retried forever. Zero rows are affected today (3,080 NULL, 0 blank, measured 2026-08-31), but `scripts/import_teams_enhanced.py:73` still writes `""` on a CSV import and `scripts/match_state_from_club.py:180-189` pages for both spellings because they have existed. Fix by carrying the raw pre-image separately from the fill/correction classification, or by making the predicate accept both blanks. Found by Codex on #1066; pre-existing, not introduced by `--fills-only`. Related: #1065 closed the creation side of the same split in `GameHistoryMatcher._resolve_state_from_club`.
 - **Noted**: 2026-08-31
+
+### Ingest Fall League Washington from the sctour JSON API
+
+- **ID**: IMP-151
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: new `scripts/scrape_sctour_league.py`; `src/models/affinity_wa_matcher.py` for reuse; `.github/workflows/wa-scraper.yml` if it joins the weekly run
+- **Why**: A WA league PitchRank does not ingest, on Affinity's newer Blazor platform rather than the classic `.asp` pages `scrape_affinity_wa_tournament.py` speaks, so it needs its own scraper. The data is easy once reached: same-origin REST at `https://sctour.sportsaffinity.com/api/schedules?organizationId=<org>&tournamentId=<tourn>` returns JSON with team ids, club ids, goals, forfeit flags, play dates and venue `stateCode`; `/api/standings` carries `ageGroupName` + `flightKey`, which is the only way to age-group a game since `flightName` is empty on the schedules payload. **Blocked on a season id**: the known pair (org `7379E8F5-2B0D-4729-BDF9-967A08999A37`, tourn `fd4c6e27-142e-448e-8fb3-e83a5bcc15de`) is "2025 Fall League Washington", Sep 6 - Nov 23 2025, 570 played games — already historical. No endpoint enumerates a league's tournaments (`/api/tournaments`, `/api/organization` both 404), so the current-season id has to come from the organizers. Verified live 2026-08-31.
+- **Noted**: 2026-08-31
+
+### Ingest North Puget Sound League once Demosphere publishes scores
+
+- **ID**: IMP-152
+- **Status**: open
+- **Type**: investigate
+- **Category**: feature
+- **Where**: new scraper against `https://elements.demosphere.com/74274/schedules/Fall2026/`
+- **Why**: A WA league PitchRank does not ingest, on Demosphere (OttoSport) rather than Affinity. The public page `northpugetsoundleague.ottosport.ai/fall-2026-schedule` renders nothing server-side; the content is an embedded Demosphere element at the URL above, which is clean static HTML needing no JS — an index of ~50 divisions (BU9-BU19, GU9-GU19) each linking to a per-division schedule page. Division labels are U-age with no birth year (`BU13 Division 1`), and the season is unambiguous from the URL path, so cohorting is safe. **Blocked on scores**: the game tables carry only `GAME# | Time | Home | Away | Location` — no score column exists, so there is nothing to import yet. Season opens 2026-09-12; re-check a week or two after to see whether scores land in the same table or a separate results view, which decides the scope. Verified live 2026-08-31.
+- **Noted**: 2026-08-31
