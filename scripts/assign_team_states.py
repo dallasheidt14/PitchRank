@@ -87,7 +87,6 @@ truststore.inject_into_ssl()
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from scripts.backfill_state_from_team_name import state_from_name  # noqa: E402
-from src.scrapers.gotsport import _zenrows_get  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
@@ -385,6 +384,14 @@ def probe_associations(
     not Canada, and treating any two-letter value as a postal code is what sends a
     Brazilian team to a US state board.
     """
+    # Imported here, not at module scope. ``src.scrapers.gotsport`` reaches BaseScraper
+    # and config.settings, which pull pandas, scipy, sklearn and xgboost -- a chain no
+    # tier but this one needs. The scheduled fills-only job runs --no-tier-a and so never
+    # arrives here, which lets its runner install five packages instead of requirements.
+    # Still at the top of the only function that probes, so a broken install fails before
+    # the first call rather than partway through 6,200 of them.
+    from src.scrapers.gotsport import _zenrows_get
+
     session = requests.Session()
     api_key = os.getenv("ZENROWS_API_KEY")
     states: Dict[str, str] = {}
@@ -718,10 +725,30 @@ def mirror_rankings(sb, applied: List[Dict]) -> int:
     return mirrored
 
 
-def apply_snapshot(sb, snapshot: Dict, limit: Optional[int]) -> None:
+def apply_snapshot(
+    sb, snapshot: Dict, limit: Optional[int], fills_only: bool = False
+) -> None:
     decisions = snapshot["decisions"]
     to_apply = [d for d in decisions if d["action"] == "apply"]
     to_queue = [d for d in decisions if d["action"] == "queue"]
+
+    # A correction is not safe to write unattended, and that is measured rather than
+    # cautious. Two consecutive dry runs propose 664 applies, 90 of which overwrite what
+    # the first pass just wrote: a fill changes the clubmate distribution Tier B reads
+    # next time, so the club count starts overruling per-team records it agreed with an
+    # hour ago. Two teams of one club oscillate between NV and WA with no fixed point.
+    # A fill cannot do that -- it overwrites nothing, and its worst case is a wrong state
+    # on a team that had none, which is visible, logged and reversible. So the scheduled
+    # job takes the fills and leaves every correction to an operator running the sweep.
+    # Filtered before --limit, so that limit still counts rows this will actually write.
+    if fills_only:
+        withheld = sum(1 for d in to_apply if d["pre_image"] is not None)
+        to_apply = [d for d in to_apply if d["pre_image"] is None]
+        console.print(
+            f"[yellow]--fills-only: withholding {withheld:,} corrections for an "
+            f"operator-run sweep[/yellow]"
+        )
+
     if limit is not None:
         if limit < 0:
             console.print("[red]ERROR: --limit cannot be negative; it would apply all but the last[/red]")
@@ -949,6 +976,11 @@ def main() -> None:
     parser.add_argument("--reason", help="Why, recorded in the ledger beside a --set")
     parser.add_argument("--no-tier-a", action="store_true", help="Skip the GotSport probe")
     parser.add_argument(
+        "--fills-only",
+        action="store_true",
+        help="With --execute, apply only decisions that fill a blank; withhold every correction",
+    )
+    parser.add_argument(
         "--workers", type=int, default=DEFAULT_WORKERS, help=f"Probe threads (default {DEFAULT_WORKERS})"
     )
     args = parser.parse_args()
@@ -972,7 +1004,7 @@ def main() -> None:
             sys.exit(1)
         snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
         console.print(f"[bold]Applying[/bold] {args.snapshot} (taken {snapshot['created_at']})")
-        apply_snapshot(sb, snapshot, args.limit)
+        apply_snapshot(sb, snapshot, args.limit, fills_only=args.fills_only)
         return
 
     snapshot = build_snapshot(

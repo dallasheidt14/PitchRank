@@ -1,0 +1,182 @@
+name: Fill Team States Weekly
+
+on:
+  schedule:
+    # Wednesday 09:37 UTC. Not Monday: data hygiene (11:00) runs ~2h45m and the ranking
+    # run (12:30) another ~3h, so they cover the whole afternoon, and mirroring into
+    # rankings_full while the ranking run is rewriting it would lose the mirror. Not
+    # Tuesday either: unknown-opponent hygiene (18:00) creates teams, and those are new
+    # blanks this exists to fill. Wednesday sees the whole week's creations, after the
+    # club-name standardisation on Monday 10:00 that Tier B's grouping depends on.
+    # Minute 37 rather than 0, which is GitHub's most contended slot and drops runs.
+    - cron: '37 9 * * 3'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (decide and report, apply nothing)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# One writer at a time. Two runs replaying different snapshots would each hold a
+# pre-image the other has already invalidated, and the loser's writes are skipped
+# silently as "moved since the snapshot".
+concurrency:
+  group: fill-team-states
+  cancel-in-progress: false
+
+# No AGE_ROLLOVER_FREEZE gate: this writes state_code, never an age group.
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  # Keep key env vars aligned with other working workflows in this repo.
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+  # rich wraps to 80 columns when stdout is not a terminal, which would break the
+  # counts the summary greps out of these logs mid-number.
+  COLUMNS: '200'
+
+jobs:
+  fill-team-states:
+    name: Fill Team States
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Five packages, not requirements.txt. Tier A is the only thing in this script
+          # that reaches src.scrapers.gotsport -- and so bs4, pandas, scipy, sklearn and
+          # xgboost -- and it imports that lazily because this job runs --no-tier-a.
+          pip install supabase python-dotenv truststore rich requests
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: 'Step 1: Decide every live team'
+        id: decide
+        run: |
+          # --no-tier-a deliberately, not by omission. The GotSport probe is ~6,200 paid
+          # ZenRows requests per full run and it decided 0 of the 617 fills in the
+          # 2026-08-30 sweep -- it settles corrections, which this job does not apply.
+          # The paid probe belongs to the operator-run sweep.
+          set -o pipefail
+          python scripts/assign_team_states.py --no-tier-a --out logs/snapshot.json 2>&1 \
+            | tee logs/decide.log
+
+          # `|| true` because pipefail is still on and a no-match grep exits 1, which
+          # `bash -e` would take as the step's status before any default could apply.
+          # `${VAR:-0}` because the pipeline then yields an empty string, not a number.
+          FILLS=$(grep -oP 'across \K[\d,]+(?= fills)' logs/decide.log | tail -1 || true)
+          CORRECTIONS=$(grep -oP 'across [\d,]+ fills and \K[\d,]+' logs/decide.log | tail -1 || true)
+          QUEUED=$(grep -oP 'to apply, \K[\d,]+(?= to review)' logs/decide.log | tail -1 || true)
+          echo "fills=${FILLS:-0}" >> $GITHUB_OUTPUT
+          echo "corrections=${CORRECTIONS:-0}" >> $GITHUB_OUTPUT
+          echo "queued=${QUEUED:-0}" >> $GITHUB_OUTPUT
+
+      - name: 'Step 2: Apply the fills'
+        id: apply
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          # --fills-only is what makes this safe to run unattended. Two consecutive dry
+          # runs propose 664 applies, 90 of them overwriting what the first pass just
+          # wrote: a fill moves the clubmate counts Tier B reads next time, so two teams
+          # of one club oscillate between NV and WA with no fixed point. A fill has no
+          # such feedback. Corrections stay operator-run until a second pass proposes
+          # zero rewrites of the first.
+          set -o pipefail
+          python scripts/assign_team_states.py \
+            --execute --snapshot logs/snapshot.json --fills-only 2>&1 \
+            | tee logs/apply.log
+
+          APPLIED=$(grep -oP 'Applied \K[\d,]+(?=, skipped)' logs/apply.log | tail -1 || true)
+          MOVED=$(grep -oP 'skipped \K[\d,]+(?= that moved)' logs/apply.log | tail -1 || true)
+          WITHHELD=$(grep -oP 'withholding \K[\d,]+' logs/apply.log | tail -1 || true)
+          echo "applied=${APPLIED:-0}" >> $GITHUB_OUTPUT
+          echo "moved=${MOVED:-0}" >> $GITHUB_OUTPUT
+          echo "withheld=${WITHHELD:-0}" >> $GITHUB_OUTPUT
+
+      - name: 'Step 3: Finish an apply that died partway'
+        if: always() && steps.apply.outcome == 'failure'
+        run: |
+          # apply_snapshot repairs its own half-finished run, but only when replayed from
+          # the SAME snapshot. A team it wrote before dying comes back as "moved", and the
+          # already-at-proposed-state branch mirrors it into rankings_full -- the only half
+          # left to finish, since the write itself is committed and its pre-image is gone.
+          # Next Wednesday's fresh snapshot cannot do this: that team now has a state and
+          # produces no decision at all, so it would sit off its state board until the
+          # Monday ranking run re-derives the column from teams.
+          #
+          # This covers a failed RPC or a crash. A cancelled job kills the runner before
+          # any later step, so the snapshot artifact is the recovery path there: replay it
+          # with --execute --snapshot <file> --fills-only.
+          set -o pipefail
+          python scripts/assign_team_states.py             --execute --snapshot logs/snapshot.json --fills-only 2>&1             | tee logs/repair.log
+
+      - name: Upload logs and snapshot
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          # The snapshot is the only record of what was decided but not applied. The
+          # writes themselves are in team_state_audit and revert_team_states undoes them.
+          name: team-state-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            logs/snapshot.json
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}
+          FILLS: ${{ steps.decide.outputs.fills || 'skipped' }}
+          CORRECTIONS: ${{ steps.decide.outputs.corrections || 'skipped' }}
+          QUEUED: ${{ steps.decide.outputs.queued || 'skipped' }}
+          APPLIED: ${{ steps.apply.outputs.applied || 'skipped' }}
+          MOVED: ${{ steps.apply.outputs.moved || 'skipped' }}
+          WITHHELD: ${{ steps.apply.outputs.withheld || 'skipped' }}
+        run: |
+          echo "## 🗺️ Team State Fill" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Fills decided | $FILLS |" >> $GITHUB_STEP_SUMMARY
+          echo "| States written | $APPLIED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skipped, team moved since the snapshot | $MOVED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Corrections decided | $CORRECTIONS |" >> $GITHUB_STEP_SUMMARY
+          echo "| … queued for review | $QUEUED |" >> $GITHUB_STEP_SUMMARY
+          echo "| … withheld for an operator | $WITHHELD |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Fills only. A correction needs an operator running the full sweep through" >> $GITHUB_STEP_SUMMARY
+          echo "the \`assigning-team-states\` skill, which also works the review queue." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To undo this batch, scope \`revert_team_states\` by actor \`assign_team_states\`" >> $GITHUB_STEP_SUMMARY
+          echo "and this run's time window." >> $GITHUB_STEP_SUMMARY

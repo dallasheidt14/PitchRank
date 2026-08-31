@@ -9,6 +9,7 @@ the prose keeps promising the old one.
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
@@ -225,16 +226,42 @@ def test_a_decision_carries_the_state_it_was_computed_against():
 
 
 # --------------------------------------------------------------------------- #
+# What the scheduled job has to be able to install
+# --------------------------------------------------------------------------- #
+
+
+def test_nothing_under_src_scrapers_is_imported_at_module_scope():
+    """The weekly fills-only job installs five packages, not requirements.txt.
+
+    ``src.scrapers.gotsport`` reaches BaseScraper and config.settings, which pull bs4,
+    pandas, scipy, sklearn and xgboost. A top-level import of it costs nothing locally
+    and kills the runner at startup with ModuleNotFoundError: bs4 -- verified against a
+    venv holding only supabase, python-dotenv, truststore, rich and requests. Tier A is
+    the only caller and the scheduled job runs --no-tier-a, so the import belongs inside
+    ``probe_associations``.
+    """
+    import ast
+
+    source = Path(assign.__file__).read_text(encoding="utf-8")
+    top_level = [n for n in ast.parse(source).body if isinstance(n, ast.ImportFrom)]
+    offenders = [n.module for n in top_level if (n.module or "").startswith("src.scrapers")]
+
+    assert not offenders, f"import these inside the function that needs them: {offenders}"
+
+
+# --------------------------------------------------------------------------- #
 # Replaying a snapshot
 # --------------------------------------------------------------------------- #
 
 
-def test_a_decision_reverted_since_the_snapshot_is_queued_not_re_applied(monkeypatch):
-    """The hard case for a limited batch. A revert restores the pre-image, so replaying
-    the decision would find its predicate satisfied and quietly undo the rollback -- the
-    snapshot's own reading of the ledger is too old to catch it."""
+def replay(monkeypatch, decisions, reverts=frozenset(), **kwargs):
+    """Drive the real ``apply_snapshot`` over `decisions`, returning what it did.
+
+    Everything that touches the database is stubbed; what is under test is which
+    decisions reach ``apply_decision`` and which reach ``queue_decision``.
+    """
     applied, queued = [], []
-    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: {("reverted", "OH")})
+    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set(reverts))
     monkeypatch.setattr(assign, "fetch_queue_rows", lambda sb: {})
     monkeypatch.setattr(assign, "mirror_rankings", lambda sb, rows: len(rows))
     monkeypatch.setattr(
@@ -243,17 +270,69 @@ def test_a_decision_reverted_since_the_snapshot_is_queued_not_re_applied(monkeyp
     monkeypatch.setattr(
         assign, "queue_decision", lambda sb, d, existing: queued.append(d["team_id"]) or "queued"
     )
+    apply_snapshot(None, {"created_at": "2026-08-29T00:00:00+00:00", "decisions": decisions}, **kwargs)
+    return applied, queued
 
-    snapshot = {
-        "created_at": "2026-08-29T00:00:00+00:00",
-        "decisions": [
-            {"team_id": "reverted", "pre_image": None, "proposed": "OH", "tier": "B",
-             "confidence": 0.9, "action": "apply", "reason": "fill"},
-            {"team_id": "fine", "pre_image": None, "proposed": "OH", "tier": "B",
-             "confidence": 0.9, "action": "apply", "reason": "fill"},
-        ],
+
+def proposal(team_id, pre_image, action="apply"):
+    return {
+        "team_id": team_id, "pre_image": pre_image, "proposed": "OH", "tier": "B",
+        "confidence": 0.9, "action": action,
+        "reason": "fill" if pre_image is None else "correct",
     }
-    apply_snapshot(None, snapshot, None)
+
+
+def test_a_decision_reverted_since_the_snapshot_is_queued_not_re_applied(monkeypatch):
+    """The hard case for a limited batch. A revert restores the pre-image, so replaying
+    the decision would find its predicate satisfied and quietly undo the rollback -- the
+    snapshot's own reading of the ledger is too old to catch it."""
+    applied, queued = replay(
+        monkeypatch,
+        [proposal("reverted", None), proposal("fine", None)],
+        reverts={("reverted", "OH")},
+        limit=None,
+    )
 
     assert applied == ["fine"]
     assert queued == ["reverted"]
+
+
+def test_fills_only_never_applies_a_correction(monkeypatch):
+    """The whole basis of running this unattended. A second dry run proposes 664 applies,
+    90 of them overwriting what the first pass just wrote, because a fill moves the
+    clubmate counts Tier B reads next time; two teams of one club oscillate forever. A
+    fill has no such feedback -- it overwrites nothing -- so only fills may run weekly."""
+    applied, _ = replay(
+        monkeypatch,
+        [proposal("blank", None), proposal("stored-nv", "NV")],
+        fills_only=True,
+        limit=None,
+    )
+
+    assert applied == ["blank"]
+
+
+def test_fills_only_withholds_a_correction_rather_than_queueing_it(monkeypatch):
+    """Queueing them instead would hand the operator ~600 rows a week of exactly the
+    proposals that do not converge. They wait for a sweep a person is running."""
+    _, queued = replay(
+        monkeypatch,
+        [proposal("stored-nv", "NV"), proposal("needs-review", "WA", action="queue")],
+        fills_only=True,
+        limit=None,
+    )
+
+    assert queued == ["needs-review"]
+
+
+def test_fills_only_limits_the_fills_it_keeps_not_the_applies_it_started_with(monkeypatch):
+    """--limit is a batch size for an operator watching what lands. Filtering after it
+    would make `--limit 50` write however many of the first 50 happened to be fills."""
+    applied, _ = replay(
+        monkeypatch,
+        [proposal("c1", "NV"), proposal("c2", "NV"), proposal("f1", None), proposal("f2", None)],
+        fills_only=True,
+        limit=2,
+    )
+
+    assert applied == ["f1", "f2"]
