@@ -346,18 +346,24 @@ def locality_state(team: Dict, locality_index: Dict[str, str]) -> Optional[str]:
     a fixture, not a home -- for the same reason Tier C refuses a name holding two
     state names.
 
-    None too when an explicit affiliate marker names a different state, which Tier C has
-    always done and this tier did not. "Utah Royals FC - AZ" holds the word "utah", so
-    this tier read 22 Arizona teams as Utah while Tier C refused them; the marker is on
-    the club name rather than the team's, so both fields are checked.
+    None too when an affiliate marker on the **club name** names a different state, which
+    Tier C has always done and this tier did not: "Utah Royals FC - AZ" holds the word
+    "utah", so this tier read 22 Arizona teams as Utah while Tier C refused them.
+
+    The club name only, deliberately. Team names carry coach and squad initials in the
+    same position -- SoCal Reds FC fields "- AV", "- RK", "- JW", "- JM" and "- AR", all
+    of them California -- and 7,496 team names hold a marker of that shape against 1,624
+    club names, which are almost all genuine disambiguators: "FC Premier (CA)",
+    "Spartans FC (AZ)", "Eastside FC (WA)". Reading initials as a state would suppress
+    this tier on teams whose club cannot answer, which is exactly when it is needed.
+    Tier C keeps checking the team name: it fires only when a state is named outright,
+    so a stray "- MD" there has a state word to contradict rather than a learned one.
     """
     states = {locality_index[token] for token in name_tokens(team) if token in locality_index}
     if len(states) != 1:
         return None
     state = states.pop()
-    if any(affiliate_contradicts(text, state) for text in (team.get("team_name"), team.get("club_name"))):
-        return None
-    return state
+    return None if affiliate_contradicts(team.get("club_name"), state) else state
 
 
 def club_derived_state(team: Dict, club_index: Dict[str, Counter]) -> Optional[str]:
