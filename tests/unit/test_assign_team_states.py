@@ -118,6 +118,43 @@ def test_a_token_earns_a_state_only_with_enough_teams_and_agreement():
     assert "springfield" not in index
 
 
+def test_an_affiliate_marker_outranks_a_learned_place_word():
+    """Tier C has always refused "Utah Royals FC-AZ"; Tier E did not, and read 22 Arizona
+    teams as Utah because the club name holds the word "utah". The marker sits on the club
+    name rather than the team's, so both fields are checked."""
+    index = {"utah": "UT"}
+
+    assert locality_state(team(team_name="Utah Royals 2015", club_name="Utah Royals FC - AZ"), index) is None
+    assert locality_state(team(team_name="Utah Royals 2015", club_name="Utah Royals FC (AZ)"), index) is None
+
+
+def test_an_affiliate_marker_agreeing_with_the_place_still_fires():
+    """The guard refuses a contradiction, not every marker."""
+    index = {"utah": "UT"}
+
+    assert locality_state(team(team_name="Utah Royals 2015", club_name="Utah Royals FC - UT"), index) == "UT"
+
+
+def test_soccer_vocabulary_is_not_an_affiliate_marker():
+    """SC is Soccer Club and GA is Girls Academy. Reading them as states is what
+    _NOT_STATE_TOKENS exists to stop, and Tier E now inherits that too."""
+    index = {"portland": "OR"}
+
+    assert locality_state(team(team_name="Portland Thorns", club_name="Portland Thorns - SC"), index) == "OR"
+    assert locality_state(team(team_name="Portland Thorns", club_name="Portland Thorns (GA)"), index) == "OR"
+
+
+def test_coach_initials_on_a_team_name_are_not_an_affiliate_marker():
+    """SoCal Reds FC fields "- AV", "- RK", "- JW", "- JM" and "- AR", all California.
+    7,496 team names carry a marker of that shape against 1,624 club names, so the check
+    reads the club name only -- otherwise a coach's initials would suppress this tier on
+    exactly the teams whose club cannot answer for them."""
+    index = {"socal": "CA"}
+
+    assert locality_state(team(team_name="MLS NEXT AD U14 - MD", club_name="Socal Reds FC"), index) == "CA"
+    assert locality_state(team(team_name="SOCAL REDS FC 2012 EA - AR", club_name=""), index) == "CA"
+
+
 def test_a_name_pointing_at_two_states_points_at_neither():
     index = {"boise": "ID", "dallas": "TX"}
     assert locality_state(team(team_name="Boise at the Dallas Cup"), index) is None
