@@ -1387,3 +1387,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `team_utils.calculate_age_group_from_birth_year` returns None for a computed age of 21 because 2006 has aged out, but the shared normalizer passes `u21` through, so discovery creates the team and the queue scrapes it forever. Live probing found 11 of 12 sampled 2006-cohort teams labelled `U21`, roughly 21 of 2,553 distinct unknown ids per weekly run. Refusing it outright is not the fix — a bare None hands the row to the opponent fallback — so this wants an explicit aged-out outcome that skips creation with a reason, alongside the IMP-147 cleanup of the 8 `u21` rows already stored.
 - **Noted**: 2026-08-30
 - **Update (2026-08-30)**: The impossible-cohort pass ran. 13 teams were re-resolved onto real boards (u3 -> u10/u12/u13/u14/u15) and u3 fell from 44 to 31. 58 candidates were deliberately left alone: their GotSport record reads exactly one cohort higher than stored, which is the Aug 1 rollover rather than a correction, so writing it would move them between two unboarded cohorts and churn again next August. 6 more have no cohort at the provider. Remaining here: the u20 population, which still wants its own evidence-based pass.
+
+### A blank state_code is decided as a fill but can never be written
+
+- **ID**: IMP-150
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `_decision` / `apply_decision`, `apply_team_state` in `supabase/migrations/20260829120000_add_team_state_provenance.sql`
+- **Why**: `_decision` normalizes `state_code` with `(... or "").strip() or None`, so a team stored blank rather than NULL records `pre_image: None` and is classified as a fill. `apply_team_state` then predicates on `state_code IS NOT DISTINCT FROM p_expected_state_code::character(2)`, which NULL cannot match against a blank-padded `'  '`, so the write returns false, the run reports the team as "moved", and the next run decides it identically — a team that can never be filled and is retried forever. Zero rows are affected today (3,080 NULL, 0 blank, measured 2026-08-31), but `scripts/import_teams_enhanced.py:73` still writes `""` on a CSV import and `scripts/match_state_from_club.py:180-189` pages for both spellings because they have existed. Fix by carrying the raw pre-image separately from the fill/correction classification, or by making the predicate accept both blanks. Found by Codex on #1066; pre-existing, not introduced by `--fills-only`. Related: #1065 closed the creation side of the same split in `GameHistoryMatcher._resolve_state_from_club`.
+- **Noted**: 2026-08-31
