@@ -57,7 +57,7 @@ from supabase import create_client  # noqa: E402
 
 GAME_FIELDS = (
     "id,game_date,home_team_master_id,away_team_master_id,home_score,away_score,"
-    "event_name,competition,division_name,venue,source_url,created_at"
+    "event_name,competition,division_name,venue,source_url,created_at,game_uid"
 )
 METADATA_FIELDS = ("event_name", "competition", "division_name", "venue", "source_url")
 ID_BATCH = 100
@@ -168,6 +168,23 @@ def fetch_all_scored_games(sb, chunk_days: int = 7) -> dict[str, dict]:
     return games
 
 
+def _has_distinct_match_ids(rows: list[dict]) -> bool:
+    """True when the provider itself says these are different matches.
+
+    Same teams, date and score is one match for every provider here except PlayMetrics
+    tournaments, where bracket play routinely pairs two teams twice in a day (pool then
+    final) and the same scoreline is unremarkable. Only that provider mints a per-match
+    discriminator: game_matcher.py:734-741 suffixes schedule_id onto the game_uid. Where
+    those suffixes disagree the rows are two fixtures, and collapsing them would delete a
+    real result.
+
+    Modular11's ':age_group:division' tail is not such a discriminator -- it labels the
+    cohort, and a pair differing only by it is one match spanning a uid recipe change.
+    """
+    uids = {r.get("game_uid") or "" for r in rows}
+    return len(uids) > 1 and any(u.startswith("playmetrics_tournament:") for u in uids)
+
+
 def keep_rank(game: dict, deprecated: set[str]) -> tuple:
     survivor_sides = sum(
         1 for side in ("home_team_master_id", "away_team_master_id") if game[side] not in deprecated
@@ -225,12 +242,16 @@ def main() -> int:
 
     to_exclude: list[dict] = []
     same_id_groups = 0
+    distinct_match_ids = 0
     for key, rows in groups.items():
         if len(rows) < 2:
             continue
         raw_pairs = {(r["home_team_master_id"], r["away_team_master_id"]) for r in rows}
         if len(raw_pairs) == 1:
             same_id_groups += 1
+            continue
+        if _has_distinct_match_ids(rows):
+            distinct_match_ids += 1
             continue
         rows.sort(key=lambda r: (keep_rank(r, deprecated), r["id"]), reverse=True)
         for r in rows[1:]:
@@ -248,6 +269,8 @@ def main() -> int:
     print(f"fixture tuples recorded twice under identical team ids: {same_id_groups:,} (never excluded)")
     if same_id_groups:
         print(SAME_ID_NOTE)
+    if distinct_match_ids:
+        print(f"skipped, provider gave the rows distinct match ids: {distinct_match_ids:,}")
     print(f"redundant rows to exclude: {len(to_exclude):,}")
     for r in to_exclude[:10]:
         print(f"   {r['game_date']}  {r['score']}  exclude {r['id'][:8]} keep {r['kept_id'][:8]}")
