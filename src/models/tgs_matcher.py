@@ -664,6 +664,14 @@ class TGSGameMatcher(GameHistoryMatcher):
 
             distinction = resolve_distinction(clean_team_name, club_name, None)
 
+            # TGS carries no per-team state, so the club is the only thing that can be
+            # asked, and it answers only when all of its existing rows agree. Leaving
+            # the rest NULL is deliberate: TGS created 763 stateless teams in one day,
+            # and every one of them is a blank the assignment tool can fill from
+            # evidence later. A guess here would instead be a wrong value that the
+            # same tool then reads as its own corroboration.
+            state_code, state = self._resolve_state_from_club(club_name)
+
             # Insert new team
             team_data = {
                 "team_id_master": team_id_master,
@@ -676,6 +684,9 @@ class TGSGameMatcher(GameHistoryMatcher):
                 "distinction": distinction,
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
+            if state_code:
+                team_data["state_code"] = state_code
+                team_data["state"] = state
 
             if not self.dry_run:
                 self.db.table("teams").insert(team_data).execute()

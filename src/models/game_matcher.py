@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from supabase import Client
@@ -480,12 +480,56 @@ class GameHistoryMatcher:
         # without this flag, every dry-run still pollutes ``team_alias_map``,
         # ``teams``, and ``team_match_review_queue`` via the matcher.
         self.dry_run = dry_run
+        # club_name → the (state_code, state) every existing row of that club agrees on,
+        # for subclasses that autocreate. Lazily filled by _resolve_state_from_club.
+        self._club_state_cache: Dict[str, Optional[Tuple[Optional[str], Optional[str]]]] = {}
         if provider_id:
             # Cache the provider_id if provided (for the provider_code used in this pipeline)
             # We'll need to know the code, but for now just store it as a fallback
             self._cached_provider_id = provider_id
         else:
             self._cached_provider_id = None
+
+    def _resolve_state_from_club(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Look up ``(state_code, state)`` for a brand-new team from its club.
+
+        Returns the unique non-null pair if every existing ``teams`` row for this
+        ``club_name`` agrees on it. Returns ``(None, None)`` when the club spans
+        several states, has no rows, or has rows whose state is NULL — those cases
+        defer to the review queue or to a later import that does know.
+
+        A club is the only thing a provider without a state field can be asked, and
+        NULL is the right answer when it cannot say: a guess here becomes the value
+        every later heuristic agrees with, and a club that agrees with itself is
+        invisible to every correction the assignment tool can make.
+        """
+        if not club_name:
+            return (None, None)
+        cached = self._club_state_cache.get(club_name)
+        if cached is not None:
+            return cached
+        try:
+            result = (
+                self.db.table("teams")
+                .select("state_code, state")
+                .eq("club_name", club_name)
+                .not_.is_("state_code", "null")
+                .limit(500)
+                .execute()
+            )
+            rows = list(result.data) if result and result.data else []
+        except Exception as e:
+            logger.debug(f"club→state lookup failed for '{club_name}': {e}")
+            rows = []
+        distinct_codes = {row.get("state_code") for row in rows if row.get("state_code")}
+        if len(distinct_codes) == 1:
+            code = next(iter(distinct_codes))
+            full = next((row.get("state") for row in rows if row.get("state")), None)
+            resolved = (code, full)
+        else:
+            resolved = (None, None)
+        self._club_state_cache[club_name] = resolved
+        return resolved
 
     @staticmethod
     def generate_game_uid(provider: str, game_date: str, team1_id: str, team2_id: str) -> str:
