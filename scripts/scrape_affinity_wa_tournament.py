@@ -426,13 +426,12 @@ def main():
     print(f"  Run ID: {SCRAPE_RUN_ID}")
 
     all_records: List[Dict] = []
-    flights_matched = 0
 
     for tournament in TOURNAMENTS:
         print(f"\n  Tournament: {tournament['name']}")
         flights = discover_flights(tournament, target_age, target_gender)
-        flights_matched += len(flights)
         print(f"  Matched flights: {len(flights)}")
+        print(f"FLIGHTS_MATCHED:{len(flights)}:{tournament['name']}")
 
         for flight in flights:
             print(f"    {flight['division_name']} ...", end=" ", flush=True)
@@ -441,8 +440,6 @@ def main():
             print(f"{games_count} games")
             all_records.extend(records)
             time.sleep(0.5)
-
-    print(f"FLIGHTS_MATCHED:{flights_matched}")
 
     if not all_records:
         print(f"\nNo games found for U{target_age} {target_gender} in last {days_back} days.")
