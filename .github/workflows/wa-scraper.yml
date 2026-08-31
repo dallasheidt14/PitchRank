@@ -86,6 +86,7 @@ jobs:
           TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
           OUT_DIR="data/raw/affinity_wa"
           MERGED="${OUT_DIR}/affinity_wa_all_ranked_ages_last${DAYS_BACK}d_${TIMESTAMP}.csv"
+          SCRAPE_LOG="${OUT_DIR}/scrape_${TIMESTAMP}.log"
 
           tmp_files=()
 
@@ -99,7 +100,7 @@ jobs:
                 --age "u${age}" \
                 --gender "${gender}" \
                 --days-back "${DAYS_BACK}" \
-                --output "${out_file}"
+                --output "${out_file}" | tee -a "${SCRAPE_LOG}"
               tmp_files+=("${out_file}")
             done
           done
@@ -123,10 +124,23 @@ jobs:
             exit 1
           fi
 
+          # A rolled-over season leaves every GUID in TOURNAMENTS resolving to no
+          # flights at all, which is what silently emptied this job from May 2026.
+          # An off-season week still matches flights and merely finds no games in
+          # the window, so the flight count is the signal and the row count is not.
+          FLIGHTS_MATCHED=$(awk -F: '/^FLIGHTS_MATCHED:/ {sum += $2} END {print sum + 0}' "${SCRAPE_LOG}")
+          if [ "${FLIGHTS_MATCHED}" -eq 0 ]; then
+            echo "ERROR: no flights matched in any tournament — the season GUIDs in"
+            echo "       scripts/scrape_affinity_wa_tournament.py TOURNAMENTS are stale."
+            exit 1
+          fi
+
           ROW_COUNT=$(wc -l < "${MERGED}")
+          echo "Flights matched: ${FLIGHTS_MATCHED}"
           echo "Merged output: ${MERGED} (${ROW_COUNT} rows)"
           echo "MERGED_FILE=${MERGED}" >> "${GITHUB_ENV}"
           echo "ROW_COUNT=${ROW_COUNT}" >> "${GITHUB_ENV}"
+          echo "FLIGHTS_MATCHED=${FLIGHTS_MATCHED}" >> "${GITHUB_ENV}"
 
       - name: Upload WA scraper output
         if: ${{ always() && steps.guard.outputs.should_run != 'false' }}
@@ -172,5 +186,6 @@ jobs:
           echo "===================="
           echo "Days back: ${DAYS_BACK_INPUT:-7}"
           echo "Dry run: ${DRY_RUN_INPUT:-false}"
+          echo "Flights matched: ${FLIGHTS_MATCHED:-unknown}"
           echo "Output rows: ${ROW_COUNT:-unknown}"
           echo "Merged file: ${MERGED_FILE:-not-set}"
