@@ -122,6 +122,23 @@ jobs:
           echo "moved=${MOVED:-0}" >> $GITHUB_OUTPUT
           echo "withheld=${WITHHELD:-0}" >> $GITHUB_OUTPUT
 
+      - name: 'Step 3: Finish an apply that died partway'
+        if: always() && steps.apply.outcome == 'failure'
+        run: |
+          # apply_snapshot repairs its own half-finished run, but only when replayed from
+          # the SAME snapshot. A team it wrote before dying comes back as "moved", and the
+          # already-at-proposed-state branch mirrors it into rankings_full -- the only half
+          # left to finish, since the write itself is committed and its pre-image is gone.
+          # Next Wednesday's fresh snapshot cannot do this: that team now has a state and
+          # produces no decision at all, so it would sit off its state board until the
+          # Monday ranking run re-derives the column from teams.
+          #
+          # This covers a failed RPC or a crash. A cancelled job kills the runner before
+          # any later step, so the snapshot artifact is the recovery path there: replay it
+          # with --execute --snapshot <file> --fills-only.
+          set -o pipefail
+          python scripts/assign_team_states.py             --execute --snapshot logs/snapshot.json --fills-only 2>&1             | tee logs/repair.log
+
       - name: Upload logs and snapshot
         if: always()
         uses: actions/upload-artifact@v5
