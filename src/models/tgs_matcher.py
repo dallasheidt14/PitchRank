@@ -670,7 +670,7 @@ class TGSGameMatcher(GameHistoryMatcher):
             # and every one of them is a blank the assignment tool can fill from
             # evidence later. A guess here would instead be a wrong value that the
             # same tool then reads as its own corroboration.
-            state_code, state = self._resolve_state_from_club(club_name)
+            state_code, _ = self._resolve_state_from_club(club_name)
 
             # Insert new team
             team_data = {
@@ -684,9 +684,13 @@ class TGSGameMatcher(GameHistoryMatcher):
                 "distinction": distinction,
                 "created_at": datetime.utcnow().isoformat() + "Z",
             }
+            # state_code only, never the full-name `state` column. Four writers set that
+            # column and assign_team_states reads a filled one as "a provider reported
+            # this", which stops it correcting the value without a per-team record. A
+            # state inferred from the club is exactly the kind it should be free to
+            # correct later, so it must not look reported.
             if state_code:
                 team_data["state_code"] = state_code
-                team_data["state"] = state
 
             if not self.dry_run:
                 self.db.table("teams").insert(team_data).execute()

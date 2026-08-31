@@ -22,12 +22,19 @@ from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.tgs_matcher import TGSGameMatcher
 
 
-def _matcher(club_rows):
-    """A TGS matcher whose club lookup returns `club_rows` and whose dedupe finds nothing."""
+def _matcher(stated=None, dissenting=False):
+    """A TGS matcher whose club holds `stated` and, when `dissenting`, a team elsewhere.
+
+    The resolver asks two questions rather than fetching the club: one stated team, then
+    "is there one that disagrees". `dissenting` answers the second.
+    """
     db = MagicMock()
     select = db.table.return_value.select.return_value
     select.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
-    select.eq.return_value.not_.is_.return_value.limit.return_value.execute.return_value.data = club_rows
+    stated_query = select.eq.return_value.not_.is_.return_value
+    stated_query.limit.return_value.execute.return_value.data = [stated] if stated else []
+    dissent = [{"state_code": "XX"}] if dissenting else []
+    stated_query.neq.return_value.limit.return_value.execute.return_value.data = dissent
     return TGSGameMatcher(db, provider_id="tgs"), db
 
 
@@ -39,7 +46,7 @@ def _inserted(db):
 
 
 def test_a_club_that_agrees_gives_the_new_team_its_state():
-    matcher, db = _matcher([{"state_code": "OR", "state": "Oregon"}] * 3)
+    matcher, db = _matcher(stated={"state_code": "OR", "state": "Oregon"})
 
     matcher._create_new_tgs_team(
         team_name="Oregon Surf GU13 ECNL",
@@ -52,15 +59,16 @@ def test_a_club_that_agrees_gives_the_new_team_its_state():
 
     row = _inserted(db)
     assert row.get("state_code") == "OR"
-    assert row.get("state") == "Oregon"
+    # Never the full-name column: four writers set that, and assign_team_states reads a
+    # filled one as "a provider reported this", which would stop it correcting a value
+    # that was only ever inferred from the club.
+    assert "state" not in row
 
 
 def test_a_club_spanning_states_leaves_the_state_null():
     """The blank is the point. A guess here is what the assignment tool then reads as
     corroboration, and a club that agrees with itself is the one shape it cannot fix."""
-    matcher, db = _matcher(
-        [{"state_code": "MA", "state": "Massachusetts"}, {"state_code": "IL", "state": "Illinois"}]
-    )
+    matcher, db = _matcher(stated={"state_code": "MA", "state": "Massachusetts"}, dissenting=True)
 
     matcher._create_new_tgs_team(
         team_name="FC Stars 2014 Blue",
@@ -77,7 +85,7 @@ def test_a_club_spanning_states_leaves_the_state_null():
 
 
 def test_an_unknown_club_leaves_the_state_null():
-    matcher, db = _matcher([])
+    matcher, db = _matcher()
 
     matcher._create_new_tgs_team(
         team_name="Brand New Club 2015",
@@ -92,7 +100,7 @@ def test_an_unknown_club_leaves_the_state_null():
 
 
 def test_a_team_with_no_club_never_queries():
-    matcher, _ = _matcher([])
+    matcher, _ = _matcher()
 
     assert matcher._resolve_state_from_club(None) == (None, None)
     assert matcher._resolve_state_from_club("") == (None, None)
@@ -100,7 +108,7 @@ def test_a_team_with_no_club_never_queries():
 
 def test_the_club_is_asked_once_per_batch():
     """Autocreate runs per team; a club with forty new teams must not run forty lookups."""
-    matcher, db = _matcher([{"state_code": "OR", "state": "Oregon"}])
+    matcher, db = _matcher(stated={"state_code": "OR", "state": "Oregon"})
 
     matcher._resolve_state_from_club("Oregon Surf")
     matcher._resolve_state_from_club("Oregon Surf")
@@ -114,3 +122,16 @@ def test_one_implementation_of_the_rule():
     canonical = GameHistoryMatcher._resolve_state_from_club
     assert PlayMetricsGameMatcher._resolve_state_from_club is canonical
     assert TGSGameMatcher._resolve_state_from_club is canonical
+
+
+def test_unanimity_is_asked_for_rather_than_paged():
+    """The club with the most stated teams here has 532. Any fixed page would call a
+    multi-state club unanimous whenever its minority fell outside the rows returned, and
+    unordered pagination gives no say in which those are."""
+    matcher, db = _matcher(stated={"state_code": "OR", "state": "Oregon"})
+
+    matcher._resolve_state_from_club("Oregon Surf")
+
+    stated_query = db.table.return_value.select.return_value.eq.return_value.not_.is_.return_value
+    assert stated_query.neq.called, "the club is fetched and deduped instead of asked for a dissenter"
+    assert stated_query.neq.call_args.args == ("state_code", "OR")

@@ -493,15 +493,21 @@ class GameHistoryMatcher:
     def _resolve_state_from_club(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
         """Look up ``(state_code, state)`` for a brand-new team from its club.
 
-        Returns the unique non-null pair if every existing ``teams`` row for this
-        ``club_name`` agrees on it. Returns ``(None, None)`` when the club spans
-        several states, has no rows, or has rows whose state is NULL — those cases
-        defer to the review queue or to a later import that does know.
+        Returns a pair only when every stated team of the club names the same state.
+        Teams with no state abstain rather than dissent — they are the population this
+        exists to shrink. ``(None, None)`` means the club spans states, has no stated
+        team, or could not be read.
 
-        A club is the only thing a provider without a state field can be asked, and
-        NULL is the right answer when it cannot say: a guess here becomes the value
-        every later heuristic agrees with, and a club that agrees with itself is
-        invisible to every correction the assignment tool can make.
+        Asked as "is there a dissenter?" rather than by fetching the club and deduping,
+        because a page cannot answer a question about the whole. The club with the most
+        stated teams here has 532 of them, so any fixed page would have called a
+        multi-state club unanimous whenever its minority fell outside the rows returned
+        — and unordered pagination gives no say in which those are.
+
+        A club is the only thing a provider without a state field can be asked, and NULL
+        is the right answer when it cannot say: a guess here becomes the value every
+        later heuristic agrees with, and a club that agrees with itself is invisible to
+        every correction the assignment tool can make.
         """
         if not club_name:
             return (None, None)
@@ -509,24 +515,31 @@ class GameHistoryMatcher:
         if cached is not None:
             return cached
         try:
-            result = (
+            stated = (
                 self.db.table("teams")
                 .select("state_code, state")
                 .eq("club_name", club_name)
                 .not_.is_("state_code", "null")
-                .limit(500)
+                .limit(1)
                 .execute()
             )
-            rows = list(result.data) if result and result.data else []
+            rows = list(stated.data) if stated and stated.data else []
+            if not rows:
+                resolved = (None, None)
+            else:
+                code = rows[0].get("state_code")
+                dissent = (
+                    self.db.table("teams")
+                    .select("state_code")
+                    .eq("club_name", club_name)
+                    .not_.is_("state_code", "null")
+                    .neq("state_code", code)
+                    .limit(1)
+                    .execute()
+                )
+                resolved = (None, None) if (dissent.data or []) else (code, rows[0].get("state"))
         except Exception as e:
             logger.debug(f"club→state lookup failed for '{club_name}': {e}")
-            rows = []
-        distinct_codes = {row.get("state_code") for row in rows if row.get("state_code")}
-        if len(distinct_codes) == 1:
-            code = next(iter(distinct_codes))
-            full = next((row.get("state") for row in rows if row.get("state")), None)
-            resolved = (code, full)
-        else:
             resolved = (None, None)
         self._club_state_cache[club_name] = resolved
         return resolved
