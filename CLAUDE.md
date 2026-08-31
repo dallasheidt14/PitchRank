@@ -418,12 +418,25 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
-| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and `state_code` |
+| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` only — **every `state_code` step is `if: false`** (see below) |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Tue 7:00 PM UTC | Scrape upcoming GotSport events, prepare new prospective predictions |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
+
+### Nothing writes `state_code` on a schedule any more
+
+All four state-writing steps of `update-missing-club-and-state.yml` are hard-disabled with
+`if: false` — Step 0 (from `team_name`), Step 4 (`match_state_from_club.py`), Step 5 (GotSport
+API) and Step 6 (`backfill_state_from_opponents.py`). Only the `club_name` steps (1–3) run, so
+read the workflow's name as aspirational. They were switched off deliberately: each derived a
+state from a guess or from travel, and together they produced most of the wrong values the
+2026-08-30 sweep had to correct.
+
+The supported path is now `scripts/assign_team_states.py` plus its review queue, documented by
+the `assigning-team-states` skill. **Do not re-enable a step to fix a missing state** — a
+comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 

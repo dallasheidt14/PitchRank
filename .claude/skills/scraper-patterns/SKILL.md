@@ -163,6 +163,38 @@ These are different failure modes with different telemetry surfaces:
 
 Per-team walk roughly 5x's the HTTP request count vs per-group walk alone (~96 team pages vs ~20 group pages for a typical event). Stays well under the 3-hour workflow timeout but will exceed the `GOTSPORT_EVENT_TIMEOUT=240s` warn-only threshold for some events.
 
+## TGS Endpoint Quirks
+
+### The API host is AthleteOne, not Total Global Sports
+
+Call TGS at `https://api.athleteone.com/api` — the `BASE` constant in
+`scripts/scrape_tgs_event.py`. TGS migrated to AthleteOne;
+`public.totalglobalsports.com` is only the human-facing site and the value stored in
+`games.source_url`, and `providers.base_url` still records it, so both point at the
+wrong host for API work.
+
+Requesting an API path on the public host returns **HTTP 200 with HTML**, so the call
+fails at `json()` rather than as a clean 404 and reads like a WAF block. Check the host
+before investigating a block.
+
+### Event details payload contract
+
+`{BASE}/Event/get-event-details-by-eventID/{event_id}` — verified live across three
+events. Under `data`, the fields worth reading:
+
+```
+eventID, name, eventTypeID, eventSubTypeID, stateCode, stateID,
+city, address, zip, country, countryID, startDate, endDate
+```
+
+`eventTypeID` is 1 for a tournament and 2 for a league — the only way to tell them apart,
+and it exists nowhere in the database. `stateCode` is **where the event was held**, so it
+is a travel signal: use it to gate or cross-check, never as a team's own state. Canadian
+events return a province (`ON`, `BC`), not a US state.
+
+`scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
+only `name`, so the other fields cost no extra request.
+
 ## Request Pattern
 
 ### Standard Request

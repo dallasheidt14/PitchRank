@@ -204,6 +204,16 @@ minutes, but it cannot extend the server's budget.
 The pattern that works is caller-driven batching: the RPC does one page and returns a
 cursor, and the script loops.
 
+### Raw SQL through the Supabase MCP server gets the same 8 seconds
+
+`mcp__supabase__execute_sql` reaches the database through the same role, so an ad-hoc
+analysis query is capped at 8 seconds, not the 120 in the table above. It fails with
+`ERROR: 57014: canceling statement due to statement timeout`.
+
+Write the aggregate so one pass answers it. A per-row correlated subquery over `teams`
+times out; the same result computed as a single `GROUP BY` plus a `row_number()` window
+to pick the top row per group returns well inside the limit.
+
 ```sql
 CREATE OR REPLACE FUNCTION public.refresh_x(p_after uuid DEFAULT NULL, p_batch_size int DEFAULT 2000)
 RETURNS TABLE (rows_changed integer, last_id uuid) ...
