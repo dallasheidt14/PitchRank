@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
+from src.utils.placeholder_clubs import is_placeholder_club
 from supabase import Client
 
 # Import rapidfuzz for better similarity scoring (handles word reordering)
@@ -515,7 +516,11 @@ class GameHistoryMatcher:
         later heuristic agrees with, and a club that agrees with itself is invisible to
         every correction the assignment tool can make.
         """
-        if not club_name:
+        # A placeholder is not a club, so it cannot be asked. TGS writes "No Club
+        # Selection" rather than leaving the field empty, which puts 1,596 teams across
+        # 23 states under one name -- the unanimity question below can only ever answer
+        # no, at the cost of two queries per created team.
+        if not club_name or is_placeholder_club(club_name):
             return (None, None)
         cached = self._club_state_cache.get(club_name)
         if cached is not None:

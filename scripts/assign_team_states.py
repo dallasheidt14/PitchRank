@@ -88,6 +88,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from scripts.backfill_state_from_team_name import state_from_name  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
@@ -155,8 +156,15 @@ def club_key(club_name: Optional[str]) -> str:
 
     Raw ``club_name`` splits one club across case and whitespace variants;
     ``normalize_club_name`` merges clubs that are not the same club.
+
+    A placeholder keys to "" so every reader treats it as no club at all. Tier B and
+    the locality index both already skip a falsy key, so this is the whole fix: without
+    it, TGS's "No Club Selection" is the largest club_name in the database, 1,596 teams
+    across 23 states, and the tier abstains only because no single state is meaningful
+    enough to win. That is a property of today's distribution, not a rule.
     """
-    return (club_name or "").strip().lower()
+    key = (club_name or "").strip().lower()
+    return "" if is_placeholder_club(key) else key
 
 
 # --------------------------------------------------------------------------- #
@@ -285,8 +293,14 @@ def build_club_index(teams: List[Dict]) -> Dict[str, Counter]:
 
 
 def name_tokens(team: Dict):
-    """The words in a team's own name and its club's that could name a place."""
-    for text in (team.get("team_name"), team.get("club_name")):
+    """The words in a team's own name and its club's that could name a place.
+
+    A placeholder club contributes none of them. 1,596 teams share "No Club Selection",
+    so "selection" would otherwise be offered to the locality index by more teams than
+    carry any real town's name -- and NOT_A_PLACE holds "club" but not "selection".
+    """
+    club = team.get("club_name")
+    for text in (team.get("team_name"), None if is_placeholder_club(club) else club):
         for token in re.split(r"[^a-z]+", (text or "").lower()):
             if len(token) >= 4 and token not in NOT_A_PLACE:
                 yield token
