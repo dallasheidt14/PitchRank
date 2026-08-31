@@ -6,6 +6,7 @@ quickly, and to spend review effort hunting for new ones.
 ## Contents
 
 - [A club that is uniformly mislabelled](#a-club-that-is-uniformly-mislabelled)
+- [A hunt that finds mostly false friends](#a-hunt-that-finds-mostly-false-friends)
 - [A club name that is not a club](#a-club-name-that-is-not-a-club)
 - [Two clubs sharing a name](#two-clubs-sharing-a-name)
 - [A city that is not a city](#a-city-that-is-not-a-city)
@@ -28,10 +29,65 @@ Idaho for all five teams that had one.
 **Recognising it:** a small club, entirely in a state its name does not suggest. **Fixing it:**
 `--team <uuid>` on any one of them always probes the provider, then check the clubmates.
 
+## A hunt that finds mostly false friends
+
+Knowing the shape above is not the same as knowing where to look for it. Two obvious searches
+were measured on 2026-08-31 and both are poor: each returns a list nobody can act on without
+checking it against the provider, and the checking is the expensive part.
+
+**Asking whether a club's name points where none of its teams are stored.** 18 clubs, 262
+teams. Fifteen were false friends — Delaware Knights is in Ohio, Oregon SC in Wisconsin,
+Georgia United in Vermont, all real places sharing a state's name. Three were real candidates
+and two survived probing.
+
+**Judging one provider's teams on every other provider's evidence.** Rebuilding the club and
+locality indexes without TGS and re-deciding TGS teams against them breaks the circularity
+directly and costs nothing: 153 candidates across 47 clubs. But only 14 had a GotSport record
+to check against, and **12 of the 13 that answered were false positives** — the stored state
+was right and the audit was wrong. One of them, *Colorado Elevation FC*, holds UT and reads
+like an obvious catch; UT is correct.
+
+**What pays instead** costs nothing to compute, because it reuses registration records already
+paid for:
+
+> a team whose state contradicts a club-mate's already-confirmed `state_source = 'tier_a'`
+> state, for clubs where every confirmed team agrees on one state.
+
+Of 150 sampled, 143 had a record, 129 answered, and **65 were genuinely wrong — 50.4%**,
+against a **2.9%** base rate for a random team no tier disputes. Seventeen times better per
+paid call. Those two ratios should hold; the populations they came from will not, so as of
+2026-08-31: 1,210 candidates, of which ~1,110 carry an alias and so cost a call. Both numbers
+fall toward zero the first time the rule is run in earnest.
+
+It reaches a uniformly mislabelled club only *after* someone has probed one of its teams —
+which is exactly the `--team <uuid>` fix above. That first probe stamps `tier_a` on one team
+and turns the rest of the club into candidates, so the rule mechanises the manual fix rather
+than replacing it.
+
+Its false positives have one cause: a generic `club_name` covering teams that are genuinely
+different clubs — *North FC*, *Valley United SC*, *Elite FC*, *Eastside FC*, *Legacy FC*. That
+is [two clubs sharing a name](#two-clubs-sharing-a-name) wearing a state problem's costume, and
+the database already knows it in places, since `Eastside FC (WA)` exists beside a bare
+`Eastside FC`.
+
+Two limits worth stating before anyone plans around this. Only a team with a GotSport alias can
+be probed at all — 175,688 of 197,961 stated teams. And TGS, the provider that generates the
+most blanks, is the population it reaches *least*: 6,256 of its 22,819 stated teams have a
+record, leaving 16,563 with no external truth available by any current means.
+
+The value is targeting rather than exclusivity: 39% of the candidates are already in the
+sweep's disputed set, because `club_derived_state` excludes the team being decided from its own
+club counts, so a club with two wrong teams against 41 right ones *is* disputed by Tier B. A
+full sweep reaches those too, at roughly 6,200 calls against this rule's ~1,110.
+
+Full measurements: `.turbo/reports/2026-08-31-targeting-the-gotsport-probe.md`. Automation for
+it was planned but unbuilt as of 2026-08-31 — `.turbo/plans/state-contradiction-audit.md`;
+check whether it shipped before relying on that path.
+
 ## A club name that is not a club
 
 `club_name` sometimes holds a league, a placeholder, or a tournament bucket. *No Club
-Selection* holds 1,589 teams across 22 states. *Alliance Youth Soccer League* and *MYSA
+Selection* holds 1,596 teams across 23 states. *Alliance Youth Soccer League* and *MYSA
 Independent Teams* are leagues. These are in the registry as curated, so club-level evidence
 queues rather than applies, but new ones appear.
 
