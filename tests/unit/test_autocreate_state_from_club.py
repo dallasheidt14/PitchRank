@@ -26,16 +26,22 @@ def _matcher(stated=None, dissenting=False):
     """A TGS matcher whose club holds `stated` and, when `dissenting`, a team elsewhere.
 
     The resolver asks two questions rather than fetching the club: one stated team, then
-    "is there one that disagrees". `dissenting` answers the second.
+    "is there one that disagrees". `dissenting` answers the second. Both hang off the
+    `.neq("state_code", "")` hop, because a stateless team is stored two ways.
     """
     db = MagicMock()
     select = db.table.return_value.select.return_value
     select.eq.return_value.eq.return_value.single.return_value.execute.return_value.data = None
-    stated_query = select.eq.return_value.not_.is_.return_value
+    stated_query = _stated_query(db)
     stated_query.limit.return_value.execute.return_value.data = [stated] if stated else []
     dissent = [{"state_code": "XX"}] if dissenting else []
     stated_query.neq.return_value.limit.return_value.execute.return_value.data = dissent
     return TGSGameMatcher(db, provider_id="tgs"), db
+
+
+def _stated_query(db):
+    """The club query with both spellings of "no state" already filtered out."""
+    return db.table.return_value.select.return_value.eq.return_value.not_.is_.return_value.neq.return_value
 
 
 def _inserted(db):
@@ -132,6 +138,19 @@ def test_unanimity_is_asked_for_rather_than_paged():
 
     matcher._resolve_state_from_club("Oregon Surf")
 
-    stated_query = db.table.return_value.select.return_value.eq.return_value.not_.is_.return_value
+    stated_query = _stated_query(db)
     assert stated_query.neq.called, "the club is fetched and deduped instead of asked for a dissenter"
     assert stated_query.neq.call_args.args == ("state_code", "OR")
+
+
+def test_a_club_mate_with_no_state_neither_seeds_nor_dissents():
+    """No state is stored two ways. `teams` holds 3,080 NULL and 0 empty today, but the
+    CSV importer still writes "" and match_state_from_club.py pages for both, so one
+    legacy row would otherwise seed the club with an empty code -- or count as the
+    dissenter that silences a club every real row agrees on."""
+    matcher, db = _matcher(stated={"state_code": "OR", "state": "Oregon"})
+
+    matcher._resolve_state_from_club("Oregon Surf")
+
+    excluded = db.table.return_value.select.return_value.eq.return_value.not_.is_.return_value
+    assert excluded.neq.call_args.args == ("state_code", "")
