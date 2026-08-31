@@ -1387,3 +1387,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `team_utils.calculate_age_group_from_birth_year` returns None for a computed age of 21 because 2006 has aged out, but the shared normalizer passes `u21` through, so discovery creates the team and the queue scrapes it forever. Live probing found 11 of 12 sampled 2006-cohort teams labelled `U21`, roughly 21 of 2,553 distinct unknown ids per weekly run. Refusing it outright is not the fix — a bare None hands the row to the opponent fallback — so this wants an explicit aged-out outcome that skips creation with a reason, alongside the IMP-147 cleanup of the 8 `u21` rows already stored.
 - **Noted**: 2026-08-30
 - **Update (2026-08-30)**: The impossible-cohort pass ran. 13 teams were re-resolved onto real boards (u3 -> u10/u12/u13/u14/u15) and u3 fell from 44 to 31. 58 candidates were deliberately left alone: their GotSport record reads exactly one cohort higher than stored, which is the Aug 1 rollover rather than a correction, so writing it would move them between two unboarded cohorts and churn again next August. 6 more have no cohort at the provider. Remaining here: the u20 population, which still wants its own evidence-based pass.
+
+### Populate `tgs_events` and implement Tier D, the only path the stateless TGS teams have
+
+- **ID**: IMP-150
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_tgs_event.py` (`get_event_details` at :394, the stale comment at :587), `scripts/assign_team_states.py:563-567`, `tgs_events` (created by `supabase/migrations/20260829120000_add_team_state_provenance.sql`)
+- **Why**: The table shipped and nothing has ever written to it -- 0 rows, no backfill script, and the scraper was never wired to upsert it -- so `assign_team_states.py` hardcodes `tier_d_ready = False` and prints "Tier D is not implemented; it fires for nothing". That leaves **2,192 live stateless TGS teams (~96% of every remaining blank `state_code`)** with no assignment path, all of them ranked and therefore absent from every state board, and the count grows each Monday via `tgs-event-scrape-import.yml`. Club evidence cannot rescue them: 1,434 sit under clubs with <75% single-state dominance and 443 under clubs with no stated sibling at all. The fix is cheaper than it looks -- `get_event_details` already calls `get-event-details-by-eventID` on every event and keeps only the name, and that payload was verified live to carry `eventTypeID`, `stateCode`, `city`, `zip` and `country`, so the ongoing upsert costs **zero extra API calls**; backfill is 558 one-off calls, since all 168,976 TGS games carry a recoverable event id in `source_url`. Note the event's own `stateCode` is where the tournament was held -- a travel signal -- so it stays a gate and cross-check, with the participant-modal state as the value, per the tier design. While in there, fix `:587`, which still says state "will be matched later via club name script"; that script is Step 4 of `update-missing-club-and-state.yml` and is `if: false`.
+- **Noted**: 2026-08-31
+
+### Provider matchers stamp a constant `state_code` with no provenance
+
+- **ID**: IMP-151
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py:475`, the squadi matcher
+- **Why**: Three creation paths write a fixed state rather than deciding one: affinity_wa hardcodes `"WA"` (729 teams, 100% WA), squadi NJ (25 teams, 100%), and playmetrics' league path takes `default_state_code` (702 teams, 92% WI). None sets `state_source`, so the corrector cannot distinguish a provider-reported state from a constant. Worse, the constant feeds Tier B's documented blind spot -- a club whose teams are uniformly stamped agrees with itself and is never corrected, which is why only **1 of 729** affinity_wa teams was touched by the full 2026-08-30 sweep. A visiting out-of-state club would be mislabelled permanently and invisibly. There is already a correct pattern to mirror in the same file family: PlayMetrics' tournament path passes `default_state_code=None` and falls back to `_resolve_state_from_club(club_name)`. No contamination is measurable in affinity_wa's names today (0 of 729 clubs read as out-of-state), so this is a latent-risk and provenance fix rather than a live-damage one.
+- **Noted**: 2026-08-31
