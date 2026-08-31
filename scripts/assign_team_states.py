@@ -86,7 +86,7 @@ truststore.inject_into_ssl()
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from scripts.backfill_state_from_team_name import state_from_name  # noqa: E402
+from scripts.backfill_state_from_team_name import affiliate_contradicts, state_from_name  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
@@ -345,9 +345,19 @@ def locality_state(team: Dict, locality_index: Dict[str, str]) -> Optional[str]:
     None when they point at two different states -- "Dallas Texans at the Vegas Cup" is
     a fixture, not a home -- for the same reason Tier C refuses a name holding two
     state names.
+
+    None too when an explicit affiliate marker names a different state, which Tier C has
+    always done and this tier did not. "Utah Royals FC - AZ" holds the word "utah", so
+    this tier read 22 Arizona teams as Utah while Tier C refused them; the marker is on
+    the club name rather than the team's, so both fields are checked.
     """
     states = {locality_index[token] for token in name_tokens(team) if token in locality_index}
-    return states.pop() if len(states) == 1 else None
+    if len(states) != 1:
+        return None
+    state = states.pop()
+    if any(affiliate_contradicts(text, state) for text in (team.get("team_name"), team.get("club_name"))):
+        return None
+    return state
 
 
 def club_derived_state(team: Dict, club_index: Dict[str, Counter]) -> Optional[str]:
