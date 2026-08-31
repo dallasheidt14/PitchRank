@@ -77,7 +77,9 @@ proposed corrections replaced a state no provider had ever reported.
 **Tier B is the workhorse and it has one blind spot.** It reads the club, so a club whose
 teams are *uniformly* mislabelled agrees with itself and gets its error propagated to the last
 team rather than corrected. Tier E exists to catch that — see
-[references/evidence-tiers.md](references/evidence-tiers.md).
+[references/evidence-tiers.md](references/evidence-tiers.md). It reads no club at all for a
+placeholder like TGS's "No Club Selection", which is 1,596 teams across 23 states and the
+largest `club_name` here; `src/utils/placeholder_clubs.py` holds the list.
 
 **What the run says it cannot decide is as important as what it decides.** Teams no tier
 reaches cannot be queued either, because a review row carries a proposal. The run counts them

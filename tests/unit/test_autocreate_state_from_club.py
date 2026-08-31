@@ -105,6 +105,18 @@ def test_an_unknown_club_leaves_the_state_null():
     assert "state_code" not in _inserted(db)
 
 
+def test_a_placeholder_club_never_queries():
+    """TGS writes "No Club Selection" rather than leaving the field blank, so it arrives
+    looking like a club. It is the largest club_name in the database -- 1,596 teams
+    across 23 states -- and the unanimity question can only ever answer no, at two
+    queries per created team."""
+    matcher, db = _matcher(stated={"state_code": "OR", "state": "Oregon"})
+
+    assert matcher._resolve_state_from_club("No Club Selection") == (None, None)
+    assert matcher._resolve_state_from_club("NO CLUB SELECTION") == (None, None)
+    assert not db.table.return_value.select.called
+
+
 def test_a_team_with_no_club_never_queries():
     matcher, _ = _matcher()
 

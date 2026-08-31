@@ -57,6 +57,17 @@ Group clubs on `lower(btrim(club_name))`. Raw `club_name` splits one club across
 whitespace variants; `normalize_club_name` merges clubs that are not the same club, deleting
 the parentheses that are often the only state disambiguator.
 
+**A placeholder club name is not a club, and keys to nothing.** Providers write a literal
+dropdown value rather than leaving the field empty, so `club_name` arrives non-null and every
+repair path that looks for a *missing* club walks past it. TGS's "No Club Selection" is the
+largest single `club_name` in the database — 1,596 teams, more than any real club — spanning
+23 states. `src/utils/placeholder_clubs.py` is the one list; `club_key` returns `""` for a
+member, which makes Tier B abstain and keeps the name out of Tier E's index. Before that,
+the tier abstained only because no single state was meaningful enough to win, which is a
+property of the data rather than a rule. `athlete one` is a member for a different reason:
+it is the provider AthleteOne's name in `club_name`, and only two of its 23 teams carry a
+state — both FL, exactly enough to propose Florida for 21 teams that are not one club.
+
 Where a club has an entry in `src/utils/club_state_registry.py` carrying a `home`, that home
 **is** the club's state for every team in it, replacing the computed test. 45 clubs are homed
 that way. The other 24 need a person and make this tier queue instead of apply.
