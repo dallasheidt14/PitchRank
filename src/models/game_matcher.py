@@ -498,6 +498,12 @@ class GameHistoryMatcher:
         exists to shrink. ``(None, None)`` means the club spans states, has no stated
         team, or could not be read.
 
+        No state is stored two ways, NULL and ``""``, so both queries exclude both.
+        ``teams`` holds 3,080 NULL and 0 empty today, but the CSV importer still writes
+        ``""`` (``scripts/import_teams_enhanced.py``) and ``match_state_from_club.py``
+        pages for both, so one legacy row would otherwise seed a club with an empty code
+        — or count as the dissenter that silences an otherwise unanimous club.
+
         Asked as "is there a dissenter?" rather than by fetching the club and deduping,
         because a page cannot answer a question about the whole. The club with the most
         stated teams here has 532 of them, so any fixed page would have called a
@@ -520,6 +526,7 @@ class GameHistoryMatcher:
                 .select("state_code, state")
                 .eq("club_name", club_name)
                 .not_.is_("state_code", "null")
+                .neq("state_code", "")
                 .limit(1)
                 .execute()
             )
@@ -533,6 +540,7 @@ class GameHistoryMatcher:
                     .select("state_code")
                     .eq("club_name", club_name)
                     .not_.is_("state_code", "null")
+                    .neq("state_code", "")
                     .neq("state_code", code)
                     .limit(1)
                     .execute()
