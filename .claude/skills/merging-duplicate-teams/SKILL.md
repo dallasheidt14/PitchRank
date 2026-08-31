@@ -270,34 +270,43 @@ Nothing downstream removes them. `src/rankings/data_adapter.py:291` dedupes with
 real match both survive and both feed the engine. `game_uid` embeds the master team ids, so the
 two copies never collided on insert either.
 
-Measured on a 200-merge sample of the 2026-08-27 batch: **604 fixture tuples now resolve to two
-game rows each.** No ranking run has consumed them yet.
-
 `scripts/cleanup_dupe_games_by_composite.py` does **not** find these. It keys on the raw
 `(home_team_master_id, away_team_master_id, game_date, home_score, away_score)`, and the two
 copies still carry different raw master ids — the deprecated one and the canonical one. It also
 deletes rows outright, which is a stronger write than the immutability rule allows.
 
-So after any Doorway B batch, count the resolved duplicates yourself, and settle with the
-operator whether to exclude the redundant copies (`is_excluded`) before the next ranking run.
+`scripts/exclude_merge_duplicate_games.py` is the repair. It groups every scored game in a merge
+cluster by **merge-resolved** `(home, away, date, home_score, away_score)`, keeps the copy naming
+the surviving row, and sets `is_excluded` on the rest. Dry run by default; `--limit N` for a
+staged first pass; it logs every excluded id, so the write is reversible. Run it after **every**
+merge batch, not only a Doorway B one — nothing does it automatically (IMP-137).
+
+Two things it depends on, which any successor must keep. The discriminator is that the two rows
+carry **different raw master ids**: a genuine same-day rematch recorded once carries identical
+ones, and those groups are deliberately left alone. And the grouping key **keeps home/away
+orientation**, without which a real reverse fixture collapses into its own first leg.
+
 Do not delete game rows.
 
-### Stranded fixtures
+Scale: the 639-merge batch of 2026-08-27 produced **2,062** doubled fixture tuples — a 200-merge
+sample had projected 604, so measure rather than extrapolate. Cleared 2026-08-31 (2,135 across
+all merges ever), verified to zero before that week's ranking run.
 
-A merge strands the deprecated row's unplayed fixtures.
+### Stranded fixtures — no longer a step
 
-```bash
-python scripts/enqueue_stranded_merge_fixtures.py --since <YYYY-MM-DD> --merged-by pitchrank-operator
-python scripts/enqueue_stranded_merge_fixtures.py --since <YYYY-MM-DD> --merged-by pitchrank-operator --execute
-```
+A merge used to strand the deprecated row's unplayed fixtures, because the scrape-enqueue RPCs
+matched games by raw `team_id_master` and then required `is_deprecated = false`, which neither
+side satisfied after a merge.
 
-The default covers fixtures dated today onward; add `--include-past` when repairing a batch
-merged days earlier, since already-played fixtures with NULL scores need the backfill too.
+`supabase/migrations/20260822000000_resolve_merges_in_scrape_enqueue_rpcs.sql` closes that at the
+source and **is applied** — verified 2026-08-31 against `schema_migrations`, with both
+`find_yesterday_null_score_teams` and `find_recently_active_teams` confirmed to read
+`team_merge_map`. So a merge no longer strands anything and this step does not run.
 
-Skip this step once
-`supabase/migrations/20260822000000_resolve_merges_in_scrape_enqueue_rpcs.sql` is applied, which
-closes the hole at the source. Confirm it is applied against `schema_migrations` before skipping —
-the file being on disk is not the same as it being applied, and as of 2026-08-27 it is not.
+`scripts/enqueue_stranded_merge_fixtures.py` survives as a repair tool for fixtures stranded
+before that date; it takes `--since`, `--merged-by` and `--include-past`. Re-confirm the
+migration against `schema_migrations` rather than trusting this paragraph — `supabase_migrations`
+is not exposed through PostgREST, so `check_merge_skill_assumptions.py` cannot settle it for you.
 
 ## Step 8: Record what ran and what was held
 
