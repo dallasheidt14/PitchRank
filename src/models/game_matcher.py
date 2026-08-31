@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from supabase import Client
@@ -480,12 +480,69 @@ class GameHistoryMatcher:
         # without this flag, every dry-run still pollutes ``team_alias_map``,
         # ``teams``, and ``team_match_review_queue`` via the matcher.
         self.dry_run = dry_run
+        # club_name → the (state_code, state) every existing row of that club agrees on,
+        # for subclasses that autocreate. Lazily filled by _resolve_state_from_club.
+        self._club_state_cache: Dict[str, Optional[Tuple[Optional[str], Optional[str]]]] = {}
         if provider_id:
             # Cache the provider_id if provided (for the provider_code used in this pipeline)
             # We'll need to know the code, but for now just store it as a fallback
             self._cached_provider_id = provider_id
         else:
             self._cached_provider_id = None
+
+    def _resolve_state_from_club(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Look up ``(state_code, state)`` for a brand-new team from its club.
+
+        Returns a pair only when every stated team of the club names the same state.
+        Teams with no state abstain rather than dissent — they are the population this
+        exists to shrink. ``(None, None)`` means the club spans states, has no stated
+        team, or could not be read.
+
+        Asked as "is there a dissenter?" rather than by fetching the club and deduping,
+        because a page cannot answer a question about the whole. The club with the most
+        stated teams here has 532 of them, so any fixed page would have called a
+        multi-state club unanimous whenever its minority fell outside the rows returned
+        — and unordered pagination gives no say in which those are.
+
+        A club is the only thing a provider without a state field can be asked, and NULL
+        is the right answer when it cannot say: a guess here becomes the value every
+        later heuristic agrees with, and a club that agrees with itself is invisible to
+        every correction the assignment tool can make.
+        """
+        if not club_name:
+            return (None, None)
+        cached = self._club_state_cache.get(club_name)
+        if cached is not None:
+            return cached
+        try:
+            stated = (
+                self.db.table("teams")
+                .select("state_code, state")
+                .eq("club_name", club_name)
+                .not_.is_("state_code", "null")
+                .limit(1)
+                .execute()
+            )
+            rows = list(stated.data) if stated and stated.data else []
+            if not rows:
+                resolved = (None, None)
+            else:
+                code = rows[0].get("state_code")
+                dissent = (
+                    self.db.table("teams")
+                    .select("state_code")
+                    .eq("club_name", club_name)
+                    .not_.is_("state_code", "null")
+                    .neq("state_code", code)
+                    .limit(1)
+                    .execute()
+                )
+                resolved = (None, None) if (dissent.data or []) else (code, rows[0].get("state"))
+        except Exception as e:
+            logger.debug(f"club→state lookup failed for '{club_name}': {e}")
+            resolved = (None, None)
+        self._club_state_cache[club_name] = resolved
+        return resolved
 
     @staticmethod
     def generate_game_uid(provider: str, game_date: str, team1_id: str, team2_id: str) -> str:
