@@ -31,9 +31,14 @@ from src.utils.team_utils import calculate_age_group_from_birth_year
 
 TOURNAMENTS = [
     {
-        "name": "25-26 Regional Club League",
-        "tournament_guid": "535DB887-CE7E-43DB-90BC-55F7D6349BF9",
-        "base_url": "https://wys-25-26rcl.sportsaffinity.com",
+        "name": "26-27 Regional Club League",
+        "tournament_guid": "6DBB3AF6-DEC3-4341-8D25-2DC23F01177B",
+        "base_url": "https://wys.sportsaffinity.com",
+    },
+    {
+        "name": "2026 Fall South Sound United League",
+        "tournament_guid": "b8e6d322-fd42-4b63-8b1a-2fe93e90d567",
+        "base_url": "https://wys.sportsaffinity.com",
     },
 ]
 
@@ -116,9 +121,30 @@ def _compute_result(gf: Optional[int], ga: Optional[int]) -> str:
     return "D"
 
 
+def _parse_band_birth_year(div_name: str) -> Optional[int]:
+    """Read a division's birth-year parenthetical as the band's *younger* year.
+
+    A cohort's Aug 1 - Jul 31 window spans two calendar years and the band is
+    named by the younger of them, so '(2014/15)' is U12 and '(2008/2009)' is
+    U19. Reading the leading year files every team one cohort too old. The
+    25-26 season wrote a single year, '(2014)', which is already the younger.
+    """
+    m = re.search(r"\((\d{4})(?:\s*/\s*(\d{2,4}))?", div_name)
+    if not m:
+        return None
+
+    older = int(m.group(1))
+    suffix = m.group(2)
+    if not suffix:
+        return older
+
+    younger = int(suffix) if len(suffix) == 4 else older - older % 100 + int(suffix)
+    return younger + 100 if younger < older else younger
+
+
 def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
     """
-    Parse 'Boys Under 12 Div 1 (2014)' → (gender='Male', age_u=12, birth_year=2014).
+    Parse 'Boys Under 12 (2014/15) Div 1' → (gender='Male', age_u=12, birth_year=2015).
     Also handles 'Spring Boys U10 North (2016/17)'.
     """
     gender = None
@@ -136,12 +162,7 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
         if m:
             age_u = int(m.group(1))
 
-    birth_year = None
-    m = re.search(r"\((\d{4})", div_name)
-    if m:
-        birth_year = int(m.group(1))
-
-    return gender, age_u, birth_year
+    return gender, age_u, _parse_band_birth_year(div_name)
 
 
 def _age_label_to_int(label: str) -> int:
@@ -410,6 +431,7 @@ def main():
         print(f"\n  Tournament: {tournament['name']}")
         flights = discover_flights(tournament, target_age, target_gender)
         print(f"  Matched flights: {len(flights)}")
+        print(f"FLIGHTS_MATCHED:{len(flights)}:{tournament['name']}")
 
         for flight in flights:
             print(f"    {flight['division_name']} ...", end=" ", flush=True)
