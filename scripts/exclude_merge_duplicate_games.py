@@ -44,7 +44,7 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -90,6 +90,7 @@ def load_merge_map(sb) -> dict[str, str]:
     mapping, off = {}, 0
     while True:
         res = (sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id")
+               .order("deprecated_team_id", desc=False)
                .range(off, off + PAGE - 1).execute())
         rows = res.data or []
         for r in rows:
@@ -112,6 +113,7 @@ def fetch_games_for(sb, team_ids: list[str]) -> dict[str, dict]:
                        .eq("is_excluded", False)
                        .not_.is_("home_score", "null")
                        .not_.is_("away_score", "null")
+                       .order("id", desc=False)
                        .range(off, off + PAGE - 1)
                        .execute())
                 rows = res.data or []
@@ -262,16 +264,37 @@ def main() -> int:
         print("\nDRY RUN — nothing written. Re-run with --execute.")
         return 0
 
+    out_path = Path(args.out) if args.out else Path(
+        f"exclude_merge_duplicate_games_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
+    )
+    if out_path.exists():
+        raise SystemExit(
+            f"{out_path} already exists and is the only rollback record for that run. "
+            "Pass a different --out; a staged apply needs one log per batch, because a later "
+            "scan skips already-excluded rows and cannot reconstruct the ids."
+        )
+
+    # Written before the first update, not after the last. A transient PostgREST failure
+    # mid-run otherwise leaves rows excluded with no record of which, and the scan cannot
+    # find them again -- it filters out exactly the rows it already excluded.
+    out_path.write_text(json.dumps({"applied": False, "rows": to_exclude}, indent=1), encoding="utf-8")
+
     ids = [r["id"] for r in to_exclude]
     done = 0
-    for i in range(0, len(ids), ID_BATCH):
-        batch = ids[i : i + ID_BATCH]
-        sb.table("games").update({"is_excluded": True}).in_("id", batch).execute()
-        done += len(batch)
+    try:
+        for i in range(0, len(ids), ID_BATCH):
+            batch = ids[i : i + ID_BATCH]
+            sb.table("games").update({"is_excluded": True}).in_("id", batch).execute()
+            done += len(batch)
+    finally:
+        out_path.write_text(
+            json.dumps({"applied": True, "confirmed": done, "rows": to_exclude}, indent=1),
+            encoding="utf-8",
+        )
 
-    out_path = Path(args.out) if args.out else Path("exclude_merge_duplicate_games_log.json")
-    out_path.write_text(json.dumps(to_exclude, indent=1), encoding="utf-8")
     print(f"\nExcluded {done:,} redundant game rows. Log: {out_path}")
+    if done != len(ids):
+        print(f"WARNING: {len(ids) - done:,} planned rows were not written — the run stopped early.")
     print("To undo: set is_excluded = false for the ids in that log.")
     return 0
 
