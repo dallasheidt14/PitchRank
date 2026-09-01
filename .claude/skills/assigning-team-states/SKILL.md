@@ -36,6 +36,13 @@ Task Progress:
 `.env.local` when it exists. Both work on this checkout; a missing key surfaces as
 `Missing SUPABASE_URL or SUPABASE_KEY` before any read.
 
+**The probe ledger has to exist.** Every Tier A run writes `team_state_probe_log`, and that
+write is deliberately fatal, so a missing table surfaces as a PostgREST error naming a
+relation rather than a migration — on a `--team` run, *after* the paid probe. Apply
+`supabase/migrations/20260831120000_add_team_state_probe_log.sql` before the first run.
+Migrations here go on by hand, so the ledger does too:
+`supabase migration repair --status applied 20260831120000`.
+
 **Prove the rules.** Run `python scripts/check_state_skill_assumptions.py`. It drives the real
 decision code and asserts the behaviours this document promises: that a stored Canadian
 province is never corrected, that a curated club queues rather than applies, that a correction
@@ -50,7 +57,8 @@ drifted more than 20%.
 python scripts/assign_team_states.py --out run.json
 ```
 
-Writes nothing. It reads every live team, decides each one, and persists the decisions to the
+Makes **no team-state and no review-queue writes, but it does persist paid-probe
+observations**. It reads every live team, decides each one, and persists the decisions to the
 `--out` file along with the state each team had at that moment.
 
 **The dry run is the only thing that decides.** `--execute` replays the file and never
@@ -64,6 +72,11 @@ The GotSport probe costs one paid request per candidate — roughly 6,200 on a f
 through ZenRows because a direct burst gets blocked. `--no-tier-a` skips it deliberately and
 says so in the report. Do not confuse that with the tier being quiet: a blocked probe aborts
 the run rather than deciding without evidence it was supposed to have.
+
+Every one of those calls lands in `team_state_probe_log`, whatever it returned — which is why
+a dry run is not write-free. The call is paid for whether or not its answer is recorded, and
+an agreement is visible nowhere else; see
+[references/evidence-tiers.md](references/evidence-tiers.md).
 
 ## Step 3: Read the evidence before writing anything
 

@@ -41,6 +41,14 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   the thing itself — the endpoint URL, the function name — and name known-broken members in an
   explicit set with a second test that fails when one is fixed and left listed.
 - **Resolve a guarded SQL object by function name across all migrations, never by filename.** Functions here are superseded by new migration files rather than edited in place, so a test pinned to `20260827100300_*.sql` stops covering `find_stale_teams` the moment anyone redefines it — passing green against a file the database no longer reflects. Glob `supabase/migrations/*.sql`, take the newest definition per name, and assert against that.
+- **Searching the whole tree proves a statement was written once, not that it still holds.**
+  A later migration can undo what an earlier one established, and a guard that substring-matches
+  across every file stays green while the live table has moved on — appending one migration that
+  dropped an index and re-granted a table to `anon` was accepted by three separate assertions.
+  Parsing `CREATE TABLE` has the same blind spot from the other side: it never folds in
+  `ALTER TABLE`, which is how tables here actually evolve. Either resolve the object's effective
+  final state, or assert that nothing later touches it, so the next `ALTER` fails loudly and
+  forces the guard to be widened deliberately.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
