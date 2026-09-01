@@ -21,9 +21,11 @@ database.
 The map is deliberately closed. ``to_state_code`` returns None for anything it
 has not seen, because the alternative -- treating any two-letter value as a
 postal code -- is what sends a Canadian or Brazilian team to a US state board.
-Montana is the one US state absent from ``IDENTITY``: it was not observed in the
-sample, and adding it by inference is exactly the guess this module refuses to
-make. Add it when a real payload shows it.
+Every US state is now present. Montana was the last one held out, on the rule
+that a state is added when a real payload shows it rather than by inference;
+the probe ledger recorded fifteen ``MT`` payloads on 2026-09-01, which is that
+evidence. A national body still maps to nothing on purpose: ``USA`` names no
+state, and the ledger holds one of those too.
 """
 
 from typing import Optional
@@ -34,7 +36,8 @@ IDENTITY = frozenset(
     {
         "AK", "AL", "AR", "AZ", "CO", "CT", "DE", "FL", "GA", "HI",
         "IA", "ID", "IL", "IN", "KS", "KY", "LA", "MA", "MD", "ME",
-        "MI", "MN", "MO", "MS", "NC", "ND", "NE", "NH", "NJ", "NM",
+        "MI", "MN", "MO", "MS", "MT", "NC", "ND", "NE", "NH", "NJ",
+        "NM",
         "NV", "OH", "OK", "OR", "RI", "SC", "SD", "TN", "UT", "VA",
         "VT", "WA", "WI", "WV", "WY",
     }
