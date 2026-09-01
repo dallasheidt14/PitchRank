@@ -23,7 +23,8 @@ MIGRATIONS = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 AUDIT_TABLE = "team_state_audit"
 QUEUE_TABLE = "team_state_review_queue"
 EVENTS_TABLE = "tgs_events"
-NEW_TABLES = (AUDIT_TABLE, QUEUE_TABLE, EVENTS_TABLE)
+PROBE_LOG_TABLE = "team_state_probe_log"
+NEW_TABLES = (AUDIT_TABLE, QUEUE_TABLE, EVENTS_TABLE, PROBE_LOG_TABLE)
 
 TRIGGER_FUNCTION = "log_team_state_change"
 CLEAR_FUNCTION = "clear_external_state_provenance"
@@ -468,6 +469,77 @@ def test_the_queues_suppression_key_cannot_be_null():
     re-raised on every sweep and the suppression would be silently defeated."""
     columns = _flat(_table(QUEUE_TABLE))
     assert "proposed_state_code CHAR(2) NOT NULL" in columns
+
+
+def test_the_probe_logs_state_columns_are_nullable():
+    """The types and nullability the column-set comparison cannot see.
+
+    ``test_state_probe_log.py`` derives the probe log's column names from this same
+    migration and compares them against the writer's payload keys, which catches a renamed
+    or missing column. It compares column names, so the two facts a fatal insert also turns
+    on live here: a state column is CHAR(2), and every column the writer sends as None is
+    nullable. A probe that failed reports no state, and a selected
+    candidate with no provider alias has no provider id.
+    """
+    columns = _flat(_table(PROBE_LOG_TABLE))
+
+    for nullable in (
+        "provider_team_id TEXT",
+        "reported_state_code CHAR(2)",
+        "stored_state_code CHAR(2)",
+        "agreed BOOLEAN",
+    ):
+        assert f"{nullable}," in columns or f"{nullable})" in columns, nullable
+        assert f"{nullable} NOT NULL" not in columns, nullable
+
+
+def test_the_probe_logs_only_read_has_an_index():
+    """Per team, newest first. That is the table's only access pattern."""
+    tree = "\n".join(_executable(p.read_text(encoding="utf-8")) for p in _migrations())
+    assert re.search(
+        rf"(?is)create\s+index\s+(?:if\s+not\s+exists\s+)?\S+\s+on\s+(?:public\.)?"
+        rf"{PROBE_LOG_TABLE}\s*\(\s*team_id_master\s*,\s*probed_at\s+desc\s*\)",
+        tree,
+    ), "the probe log's (team_id_master, probed_at DESC) index is missing"
+
+
+def test_the_probe_log_revokes_the_default_table_grants():
+    """RLS covers SELECT/INSERT/UPDATE/DELETE and not TRUNCATE, so the deny-all policy
+    leaves the TRUNCATE in pg_default_acl's grant to anon untouched. This ledger is
+    append-only and every row was paid for, so emptying it is unrecoverable.
+
+    Scoped to this table alone, deliberately: the three older tables here ship no REVOKE,
+    so a loop over NEW_TABLES would fail for all of them and could only be made to pass by
+    weakening it to nothing.
+    """
+    tree = _flat("\n".join(p.read_text(encoding="utf-8") for p in _migrations()))
+    assert f"REVOKE ALL ON public.{PROBE_LOG_TABLE} FROM anon, authenticated;" in tree
+
+
+def test_nothing_later_reshapes_the_probe_log_behind_its_guards():
+    """No probe-log guard, here or in ``test_state_probe_log.py``, resolves the table's
+    *effective* shape, so a later migration that renames a column, drops the index, or
+    grants the table back to anon satisfies all of them while the database no longer
+    matches. This repo evolves tables by ALTERing them in later migrations, and CI applies
+    none, so nothing else would notice.
+
+    Rather than teach each guard to fold in later statements, this one fails the moment
+    any appear, forcing whoever writes them to widen the guards deliberately.
+    """
+    tree = "\n".join(_executable(p.read_text(encoding="utf-8")) for p in _migrations())
+
+    for verb, pattern in (
+        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:public\.)?{PROBE_LOG_TABLE}\b"),
+        ("DROP INDEX", rf"(?is)drop\s+index\s+[^;]*{PROBE_LOG_TABLE}"),
+        ("GRANT", rf"(?is)grant\s+[^;]*\bon\b[^;]*{PROBE_LOG_TABLE}"),
+    ):
+        hits = re.findall(pattern, tree)
+        # The table's own migration ALTERs it once, to enable row level security.
+        allowed = 1 if verb == "ALTER TABLE" else 0
+        assert len(hits) <= allowed, (
+            f"{verb} on {PROBE_LOG_TABLE} appeared in a migration; the probe-log guards "
+            f"read only its CREATE TABLE and no longer describe the live table: {hits}"
+        )
 
 
 def test_every_new_table_ships_with_rls_and_both_policies():

@@ -38,6 +38,11 @@ reads, and the other weekly writers can turn a recorded fill into an unrecorded
 correction between the two commands. Each write carries the snapshotted state as a
 predicate, so a team that moved since is skipped and reported rather than overwritten.
 
+A dry run makes **no team-state and no review-queue writes, but it does persist
+paid-probe observations** to ``team_state_probe_log`` -- one row per probe, agreements
+included. The GotSport call is paid for whether or not its answer is recorded, and an
+agreement is visible nowhere else: it changes no state, so it fires no ledger trigger.
+
 Writes go through ``apply_team_state``, which stamps the ledger with actor
 ``assign_team_states``. To undo a batch:
 
@@ -148,7 +153,20 @@ GOTSPORT_TEAM_DETAILS = "https://system.gotsport.com/api/v1/team_ranking_data/te
 
 PAGE_SIZE = 1000
 IN_BATCH = 100  # URI length caps .in_() lists
+
+# Rows travel in the request body, where the URI cap on IN_BATCH does not apply.
+INSERT_BATCH = 1000
+
+# Deliberately smaller than INSERT_BATCH: these are paid observations, and the sweep runs
+# for tens of minutes under an operator who may interrupt it. Ten times fewer at risk, for
+# a few more round trips on a run already dominated by one paid HTTP call per team.
+FLUSH_EVERY = 100
+
 DEFAULT_WORKERS = 10
+
+PROBE_LOG_TABLE = "team_state_probe_log"
+
+NO_ALIAS_OUTCOME = "no gotsport alias"
 
 
 def club_key(club_name: Optional[str]) -> str:
@@ -165,6 +183,17 @@ def club_key(club_name: Optional[str]) -> str:
     """
     key = (club_name or "").strip().lower()
     return "" if is_placeholder_club(key) else key
+
+
+def stored_state(team: Dict) -> Optional[str]:
+    """The state this team currently holds, blank normalised to None.
+
+    One definition, because two readings of it have to agree exactly: the decision's
+    ``pre_image`` and the probe ledger's ``stored_state_code`` describe the same value
+    for the same team, and a ledger row whose idea of "before" differs from the
+    snapshot's cannot be checked against anything.
+    """
+    return (team.get("state_code") or "").strip() or None
 
 
 # --------------------------------------------------------------------------- #
@@ -400,7 +429,10 @@ def club_derived_state(team: Dict, club_index: Dict[str, Counter]) -> Optional[s
 
 
 def probe_associations(
-    provider_team_ids: Dict[str, str], workers: int
+    provider_team_ids: Dict[str, str],
+    workers: int,
+    sb,
+    stored_states: Dict[str, Optional[str]],
 ) -> Tuple[Dict[str, str], Counter]:
     """Tier A: ``team_id_master`` → state, plus a count of what every call did.
 
@@ -413,6 +445,11 @@ def probe_associations(
     An unmapped code returns nothing rather than a guess: ``CAN`` is California North,
     not Canada, and treating any two-letter value as a postal code is what sends a
     Brazilian team to a US state board.
+
+    ``sb`` and ``stored_states`` (``{team_id_master: stored state}``) record every call in
+    ``team_state_probe_log``, agreements included -- the outcome no other table can hold,
+    because a probe that agrees writes nothing. Neither is defaulted: a caller that omitted
+    them would pay for its probes and record none.
     """
     # Imported here, not at module scope. ``src.scrapers.gotsport`` reaches BaseScraper
     # and config.settings, which pull pandas, scipy, sklearn and xgboost -- a chain no
@@ -451,11 +488,34 @@ def probe_associations(
         state = to_state_code(raw)
         return (team_id, state, "mapped") if state else (team_id, None, f"unmapped code {raw}")
 
+    # The ledger is written here, on the main thread, never inside ``probe``. This loop
+    # already consumes the iterator and does every mutation; supabase-py publishes no
+    # thread-safety guarantee, and every other pool in this repo resolves in the workers
+    # and writes sequentially.
+    pending: List[Dict] = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for team_id, state, outcome in pool.map(probe, provider_team_ids.items()):
             outcomes[outcome.split(" (")[0] if outcome.startswith("request failed") else outcome] += 1
             if state:
                 states[team_id] = state
+            # The raw outcome, not the counter's key: the line above collapses
+            # 'request failed (Timeout)' to 'request failed' for the histogram.
+            pending.append(
+                probe_log_row(
+                    team_id,
+                    provider_team_ids[team_id],
+                    outcome,
+                    state,
+                    stored_states.get(team_id),
+                )
+            )
+            if len(pending) >= FLUSH_EVERY:
+                write_probe_log(sb, pending)
+                pending = []
+
+    # Flushed before returning, so the caller's blocked-probe abort still leaves this
+    # run's observations on disk.
+    write_probe_log(sb, pending)
     return states, outcomes
 
 
@@ -486,7 +546,7 @@ def decide(
 ) -> Optional[Dict]:
     """One team's decision, or None when nothing fires or nothing would change."""
     team_id = team["team_id_master"]
-    stored = (team.get("state_code") or "").strip() or None
+    stored = stored_state(team)
 
     # R7. A stored province outranks every rule below it, including R9.
     if stored in CANADIAN_PROVINCES:
@@ -568,7 +628,7 @@ def _decision(team: Dict, proposed: str, tier: str, action: str, reason: str) ->
         "team_id": team["team_id_master"],
         "team_name": team.get("team_name"),
         "club_name": team.get("club_name"),
-        "pre_image": (team.get("state_code") or "").strip() or None,
+        "pre_image": stored_state(team),
         "proposed": proposed,
         "tier": tier,
         "confidence": TIER_CONFIDENCE[tier],
@@ -627,7 +687,18 @@ def build_snapshot(sb, use_tier_a: bool, workers: int, only_team: Optional[str] 
         console.print(f"[bold]Probing GotSport[/bold] for {len(candidates):,} candidates")
         aliases = fetch_gotsport_aliases(sb, candidates)
         console.print(f"  {len(aliases):,} have a GotSport id")
-        association_states, outcomes = probe_associations(aliases, workers)
+
+        stored_states = {t["team_id_master"]: stored_state(t) for t in teams}
+        # A candidate the alias lookup did not find never reaches the probe, so it needs
+        # its row written here or nothing ever records that it was asked for.
+        no_alias = [
+            probe_log_row(team_id, None, NO_ALIAS_OUTCOME, None, stored_states.get(team_id))
+            for team_id in candidates
+            if team_id not in aliases
+        ]
+        write_probe_log(sb, no_alias)
+
+        association_states, outcomes = probe_associations(aliases, workers, sb, stored_states)
         for outcome, count in outcomes.most_common():
             console.print(f"[dim]  {count:>6,}  {outcome}[/dim]")
         if probe_is_unusable(outcomes):
@@ -673,6 +744,38 @@ def build_snapshot(sb, use_tier_a: bool, workers: int, only_team: Optional[str] 
 # --------------------------------------------------------------------------- #
 # Applying
 # --------------------------------------------------------------------------- #
+
+
+def probe_log_row(
+    team_id: str,
+    provider_team_id: Optional[str],
+    outcome: str,
+    reported: Optional[str],
+    stored: Optional[str],
+) -> Dict:
+    """One probe's record."""
+    return {
+        "team_id_master": team_id,
+        "provider": "gotsport",
+        "provider_team_id": provider_team_id,
+        "outcome": outcome,
+        "reported_state_code": reported,
+        "stored_state_code": stored,
+        "agreed": (reported == stored) if (reported and stored) else None,
+        "probed_by": ACTOR,
+    }
+
+
+def write_probe_log(sb, rows: List[Dict]) -> None:
+    """A failure here is fatal, and deliberately so.
+
+    A half-written ledger is worse than none: a missing row reads as never probed and is
+    paid for again, a present one as settled.
+    """
+    for start in range(0, len(rows), INSERT_BATCH):
+        sb.table(PROBE_LOG_TABLE).insert(
+            rows[start : start + INSERT_BATCH], returning="minimal"
+        ).execute()
 
 
 def apply_decision(sb, decision: Dict, reason: str) -> bool:
@@ -924,7 +1027,7 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
         )
         sys.exit(1)
 
-    current = (team.get("state_code") or "").strip() or None
+    current = stored_state(team)
     decision = {
         "team_id": team_id,
         "pre_image": current,
@@ -995,7 +1098,13 @@ def report_team(sb, snapshot: Dict, team_id: str, execute: bool) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assign and correct teams.state_code")
     parser.add_argument(
-        "--dry-run", action="store_true", default=True, help="Default. Decide and report, write nothing"
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help=(
+            "Default. Decide and report. No team-state and no review-queue writes, but "
+            "paid-probe observations are recorded"
+        ),
     )
     parser.add_argument("--execute", action="store_true", help="Apply a snapshot's decisions")
     parser.add_argument("--snapshot", help="Snapshot to apply; required by --execute")

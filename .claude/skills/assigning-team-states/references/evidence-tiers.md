@@ -43,6 +43,18 @@ probing all 200,164 to find the ones nobody flagged is not a thing the sweep doe
 team is always probed — `--team <uuid>` — which is how a uniformly mislabelled club gets
 resolved.
 
+**It never runs unattended.** `fill-team-states-weekly.yml` passes `--no-tier-a`, so the
+scheduled job stops at the free tiers and this one fires only when a person runs the sweep.
+That is why the cost is bounded and why the run can afford to abort on a blocked probe: there
+is always someone watching it. It also means a full probe is a long foreground command that an
+operator may interrupt, so anything the run has paid for should already be on disk.
+
+**Every probe is recorded in `team_state_probe_log`**, one row per call: the state reported,
+the state stored, whether they agreed, and the raw outcome of the call — including a row for
+a selected team that turned out to have no GotSport alias. The agreements are the point: a
+probe that agrees changes no state, so it fires no ledger trigger, and without this table a
+verified-correct team is indistinguishable from one nobody has ever checked.
+
 ## Tier B — the club's own teams
 
 Confidence 0.90. Where the rest of the club sits.
