@@ -512,6 +512,7 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
 | `enqueue_safety_net.py` | Weekly | 4 | Never scraped, or not in 90+ days |
 | `enqueue_stranded_merge_fixtures.py` | Operator-run | 2 | Surviving teams whose unplayed fixtures a merge stranded — dry run unless `--execute`, and no workflow runs it |
+| `enqueue_user_interest_teams.py` | Weekly | 1 | Teams a user watchlisted, captured a report card for, or clicked "find missing game" on — skips any team already holding a pending row. No workflow runs it; a cloud routine fires the `user-activity-retention-hygiene` skill |
 
 That is every caller of `enqueue_scrape_request`. The two `new_team` paths are easy to
 miss when tracing why a team entered the queue, because neither lives in an
