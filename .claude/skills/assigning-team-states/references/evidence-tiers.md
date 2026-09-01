@@ -38,16 +38,25 @@ as a postal code, which is what would send a Brazilian team to a US state board.
 Measured against the club count on 1,572 teams where both answered, they agree 97.1%, and
 where they differ the registration record is usually visibly right from the team's own name.
 
-**It is only probed for teams something else already disputes.** One HTTP call per team means
-probing all 200,164 to find the ones nobody flagged is not a thing the sweep does. A named
-team is always probed — `--team <uuid>` — which is how a uniformly mislabelled club gets
-resolved.
+**Three things get a team probed**, because one HTTP call per team means asking all 201,032 is
+not on the table:
+
+- the sweep, which probes what a tier disputes and what has no state at all;
+- `--audit-contradictions`, which probes teams whose state contradicts a club-mate this tier
+  already confirmed, excluding a stored Canadian province. It does not subtract the disputed
+  set: roughly 39% of them a tier flags too. What it buys is price — the same teams for about
+  a sixth of the calls — and the rest, which no tier disputes because their club agrees with
+  itself. Its population is stated once, in SKILL.md Step 2a;
+- `--team <uuid>`, always, whatever the tiers think.
 
 **It never runs unattended.** `fill-team-states-weekly.yml` passes `--no-tier-a`, so the
 scheduled job stops at the free tiers and this one fires only when a person runs the sweep.
-That is why the cost is bounded and why the run can afford to abort on a blocked probe: there
-is always someone watching it. It also means a full probe is a long foreground command that an
-operator may interrupt, so anything the run has paid for should already be on disk.
+That is why the cost is bounded, and why a sweep can afford to abort outright on a blocked
+probe: there is always someone watching it. An audit run decides from the answers it already
+holds before it stops, because those were paid for.
+
+A probe run is also a long foreground command an operator may interrupt, so anything it has
+paid for should already be on disk by the time it is.
 
 **Every probe is recorded in `team_state_probe_log`**, one row per call: the state reported,
 the state stored, whether they agreed, and the raw outcome of the call — including a row for

@@ -92,11 +92,17 @@ def rows_inserted(sb) -> list:
     return [row for _, rows, _ in sb.writes for row in rows]
 
 
-def run_probe(monkeypatch, responses, stored_states, workers=1, sb=None):
-    """Drive the real ``probe_associations`` over `responses`, keyed by provider id."""
+def run_probe(monkeypatch, responses, stored_states, workers=1, sb=None, on_call=None):
+    """Drive the real ``probe_associations`` over `responses`, keyed by provider id.
+
+    ``on_call`` fires once per request reaching the provider, so a test can assert what a
+    run actually paid for rather than only what it recorded.
+    """
     sb = sb or FakeClient()
 
     def fake_get(session, api_key, url, **kwargs):
+        if on_call:
+            on_call()
         outcome = responses[url.rsplit("team_id=", 1)[1]]
         if isinstance(outcome, Exception):
             raise outcome
@@ -311,6 +317,85 @@ def test_the_buffer_is_flushed_before_returning(monkeypatch):
     )
 
     assert len(rows_inserted(sb)) == 5
+
+
+def test_an_interrupted_run_keeps_what_it_already_paid_for(monkeypatch):
+    """Every call that completed is on disk when an interrupt lands, not only the ones a
+    clean exit would have flushed. The buffer exists because this runs for tens of minutes
+    under an operator who may Ctrl-C it, and its rows are calls already paid for.
+
+    ``KeyboardInterrupt`` specifically, because it is not an ``Exception`` -- a guard
+    written as ``except Exception`` would let through exactly the case this is about.
+
+    Paid calls are counted as well as rows, because counting rows alone would call a run
+    that paid for a thousand and wrote three a success. Calls still in flight across the
+    workers are lost, which is why the two numbers may differ at all.
+    """
+    monkeypatch.setattr(assign, "FLUSH_EVERY", 100)
+    ids = [str(i) for i in range(5)]
+    sb = FakeClient()
+
+    seen = {"n": 0}
+    paid = {"n": 0}
+    real_to_state = assign.to_state_code
+
+    def interrupt_partway(raw):
+        seen["n"] += 1
+        if seen["n"] > 3:
+            raise KeyboardInterrupt
+        return real_to_state(raw)
+
+    monkeypatch.setattr(assign, "to_state_code", interrupt_partway)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_probe(
+            monkeypatch,
+            {i: Response(payload={"team_association": "OH"}) for i in ids},
+            {f"team-{i}": "OH" for i in ids},
+            sb=sb,
+            on_call=lambda: paid.__setitem__("n", paid["n"] + 1),
+        )
+
+    # Every call that completed is on disk. With one worker the pool runs ahead of the
+    # consuming loop, so more calls are paid than results are seen -- the buffered rows for
+    # the results that *did* arrive must all be written, and none may be silently dropped.
+    assert len(rows_inserted(sb)) == 3
+    assert paid["n"] >= 3, "the probe should have paid for at least the results it yielded"
+    assert len(rows_inserted(sb)) <= paid["n"]
+
+
+def test_a_flush_that_fails_after_committing_is_not_sent_again(monkeypatch):
+    """The buffer is detached before the insert, not after.
+
+    A write can fail on the response rather than the request -- a read timeout, a reset
+    connection, a proxy 5xx after the rows landed. Clearing ``pending`` only on success left
+    those rows buffered, and the tail flush then sent the identical batch a second time.
+    ``team_state_probe_log`` has no unique key beyond its surrogate id, so both copies stay
+    and the ledger over-reports what was actually paid for.
+    """
+    monkeypatch.setattr(assign, "FLUSH_EVERY", 3)
+    ids = [str(i) for i in range(5)]
+    sent = []
+
+    def flaky_write(sb, rows):
+        if not rows:
+            return
+        sent.append([r["team_id_master"] for r in rows])
+        if len(sent) == 1:
+            raise RuntimeError("committed, then the response failed")
+
+    monkeypatch.setattr(assign, "write_probe_log", flaky_write)
+
+    with pytest.raises(RuntimeError):
+        run_probe(
+            monkeypatch,
+            {i: Response(payload={"team_association": "OH"}) for i in ids},
+            {f"team-{i}": "OH" for i in ids},
+        )
+
+    assert sent, "nothing was written at all"
+    resent = [t for batch in sent[1:] for t in batch if t in sent[0]]
+    assert not resent, f"the failed batch was sent again: {resent}"
 
 
 def test_a_long_run_flushes_in_batches_without_resending(monkeypatch):
