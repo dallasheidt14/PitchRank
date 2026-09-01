@@ -23,6 +23,7 @@ Copy this checklist and check off items as you complete them:
 Task Progress:
 - [ ] Step 1: Preflight — credentials, then prove the rules still fire
 - [ ] Step 2: Take a snapshot with a dry run
+- [ ] Step 2a: Or audit the contradictions instead
 - [ ] Step 3: Read the evidence before writing anything
 - [ ] Step 4: Apply a small batch and verify it against the database
 - [ ] Step 5: Apply the rest from the same snapshot
@@ -70,13 +71,66 @@ state as a predicate, so a team that moved is skipped and reported rather than o
 
 The GotSport probe costs one paid request per candidate — roughly 6,200 on a full run, routed
 through ZenRows because a direct burst gets blocked. `--no-tier-a` skips it deliberately and
-says so in the report. Do not confuse that with the tier being quiet: a blocked probe aborts
-the run rather than deciding without evidence it was supposed to have.
+says so in the report. Do not confuse that with the tier being quiet: on a sweep a blocked
+probe aborts the run rather than deciding without evidence it was supposed to have.
 
 Every one of those calls lands in `team_state_probe_log`, whatever it returned — which is why
 a dry run is not write-free. The call is paid for whether or not its answer is recorded, and
 an agreement is visible nowhere else; see
 [references/evidence-tiers.md](references/evidence-tiers.md).
+
+## Step 2a: Or audit the contradictions instead
+
+```bash
+python scripts/assign_team_states.py --audit-contradictions --probe-limit 50 --out audit.json
+```
+
+A different question from the sweep's, and a much cheaper one. The sweep asks about teams a
+tier disputes; this asks about teams whose state contradicts a club-mate the provider already
+confirmed. The two populations overlap — about 39% of these teams are disputed by a tier as
+well — so the gain is targeting, not exclusivity: a full sweep reaches the same teams for
+roughly six times the calls. The rest are teams no tier flags, because their club agrees with
+itself.
+
+**The audit's population is stated here and nowhere else**, because it falls toward zero the
+first time the rule is run in earnest. Measured 2026-09-01: **1,173 teams qualify** and **1,124
+carry a GotSport id** and so can be asked at all. The candidate rule excludes a team whose
+stored state is a Canadian province, which Tier A never corrects; that clause is worth 37
+teams, without it the count is 1,210.
+
+**Read the hit rate carefully — the two available numbers measure different things.** A
+hand-checked sample of 150, taken 2026-08-31 against the pre-province-clause population, found
+**65 genuinely wrong of 129 answered — 50.4%**, against a 2.9% base rate for a team picked at
+random. That is a *confirmed-wrong* rate, established by hand. The run itself prints a
+*disagreement* rate, which is looser and necessarily at least as high: a decision the tiers
+queued rather than applied — a DC relabel under R8, a value you already reverted under R17 — is
+counted as a disagreement, because the tool refuses to call those established corrections.
+
+Three things it does differently:
+
+- It writes **only decisions the provider answered**. An unanswered candidate produces
+  nothing, rather than a correction guessed from the club that mislabelled it.
+- `--probe-limit` bounds what it **pays for**, not what it decides. A team answered on an
+  earlier run is not asked again; if that answer named a state it still counts, and if it did
+  not — no association on file, no GotSport id — the team drops out until its window expires,
+  which the run reports separately as "skipped: answered before, but with no state to offer".
+  So a capped run drains the backlog a batch at a time. Start capped, read what comes back,
+  then run it uncapped.
+- An answer is reused for **90 days**, after which the team is asked again — a registration
+  moves at a season boundary at most. `--reprobe-after-days N` sets that window; it will not
+  accept 0 or less, which would put the cutoff at or after now and re-buy everything.
+
+**A blocked probe behaves differently here.** A sweep stops at the probe with no snapshot
+written — though the calls it already made *are* in `team_state_probe_log`, written before the
+block is detected. An audit finishes deciding from the answers it already
+holds, writes the snapshot, and *then* exits non-zero.
+
+Keep that file rather than discarding it — not to protect the calls, which the ledger already
+holds and a retry reads back for free, but because re-deriving the decisions costs another full
+pass over the table. Do not reach for `--no-tier-a` here: it is refused alongside
+`--audit-contradictions`, which would leave the mode nothing to ask.
+
+Apply it the same way as any other snapshot, from Step 4 on.
 
 ## Step 3: Read the evidence before writing anything
 

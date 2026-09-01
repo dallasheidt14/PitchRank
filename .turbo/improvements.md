@@ -1429,3 +1429,73 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `public.user_profiles`; lockdown migration `20260610120000`
 - **Why**: Verified live 2026-08-31: `user_profiles` reads `anon=rdDxtm/postgres`. The 2026-06-10 lockdown revoked INSERT and UPDATE and left DELETE (`d`) and TRUNCATE (`D`). DELETE is constrained by RLS policies; TRUNCATE is not governed by RLS at all. Not reachable today — anon reaches Postgres only through PostgREST, which exposes no TRUNCATE verb — so this is defence-in-depth rather than a live hole, and the table's current policies should be read before acting. `user_profiles` holds the Stripe subscription state `reconcile-stripe-daily.yml` reconciles, so loss would be user-visible. Typed investigate because the right fix depends on which roles legitimately delete rows today. Surfaced incidentally by a security review on the probe-ledger branch; unrelated to that change.
 - **Noted**: 2026-08-31
+
+### Two team-state readers page without ORDER BY, so a concurrent write can duplicate or skip a row
+
+- **ID**: IMP-154
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `fetch_live_teams` and `fetch_revert_blocks`
+- **Why**: Both hand-roll a `.range(offset, offset + PAGE_SIZE - 1)` loop with no `.order()`. postgrest-py's `range` emits `offset`/`limit` and adds no ordering, and LIMIT/OFFSET without ORDER BY has no defined row order across statements — `EXPLAIN (COSTS OFF)` on `fetch_live_teams`' query at OFFSET 150000 returns a bare `Seq Scan` under a `Limit`. The concrete writer is `_log_team_scrape`, updating `teams.last_scraped_at`; that column is indexed, so the update is non-HOT and moves the tuple to a new heap page, and a tuple crossing the cursor during a 200-page read is returned twice or not at all. Two consequences: a skipped row that is the lone dissenting `state_source='tier_a'` team in a genuinely split club flips `build_anchor_index` from "omit" to "anchor", turning every club-mate into a paid GotSport probe; and a dropped `fetch_revert_blocks` row means R17 silently fails to suppress a re-apply the operator already rejected. `fetch_recent_probes` and `fetch_queue_rows` already order by `id`. Not urgent — the `teams` heap is 73 MB against the 512 MB `synchronize_seqscans` threshold, so realistic loss is a handful of rows with no bad-write path — but the contradiction audit now makes its whole candidate population depend on that read being complete. One `.order()` per reader; check the plan does not regress, since `fetch_live_teams` is the tool's heaviest query at 201,032 rows. Raised by an api-usage review on the contradiction-audit branch and kept out of it as pre-existing.
+- **Noted**: 2026-09-01
+
+### The `--team --execute` write path has both its guards and no test of either
+
+- **ID**: IMP-155
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `scripts/assign_team_states.py` — `report_team`
+- **Why**: `report_team` is the terminal writer of the documented one-off route `--team <uuid> --execute`, and two mutations survive the whole suite: removing the `decision["action"] != "apply"` refusal, and neutering `if not execute: return`. The first would write a decision the tiers deliberately queued — a DC relabel under R8, a value the operator reverted under R17, a curated club, a Tier C/E correction — unattended, exiting 0. The second makes the documented dry run write. CLAUDE.md § Code Quality requires a dry-run guard on every mutating path; this one has the guard and nothing pinning it. Pre-existing and untouched by the contradiction-audit branch, whose diff hunks jump 1307 → 1435. It matters more now because that branch's first review round fixed a P1 filed against exactly this route, and its three new named-team tests all stop at `build_snapshot` and assert the *decision* where the defect was the *write*. Mutation-verified in an isolated worktree 2026-09-01; the operator chose to backlog it rather than widen that PR.
+- **Noted**: 2026-09-01
+
+### The tier provenance string is built in SQL as well as Python, and nothing pins the two together
+
+- **ID**: IMP-156
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `state_source_for`; `supabase/migrations/20260829200000_add_team_state_review_actions.sql:56`
+- **Why**: Python now derives `TIER_A_SOURCE` from `state_source_for("A")`, so its writer and the anchor reader can no longer drift. But `approve_team_state` builds the same format independently in SQL as `'tier_' || lower(v_row.tier)`, and a dashboard approval of a Tier A queue row is what mints many of the anchors `build_anchor_index` reads. If the SQL half drifts, `--audit-contradictions` finds no anchors and reports "0 contradict a confirmed club-mate" — a clean zero that reads as "nothing to fix" rather than as a broken audit. No Python change reaches it and no test covers it. Live scale 2026-09-01: 5,921 teams carry `state_source='tier_a'`, 1,467 `tier_b`, 15 `tier_r9`. `tests/unit/test_team_state_provenance_migration.py` exists and is the right home for a pinning assertion, but does not currently assert this format. Kept out of the contradiction-audit PR because that PR touches no migrations.
+- **Noted**: 2026-09-01
+
+### `--limit` validates itself where the argv test harness cannot reach it
+
+- **ID**: IMP-157
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/assign_team_states.py` — the `--limit` check inside `apply_snapshot`, against the argv guard block in `main()`
+- **Why**: The contradiction-audit branch added four numeric-flag guards to `main()`'s argv block, deliberately ahead of the credential check so they are testable: CI sets no keys, so anything after that check exits 1 for every argv and a test asserting the exit code alone could never fail. `--limit`'s near-identically-worded check ("it would apply all but the last") stayed buried in `apply_snapshot` and gets none of that, so `--execute --snapshot missing.json --limit -1` dies on the missing file rather than on the negative limit. Two same-shaped validations in two places for no stated reason; moving `--limit`'s up makes all three uniform and reachable by the harness that branch already built.
+- **Noted**: 2026-09-01
+
+### `--workers` is unbounded while its three sibling numeric flags are guarded
+
+- **ID**: IMP-158
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/assign_team_states.py` — the `--workers` argument in `main()`
+- **Why**: `--workers 0` raises a bare `ValueError` out of `ThreadPoolExecutor` rather than the named refusal every other numeric flag on this tool now gives; `--limit`, `--probe-limit` and `--reprobe-after-days` all reject out-of-range values by name. Cosmetic rather than dangerous — it fails closed, before any paid call — but it is the one remaining flag that fails as a stack trace. Surfaced by an api-usage review on the contradiction-audit branch and kept out of it as pre-existing.
+- **Noted**: 2026-09-01
+
+### An interrupted probe run still loses the calls that were in flight
+
+- **ID**: IMP-159
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `probe_associations`
+- **Why**: The contradiction-audit PR put the probe-log flush in a `try/finally`, which closed the large loss — before it, a Ctrl-C discarded everything buffered since the last drain. What remains is the calls already in flight across the pool when the interrupt lands. Measured on the shipped code with a stubbed 2 ms round trip: n=1200 workers=10 → 72 paid against 60 ledgered (12 lost); n=200 workers=10 → 79 paid against 60 ledgered (19 lost). The loss is bounded by `--workers` rather than by queue depth, because `Executor.map`'s result generator cancels pending futures as the exception unwinds, before the pool's `__exit__` — which is also why an interrupt does not keep spending through the remaining ~1,100 candidates. The lost teams stay due and are re-bought next run. Closing it means bounded submission — a window of futures, drained and resubmitted — rather than `Executor.map`, which is real machinery for a bounded cost, so it was typed plan and kept out. Two round-3 reviewers appeared to contradict each other here; both reproduce, one at n=5/workers=1 where a single worker races ahead, the other at production shape. The production shape governs.
+- **Noted**: 2026-09-01
+
+### Two operator-facing prints interpolate a team name into Rich markup unescaped
+
+- **ID**: IMP-160
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
+- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
+- **Noted**: 2026-09-01
