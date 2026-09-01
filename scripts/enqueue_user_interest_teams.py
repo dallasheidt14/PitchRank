@@ -99,6 +99,14 @@ def collect_user_requested_teams(supabase, window_days=CLICK_WINDOW_DAYS):
     A watchlist entry and a report-card capture are standing interest and never
     expire. A single click is a one-off, so age it out — otherwise the batch only
     ever grows.
+
+    Known gap: a click on a team that already holds a lower-priority pending row
+    takes the RPC's UPDATE branch, which promotes priority but leaves
+    request_type as the automatic producer wrote it. That click is invisible
+    here. The team is still scraped at click time, and is still collected if it
+    is watchlisted or has a report-card lead; it just does not join the weekly
+    set on the strength of the click alone. Closing it needs the click recorded
+    outside the mutable queue row.
     """
     cutoff = (date.today() - timedelta(days=window_days)).isoformat()
     rows = _paged(
@@ -148,28 +156,30 @@ def load_team_rows(supabase, team_ids):
     return teams
 
 
-def teams_already_queued(supabase, team_ids):
-    """Teams that already hold a pending scrape_requests row.
+def teams_with_pending_user_request(supabase, team_ids):
+    """Teams holding a pending row this job must not touch.
 
-    enqueue_scrape_request's UPDATE branch rewrites game_date from the parameter
-    and leaves request_type alone. Calling it on a team whose user-filed
-    missing_game row is still pending would move that row's +/-90 day scrape
-    window onto today, off the date the user actually asked about. A pending row
-    already guarantees the team gets scraped, so skip it instead.
+    enqueue_scrape_request's UPDATE branch rewrites game_date from the parameter,
+    so calling it on a user's own pending missing_game row would move that row's
+    +/-90 day scrape window onto today, off the date the user asked about. That
+    row's date is the only one worth protecting: every automatic producer anchors
+    on today or yesterday, so promoting those to priority 1 through the RPC costs
+    nothing and moves an interest team ahead of the lower tiers.
     """
-    queued = set()
+    protected = set()
     for batch in _chunks(sorted(team_ids)):
         rows = (
             supabase.table("scrape_requests")
             .select("team_id_master")
             .in_("team_id_master", batch)
             .eq("status", "pending")
+            .eq("request_type", USER_CLICK_REQUEST_TYPE)
             .execute()
             .data
             or []
         )
-        queued.update(r["team_id_master"] for r in rows if r["team_id_master"])
-    return queued
+        protected.update(r["team_id_master"] for r in rows if r["team_id_master"])
+    return protected
 
 
 def enqueue_team(supabase, team):
@@ -242,13 +252,13 @@ def main():
         entry["report_card"] |= raw in report_card
         entry["requested"] |= raw in requested
 
-    already_queued = teams_already_queued(supabase, set(team_rows))
-    if already_queued:
-        logger.info(f"{len(already_queued)} teams already hold a pending request; leaving those rows alone")
+    protected = teams_with_pending_user_request(supabase, set(team_rows))
+    if protected:
+        logger.info(f"{len(protected)} teams hold a pending user request; leaving those rows untouched")
 
     targets = []
     for team_id in sorted(team_rows):
-        if team_id in already_queued:
+        if team_id in protected:
             continue
         row = team_rows[team_id]
         targets.append({**row, **sources.get(team_id, {})})

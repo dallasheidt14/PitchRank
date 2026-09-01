@@ -55,9 +55,11 @@ The tag keeps the user-click signal readable. Reading priority-1 rows back
 without filtering would re-collect whatever this job wrote last week, and the
 interest set would grow on its own forever.
 
-Teams that already hold a pending request are skipped rather than re-enqueued.
-The RPC's update branch would rewrite their `game_date` to today, moving a
-user's own "find missing game" request off the date they asked about.
+Teams holding a pending user-filed `missing_game` row are skipped. The RPC's
+update branch would rewrite that row's `game_date` to today, moving the request
+off the date the user asked about. Pending rows from the automatic producers are
+promoted to priority 1 as normal — they anchor on today anyway, so promoting
+them costs nothing and moves an interest team ahead of the lower tiers.
 
 `process_missing_games` drains 40 teams every 15 minutes — 160 an hour — so
 divide the batch size by that for the drain time. It holds the front of the
