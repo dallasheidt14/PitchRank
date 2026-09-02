@@ -5,8 +5,10 @@ Two passes, in this order:
 1. **GotSport id.** The public rankings search at ``team_ranking_data`` returns
    a ``team_id`` that *is* our ``provider_team_id`` for the ``gotsport``
    provider, so a single hit resolves by direct lookup rather than by score.
-   Measured on a real 105-team roster: 58 rows resolved this way and every one
-   of the 58 ids was already held locally.
+   A hit only counts when it also names the roster's team: the endpoint matches
+   club names too, so one row on its own is not proof of identity. Measured on a
+   real 105-team roster: 58 single hits, of which 56 named the right team, and
+   every one of the 58 ids was already held locally.
 2. **Exact local name.** Case-insensitive exact match inside the row's own
    cohort, accepted only when it is unique.
 
@@ -46,6 +48,7 @@ __all__ = [
 ]
 
 GOTSPORT_RANKING_SEARCH_URL = "https://system.gotsport.com/api/v1/team_ranking_data"
+GOTSPORT_PROVIDER_CODE = "gotsport"
 
 _PROVIDER_GENDER = {"Male": "m", "Female": "f"}
 
@@ -115,6 +118,25 @@ def _search_names(row: RosterRow) -> list[str]:
     return [row.team_name_raw, row.team_name_stripped]
 
 
+def _comparable(name: str) -> str:
+    return " ".join(str(name or "").split()).casefold()
+
+
+def _names_the_same_team(candidate_name: str, row: RosterRow) -> bool:
+    """Does the hit actually name the roster's team?
+
+    ``team_or_club_name`` matches club names too, so a single row proves only
+    that one candidate exists. Searching ``Pre-ECNL B2014/15 Gold`` for a San
+    Antonio City SC team returned exactly one row named ``Beach FC Pre-ECNL
+    B2014/15 Gold`` — a different club's squad. Without this check that id
+    would have been accepted as a certain match.
+    """
+    return _comparable(candidate_name) in {
+        _comparable(row.team_name_raw),
+        _comparable(row.team_name_stripped),
+    }
+
+
 def resolve_row(
     row: RosterRow,
     *,
@@ -137,6 +159,12 @@ def resolve_row(
         )
 
     if len(hits) == 1:
+        if not _names_the_same_team(hits[0].get("team_name", ""), row):
+            return ResolvedTeam(
+                source_index=row.source_index,
+                status="review",
+                candidates=tuple(hits),
+            )
         provider_team_id = str(hits[0].get("team_id"))
         team_id_master = lookup_provider_id(provider_team_id)
         if team_id_master:
@@ -202,16 +230,44 @@ def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) ->
     """Build a ``provider_team_id`` → ``team_id_master`` lookup.
 
     Checks ``teams`` first and falls back to ``team_alias_map``; on the measured
-    roster 53 of 58 ids sat on ``teams`` and all 58 on the alias map. The alias
-    may name a team that has since been merged away, so the result goes through
-    ``MergeResolver`` when one is supplied.
+    roster 53 of 58 ids sat on ``teams`` and all 58 on the alias map, every one
+    of them approved and GotSport-owned.
+
+    Both queries are scoped to the GotSport provider, because uniqueness is on
+    ``(provider_id, provider_team_id)`` and 5,439 provider team ids are in use by
+    more than one provider. The alias query additionally requires
+    ``review_status = 'approved'``, so a mapping still awaiting review cannot be
+    reported as a certain match. The result goes through ``MergeResolver`` when
+    one is supplied, since an alias can name a team that was later merged away.
     """
 
+    cached_provider_id: list[str | None] = []
+
+    def gotsport_provider_id() -> str | None:
+        if not cached_provider_id:
+            rows = (
+                supabase_client.table("providers")
+                .select("id")
+                .eq("code", GOTSPORT_PROVIDER_CODE)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            cached_provider_id.append(rows[0]["id"] if rows else None)
+        return cached_provider_id[0]
+
     def lookup(provider_team_id: str) -> str | None:
+        provider_id = gotsport_provider_id()
+        if not provider_id:
+            logger.warning("No '%s' row in providers; cannot resolve ids by provider.", GOTSPORT_PROVIDER_CODE)
+            return None
+
         team_rows = (
             supabase_client.table("teams")
             .select("team_id_master")
             .eq("provider_team_id", provider_team_id)
+            .eq("provider_id", provider_id)
             .eq("is_deprecated", False)
             .limit(2)
             .execute()
@@ -225,6 +281,8 @@ def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) ->
             supabase_client.table("team_alias_map")
             .select("team_id_master")
             .eq("provider_team_id", provider_team_id)
+            .eq("provider_id", provider_id)
+            .eq("review_status", "approved")
             .limit(2)
             .execute()
             .data

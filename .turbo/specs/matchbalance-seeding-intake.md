@@ -61,13 +61,18 @@ across four Boys cohorts (U11–U14).
 
 | Route | Teams resolved |
 | --- | --- |
-| GotSport ID lookup | 58 |
+| GotSport ID lookup | 56 |
 | Exact name already in `teams` | 37 |
-| **Either** | **86 of 105 (82%)** |
-| Left for the operator | **19 (18%)** |
+| **Either** | **84 of 105 (80%)** |
+| Left for the operator | **21 (20%)** |
 
-- **All 58 GotSport IDs resolved.** Every one was present in `team_alias_map`; 53 were also
-  directly on `teams`. Zero misses.
+- **All 58 GotSport IDs resolved.** Every one was present in `team_alias_map`, approved and
+  GotSport-owned; 53 were also directly on `teams`. Zero misses.
+- **A single hit is not proof of identity.** `team_or_club_name` matches club names too, so 2
+  of the 58 named a different club's squad — searching `Pre-ECNL B2014/15 Gold` for a San
+  Antonio City SC team returned one row named `Beach FC Pre-ECNL B2014/15 Gold`. The resolver
+  requires the returned name to match the roster name and sends the rest to review, which is
+  what takes the id route from 58 to 56.
 - The GotSport route rescued **49 teams that exact-name matching could not find**, including
   `Barcelona SC 13B Aztecas` → `Barcelona SC Aztecas U14`.
 - 105 lookups took about a minute at a 0.4s delay.
@@ -235,7 +240,7 @@ not touched.
 | Piece | State |
 | --- | --- |
 | `src/tournaments/roster_paste.py` — heading-aware parser, marker split | shipped, 15 tests |
-| `src/tournaments/roster_resolver.py` — both passes, search contract, Supabase lookups | shipped, 14 tests |
+| `src/tournaments/roster_resolver.py` — both passes, search contract, Supabase lookups | shipped, 21 tests |
 | Seeding tab — paste box, progress, per-row table, CSV of rows needing a decision | shipped |
 | `event_team_registry.csv` output | **not yet** |
 | `--apply` decision round trip | **not yet** — the CSV is currently read-only |
