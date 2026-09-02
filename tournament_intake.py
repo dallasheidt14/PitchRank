@@ -15,13 +15,14 @@ import logging
 import os
 import sys
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -55,6 +56,15 @@ from src.tournaments.reports.ui import (
     project_audit_row,
     safe_read_comparison_json,
     zip_run_csvs,
+)
+from src.tournaments.roster_paste import ParsedRoster, parse_roster
+from src.tournaments.roster_resolver import (
+    ResolvedTeam,
+    make_exact_name_lookup,
+    make_provider_id_lookup,
+    resolve_roster,
+    search_gotsport_teams,
+    summarize,
 )
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
@@ -511,6 +521,7 @@ def _init_session_state() -> None:
     if "current_run_id_by_cohort" not in st.session_state:
         st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
+    st.session_state.setdefault("_seeding_result", None)
 
 
 def _render_rekey_banner() -> None:
@@ -3407,11 +3418,151 @@ def _render_cohort_containers(
                 )
 
 
-def main() -> None:
-    """Top-level render flow."""
-    _init_session_state()
-    supabase_client = get_database()
-    _render_rekey_banner()
+# ---------------------------------------------------------------------------
+# Seeding intake — paste an accepted-teams list for an unplayed tournament
+# ---------------------------------------------------------------------------
+
+_SEEDING_LOOKUP_DELAY_SECONDS = 0.4
+
+_SEEDING_STATUS_LABEL = {
+    "gotsport_id": "GotSport ID",
+    "exact_name": "Exact name",
+    "review": "Pick one",
+    "unresolved": "Not found",
+}
+
+_SEEDING_PLACEHOLDER = (
+    "Teams Accepted (16 of 331)\n"
+    "Male U14\n"
+    "Club\tTeam\tState\n"
+    "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
+)
+
+
+def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
+    """Parse the pasted roster, resolve every row, and park the result in session state."""
+    parsed = parse_roster(text)
+    if not parsed.rows:
+        st.session_state._seeding_result = None
+        st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
+        return
+
+    session = requests.Session()
+    progress = st.progress(0.0, text=f"Looking up 0 of {len(parsed.rows)} teams...")
+
+    def on_progress(done: int, total: int) -> None:
+        progress.progress(done / total, text=f"Looking up {done} of {total} teams...")
+
+    try:
+        resolved = resolve_roster(
+            parsed.rows,
+            gotsport_search=lambda name, age_group, gender: search_gotsport_teams(
+                name, age_group, gender, session=session
+            ),
+            lookup_provider_id=make_provider_id_lookup(supabase_client),
+            lookup_exact_name=make_exact_name_lookup(supabase_client),
+            delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
+            on_progress=on_progress,
+        )
+    except requests.RequestException as exc:
+        st.error(f"GotSport lookup failed: {exc}")
+        return
+    finally:
+        progress.empty()
+        session.close()
+
+    st.session_state._seeding_result = (parsed, resolved)
+
+
+def _seeding_candidate_label(candidate: dict[str, Any]) -> str:
+    return str(candidate.get("team_name") or candidate.get("team_id_master") or "")
+
+
+def _seeding_result_frame(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) -> pd.DataFrame:
+    """One row per roster team, in the order the director listed them."""
+    by_index = {item.source_index: item for item in resolved}
+    return pd.DataFrame(
+        [
+            {
+                "#": row.source_index + 1,
+                "Cohort": f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}",
+                "Club": row.club_raw,
+                "Team": row.team_name_raw,
+                "Status": _SEEDING_STATUS_LABEL[by_index[row.source_index].status],
+                "Matched to": by_index[row.source_index].matched_name or "",
+                "team_id_master": by_index[row.source_index].team_id_master or "",
+                "Candidates": "; ".join(
+                    _seeding_candidate_label(candidate) for candidate in by_index[row.source_index].candidates
+                ),
+            }
+            for row in parsed.rows
+        ]
+    )
+
+
+def _render_seeding_tab(supabase_client: Any) -> None:
+    """Paste-a-roster intake for a tournament that has not been played yet.
+
+    An unplayed event has no schedule to scrape, so the director's list is the
+    only input. Resolution is two lookups, not a fuzzy score — see
+    ``src.tournaments.roster_resolver``.
+    """
+    st.markdown("### Seeding intake")
+    st.caption(
+        "Paste the director's accepted-teams list. Age and gender come from the section "
+        "headings, so keep lines like 'Male U14' in."
+    )
+    st.text_area(
+        "Accepted teams",
+        key="seeding_roster_text",
+        height=220,
+        placeholder=_SEEDING_PLACEHOLDER,
+    )
+    if st.button(
+        "Resolve teams",
+        type="primary",
+        disabled=not st.session_state.get("seeding_roster_text"),
+    ):
+        _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client)
+
+    result = st.session_state.get("_seeding_result")
+    if not result:
+        return
+
+    parsed, resolved = result
+    counts = summarize(resolved)
+    matched, review, unresolved = (
+        counts["gotsport_id"] + counts["exact_name"],
+        counts["review"],
+        counts["unresolved"],
+    )
+
+    columns = st.columns(4)
+    columns[0].metric("Teams", len(parsed.rows))
+    columns[1].metric("Matched", matched)
+    columns[2].metric("Pick one", review)
+    columns[3].metric("Not found", unresolved)
+
+    for warning in parsed.warnings:
+        st.warning(warning)
+
+    frame = _seeding_result_frame(parsed, resolved)
+    st.dataframe(frame, width="stretch", hide_index=True)
+
+    needs_decision = frame[
+        frame["Status"].isin([_SEEDING_STATUS_LABEL["review"], _SEEDING_STATUS_LABEL["unresolved"]])
+    ]
+    if not needs_decision.empty:
+        st.download_button(
+            f"Download the {len(needs_decision)} needing a decision (CSV)",
+            data=needs_decision.to_csv(index=False).encode("utf-8"),
+            file_name="seeding_intake_review.csv",
+            mime="text/csv",
+        )
+
+
+def _render_backtest_tab(supabase_client: Any) -> None:
+    """Scrape-and-triage flow for a tournament that has already been played."""
     _render_intake_section(supabase_client)
     _render_registry_persist_results()
 
@@ -3455,6 +3606,18 @@ def main() -> None:
         event_name=meta.event_name,
         supabase_client=supabase_client,
     )
+
+
+def main() -> None:
+    """Top-level render flow."""
+    _init_session_state()
+    supabase_client = get_database()
+    _render_rekey_banner()
+    backtest_tab, seeding_tab = st.tabs(["Backtest", "Seeding"])
+    with backtest_tab:
+        _render_backtest_tab(supabase_client)
+    with seeding_tab:
+        _render_seeding_tab(supabase_client)
 
 
 if __name__ == "__main__":
