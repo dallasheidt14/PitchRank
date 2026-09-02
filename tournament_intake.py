@@ -86,10 +86,17 @@ from src.tournaments.seeding_optimizer import (
 )
 from src.tournaments.seeding_run_store import (
     SeedingRun,
+    slugify,
 )
 from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
 from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
 from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
+from src.tournaments.seeding_sheet import (
+    build_cohort_sheets,
+    fetch_ranking_run_date,
+    make_ratings_lookup,
+    render_sheet_html,
+)
 from src.tournaments.storage import (
     CohortConstraints,
     CohortStructure,
@@ -537,6 +544,7 @@ def _init_session_state() -> None:
     st.session_state.setdefault("_reviewer_email", "")
     st.session_state.setdefault("_seeding_result", None)
     st.session_state.setdefault("_seeding_overrides", {})
+    st.session_state.setdefault("_seeding_sheet_html", None)
 
 
 def _render_rekey_banner() -> None:
@@ -3660,6 +3668,63 @@ def _render_seeding_run_controls() -> None:
             st.rerun()
 
 
+def _long_date(day: date) -> str:
+    """`September 2, 2026` — strftime's no-pad flag is not portable across platforms."""
+    return f"{day:%B} {day.day}, {day.year}"
+
+
+def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) -> list[str]:
+    by_index = {item.source_index: item for item in resolved}
+    overrides = st.session_state._seeding_overrides
+    ids: list[str] = []
+    for row in parsed.rows:
+        override = overrides.get(row.source_index)
+        resolved_id = getattr(by_index.get(row.source_index), "team_id_master", None)
+        team_id = (override or {}).get("team_id_master") or resolved_id
+        if team_id:
+            ids.append(str(team_id))
+    return ids
+
+
+def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
+    """Build the branded, print-ready cohort sheet.
+
+    Behind a button rather than on every rerun: the ratings come from the
+    database, and a full roster is several round trips.
+    """
+    st.markdown("#### Cohort sheet")
+    event_name = _seeding_run_name()
+    if not event_name:
+        st.caption("Name the event above to build the sheet — the name is its headline.")
+        return
+
+    st.caption("Downloads a designed page. Open it and press Ctrl+P, then Save as PDF.")
+    if st.button("Build the sheet", key="_seeding_build_sheet"):
+        with st.spinner("Fetching ratings..."):
+            ratings = make_ratings_lookup(supabase_client)(_seeding_team_ids(parsed, resolved))
+            sheets = build_cohort_sheets(parsed.rows, resolved, st.session_state._seeding_overrides, ratings)
+            st.session_state._seeding_sheet_html = render_sheet_html(
+                event_name,
+                sheets,
+                generated_on=_long_date(date.today()),
+                ranking_run=fetch_ranking_run_date(supabase_client),
+            )
+
+    document = st.session_state.get("_seeding_sheet_html")
+    if not document:
+        return
+
+    st.download_button(
+        "Download the sheet",
+        data=document.encode("utf-8"),
+        file_name=f"{slugify(event_name)}-matchbalance.html",
+        mime="text/html",
+        key="_seeding_sheet_download",
+    )
+    with st.expander("Preview"):
+        components.html(document, height=900, scrolling=True)
+
+
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Queue every resolved team for a fresh scrape before any seeding is proposed."""
     overrides = st.session_state._seeding_overrides
@@ -3785,6 +3850,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         st.info("Name the event above to save this run, so a refresh does not lose your manual fixes.")
 
     _render_seeding_enqueue(parsed, resolved, supabase_client)
+    _render_seeding_sheet(parsed, resolved, supabase_client)
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:
