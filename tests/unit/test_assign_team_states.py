@@ -251,6 +251,36 @@ def test_a_stored_dc_always_queues():
     assert result["action"] == "queue"
 
 
+def test_the_unset_default_association_cannot_settle_a_disagreement():
+    """R8b. GotSport reports ``AL`` both for Alabama and for a team whose association was
+    never set. The four Cold Spring Harbor Huntington (LIJSL) teams are in New York and
+    reached the Alabama board by this exact path."""
+    result = decision(
+        team(state_code="NY", club_name="lijsl club"),
+        {"lijsl club": Counter({"NY": 38})},
+        associations={"t": "AL"},
+    )
+    assert result["action"] == "queue"
+    assert "unset default" in result["reason"]
+
+
+def test_an_alabama_club_still_reaches_alabama():
+    """The other 65 of the 86. The rule withholds AL only where something disputes it, so
+    a club whose own teams are in Alabama is untouched."""
+    result = decision(
+        team(state_code="TN", club_name="prattville elite"),
+        {"prattville elite": Counter({"AL": 12})},
+        associations={"t": "AL"},
+    )
+    assert (result["proposed"], result["action"]) == ("AL", "apply")
+
+
+def test_the_unset_default_still_fills_a_blank_nothing_disputes():
+    """A blank with no club evidence is the case AL is the only answer for."""
+    result = decision(team(club_name="unknown club"), {}, associations={"t": "AL"})
+    assert (result["proposed"], result["action"]) == ("AL", "apply")
+
+
 def test_a_value_the_operator_reverted_is_not_re_applied():
     """Without this a revert survives only until the next sweep recomputes the same
     evidence and writes the same value back."""

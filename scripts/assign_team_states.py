@@ -147,6 +147,11 @@ CANADIAN_PROVINCES = frozenset(
     {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
 )
 
+# The state Tier A proposes when GotSport has no association on file, which is also the
+# state it proposes when the association really is Alabama. R8b in ``decide`` is what the
+# ambiguity costs; the evidence for it is there. Alabama teams still reach Alabama.
+UNSET_DEFAULT_ASSOCIATION = "AL"
+
 # A state is meaningful to its club at two or more teams AND a twentieth of the club's
 # known-state teams. Tier B fires only when exactly one state clears both.
 MEANINGFUL_MIN_TEAMS = 2
@@ -837,6 +842,26 @@ def decide(
     # may not.
     if not is_fill and tier != "A" and (team.get("state") or "").strip():
         return _decision(team, proposed, tier, "queue", f"{reason}; stored value was reported")
+
+    # R8b. ``AL`` is the one association code that is also GotSport's value for a team
+    # whose association was never set, and the payload cannot tell the two apart. Of the
+    # 86 teams this tier had written to AL by 2026-09-02, 65 belong to clubs that really
+    # are in Alabama and 19 to clubs in NY, IN, PA, MI, MO, IL, OK, GA, UT, WI and CO --
+    # the four Cold Spring Harbor Huntington (LIJSL) teams among them, and IFA's
+    # "Hammarby - Sweden" carries the same code. Each payload was confirmed to be that
+    # team's own record, so this is the field and not a mis-matched alias. AL still fills
+    # a blank and still wins where nothing disputes it; what it may no longer do is settle
+    # a disagreement, which is the shape all 19 have and none of the 65 does.
+    if proposed == UNSET_DEFAULT_ASSOCIATION:
+        disputing = sorted({s for s in (club_state, name_state, place_state) if s and s != proposed})
+        if disputing:
+            return _decision(
+                team,
+                proposed,
+                tier,
+                "queue",
+                f"{reason}; AL is also GotSport's unset default, and {'/'.join(disputing)} disputes it",
+            )
 
     # R5. Fills auto-apply from any tier; corrections only from A or B.
     if is_fill or tier in ("A", "B"):
