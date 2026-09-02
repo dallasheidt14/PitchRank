@@ -11,6 +11,8 @@ from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import (
     ResolvedTeam,
     make_provider_id_lookup,
+    parse_manual_reference,
+    resolve_manual_reference,
     build_search_params,
     resolve_roster,
     resolve_row,
@@ -380,3 +382,125 @@ def test_provider_id_lookup_accepts_an_approved_gotsport_alias():
     )
 
     assert make_provider_id_lookup(client)("534748") == "aliased"
+
+
+# -------- manual overrides ------------------------------------------------
+
+
+def _details(**overrides):
+    base = {
+        "team_id_master": "master-1",
+        "team_name": "Barcelona SC Aztecas U14",
+        "club_name": "Barcelona Soccer Club",
+        "age_group": "u14",
+        "gender": "Male",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_rankings_url_is_read_as_a_gotsport_id():
+    ref = parse_manual_reference("https://rankings.gotsport.com/teams/534748")
+
+    assert ref.kind == "gotsport_id"
+    assert ref.value == "534748"
+
+
+def test_rankings_url_with_trailing_path_still_yields_the_id():
+    assert parse_manual_reference("https://rankings.gotsport.com/teams/534748/roster").value == "534748"
+
+
+def test_bare_number_is_read_as_a_gotsport_id():
+    ref = parse_manual_reference("  534748 ")
+
+    assert ref.kind == "gotsport_id"
+    assert ref.value == "534748"
+
+
+def test_uuid_is_read_as_our_own_team_id():
+    ref = parse_manual_reference("73af1f26-4629-434e-a61b-a0611d2802f3")
+
+    assert ref.kind == "team_id_master"
+    assert ref.value == "73af1f26-4629-434e-a61b-a0611d2802f3"
+
+
+def test_uppercase_uuid_is_normalised():
+    assert parse_manual_reference("73AF1F26-4629-434E-A61B-A0611D2802F3").value == "73af1f26-4629-434e-a61b-a0611d2802f3"
+
+
+def test_free_text_is_not_guessed_at():
+    assert parse_manual_reference("Barcelona SC 13B Aztecas").kind == "unrecognized"
+
+
+def test_empty_input_is_unrecognized():
+    assert parse_manual_reference("   ").kind == "unrecognized"
+
+
+def test_manual_gotsport_id_resolves_through_the_provider_lookup():
+    row = _row("Male U14\nBarcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX")
+
+    outcome = resolve_manual_reference(
+        "https://rankings.gotsport.com/teams/534748",
+        row,
+        lookup_provider_id=lambda pid: "master-1" if pid == "534748" else None,
+        lookup_team_details=lambda tid: _details() if tid == "master-1" else None,
+    )
+
+    assert outcome.status == "ok"
+    assert outcome.team_id_master == "master-1"
+    assert outcome.cohort_matches is True
+
+
+def test_manual_uuid_resolves_without_touching_gotsport():
+    row = _row("Male U14\nBarcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX")
+
+    outcome = resolve_manual_reference(
+        "73af1f26-4629-434e-a61b-a0611d2802f3",
+        row,
+        lookup_provider_id=_never_called,
+        lookup_team_details=lambda tid: _details(team_id_master=tid),
+    )
+
+    assert outcome.status == "ok"
+    assert outcome.team_id_master == "73af1f26-4629-434e-a61b-a0611d2802f3"
+
+
+def test_manual_reference_for_a_team_we_do_not_hold_reports_not_found():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    outcome = resolve_manual_reference(
+        "999999",
+        row,
+        lookup_provider_id=lambda pid: None,
+        lookup_team_details=lambda tid: None,
+    )
+
+    assert outcome.status == "not_found"
+    assert outcome.team_id_master is None
+
+
+def test_manual_reference_in_a_different_cohort_resolves_but_is_flagged():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    outcome = resolve_manual_reference(
+        "534748",
+        row,
+        lookup_provider_id=lambda pid: "master-1",
+        lookup_team_details=lambda tid: _details(age_group="u12"),
+    )
+
+    assert outcome.status == "ok"
+    assert outcome.cohort_matches is False
+
+
+def test_unreadable_manual_reference_is_reported_as_such():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    outcome = resolve_manual_reference(
+        "Barcelona SC 13B Aztecas",
+        row,
+        lookup_provider_id=_never_called,
+        lookup_team_details=_never_called,
+    )
+
+    assert outcome.status == "unrecognized"

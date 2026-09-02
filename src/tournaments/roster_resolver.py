@@ -24,6 +24,7 @@ into the review sheet so an operator chooses.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -39,8 +40,13 @@ __all__ = [
     "GOTSPORT_RANKING_SEARCH_URL",
     "ResolvedTeam",
     "build_search_params",
+    "ManualReference",
+    "ManualResolution",
     "make_exact_name_lookup",
     "make_provider_id_lookup",
+    "make_team_details_lookup",
+    "parse_manual_reference",
+    "resolve_manual_reference",
     "resolve_roster",
     "resolve_row",
     "search_gotsport_teams",
@@ -49,6 +55,10 @@ __all__ = [
 
 GOTSPORT_RANKING_SEARCH_URL = "https://system.gotsport.com/api/v1/team_ranking_data"
 GOTSPORT_PROVIDER_CODE = "gotsport"
+
+_UUID_PATTERN = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE)
+_TEAMS_PATH_PATTERN = re.compile(r"/teams/([0-9]+)")
+_ALL_DIGITS_PATTERN = re.compile(r"^[0-9]+$")
 
 _PROVIDER_GENDER = {"Male": "m", "Female": "f"}
 
@@ -224,6 +234,107 @@ def resolve_roster(
         if delay_seconds and position + 1 < len(rows):
             time.sleep(delay_seconds)
     return tuple(resolved)
+
+
+@dataclass(frozen=True)
+class ManualReference:
+    """What an operator pasted, once we know which kind of identifier it is."""
+
+    kind: str
+    value: str
+
+
+@dataclass(frozen=True)
+class ManualResolution:
+    """Outcome of a pasted override.
+
+    ``status`` is ``ok``, ``not_found`` (readable but we hold no such team) or
+    ``unrecognized`` (not an id we know how to read). ``cohort_matches`` is
+    False when the team sits in a different age group or gender from the
+    section it was pasted under, which is how a mistyped id shows itself.
+    """
+
+    status: str
+    team_id_master: str | None = None
+    details: dict[str, Any] | None = None
+    cohort_matches: bool = True
+
+
+def parse_manual_reference(text: str) -> ManualReference:
+    """Read a pasted GotSport link, GotSport id, or one of our own team ids.
+
+    A team name is deliberately not accepted. Name matching is the part this
+    override exists to bypass, so guessing from one here would reintroduce the
+    ambiguity the operator is resolving by hand.
+    """
+    candidate = (text or "").strip()
+
+    uuid_match = _UUID_PATTERN.search(candidate)
+    if uuid_match:
+        return ManualReference(kind="team_id_master", value=uuid_match.group(0).lower())
+
+    path_match = _TEAMS_PATH_PATTERN.search(candidate)
+    if path_match:
+        return ManualReference(kind="gotsport_id", value=path_match.group(1))
+
+    if _ALL_DIGITS_PATTERN.match(candidate):
+        return ManualReference(kind="gotsport_id", value=candidate)
+
+    return ManualReference(kind="unrecognized", value=candidate)
+
+
+def resolve_manual_reference(
+    text: str,
+    row: RosterRow,
+    *,
+    lookup_provider_id: ProviderIdLookup,
+    lookup_team_details: Callable[[str], dict[str, Any] | None],
+) -> ManualResolution:
+    """Turn a pasted identifier into a confirmed team, or say why it could not."""
+    reference = parse_manual_reference(text)
+    if reference.kind == "unrecognized":
+        return ManualResolution(status="unrecognized")
+
+    if reference.kind == "gotsport_id":
+        team_id_master = lookup_provider_id(reference.value)
+        if not team_id_master:
+            return ManualResolution(status="not_found")
+    else:
+        team_id_master = reference.value
+
+    details = lookup_team_details(team_id_master)
+    if not details:
+        return ManualResolution(status="not_found")
+
+    cohort_matches = str(details.get("age_group", "")).lower() == row.section_age_group and str(
+        details.get("gender", "")
+    ) == row.section_gender
+
+    return ManualResolution(
+        status="ok",
+        team_id_master=team_id_master,
+        details=details,
+        cohort_matches=cohort_matches,
+    )
+
+
+def make_team_details_lookup(supabase_client: Any) -> Callable[[str], dict[str, Any] | None]:
+    """Fetch the fields an operator needs to confirm a pasted id is the right team."""
+
+    def lookup(team_id_master: str) -> dict[str, Any] | None:
+        rows = (
+            supabase_client.table("teams")
+            .select("team_id_master,team_name,club_name,age_group,gender,state_code")
+            .eq("team_id_master", team_id_master)
+            .eq("is_deprecated", False)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return rows[0] if rows else None
+
+    return lookup
 
 
 def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) -> ProviderIdLookup:

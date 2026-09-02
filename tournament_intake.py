@@ -62,6 +62,8 @@ from src.tournaments.roster_resolver import (
     ResolvedTeam,
     make_exact_name_lookup,
     make_provider_id_lookup,
+    make_team_details_lookup,
+    resolve_manual_reference,
     resolve_roster,
     search_gotsport_teams,
     summarize,
@@ -522,6 +524,7 @@ def _init_session_state() -> None:
         st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
     st.session_state.setdefault("_seeding_result", None)
+    st.session_state.setdefault("_seeding_overrides", {})
 
 
 def _render_rekey_banner() -> None:
@@ -3422,6 +3425,8 @@ def _render_cohort_containers(
 # Seeding intake — paste an accepted-teams list for an unplayed tournament
 # ---------------------------------------------------------------------------
 
+_VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
+
 _SEEDING_LOOKUP_DELAY_SECONDS = 0.4
 
 _SEEDING_STATUS_LABEL = {
@@ -3429,7 +3434,10 @@ _SEEDING_STATUS_LABEL = {
     "exact_name": "Exact name",
     "review": "Pick one",
     "unresolved": "Not found",
+    "override": "You picked",
 }
+
+_SEEDING_NEEDS_DECISION = ("review", "unresolved")
 
 _SEEDING_PLACEHOLDER = (
     "Teams Accepted (16 of 331)\n"
@@ -3442,6 +3450,7 @@ _SEEDING_PLACEHOLDER = (
 def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     """Parse the pasted roster, resolve every row, and park the result in session state."""
     parsed = parse_roster(text)
+    st.session_state._seeding_overrides = {}
     if not parsed.rows:
         st.session_state._seeding_result = None
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
@@ -3478,26 +3487,95 @@ def _seeding_candidate_label(candidate: dict[str, Any]) -> str:
     return str(candidate.get("team_name") or candidate.get("team_id_master") or "")
 
 
-def _seeding_result_frame(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) -> pd.DataFrame:
+def _seeding_row_outcome(row: Any, item: ResolvedTeam, overrides: Mapping[int, dict[str, Any]]) -> tuple[str, str, str]:
+    """Return ``(status_key, matched_name, team_id_master)`` with any override applied."""
+    override = overrides.get(row.source_index)
+    if override:
+        return "override", str(override.get("team_name") or ""), str(override.get("team_id_master") or "")
+    return item.status, item.matched_name or "", item.team_id_master or ""
+
+
+def _seeding_result_frame(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]],
+) -> pd.DataFrame:
     """One row per roster team, in the order the director listed them."""
     by_index = {item.source_index: item for item in resolved}
-    return pd.DataFrame(
-        [
+    records = []
+    for row in parsed.rows:
+        item = by_index[row.source_index]
+        status_key, matched_name, team_id_master = _seeding_row_outcome(row, item, overrides)
+        records.append(
             {
                 "#": row.source_index + 1,
                 "Cohort": f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}",
                 "Club": row.club_raw,
                 "Team": row.team_name_raw,
-                "Status": _SEEDING_STATUS_LABEL[by_index[row.source_index].status],
-                "Matched to": by_index[row.source_index].matched_name or "",
-                "team_id_master": by_index[row.source_index].team_id_master or "",
-                "Candidates": "; ".join(
-                    _seeding_candidate_label(candidate) for candidate in by_index[row.source_index].candidates
-                ),
+                "Status": _SEEDING_STATUS_LABEL[status_key],
+                "Matched to": matched_name,
+                "team_id_master": team_id_master,
+                "Candidates": "; ".join(_seeding_candidate_label(candidate) for candidate in item.candidates),
             }
-            for row in parsed.rows
-        ]
-    )
+        )
+    return pd.DataFrame(records)
+
+
+def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any) -> None:
+    """One paste box for a team the resolver could not settle.
+
+    Accepts a rankings.gotsport.com link, a bare GotSport id, or one of our own
+    ``team_id_master`` UUIDs. A team name is not accepted: name matching is what
+    this box exists to bypass.
+    """
+    heading = f"{row.club_raw} · {row.team_name_raw}"
+    with st.container(border=True):
+        cohort_label = f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}"
+        st.markdown(f"**{html.escape(heading)}** · {cohort_label}")
+        if item.candidates:
+            st.caption("Searched and found: " + "; ".join(_seeding_candidate_label(c) for c in item.candidates))
+
+        pasted = st.text_input(
+            "GotSport link, GotSport id, or team_id_master",
+            key=f"_seed_fix_{row.source_index}",
+            placeholder="https://rankings.gotsport.com/teams/534748",
+        )
+        if not pasted:
+            return
+
+        outcome = resolve_manual_reference(
+            pasted,
+            row,
+            lookup_provider_id=make_provider_id_lookup(supabase_client),
+            lookup_team_details=make_team_details_lookup(supabase_client),
+        )
+        if outcome.status == "unrecognized":
+            st.error(
+                "Not a link or id I can read. Paste a rankings.gotsport.com link, its number, "
+                "or a team_id_master."
+            )
+            return
+        if outcome.status == "not_found":
+            st.error("That id is readable, but no team in our database matches it.")
+            return
+
+        details = outcome.details or {}
+        st.success(
+            f"{details.get('team_name', '')} · {details.get('club_name') or 'no club'} · "
+            f"{str(details.get('age_group', '')).upper()} {details.get('gender', '')}"
+        )
+        if not outcome.cohort_matches:
+            st.warning(
+                "This team sits in a different cohort from the section it was listed under. "
+                "Check it is the one you meant."
+            )
+
+        if st.button("Use this team", key=f"_seed_use_{row.source_index}"):
+            st.session_state._seeding_overrides[row.source_index] = {
+                "team_id_master": outcome.team_id_master,
+                "team_name": details.get("team_name", ""),
+            }
+            st.rerun()
 
 
 def _render_seeding_tab(supabase_client: Any) -> None:
@@ -3530,35 +3608,50 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         return
 
     parsed, resolved = result
-    counts = summarize(resolved)
-    matched, review, unresolved = (
-        counts["gotsport_id"] + counts["exact_name"],
-        counts["review"],
-        counts["unresolved"],
-    )
+    overrides = st.session_state._seeding_overrides
+    by_index = {item.source_index: item for item in resolved}
+    outstanding = [
+        row
+        for row in parsed.rows
+        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+    ]
 
     columns = st.columns(4)
     columns[0].metric("Teams", len(parsed.rows))
-    columns[1].metric("Matched", matched)
-    columns[2].metric("Pick one", review)
-    columns[3].metric("Not found", unresolved)
+    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
+    columns[2].metric("You fixed", len(overrides))
+    columns[3].metric("Still open", len(outstanding))
+
+    counts = summarize(resolved)
+    st.caption(
+        f"{counts['gotsport_id']} matched by GotSport id, {counts['exact_name']} by exact name."
+    )
 
     for warning in parsed.warnings:
         st.warning(warning)
 
-    frame = _seeding_result_frame(parsed, resolved)
+    frame = _seeding_result_frame(parsed, resolved, overrides)
     st.dataframe(frame, width="stretch", hide_index=True)
 
-    needs_decision = frame[
-        frame["Status"].isin([_SEEDING_STATUS_LABEL["review"], _SEEDING_STATUS_LABEL["unresolved"]])
-    ]
-    if not needs_decision.empty:
+    if outstanding:
+        st.markdown(f"#### {len(outstanding)} still need a decision")
+        st.caption(
+            "Look the team up on rankings.gotsport.com and paste the link, or paste a team_id_master "
+            "if you already have it."
+        )
+        for row in outstanding:
+            _render_seeding_override(row, by_index[row.source_index], supabase_client)
+
         st.download_button(
-            f"Download the {len(needs_decision)} needing a decision (CSV)",
-            data=needs_decision.to_csv(index=False).encode("utf-8"),
+            f"Download these {len(outstanding)} as CSV",
+            data=frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
+            .to_csv(index=False)
+            .encode("utf-8"),
             file_name="seeding_intake_review.csv",
             mime="text/csv",
         )
+    else:
+        st.success("Every team on the list is resolved.")
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:
@@ -3613,11 +3706,17 @@ def main() -> None:
     _init_session_state()
     supabase_client = get_database()
     _render_rekey_banner()
-    backtest_tab, seeding_tab = st.tabs(["Backtest", "Seeding"])
-    with backtest_tab:
-        _render_backtest_tab(supabase_client)
-    with seeding_tab:
+    st.segmented_control(
+        "View",
+        options=_VIEWS,
+        default=_VIEWS[0],
+        key="active_view",
+        label_visibility="collapsed",
+    )
+    if st.session_state.get("active_view") == "Seeding":
         _render_seeding_tab(supabase_client)
+    else:
+        _render_backtest_tab(supabase_client)
 
 
 if __name__ == "__main__":
