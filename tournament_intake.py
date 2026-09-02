@@ -3636,11 +3636,28 @@ def _load_seeding_run(slug: str) -> None:
         return
     st.session_state._seeding_result = (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved)
     st.session_state._seeding_overrides = dict(run.overrides)
-    st.session_state.seeding_event_name = run.name
+    st.session_state._seeding_sheet_html = None
     st.session_state._seeding_loaded_slug = slug
+    st.session_state._seeding_pending_name = run.name
+
+
+def _apply_pending_seeding_widgets() -> None:
+    """Move a loaded run's values into their widgets before those widgets exist.
+
+    Streamlit refuses a write to a widget's key once that widget has been
+    instantiated during the same run, and the run is opened from a control that
+    sits beside the name box. Handing the value over on the following run keeps
+    that legal however the two controls are later ordered on the page.
+    """
+    pending_name = st.session_state.pop("_seeding_pending_name", None)
+    if pending_name is None:
+        return
+    st.session_state["seeding_event_name"] = pending_name
+    st.session_state["seeding_roster_text"] = ""
 
 
 def _render_seeding_run_controls() -> None:
+    _apply_pending_seeding_widgets()
     left, right = st.columns([2, 2])
     with left:
         st.text_input(
