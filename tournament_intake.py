@@ -78,6 +78,7 @@ from src.tournaments.run_orchestrator import (
 from src.tournaments.seeding_enqueue import (
     enqueue_resolved_teams,
     make_enqueue_caller,
+    make_provider_team_id_lookup,
 )
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
@@ -3662,7 +3663,16 @@ def _render_seeding_run_controls() -> None:
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Queue every resolved team for a fresh scrape before any seeding is proposed."""
     overrides = st.session_state._seeding_overrides
-    rehearsal = enqueue_resolved_teams(parsed.rows, resolved, overrides, enqueue=lambda _payload: None, dry_run=True)
+    provider_id = fetch_gotsport_provider_id(supabase_client)
+    lookup_provider_team_id = make_provider_team_id_lookup(supabase_client, provider_id)
+    rehearsal = enqueue_resolved_teams(
+        parsed.rows,
+        resolved,
+        overrides,
+        enqueue=lambda _payload: None,
+        lookup_provider_team_id=lookup_provider_team_id,
+        dry_run=True,
+    )
     if not rehearsal.would_queue:
         return
 
@@ -3672,7 +3682,10 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
         "refresh uses, so their ratings are current before anything is seeded."
     )
     if rehearsal.skipped:
-        st.caption(f"{rehearsal.skipped} unresolved team(s) cannot be queued and will be left out.")
+        st.caption(
+            f"{rehearsal.skipped} team(s) cannot be queued and will be left out: either unresolved, "
+            "or with no GotSport id on record for the scraper to follow."
+        )
 
     if st.button(f"Add {rehearsal.would_queue} teams to the scrape queue", key="_seeding_enqueue"):
         with st.spinner("Queueing..."):
@@ -3680,7 +3693,8 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
                 parsed.rows,
                 resolved,
                 overrides,
-                enqueue=make_enqueue_caller(supabase_client, fetch_gotsport_provider_id(supabase_client)),
+                enqueue=make_enqueue_caller(supabase_client, provider_id),
+                lookup_provider_team_id=lookup_provider_team_id,
             )
         if outcome.queued:
             st.success(f"Queued {outcome.queued} teams.")

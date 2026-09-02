@@ -242,8 +242,10 @@ not touched.
 | `src/tournaments/roster_paste.py` — heading-aware parser, marker split | shipped, 15 tests |
 | `src/tournaments/roster_resolver.py` — both passes, search contract, Supabase lookups | shipped, 21 tests |
 | Seeding tab — paste box, progress, per-row table, CSV of rows needing a decision | shipped |
+| Manual override — paste a rankings link, a GotSport id, or a `team_id_master` | shipped |
+| `src/tournaments/seeding_run_store.py` — save and reopen a named run | shipped, 14 tests |
+| `src/tournaments/seeding_enqueue.py` — queue the roster for a fresh scrape | shipped, 9 tests |
 | `event_team_registry.csv` output | **not yet** |
-| `--apply` decision round trip | **not yet** — the CSV is currently read-only |
 | Stage 4 estimate ladder | **not yet** |
 | `scripts/seed_intake.py` CLI | **not yet** |
 
@@ -254,6 +256,18 @@ unresolved — every branch exercised on real data.
 An earlier draft of this document listed "build it into the Streamlit app" as rejected. That
 was overturned by the operator, who asked for a tab; the reasoning against it applied to
 reusing the triage screen, which this does not do.
+
+### Queueing a roster for rescrape
+
+`process_missing_games` raises `Missing required field: provider_team_id`, so a request
+without one is a guaranteed failure rather than a scrape. Only the GotSport-id pass yields
+that id directly; rows settled by name or by hand have it looked up from `teams` and then
+`team_alias_map`, and a team with no GotSport id at all is skipped and reported rather than
+queued. Measured on the 16-team cohort: 6 rows reached the queue without an id, 5 of which
+the lookup fills, the sixth being a TGS-sourced team the GotSport scraper cannot follow.
+
+The RPC's update branch is `COALESCE(p_provider_team_id, provider_team_id)`, so re-running
+the button repairs an existing pending row in place instead of duplicating it.
 
 ## Open questions
 

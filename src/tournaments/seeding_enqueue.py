@@ -11,8 +11,12 @@ is a couple of hours ahead of the scheduled work rather than a lasting
 displacement of it.
 
 A team the intake could not resolve cannot be queued at all: the RPC is keyed
-on ``team_id_master`` and there is no row to name. Those are reported as
-skipped so the count is honest about what was left out.
+on ``team_id_master`` and there is no row to name. Nor is a team queued without
+a ``provider_team_id`` — ``process_missing_games`` raises
+``Missing required field: provider_team_id`` and the row becomes a guaranteed
+failure instead of a scrape. Only the GotSport-id pass yields that id directly,
+so rows settled by name or by hand have it looked up. Both kinds of omission
+are reported as skipped, so the count says what was left out.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ __all__ = [
     "EnqueueOutcome",
     "enqueue_resolved_teams",
     "make_enqueue_caller",
+    "make_provider_team_id_lookup",
 ]
 
 SEEDING_REQUEST_PRIORITY = 1
@@ -62,6 +67,7 @@ def enqueue_resolved_teams(
     overrides: Mapping[int, dict[str, Any]],
     *,
     enqueue: Callable[[dict[str, Any]], Any],
+    lookup_provider_team_id: Callable[[str], str | None] | None = None,
     dry_run: bool = False,
 ) -> EnqueueOutcome:
     """Queue every resolved team once.
@@ -86,6 +92,14 @@ def enqueue_resolved_teams(
             continue
         if team_id_master in seen:
             continue
+
+        provider_team_id = item.provider_team_id
+        if not provider_team_id and lookup_provider_team_id is not None:
+            provider_team_id = lookup_provider_team_id(team_id_master)
+        if not provider_team_id:
+            skipped += 1
+            continue
+
         seen.add(team_id_master)
 
         if dry_run:
@@ -97,7 +111,7 @@ def enqueue_resolved_teams(
                     "p_team_id_master": team_id_master,
                     "p_team_name": row.team_name_raw,
                     "p_provider_id": None,
-                    "p_provider_team_id": item.provider_team_id,
+                    "p_provider_team_id": provider_team_id,
                     "p_game_date": anchor,
                     "p_request_type": SEEDING_REQUEST_TYPE,
                     "p_priority": SEEDING_REQUEST_PRIORITY,
@@ -128,3 +142,42 @@ def make_enqueue_caller(supabase_client: Any, provider_id: str | None = None) ->
         return supabase_client.rpc("enqueue_scrape_request", body).execute()
 
     return call
+
+
+def make_provider_team_id_lookup(supabase_client: Any, provider_id: str | None) -> Callable[[str], str | None]:
+    """Find a team's GotSport id when the resolver did not supply one.
+
+    Checks ``teams`` first, then ``team_alias_map``, both scoped to GotSport
+    since uniqueness is on ``(provider_id, provider_team_id)``.
+    """
+
+    def lookup(team_id_master: str) -> str | None:
+        rows = (
+            supabase_client.table("teams")
+            .select("provider_team_id")
+            .eq("team_id_master", team_id_master)
+            .eq("provider_id", provider_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows and rows[0].get("provider_team_id"):
+            return str(rows[0]["provider_team_id"])
+
+        alias_rows = (
+            supabase_client.table("team_alias_map")
+            .select("provider_team_id")
+            .eq("team_id_master", team_id_master)
+            .eq("provider_id", provider_id)
+            .eq("review_status", "approved")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if alias_rows and alias_rows[0].get("provider_team_id"):
+            return str(alias_rows[0]["provider_team_id"])
+        return None
+
+    return lookup
