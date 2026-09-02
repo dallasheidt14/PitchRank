@@ -33,9 +33,11 @@ RESOLVED = (
 
 RATINGS = {
     "m-barca": {"team_name": "Barcelona SC Aztecas U14", "club_name": "Barcelona Soccer Club",
-                "power_score_final": 0.4810, "games_played": 22, "status": "Active"},
+                "power_score_final": 0.4810, "status": "Active",
+                "rank_in_cohort_final": 585, "rank_in_state_final": 72, "state": "TX"},
     "m-laredo": {"team_name": "Laredo Heat Red U14", "club_name": "Laredo Youth Soccer Assn",
-                 "power_score_final": 0.5347, "games_played": 15, "status": "Active"},
+                 "power_score_final": 0.5347, "status": "Active",
+                 "rank_in_cohort_final": 315, "rank_in_state_final": 33, "state": "TX"},
 }
 
 
@@ -73,11 +75,11 @@ def test_total_teams_counts_both_sides_of_the_line():
     assert _sheets()[0].total_teams == 3
 
 
-def test_a_rated_team_carries_its_score_and_game_count():
+def test_a_ranked_team_carries_its_score_and_state_rank():
     top = _sheets()[0].rated[0]
 
     assert top.power_score == 0.5347
-    assert top.ranked_games == 15
+    assert top.state_rank == 33
 
 
 def test_the_teams_own_name_is_used_when_we_have_a_rating_for_it():
@@ -85,15 +87,21 @@ def test_the_teams_own_name_is_used_when_we_have_a_rating_for_it():
     assert _sheets()[0].rated[1].team_name == "Barcelona SC Aztecas U14"
 
 
-def test_an_inactive_team_stays_above_the_line_but_is_flagged():
+def test_an_inactive_team_with_a_score_but_no_rank_falls_below_the_line():
+    """PitchRank publishes no rank for an Inactive team, so it is not a ranked team.
+
+    It keeps its PowerScore below the line, since that is still worth seeing.
+    """
     ratings = dict(RATINGS)
     ratings["m-stx"] = {"team_name": "STX Elevate FC 2012/13 JG", "club_name": "STX Elevate FC",
-                        "power_score_final": 0.30, "games_played": 3, "status": "Inactive"}
+                        "power_score_final": 0.30, "status": "Inactive",
+                        "rank_in_cohort_final": None, "rank_in_state_final": None}
 
-    u14 = _sheets(ratings)
+    u14 = _sheets(ratings)[0]
 
-    assert [team.team_name for team in u14[0].unrated] == []
-    assert u14[0].rated[-1].status == "Inactive"
+    assert [team.team_name for team in u14.unrated] == ["STX Elevate FC 2012/13 JG"]
+    assert u14.unrated[0].power_score == 0.30
+    assert u14.unrated[0].status == "Inactive"
 
 
 def test_an_override_supplies_the_team_id_used_for_the_rating():
@@ -151,9 +159,11 @@ def test_the_two_groups_are_labelled_ranked_and_unranked():
 def test_the_unranked_heading_is_absent_when_every_team_is_rated():
     ratings = dict(RATINGS)
     ratings["m-stx"] = {"team_name": "STX Elevate FC 2012/13 JG", "club_name": "STX Elevate FC",
-                        "power_score_final": 0.30, "games_played": 3, "status": "Active"}
+                        "power_score_final": 0.30, "status": "Active",
+                        "rank_in_cohort_final": 900, "rank_in_state_final": 120}
     ratings["m-tyler"] = {"team_name": "Tyler FC 2015", "club_name": "Tyler FC",
-                          "power_score_final": 0.41, "games_played": 9, "status": "Active"}
+                          "power_score_final": 0.41, "status": "Active",
+                          "rank_in_cohort_final": 700, "rank_in_state_final": 95}
     parsed = parse_roster(PASTE)
     sheets = build_cohort_sheets(parsed.rows, RESOLVED, {3: {"team_id_master": "m-tyler"}}, ratings)
 
@@ -202,3 +212,26 @@ def test_ranking_run_date_is_read_from_the_latest_calculation():
 
 def test_ranking_run_date_falls_back_when_nothing_is_calculated():
     assert fetch_ranking_run_date(_FakeClient([])) == "unknown"
+
+
+# -------- columns and copy ------------------------------------------------
+
+
+def test_the_sheet_shows_state_rank_and_not_ranked_games():
+    html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
+
+    assert "State rank" in html
+    assert "Ranked games" not in html
+
+
+def test_a_ranked_teams_state_rank_reaches_the_page_with_its_state():
+    html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
+
+    assert "TX #33" in html
+
+
+def test_the_unranked_note_does_not_tell_the_reader_to_rescrape():
+    html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
+
+    assert "run this again" not in html
+    assert "scrape" not in html.lower()

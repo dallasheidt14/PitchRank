@@ -11,6 +11,15 @@ publishes and what a director comparing this against a team page would see.
 Ordering is within a cohort only, where ``power_score_final`` and
 ``power_score_true`` rank identically: the anchor that separates them is
 constant for a given age group.
+
+A team counts as ranked when PitchRank publishes a rank for it. An Inactive team
+does not qualify: it is left out of the ranking views entirely and keeps only a
+stale PowerScore, with neither a national nor a state rank. Such a team sits
+below the line with its score still shown, rather than appearing among ranked
+teams with an empty rank beside its name.
+
+State rank comes from ``state_rankings_view``. ``rankings_full.state_rank`` is
+always NULL, because the views compute the published ranks.
 """
 
 from __future__ import annotations
@@ -56,7 +65,8 @@ class SheetTeam:
     team_name: str
     club_name: str
     power_score: float | None = None
-    ranked_games: int | None = None
+    state_rank: int | None = None
+    state: str | None = None
     status: str | None = None
 
 
@@ -112,23 +122,20 @@ def build_cohort_sheets(
         team_id = _team_id_for(row, by_index.get(row.source_index), overrides)
         rating = ratings.get(team_id) if team_id else None
 
-        if rating and rating.get("power_score_final") is not None:
-            grouped[cohort].append(
-                SheetTeam(
-                    team_name=str(rating.get("team_name") or row.team_name_stripped),
-                    club_name=str(rating.get("club_name") or row.club_raw),
-                    power_score=float(rating["power_score_final"]),
-                    ranked_games=rating.get("games_played"),
-                    status=rating.get("status"),
-                )
-            )
+        rating = rating or {}
+        score = rating.get("power_score_final")
+        team = SheetTeam(
+            team_name=str(rating.get("team_name") or row.team_name_stripped),
+            club_name=str(rating.get("club_name") or row.club_raw),
+            power_score=float(score) if score is not None else None,
+            state_rank=rating.get("rank_in_state_final"),
+            state=str(rating["state"]).strip() if rating.get("state") else None,
+            status=rating.get("status"),
+        )
+        if rating.get("rank_in_cohort_final") is not None:
+            grouped[cohort].append(team)
         else:
-            unrated[cohort].append(
-                SheetTeam(
-                    team_name=str((rating or {}).get("team_name") or row.team_name_stripped),
-                    club_name=str((rating or {}).get("club_name") or row.club_raw),
-                )
-            )
+            unrated[cohort].append(team)
 
     sheets = []
     for cohort in sorted(grouped, key=lambda key: (-_age_sort_key(key[0]), key[1])):
@@ -155,13 +162,24 @@ def make_ratings_lookup(supabase_client: Any) -> Callable[[Sequence[str]], dict[
             batch = wanted[start : start + 100]
             for row in (
                 supabase_client.table("rankings_full")
-                .select("team_id,power_score_final,games_played,status")
+                .select("team_id,power_score_final,rank_in_cohort_final,status")
                 .in_("team_id", batch)
                 .execute()
                 .data
                 or []
             ):
                 ratings[str(row["team_id"])] = dict(row)
+            for row in (
+                supabase_client.table("state_rankings_view")
+                .select("team_id_master,rank_in_state_final,state")
+                .in_("team_id_master", batch)
+                .execute()
+                .data
+                or []
+            ):
+                ratings.setdefault(str(row["team_id_master"]), {}).update(
+                    {"rank_in_state_final": row.get("rank_in_state_final"), "state": row.get("state")}
+                )
             for row in (
                 supabase_client.table("teams")
                 .select("team_id_master,team_name,club_name")
@@ -198,6 +216,12 @@ def fetch_ranking_run_date(supabase_client: Any) -> str:
     return str(stamp)[:10] if stamp else "unknown"
 
 
+def _state_rank(team: SheetTeam) -> str:
+    if team.state_rank is None:
+        return "—"
+    return f"{team.state} #{team.state_rank}" if team.state else f"#{team.state_rank}"
+
+
 def _score(value: float | None) -> str:
     return f"{value:.3f}" if value is not None else "—"
 
@@ -216,7 +240,7 @@ def _rows_html(teams: Sequence[SheetTeam], *, numbered: bool) -> str:
             f'<td class="team">{html.escape(team.team_name)}{flag}</td>'
             f'<td class="club">{html.escape(team.club_name)}</td>'
             f'<td class="num">{_score(team.power_score)}</td>'
-            f'<td class="num">{team.ranked_games if team.ranked_games is not None else "—"}</td>'
+            f'<td class="num">{_state_rank(team)}</td>'
             "</tr>"
         )
     return "".join(cells)
@@ -231,8 +255,7 @@ def _sheet_html(event_name: str, sheet: CohortSheet, *, generated_on: str, ranki
             '<table class="grid unrated"><tbody>'
             f"{_rows_html(sheet.unrated, numbered=False)}"
             "</tbody></table>"
-            '<p class="note">These teams have no games in our ranking window, so they carry no PowerScore. '
-            "Seed them by judgement, or send them for a scrape and run this again.</p>"
+            '<p class="note">PitchRank publishes no rank for these teams. Seed them by judgement.</p>'
         )
 
     return f"""<section class="sheet">
@@ -252,7 +275,7 @@ def _sheet_html(event_name: str, sheet: CohortSheet, *, generated_on: str, ranki
  <table class="grid">
   <thead><tr>
    <th class="pos">#</th><th>Team</th><th>Club</th>
-   <th class="num">PowerScore</th><th class="num">Ranked games</th>
+   <th class="num">PowerScore</th><th class="num">State rank</th>
   </tr></thead>
   <tbody>{_rows_html(sheet.rated, numbered=True)}</tbody>
  </table>
