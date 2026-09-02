@@ -60,6 +60,7 @@ from src.tournaments.reports.ui import (
 from src.tournaments.roster_paste import ParsedRoster, parse_roster
 from src.tournaments.roster_resolver import (
     ResolvedTeam,
+    fetch_gotsport_provider_id,
     make_exact_name_lookup,
     make_provider_id_lookup,
     make_team_details_lookup,
@@ -74,10 +75,20 @@ from src.tournaments.run_orchestrator import (
     override_in_cohort,
     preflight,
 )
+from src.tournaments.seeding_enqueue import (
+    enqueue_resolved_teams,
+    make_enqueue_caller,
+)
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
+from src.tournaments.seeding_run_store import (
+    SeedingRun,
+)
+from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
+from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
+from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
 from src.tournaments.storage import (
     CohortConstraints,
     CohortStructure,
@@ -3575,7 +3586,108 @@ def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any)
                 "team_id_master": outcome.team_id_master,
                 "team_name": details.get("team_name", ""),
             }
+            _autosave_seeding_run()
             st.rerun()
+
+
+def _seeding_run_name() -> str:
+    return str(st.session_state.get("seeding_event_name") or "").strip()
+
+
+def _autosave_seeding_run() -> None:
+    """Persist the run after anything the operator would hate to redo.
+
+    Silent when unnamed: a run has to be called something before it can have a
+    folder, and nagging on every rerun would drown the page.
+    """
+    name = _seeding_run_name()
+    result = st.session_state.get("_seeding_result")
+    if not name or not result:
+        return
+    parsed, resolved = result
+    try:
+        save_seeding_run_file(
+            SeedingRun(
+                name=name,
+                rows=parsed.rows,
+                resolved=resolved,
+                overrides=dict(st.session_state._seeding_overrides),
+                warnings=parsed.warnings,
+            )
+        )
+    except (OSError, ValueError) as exc:
+        st.warning(f"Could not save this run: {exc}")
+
+
+def _load_seeding_run(slug: str) -> None:
+    try:
+        run = load_seeding_run_file(slug)
+    except (OSError, ValueError, TypeError) as exc:
+        st.error(f"Could not open that run: {exc}")
+        return
+    st.session_state._seeding_result = (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved)
+    st.session_state._seeding_overrides = dict(run.overrides)
+    st.session_state.seeding_event_name = run.name
+    st.session_state._seeding_loaded_slug = slug
+
+
+def _render_seeding_run_controls() -> None:
+    left, right = st.columns([2, 2])
+    with left:
+        st.text_input(
+            "Event name",
+            key="seeding_event_name",
+            placeholder="STX Cup 2026",
+            help="Naming the event saves your work, so a refresh does not lose your manual fixes.",
+        )
+    with right:
+        entries = list_seeding_runs()
+        if not entries:
+            st.selectbox("Reopen a saved run", options=[], placeholder="(nothing saved yet)", disabled=True)
+            return
+        labels = {entry.slug: f"{entry.name} · {entry.team_count} teams" for entry in entries}
+        chosen = st.selectbox(
+            "Reopen a saved run",
+            options=list(labels),
+            format_func=lambda slug: labels[slug],
+            index=None,
+            placeholder="Select a run...",
+            key="seeding_resume_choice",
+        )
+        if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
+            _load_seeding_run(chosen)
+            st.rerun()
+
+
+def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
+    """Queue every resolved team for a fresh scrape before any seeding is proposed."""
+    overrides = st.session_state._seeding_overrides
+    rehearsal = enqueue_resolved_teams(parsed.rows, resolved, overrides, enqueue=lambda _payload: None, dry_run=True)
+    if not rehearsal.would_queue:
+        return
+
+    st.markdown("#### Refresh the data first")
+    st.caption(
+        f"Queues {rehearsal.would_queue} teams for a scrape at the same priority a user-clicked "
+        "refresh uses, so their ratings are current before anything is seeded."
+    )
+    if rehearsal.skipped:
+        st.caption(f"{rehearsal.skipped} unresolved team(s) cannot be queued and will be left out.")
+
+    if st.button(f"Add {rehearsal.would_queue} teams to the scrape queue", key="_seeding_enqueue"):
+        with st.spinner("Queueing..."):
+            outcome = enqueue_resolved_teams(
+                parsed.rows,
+                resolved,
+                overrides,
+                enqueue=make_enqueue_caller(supabase_client, fetch_gotsport_provider_id(supabase_client)),
+            )
+        if outcome.queued:
+            st.success(f"Queued {outcome.queued} teams.")
+        if outcome.failed:
+            st.error(f"{outcome.failed} could not be queued.")
+            for failure in outcome.failures[:5]:
+                st.caption(failure)
 
 
 def _render_seeding_tab(supabase_client: Any) -> None:
@@ -3590,6 +3702,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         "Paste the director's accepted-teams list. Age and gender come from the section "
         "headings, so keep lines like 'Male U14' in."
     )
+    _render_seeding_run_controls()
     st.text_area(
         "Accepted teams",
         key="seeding_roster_text",
@@ -3602,6 +3715,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         disabled=not st.session_state.get("seeding_roster_text"),
     ):
         _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client)
+        _autosave_seeding_run()
 
     result = st.session_state.get("_seeding_result")
     if not result:
@@ -3652,6 +3766,11 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         )
     else:
         st.success("Every team on the list is resolved.")
+
+    if not _seeding_run_name():
+        st.info("Name the event above to save this run, so a refresh does not lose your manual fixes.")
+
+    _render_seeding_enqueue(parsed, resolved, supabase_client)
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:

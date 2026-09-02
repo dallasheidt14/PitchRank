@@ -42,6 +42,7 @@ __all__ = [
     "build_search_params",
     "ManualReference",
     "ManualResolution",
+    "fetch_gotsport_provider_id",
     "make_exact_name_lookup",
     "make_provider_id_lookup",
     "make_team_details_lookup",
@@ -337,6 +338,24 @@ def make_team_details_lookup(supabase_client: Any) -> Callable[[str], dict[str, 
     return lookup
 
 
+def fetch_gotsport_provider_id(supabase_client: Any) -> str | None:
+    """Resolve the GotSport row in ``providers``.
+
+    Uniqueness on both id-bearing tables is ``(provider_id, provider_team_id)``,
+    so every id lookup needs this to be meaningful.
+    """
+    rows = (
+        supabase_client.table("providers")
+        .select("id")
+        .eq("code", GOTSPORT_PROVIDER_CODE)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0]["id"] if rows else None
+
+
 def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) -> ProviderIdLookup:
     """Build a ``provider_team_id`` → ``team_id_master`` lookup.
 
@@ -356,16 +375,7 @@ def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) ->
 
     def gotsport_provider_id() -> str | None:
         if not cached_provider_id:
-            rows = (
-                supabase_client.table("providers")
-                .select("id")
-                .eq("code", GOTSPORT_PROVIDER_CODE)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
-            cached_provider_id.append(rows[0]["id"] if rows else None)
+            cached_provider_id.append(fetch_gotsport_provider_id(supabase_client))
         return cached_provider_id[0]
 
     def lookup(provider_team_id: str) -> str | None:
