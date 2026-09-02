@@ -91,9 +91,14 @@ jobs:
           SKIPPED=$(grep -oP '^\s+\K[\d,]+(?= skipped: answered before)' logs/report.log | tail -1 || true)
 
           C=$(strip "$CANDIDATES"); A=$(strip "$ANSWERED"); S=$(strip "$SKIPPED")
-          # What a paid pass would cost: the candidates nothing has answered yet. A team
-          # already answered costs nothing to decide again, and one answered without a
-          # state is suppressed until its window expires.
+          # The candidates nothing has answered yet: a team already answered costs nothing
+          # to decide again, and one answered without a state is suppressed until its
+          # window expires. This is a ceiling on the spend, not the spend. A candidate
+          # without a GotSport id never reaches the paid call -- it takes a no-alias
+          # ledger row instead -- and this run cannot tell which those are, because
+          # `--probe-limit 0` leaves nothing to probe and so skips the alias lookup that
+          # would say. Reported as "at most" for that reason. Do not restate it as the
+          # expected cost without counting aliases first.
           WAITING=$(( C - A - S ))
           [ "$WAITING" -lt 0 ] && WAITING=0
 
@@ -125,10 +130,14 @@ jobs:
           echo "| Teams contradicting a confirmed club-mate | $CANDIDATES |" >> $GITHUB_STEP_SUMMARY
           echo "| … already answered, free to decide again | $ANSWERED |" >> $GITHUB_STEP_SUMMARY
           echo "| … answered without a state, suppressed for now | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Would cost a paid lookup** | **$WAITING** |" >> $GITHUB_STEP_SUMMARY
+          echo "| **At most this many paid lookups** | **$WAITING** |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This run spent nothing and changed nothing. The last column is roughly what" >> $GITHUB_STEP_SUMMARY
-          echo "a full pass would cost in GotSport requests." >> $GITHUB_STEP_SUMMARY
+          echo "This run spent nothing and changed nothing." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The last row is a ceiling rather than an estimate. A candidate with no" >> $GITHUB_STEP_SUMMARY
+          echo "GotSport id costs nothing to ask about, and this run cannot tell which" >> $GITHUB_STEP_SUMMARY
+          echo "those are: it skips the alias lookup along with the probe. Most candidates" >> $GITHUB_STEP_SUMMARY
+          echo "do carry one, so the real figure sits a little under this." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "To act on it, run the audit through the \`assigning-team-states\` skill:" >> $GITHUB_STEP_SUMMARY
           echo "take a capped batch with \`--probe-limit\`, read what came back against the" >> $GITHUB_STEP_SUMMARY
