@@ -147,6 +147,11 @@ CANADIAN_PROVINCES = frozenset(
     {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
 )
 
+# The state Tier A proposes when GotSport has no association on file, which is also the
+# state it proposes when the association really is Alabama. R8b in ``decide`` is what the
+# ambiguity costs; the evidence for it is there. Alabama teams still reach Alabama.
+UNSET_DEFAULT_ASSOCIATION = "AL"
+
 # A state is meaningful to its club at two or more teams AND a twentieth of the club's
 # known-state teams. Tier B fires only when exactly one state clears both.
 MEANINGFUL_MIN_TEAMS = 2
@@ -789,6 +794,25 @@ def decide(
     }
     voted = {label: state for label, state in readings.items() if state}
     association_state = association_states.get(team_id)
+
+    # R8b. ``AL`` is the one association code that is also GotSport's value for a team
+    # whose association was never set, and the payload cannot tell the two apart. Of the
+    # 86 teams this tier had written to AL by 2026-09-02, 65 belong to clubs that really
+    # are in Alabama and 19 to clubs in NY, IN, PA, MI, MO, IL, OK, GA, UT, WI and CO --
+    # the four Cold Spring Harbor Huntington (LIJSL) teams among them, and IFA's
+    # "Hammarby - Sweden" carries the same code. Each payload was confirmed to be that
+    # team's own record, so this is the field and not a mis-matched alias.
+    #
+    # Dropped rather than queued, because a disputed AL is not a weak answer -- it is the
+    # absence of one, and the cascade below already knows what to do with a tier that did
+    # not fire. Queueing it here would instead return a decision and stop Tier B ever
+    # seeing the team, leaving the wrong state in place with a review row beside it. An
+    # undisputed AL still answers, so Alabama teams reach Alabama.
+    if association_state == UNSET_DEFAULT_ASSOCIATION and any(
+        state != association_state for state in voted.values()
+    ):
+        association_state = None
+
     if len(set(voted.values())) > 1 and not association_state:
         disagreement = ", ".join(f"{label} says {state}" for label, state in sorted(voted.items()))
         return _decision(
