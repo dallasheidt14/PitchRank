@@ -794,6 +794,25 @@ def decide(
     }
     voted = {label: state for label, state in readings.items() if state}
     association_state = association_states.get(team_id)
+
+    # R8b. ``AL`` is the one association code that is also GotSport's value for a team
+    # whose association was never set, and the payload cannot tell the two apart. Of the
+    # 86 teams this tier had written to AL by 2026-09-02, 65 belong to clubs that really
+    # are in Alabama and 19 to clubs in NY, IN, PA, MI, MO, IL, OK, GA, UT, WI and CO --
+    # the four Cold Spring Harbor Huntington (LIJSL) teams among them, and IFA's
+    # "Hammarby - Sweden" carries the same code. Each payload was confirmed to be that
+    # team's own record, so this is the field and not a mis-matched alias.
+    #
+    # Dropped rather than queued, because a disputed AL is not a weak answer -- it is the
+    # absence of one, and the cascade below already knows what to do with a tier that did
+    # not fire. Queueing it here would instead return a decision and stop Tier B ever
+    # seeing the team, leaving the wrong state in place with a review row beside it. An
+    # undisputed AL still answers, so Alabama teams reach Alabama.
+    if association_state == UNSET_DEFAULT_ASSOCIATION and any(
+        state != association_state for state in voted.values()
+    ):
+        association_state = None
+
     if len(set(voted.values())) > 1 and not association_state:
         disagreement = ", ".join(f"{label} says {state}" for label, state in sorted(voted.items()))
         return _decision(
@@ -842,26 +861,6 @@ def decide(
     # may not.
     if not is_fill and tier != "A" and (team.get("state") or "").strip():
         return _decision(team, proposed, tier, "queue", f"{reason}; stored value was reported")
-
-    # R8b. ``AL`` is the one association code that is also GotSport's value for a team
-    # whose association was never set, and the payload cannot tell the two apart. Of the
-    # 86 teams this tier had written to AL by 2026-09-02, 65 belong to clubs that really
-    # are in Alabama and 19 to clubs in NY, IN, PA, MI, MO, IL, OK, GA, UT, WI and CO --
-    # the four Cold Spring Harbor Huntington (LIJSL) teams among them, and IFA's
-    # "Hammarby - Sweden" carries the same code. Each payload was confirmed to be that
-    # team's own record, so this is the field and not a mis-matched alias. AL still fills
-    # a blank and still wins where nothing disputes it; what it may no longer do is settle
-    # a disagreement, which is the shape all 19 have and none of the 65 does.
-    if proposed == UNSET_DEFAULT_ASSOCIATION:
-        disputing = sorted({s for s in (club_state, name_state, place_state) if s and s != proposed})
-        if disputing:
-            return _decision(
-                team,
-                proposed,
-                tier,
-                "queue",
-                f"{reason}; AL is also GotSport's unset default, and {'/'.join(disputing)} disputes it",
-            )
 
     # R5. Fills auto-apply from any tier; corrections only from A or B.
     if is_fill or tier in ("A", "B"):

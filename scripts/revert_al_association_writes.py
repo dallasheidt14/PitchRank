@@ -12,8 +12,10 @@ restores only the ones whose club says otherwise -- the four Cold Spring Harbor 
 A team whose club offers no evidence either way is left alone: nothing here knows better
 than the value it already has, and a wrong restore is as bad as the wrong write.
 
-The selection deliberately mirrors R8b's own test -- "does another reading dispute AL" --
-so a team this script restores is a team the rule would now queue rather than apply.
+The selection is R8b's own club test, ``club_derived_state``, rather than a plurality of
+the club's states: the two differ, and the looser one restores teams the rule would not
+have withheld from. A team this script restores is a team the rule would now decide
+without Tier A.
 
 This is not ``revert_team_states``: that scopes by actor and time window, and these writes
 are interleaved with several days of correct ones, so a window revert would undo far more.
@@ -51,6 +53,7 @@ from scripts.assign_team_states import (  # noqa: E402
     IN_BATCH,
     PAGE_SIZE,
     UNSET_DEFAULT_ASSOCIATION,
+    club_derived_state,
     club_key,
     fetch_live_teams,
     stored_state,
@@ -120,19 +123,24 @@ def club_states(teams: List[Dict]) -> Dict[str, Counter]:
 
 
 def disputed_by_club(teams: List[Dict], written: Dict[str, Optional[str]]) -> List[Tuple[Dict, str]]:
-    """The teams still holding the default whose own club says something else."""
+    """The teams still holding the default whose own club disputes it.
+
+    The dispute test is ``club_derived_state`` itself, not a plurality of the club's
+    states. Those differ, and the looser one restores teams the rule would not have
+    withheld from: Tier B counts a state only at two or more teams and a twentieth of the
+    club, so a single noisy clubmate is no evidence at all. Selecting on a plurality would
+    undo a legitimate Alabama association on the strength of one such team -- which it did
+    once, to F.C. Georgia Philly, before this was tightened.
+    """
     index = club_states(teams)
     out: List[Tuple[Dict, str]] = []
     for team in teams:
         tid = team["team_id_master"]
         if tid not in written or stored_state(team) != UNSET_DEFAULT_ASSOCIATION:
             continue
-        counts = index.get(club_key(team.get("club_name")))
-        if not counts:
-            continue
-        majority, _ = counts.most_common(1)[0]
-        if majority != UNSET_DEFAULT_ASSOCIATION:
-            out.append((team, majority))
+        club_state = club_derived_state(team, index)
+        if club_state and club_state != UNSET_DEFAULT_ASSOCIATION:
+            out.append((team, club_state))
     return out
 
 
@@ -238,7 +246,8 @@ def main() -> None:
     console.print(
         "[yellow]The restored value is what the team held before, not a verdict that it is "
         "right -- several of these were wrong before the sweep touched them. Provenance is "
-        "cleared, so run the sweep next and let Tier B settle them on the club.[/yellow]"
+        "cleared and R8b drops the disputed AL rather than queueing it, so the next sweep "
+        "reaches Tier B and settles them on the club.[/yellow]"
     )
 
 

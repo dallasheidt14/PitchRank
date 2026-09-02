@@ -254,14 +254,31 @@ def test_a_stored_dc_always_queues():
 def test_the_unset_default_association_cannot_settle_a_disagreement():
     """R8b. GotSport reports ``AL`` both for Alabama and for a team whose association was
     never set. The four Cold Spring Harbor Huntington (LIJSL) teams are in New York and
-    reached the Alabama board by this exact path."""
+    reached the Alabama board by this exact path.
+
+    Nothing is proposed here because nothing needs to change: the club already says NY.
+    The point is that AL does not overrule it.
+    """
+    assert (
+        decision(
+            team(state_code="NY", club_name="lijsl club"),
+            {"lijsl club": Counter({"NY": 38})},
+            associations={"t": "AL"},
+        )
+        is None
+    )
+
+
+def test_a_disputed_default_lets_the_club_correct_the_team():
+    """The self-healing case, and the reason a disputed AL is dropped rather than queued.
+    Queueing returns a decision, which stops the cascade before Tier B is reached and
+    leaves the wrong state standing with a review row beside it."""
     result = decision(
-        team(state_code="NY", club_name="lijsl club"),
+        team(state_code="MD", club_name="lijsl club"),
         {"lijsl club": Counter({"NY": 38})},
         associations={"t": "AL"},
     )
-    assert result["action"] == "queue"
-    assert "unset default" in result["reason"]
+    assert (result["tier"], result["proposed"], result["action"]) == ("B", "NY", "apply")
 
 
 def test_an_alabama_club_still_reaches_alabama():
