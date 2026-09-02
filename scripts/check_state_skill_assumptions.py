@@ -167,8 +167,13 @@ def check_association_map(r: Result) -> None:
     )
     r.check(
         "an unseen code fails closed rather than passing itself through",
-        to_state_code("ZZ") is None and to_state_code("MT") is None,
-        "to_state_code('ZZ') and ('MT') -> None (Montana was never observed)",
+        to_state_code("ZZ") is None and to_state_code("QQ") is None,
+        "to_state_code('ZZ') and ('QQ') -> None",
+    )
+    r.check(
+        "a national body names no state, however often it is seen",
+        to_state_code("USA") is None,
+        "to_state_code('USA') -> None (a real code, but not a state)",
     )
 
 
