@@ -49,6 +49,7 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     resolve_execute,
     revert,
     run_writes,
+    slice_name_counts,
     validate_bounds,
     write_log,
 )
@@ -564,6 +565,42 @@ def test_a_collision_never_withholds_a_club_or_state_fill():
     assert decisions[0].action == "updated"
 
 
+def test_a_name_held_elsewhere_in_the_cohort_is_withheld_in_this_window():
+    """--limit walks a cohort in batches. Counting only the current window would let
+    every batch in turn accept the same generic name and defeat the check across the
+    run, which is the shape a 705-team cohort in 25-team batches produces."""
+    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1")]
+    outside = {"u15 b 1": 1}
+
+    assert drop_colliding_renames(decisions, outside) == 1
+    assert decisions[0].updates == {}
+
+
+def test_a_rename_frees_the_name_it_leaves_behind():
+    """Renaming the only holder of a name away from it does not make that name a
+    collision for the team moving onto it."""
+    decisions = [
+        _rename("2012 Blue", "Club A", "2012 Boys Blue", "t1"),
+        _rename("2012 Green", "Club B", "2012 Blue", "t2"),
+    ]
+    assert drop_colliding_renames(decisions, {"2012 blue": 1, "2012 green": 1}) == 0
+    assert decisions[1].updates == {"team_name": "2012 Blue"}
+
+
+def test_slice_name_counts_reads_the_whole_slice():
+    rows = [{"team_name": "2012 Blue"}, {"team_name": "2012 Blue"}, {"team_name": " 2012 Red "}, {"team_name": None}]
+    assert slice_name_counts(rows) == {"2012 blue": 2, "2012 red": 1}
+
+
+def test_the_write_list_judges_collisions_against_the_whole_slice():
+    """plan_writes has to hand the slice counts on, not just accept them."""
+    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1")]
+
+    planned, collisions = plan_writes(decisions, {"u15 b 1": 1})
+
+    assert (collisions, planned) == (1, [])
+
+
 def test_the_write_list_cannot_be_obtained_without_the_collision_pass():
     """The guard runs where `planned` is computed, so skipping it is not a silent
     omission — a caller would have to rebuild the filter to bypass it."""
@@ -631,22 +668,47 @@ def test_the_slice_is_the_first_n_of_the_whole_cohort_not_of_the_first_page():
     """Breaking out of pagination before sorting pins every run to the lowest UUIDs,
     so no re-run can reach the rest of the cohort."""
     supabase = _FakeSupabase({"teams": _teams_table(1500)})
-    teams, matched = fetch_target_teams(supabase, ["u14"], [], 5)
+    teams, all_rows = fetch_target_teams(supabase, ["u14"], [], 5)
 
-    assert matched == 1500
-    assert [t["team_name"] for t in teams] == ["Team 0001", "Team 0002", "Team 0003", "Team 0004", "Team 0005"]
+    assert len(all_rows) == 1500
+    assert [t["team_id_master"] for t in teams] == [f"{i:040d}" for i in range(5)]
 
 
 def test_an_offset_advances_past_a_batch_already_done():
     supabase = _FakeSupabase({"teams": _teams_table(1500)})
     teams, _ = fetch_target_teams(supabase, ["u14"], [], 3, offset=5)
-    assert [t["team_name"] for t in teams] == ["Team 0006", "Team 0007", "Team 0008"]
+    assert [t["team_id_master"] for t in teams] == [f"{i:040d}" for i in range(5, 8)]
+
+
+def test_the_window_does_not_move_when_a_team_is_renamed():
+    """This script renames teams, so ordering the window by team_name would re-sort the
+    cohort between an execute run and the --offset run after it: a renamed team crosses
+    the boundary and is examined twice while an untouched one is skipped for good."""
+    rows = _teams_table(40)
+    first, _ = fetch_target_teams(_FakeSupabase({"teams": rows}), ["u14"], [], 10, offset=10)
+
+    for row in rows[:10]:
+        row["team_name"] = "zzz renamed " + row["team_id_master"][-4:]
+    second, _ = fetch_target_teams(_FakeSupabase({"teams": rows}), ["u14"], [], 10, offset=10)
+
+    assert [t["team_id_master"] for t in first] == [t["team_id_master"] for t in second]
+
+
+def test_a_team_deprecated_during_the_lookup_window_is_refused():
+    """A merge mid-run would otherwise leave this writing to a row that is now dead;
+    the name and club predicates alone still match it."""
+    team = _team()
+    supabase = _supabase(_team(is_deprecated=True))
+    decision = _decide(team, _resolved(name="Crossfire Premier B12 Blue"))
+
+    assert apply_decision(supabase, decision) == "skipped_changed_since_read"
+    assert ("eq", "is_deprecated", False) in _updates(supabase)[0]["filters"]
 
 
 def test_no_cap_returns_every_matching_team():
     supabase = _FakeSupabase({"teams": _teams_table(1500)})
-    teams, matched = fetch_target_teams(supabase, ["u14"], [], None)
-    assert (len(teams), matched) == (1500, 1500)
+    teams, all_rows = fetch_target_teams(supabase, ["u14"], [], None)
+    assert (len(teams), len(all_rows)) == (1500, 1500)
 
 
 def test_deprecated_teams_are_never_in_scope():
@@ -661,8 +723,8 @@ def test_a_cohort_filter_excludes_other_cohorts():
     rows = _teams_table(3)
     rows[0]["age_group"] = "u15"
     supabase = _FakeSupabase({"teams": rows})
-    teams, matched = fetch_target_teams(supabase, ["u14"], [], None)
-    assert matched == 2
+    teams, all_rows = fetch_target_teams(supabase, ["u14"], [], None)
+    assert len(all_rows) == 2
 
 
 def test_revert_blocks_are_read_for_the_slice():

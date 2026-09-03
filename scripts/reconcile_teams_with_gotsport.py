@@ -218,8 +218,8 @@ def fetch_target_teams(
     states: List[str],
     limit: Optional[int],
     offset: int = 0,
-) -> Tuple[List[Dict], int]:
-    """Return ``(teams, matched)`` -- the slice to examine and the full match count.
+) -> Tuple[List[Dict], List[Dict]]:
+    """Return ``(window, every matching row)`` -- the slice to examine and the full match count.
 
     The whole matching set is paged before sorting, so ``--limit`` names a stable
     window of the cohort rather than an arbitrary one: breaking out of pagination
@@ -243,9 +243,13 @@ def fetch_target_teams(
             break
         page += 1
 
-    rows.sort(key=lambda r: (r.get("age_group") or "", r.get("team_name") or "", r.get("team_id_master") or ""))
+    # Ordered by an immutable key on purpose. This script renames teams, so ordering
+    # the window by team_name would re-sort the cohort between an execute run and the
+    # --offset run after it: a renamed team crosses the boundary and is examined twice
+    # while an untouched one is skipped for good.
+    rows.sort(key=lambda r: r.get("team_id_master") or "")
     window = rows[offset:]
-    return (window[:limit] if limit else window), len(rows)
+    return (window[:limit] if limit else window), rows
 
 
 def fetch_state_blocks(supabase, team_ids: List[str]) -> Set[Tuple[str, str]]:
@@ -459,7 +463,9 @@ def apply_table_fields(supabase, team_id: str, payload: Dict[str, str], pre_imag
     actually holding a placeholder club reads as absent there, and filtering on
     ``IS NULL`` would match nothing and report a live row as changed.
     """
-    query = supabase.table("teams").update(payload).eq("team_id_master", team_id)
+    # A merge during the ~25-minute lookup window would leave this writing to a row
+    # that is now deprecated, which the name and club predicates alone would not catch.
+    query = supabase.table("teams").update(payload).eq("team_id_master", team_id).eq("is_deprecated", False)
     for name in payload:
         raw = pre_image.get(name)
         query = query.is_(name, "null") if raw is None else query.eq(name, raw)
@@ -588,7 +594,17 @@ def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
     return counts
 
 
-def drop_colliding_renames(decisions: List[Decision]) -> int:
+def slice_name_counts(rows: List[Dict]) -> Dict[str, int]:
+    """How many teams in the whole slice currently hold each name."""
+    counts: Dict[str, int] = {}
+    for row in rows:
+        name = (row.get("team_name") or "").strip().lower()
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def drop_colliding_renames(decisions: List[Decision], slice_names: Optional[Dict[str, int]] = None) -> int:
     """Withhold any rename that would leave two teams in the slice sharing one name.
 
     GotSport names a squad within its own club, so a name can be perfectly
@@ -604,11 +620,21 @@ def drop_colliding_renames(decisions: List[Decision]) -> int:
     Two teams that already shared a name keep it -- that is not this run's doing, and
     renaming one of them away is a decision nothing here has evidence for.
     """
-    holders: Dict[str, int] = {}
+    # Counted over the whole slice, not just this window. --limit walks a cohort in
+    # batches, so a window-local count would let every batch accept the same generic
+    # name in turn and defeat the check across the run.
+    holders: Dict[str, int] = dict(slice_names) if slice_names is not None else {}
     for decision in decisions:
-        name = (decision.updates.get("team_name") or decision.team.get("team_name") or "").strip().lower()
-        if name:
-            holders[name] = holders.get(name, 0) + 1
+        new_name = (decision.updates.get("team_name") or "").strip().lower()
+        old_name = (decision.team.get("team_name") or "").strip().lower()
+        if slice_names is None:
+            name = new_name or old_name
+            if name:
+                holders[name] = holders.get(name, 0) + 1
+        elif new_name:
+            if holders.get(old_name):
+                holders[old_name] -= 1
+            holders[new_name] = holders.get(new_name, 0) + 1
 
     dropped = 0
     for decision in decisions:
@@ -623,14 +649,14 @@ def drop_colliding_renames(decisions: List[Decision]) -> int:
     return dropped
 
 
-def plan_writes(decisions: List[Decision]) -> Tuple[List[Decision], int]:
+def plan_writes(decisions: List[Decision], slice_names: Optional[Dict[str, int]] = None) -> Tuple[List[Decision], int]:
     """Return the rows still due a write, and how many renames collided.
 
     The collision pass runs here rather than in ``main`` so the planned list cannot be
     obtained without it: a caller that skipped the guard would have to rebuild this
     filter itself, which is a visible change rather than a silent omission.
     """
-    collisions = drop_colliding_renames(decisions)
+    collisions = drop_colliding_renames(decisions, slice_names)
     return [d for d in decisions if d.action == "updated"], collisions
 
 
@@ -746,7 +772,8 @@ def main() -> None:
     print(f"=== Reconcile teams with GotSport ({'EXECUTE' if execute else 'DRY-RUN'}) ===")
     print(f"Scope: {scope}")
 
-    teams, matched = fetch_target_teams(supabase, age_groups, states, args.limit or None, args.offset)
+    teams, all_matching = fetch_target_teams(supabase, age_groups, states, args.limit or None, args.offset)
+    matched = len(all_matching)
     window = f" of {matched:,}" + (f" from offset {args.offset:,}" if args.offset else " (--limit cap)")
     print(f"Teams in scope: {len(teams):,}{window if matched > len(teams) else ''}")
     if not teams:
@@ -781,7 +808,7 @@ def main() -> None:
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = EXPORTS_DIR / f"reconcile_teams_with_gotsport_{stamp}.csv"
-    planned, collisions = plan_writes(decisions)
+    planned, collisions = plan_writes(decisions, slice_name_counts(all_matching))
     # The log lands before the first write and again after the last, so a run that
     # dies mid-loop still leaves every applied row on disk.
     write_log([log_row(d, run_mode) for d in decisions], log_path)
