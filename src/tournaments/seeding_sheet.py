@@ -344,8 +344,9 @@ def render_sheet_html(
  .value {{ font-family: Oswald, sans-serif; font-weight: 600; font-size: 20px; color: {BRAND["forest"]}; }}
  table.grid {{ width: 100%; border-collapse: collapse; font-size: 11.5px; }}
  table.grid thead th {{
-   text-align: left; font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
-   color: {BRAND["muted"]}; padding: 0 6px 5px; border-bottom: 1.5px solid {BRAND["forest"]};
+   text-align: left; font-size: 9px; letter-spacing: .10em; text-transform: uppercase;
+   white-space: nowrap; color: {BRAND["muted"]};
+   padding: 0 6px 5px; border-bottom: 1.5px solid {BRAND["forest"]};
  }}
  table.grid td {{ padding: 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: baseline; }}
  table.grid tbody tr:nth-child(even) td {{ background: #FAFCFB; }}
@@ -355,8 +356,11 @@ def render_sheet_html(
  }}
  .team {{ font-weight: 500; }}
  .club {{ color: {BRAND["muted"]}; }}
- .num {{ text-align: right; width: 72px; font-variant-numeric: tabular-nums; }}
- thead th.num {{ text-align: right; }}
+ .num {{
+   width: 96px; text-align: center; white-space: nowrap;
+   font-variant-numeric: tabular-nums;
+ }}
+ thead th.num {{ text-align: center; }}
  .flag {{
    display: inline-block; margin-left: 6px; padding: 1px 5px; border-radius: 2px;
    background: {BRAND["yellow"]}; color: {BRAND["forest_deep"]};
