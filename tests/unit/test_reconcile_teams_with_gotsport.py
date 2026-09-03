@@ -37,12 +37,14 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     csv_unsafe,
     decide,
     describe_runtime,
+    drop_colliding_renames,
     fetch_state_blocks,
     fetch_target_teams,
     is_retired_registration,
     log_row,
     next_failure_streak,
     parse_filters,
+    plan_writes,
     printable,
     resolve_execute,
     revert,
@@ -494,6 +496,86 @@ def test_a_landed_state_survives_a_refused_table_write():
 
     assert action == "updated"
     assert decision.applied == ("state_code",)
+
+
+# --- name collisions within a slice ---------------------------------------------
+
+
+def _rename(team_name, club, new_name, team_id):
+    team = _team(team_id_master=team_id, team_name=team_name, club_name=club)
+    return _decide(team, _resolved(name=new_name))
+
+
+def test_a_name_two_teams_would_share_is_given_to_neither():
+    """Replays a live AZ u13 run: four teams from four different clubs were all
+    renamed to `U13G DPL`, each from a name that had said which club it was."""
+    decisions = [
+        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1"),
+        _rename("Arizona Soccer Club 2014 Pre-DPL", "Arizona Soccer Club", "U13G DPL", "t2"),
+        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t3"),
+        _rename("PRFC West Valley 2014 Pre-Elite", "Phoenix Rising FC", "U13G DPL", "t4"),
+    ]
+    assert all(d.updates == {"team_name": "U13G DPL"} for d in decisions)
+
+    assert drop_colliding_renames(decisions) == 4
+
+    assert all(d.updates == {} for d in decisions)
+    assert all("team_name" in d.blocked for d in decisions)
+    assert all(d.action == "conflicts_only" for d in decisions)
+
+
+def test_a_rename_onto_a_name_another_team_already_holds_is_withheld():
+    decisions = [
+        _rename("Arizona SC 2014 Pre-GA ASPIRE", "Arizona Soccer Club", "ECNL RL G2013/14", "t1"),
+        _decide(_team(team_id_master="t2", team_name="ECNL RL G2013/14"), _resolved(name="ECNL RL G2013/14")),
+    ]
+    assert drop_colliding_renames(decisions) == 1
+    assert decisions[0].updates == {}
+    assert decisions[1].updates == {}
+
+
+def test_a_distinct_rename_is_untouched():
+    decisions = [
+        _rename("2014 Hinds", "RSL Arizona South", "14B Hinds", "t1"),
+        _rename("2014 Geoff", "RSL Arizona South", "14B Geoff", "t2"),
+    ]
+    assert drop_colliding_renames(decisions) == 0
+    assert [d.updates["team_name"] for d in decisions] == ["14B Hinds", "14B Geoff"]
+
+
+def test_two_teams_that_already_shared_a_name_are_left_alone():
+    """Not this run's doing, and renaming one of them away is a decision nothing here
+    has evidence for."""
+    decisions = [
+        _decide(_team(team_id_master="t1", team_name="2014 Blue"), _resolved(name="2014 Blue")),
+        _decide(_team(team_id_master="t2", team_name="2014 Blue"), _resolved(name="2014 Blue")),
+    ]
+    assert drop_colliding_renames(decisions) == 0
+    assert all(not d.blocked for d in decisions)
+
+
+def test_a_collision_never_withholds_a_club_or_state_fill():
+    decisions = [
+        _decide(_team(team_id_master="t1", club_name="", state_code=""), _resolved(name="U13G DPL")),
+        _rename("Other Team", "Other Club", "U13G DPL", "t2"),
+    ]
+    drop_colliding_renames(decisions)
+    assert set(decisions[0].updates) == {"club_name", "state_code"}
+    assert decisions[0].action == "updated"
+
+
+def test_the_write_list_cannot_be_obtained_without_the_collision_pass():
+    """The guard runs where `planned` is computed, so skipping it is not a silent
+    omission — a caller would have to rebuild the filter to bypass it."""
+    decisions = [
+        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1"),
+        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t2"),
+        _rename("2014 Hinds", "RSL Arizona South", "14B Hinds", "t3"),
+    ]
+    planned, collisions = plan_writes(decisions)
+
+    assert collisions == 2
+    assert [d.team["team_id_master"] for d in planned] == ["t3"]
 
 
 # --- the dry-run gate -----------------------------------------------------------

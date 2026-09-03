@@ -588,6 +588,52 @@ def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
     return counts
 
 
+def drop_colliding_renames(decisions: List[Decision]) -> int:
+    """Withhold any rename that would leave two teams in the slice sharing one name.
+
+    GotSport names a squad within its own club, so a name can be perfectly
+    identifying there and ambiguous here, where a cohort spans every club in the
+    state. A live AZ u13 run renamed four teams from four different clubs to
+    ``U13G DPL``, each from a name that had said which club it was.
+
+    Judged per run rather than by any rule about what makes a name good: the batch
+    that produced those four also cut names shared by two or more teams from 18 to 2,
+    so the provider's names are usually the more distinctive ones. Only the collision
+    itself is evidence, and it is visible without leaving the slice.
+
+    Two teams that already shared a name keep it -- that is not this run's doing, and
+    renaming one of them away is a decision nothing here has evidence for.
+    """
+    holders: Dict[str, int] = {}
+    for decision in decisions:
+        name = (decision.updates.get("team_name") or decision.team.get("team_name") or "").strip().lower()
+        if name:
+            holders[name] = holders.get(name, 0) + 1
+
+    dropped = 0
+    for decision in decisions:
+        new_name = (decision.updates.get("team_name") or "").strip().lower()
+        if not new_name or holders.get(new_name, 0) < 2:
+            continue
+        del decision.updates["team_name"]
+        decision.blocked = (*decision.blocked, "team_name")
+        if not decision.updates:
+            decision.action = "conflicts_only"
+        dropped += 1
+    return dropped
+
+
+def plan_writes(decisions: List[Decision]) -> Tuple[List[Decision], int]:
+    """Return the rows still due a write, and how many renames collided.
+
+    The collision pass runs here rather than in ``main`` so the planned list cannot be
+    obtained without it: a caller that skipped the guard would have to rebuild this
+    filter itself, which is a visible change rather than a silent omission.
+    """
+    collisions = drop_colliding_renames(decisions)
+    return [d for d in decisions if d.action == "updated"], collisions
+
+
 def next_failure_streak(streak: int, outcome: str) -> int:
     """Advance the consecutive-failure counter for one lookup outcome.
 
@@ -735,7 +781,7 @@ def main() -> None:
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = EXPORTS_DIR / f"reconcile_teams_with_gotsport_{stamp}.csv"
-    planned = [d for d in decisions if d.action == "updated"]
+    planned, collisions = plan_writes(decisions)
     # The log lands before the first write and again after the last, so a run that
     # dies mid-loop still leaves every applied row on disk.
     write_log([log_row(d, run_mode) for d in decisions], log_path)
@@ -769,8 +815,10 @@ def main() -> None:
     print(f"\nLog: {log_path}")
     if conflicted:
         print(f"{conflicted} teams disagree with GotSport on a club or state this script will not overwrite.")
-    if withheld_names:
-        print(f"{withheld_names} renames withheld: GotSport files those teams under a different cohort.")
+    if withheld_names - collisions > 0:
+        print(f"{withheld_names - collisions} renames withheld: GotSport files those teams under a different cohort.")
+    if collisions:
+        print(f"{collisions} renames withheld: the name would have been shared with another team in this slice.")
     if blocked_states:
         print(f"{blocked_states} state fills skipped: an operator already reverted that state away.")
     if not execute and counts.get("updated"):
