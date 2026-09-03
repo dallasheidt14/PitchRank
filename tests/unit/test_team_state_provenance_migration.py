@@ -639,3 +639,30 @@ def test_reverting_puts_the_board_back_too():
     mirror = body.index("UPDATE public.rankings_full")
     # The END IF that closes the loop's branch, not the argument guard's near the top.
     assert branch < mirror < body.index("END IF", branch), "the mirror escaped the applied branch"
+
+
+def _constraint(table: str, name: str) -> str:
+    """The newest definition of a named CHECK on `table`, whether it was born in the
+    CREATE TABLE or re-added by a later ALTER TABLE -- the way constraints here evolve."""
+    added = None
+    for path in _migrations():
+        sql = _executable(path.read_text(encoding="utf-8"))
+        pattern = (
+            rf"(?is)alter\s+table\s+(?:public\.)?{re.escape(table)}\s+add\s+constraint\s+"
+            rf"{re.escape(name)}\s+check\s*\("
+        )
+        for match in re.finditer(pattern, sql):
+            added = _balanced(sql, match.end() - 1)
+    return added or _table(table)
+
+
+def test_the_ledger_admits_a_confirm():
+    """A provider record that agrees with the stored value is written as action 'confirm';
+    the trigger fires on the provenance change, and the original check refused the row --
+    the first live anchor pass stopped at its first confirm. Resolved by constraint name
+    across every migration, so the ALTER that widened it is what this reads."""
+    check = _constraint("team_state_audit", "team_state_audit_action_check")
+
+    assert "'confirm'" in check
+    for action in ("'fill'", "'correct'", "'approve'", "'revert'", "'external'"):
+        assert action in check
