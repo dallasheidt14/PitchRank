@@ -1430,16 +1430,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified live 2026-08-31: `user_profiles` reads `anon=rdDxtm/postgres`. The 2026-06-10 lockdown revoked INSERT and UPDATE and left DELETE (`d`) and TRUNCATE (`D`). DELETE is constrained by RLS policies; TRUNCATE is not governed by RLS at all. Not reachable today — anon reaches Postgres only through PostgREST, which exposes no TRUNCATE verb — so this is defence-in-depth rather than a live hole, and the table's current policies should be read before acting. `user_profiles` holds the Stripe subscription state `reconcile-stripe-daily.yml` reconciles, so loss would be user-visible. Typed investigate because the right fix depends on which roles legitimately delete rows today. Surfaced incidentally by a security review on the probe-ledger branch; unrelated to that change.
 - **Noted**: 2026-08-31
 
-### Two team-state readers page without ORDER BY, so a concurrent write can duplicate or skip a row
-
-- **ID**: IMP-154
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/assign_team_states.py` — `fetch_live_teams` and `fetch_revert_blocks`
-- **Why**: Both hand-roll a `.range(offset, offset + PAGE_SIZE - 1)` loop with no `.order()`. postgrest-py's `range` emits `offset`/`limit` and adds no ordering, and LIMIT/OFFSET without ORDER BY has no defined row order across statements — `EXPLAIN (COSTS OFF)` on `fetch_live_teams`' query at OFFSET 150000 returns a bare `Seq Scan` under a `Limit`. The concrete writer is `_log_team_scrape`, updating `teams.last_scraped_at`; that column is indexed, so the update is non-HOT and moves the tuple to a new heap page, and a tuple crossing the cursor during a 200-page read is returned twice or not at all. Two consequences: a skipped row that is the lone dissenting `state_source='tier_a'` team in a genuinely split club flips `build_anchor_index` from "omit" to "anchor", turning every club-mate into a paid GotSport probe; and a dropped `fetch_revert_blocks` row means R17 silently fails to suppress a re-apply the operator already rejected. `fetch_recent_probes` and `fetch_queue_rows` already order by `id`. Not urgent — the `teams` heap is 73 MB against the 512 MB `synchronize_seqscans` threshold, so realistic loss is a handful of rows with no bad-write path — but the contradiction audit now makes its whole candidate population depend on that read being complete. One `.order()` per reader; check the plan does not regress, since `fetch_live_teams` is the tool's heaviest query at 201,032 rows. Raised by an api-usage review on the contradiction-audit branch and kept out of it as pre-existing.
-- **Noted**: 2026-09-01
-
 ### The `--team --execute` write path has both its guards and no test of either
 
 - **ID**: IMP-155
@@ -1490,12 +1480,62 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The contradiction-audit PR put the probe-log flush in a `try/finally`, which closed the large loss — before it, a Ctrl-C discarded everything buffered since the last drain. What remains is the calls already in flight across the pool when the interrupt lands. Measured on the shipped code with a stubbed 2 ms round trip: n=1200 workers=10 → 72 paid against 60 ledgered (12 lost); n=200 workers=10 → 79 paid against 60 ledgered (19 lost). The loss is bounded by `--workers` rather than by queue depth, because `Executor.map`'s result generator cancels pending futures as the exception unwinds, before the pool's `__exit__` — which is also why an interrupt does not keep spending through the remaining ~1,100 candidates. The lost teams stay due and are re-bought next run. Closing it means bounded submission — a window of futures, drained and resubmitted — rather than `Executor.map`, which is real machinery for a bounded cost, so it was typed plan and kept out. Two round-3 reviewers appeared to contradict each other here; both reproduce, one at n=5/workers=1 where a single worker races ahead, the other at production shape. The production shape governs.
 - **Noted**: 2026-09-01
 
-### Two operator-facing prints interpolate a team name into Rich markup unescaped
+### Tier B tells both halves of a two-and-two club to swap states, forever
 
-- **ID**: IMP-160
+- **ID**: IMP-161
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
-- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
-- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
-- **Noted**: 2026-09-01
+- **Where**: `scripts/assign_team_states.py` — `club_derived_state`, the exclude-the-team-being-decided count
+- **Why**: A club stored as exactly two teams in state X and two in Y makes every one of its teams a correction: excluding the team being decided leaves its own side below the two-team floor and the other side as the only meaningful state. Seen in one free-tier dry run on 2026-09-02: RSL-AZ Yuma (2 CA + 2 TX, and really Arizona) proposed as two CA→TX and two TX→CA, Amigos FC (2 MO + 2 CA + 1 KS) the same shape. Applying the swap recreates the 2/2 split, so the club oscillates every sweep and never settles; with Tier A on, only the teams the provider answers escape it. The fix is a test for the shape — abstain when excluding the team would drop its own side below the floor while the rest of the club is not a clear majority — plus a fixture at 2/2 and 3/2 (3/2 already behaves: excluding a minority team leaves 3 v 1 and fires correctly).
+- **Noted**: 2026-09-02
+
+### A state correction leaves the full-name `teams.state` column contradicting the code it just wrote
+
+- **ID**: IMP-162
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `apply_team_state` (`supabase/migrations/20260829120000_add_team_state_provenance.sql`) and `decide` in `scripts/assign_team_states.py` at the `stored value was reported` test
+- **Why**: The RPC writes `state_code` and provenance and leaves `state` as it was, so after a Tier A correction the row reads e.g. `state_code = TX, state = 'Alabama', state_source = tier_a`. Measured 2026-09-02: 158 live teams carry a full-name column that contradicts their code (17 TX/"Washington" under Valencia CF with no provenance, 16 HI/"Washington" on Hawaii Rush set by the operator, 11 AZ/"California" on Legends FC AZ, and ~100 tier_a rows whose old name survived). The `decide` reported test reads a non-empty `state` as "a provider reported this" and queues instead of applying, so a stale name from a backfill now protects a code the provider has already overruled. Decide whether a correction should clear the name, rewrite it to match, or whether the reported test should require the name to agree with the code before it counts.
+- **Noted**: 2026-09-02
+
+### Non-US clubs carry a US state and bounce between two states every sweep
+
+- **ID**: IMP-163
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `teams.state_code` for touring clubs; `scripts/assign_team_states.py` Tier B; the state boards
+- **Why**: Hyde United FC, AFC Sudbury, AFC Greenwich Borough, Macclesfield FC, Red Lions UK, 7 Elite Academy (GB), Paris FC and Valencia CF are UK/European clubs that entered US tournaments; their teams hold US states from whichever event stamped them and Tier B now proposes UT→MI and MI→UT for Hyde United, WA↔KS for AFC Sudbury, MI↔CA for AFC Greenwich in the same run. 17 more live teams carry codes that are not a state or province at all (`RJ`, `SP`, `NW`, `13`, `EC`, `SJ`…) because their home region was imported verbatim. None of these belongs on a state board. Wants a decision — NULL with a country marker, or a `non_us` flag the boards exclude — before the sweep keeps writing US states onto them.
+- **Noted**: 2026-09-02
+
+### The association map cannot read a Canadian province, so Tier A is mute for every Canadian club
+
+- **ID**: IMP-164
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/utils/team_association_map.py` `to_state_code`; `scripts/assign_team_states.py` Tier A
+- **Why**: GotSport reports a Canadian team's association as its province — 83 of 2,545 probes on 2026-09-02 came back `ON` (65), `QC` (11), `AB` (5), `NB`, `BC` — and the map fails closed on all of them, so the paid answer is discarded and Tier B decides the team from its club instead. Today that agreed for the Ontario and Alberta clubs, and was wrong for AS Gatineau, which the provider placed in Québec and the club count sent to Ontario. The map already knows `CND` as Canada-national; adding the ten provinces lets the record answer directly. Check the policy wording first: a *stored* province is never corrected, but filling a blank or correcting a US state to a province is exactly what these clubs need.
+- **Noted**: 2026-09-02
+
+### A state approved through the review queue is not protected by the provenance gate
+
+- **ID**: IMP-165
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `supabase/migrations` (`approve_team_state`); `scripts/assign_team_states.py` `outranked` / `vouched_for`
+- **Why**: `approve_team_state` stamps an approval as `tier_<x>` (action `'approve'`; 98 rows as of 2026-09-02), so the gate cannot tell a hand-approved Tier C fill from an automatic one and an operator-run sweep's Tier B correction overwrites it unreported. The scheduled job (`--no-tier-a --fills-only`) cannot trigger it. Fix: a migration so approvals stamp an operator-distinguishable provenance the gate reads from the one column, with the ledger repair note; the skill's Step 5 already says the gate does not protect approved values. Raised by the correctness reviewer on the state-audit branch.
+- **Noted**: 2026-09-02
+
+### A cached probe answer is not bound to the alias it was bought through
+
+- **ID**: IMP-166
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `fetch_recent_probes`, `bought_answers`, `probe_list`, `anchor_candidates`
+- **Why**: The ledger reader keys a cached answer by team, so an answer bought via an alias later quarantined (`review_status = pending`) would be reused for up to `REPROBE_AFTER_DAYS` while the approved sibling alias is suppressed, and anchor mode prefers such a cached mapping. Measured 2026-09-02: 0 probe rows in the window for the 30 affected masters, so latent. Fix: the reader returns `provider_team_id` and a cached answer is reused only when it matches the alias the approved-only reader would pick now. Touches paths the `C:/pitchrank-state-converge` worktree also edits. Raised by the Codex peer reviewer.
+- **Noted**: 2026-09-02

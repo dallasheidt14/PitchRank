@@ -31,6 +31,8 @@ Usage:
     python scripts/assign_team_states.py --team <uuid> [--execute]       # one team
     python scripts/assign_team_states.py --team <uuid> --set OH --reason '...' --execute
     python scripts/assign_team_states.py --audit-contradictions [--probe-limit 50] --out audit.json
+    python scripts/assign_team_states.py --anchor-clubs [--probe-limit 2500] --out anchors.json
+    python scripts/assign_team_states.py --probe-unclubbed [--probe-limit 2000] --out unclubbed.json
 
 **The dry run is the only thing that decides.** It snapshots every team's state, writes
 its decisions to ``--out``, and ``--execute`` replays that file -- it never recomputes.
@@ -42,7 +44,10 @@ predicate, so a team that moved since is skipped and reported rather than overwr
 A dry run makes **no team-state and no review-queue writes, but it does persist
 paid-probe observations** to ``team_state_probe_log`` -- one row per probe, agreements
 included. The GotSport call is paid for whether or not its answer is recorded, and an
-agreement is visible nowhere else: it changes no state, so it fires no ledger trigger.
+agreement is visible nowhere else on a sweep: it changes no state, so it fires no ledger
+trigger. The three paid modes are the exception only in what a run records: there an
+agreement becomes a *confirm* decision, which ``--execute`` writes as provenance and the
+ledger keeps.
 
 Writes go through ``apply_team_state``, which stamps the ledger with actor
 ``assign_team_states``. To undo a batch:
@@ -61,7 +66,13 @@ Two limits, both deliberate and both reported by the run:
   live team is not on the table. A sweep asks about the teams a tier disputes and the teams
   with no state at all; ``--audit-contradictions`` asks instead about the teams whose state
   contradicts a club-mate a provider record already confirmed, which is how a club that
-  agrees with itself gets caught; and ``--team`` always asks, whatever the tiers think.
+  agrees with itself gets caught; ``--anchor-clubs`` asks one team of every club no record
+  has confirmed, so the audit has an anchor to hold the rest against; ``--probe-unclubbed``
+  asks the teams no anchor can reach; and ``--team`` always asks, whatever the tiers think.
+  The three population modes write only what the provider answered; in all three an answer
+  that agrees is written as a *confirm* -- provenance without a state change, ledgered under
+  its own action -- and in the anchor and unclubbed passes only the record's own decisions
+  apply.
 * **Tier D is not implemented.** It would need ``tgs_events``, which is not populated,
   and the per-event participant aggregation behind its gate. Of the teams it would
   serve, four were visible on a state board and none of them needed it. The run says
@@ -191,6 +202,39 @@ def state_source_for(tier: str) -> str:
 # the two against each other.
 MAPPED_OUTCOME = "mapped"
 TIER_A_SOURCE = state_source_for("A")
+# What ``--set`` stamps: an operator's own answer, which no automated write may overwrite.
+OPERATOR_SOURCE = "operator"
+
+
+def outranked(source: Optional[str], tier: str) -> bool:
+    """Whether a value carrying ``source`` outranks a write from ``tier``: an operator's
+    answer outranks everything automated, and the provider's record outranks every tier but
+    its own -- Tier A over ``tier_a`` is the record refreshing itself, not a recount."""
+    return source == OPERATOR_SOURCE or (source == TIER_A_SOURCE and tier != "A")
+
+
+def vouched_for(source: Optional[str]) -> bool:
+    """Whether a value already carries a provenance no automated write may restamp: the
+    record's own stamp, or an operator's answer. ``outranked`` gates a state change; this
+    gates a restamp, and a team it covers could only be re-confirmed."""
+    return source in (TIER_A_SOURCE, OPERATOR_SOURCE)
+
+
+# The three populations a paid run may ask about: the flag string is the operator's, the
+# mode string is the snapshot's, and ``chosen_populations`` is where the two meet.
+POPULATION_MODES = (
+    ("--audit-contradictions", "audit"),
+    ("--anchor-clubs", "anchor"),
+    ("--probe-unclubbed", "unclubbed"),
+)
+MODE_FOR_FLAG = dict(POPULATION_MODES)
+
+
+def chosen_populations(audit_contradictions: bool, anchor_clubs: bool, probe_unclubbed: bool) -> List[str]:
+    """The population flags set, in ``POPULATION_MODES`` order."""
+    chosen = (audit_contradictions, anchor_clubs, probe_unclubbed)
+    # A table entry with no matching argument must be refused, not silently dropped.
+    return [flag for (flag, _), on in zip(POPULATION_MODES, chosen, strict=True) if on]
 
 
 # An outcome that says something about the run rather than about the team. These are the
@@ -217,6 +261,13 @@ MIN_MAPPED_SHARE = 0.2
 # at a season boundary at most, and the backlog drains in one uncapped run, so this only
 # has to outlast the gap between capped runs.
 REPROBE_AFTER_DAYS = 90
+
+# How many club-mates may answer without a state before the club is given up on: the
+# provider does not know it, and a fourth call would buy the same silence.
+ANCHOR_RETRY_CAP = 3
+# Counted beside the pass-over reasons but reported apart from them: the club was asked,
+# through a club-mate, so it is selected rather than passed over.
+FALLBACK_REASON = "answered without a state; a club-mate asked instead"
 
 
 def club_key(club_name: Optional[str]) -> str:
@@ -265,6 +316,10 @@ def fetch_live_teams(sb) -> List[Dict]:
             sb.table("teams")
             .select("team_id_master,team_name,club_name,state_code,state,state_source")
             .eq("is_deprecated", False)
+            # Stable paging: without an order, a row the scrapers update mid-read moves
+            # between pages and is read twice or not at all, and every club count here
+            # is one row off (IMP-154).
+            .order("team_id_master")
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -290,6 +345,7 @@ def fetch_revert_blocks(sb) -> Set[Tuple[str, str]]:
             sb.table("team_state_audit")
             .select("team_id_master,old_state_code")
             .eq("action", "revert")
+            .order("id")
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
@@ -382,7 +438,17 @@ def fetch_gotsport_aliases(sb, team_ids: List[str]) -> Dict[str, str]:
             sb.table("team_alias_map")
             .select("team_id_master,provider_team_id")
             .eq("provider_id", provider_id)
+            # A quarantined alias (``audit_polluted_gotsport_aliases.py`` marks a polluted
+            # one ``pending``) is another team's record. Every reader of this table takes
+            # approved rows only, and a paid Tier A write must not be the exception.
+            .eq("review_status", "approved")
             .in_("team_id_master", batch)
+            # Some masters carry more than one GotSport alias, and two aliases are two
+            # provider records that can report different associations. Newest registration
+            # first -- ``created_at`` is nullable, and a NULL would otherwise sort ahead of
+            # every date -- so the same master probes the same record on every run.
+            .order("created_at", desc=True, nullsfirst=False)
+            .order("provider_team_id")
             .execute()
         )
         for row in page.data or []:
@@ -535,9 +601,10 @@ def contradiction_candidates(
     run's decisions. Filtering it out here instead is what silently drops corrections
     already paid for.
 
-    A stored Canadian province is excluded because no tier corrects one, so the call
-    would buy nothing. A stored ``DC`` is kept: that one queues rather than applies, and
-    a review row carrying the provider's answer is worth the call.
+    ``askable`` says who is worth the call -- a stored Canadian province is corrected by
+    no tier, an operator's answer is overwritten by none -- and a team the record already
+    vouches for is not a dissenter. A stored ``DC`` is kept: that one queues rather than
+    applies, and a review row carrying the provider's answer is worth the call.
     """
     candidates = []
     for team in teams:
@@ -548,10 +615,9 @@ def contradiction_candidates(
         state = stored_state(team)
         if (
             anchor
-            and state
+            and askable(team)
             and state != anchor[0]
-            and state not in CANADIAN_PROVINCES
-            and team.get("state_source") != TIER_A_SOURCE
+            and not vouched_for(team.get("state_source"))
         ):
             candidates.append((team["team_id_master"], anchor[1]))
     return sorted(candidates, key=lambda pair: (-pair[1], pair[0]))
@@ -571,6 +637,166 @@ def probe_list(
     """
     due = [team_id for team_id, _ in candidates if team_id not in recent]
     return due if probe_limit is None else due[:probe_limit]
+
+
+def askable(team: Dict) -> bool:
+    """Whether a paid call about a team that already holds a state could change anything.
+
+    A stored Canadian province is corrected by no tier and confirmed by no confirm; an
+    operator's own answer outranks every automated write. Neither is worth a call.
+    """
+    state = stored_state(team)
+    return bool(state) and state not in CANADIAN_PROVINCES and (
+        team.get("state_source") != OPERATOR_SOURCE
+    )
+
+
+def stated_members(teams: List[Dict]) -> Dict[str, List[Dict]]:
+    """Every askable stated team, grouped by club key -- the one reading of club
+    membership both population selectors use, so a club is the same size to each."""
+    members: Dict[str, List[Dict]] = defaultdict(list)
+    for team in teams:
+        key = club_key(team.get("club_name"))
+        if key and askable(team):
+            members[key].append(team)
+    return members
+
+
+def anchorable_clubs(teams: List[Dict]) -> Tuple[Dict[str, List[Dict]], Counter]:
+    """Every club with two or more askable teams that no provider record has confirmed,
+    keyed to the teams an anchor may be picked from -- and why each other club was passed
+    over.
+
+    A club with any confirmed stated team is passed over whether its confirmed teams agree
+    or not: the audit reads the former and refuses the latter.
+    """
+    confirmed = {
+        club_key(t.get("club_name"))
+        for t in teams
+        if stored_state(t) and t.get("state_source") == TIER_A_SOURCE
+    }
+    clubs: Dict[str, List[Dict]] = {}
+    passed_over: Counter = Counter()
+    for key, club in stated_members(teams).items():
+        if len(club) < 2:
+            passed_over["single team"] += 1
+        elif key in confirmed:
+            passed_over["anchored"] += 1
+        else:
+            clubs[key] = club
+    return clubs, passed_over
+
+
+def anchor_pool(clubs: Dict[str, List[Dict]]) -> List[str]:
+    """Every team an anchor may be picked from, for the alias lookup.
+
+    The whole club rather than the first pick, so a team without a GotSport id is passed
+    over for a club-mate that has one instead of retiring the club.
+    """
+    return [t["team_id_master"] for club in clubs.values() for t in club]
+
+
+def anchor_candidates(
+    clubs: Dict[str, List[Dict]],
+    club_index: Dict[str, Counter],
+    recent: Dict[str, Tuple[str, Optional[str]]],
+    aliased: Set[str],
+) -> Tuple[List[Tuple[str, int]], Counter]:
+    """One team per anchorable club, and why the rest were passed over.
+
+    ``(team_id_master, club size)``, largest club first so a budget buys the most coverage
+    per call, then club key, deterministic on the id. The sibling of
+    ``contradiction_candidates``: that one finds the dissenters in a club that already holds
+    an anchor, this one buys the anchor.
+
+    An answer already in the ledger is preferred to a paid call -- ``probe_list`` drops it
+    from the spend and the cache seeds it -- and a team that answered without a state is
+    passed over for a club-mate, so the next run asks someone else. ``ANCHOR_RETRY_CAP``
+    such answers retire the club, as does every aliased member answering that way: a
+    two-team club never reaches the cap. Two ledger rows are read specially: a ``no gotsport
+    alias`` row is not an answer, since no call was made, but the team it names is passed
+    over for the pick because ``probe_list`` would drop it anyway; and a mapped ``AL`` is
+    the provider's unset default, which ``decide`` throws away as soon as a local reading
+    disputes it -- the selector has no club reading, so it anchors nothing here and counts
+    as a silent answer.
+    """
+    picked: List[Tuple[str, str, int]] = []
+    skipped: Counter = Counter()
+    for key, club in clubs.items():
+        in_ledger = {
+            t["team_id_master"]: recent[t["team_id_master"]]
+            for t in club
+            if t["team_id_master"] in recent
+        }
+        answered = {
+            team_id: (outcome, state)
+            for team_id, (outcome, state) in in_ledger.items()
+            if outcome != NO_ALIAS_OUTCOME
+        }
+        bought = sorted(
+            team_id
+            for team_id, (outcome, state) in answered.items()
+            if outcome == MAPPED_OUTCOME and state and state != UNSET_DEFAULT_ASSOCIATION
+        )
+        if bought:
+            picked.append((bought[0], key, len(club)))
+            continue
+        if len(answered) >= ANCHOR_RETRY_CAP:
+            skipped["unanswerable"] += 1
+            continue
+        modal = club_index[key].most_common(1)[0][0]
+        state_of_team = {t["team_id_master"]: stored_state(t) for t in club}
+        pool = sorted(
+            (
+                team_id
+                for team_id in state_of_team
+                if team_id in aliased and team_id not in in_ledger
+            ),
+            key=lambda team_id: (state_of_team[team_id] != modal, team_id),
+        )
+        if not pool:
+            # No aliased member left to ask: exhausted if any of them answered, otherwise no
+            # GotSport id at all -- and either way three members were never needed for the cap.
+            skipped["unanswerable" if answered else "no alias"] += 1
+            continue
+        if answered:
+            skipped[FALLBACK_REASON] += 1
+        picked.append((pool[0], key, len(club)))
+
+    picked.sort(key=lambda item: (-item[2], item[1], item[0]))
+    return [(team_id, size) for team_id, _, size in picked], skipped
+
+
+def bought_answers(
+    recent: Dict[str, Tuple[str, Optional[str]]], selected: Set[str]
+) -> Dict[str, str]:
+    """The selected teams' answers already in the ledger, used whether or not the budget
+    would have covered them, so a run aborted after paying still decides on the retry."""
+    return {
+        team_id: state
+        for team_id, (outcome, state) in recent.items()
+        if outcome == MAPPED_OUTCOME and state and team_id in selected
+    }
+
+
+def unclubbed_candidates(teams: List[Dict]) -> List[Tuple[str, int]]:
+    """Every askable stated team an anchor can never reach: no club name, or the only
+    member of its club as ``stated_members`` counts it.
+
+    ``(team_id_master, 1)`` in id order -- the weight is a constant because there is no
+    club to size, and the shape matches the other selectors so ``probe_list`` and the
+    report read all three alike. A team the record already vouches for is left out: it
+    could only be re-confirmed.
+    """
+    members = stated_members(teams)
+    population = []
+    for t in teams:
+        if not askable(t) or vouched_for(t.get("state_source")):
+            continue
+        key = club_key(t.get("club_name"))
+        if not key or len(members[key]) <= 1:
+            population.append((t["team_id_master"], 1))
+    return sorted(population)
 
 
 def club_derived_state(team: Dict, club_index: Dict[str, Counter]) -> Optional[str]:
@@ -634,7 +860,7 @@ def probe_associations(
     # tier but this one needs. The scheduled fills-only job runs --no-tier-a and so never
     # arrives here, which lets its runner install five packages instead of requirements.
     # Still at the top of the only function that probes, so a broken install fails before
-    # the first call rather than partway through 6,200 of them.
+    # the first call rather than partway through thousands of them.
     from src.scrapers.gotsport import _zenrows_get
 
     session = requests.Session()
@@ -763,6 +989,26 @@ def probe_is_unusable(outcomes: Counter) -> bool:
 # --------------------------------------------------------------------------- #
 
 
+def local_readings(
+    team: Dict, club_index: Dict[str, Counter], locality_index: Dict[str, str]
+) -> Dict[str, Optional[str]]:
+    """The three free readings of where a team's club is, by the label the reports use."""
+    return {
+        "team name": state_from_name(team.get("team_name")),
+        "club": club_derived_state(team, club_index),
+        "place in the name": locality_state(team, locality_index),
+    }
+
+
+def unset_default_disputed(
+    association_state: Optional[str], readings: Dict[str, Optional[str]]
+) -> bool:
+    """R8b: an ``AL`` some local reading contradicts is the absence of an answer."""
+    return association_state == UNSET_DEFAULT_ASSOCIATION and any(
+        state and state != association_state for state in readings.values()
+    )
+
+
 def decide(
     team: Dict,
     club_index: Dict[str, Counter],
@@ -778,20 +1024,16 @@ def decide(
     if stored in CANADIAN_PROVINCES:
         return None
 
-    name_state = state_from_name(team.get("team_name"))
-    club_state = club_derived_state(team, club_index)
-    place_state = locality_state(team, locality_index)
+    readings = local_readings(team, club_index, locality_index)
+    name_state = readings["team name"]
+    club_state = readings["club"]
+    place_state = readings["place in the name"]
 
     # R9, widened to three readings of where the club is. Any two of them disagreeing
     # stops the cascade before it resolves: whichever tier would have won, the answer is
     # in doubt. The locality reading is here because a club whose teams are uniformly
     # mislabelled agrees with itself -- five of six Boise Timbers teams said Wyoming, so
     # nothing local disputed the sixth and the sweep wrote Wyoming onto it.
-    readings = {
-        "team name": name_state,
-        "club": club_state,
-        "place in the name": place_state,
-    }
     voted = {label: state for label, state in readings.items() if state}
     association_state = association_states.get(team_id)
 
@@ -808,9 +1050,7 @@ def decide(
     # not fire. Queueing it here would instead return a decision and stop Tier B ever
     # seeing the team, leaving the wrong state in place with a review row beside it. An
     # undisputed AL still answers, so Alabama teams reach Alabama.
-    if association_state == UNSET_DEFAULT_ASSOCIATION and any(
-        state != association_state for state in voted.values()
-    ):
+    if unset_default_disputed(association_state, readings):
         association_state = None
 
     if len(set(voted.values())) > 1 and not association_state:
@@ -868,6 +1108,50 @@ def decide(
     return _decision(team, proposed, tier, "queue", f"{reason}; tier {tier} cannot correct")
 
 
+CONFIRM_ACTION = "confirm"
+
+
+def confirm_decisions(
+    teams: List[Dict],
+    candidates: Set[str],
+    association_states: Dict[str, str],
+    club_index: Dict[str, Counter],
+    locality_index: Dict[str, str],
+    revert_blocks: Set[Tuple[str, str]],
+) -> List[Dict]:
+    """A confirm for every candidate whose bought answer agrees with the state it holds.
+
+    ``decide`` returns nothing when nothing would change, and an agreeing probe leaves no
+    trace the audit can read unless something writes the provenance. A confirm carries the
+    stored state as both pre-image and proposal, so ``apply_team_state`` stamps ``tier_a``
+    without moving the value, and the ledger logs it under its own action.
+
+    Scoped to the candidates: the ledger holds answers for thousands of teams the sweep
+    probed, and none of them was selected here. Never confirmed over: the record's own
+    stamp, an operator's answer, a value an operator reverted away from (R17 -- a confirm
+    there would re-arm the audit on its club), and an ``AL`` a local reading disputes.
+    """
+    confirmed = []
+    for team in teams:
+        team_id = team["team_id_master"]
+        stored = stored_state(team)
+        answer = association_states.get(team_id)
+        if (
+            team_id not in candidates
+            or not stored
+            or answer != stored
+            or vouched_for(team.get("state_source"))
+            or (team_id, stored) in revert_blocks
+        ):
+            continue
+        if unset_default_disputed(answer, local_readings(team, club_index, locality_index)):
+            continue
+        confirmed.append(
+            _decision(team, stored, "A", CONFIRM_ACTION, f"provider confirms {stored}")
+        )
+    return confirmed
+
+
 def _decision(team: Dict, proposed: str, tier: str, action: str, reason: str) -> Dict:
     return {
         "team_id": team["team_id_master"],
@@ -890,6 +1174,8 @@ def build_snapshot(
     audit_contradictions: bool = False,
     probe_limit: Optional[int] = None,
     reprobe_after_days: Optional[int] = None,
+    anchor_clubs: bool = False,
+    probe_unclubbed: bool = False,
 ) -> Dict:
     """Decide every live team against one reading of the database.
 
@@ -900,6 +1186,11 @@ def build_snapshot(
     a provider-confirmed club-mate, and writes only decisions a provider record answered.
     A normal sweep asks about teams something already disputes; this asks about teams
     nothing local disputes, which is where a uniformly mislabelled club hides.
+
+    ``anchor_clubs`` asks one team of every club no provider record has confirmed, so the
+    audit has an anchor to hold the rest against; ``probe_unclubbed`` asks the teams no
+    anchor can reach. Both write only what the provider answered, like the audit, and a
+    bought answer that agrees is written as a confirm rather than dropped.
     """
     console.print("[bold]Reading teams[/bold]")
     teams = fetch_live_teams(sb)
@@ -926,11 +1217,20 @@ def build_snapshot(
     # is what stops the audit's behaviours -- the deferred abort above all -- reaching a
     # path that has no cache to protect.
     auditing = audit_contradictions and not only_team
+    verifying = (anchor_clubs or probe_unclubbed) and not only_team
+    # Every answered-only mode writes only what the provider answered; the population is
+    # the only difference between them.
+    answered_only = auditing or verifying
+    chosen = chosen_populations(audit_contradictions, anchor_clubs, probe_unclubbed)
+    population_flag = chosen[0] if chosen else None
+    mode = MODE_FOR_FLAG[population_flag] if answered_only else "normal"
 
-    anchor_counts: Dict[str, int] = {}
+    selection: Dict[str, int] = {}
     cached: Dict[str, str] = {}
     skipped_durable = 0
     budget_applied = False
+    passed_over: Counter = Counter()
+    known_aliases: Dict[str, str] = {}
     if only_team:
         # A named team is asked whatever the tiers think, which is the whole point of asking
         # about one team: a club whose teams are uniformly mislabelled agrees with itself, so
@@ -939,26 +1239,43 @@ def build_snapshot(
         # The budget still binds here. Recency does not: a named team is asked because
         # someone wants it asked now.
         to_probe = probe_list([(only_team, 0)], {}, probe_limit)
-        if audit_contradictions:
-            # Inert rather than refused, because --team wins over the audit flags. Said
+        if population_flag:
+            # Inert rather than refused, because --team wins over the population flags. Said
             # out loud, because a flag that changes nothing and says nothing gets trusted --
             # and it names the budget, which is the one audit flag that still bites here.
             console.print(
-                "  [yellow]--team run: --audit-contradictions selects nothing here, and "
+                f"  [yellow]--team run: {population_flag} selects nothing here, and "
                 "--reprobe-after-days is ignored; --probe-limit still applies[/yellow]"
                 if probe_limit is not None
-                else "  [yellow]--team run: --audit-contradictions selects nothing here, and "
+                else f"  [yellow]--team run: {population_flag} selects nothing here, and "
                 "--reprobe-after-days is ignored; this team is asked regardless[/yellow]"
             )
-    elif auditing:
-        # Two passes elsewhere; here the first is skipped outright, since it walks every
-        # team to build a disputed set this mode never consults.
-        anchor_index = build_anchor_index(teams)
-        console.print(f"  {len(anchor_index):,} clubs with a provider-confirmed state")
+    elif answered_only:
         window = reprobe_after_days if reprobe_after_days is not None else REPROBE_AFTER_DAYS
         recent = fetch_recent_probes(sb, datetime.now(timezone.utc) - timedelta(days=window))
-        selected = contradiction_candidates(teams, anchor_index)
-        anchor_counts = dict(selected)
+        if auditing:
+            # Two passes elsewhere; here the first is skipped outright, since it walks every
+            # team to build a disputed set this mode never consults.
+            anchor_index = build_anchor_index(teams)
+            console.print(f"  {len(anchor_index):,} clubs with a provider-confirmed state")
+            selected = contradiction_candidates(teams, anchor_index)
+            what = "contradict a confirmed club-mate"
+        elif anchor_clubs:
+            # The alias lookup runs over the whole population before anything is picked, so
+            # a first choice without a GotSport id is passed over for a club-mate that has
+            # one, and the map is kept so the probe below does not buy the lookup twice.
+            clubs, passed_over = anchorable_clubs(teams)
+            known_aliases = fetch_gotsport_aliases(sb, anchor_pool(clubs))
+            selected, skipped = anchor_candidates(clubs, club_index, recent, set(known_aliases))
+            passed_over.update(skipped)
+            what = "clubs can be anchored"
+        else:
+            population = unclubbed_candidates(teams)
+            known_aliases = fetch_gotsport_aliases(sb, [team_id for team_id, _ in population])
+            selected = [(team_id, n) for team_id, n in population if team_id in known_aliases]
+            passed_over["no alias"] += len(population) - len(selected)
+            what = "teams have no club-mate to anchor them"
+        selection = dict(selected)
         candidates = [team_id for team_id, _ in selected]
         # Sliced rather than re-derived, so ``budget_applied`` compares a list with its own
         # prefix. Two independent ``probe_list`` calls would leave that comparison resting
@@ -969,22 +1286,14 @@ def build_snapshot(
         # shorter than the population: a cached or durably-answered team shortens it too,
         # and reading that as "capped" mislabels the uncapped run that finishes the job.
         budget_applied = len(to_probe) < len(due)
-        # An answer already bought is used whether or not the budget would have covered
-        # it, so a run aborted after paying still produces its decisions on the retry.
-        cached = {
-            team_id: state
-            for team_id, (outcome, state) in recent.items()
-            if outcome == MAPPED_OUTCOME and state and team_id in anchor_counts
-        }
+        cached = bought_answers(recent, set(candidates))
         skipped_durable = sum(
             1 for team_id in candidates if team_id in recent and team_id not in cached
         )
         console.print(
-            f"  {len(candidates):,} contradict a confirmed club-mate, "
-            f"{len(to_probe):,} to probe, {len(cached):,} already answered"
+            f"  {len(candidates):,} {what}, {len(to_probe):,} to probe, "
+            f"{len(cached):,} already answered"
         )
-        if skipped_durable:
-            console.print(f"  [dim]{skipped_durable:,} skipped: answered, but not with a state[/dim]")
     else:
         # Two passes. The first finds the teams any tier disputes, which is the only set
         # worth spending a GotSport call on; the second re-decides them with Tier A in hand.
@@ -1006,7 +1315,12 @@ def build_snapshot(
     blocked = False
     if use_tier_a and to_probe:
         console.print(f"[bold]Probing GotSport[/bold] for {len(to_probe):,} candidates")
-        aliases = fetch_gotsport_aliases(sb, to_probe)
+        # The verifying modes looked the whole population up before picking from it.
+        aliases = (
+            {team_id: known_aliases[team_id] for team_id in to_probe if team_id in known_aliases}
+            if verifying
+            else fetch_gotsport_aliases(sb, to_probe)
+        )
         console.print(f"  {len(aliases):,} have a GotSport id")
 
         stored_states = {t["team_id_master"]: stored_state(t) for t in teams}
@@ -1037,7 +1351,7 @@ def build_snapshot(
             recovery = (
                 "Re-run with --out to keep the decisions; the answers already bought are in "
                 "the probe ledger and cost nothing the second time."
-                if audit_contradictions
+                if population_flag
                 else "Re-run when GotSport lets us back in, or --no-tier-a to decide "
                 "without it deliberately."
             )
@@ -1049,10 +1363,10 @@ def build_snapshot(
             # for. Exiting here would strand them again on every retry, so it decides
             # first and exits below. Nothing unverified rides along: audit decisions
             # already require a mapped answer.
-            if not auditing:
+            if not answered_only:
                 sys.exit(1)
 
-    audit_scope = set(candidates) if auditing else set()
+    answered_scope = set(candidates) if answered_only else set()
     decisions = [
         d
         for d in (
@@ -1064,19 +1378,43 @@ def build_snapshot(
         # A candidate whose probe never answered would otherwise get a Tier B correction
         # auto-applied, on exactly the generic club names that produce false positives.
         and (
-            not auditing
-            or (d["team_id"] in audit_scope and d["team_id"] in association_states)
+            not answered_only
+            or (d["team_id"] in answered_scope and d["team_id"] in association_states)
         )
     ]
+    if verifying:
+        # A provider answer decide() threw away -- the unset default ``AL`` with a local
+        # reading against it -- still counts the team as answered above, and a club count
+        # would then correct it unattended on exactly the two-and-two shape (IMP-161) this
+        # mode is meant to settle by the record. So only the record's own decisions apply.
+        # The audit is deliberately exempt: there a club correction over an AL-default team
+        # is the audit's design, and the club has an anchor to be measured against.
+        decisions = [
+            d
+            if d["action"] != "apply" or d["tier"] == "A"
+            else dict(d, action="queue", reason=f"{d['reason']}; provider gave no usable answer")
+            for d in decisions
+        ]
+    if answered_only:
+        # An agreeing paid answer leaves its mark in every answered-only mode, the audit
+        # included: without it an agreeing dissenter stays a candidate and is re-bought
+        # after the window -- most of the audit's population, as it stood. A club then
+        # holding two confirmed states is dropped by ``build_anchor_index`` as two clubs
+        # sharing a name.
+        decisions.extend(
+            confirm_decisions(
+                teams, answered_scope, association_states, club_index, locality_index, revert_blocks
+            )
+        )
     # Teams no tier can decide never reach the review queue either, because a queue row
     # has to carry a proposal. Most of them are dormant and nobody would notice; the ones
     # ranked Active are on a state board right now with no state, so the run names them
     # rather than leaving them to be silently unfixable.
     #
-    # Audit mode probes no stateless team, so the count would measure what it did not ask
+    # The answered-only modes probe no stateless team, so the count would measure what they did not ask
     # rather than what cannot be decided, and the lookup behind it costs a round trip per
     # hundred ids.
-    if auditing:
+    if answered_only:
         undecided, stranded = [], []
     else:
         decided = {d["team_id"] for d in decisions}
@@ -1090,33 +1428,41 @@ def build_snapshot(
     snapshot = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "actor": ACTOR,
-        "mode": "audit" if auditing else "normal",
+        "mode": mode,
         "live_teams": len(teams),
-        # In audit mode this counts cache-seeded answers too, so it is not a paid-call
-        # count. ``aliases_found`` is.
+        # In the answered-only modes this counts cache-seeded answers too, so it is not a
+        # paid-call count. ``aliases_found`` is.
         "tier_a_probed": len(association_states),
         "tier_d_available": tier_d_ready,
         "undecidable": len(undecided),
         "undecidable_and_visible": stranded,
         "decisions": decisions,
     }
-    if auditing:
+    if answered_only:
         snapshot.update(
             {
                 "candidates_selected": len(candidates),
                 "probed": list(to_probe),
-                "aliases_found": len(aliases),
+                # The verifying modes looked the whole population up, and that is the
+                # figure worth reading: on a zero-budget rehearsal the probe's own count is 0.
+                "aliases_found": len(known_aliases) if verifying else len(aliases),
                 "probes_answered": len(probed_answers),
                 "cached_answers": len(cached),
                 "skipped_durable": skipped_durable,
                 "budget_applied": budget_applied,
-                "anchor_counts": anchor_counts,
                 # Over the candidates, not the decisions. A team that answered and agreed
                 # produces no decision, and leaving it out would make the denominator
                 # equal the numerator and every hit rate exactly 100%.
                 "answered": {t: t in association_states for t in candidates},
             }
         )
+    if auditing:
+        snapshot["anchor_counts"] = selection
+    if verifying:
+        snapshot["passed_over"] = dict(passed_over)
+    if mode == "anchor":
+        # The audit's ``anchor_counts`` is evidence strength; this is coverage per call.
+        snapshot["club_sizes"] = selection
 
     # Deferred from the probe so the cache-backed decisions above are built and returned
     # first. The run writes the snapshot, then stops non-zero on this flag.
@@ -1173,7 +1519,11 @@ def apply_decision(sb, decision: Dict, reason: str) -> bool:
             "p_source": state_source_for(decision["tier"]),
             "p_confidence": decision["confidence"],
             "p_actor": ACTOR,
-            "p_action": "fill" if decision["pre_image"] is None else "correct",
+            "p_action": (
+                CONFIRM_ACTION
+                if decision.get("action") == CONFIRM_ACTION
+                else "fill" if decision["pre_image"] is None else "correct"
+            ),
             "p_reason": reason,
         },
     ).execute()
@@ -1218,6 +1568,23 @@ def state_of(sb, team_id: str) -> Optional[str]:
     return ((found.data[0].get("state_code") if found.data else None) or "").strip() or None
 
 
+def fetch_state_sources(sb, team_ids: List[str]) -> Dict[str, Optional[str]]:
+    """``team_id_master`` -> ``state_source`` as it stands right now."""
+    sources: Dict[str, Optional[str]] = {}
+    for start in range(0, len(team_ids), IN_BATCH):
+        rows = (
+            sb.table("teams")
+            .select("team_id_master,state_source")
+            .in_("team_id_master", team_ids[start : start + IN_BATCH])
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            sources[row["team_id_master"]] = row.get("state_source")
+    return sources
+
+
 def mirror_rankings(sb, applied: List[Dict]) -> int:
     """Carry applied states into ``rankings_full`` so the boards agree today.
 
@@ -1248,6 +1615,7 @@ def apply_snapshot(
     decisions = snapshot["decisions"]
     to_apply = [d for d in decisions if d["action"] == "apply"]
     to_queue = [d for d in decisions if d["action"] == "queue"]
+    to_confirm = [d for d in decisions if d["action"] == CONFIRM_ACTION]
 
     # A correction is not safe to write unattended, and that is measured rather than
     # cautious. Two consecutive dry runs propose 664 applies, 90 of which overwrite what
@@ -1259,12 +1627,13 @@ def apply_snapshot(
     # job takes the fills and leaves every correction to an operator running the sweep.
     # Filtered before --limit, so that limit still counts rows this will actually write.
     if fills_only:
-        withheld = sum(1 for d in to_apply if d["pre_image"] is not None)
+        corrections = sum(1 for d in to_apply if d["pre_image"] is not None)
         to_apply = [d for d in to_apply if d["pre_image"] is None]
         console.print(
-            f"[yellow]--fills-only: withholding {withheld:,} corrections for an "
-            f"operator-run sweep[/yellow]"
+            f"[yellow]--fills-only: withholding {corrections:,} corrections and "
+            f"{len(to_confirm):,} confirms for an operator-run sweep[/yellow]"
         )
+        to_confirm = []
 
     if limit is not None:
         if limit < 0:
@@ -1272,6 +1641,7 @@ def apply_snapshot(
             sys.exit(1)
         to_apply = to_apply[:limit]
         to_queue = to_queue[:limit]
+        to_confirm = to_confirm[:limit]
 
     # Re-read the ledger rather than trusting the snapshot's reading of it. Between a
     # limited batch and the run that finishes it, an operator may have reverted one of the
@@ -1289,6 +1659,19 @@ def apply_snapshot(
             f"[yellow]{len(blocked):,} decisions reverted since the snapshot; "
             f"queued instead[/yellow]"
         )
+
+    # Re-read provenance too, for the same reason and one more: the RPC's predicate is the
+    # state alone, and a confirm changes provenance without touching the state, so a club
+    # count decided before a confirm landed would pass the predicate and overwrite the
+    # record's own stamp.
+    sources = fetch_state_sources(sb, [d["team_id"] for d in to_apply])
+    kept = [d for d in to_apply if not outranked(sources.get(d["team_id"]), d["tier"])]
+    if len(kept) < len(to_apply):
+        console.print(
+            f"[yellow]{len(to_apply) - len(kept):,} decisions outranked since the snapshot by "
+            f"a provider record or an operator; skipped[/yellow]"
+        )
+    to_apply = kept
 
     reason = f"snapshot {snapshot['created_at']}"
     applied: List[Dict] = []
@@ -1321,6 +1704,32 @@ def apply_snapshot(
     if to_mirror:
         console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, to_mirror):,} ranking rows")
 
+    # Last, so a failing confirm strands nothing above it; a confirm moves nothing, so it is
+    # never mirrored. It is ledgered as 'confirm' because provenance changed, which needs
+    # migration 20260902210000 in place. The ledger and the provenance are re-read here
+    # rather than reused: a confirm's predicate is always satisfied, so these two reads are
+    # the only thing standing between a revert made mid-replay and its undoing, and a value
+    # the record or an operator already stamped is left alone rather than stamped again.
+    if to_confirm:
+        blocked_now = fetch_revert_blocks(sb)
+        sources = fetch_state_sources(sb, [d["team_id"] for d in to_confirm])
+        reverted = vouched = 0
+        unvouched: List[Dict] = []
+        for d in to_confirm:
+            if (d["team_id"], d["proposed"]) in blocked_now:
+                reverted += 1
+            elif vouched_for(sources.get(d["team_id"])):
+                vouched += 1
+            else:
+                unvouched.append(d)
+        confirmed = sum(1 for d in unvouched if apply_decision(sb, d, reason))
+        console.print(
+            f"[green]✓[/green] Confirmed {confirmed:,} provider agreements, "
+            f"skipped {len(unvouched) - confirmed:,} that moved"
+            + (f", {vouched:,} already vouched for" if vouched else "")
+            + (f", {reverted:,} reverted before" if reverted else "")
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Reporting
@@ -1328,7 +1737,8 @@ def apply_snapshot(
 
 
 def summarize(snapshot: Dict) -> None:
-    decisions = snapshot["decisions"]
+    confirms = [d for d in snapshot["decisions"] if d["action"] == CONFIRM_ACTION]
+    decisions = [d for d in snapshot["decisions"] if d["action"] != CONFIRM_ACTION]
     fills = [d for d in decisions if d["pre_image"] is None]
     corrections = [d for d in decisions if d["pre_image"] is not None]
 
@@ -1354,12 +1764,22 @@ def summarize(snapshot: Dict) -> None:
         f"[bold]{sum(1 for d in decisions if d['action'] == 'queue'):,}[/bold] to review, "
         f"across {len(fills):,} fills and {len(corrections):,} corrections."
     )
+    if confirms:
+        console.print(
+            f"[bold]{len(confirms):,}[/bold] confirmed: the provider agrees with the stored "
+            "state, and the provenance now says so."
+        )
     if not snapshot["tier_d_available"]:
         console.print("[yellow]Tier D did not fire: it is not implemented[/yellow]")
 
-    if snapshot.get("mode", "normal") == "audit":
+    mode = snapshot.get("mode", "normal")
+    if mode == "audit":
         _summarize_audit(snapshot, decisions)
         console.print("[dim]Undecidable teams are not examined in audit mode.[/dim]")
+        return
+    if mode in ("anchor", "unclubbed"):
+        _summarize_verify(snapshot, decisions)
+        console.print(f"[dim]Undecidable teams are not examined in {mode} mode.[/dim]")
         return
 
     stranded = snapshot.get("undecidable_and_visible") or []
@@ -1387,19 +1807,32 @@ def _anchor_bucket(count: int) -> str:
     return ANCHOR_BUCKETS[0] if count >= 2 else ANCHOR_BUCKETS[1]
 
 
-def _summarize_audit(snapshot: Dict, decisions: List[Dict]) -> None:
-    """What the contradiction audit selected, what it paid for, and what it caught."""
+def _summarize_answered(snapshot: Dict, decisions: List[Dict], title: str, what: str) -> None:
+    """The lines every answered-only mode reports: what it selected, paid for, and caught."""
     selected = snapshot.get("candidates_selected", 0)
     answered = snapshot.get("probes_answered", 0)
     cached = snapshot.get("cached_answers", 0)
     queued = sum(1 for d in decisions if d["action"] == "queue")
 
     console.print(
-        f"[bold]Audit[/bold]: {selected:,} contradict a confirmed club-mate, "
+        f"[bold]{title}[/bold]: {selected:,} {what}, "
         f"{len(snapshot.get('probed') or []):,} probed, "
         f"{snapshot.get('aliases_found', 0):,} had a GotSport id, "
         f"{answered + cached:,} answered ({cached:,} of them from earlier runs)."
     )
+    passed_over = dict(snapshot.get("passed_over") or {})
+    fallback = passed_over.pop(FALLBACK_REASON, 0)
+    if fallback:
+        console.print(
+            f"[dim]  {fallback:,} clubs asked a club-mate: a member answered without a state[/dim]"
+        )
+    if passed_over:
+        unit = "clubs" if snapshot.get("mode") == "anchor" else "teams"
+        console.print(
+            f"[dim]  passed over ({unit}): "
+            + ", ".join(f"{n:,} {why}" for why, n in sorted(passed_over.items()))
+            + "[/dim]"
+        )
     if snapshot.get("skipped_durable"):
         console.print(
             f"[dim]  {snapshot['skipped_durable']:,} skipped: answered before, but with no state "
@@ -1409,6 +1842,11 @@ def _summarize_audit(snapshot: Dict, decisions: List[Dict]) -> None:
         f"  {len(decisions):,} corrections, {len(decisions) - queued:,} auto-applied and "
         f"{queued:,} queued for review."
     )
+
+
+def _summarize_audit(snapshot: Dict, decisions: List[Dict]) -> None:
+    """What the contradiction audit selected, what it paid for, and what it caught."""
+    _summarize_answered(snapshot, decisions, "Audit", "contradict a confirmed club-mate")
 
     # Before the buckets, because it qualifies them and must survive a run that selected
     # nothing to bucket.
@@ -1446,6 +1884,25 @@ def _summarize_audit(snapshot: Dict, decisions: List[Dict]) -> None:
         )
 
 
+def _summarize_verify(snapshot: Dict, decisions: List[Dict]) -> None:
+    """What an anchor or unclubbed pass selected, paid for, and caught."""
+    anchoring = snapshot["mode"] == "anchor"
+    _summarize_answered(
+        snapshot,
+        decisions,
+        "Anchor" if anchoring else "Unclubbed",
+        "clubs selected" if anchoring else "teams selected",
+    )
+    if snapshot.get("budget_applied"):
+        console.print(
+            "[dim]  A capped run takes the largest clubs first; the rest wait for the next "
+            "run.[/dim]"
+            if anchoring
+            else "[dim]  A capped run takes the lowest ids first; the rest wait for the next "
+            "run.[/dim]"
+        )
+
+
 def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute: bool) -> None:
     """Write the operator's own answer for one team (R21).
 
@@ -1461,7 +1918,7 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
 
     found = (
         sb.table("teams")
-        .select("team_id_master,team_name,state_code,is_deprecated")
+        .select("team_id_master,team_name,state_code,state_source,is_deprecated")
         .eq("team_id_master", team_id)
         .limit(1)
         .execute()
@@ -1494,37 +1951,45 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
         "tier": None,
         "confidence": 1.0,
     }
-    if current == state:
-        # Already there, which is also what a retry looks like after the write committed
-        # and the mirror did not. The mirror is the only half left to finish.
-        console.print(f"[yellow]{team['team_name']} is already {state}[/yellow]")
+    confirming = current == state
+    if confirming and team.get("state_source") == OPERATOR_SOURCE:
+        # Already the operator's own answer, which is also what a retry looks like after
+        # the write committed and the mirror did not. The mirror is the only half left.
+        console.print(f"[yellow]{escape(team['team_name'])} is already {state}, by hand[/yellow]")
         if execute:
             console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, [decision]):,} ranking rows")
         return
 
     if not execute:
         console.print(
-            f"[yellow]Would set {team['team_name']}: {current} → {state}. "
-            f"Re-run with --execute to write it.[/yellow]"
+            f"[yellow]Would {'confirm' if confirming else 'set'} {escape(team['team_name'])}: "
+            f"{current} → {state}. Re-run with --execute to write it.[/yellow]"
         )
         return
+    # An agreeing answer is written too: the value stays and the provenance becomes the
+    # operator's, which is what every automated write defers to. Left unstamped, a held
+    # row the operator agreed with would be overwritten by the next anchor pass as if
+    # nobody had looked.
     applied = sb.rpc(
         "apply_team_state",
         {
             "p_team_id": team_id,
             "p_expected_state_code": current,
             "p_state_code": state,
-            "p_source": "operator",
+            "p_source": OPERATOR_SOURCE,
             "p_confidence": 1.0,
             "p_actor": OPERATOR_ACTOR,
-            "p_action": "fill" if current is None else "correct",
+            "p_action": CONFIRM_ACTION if confirming else "fill" if current is None else "correct",
             "p_reason": reason or "assigned by hand",
         },
     ).execute()
     if not applied.data:
         console.print("[yellow]Skipped: the team's state moved since it was read[/yellow]")
         return
-    console.print(f"[green]✓[/green] {team['team_name']}: {current} → {state}")
+    console.print(
+        f"[green]✓[/green] {escape(team['team_name'])}: "
+        + (f"{state} confirmed by hand" if confirming else f"{current} → {state}")
+    )
     console.print(f"[green]✓[/green] Mirrored {mirror_rankings(sb, [decision]):,} ranking rows")
 
 
@@ -1544,6 +2009,13 @@ def report_team(sb, snapshot: Dict, team_id: str, execute: bool) -> None:
             return
         if decision["action"] != "apply":
             console.print(f"[yellow]Not applied: this decision is for review ({decision['reason']})[/yellow]")
+            return
+        source = fetch_state_sources(sb, [team_id]).get(team_id)
+        if outranked(source, decision["tier"]):
+            console.print(
+                f"[yellow]Not applied: the stored value carries {source} provenance, which "
+                f"outranks tier {decision['tier']}[/yellow]"
+            )
             return
         if apply_decision(sb, decision, f"single team, {snapshot['created_at']}"):
             console.print(f"[green]✓[/green] {decision['pre_image']} → {decision['proposed']}")
@@ -1582,16 +2054,36 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--anchor-clubs",
+        action="store_true",
+        help=(
+            "Probe one team of every club no provider record has confirmed, so the audit "
+            "has an anchor to hold the rest against. Writes only decisions the provider "
+            "answered; an agreeing answer records provenance without moving the state"
+        ),
+    )
+    parser.add_argument(
+        "--probe-unclubbed",
+        action="store_true",
+        help=(
+            "Probe the stated teams no anchor can reach: no club name, or the club's only "
+            "team. Writes only decisions the provider answered"
+        ),
+    )
+    parser.add_argument(
         "--probe-limit",
         type=int,
-        help="With --audit-contradictions, probe at most this many teams. 0 probes none",
+        help=(
+            "With --audit-contradictions, --anchor-clubs or --probe-unclubbed, probe at most "
+            "this many teams. 0 probes none"
+        ),
     )
     parser.add_argument(
         "--reprobe-after-days",
         type=int,
         help=(
-            f"With --audit-contradictions, re-ask a team answered longer ago than this "
-            f"(default {REPROBE_AFTER_DAYS})"
+            f"With --audit-contradictions, --anchor-clubs or --probe-unclubbed, re-ask a team "
+            f"answered longer ago than this (default {REPROBE_AFTER_DAYS})"
         ),
     )
     parser.add_argument(
@@ -1606,21 +2098,29 @@ def main() -> None:
 
     # Before the credential guard: CI sets no keys, so anything after it exits 1 for every
     # argv and a test asserting the exit code alone could never fail.
-    if args.audit_contradictions and args.no_tier_a:
+    population_flags = chosen_populations(args.audit_contradictions, args.anchor_clubs, args.probe_unclubbed)
+    if len(population_flags) > 1:
         console.print(
-            "[red]ERROR: --audit-contradictions is a Tier A run; --no-tier-a would leave it "
+            f"[red]ERROR: {' and '.join(population_flags)} each select a population to probe; "
+            "a run asks about one population[/red]"
+        )
+        sys.exit(1)
+    if population_flags and args.no_tier_a:
+        console.print(
+            f"[red]ERROR: {population_flags[0]} is a Tier A run; --no-tier-a would leave it "
             "nothing to ask[/red]"
         )
         sys.exit(1)
-    if args.probe_limit is not None and not args.audit_contradictions:
+    if args.probe_limit is not None and not population_flags:
         console.print(
-            "[red]ERROR: --probe-limit only bounds --audit-contradictions; a sweep probes every "
-            "candidate by design[/red]"
+            "[red]ERROR: --probe-limit only bounds --audit-contradictions, --anchor-clubs or "
+            "--probe-unclubbed; a sweep probes every candidate by design[/red]"
         )
         sys.exit(1)
-    if args.reprobe_after_days is not None and not args.audit_contradictions:
+    if args.reprobe_after_days is not None and not population_flags:
         console.print(
-            "[red]ERROR: --reprobe-after-days only applies to --audit-contradictions[/red]"
+            "[red]ERROR: --reprobe-after-days only applies to --audit-contradictions, "
+            "--anchor-clubs or --probe-unclubbed[/red]"
         )
         sys.exit(1)
     if args.probe_limit is not None and args.probe_limit < 0:
@@ -1664,6 +2164,8 @@ def main() -> None:
         audit_contradictions=args.audit_contradictions,
         probe_limit=args.probe_limit,
         reprobe_after_days=args.reprobe_after_days,
+        anchor_clubs=args.anchor_clubs,
+        probe_unclubbed=args.probe_unclubbed,
     )
 
     if args.team:

@@ -29,8 +29,9 @@ and the registration record, which said Idaho for all five teams that had one.
 
 **Fixing it:** `--audit-contradictions` is the systematic remedy. Once any team of the club
 carries a provider-confirmed state, its mislabelled club-mates contradict that anchor and the
-audit selects them, whether or not a tier ever objected. `--team <uuid>` stays the one-off
-route, and it is what produces the first confirmed team when a club has none.
+audit selects them, whether or not a tier ever objected. `--anchor-clubs` (SKILL.md Step 2b)
+is what produces the first confirmed team for every club that has none, one paid call per
+club; `--team <uuid>` stays the one-off route for a single club you want asked now.
 
 ## A hunt that finds mostly false friends
 
@@ -54,20 +55,23 @@ like an obvious catch; UT is correct.
 paid for:
 
 > a team whose state contradicts a club-mate's already-confirmed `state_source = 'tier_a'`
-> state, for clubs where every confirmed team agrees on one state — excluding teams whose
-> stored state is a Canadian province, which Tier A never corrects.
+> state, for clubs where every confirmed team agrees on one state — excluding teams that are
+> not askable: a stored Canadian province, which Tier A never corrects, or a value an operator
+> set by hand, which no automated write may move.
 
 Of 150 sampled, 143 had a record, 129 answered, and **65 were genuinely wrong — 50.4%**,
 against a **2.9%** base rate for a random team no tier disputes. Seventeen times better per
 paid call. Those two ratios should hold; the populations they came from will not.
 
-The province clause is load-bearing rather than a footnote: every team it drops is a call Tier
-A would never act on. For the counts, see SKILL.md Step 2a.
+The askable clause is load-bearing rather than a footnote: every team it drops is a call Tier
+A would never act on.
 
-It reaches a uniformly mislabelled club only *after* someone has probed one of its teams —
-which is exactly the `--team <uuid>` fix above. That first probe stamps `tier_a` on one team
-and turns the rest of the club into candidates, so the rule mechanises the manual fix rather
-than replacing it.
+It reaches a uniformly mislabelled club only *after* one of its teams carries a confirmed
+state — which is what `--anchor-clubs` buys in bulk: its first probe stamps `tier_a` on one
+team (a confirm, when the provider agrees) and turns the rest of the club into candidates, so
+the rule mechanises the manual fix rather than replacing it. `--team <uuid>` anchors a club
+only when the provider *disagrees* with the named team; a named-team run makes no confirm, so
+an agreeing answer leaves the club as it was.
 
 Its false positives have one cause: a generic `club_name` covering teams that are genuinely
 different clubs — *North FC*, *Valley United SC*, *Elite FC*, *Eastside FC*, *Legacy FC*. That
@@ -85,7 +89,7 @@ sweep's disputed set, because `club_derived_state` excludes the team being decid
 club counts, so a club with two wrong teams against 41 right ones *is* disputed by Tier B. A
 full sweep reaches those too, at roughly six times the calls.
 
-`--audit-contradictions` implements this rule, with the province narrowing noted above: see
+`--audit-contradictions` implements this rule, with the askability narrowing noted above: see
 SKILL.md Step 2a. The measurements behind this section are in
 `.turbo/reports/2026-08-31-targeting-the-gotsport-probe.md`.
 

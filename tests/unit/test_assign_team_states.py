@@ -345,24 +345,58 @@ def test_nothing_under_src_scrapers_is_imported_at_module_scope():
 # --------------------------------------------------------------------------- #
 
 
-def replay(monkeypatch, decisions, reverts=frozenset(), **kwargs):
-    """Drive the real ``apply_snapshot`` over `decisions`, returning what it did.
+def _replay(monkeypatch, decisions, reverts=frozenset(), sources=None, refuse=frozenset(), **kwargs):
+    """Drive the real ``apply_snapshot`` over `decisions` with every database touch stubbed.
 
-    Everything that touches the database is stubbed; what is under test is which
-    decisions reach ``apply_decision`` and which reach ``queue_decision``.
+    Returns what reached each writer and the order they were called in. ``reverts`` may be
+    a set (the ledger as read every time) or a list of sets, one per read, for the tests
+    that need the ledger to change mid-replay. ``refuse`` names the teams whose RPC reports
+    the state moved.
     """
-    applied, queued = [], []
-    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set(reverts))
+    captured = {"applied": [], "queued": [], "mirrored": [], "order": [], "sources_read": []}
+    reads = list(reverts) if isinstance(reverts, list) else [set(reverts)]
+
+    def fake_reverts(sb):
+        return set(reads.pop(0)) if len(reads) > 1 else set(reads[0])
+
+    def fake_sources(sb, ids):
+        # Faithful to the real reader, which answers only for the ids it was handed: a
+        # phase reading provenance for the wrong teams must find nothing, not everything.
+        captured["sources_read"].append(list(ids))
+        return {t: s for t, s in (sources or {}).items() if t in ids}
+
+    def fake_apply(sb, d, reason):
+        captured["order"].append(d["action"])
+        if d["team_id"] in refuse:
+            return False
+        captured["applied"].append(d["team_id"])
+        return True
+
+    monkeypatch.setattr(assign, "fetch_revert_blocks", fake_reverts)
     monkeypatch.setattr(assign, "fetch_queue_rows", lambda sb: {})
-    monkeypatch.setattr(assign, "mirror_rankings", lambda sb, rows: len(rows))
+    monkeypatch.setattr(assign, "fetch_state_sources", fake_sources)
+    monkeypatch.setattr(assign, "state_of", lambda sb, team_id: None)
     monkeypatch.setattr(
-        assign, "apply_decision", lambda sb, d, reason: applied.append(d["team_id"]) or True
+        assign,
+        "mirror_rankings",
+        lambda sb, rows: (captured["order"].append("mirror"), captured["mirrored"].extend(rows))
+        and len(rows),
     )
+    monkeypatch.setattr(assign, "apply_decision", fake_apply)
     monkeypatch.setattr(
-        assign, "queue_decision", lambda sb, d, existing: queued.append(d["team_id"]) or "queued"
+        assign,
+        "queue_decision",
+        lambda sb, d, existing: (captured["order"].append("queue"), captured["queued"].append(d["team_id"]))
+        and "queued",
     )
     apply_snapshot(None, {"created_at": "2026-08-29T00:00:00+00:00", "decisions": decisions}, **kwargs)
-    return applied, queued
+    return captured
+
+
+def replay(monkeypatch, decisions, reverts=frozenset(), **kwargs):
+    """``_replay`` for the tests that read only the applies and the queue."""
+    captured = _replay(monkeypatch, decisions, reverts=reverts, **kwargs)
+    return captured["applied"], captured["queued"]
 
 
 def proposal(team_id, pre_image, action="apply"):
@@ -583,17 +617,30 @@ def test_the_probe_list_preserves_candidate_order():
 # --------------------------------------------------------------------------- #
 
 
-def audit(monkeypatch, teams, aliases, recent=None, answers=None, outcomes=None, **kwargs):
-    """Drive the real ``build_snapshot`` in audit mode, capturing what it paid for.
+def audit(
+    monkeypatch,
+    teams,
+    aliases,
+    recent=None,
+    answers=None,
+    outcomes=None,
+    mode="audit_contradictions",
+    **kwargs,
+):
+    """Drive the real ``build_snapshot`` in one of the answered-only modes, capturing what
+    it paid for. ``mode`` names the population flag: ``audit_contradictions`` (default),
+    ``anchor_clubs`` or ``probe_unclubbed``.
 
     Everything touching the database is stubbed, but the alias lookup and the probe both
     record the ids they were handed: those arguments are the seam where a budget or a
-    cache either works or silently does not.
+    cache either works or silently does not. ``looked_up`` is the last lookup; ``lookups``
+    is every one, for the modes that look the population up before picking from it.
     """
-    handed = {}
+    handed = {"lookups": []}
 
     def fake_aliases(sb, ids):
         handed["looked_up"] = list(ids)
+        handed["lookups"].append(list(ids))
         return {t: f"p{t}" for t in ids if t in aliases}
 
     def fake_probe(ids, workers, sb, stored):
@@ -617,9 +664,7 @@ def audit(monkeypatch, teams, aliases, recent=None, answers=None, outcomes=None,
     monkeypatch.setattr(assign, "write_probe_log", lambda sb, rows: None)
     monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
     monkeypatch.setattr(assign, "probe_associations", fake_probe)
-    snapshot = assign.build_snapshot(
-        None, use_tier_a=True, workers=1, audit_contradictions=True, **kwargs
-    )
+    snapshot = assign.build_snapshot(None, use_tier_a=True, workers=1, **{mode: True}, **kwargs)
     return snapshot, handed
 
 
@@ -641,9 +686,7 @@ def quiet_club_teams():
     free tier proposes anything. ``audit_teams()`` cannot stand in here -- its club is two
     OH against one WA and one NV, so Tier B already corrects both candidates unaided.
     """
-    return [anchored(team_id_master="anchor1", club_name="Quiet FC", state_code="OH")] + [
-        team(team_id_master=f"quiet{i}", club_name="Quiet FC", state_code="WA") for i in range(5)
-    ]
+    return [anchored(team_id_master="anchor1", club_name="Quiet FC", state_code="OH")] + unanchored_club(size=5)
 
 
 def test_no_free_tier_disputes_the_quiet_club_the_audit_exists_for():
@@ -702,7 +745,7 @@ def test_a_cached_answer_for_a_team_outside_the_population_decides_nothing(monke
     assert snapshot["candidates_selected"] == 2
     # Not only the decisions: the cache filter's own clause has an observable effect, and
     # asserting the decisions alone leaves it to `audit_scope` to catch. Dropping
-    # `team_id in anchor_counts` pulls every team the normal sweep ever probed into these
+    # `team_id in selected` pulls every team the normal sweep ever probed into these
     # two counts while the decisions still look right.
     assert snapshot["cached_answers"] == 0
     assert snapshot["tier_a_probed"] == 0
@@ -1044,6 +1087,12 @@ class _PagedTeams:
         self.projection = projection
         return self
 
+    def order(self, column, *, desc=False, nullsfirst=None):
+        # Keyword-only like postgrest-py's, so a positional ``desc`` fails here as it
+        # would in production.
+        self.ordered_by = (column, desc)
+        return self
+
     def eq(self, column, value):
         assert (column, value) == ("is_deprecated", False)
         return self
@@ -1054,6 +1103,84 @@ class _PagedTeams:
 
     def execute(self):
         return type("R", (), {"data": self._page})()
+
+
+def test_both_paged_readers_order_by_their_key():
+    """IMP-154: an unordered range read lets a row the scrapers update mid-read move between
+    pages, and every club count is one row off."""
+    teams = _PagedTeams([])
+    assign.fetch_live_teams(teams)
+    assert teams.ordered_by == ("team_id_master", False)
+
+    audit_rows = QuerySpy({})
+    assign.fetch_revert_blocks(audit_rows)
+    assert audit_rows.orders("team_state_audit") == [("id", False, None)]
+
+
+class QuerySpy:
+    """A Supabase client that records the filters and the order a reader sends, per table,
+    and answers from fixed rows. ``order`` carries postgrest-py's signature -- ``desc`` and
+    ``nullsfirst`` keyword-only -- so a positional argument fails here as in production."""
+
+    def __init__(self, rows_by_table):
+        self.rows = rows_by_table
+        self.calls = {}
+        self._table = None
+
+    def table(self, name):
+        self._table = name
+        self.calls.setdefault(name, [])
+        return self
+
+    def select(self, columns, **kwargs):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def range(self, start, stop):
+        return self
+
+    def eq(self, column, value):
+        self.calls[self._table].append(("eq", column, value))
+        return self
+
+    def in_(self, column, ids):
+        self.calls[self._table].append(("in_", column, list(ids)))
+        return self
+
+    def order(self, column, *, desc=False, nullsfirst=None):
+        self.calls[self._table].append(("order", column, desc, nullsfirst))
+        return self
+
+    def orders(self, table):
+        return [call[1:] for call in self.calls[table] if call[0] == "order"]
+
+    def execute(self):
+        return type("R", (), {"data": list(self.rows.get(self._table, []))})()
+
+
+def test_the_alias_reader_takes_approved_rows_newest_first():
+    """A quarantined alias is another team's record: ``audit_polluted_gotsport_aliases``
+    marks one ``pending`` and leaves it beside the approved row, and the row that wins the
+    ``setdefault`` is the first the order returns. A nullable ``created_at`` sorts NULL
+    ahead of every date under a bare ``desc``."""
+    sb = QuerySpy(
+        {
+            "providers": [{"id": 7}],
+            "team_alias_map": [
+                {"team_id_master": "t", "provider_team_id": 200},
+                {"team_id_master": "t", "provider_team_id": 100},
+            ],
+        }
+    )
+
+    assert assign.fetch_gotsport_aliases(sb, ["t"]) == {"t": "200"}
+    calls = sb.calls["team_alias_map"]
+    assert ("eq", "provider_id", 7) in calls
+    assert ("eq", "review_status", "approved") in calls
+    assert ("in_", "team_id_master", ["t"]) in calls
+    assert sb.orders("team_alias_map") == [("created_at", True, False), ("provider_team_id", False, None)]
 
 
 def test_the_team_query_still_requests_state_source():
@@ -1091,8 +1218,9 @@ def test_an_explicit_window_overrides_the_default(monkeypatch):
 
 
 def test_the_hit_rate_counts_every_answer_not_only_the_wrong_ones(monkeypatch):
-    """A team that answered and agreed produces no decision. Building the denominator
-    from decisions alone makes it equal the numerator, and every bucket reads 100%."""
+    """A team that answered and agreed produces no correction, only a confirm. Building the
+    denominator from corrections alone makes it equal the numerator, and every bucket reads
+    100%; the report reads the answered map instead."""
     teams = audit_teams()
     snapshot, _ = audit(
         monkeypatch,
@@ -1103,7 +1231,7 @@ def test_the_hit_rate_counts_every_answer_not_only_the_wrong_ones(monkeypatch):
     )
 
     assert snapshot["answered"] == {"wrong1": True, "wrong2": True}
-    assert [d["team_id"] for d in snapshot["decisions"]] == ["wrong1"]
+    assert {d["team_id"]: d["action"] for d in snapshot["decisions"]} == {"wrong1": "apply", "wrong2": "confirm"}
 
 
 def test_a_club_with_no_confirmed_team_anchors_nothing_and_selects_nothing():
@@ -1561,6 +1689,10 @@ def run_cli(monkeypatch, capsys, *argv, credentials=None):
         (("--audit-contradictions", "--probe-limit", "-1"), "cannot be negative"),
         (("--audit-contradictions", "--reprobe-after-days", "0"), "must be at least 1"),
         (("--audit-contradictions", "--reprobe-after-days", "-5"), "must be at least 1"),
+        (("--anchor-clubs", "--no-tier-a"), "nothing to ask"),
+        (("--probe-unclubbed", "--no-tier-a"), "nothing to ask"),
+        (("--anchor-clubs", "--audit-contradictions"), "one population"),
+        (("--anchor-clubs", "--probe-unclubbed"), "one population"),
     ],
 )
 def test_a_meaningless_flag_combination_is_refused_by_name(monkeypatch, capsys, argv, expected):
@@ -1685,3 +1817,940 @@ def test_answered_covers_every_candidate_not_only_the_ones_probed(monkeypatch):
 
     assert snapshot["answered"] == {"wrong1": True, "wrong2": True}
     assert snapshot["probed"] == ["wrong2"]
+
+
+# --------------------------------------------------------------------------- #
+# Anchoring clubs: one paid call per club the provider has never confirmed
+# --------------------------------------------------------------------------- #
+
+
+def anchor_pass(teams, recent=None, aliases=None):
+    """Drive the real grouping and pick, every team aliased unless told otherwise, merging
+    the two reasons lists the way ``build_snapshot`` does."""
+    aliased = {t["team_id_master"] for t in teams} if aliases is None else set(aliases)
+    clubs, passed_over = assign.anchorable_clubs(teams)
+    selected, skipped = assign.anchor_candidates(clubs, build_club_index(teams), recent or {}, aliased)
+    passed_over.update(skipped)
+    return selected, passed_over
+
+
+def unanchored_club(name="Quiet FC", state="WA", size=3):
+    return [
+        team(team_id_master=f"{name.split()[0].lower()}{i}", club_name=name, state_code=state)
+        for i in range(size)
+    ]
+
+
+def test_one_team_is_selected_per_club_the_provider_has_never_confirmed():
+    teams = unanchored_club() + [
+        anchored(team_id_master="anchor1", club_name="Anchored FC", state_code="OH"),
+        team(team_id_master="anchor2", club_name="Anchored FC", state_code="OH"),
+    ]
+    selected, skipped = anchor_pass(teams)
+
+    assert [team_id for team_id, _ in selected] == ["quiet0"]
+    assert skipped["anchored"] == 1
+
+
+def test_a_club_with_one_team_or_no_name_cannot_be_anchored():
+    teams = [
+        team(team_id_master="solo", club_name="Solo FC", state_code="OH"),
+        team(team_id_master="ph0", club_name="No Club Selection", state_code="CA"),
+        team(team_id_master="ph1", club_name="No Club Selection", state_code="CA"),
+        team(team_id_master="blank0", club_name="", state_code="CA"),
+        team(team_id_master="blank1", club_name="", state_code="CA"),
+    ]
+    selected, skipped = anchor_pass(teams)
+
+    assert selected == []
+    assert skipped["single team"] == 1
+
+
+def test_the_club_modal_state_team_is_preferred_then_the_lowest_id():
+    teams = [
+        team(team_id_master="a", club_name="Split FC", state_code="NV"),
+        team(team_id_master="c", club_name="Split FC", state_code="WA"),
+        team(team_id_master="b", club_name="Split FC", state_code="WA"),
+    ]
+    selected, _ = anchor_pass(teams)
+
+    assert [team_id for team_id, _ in selected] == ["b"]
+
+
+def test_a_team_answered_without_a_state_is_passed_over_for_a_club_mate():
+    selected, passed_over = anchor_pass(
+        unanchored_club(), recent={"quiet0": ("no association in payload", None)}
+    )
+
+    assert [team_id for team_id, _ in selected] == ["quiet1"]
+    assert passed_over["answered without a state; a club-mate asked instead"] == 1
+
+
+def test_three_non_answers_retire_the_club():
+    recent = {f"quiet{i}": ("no such team (404)", None) for i in range(3)}
+    selected, skipped = anchor_pass(unanchored_club(size=4), recent=recent)
+
+    assert selected == []
+    assert skipped["unanswerable"] == 1
+
+
+def test_an_answer_already_bought_is_selected_ahead_of_a_paid_call():
+    """``probe_list`` drops it from the paid list and the cache seeds its answer, so the
+    club is anchored for free -- but only if the selector picks that team."""
+    selected, _ = anchor_pass(unanchored_club(), recent={"quiet2": ("mapped", "WA")})
+
+    assert [team_id for team_id, _ in selected] == ["quiet2"]
+
+
+def test_a_team_without_a_gotsport_id_is_never_selected():
+    selected, skipped = anchor_pass(unanchored_club(), aliases={"quiet1", "quiet2"})
+    assert [team_id for team_id, _ in selected] == ["quiet1"]
+
+    selected, skipped = anchor_pass(unanchored_club(), aliases=set())
+    assert selected == []
+    assert skipped["no alias"] == 1
+
+
+def test_bigger_clubs_are_anchored_first():
+    """Names chosen so that alphabetical order opposes size: a sort that lost its size term
+    would put Alpha first and still look plausible."""
+    teams = (
+        unanchored_club("Alpha FC", size=2)
+        + unanchored_club("Middle FC", size=3)
+        + unanchored_club("Zeta FC", size=5)
+    )
+    selected, _ = anchor_pass(teams)
+
+    assert selected == [("zeta0", 5), ("middle0", 3), ("alpha0", 2)]
+
+
+def test_a_stateless_club_mate_neither_counts_nor_gets_picked():
+    """One stated team plus two blanks is a single-team club: the blanks cannot anchor
+    anything and must not inflate the club's size in the budget ordering."""
+    teams = [
+        team(team_id_master="stated", club_name="Half FC", state_code="OH"),
+        team(team_id_master="blank1", club_name="Half FC", state_code=None),
+        team(team_id_master="blank2", club_name="Half FC", state_code=None),
+    ]
+    selected, passed_over = anchor_pass(teams)
+
+    assert selected == []
+    assert passed_over["single team"] == 1
+
+
+def test_a_stored_province_is_never_asked_about():
+    """No tier corrects a province and no confirm can stamp one, so the call buys nothing --
+    the exclusion the audit already carries."""
+    ontario = [
+        team(team_id_master=f"on{i}", club_name="Oakville SC", state_code="ON") for i in range(3)
+    ]
+    selected, _ = anchor_pass(ontario + unanchored_club())
+
+    assert [team_id for team_id, _ in selected] == ["quiet0"]
+    assert assign.unclubbed_candidates(
+        [team(team_id_master="lone", club_name="", state_code="QC")]
+    ) == []
+
+
+def test_a_no_alias_row_is_not_an_answer_and_its_team_is_not_the_pick():
+    """A ``no gotsport alias`` ledger row records that no call was made: three of them must
+    not retire a club whose other members would answer, and the team it names must not be
+    the pick either, since ``probe_list`` would drop it and the club would be reported as
+    answered without a call ever going out."""
+    recent = {f"quiet{i}": (assign.NO_ALIAS_OUTCOME, None) for i in range(3)}
+    selected, passed_over = anchor_pass(unanchored_club(size=4), recent=recent)
+
+    assert [team_id for team_id, _ in selected] == ["quiet3"]
+    assert passed_over["unanswerable"] == 0
+    assert passed_over["answered without a state; a club-mate asked instead"] == 0
+
+
+def test_a_cached_unset_default_answer_anchors_nothing():
+    """A mapped ``AL`` in the ledger is the provider's unset default; ``decide`` throws it
+    away as soon as a local reading disputes it and the selector has none, so treating it
+    as a bought anchor would leave the club unanchored forever and re-buy the same answer
+    after the window."""
+    selected, passed_over = anchor_pass(unanchored_club(), recent={"quiet2": ("mapped", "AL")})
+
+    assert [team_id for team_id, _ in selected] == ["quiet0"]
+    assert passed_over["answered without a state; a club-mate asked instead"] == 1
+
+
+def test_a_club_is_passed_over_for_one_reason_only():
+    """The pass-over counter fires only when a club-mate was actually asked; a club whose
+    only aliased member answered silently is exhausted, not "no alias" and not both."""
+    _, passed_over = anchor_pass(
+        unanchored_club(), recent={"quiet0": ("no association in payload", None)}, aliases={"quiet0"}
+    )
+
+    assert passed_over["unanswerable"] == 1
+    assert passed_over["no alias"] == 0
+    assert passed_over["answered without a state; a club-mate asked instead"] == 0
+
+
+def test_a_two_team_club_is_retired_once_both_members_answer_silently():
+    """The cap is three silent answers, which a two-team club can never reach. Once every
+    aliased member is in the ledger the club is exhausted; calling it "no alias" instead sends the
+    operator to backfill aliases that exist and re-buys both calls after the window."""
+    silent = ("no association in payload", None)
+    selected, passed_over = anchor_pass(
+        unanchored_club(size=2), recent={"quiet0": silent, "quiet1": silent}
+    )
+
+    assert selected == []
+    assert passed_over["unanswerable"] == 1
+    assert passed_over["no alias"] == 0
+
+    _, passed_over = anchor_pass(unanchored_club(size=2), aliases=set())
+    assert passed_over["no alias"] == 1
+
+
+def test_a_mixed_border_club_is_one_club_to_both_passes():
+    """One US team and one Canadian team: the province member is not askable, so the club
+    is a single-team club to the anchor pass -- and therefore the US team is the unclubbed
+    pass's business, not nobody's."""
+    teams = [
+        team(team_id_master="us", club_name="Border FC", state_code="WA"),
+        team(team_id_master="ca", club_name="Border FC", state_code="ON"),
+    ]
+    selected, passed_over = anchor_pass(teams)
+
+    assert selected == [] and passed_over["single team"] == 1
+    assert assign.unclubbed_candidates(teams) == [("us", 1)]
+
+
+def test_an_operator_set_team_is_never_bought_by_any_selector():
+    """``--set`` outranks every automated write, so a call about that team could change
+    nothing; the anchor pass picks a club-mate, the unclubbed pass leaves it out, and the
+    audit does not count it as a dissenter."""
+    by_hand = team(team_id_master="byhand", club_name="Quiet FC", state_code="WA", state_source="operator")
+    selected, _ = anchor_pass([by_hand] + unanchored_club())
+    assert [team_id for team_id, _ in selected] == ["quiet0"]
+
+    lone = team(team_id_master="lone", club_name="", state_code="WA", state_source="operator")
+    assert assign.unclubbed_candidates([lone]) == []
+
+    dissenters = [
+        anchored(team_id_master="a1", club_name="Set FC", state_code="OH"),
+        team(team_id_master="byhand2", club_name="Set FC", state_code="WA", state_source="operator"),
+        team(team_id_master="plain", club_name="Set FC", state_code="WA"),
+    ]
+    audited = contradiction_candidates(dissenters, build_anchor_index(dissenters))
+    assert [team_id for team_id, _ in audited] == ["plain"]
+
+
+def test_the_alias_pool_is_exactly_the_anchorable_clubs_members():
+    """One grouping feeds both the lookup and the pick, so a solo club or an anchored club
+    never reaches the alias lookup at all."""
+    teams = unanchored_club() + [
+        team(team_id_master="solo", club_name="Solo FC", state_code="OH"),
+        anchored(team_id_master="anchor1", club_name="Anchored FC", state_code="OH"),
+        team(team_id_master="mate", club_name="Anchored FC", state_code="OH"),
+    ]
+    clubs, _ = assign.anchorable_clubs(teams)
+
+    assert sorted(assign.anchor_pool(clubs)) == ["quiet0", "quiet1", "quiet2"]
+
+
+def test_the_unclubbed_pass_takes_lone_teams_and_teams_with_no_club():
+    teams = [
+        team(team_id_master="solo", club_name="Solo FC", state_code="OH"),
+        team(team_id_master="ph0", club_name="No Club Selection", state_code="CA"),
+        team(team_id_master="blank0", club_name="", state_code="CA"),
+        team(team_id_master="pair0", club_name="Pair FC", state_code="CA"),
+        team(team_id_master="pair1", club_name="Pair FC", state_code="CA"),
+    ]
+    selected = assign.unclubbed_candidates(teams)
+
+    assert selected == [("blank0", 1), ("ph0", 1), ("solo", 1)]
+
+
+def test_the_unclubbed_pass_skips_a_blank_state_and_a_confirmed_team():
+    """The alias filter belongs to the caller; the population itself leaves out a team with
+    no state to check and one the provider already vouched for."""
+    teams = [
+        team(team_id_master="stateless", club_name="", state_code=None),
+        anchored(team_id_master="vouched", club_name="", state_code="CA"),
+        team(team_id_master="ok", club_name="", state_code="CA"),
+    ]
+
+    assert assign.unclubbed_candidates(teams) == [("ok", 1)]
+
+
+def confirms(team_row, answer, clubs=None, candidates=None, reverts=frozenset()):
+    """Drive the real ``confirm_decisions`` for one candidate with one bought answer."""
+    team_id = team_row["team_id_master"]
+    return assign.confirm_decisions(
+        [team_row],
+        candidates if candidates is not None else {team_id},
+        {team_id: answer} if answer else {},
+        clubs or {},
+        {},
+        set(reverts),
+    )
+
+
+def test_an_agreeing_answer_becomes_a_confirm_that_records_provenance_only():
+    (decision,) = confirms(team(team_id_master="q", club_name="Quiet FC", state_code="WA"), "WA")
+
+    assert decision["action"] == "confirm"
+    assert decision["tier"] == "A"
+    assert (decision["pre_image"], decision["proposed"]) == ("WA", "WA")
+    assert decision["confidence"] == 0.95
+    assert decision["reason"] == "provider confirms WA"
+
+
+def test_a_team_the_provider_already_confirmed_is_not_confirmed_again():
+    assert confirms(anchored(team_id_master="q", club_name="Quiet FC", state_code="WA"), "WA") == []
+
+
+def test_an_operator_set_value_is_not_overwritten_by_a_confirm():
+    """``--set`` stamps ``operator`` at confidence 1.0; a confirm would replace it with
+    ``tier_a`` at 0.95 and drop the team out of every reader that trusts the hand mark."""
+    by_hand = team(team_id_master="q", club_name="Quiet FC", state_code="WA", state_source="operator")
+
+    assert confirms(by_hand, "WA") == []
+
+
+def test_a_value_the_operator_reverted_away_from_is_not_reconfirmed():
+    """R17 for confirms: a revert restores the earlier provenance so the automated writer
+    stops re-asserting the value it undid, and the ledger answer is reused for free, so
+    without this the next anchor pass would re-confirm the club and re-arm the audit."""
+    quiet = team(team_id_master="q", club_name="Quiet FC", state_code="WA")
+
+    assert confirms(quiet, "WA", reverts={("q", "WA")}) == []
+
+
+def test_a_disagreeing_or_missing_answer_confirms_nothing():
+    quiet = team(team_id_master="q", club_name="Quiet FC", state_code="WA")
+
+    assert confirms(quiet, "OH") == []
+    assert confirms(quiet, None) == []
+
+
+def test_an_answer_for_a_team_outside_the_candidates_confirms_nothing():
+    quiet = team(team_id_master="q", club_name="Quiet FC", state_code="WA")
+
+    assert confirms(quiet, "WA", candidates=set()) == []
+
+
+def test_the_unset_default_confirms_alabama_only_when_nothing_local_disputes_it():
+    """R8b, applied to the confirm as it is to the correction: a disputed ``AL`` is the
+    absence of an answer, and an undisputed one still says Alabama."""
+    stored_al = team(team_id_master="q", club_name="Cold Spring FC", state_code="AL")
+    disputed = {"cold spring fc": Counter({"NY": 5, "AL": 1})}
+    agreed = {"cold spring fc": Counter({"AL": 5})}
+
+    assert confirms(stored_al, "AL", clubs=disputed) == []
+    assert [d["action"] for d in confirms(stored_al, "AL", clubs=agreed)] == ["confirm"]
+
+
+def quiet_unanchored():
+    """Five WA teams of one club and no confirmed member: nothing local disputes them
+    and no audit can reach them, which is the population the anchor pass exists for."""
+    return unanchored_club(size=5)
+
+
+def verify(monkeypatch, teams, aliases, mode="anchor_clubs", **kwargs):
+    """The audit harness, pointed at one of the two new population flags."""
+    return audit(monkeypatch, teams, aliases, mode=mode, **kwargs)
+
+
+def test_the_anchor_pass_asks_one_team_of_the_quiet_club_and_nothing_else(monkeypatch):
+    teams = quiet_unanchored() + audit_teams()
+    snapshot, handed = verify(monkeypatch, teams, aliases={t["team_id_master"] for t in teams})
+
+    assert handed["probed"] == ["quiet0"]
+    assert snapshot["mode"] == "anchor"
+    assert snapshot["candidates_selected"] == 1
+    # The anchored club is not even looked up: its dissenters are the audit's business.
+    looked_up = {t for lookup in handed["lookups"] for t in lookup}
+    assert "anchor1" not in looked_up and "wrong1" not in looked_up
+    assert snapshot["decisions"] == []
+    # Written by the run, not hand-built for the report: the one anchored club is the
+    # reason the pass had a club to pass over.
+    assert snapshot["passed_over"] == {"anchored": 1}
+    assert snapshot["club_sizes"] == {"quiet0": 5}
+    # The map from the population lookup is what the probe used, so the paid stage did
+    # not buy the same lookup twice.
+    assert len(handed["lookups"]) == 1
+
+
+def test_an_agreeing_anchor_answer_lands_in_the_snapshot_as_a_confirm(monkeypatch):
+    teams = quiet_unanchored()
+    ids = {t["team_id_master"] for t in teams}
+    snapshot, handed = verify(monkeypatch, teams, aliases=ids, answers={"quiet0": "WA"})
+
+    (decision,) = snapshot["decisions"]
+    assert (decision["team_id"], decision["action"], decision["proposed"]) == ("quiet0", "confirm", "WA")
+    # The alias lookup covers the whole club, so a first pick without a GotSport id is
+    # passed over for a club-mate that has one rather than retiring the club.
+    assert set(handed["lookups"][0]) == ids
+
+
+def test_a_disagreeing_anchor_answer_corrects_that_team_and_leaves_the_club_to_the_audit(monkeypatch):
+    teams = quiet_unanchored()
+    snapshot, _ = verify(
+        monkeypatch, teams, aliases={t["team_id_master"] for t in teams}, answers={"quiet0": "OH"}
+    )
+
+    (decision,) = snapshot["decisions"]
+    assert (decision["team_id"], decision["tier"], decision["action"]) == ("quiet0", "A", "apply")
+    assert (decision["pre_image"], decision["proposed"]) == ("WA", "OH")
+
+
+def test_a_blocked_anchor_pass_keeps_the_answers_it_held_and_flags_itself(monkeypatch, capsys):
+    teams = quiet_unanchored() + [
+        team(team_id_master=f"loud{i}", club_name="Loud FC", state_code="NV") for i in range(3)
+    ]
+    snapshot, handed = verify(
+        monkeypatch,
+        teams,
+        aliases={t["team_id_master"] for t in teams},
+        recent={"quiet0": ("mapped", "WA")},
+        outcomes={"http 403": 5},
+    )
+
+    assert handed["probed"] == ["loud0"]
+    assert snapshot["probe_blocked"] is True
+    assert [(d["team_id"], d["action"]) for d in snapshot["decisions"]] == [("quiet0", "confirm")]
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+    assert "Re-run with --out to keep the decisions" in out
+    assert "--no-tier-a" not in out
+
+
+def test_the_unclubbed_pass_probes_the_lone_teams_only(monkeypatch):
+    teams = [
+        team(team_id_master="solo", club_name="Solo FC", state_code="OH"),
+        team(team_id_master="blank0", club_name="", state_code="CA"),
+        team(team_id_master="pair0", club_name="Pair FC", state_code="CA"),
+        team(team_id_master="pair1", club_name="Pair FC", state_code="CA"),
+    ]
+    snapshot, handed = verify(
+        monkeypatch, teams, aliases={t["team_id_master"] for t in teams}, mode="probe_unclubbed"
+    )
+
+    assert handed["probed"] == ["blank0", "solo"]
+    assert snapshot["mode"] == "unclubbed"
+    assert "club_sizes" not in snapshot
+    assert "anchor_counts" not in snapshot
+
+
+def test_the_unclubbed_pass_reports_the_teams_it_could_not_ask(monkeypatch):
+    """The anchor pass counts a club it cannot ask under "no alias"; the unclubbed pass
+    must count its teams the same way rather than dropping them silently."""
+    teams = [
+        team(team_id_master="blank0", club_name="", state_code="CA"),
+        team(team_id_master="blank1", club_name="", state_code="CA"),
+        team(team_id_master="blank2", club_name="", state_code="CA"),
+    ]
+    snapshot, handed = verify(monkeypatch, teams, aliases={"blank1"}, mode="probe_unclubbed")
+
+    assert handed["probed"] == ["blank1"]
+    assert snapshot["passed_over"] == {"no alias": 2}
+
+
+def test_a_zero_budget_selects_the_population_but_buys_nothing(monkeypatch):
+    teams = quiet_unanchored()
+    snapshot, handed = verify(
+        monkeypatch, teams, aliases={t["team_id_master"] for t in teams}, probe_limit=0
+    )
+
+    assert "probed" not in handed
+    assert snapshot["candidates_selected"] == 1
+    assert snapshot["budget_applied"] is True
+    # The alias figure is the population's, not the probe's: a zero-budget rehearsal
+    # would otherwise report "0 had a GotSport id" for a fully aliased club.
+    assert snapshot["aliases_found"] == 5
+
+
+def test_a_disputed_unset_default_answer_cannot_authorize_a_club_correction(monkeypatch):
+    """The provider's ``AL`` for a team whose club reads otherwise is the absence of an
+    answer, and decide() drops it -- but the team still counts as answered for the write
+    scope. On a club split two and two the club count then told the anchor to swap sides,
+    the exact shape (IMP-161) the record was bought to settle. Only the record's own
+    decisions apply in these modes; anything else waits for a person."""
+    teams = [
+        team(team_id_master="ca1", club_name="RSL-AZ Yuma", state_code="CA"),
+        team(team_id_master="ca2", club_name="RSL-AZ Yuma", state_code="CA"),
+        team(team_id_master="tx1", club_name="RSL-AZ Yuma", state_code="TX"),
+        team(team_id_master="tx2", club_name="RSL-AZ Yuma", state_code="TX"),
+    ]
+    snapshot, handed = verify(
+        monkeypatch, teams, aliases={t["team_id_master"] for t in teams}, answers={"ca1": "AL"}
+    )
+
+    assert handed["probed"] == ["ca1"]
+    (decision,) = snapshot["decisions"]
+    assert (decision["team_id"], decision["tier"], decision["action"]) == ("ca1", "B", "queue")
+    assert decision["reason"].endswith("provider gave no usable answer")
+
+
+def test_a_named_team_ignores_the_anchor_flags_and_reports_as_a_normal_run(monkeypatch):
+    """``--team`` wins over either population flag, as it does over the audit's: the run
+    probes the one team, keeps every tier's answer, and stops on a blocked probe."""
+    teams = quiet_unanchored() + [team(team_id_master="named", club_name="Named FC", state_code="OH")]
+    for flag in ("anchor_clubs", "probe_unclubbed"):
+        snapshot, handed = verify(
+            monkeypatch,
+            teams,
+            aliases={t["team_id_master"] for t in teams},
+            mode=flag,
+            only_team="named",
+        )
+
+        assert handed["probed"] == ["named"]
+        assert snapshot["mode"] == "normal"
+        assert "candidates_selected" not in snapshot
+
+
+def test_a_selected_team_answered_before_without_a_state_is_reported_as_skipped(monkeypatch):
+    """``skipped_durable`` from the run itself: the lone unclubbed team answered on an
+    earlier run with no association, so it is selected, not re-bought, and counted."""
+    teams = [team(team_id_master="lone", club_name="", state_code="CA")]
+    snapshot, handed = verify(
+        monkeypatch,
+        teams,
+        aliases={"lone"},
+        mode="probe_unclubbed",
+        recent={"lone": ("no association in payload", None)},
+    )
+
+    assert "probed" not in handed
+    assert snapshot["candidates_selected"] == 1
+    assert snapshot["skipped_durable"] == 1
+
+
+def confirm_of(team_id, state):
+    return {
+        "team_id": team_id, "pre_image": state, "proposed": state, "tier": "A",
+        "confidence": 0.95, "action": "confirm", "reason": f"provider confirms {state}",
+    }
+
+
+class RpcSpy:
+    """A Supabase client that records the one RPC ``apply_decision`` makes."""
+
+    def __init__(self):
+        self.calls = []
+
+    def rpc(self, name, params):
+        self.calls.append((name, params))
+        return self
+
+    def execute(self):
+        return type("Result", (), {"data": True})()
+
+
+def test_a_confirm_reaches_the_rpc_with_the_stored_state_as_predicate_and_value():
+    """Same value on both sides, so the row is stamped without moving; the ledger logs the
+    provenance change under its own action, which migration 20260902210000 admits."""
+    spy = RpcSpy()
+
+    assert assign.apply_decision(spy, confirm_of("q", "WA"), "why") is True
+    ((name, params),) = spy.calls
+    assert name == "apply_team_state"
+    assert (params["p_expected_state_code"], params["p_state_code"]) == ("WA", "WA")
+    assert (params["p_source"], params["p_action"]) == ("tier_a", "confirm")
+
+
+def replay_with_mirror(monkeypatch, decisions, reverts=frozenset(), sources=None, refuse=frozenset(), **kwargs):
+    """``_replay`` for the confirm path: the applies, the mirrored rows, and the call order."""
+    captured = _replay(monkeypatch, decisions, reverts=reverts, sources=sources, refuse=refuse, **kwargs)
+    return captured["applied"], [d["team_id"] for d in captured["mirrored"]], captured["order"]
+
+
+def test_a_confirm_is_written_but_never_mirrored(monkeypatch, capsys):
+    applied, mirrored, _ = replay_with_mirror(
+        monkeypatch, [confirm_of("q", "WA"), proposal("r", None)], limit=None
+    )
+
+    assert sorted(applied) == ["q", "r"]
+    assert mirrored == ["r"]
+    assert "Confirmed 1" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_fills_only_withholds_confirms_and_says_so_apart_from_corrections(monkeypatch, capsys):
+    applied, _, _ = replay_with_mirror(
+        monkeypatch, [confirm_of("q", "WA"), proposal("r", None), proposal("s", "NV")],
+        limit=None, fills_only=True,
+    )
+
+    assert applied == ["r"]
+    assert "withholding 1 corrections and 1 confirms" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_the_limit_bounds_confirms_as_their_own_outcome(monkeypatch):
+    decisions = [confirm_of(f"c{i}", "WA") for i in range(3)] + [proposal(f"f{i}", None) for i in range(3)]
+    applied, _, _ = replay_with_mirror(monkeypatch, decisions, limit=2)
+
+    assert sorted(applied) == ["c0", "c1", "f0", "f1"]
+
+
+def test_a_reverted_confirm_is_not_replayed(monkeypatch, capsys):
+    """The revert ledger binds confirms as it binds applies: the pre-image of a confirm is
+    the value a revert restored, so the RPC predicate would always pass."""
+    applied, _, _ = replay_with_mirror(
+        monkeypatch, [confirm_of("q", "WA"), confirm_of("r", "WA")], reverts={("q", "WA")}, limit=None
+    )
+
+    assert applied == ["r"]
+    assert "1 reverted before" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_a_club_correction_is_skipped_when_the_record_landed_since_the_snapshot(monkeypatch, capsys):
+    """The hold script read provenance before the split; this is the read beside the write.
+    A confirm between the two changes provenance without moving the state, so the RPC's
+    state-only predicate would let the club count overwrite the record's own stamp."""
+    applied, _, _ = replay_with_mirror(
+        monkeypatch,
+        [
+            proposal("q", "WA"),
+            proposal("r", "WA"),
+            {**proposal("s", "WA"), "tier": "A"},
+            proposal("byhand", "WA"),
+            {**proposal("record", "WA"), "tier": "A"},
+            {**proposal("refresh", "WA"), "tier": "A"},
+        ],
+        sources={
+            "q": "tier_a", "r": None, "s": "tier_b", "byhand": "operator",
+            "record": "operator", "refresh": "tier_a",
+        },
+        limit=None,
+    )
+
+    # Tier B over tier_a: outranked. Tier A over tier_b: the record wins. Anything over an
+    # operator's own answer, Tier A included: outranked. Tier A over tier_a: the record
+    # refreshing itself, so a club that re-registers elsewhere can still be corrected.
+    assert sorted(applied) == ["r", "refresh", "s"]
+    assert "3 decisions outranked since the snapshot" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_a_revert_landing_mid_replay_still_blocks_the_confirm(monkeypatch, capsys):
+    """Confirms run last, so the ledger read at the top of the replay is the stalest thing
+    in it; the confirm phase reads again and honours what it finds."""
+    applied, _, _ = replay_with_mirror(
+        monkeypatch,
+        [proposal("f", None), confirm_of("c", "WA")],
+        reverts=[set(), {("c", "WA")}],
+        limit=None,
+    )
+
+    assert applied == ["f"]
+    assert "1 reverted before" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_the_confirm_phase_reads_provenance_for_its_own_teams(monkeypatch):
+    """Confirms and applies never name the same team, so a confirm phase reusing the
+    applies' read would find no provenance at all and re-stamp everything it was given."""
+    captured = _replay(
+        monkeypatch, [proposal("f", None), confirm_of("c", "WA")], sources={"c": "tier_a"}, limit=None
+    )
+
+    assert captured["sources_read"] == [["f"], ["c"]]
+    assert captured["applied"] == ["f"]
+
+
+def test_an_agreeing_audit_answer_is_confirmed_so_the_dissenter_leaves_the_pool(monkeypatch):
+    """An agreement changes no state, so only the confirm's provenance stamp lets the team
+    leave ``contradiction_candidates``; without it an agreeing dissenter is re-bought after
+    the window with nothing to show for it."""
+    snapshot, _ = audit(
+        monkeypatch, audit_teams(), aliases={"wrong1", "wrong2"}, answers={"wrong1": "WA", "wrong2": "OH"}
+    )
+    by_team = {d["team_id"]: d for d in snapshot["decisions"]}
+
+    assert by_team["wrong1"]["action"] == "confirm"
+    assert (by_team["wrong2"]["action"], by_team["wrong2"]["proposed"]) == ("apply", "OH")
+
+
+def test_a_population_mode_without_an_argument_is_refused_not_truncated(monkeypatch):
+    """A plain ``zip`` stops at the shorter side, so a fourth entry in the table with no
+    matching argument would be a mode every run silently reports as normal; the strict one
+    refuses it, and unlike an assert it is not stripped under ``-O``."""
+    monkeypatch.setattr(assign, "POPULATION_MODES", assign.POPULATION_MODES + (("--fourth", "fourth"),))
+
+    with pytest.raises(ValueError):
+        assign.chosen_populations(False, False, False)
+
+
+def test_the_passed_over_line_names_its_unit(capsys):
+    """The anchor pass counts clubs and the unclubbed pass counts teams; the same line
+    without a unit invites adding the two."""
+    snapshot = {
+        "tier_d_available": False, "candidates_selected": 1, "probed": [], "aliases_found": 0,
+        "probes_answered": 0, "cached_answers": 0, "skipped_durable": 0, "budget_applied": False,
+        "passed_over": {"no alias": 3, assign.FALLBACK_REASON: 2}, "decisions": [],
+    }
+    assign.summarize({**snapshot, "mode": "anchor"})
+    assign.summarize({**snapshot, "mode": "unclubbed"})
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+
+    # A club asked through a club-mate was selected, not passed over: its own line.
+    assert "passed over (clubs): 3 no alias" in out
+    assert "passed over (teams): 3 no alias" in out
+    assert "2 clubs asked a club-mate" in out
+
+
+def test_a_confirm_whose_state_moved_is_counted_as_moved(monkeypatch, capsys):
+    applied, _, _ = replay_with_mirror(
+        monkeypatch, [confirm_of("c", "WA"), confirm_of("d", "WA")], refuse={"c"}, limit=None
+    )
+
+    assert applied == ["d"]
+    assert "Confirmed 1 provider agreements, skipped 1 that moved" in re.sub(
+        r"\s+", " ", capsys.readouterr().out
+    )
+
+
+
+@pytest.mark.parametrize("flag", ["--anchor-clubs", "--probe-unclubbed"])
+def test_a_budgeted_anchoring_run_passes_validation(monkeypatch, capsys, flag):
+    """The budget and the window are accepted beside either population flag, not only the
+    audit's. ``run_cli`` clears the credentials, so this stops at the credential guard."""
+    code, out = run_cli(monkeypatch, capsys, flag, "--probe-limit", "5000", "--reprobe-after-days", "30")
+
+    assert code == 1
+    assert "Missing SUPABASE_URL" in out
+
+
+def test_the_anchor_report_counts_confirms_beside_the_corrections(capsys):
+    snapshot = {
+        "mode": "anchor",
+        "tier_d_available": False,
+        "candidates_selected": 3,
+        "probed": ["a", "b", "c"],
+        "aliases_found": 3,
+        "probes_answered": 2,
+        "cached_answers": 0,
+        "skipped_durable": 0,
+        "budget_applied": False,
+        "passed_over": {"anchored": 4, "no alias": 1},
+        "decisions": [
+            confirm_of("a", "WA"),
+            {"team_id": "b", "pre_image": "WA", "proposed": "OH", "tier": "A",
+             "confidence": 0.95, "action": "apply", "reason": "correct WA -> OH from tier A"},
+        ],
+    }
+    assign.summarize(snapshot)
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+
+    assert "1 to apply" in out and "1 corrections" in out
+    assert "1 confirmed" in out
+    assert "3 clubs" in out and "4 anchored" in out
+
+
+def test_the_anchor_report_names_its_own_budget_rule(capsys):
+    snapshot = {
+        "mode": "anchor",
+        "tier_d_available": False,
+        "candidates_selected": 3,
+        "probed": ["a"],
+        "aliases_found": 1,
+        "probes_answered": 1,
+        "cached_answers": 0,
+        "skipped_durable": 0,
+        "budget_applied": True,
+        "passed_over": {},
+        "decisions": [],
+    }
+    assign.summarize(snapshot)
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+
+    assert "largest clubs first" in out
+    assert "lowest ids first" not in out
+
+
+def test_the_unclubbed_report_names_its_own_population_and_budget(capsys):
+    """The non-anchoring half of the verify report, with both lines the anchor test leaves
+    dark: the budget note and the answered-without-a-state line."""
+    snapshot = {
+        "mode": "unclubbed",
+        "tier_d_available": False,
+        "candidates_selected": 40,
+        "probed": ["a"],
+        "aliases_found": 1,
+        "probes_answered": 1,
+        "cached_answers": 2,
+        "skipped_durable": 5,
+        "budget_applied": True,
+        "passed_over": {},
+        "decisions": [],
+    }
+    assign.summarize(snapshot)
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+
+    assert "Unclubbed: 40 teams selected" in out
+    assert "5 skipped: answered before" in out
+    assert "lowest ids first" in out
+    assert "Undecidable teams are not examined in unclubbed mode" in out
+
+
+def test_confirms_are_written_after_the_queue_and_the_mirror(monkeypatch):
+    """Whatever refuses a confirm must find the queue rows and the mirror already done: a
+    confirm the ledger refuses would otherwise strand applied corrections unmirrored on the
+    boards."""
+    decisions = [confirm_of("c", "WA"), proposal("f", None), proposal("q", "NV", action="queue")]
+    _, _, order = replay_with_mirror(monkeypatch, decisions, limit=None)
+
+    assert order == ["apply", "queue", "mirror", "confirm"]
+
+
+def test_a_confirm_for_a_team_the_provider_already_vouched_for_is_not_rewritten(monkeypatch, capsys):
+    """Step 4 replays the same snapshot after a --limit batch. The batch's confirms are
+    already stamped, and stamping them again writes a second ledger row per team. An
+    operator's hand mark is left alone for the stronger reason."""
+    decisions = [confirm_of("done", "WA"), confirm_of("byhand", "WA"), confirm_of("fresh", "WA")]
+    applied, _, _ = replay_with_mirror(
+        monkeypatch, decisions, sources={"done": "tier_a", "byhand": "operator", "fresh": None}, limit=None
+    )
+
+    assert applied == ["fresh"]
+    assert "2 already vouched for" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+class _HandSet:
+    """A client for ``assign_by_hand``: one stored team row, and every RPC captured."""
+
+    def __init__(self, row):
+        self.row = row
+        self.rpcs = []
+        self.projection = None
+
+    def table(self, name):
+        return self
+
+    def select(self, columns):
+        # Recorded rather than applied: the real client returns only what was asked for,
+        # so the projection is the guard and a double that ignores it hides a trimmed one.
+        self.projection = columns
+        return self
+
+    def eq(self, column, value):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def rpc(self, name, params):
+        self.rpcs.append(params)
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": [self.row]})()
+
+
+def test_the_provenance_set_by_hand_is_the_one_every_gate_defers_to(monkeypatch, capsys):
+    """``--set`` is the only writer of the operator's provenance and every gate reads
+    ``OPERATOR_SOURCE``; two literals held equal by nothing is the drift that would let
+    the next anchor pass overwrite a hand-set value in silence. An agreeing ``--set`` is
+    written too, as a confirm, so the stamp lands whether or not the value moves -- a held
+    row the operator agreed with is otherwise unprotected. Only a value already set by hand
+    is left alone, which is what a retry after a committed write looks like."""
+    mirrored = []
+    monkeypatch.setattr(
+        assign, "mirror_rankings", lambda sb, rows: mirrored.append([d["team_id"] for d in rows]) or len(rows)
+    )
+    stored = {
+        "team_id_master": "t", "team_name": "T", "state_code": "WA",
+        "state_source": "tier_b", "is_deprecated": False,
+    }
+
+    corrected = _HandSet(stored)
+    assign.assign_by_hand(corrected, "t", "OH", None, execute=True)
+    confirmed = _HandSet(stored)
+    assign.assign_by_hand(confirmed, "t", "WA", None, execute=True)
+    retried = _HandSet({**stored, "state_source": assign.OPERATOR_SOURCE})
+    assign.assign_by_hand(retried, "t", "WA", None, execute=True)
+    previewed = _HandSet(stored)
+    assign.assign_by_hand(previewed, "t", "WA", None, execute=False)
+
+    def stamped(client):
+        return [
+            (c["p_source"], c["p_action"], c["p_expected_state_code"], c["p_state_code"])
+            for c in client.rpcs
+        ]
+
+    assert stamped(corrected) == [(assign.OPERATOR_SOURCE, "correct", "WA", "OH")]
+    assert stamped(confirmed) == [(assign.OPERATOR_SOURCE, assign.CONFIRM_ACTION, "WA", "WA")]
+    assert stamped(retried) == []
+    assert stamped(previewed) == []
+    # The retry guard reads a column the query has to ask for; every path mirrors, the
+    # retry included, since a committed write with no mirror is what a retry is for.
+    assert "state_source" in corrected.projection.split(",")
+    assert mirrored == [["t"], ["t"], ["t"]]
+    assert "Would confirm T: WA → WA" in re.sub(r"\s+", " ", capsys.readouterr().out)
+
+
+def test_a_hand_set_team_named_like_markup_is_printed_not_rendered(monkeypatch, capsys):
+    """Team names are provider-written and Rich reads square brackets as markup: a name
+    shaped like a closing tag raised MarkupError between the RPC and the mirror, so the
+    write committed and the retry died at the same line (IMP-160)."""
+    monkeypatch.setattr(assign, "mirror_rankings", lambda sb, rows: 0)
+    stored = {
+        "team_id_master": "t", "team_name": "Rush [/dim] 07B", "state_code": "WA",
+        "state_source": assign.OPERATOR_SOURCE, "is_deprecated": False,
+    }
+
+    assign.assign_by_hand(_HandSet(stored), "t", "WA", None, execute=True)
+    assign.assign_by_hand(_HandSet({**stored, "state_source": "tier_b"}), "t", "WA", None, execute=False)
+    assign.assign_by_hand(_HandSet({**stored, "state_source": "tier_b"}), "t", "OH", None, execute=True)
+
+    out = capsys.readouterr().out
+    assert out.count("Rush [/dim] 07B") == 3
+
+
+def test_a_single_team_apply_defers_to_the_provenance_it_finds(monkeypatch, capsys):
+    """``--team --execute`` is the one write that bypasses the snapshot replay, so it
+    carries the same gate itself: a hand-set value is left alone and said so, an
+    unvouched one is written and mirrored."""
+    written = []
+    monkeypatch.setattr(assign, "apply_decision", lambda sb, d, reason: written.append(d["team_id"]) or True)
+    monkeypatch.setattr(assign, "mirror_rankings", lambda sb, rows: len(rows))
+    snapshot = {"created_at": "now", "decisions": [proposal("byhand", "WA"), proposal("fresh", "WA")]}
+
+    monkeypatch.setattr(assign, "fetch_state_sources", lambda sb, ids: {"byhand": assign.OPERATOR_SOURCE})
+    assign.report_team(None, snapshot, "byhand", execute=True)
+    monkeypatch.setattr(assign, "fetch_state_sources", lambda sb, ids: {"fresh": None})
+    assign.report_team(None, snapshot, "fresh", execute=True)
+
+    out = re.sub(r"\s+", " ", capsys.readouterr().out)
+    assert written == ["fresh"]
+    assert "Not applied: the stored value carries operator provenance" in out
+    assert "Mirrored 1 ranking rows" in out
+
+
+class TableSpy:
+    """A Supabase client that records each ``.in_()`` batch a reader sends."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.batches = []
+
+    def table(self, name):
+        return self
+
+    def select(self, columns):
+        return self
+
+    def in_(self, column, ids):
+        self.batches.append(list(ids))
+        self.pending = [r for r in self.rows if r["team_id_master"] in ids]
+        return self
+
+    def execute(self):
+        return type("Result", (), {"data": self.pending})()
+
+
+def test_fetch_state_sources_reads_in_batches_and_reports_what_it_found():
+    """The reader the confirm and the outranked-apply guards rest on, driven for real: one
+    batch per hundred ids, and a team the read does not return stays absent rather than
+    inventing a provenance."""
+    rows = [{"team_id_master": f"t{i}", "state_source": "tier_a" if i % 2 else None} for i in range(150)]
+    spy = TableSpy(rows)
+
+    sources = assign.fetch_state_sources(spy, [f"t{i}" for i in range(150)] + ["missing"])
+
+    assert [len(b) for b in spy.batches] == [100, 51]
+    assert sources["t1"] == "tier_a" and sources["t0"] is None
+    assert "missing" not in sources
