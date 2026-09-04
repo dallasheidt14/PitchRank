@@ -1,20 +1,22 @@
-name: Enqueue Active Teams
+name: Enqueue Viewed Teams
 run-name: >-
-  Enqueue active teams · ${{
+  Enqueue viewed teams · ${{
     inputs.dry_run == true && 'DRY RUN' || 'live'
   }}
 
 on:
   schedule:
-    # 10:28 UTC daily — ~3h after the 07:13 yesterday-game enqueue so its
-    # enqueue + 15-min drain cycle has cleared first. GH Actions cron is
-    # UTC-only, so this drifts ±1h with DST.
+    # 05:47 UTC daily — after US evening browsing has finished, and first among the
+    # enqueue jobs. Running first is what matters: this job anchors game_date on
+    # today, so a date-specific producer that runs later overwrites its anchor
+    # rather than the reverse. Do not rely on the ordering holding to the minute —
+    # scheduled runs here have started hours past their cron under load. GH Actions
+    # cron is UTC-only, so this also drifts ±1h with DST.
     #
-    # Minute 28, not 0: minute 0 is the most contended slot on GitHub's
-    # scheduler and scheduled runs are dropped under load. On minute 0 this
-    # drifted to 20:10 on 2026-08-27 and was skipped entirely on 2026-08-28.
-    # The enqueue jobs use spread minutes so they cannot collide either.
-    - cron: '28 10 * * *'
+    # Minute 47, not 0: minute 0 is the most contended slot on GitHub's
+    # scheduler and scheduled runs are dropped under load. The enqueue jobs use
+    # spread minutes so they cannot collide with each other either.
+    - cron: '47 5 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,8 +29,8 @@ on:
         required: false
         type: string
         default: ''
-      window_days:
-        description: 'Count a team active if it played within this many days (blank = 3)'
+      window_hours:
+        description: 'Enqueue teams viewed within this many hours (blank = 36)'
         required: false
         type: string
         default: ''
@@ -39,7 +41,7 @@ on:
         default: ''
 
 concurrency:
-  group: enqueue-active-teams
+  group: enqueue-viewed-teams
   cancel-in-progress: false
 
 jobs:
@@ -49,7 +51,7 @@ jobs:
     env:
       DRY_RUN_FLAG: ${{ inputs.dry_run == true && '--dry-run' || '' }}
       LIMIT_FLAG: ${{ inputs.limit != '' && format('--limit {0}', inputs.limit) || '' }}
-      WINDOW_FLAG: ${{ inputs.window_days != '' && format('--window-days {0}', inputs.window_days) || '' }}
+      WINDOW_FLAG: ${{ inputs.window_hours != '' && format('--window-hours {0}', inputs.window_hours) || '' }}
       COOLDOWN_FLAG: ${{ inputs.cooldown_hours != '' && format('--cooldown-hours {0}', inputs.cooldown_hours) || '' }}
     steps:
       - uses: actions/checkout@v5
@@ -63,10 +65,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install supabase python-dotenv
 
-      - name: Enqueue active teams
+      - name: Enqueue viewed teams
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          python scripts/enqueue_active_teams.py $DRY_RUN_FLAG $LIMIT_FLAG $WINDOW_FLAG $COOLDOWN_FLAG
+          python scripts/enqueue_viewed_teams.py $DRY_RUN_FLAG $LIMIT_FLAG $WINDOW_FLAG $COOLDOWN_FLAG
