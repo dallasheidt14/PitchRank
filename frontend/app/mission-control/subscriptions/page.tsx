@@ -50,6 +50,7 @@ function formatRelative(iso: string): string {
 export default async function SubscriptionsDashboardPage() {
   const metrics = await getSubscriptionMetrics();
   const projection = metrics.monthProjection;
+  const monthName = new Date(metrics.generatedAt).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,35 +95,41 @@ export default async function SubscriptionsDashboardPage() {
           </Card>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <KpiCard
-            label="MRR"
-            value={formatDollars(metrics.mrr)}
-            sub={`from ${metrics.activePaid.total} active sub${metrics.activePaid.total === 1 ? '' : 's'}`}
-          />
-          <KpiCard
-            label="Active Paid"
-            value={metrics.activePaid.total.toString()}
-            sub={`${metrics.activePaid.monthly} monthly · ${metrics.activePaid.annual} annual`}
-          />
-          <KpiCard
-            label="Active Trials"
-            value={metrics.trials.total.toString()}
-            sub={
-              metrics.trials.canceledPending > 0
-                ? `+${metrics.trials.canceledPending} canceled (won't renew)`
-                : metrics.trials.total === 0
-                  ? 'no trials in flight'
-                  : 'in flight now'
-            }
-          />
-          <KpiCard
-            label="Trials Ending ≤7d"
-            value={metrics.trials.endingIn7Days.toString()}
-            sub={`${metrics.trials.endingIn3Days} in next 3d`}
-            emphasize={metrics.trials.endingIn7Days > 0}
-          />
-        </div>
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Lifetime</h2>
+            <span className="text-sm text-muted-foreground">where the business stands today</span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              label="MRR"
+              value={formatDollars(metrics.mrr)}
+              sub={`from ${metrics.activePaid.total} active sub${metrics.activePaid.total === 1 ? '' : 's'}`}
+            />
+            <KpiCard
+              label="Active Paid"
+              value={metrics.activePaid.total.toString()}
+              sub={`${metrics.activePaid.monthly} monthly · ${metrics.activePaid.annual} annual`}
+            />
+            <KpiCard
+              label="Active Trials"
+              value={metrics.trials.total.toString()}
+              sub={
+                metrics.trials.canceledPending > 0
+                  ? `+${metrics.trials.canceledPending} canceled (won't renew)`
+                  : metrics.trials.total === 0
+                    ? 'no trials in flight'
+                    : 'in flight now'
+              }
+            />
+            <KpiCard
+              label="Trials Ending ≤7d"
+              value={metrics.trials.endingIn7Days.toString()}
+              sub={`${metrics.trials.endingIn3Days} in next 3d`}
+              emphasize={metrics.trials.endingIn7Days > 0}
+            />
+          </div>
+        </section>
 
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
@@ -152,7 +159,7 @@ export default async function SubscriptionsDashboardPage() {
                 <KpiCard
                   label="New Subs This Month"
                   value={formatCount(projection.grossNewSubs)}
-                  sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials ending inside this month`}
+                  sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials finishing in ${monthName}`}
                 />
                 <KpiCard
                   label="Net MRR Change"
@@ -171,12 +178,17 @@ export default async function SubscriptionsDashboardPage() {
                 />
               </div>
 
+              <p className="pt-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">What actually changes this month.</span> Trials that
+                finish converting and subscribers who leave, both inside {monthName}. This is the pair that should move
+                your bank balance.
+              </p>
               <Card variant="flat">
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Lands inside this month</TableHead>
+                        <TableHead>Subscribers gained and lost in {monthName}</TableHead>
                         <TableHead className="text-right">Subscribers</TableHead>
                         <TableHead className="text-right">MRR</TableHead>
                       </TableRow>
@@ -214,12 +226,18 @@ export default async function SubscriptionsDashboardPage() {
                 </CardContent>
               </Card>
 
+              <p className="pt-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">What this month&apos;s signups are worth.</span> Counts
+                every trial that starts in {monthName}, including the ones whose first charge does not land until next
+                month. Bigger than the figure above, and the right one for judging whether a month&apos;s marketing
+                worked.
+              </p>
               <Card variant="flat">
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Whole cohort started this month, whenever it converts</TableHead>
+                        <TableHead>Everyone who starts a trial in {monthName}</TableHead>
                         <TableHead className="text-right">Subscribers</TableHead>
                         <TableHead className="text-right">Value</TableHead>
                       </TableRow>
@@ -235,7 +253,7 @@ export default async function SubscriptionsDashboardPage() {
                         </TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell className="text-muted-foreground">Lifetime</TableCell>
+                        <TableCell className="text-muted-foreground">Total lifetime value</TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {formatCount(projection.cohortSubs)}
                         </TableCell>
@@ -250,13 +268,11 @@ export default async function SubscriptionsDashboardPage() {
 
               <p className="text-sm text-muted-foreground">
                 Trial conversion {describeRate(projection.conversion)} · paid churn {describeRate(projection.churn)} ·
-                blended ARPU {formatDollars(projection.arpu)}/mo. The first table counts what has already happened this
-                month — trials that converted, subscribers who cancelled — and applies those rates only to the part of
-                the month still outstanding, so it converges on the actual rather than drifting from it. The second
-                values every trial the month starts, including those converting next month. Annual subscribers count
-                toward churn only in the month they actually renew. The range on projected trials is this month&apos;s
-                own sampling error — no prior month is blended in, so an in-season month is never dragged toward an
-                off-season average.
+                blended ARPU {formatDollars(projection.arpu)}/mo. Anything that has already happened is counted, not
+                estimated, so these numbers get more accurate as the month fills in. Annual subscribers only count
+                toward churn in the month they actually renew. The range on projected trials comes from this
+                month&apos;s own data, never from last month, so an in-season month is not dragged toward an off-season
+                average.
               </p>
             </>
           )}
