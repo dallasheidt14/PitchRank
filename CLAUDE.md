@@ -409,6 +409,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 |----------|----------|---------|
 | `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint, Python Tests, Frontend Lint, Frontend Format, Frontend Typecheck, Frontend Tests, Frontend llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
+| `enqueue-viewed-teams.yml` | Daily 05:47 UTC | Queue teams a signed-in subscriber opened in the last 36h (priority 2) |
 | `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue teams whose yesterday games have null scores (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:28 UTC | Queue teams active in the last 3 days (priority 2) |
 | `enqueue-discovery.yml` | Sun 14:41 UTC | Queue teams with no future games (priority 3) |
@@ -507,6 +508,7 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 |----------|---------|----------|---------|
 | `frontend/app/api/scrape-missing-game` | User-clicked | 1 | One team |
 | `frontend/app/api/create-team` | Admin creates a team | 1 | The new team, GotSport only |
+| `enqueue_viewed_teams.py` | Daily | 2 | Teams a signed-in subscriber opened in the last 36h, GotSport-servable only — admin views excluded, and skips any team already holding a pending user click |
 | `enqueue_yesterday_games.py` | Daily | 2 | Teams whose yesterday games have null scores, excluding any already scraped today |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |

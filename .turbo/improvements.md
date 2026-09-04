@@ -1539,3 +1539,33 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/assign_team_states.py` `fetch_recent_probes`, `bought_answers`, `probe_list`, `anchor_candidates`
 - **Why**: The ledger reader keys a cached answer by team, so an answer bought via an alias later quarantined (`review_status = pending`) would be reused for up to `REPROBE_AFTER_DAYS` while the approved sibling alias is suppressed, and anchor mode prefers such a cached mapping. Measured 2026-09-02: 0 probe rows in the window for the 30 affected masters, so latent. Fix: the reader returns `provider_team_id` and a cached answer is reused only when it matches the alias the approved-only reader would pick now. Touches paths the `C:/pitchrank-state-converge` worktree also edits. Raised by the Codex peer reviewer.
 - **Noted**: 2026-09-02
+
+### Collapse the five copies of get_gotsport_provider_id into enqueue_helpers
+
+- **ID**: IMP-167
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/enqueue_active_teams.py`, `enqueue_yesterday_games.py`, `enqueue_discovery_teams.py`, `enqueue_safety_net.py`, `enqueue_viewed_teams.py`, `enqueue_helpers.py`
+- **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all five, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
+- **Noted**: 2026-09-03
+
+### scrape_requests accepts unauthenticated inserts
+
+- **ID**: IMP-168
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `supabase/migrations` (`public.scrape_requests` policies and ACL)
+- **Why**: Live policies are `Enable insert for all users` (`FOR INSERT TO public WITH CHECK (true)`) and `Enable read for authenticated users` (`FOR SELECT TO public USING (true)`), with `relacl` granting `anon=arwdDxtm`. `game_date` and `priority` are the only NOT NULL columns and `priority` defaults to 5, so the insert is trivial: anyone holding the public anon key can queue priority-1 paid scrapes. `enqueue_scrape_request` is correctly locked to `postgres`/`service_role`; the table underneath it is not. Fix shape is the one `20260903120000_add_team_page_views.sql` uses — deny-all for anon/authenticated, a service_role policy, `REVOKE ALL` — but needs care so the frontend routes and Python jobs keep writing. Found by the security reviewer tracing the viewed-teams change, 2026-09-03.
+- **Noted**: 2026-09-03
+
+### enqueue_active_teams' game_date docstring contradicts the RPC
+
+- **ID**: IMP-169
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
+- **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
+- **Noted**: 2026-09-03
