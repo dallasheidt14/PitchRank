@@ -117,6 +117,11 @@ describe('SubscriptionsDashboardPage', () => {
     );
     const text = textOf(await SubscriptionsDashboardPage());
     expect(text).toContain('could not be loaded');
+    // The figures must go with it. Printing them under that heading is how a
+    // failed fetch turns into a plausible-looking forecast.
+    expect(text).not.toContain('Projected Trials');
+    expect(text).not.toContain('New Subs This Month');
+    expect(text).toContain('nothing to show');
   });
 
   it('renders LTV as not measurable rather than as zero when nobody has churned', async () => {

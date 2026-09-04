@@ -345,6 +345,19 @@ describe('computeTrialProjection', () => {
     expect(result.landingUnresolved).toBeCloseTo(0, 5);
   });
 
+  it('does not expect a conversion from a trial already set to cancel', () => {
+    const subs = [
+      sub({ id: 'live', trialStart: sept(2), trialEnd: sept(9) }),
+      sub({ id: 'quitting', trialStart: sept(2), trialEnd: sept(9), cancelAtPeriodEnd: true }),
+    ];
+    const result = computeTrialProjection(subs, now, NONE, NONE);
+    // Both are still running, but one has told us it will not convert.
+    expect(result.trialsToDate).toBe(2);
+    // Only the live one is unresolved; the run rate of 0.5/day still projects
+    // over the 19 remaining start-days.
+    expect(result.landingUnresolved).toBeCloseTo(1 + 0.5 * 19, 5);
+  });
+
   it('leaves a trial still running as unresolved rather than counting it', () => {
     const subs = [sub({ id: 'live', trialStart: sept(2), trialEnd: sept(9) })];
     const result = computeTrialProjection(subs, now, new Set(['live']), NONE);
@@ -459,6 +472,12 @@ describe('countObservedChurn', () => {
   it('ignores excluded accounts', () => {
     const subs = [sub({ id: 'owner', status: 'canceled', endedAt: at(9), email: 'owner@example.com' })];
     expect(countObservedChurn(subs, now, new Set(['owner']), new Set(['owner@example.com']))).toBe(0);
+  });
+
+  it('ignores a subscriber who has only requested cancellation', () => {
+    // Still active and still being served; canceled_at is the request time.
+    const subs = [sub({ id: 'pending', status: 'active', cancelAtPeriodEnd: true, canceledAt: at(3), endedAt: null })];
+    expect(countObservedChurn(subs, now, new Set(['pending']), NONE)).toBe(0);
   });
 });
 

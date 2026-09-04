@@ -40,6 +40,7 @@ const matured = (
     status,
     interval,
     unitAmount: interval === 'year' ? 6999 : 699,
+    created: nowSec - 47 * DAY,
     trialStart: nowSec - 47 * DAY,
     trialEnd: nowSec - 40 * DAY,
     currentPeriodEnd: interval === 'year' ? at(2027, 3, 5) : at(2026, 9, 5),
@@ -69,16 +70,50 @@ function allSubscriptions() {
     // list would wrongly count it as a renewal still ahead.
     matured('sub_cancelled_annual', 'canceled', 'year', { endedAt: sept(10), currentPeriodEnd: sept(20) }),
     // September trial that has already ended and converted.
-    makeStripeSubscription({ id: 'sub_sep_done', status: 'active', trialStart: sept(1), trialEnd: sept(8) }),
+    makeStripeSubscription({
+      id: 'sub_sep_done',
+      status: 'active',
+      created: sept(1),
+      trialStart: sept(1),
+      trialEnd: sept(8),
+    }),
     // September trial still running.
-    makeStripeSubscription({ id: 'sub_sep_live', status: 'trialing', trialStart: sept(12), trialEnd: sept(19) }),
+    makeStripeSubscription({
+      id: 'sub_sep_live',
+      status: 'trialing',
+      created: sept(12),
+      trialStart: sept(12),
+      trialEnd: sept(19),
+    }),
     // An internal account on the annual plan: activated and matured, so it would
     // reach every rate and the ARPU cohort if the exclusion were not applied.
     matured('sub_internal', 'canceled', 'year', { email: 'internal@example.com' }),
+    // Created long before the cohort window and cancelled this month. An
+    // established subscriber like this is absent from the active base the
+    // projected half is charged against, so if observed churn also skipped them
+    // the loss would be counted nowhere.
+    makeStripeSubscription({
+      id: 'sub_established',
+      status: 'canceled',
+      created: nowSec - 300 * DAY,
+      trialStart: nowSec - 300 * DAY,
+      trialEnd: nowSec - 293 * DAY,
+      endedAt: sept(6),
+      email: 'established@example.com',
+    }),
+    // Active, but cancellation already requested for a period ending next year.
+    // Service has not stopped, so it is not this month's loss.
+    matured('sub_pending_cancel', 'active', 'year', {
+      canceledAt: sept(3),
+      endedAt: null,
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: at(2027, 5, 1),
+    }),
     // Ended 185 days ago: inside the 187-day fetch, outside the 180-day rate window.
     makeStripeSubscription({
       id: 'sub_stale',
       status: 'canceled',
+      created: nowSec - 192 * DAY,
       trialStart: nowSec - 192 * DAY,
       trialEnd: nowSec - 185 * DAY,
     }),
@@ -96,6 +131,8 @@ const PAID = [
   'sub_cancelled_annual',
   'sub_sep_done',
   'sub_internal',
+  'sub_established',
+  'sub_pending_cancel',
 ];
 
 const paidInvoices = () =>
@@ -129,11 +166,13 @@ function setStripe(
   options: { paidThrows?: boolean; openThrows?: boolean; cohortThrows?: boolean; openInvoices?: Stripe.Invoice[] } = {}
 ) {
   const subs = allSubscriptions();
-  subscriptionsList.mockImplementation((params: { status?: string }) => {
+  subscriptionsList.mockImplementation((params: { status?: string; created?: { gte?: number } }) => {
     if (params.status === 'all') {
       // A mid-iteration rejection, not a synchronous throw — the shape Stripe
       // actually produces when a later page fails.
-      return options.cohortThrows ? rejectingIterable(1) : iterate(subs);
+      if (options.cohortThrows) return rejectingIterable(1);
+      const since = params.created?.gte ?? 0;
+      return iterate(subs.filter((s) => s.created >= since));
     }
     return iterate(subs.filter((s) => s.status === params.status));
   });
@@ -162,7 +201,7 @@ describe('getSubscriptionMetrics', () => {
   it('routes each status list to the builder that wants it', async () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
-    expect(metrics.activePaid).toEqual({ total: 7, monthly: 5, annual: 2 });
+    expect(metrics.activePaid).toEqual({ total: 8, monthly: 5, annual: 3 });
     expect(metrics.trials.total).toBe(1); // only the trialing subscription
     expect(metrics.pastDue.total).toBe(0);
   });
@@ -170,10 +209,11 @@ describe('getSubscriptionMetrics', () => {
   it('measures conversion from the paid invoices it fetched', async () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
-    // Ten trials ended inside the window; nine of them were charged.
-    expect(metrics.conversion.sample).toBe(10);
-    expect(metrics.conversion.converted).toBe(9);
-    expect(metrics.conversion.percent).toBe(90);
+    // Eleven trials ended inside the window; ten of them were charged. The
+    // internal account is excluded, and sub_established predates the cohort.
+    expect(metrics.conversion.sample).toBe(11);
+    expect(metrics.conversion.converted).toBe(10);
+    expect(metrics.conversion.percent).toBe(91);
     expect(metrics.monthProjection.conversion.isFallback).toBe(false);
   });
 
@@ -181,7 +221,7 @@ describe('getSubscriptionMetrics', () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
     expect(metrics.monthProjection.churn.isFallback).toBe(false);
-    expect(metrics.monthProjection.churn.sample).toBe(8);
+    expect(metrics.monthProjection.churn.sample).toBe(9);
     expect(metrics.monthProjection.churn.observed).toBe(1);
   });
 
@@ -195,10 +235,12 @@ describe('getSubscriptionMetrics', () => {
     expect(Number.isFinite(projection.netMrr)).toBe(true);
   });
 
-  it('counts a cancellation that already happened this month', async () => {
+  it('counts cancellations that already happened this month, cohort or not', async () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
-    expect(metrics.monthProjection.observedChurn).toBe(1); // sub_cancelled_annual
+    // sub_cancelled_annual, plus sub_established which predates the cohort window
+    // entirely. sub_pending_cancel is still being served and must not count.
+    expect(metrics.monthProjection.observedChurn).toBe(2);
   });
 
   it('takes annual renewals from the active base, not the whole cohort', async () => {
@@ -212,8 +254,9 @@ describe('getSubscriptionMetrics', () => {
   it('derives ARPU from the plans converters bought, less internal accounts', async () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
-    // Nine external converters: 4+1+1 monthly at $6.99 and 2+1 annual at $5.8325.
-    expect(metrics.monthProjection.arpu).toBeCloseTo(59.44 / 9, 4);
+    // Ten external converters in the cohort: six monthly at $6.99 and four
+    // annual at $5.8325 monthly-equivalent, i.e. $65.27 across ten.
+    expect(metrics.monthProjection.arpu).toBeCloseTo(65.27 / 10, 4);
   });
 
   it('keeps internal accounts out of every rate as well', async () => {
@@ -227,10 +270,10 @@ describe('getSubscriptionMetrics', () => {
     setStripe();
     const metrics = await getSubscriptionMetrics();
     const { churn, observedChurn, churnedSubs } = metrics.monthProjection;
-    // 1 already cancelled, plus the 5 monthly actives at half a month remaining.
-    // Charging all 7 actives instead would give 1.4375.
+    // 2 already cancelled, plus the 5 monthly actives at half a month remaining.
+    // Charging all 8 actives instead would give 2.4444.
     expect(churnedSubs).toBeCloseTo(observedChurn + 5 * churn.rate * 0.5, 6);
-    expect(churnedSubs).toBeCloseTo(1.3125, 4);
+    expect(churnedSubs).toBeCloseTo(2.2778, 4);
   });
 
   it('falls back rather than reporting nobody paid when the invoice fetch fails', async () => {
@@ -287,7 +330,7 @@ describe('getSubscriptionMetrics', () => {
     // sub_stale ended 185 days ago and is fetched, but must not reach a rate
     // labelled "last 180 days".
     expect(metrics.conversion.windowDays).toBe(180);
-    expect(metrics.conversion.sample).toBe(10);
+    expect(metrics.conversion.sample).toBe(11);
   });
 
   it('expands the customer, which the internal-email exclusion depends on', async () => {

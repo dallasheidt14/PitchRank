@@ -614,7 +614,11 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     arpu,
     activeMonthly: activePaid.monthly,
     annualRenewalsAhead: countAnnualRenewals(active.items, now),
-    observedChurn: countObservedChurn(cohortWindow.subs, now, paidSubIds, excludedEmails),
+    // The unbounded cancelled list, not the acquisition cohort: an established
+    // subscriber whose service ends this month was created before the cohort
+    // window and would otherwise be counted nowhere, since they are absent from
+    // the active base the projected half is charged against.
+    observedChurn: measurable ? countObservedChurn(canceled.items, now, paidSubIds, excludedEmails) : 0,
   });
   const unpaid = buildUnpaidInvoices(openInvoices.items);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active.items, pastDue.items);

@@ -133,121 +133,133 @@ export default async function SubscriptionsDashboardPage() {
                 : 'could not be loaded'}
             </span>
           </div>
+          {!projection.available ? (
+            <Card variant="flat">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                Stripe did not return the data this projection is built from, so there is nothing to show. Rendering the
+                figures anyway would put plausible-looking zeros under a heading that says they could not be loaded. The
+                error is listed above.
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <KpiCard
+                  label="Projected Trials"
+                  value={formatCount(Math.round(projection.trials.projected))}
+                  sub={`${projection.trials.trialsToDate} so far · ${projection.trials.dailyRate.toFixed(2)}/day · range ${Math.round(projection.trials.low)}–${Math.round(projection.trials.high)}`}
+                />
+                <KpiCard
+                  label="New Subs This Month"
+                  value={formatCount(projection.grossNewSubs)}
+                  sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials ending inside this month`}
+                />
+                <KpiCard
+                  label="Net MRR Change"
+                  value={signedDollars(projection.netMrr)}
+                  sub={`${signedCount(projection.netSubs)} net subscribers`}
+                  emphasize={projection.netMrr > 0}
+                />
+                <KpiCard
+                  label="LTV"
+                  value={projection.ltv === null ? '—' : formatDollars(projection.ltv)}
+                  sub={
+                    projection.avgLifetimeMonths === null
+                      ? 'not measurable — nobody in the cohort has churned'
+                      : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
+                  }
+                />
+              </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <KpiCard
-              label="Projected Trials"
-              value={formatCount(Math.round(projection.trials.projected))}
-              sub={`${projection.trials.trialsToDate} so far · ${projection.trials.dailyRate.toFixed(2)}/day · range ${Math.round(projection.trials.low)}–${Math.round(projection.trials.high)}`}
-            />
-            <KpiCard
-              label="New Subs This Month"
-              value={formatCount(projection.grossNewSubs)}
-              sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials ending inside this month`}
-            />
-            <KpiCard
-              label="Net MRR Change"
-              value={signedDollars(projection.netMrr)}
-              sub={`${signedCount(projection.netSubs)} net subscribers`}
-              emphasize={projection.netMrr > 0}
-            />
-            <KpiCard
-              label="LTV"
-              value={projection.ltv === null ? '—' : formatDollars(projection.ltv)}
-              sub={
-                projection.avgLifetimeMonths === null
-                  ? 'not measurable — nobody in the cohort has churned'
-                  : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
-              }
-            />
-          </div>
+              <Card variant="flat">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lands inside this month</TableHead>
+                        <TableHead className="text-right">Subscribers</TableHead>
+                        <TableHead className="text-right">MRR</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          Gross new
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {formatCount(projection.trials.landedConverted)} already converted
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{signedCount(projection.grossNewSubs)}</TableCell>
+                        <TableCell className="text-right">{signedDollars(projection.grossNewMrr)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          Churned
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {formatCount(projection.observedChurn)} already cancelled
+                            {projection.annualRenewalsAhead > 0 &&
+                              ` · ${projection.annualRenewalsAhead} annual renewal${projection.annualRenewalsAhead === 1 ? '' : 's'} due`}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{signedCount(-projection.churnedSubs)}</TableCell>
+                        <TableCell className="text-right">{signedDollars(-projection.lostMrr)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-semibold">Net</TableCell>
+                        <TableCell className="text-right font-semibold">{signedCount(projection.netSubs)}</TableCell>
+                        <TableCell className="text-right font-semibold">{signedDollars(projection.netMrr)}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
 
-          <Card variant="flat">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Lands inside this month</TableHead>
-                    <TableHead className="text-right">Subscribers</TableHead>
-                    <TableHead className="text-right">MRR</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell>
-                      Gross new
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {formatCount(projection.trials.landedConverted)} already converted
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{signedCount(projection.grossNewSubs)}</TableCell>
-                    <TableCell className="text-right">{signedDollars(projection.grossNewMrr)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>
-                      Churned
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {formatCount(projection.observedChurn)} already cancelled
-                        {projection.annualRenewalsAhead > 0 &&
-                          ` · ${projection.annualRenewalsAhead} annual renewal${projection.annualRenewalsAhead === 1 ? '' : 's'} due`}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">{signedCount(-projection.churnedSubs)}</TableCell>
-                    <TableCell className="text-right">{signedDollars(-projection.lostMrr)}</TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="font-semibold">Net</TableCell>
-                    <TableCell className="text-right font-semibold">{signedCount(projection.netSubs)}</TableCell>
-                    <TableCell className="text-right font-semibold">{signedDollars(projection.netMrr)}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+              <Card variant="flat">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Whole cohort started this month, whenever it converts</TableHead>
+                        <TableHead className="text-right">Subscribers</TableHead>
+                        <TableHead className="text-right">Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-muted-foreground">Monthly recurring</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCount(projection.cohortSubs)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatDollars(projection.cohortMrr)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-muted-foreground">Lifetime</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCount(projection.cohortSubs)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {projection.cohortValue === null ? '—' : formatDollars(projection.cohortValue)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
 
-          <Card variant="flat">
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Whole cohort started this month, whenever it converts</TableHead>
-                    <TableHead className="text-right">Subscribers</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">Monthly recurring</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatCount(projection.cohortSubs)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatDollars(projection.cohortMrr)}
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell className="text-muted-foreground">Lifetime</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {formatCount(projection.cohortSubs)}
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      {projection.cohortValue === null ? '—' : formatDollars(projection.cohortValue)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          <p className="text-sm text-muted-foreground">
-            Trial conversion {describeRate(projection.conversion)} · paid churn {describeRate(projection.churn)} ·
-            blended ARPU {formatDollars(projection.arpu)}/mo. The first table counts what has already happened this
-            month — trials that converted, subscribers who cancelled — and applies those rates only to the part of the
-            month still outstanding, so it converges on the actual rather than drifting from it. The second values every
-            trial the month starts, including those converting next month. Annual subscribers count toward churn only in
-            the month they actually renew. The range on projected trials is this month&apos;s own sampling error — no
-            prior month is blended in, so an in-season month is never dragged toward an off-season average.
-          </p>
+              <p className="text-sm text-muted-foreground">
+                Trial conversion {describeRate(projection.conversion)} · paid churn {describeRate(projection.churn)} ·
+                blended ARPU {formatDollars(projection.arpu)}/mo. The first table counts what has already happened this
+                month — trials that converted, subscribers who cancelled — and applies those rates only to the part of
+                the month still outstanding, so it converges on the actual rather than drifting from it. The second
+                values every trial the month starts, including those converting next month. Annual subscribers count
+                toward churn only in the month they actually renew. The range on projected trials is this month&apos;s
+                own sampling error — no prior month is blended in, so an in-season month is never dragged toward an
+                off-season average.
+              </p>
+            </>
+          )}
         </section>
 
         <section className="space-y-3">

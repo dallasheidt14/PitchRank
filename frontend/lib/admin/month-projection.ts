@@ -263,7 +263,9 @@ export function computeTrialProjection(
     if (trialEnd === null || trialEnd < monthStart || trialEnd >= monthEnd) continue;
     if (trialEnd < nowSec) {
       if (paidSubIds.has(sub.id)) landedConverted += 1;
-    } else {
+    } else if (!sub.cancel_at_period_end) {
+      // A trial already set to cancel has a known outcome: it will not convert.
+      // Leaving it unresolved would multiply it by the conversion rate.
       landingKnownUnresolved += 1;
     }
   }
@@ -338,6 +340,11 @@ export function countObservedChurn(
   const { monthStart, monthEnd } = monthBounds(now);
   let count = 0;
   for (const sub of subs) {
+    // Only a subscription that has actually stopped counts. A pending
+    // cancellation carries `canceled_at` from the moment it is requested while
+    // service runs to the period end, so without this guard a cancellation
+    // requested now for service ending next year lands in this month's loss.
+    if (sub.status !== 'canceled') continue;
     if (!paidSubIds.has(sub.id) || isExcluded(sub, excludedEmails)) continue;
     const endedAt = getServiceEnd(sub);
     if (endedAt !== null && endedAt >= monthStart && endedAt < monthEnd) count += 1;
