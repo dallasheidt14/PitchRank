@@ -2,6 +2,21 @@ import 'server-only';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe/server';
 import { createServiceSupabase } from '@/lib/supabase/service';
+import {
+  buildMonthProjection,
+  buildUnpaidInvoices,
+  collectPaidSubscriptionIds,
+  computePaidChurnRate,
+  computeTrialConversionRate,
+  computeTrialProjection,
+  countAnnualRenewals,
+  countObservedChurn,
+  type CohortWindow,
+  type MonthProjection,
+  type RateEstimate,
+  type UnpaidInvoiceEntry,
+} from './month-projection';
+import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
 
 export type TrialPipelineEntry = {
   id: string;
@@ -72,13 +87,38 @@ export type SubscriptionMetrics = {
     excluded: number; // test/internal users filtered from sample
   };
   reportCard: ReportCardMetrics;
+  monthProjection: { available: boolean } & MonthProjection;
+  unpaidInvoices: {
+    /** False when the open-invoice fetch failed, so an empty list is not evidence of none. */
+    available: boolean;
+    total: number;
+    outstanding: number;
+    noRetryScheduled: number;
+    list: UnpaidInvoiceEntry[];
+  };
   generatedAt: string;
   errors: string[];
 };
 
-const SECONDS_PER_DAY = 86_400;
-const COHORT_LOOKBACK_DAYS = 90;
-const MIN_COHORT_SAMPLE = 5;
+/**
+ * How far back conversion and churn are measured, as a window on when a trial
+ * ENDED. Wide because both rates need subscribers whose first paid month has
+ * already finished, and that cohort is far smaller than the subscriber count
+ * suggests; the sizing evidence is in
+ * `.turbo/reports/2026-09-04-stripe-month-projection-baseline.md`.
+ */
+const COHORT_LOOKBACK_DAYS = 180;
+
+/**
+ * Subscriptions are fetched by creation date but the rates filter on trial end,
+ * so the fetch reaches back one trial length further. Without the extra week the
+ * oldest trials inside the window belong to subscriptions created before it, and
+ * the card reports a wider window than it measured.
+ */
+const COHORT_FETCH_DAYS = COHORT_LOOKBACK_DAYS + TRIAL_DAYS;
+
+/** Monthly list price, used for ARPU only when no converted sub is available to measure. */
+const MONTHLY_LIST_PRICE = 6.99;
 
 /**
  * Internal/test users whose subscriptions skew dashboard math (especially
@@ -210,13 +250,6 @@ function getInterval(sub: Stripe.Subscription): 'month' | 'year' | null {
   return null;
 }
 
-function getCustomerEmail(sub: Stripe.Subscription): string {
-  const customer = sub.customer;
-  if (typeof customer === 'string') return customer;
-  if ('deleted' in customer && customer.deleted) return '(deleted customer)';
-  return customer.email ?? '(no email)';
-}
-
 /**
  * Sum of monthly-equivalent revenue across a list of subscriptions.
  * Returns dollars with cents preserved (e.g. 61.25), rounded to the nearest cent.
@@ -305,50 +338,41 @@ export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[
 }
 
 /**
- * Trial conversion: of trials that have ENDED in the lookback window, what
- * percentage are now paying customers?
+ * Trial conversion for the dashboard card: of the trials that ended inside the
+ * lookback window, what share produced a real activation?
  *
- * Cohort (denominator): every subscription with a `trial_end` in the past.
- * The list is bounded by what the caller fetched from Stripe (typically the
- * last 90 days of subscription creations), which is reflected in
- * `windowDays`.
+ * A presentation of `computeTrialConversionRate` — the same measurement the
+ * projection reads, shaped for this card. Measuring it twice is how the two
+ * surfaces drifted apart, since only one of them applied the internal-email
+ * exclusion.
  *
- * Converted (numerator): current status is `active` OR `past_due`. past_due
- * means the first invoice was paid and a subsequent renewal failed — they
- * still converted, they're just in dunning now.
- *
- * Trials still in flight (`trial_end >= now`) are excluded so they don't
- * penalize the percentage before they've had a chance to convert.
- *
- * Internal/test emails are excluded from both numerator and denominator and
- * counted separately.
- *
- * Returns null percent when sample < MIN_COHORT_SAMPLE so the UI can show
- * "not enough data yet".
+ * Returns a null percent below MIN_COHORT_SAMPLE so the UI can say "not enough
+ * data yet" rather than print a percentage drawn from three subscribers.
  */
 export function computeConversion(
-  subs: Stripe.Subscription[],
-  now: number,
-  excludedEmails: Set<string> = getExcludedEmails(),
-  windowDays: number = COHORT_LOOKBACK_DAYS
+  estimate: RateEstimate,
+  windowDays: number
 ): { windowDays: number; sample: number; converted: number; percent: number | null; excluded: number } {
-  let sample = 0;
-  let converted = 0;
-  let excluded = 0;
-  for (const sub of subs) {
-    if (!sub.trial_end) continue; // never had a trial → not part of "did the trial convert?"
-    if (sub.trial_end >= now) continue; // trial still in flight
-    if (excludedEmails.has(getCustomerEmail(sub).toLowerCase())) {
-      excluded += 1;
-      continue;
-    }
-    sample += 1;
-    if (sub.status === 'active' || sub.status === 'past_due') converted += 1;
-  }
-
-  const percent = sample >= MIN_COHORT_SAMPLE ? Math.round((converted / sample) * 100) : null;
-  return { windowDays, sample, converted, percent, excluded };
+  const percent = estimate.sample >= MIN_COHORT_SAMPLE ? Math.round(estimate.rate * 100) : null;
+  return {
+    windowDays,
+    sample: estimate.sample,
+    converted: estimate.observed,
+    percent,
+    excluded: estimate.excluded,
+  };
 }
+
+/**
+ * A list Stripe returned, and whether it was actually returned.
+ *
+ * Every one of these lists has an empty state that is a valid answer, so a
+ * failed fetch is indistinguishable from a genuine zero once the array is
+ * handed on alone — and a consumer then reports a confident zero where it should
+ * report "unknown". Carrying `ok` beside the items makes that distinction the
+ * caller's to lose rather than the fetch's to hide.
+ */
+type Fetched<T> = { items: T[]; ok: boolean };
 
 async function listAll(params: Stripe.SubscriptionListParams): Promise<Stripe.Subscription[]> {
   const out: Stripe.Subscription[] = [];
@@ -362,14 +386,32 @@ async function safeList(
   params: Stripe.SubscriptionListParams,
   label: string,
   errors: string[]
-): Promise<Stripe.Subscription[]> {
+): Promise<Fetched<Stripe.Subscription>> {
   try {
-    return await listAll(params);
+    return { items: await listAll(params), ok: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`${label}: ${msg}`);
-    return [];
+    return { items: [], ok: false };
   }
+}
+
+async function safeListInvoices(
+  params: Stripe.InvoiceListParams,
+  label: string,
+  errors: string[]
+): Promise<Fetched<Stripe.Invoice>> {
+  const items: Stripe.Invoice[] = [];
+  try {
+    for await (const invoice of stripe.invoices.list({ ...params, limit: 100 })) {
+      items.push(invoice);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`${label}: ${msg}`);
+    return { items: [], ok: false };
+  }
+  return { items, ok: true };
 }
 
 const REPORT_CARD_PAGE_CAP = 10_000;
@@ -519,34 +561,75 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, canceled, cohort, reportCardData] = await Promise.all([
+  const [active, trialing, pastDue, canceled, cohort, paidInvoices, openInvoices, reportCardData] = await Promise.all([
     safeList({ status: 'active' }, 'active subscriptions', errors),
     safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
     safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
     safeList({ status: 'canceled' }, 'canceled subscriptions', errors),
     safeList(
-      { status: 'all', created: { gte: nowSec - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY } },
+      { status: 'all', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
       'conversion cohort',
       errors
     ),
+    safeListInvoices(
+      { status: 'paid', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
+      'paid invoices',
+      errors
+    ),
+    safeListInvoices({ status: 'open' }, 'open invoices', errors),
     fetchReportCardMetrics(errors),
   ]);
 
-  const mrr = computeMrr(active);
-  const activePaid = bucketActivePaid(active);
-  const trialBuckets = buildTrialPipeline(trialing, nowSec);
-  const pastDueOut = buildPastDue(pastDue);
-  const conversion = computeConversion(cohort, nowSec);
-  const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active, pastDue);
+  const mrr = computeMrr(active.items);
+  const activePaid = bucketActivePaid(active.items);
+  const trialBuckets = buildTrialPipeline(trialing.items, nowSec);
+  const pastDueOut = buildPastDue(pastDue.items);
+  const paidSubIds = collectPaidSubscriptionIds(paidInvoices.items);
+  const excludedEmails = getExcludedEmails();
+  const now = new Date(nowSec * 1000);
+
+  // Rates and the projection both need the cohort AND the evidence of payment.
+  // Withhold the cohort when either fetch failed, so they report their fallback
+  // or an unavailable projection rather than a confident zero.
+  const measurable = cohort.ok && paidInvoices.ok;
+  const cohortWindow: CohortWindow = {
+    subs: measurable ? cohort.items : [],
+    paidSubIds,
+    now: nowSec,
+    windowStart: nowSec - COHORT_LOOKBACK_DAYS * SECONDS_PER_DAY,
+    excludedEmails,
+  };
+  const conversionEstimate = computeTrialConversionRate(cohortWindow);
+  const churnEstimate = computePaidChurnRate(cohortWindow);
+  const conversion = computeConversion(conversionEstimate, COHORT_LOOKBACK_DAYS);
+
+  const paidCohort = cohortWindow.subs.filter(
+    (sub) => paidSubIds.has(sub.id) && !excludedEmails.has(getCustomerEmail(sub).toLowerCase())
+  );
+  const arpu = paidCohort.length > 0 ? computeMrr(paidCohort) / paidCohort.length : MONTHLY_LIST_PRICE;
+  const monthProjection = buildMonthProjection({
+    trials: computeTrialProjection(cohortWindow.subs, now, paidSubIds, excludedEmails),
+    conversion: conversionEstimate,
+    churn: churnEstimate,
+    arpu,
+    activeMonthly: activePaid.monthly,
+    annualRenewalsAhead: countAnnualRenewals(active.items, now),
+    // The unbounded cancelled list, not the acquisition cohort: an established
+    // subscriber whose service ends this month was created before the cohort
+    // window and would otherwise be counted nowhere, since they are absent from
+    // the active base the projected half is charged against.
+    observedChurn: measurable ? countObservedChurn(canceled.items, now, paidSubIds, excludedEmails) : 0,
+  });
+  const unpaid = buildUnpaidInvoices(openInvoices.items);
+  const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active.items, pastDue.items);
   // Union the unbounded status lists so "ever trialed" is date-complete:
-  // currently-trialing (trialing), trialed-then-paid (active + past_due), and
-  // trialed-then-cancelled (canceled). No 90-day window, so a lead who trialed
-  // and cancelled long ago is still counted. Set dedup makes overlap harmless.
+  // currently-trialing, trialed-then-paid (active + past_due), and
+  // trialed-then-cancelled. Set dedup makes the overlap harmless.
   const leadToTrial = computeLeadToTrial(reportCardData.uniqueLeadEmails, [
-    ...active,
-    ...trialing,
-    ...pastDue,
-    ...canceled,
+    ...active.items,
+    ...trialing.items,
+    ...pastDue.items,
+    ...canceled.items,
   ]);
 
   return {
@@ -570,6 +653,8 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       trialConversion: leadToTrial,
       recentLeads: reportCardData.recentLeads,
     },
+    monthProjection: { available: measurable, ...monthProjection },
+    unpaidInvoices: { available: openInvoices.ok, ...unpaid },
     generatedAt: new Date().toISOString(),
     errors,
   };

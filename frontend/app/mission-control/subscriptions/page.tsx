@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { getSubscriptionMetrics } from '@/lib/admin/subscription-metrics';
+import { describeRate } from '@/lib/admin/month-projection';
 
 // Admin gate is enforced by frontend/middleware.ts (ADMIN_ROUTES).
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,18 @@ function formatDollars(n: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatCount(n: number): string {
+  return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+}
+
+function signedCount(n: number): string {
+  return `${n >= 0 ? '+' : '−'}${formatCount(Math.abs(n))}`;
+}
+
+function signedDollars(n: number): string {
+  return `${n >= 0 ? '+' : '−'}${formatDollars(Math.abs(n))}`;
 }
 
 function formatDate(iso: string): string {
@@ -36,6 +49,7 @@ function formatRelative(iso: string): string {
 
 export default async function SubscriptionsDashboardPage() {
   const metrics = await getSubscriptionMetrics();
+  const projection = metrics.monthProjection;
 
   return (
     <div className="min-h-screen bg-background">
@@ -109,6 +123,200 @@ export default async function SubscriptionsDashboardPage() {
             emphasize={metrics.trials.endingIn7Days > 0}
           />
         </div>
+
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Month Projection</h2>
+            <span className="text-sm text-muted-foreground">
+              {projection.available
+                ? `day ${projection.trials.daysElapsed} of ${projection.trials.daysInMonth} · measured from paid invoices`
+                : 'could not be loaded'}
+            </span>
+          </div>
+          {!projection.available ? (
+            <Card variant="flat">
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                Stripe did not return the data this projection is built from, so there is nothing to show. Rendering the
+                figures anyway would put plausible-looking zeros under a heading that says they could not be loaded. The
+                error is listed above.
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <KpiCard
+                  label="Projected Trials"
+                  value={formatCount(Math.round(projection.trials.projected))}
+                  sub={`${projection.trials.trialsToDate} so far · ${projection.trials.dailyRate.toFixed(2)}/day · range ${Math.round(projection.trials.low)}–${Math.round(projection.trials.high)}`}
+                />
+                <KpiCard
+                  label="New Subs This Month"
+                  value={formatCount(projection.grossNewSubs)}
+                  sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials ending inside this month`}
+                />
+                <KpiCard
+                  label="Net MRR Change"
+                  value={signedDollars(projection.netMrr)}
+                  sub={`${signedCount(projection.netSubs)} net subscribers`}
+                  emphasize={projection.netMrr > 0}
+                />
+                <KpiCard
+                  label="LTV"
+                  value={projection.ltv === null ? '—' : formatDollars(projection.ltv)}
+                  sub={
+                    projection.avgLifetimeMonths === null
+                      ? 'not measurable — nobody in the cohort has churned'
+                      : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
+                  }
+                />
+              </div>
+
+              <Card variant="flat">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lands inside this month</TableHead>
+                        <TableHead className="text-right">Subscribers</TableHead>
+                        <TableHead className="text-right">MRR</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell>
+                          Gross new
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {formatCount(projection.trials.landedConverted)} already converted
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{signedCount(projection.grossNewSubs)}</TableCell>
+                        <TableCell className="text-right">{signedDollars(projection.grossNewMrr)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell>
+                          Churned
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {formatCount(projection.observedChurn)} already cancelled
+                            {projection.annualRenewalsAhead > 0 &&
+                              ` · ${projection.annualRenewalsAhead} annual renewal${projection.annualRenewalsAhead === 1 ? '' : 's'} due`}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{signedCount(-projection.churnedSubs)}</TableCell>
+                        <TableCell className="text-right">{signedDollars(-projection.lostMrr)}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-semibold">Net</TableCell>
+                        <TableCell className="text-right font-semibold">{signedCount(projection.netSubs)}</TableCell>
+                        <TableCell className="text-right font-semibold">{signedDollars(projection.netMrr)}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <Card variant="flat">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Whole cohort started this month, whenever it converts</TableHead>
+                        <TableHead className="text-right">Subscribers</TableHead>
+                        <TableHead className="text-right">Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-muted-foreground">Monthly recurring</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCount(projection.cohortSubs)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatDollars(projection.cohortMrr)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-muted-foreground">Lifetime</TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatCount(projection.cohortSubs)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {projection.cohortValue === null ? '—' : formatDollars(projection.cohortValue)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+
+              <p className="text-sm text-muted-foreground">
+                Trial conversion {describeRate(projection.conversion)} · paid churn {describeRate(projection.churn)} ·
+                blended ARPU {formatDollars(projection.arpu)}/mo. The first table counts what has already happened this
+                month — trials that converted, subscribers who cancelled — and applies those rates only to the part of
+                the month still outstanding, so it converges on the actual rather than drifting from it. The second
+                values every trial the month starts, including those converting next month. Annual subscribers count
+                toward churn only in the month they actually renew. The range on projected trials is this month&apos;s
+                own sampling error — no prior month is blended in, so an in-season month is never dragged toward an
+                off-season average.
+              </p>
+            </>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Unpaid Invoices</h2>
+            <span className="text-sm text-muted-foreground">
+              {metrics.unpaidInvoices.available
+                ? `${formatDollars(metrics.unpaidInvoices.outstanding)} outstanding · ${metrics.unpaidInvoices.noRetryScheduled} with no retry scheduled`
+                : 'could not be loaded'}
+            </span>
+          </div>
+          <Card variant="flat">
+            <CardContent className="p-0">
+              {!metrics.unpaidInvoices.available ? (
+                <div className="p-6 text-sm text-muted-foreground">
+                  Stripe did not return open invoices on this load, so this list is unknown rather than empty. The error
+                  is listed above.
+                </div>
+              ) : metrics.unpaidInvoices.list.length === 0 ? (
+                <div className="p-6 text-sm text-muted-foreground">No unpaid invoices. Every charge cleared.</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer</TableHead>
+                      <TableHead className="text-right">Outstanding</TableHead>
+                      <TableHead className="text-right">Attempts</TableHead>
+                      <TableHead>Retry</TableHead>
+                      <TableHead>Invoiced</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {metrics.unpaidInvoices.list.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.email}</TableCell>
+                        <TableCell className="text-right">{formatDollars(row.amountRemaining)}</TableCell>
+                        <TableCell className="text-right">{row.attemptCount}</TableCell>
+                        <TableCell
+                          className={row.retryScheduled ? 'text-muted-foreground' : 'font-semibold text-destructive'}
+                        >
+                          {row.retryScheduled ? 'scheduled' : 'none'}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{formatDate(row.created)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+          <p className="text-sm text-muted-foreground">
+            Subscription charges Stripe finalized and could not collect — a mix of first charges after a trial and later
+            renewal failures. &ldquo;No retry&rdquo; means Stripe has nothing further on the calendar; the reverse does
+            not hold, because after a hard decline Stripe keeps scheduling attempts that only run once a new card is
+            added.
+          </p>
+        </section>
 
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
@@ -200,9 +408,10 @@ export default async function SubscriptionsDashboardPage() {
                 <div className="space-y-1">
                   <div className="font-display text-4xl font-bold">{metrics.conversion.percent}%</div>
                   <p className="text-sm text-muted-foreground">
-                    {metrics.conversion.converted} of {metrics.conversion.sample} completed trials in the last{' '}
-                    {metrics.conversion.windowDays} days are now paying (active or past_due). Trials still in flight are
-                    excluded.
+                    {metrics.conversion.converted} of {metrics.conversion.sample} trials that ended in the last{' '}
+                    {metrics.conversion.windowDays} days went on to a paid subscription. Counted whether or not they are
+                    still subscribed today, so this measures conversion rather than retention. Trials still in flight
+                    are excluded.
                     {metrics.conversion.excluded > 0 &&
                       ` ${metrics.conversion.excluded} test/internal user${metrics.conversion.excluded === 1 ? '' : 's'} excluded.`}
                   </p>

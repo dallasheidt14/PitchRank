@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type Stripe from 'stripe';
+import { makeStripeSubscription } from '@/test/fixtures';
+import { SECONDS_PER_DAY } from '../constants';
+import type { RateEstimate } from '../month-projection';
 
 vi.mock('server-only', () => ({}));
 
@@ -14,51 +16,7 @@ import {
   computeLeadToTrial,
 } from '../subscription-metrics';
 
-const SECONDS_PER_DAY = 86_400;
-
-function makeSub(overrides: {
-  id?: string;
-  status?: Stripe.Subscription.Status;
-  interval?: 'month' | 'year';
-  unitAmount?: number;
-  quantity?: number;
-  trialStart?: number | null;
-  trialEnd?: number | null;
-  email?: string;
-  cancelAtPeriodEnd?: boolean;
-}): Stripe.Subscription {
-  const {
-    id = `sub_${Math.random().toString(36).slice(2)}`,
-    status = 'active',
-    interval = 'month',
-    unitAmount = 699,
-    quantity = 1,
-    trialStart = null,
-    trialEnd = null,
-    email = 'test@example.com',
-    cancelAtPeriodEnd = false,
-  } = overrides;
-  return {
-    id,
-    status,
-    trial_start: trialStart,
-    trial_end: trialEnd,
-    cancel_at_period_end: cancelAtPeriodEnd,
-    customer: { id: 'cus_x', email, deleted: false } as unknown as Stripe.Customer,
-    items: {
-      data: [
-        {
-          id: 'si_x',
-          quantity,
-          price: {
-            unit_amount: unitAmount,
-            recurring: { interval },
-          },
-        },
-      ],
-    },
-  } as unknown as Stripe.Subscription;
-}
+const makeSub = makeStripeSubscription;
 
 describe('computeMrr', () => {
   it('sums monthly subs preserving cents', () => {
@@ -157,13 +115,13 @@ describe('buildTrialPipeline', () => {
         id: 'sub_canceled_a',
         trialEnd: now + 1 * SECONDS_PER_DAY,
         cancelAtPeriodEnd: true,
-        email: 'colvillem@gmail.com',
+        email: 'lapsed.trialer@example.com',
       }),
       makeSub({
         id: 'sub_canceled_b',
         trialEnd: now + 3 * SECONDS_PER_DAY,
         cancelAtPeriodEnd: true,
-        email: 'ronald.warzoha@gmail.com',
+        email: 'second.trialer@example.com',
       }),
     ];
     const result = buildTrialPipeline(subs, now);
@@ -194,99 +152,54 @@ describe('buildPastDue', () => {
 });
 
 describe('computeConversion', () => {
-  const now = 1_700_000_000;
-  const day = SECONDS_PER_DAY;
+  // A presentation of the RateEstimate the projection also reads, so the card and
+  // the projection cannot describe different cohorts. Measurement itself is tested
+  // against computeTrialConversionRate in month-projection.test.ts.
+  const estimate = (over: Partial<RateEstimate> = {}): RateEstimate => ({
+    rate: 0.8,
+    observed: 4,
+    sample: 5,
+    excluded: 2,
+    isFallback: false,
+    ...over,
+  });
 
-  it('returns null percent when sample < 5', () => {
-    const subs = [
-      makeSub({ status: 'active', trialEnd: now - 7 * day }),
-      makeSub({ status: 'canceled', trialEnd: now - 7 * day }),
-    ];
-    const result = computeConversion(subs, now);
-    expect(result.sample).toBe(2);
+  it('reshapes an estimate into the card payload', () => {
+    expect(computeConversion(estimate(), 180)).toEqual({
+      windowDays: 180,
+      sample: 5,
+      converted: 4,
+      percent: 80,
+      excluded: 2,
+    });
+  });
+
+  it('reports the window it was given', () => {
+    expect(computeConversion(estimate(), 90).windowDays).toBe(90);
+  });
+
+  it('rounds the percentage', () => {
+    expect(computeConversion(estimate({ rate: 4 / 6, observed: 4, sample: 6 }), 180).percent).toBe(67);
+  });
+
+  it('withholds a percentage below the minimum sample', () => {
+    const result = computeConversion(estimate({ sample: 4, observed: 4, rate: 1 }), 180);
     expect(result.percent).toBeNull();
+    expect(result.sample).toBe(4);
   });
 
-  it('counts active and past_due as converted; trial-end-in-future is excluded', () => {
-    const subs = [
-      // Recent conversions (trial just ended) — these were the bug: previously excluded
-      makeSub({ status: 'active', trialEnd: now - 1 * day }),
-      makeSub({ status: 'active', trialEnd: now - 3 * day }),
-      makeSub({ status: 'active', trialEnd: now - 10 * day }),
-      // past_due — paid at least once, currently in dunning → converted
-      makeSub({ status: 'past_due', trialEnd: now - 5 * day }),
-      // canceled after trial — counts in sample, not converted
-      makeSub({ status: 'canceled', trialEnd: now - 5 * day }),
-      makeSub({ status: 'canceled', trialEnd: now - 20 * day }),
-      // Trial still in flight — excluded so it doesn't penalize conversion
-      makeSub({ status: 'trialing', trialEnd: now + 2 * day }),
-      // No trial at all — excluded (can't measure trial conversion on a non-trial sub)
-      makeSub({ status: 'active', trialEnd: null }),
-    ];
-    const result = computeConversion(subs, now);
-    expect(result.sample).toBe(6);
-    expect(result.converted).toBe(4);
-    expect(result.percent).toBe(67); // 4/6 = 66.67% → 67
+  it('passes the excluded count through', () => {
+    expect(computeConversion(estimate({ excluded: 7 }), 180).excluded).toBe(7);
   });
 
-  it('reports the windowDays passed by caller', () => {
-    const result = computeConversion([], now, undefined, 90);
-    expect(result.windowDays).toBe(90);
-  });
-
-  it('handles zero sample', () => {
-    expect(computeConversion([], now)).toEqual({
-      windowDays: expect.any(Number),
+  it('handles an empty cohort', () => {
+    expect(computeConversion(estimate({ rate: 0, observed: 0, sample: 0, excluded: 0 }), 180)).toEqual({
+      windowDays: 180,
       sample: 0,
       converted: 0,
       percent: null,
       excluded: 0,
     });
-  });
-
-  it('excludes test/internal users from the cohort and counts them separately', () => {
-    const excluded = new Set([
-      'cartermheidt@gmail.com',
-      'brooksheidt@gmail.com',
-      'dallasheidt@gmail.com',
-      'dallas@rightsideuplending.com',
-    ]);
-    const subs = [
-      // Real cohort: 5 users, 4 converted → 80%
-      makeSub({ status: 'active', email: 'a@example.com', trialEnd: now - 5 * day }),
-      makeSub({ status: 'active', email: 'b@example.com', trialEnd: now - 5 * day }),
-      makeSub({ status: 'active', email: 'c@example.com', trialEnd: now - 5 * day }),
-      makeSub({ status: 'active', email: 'd@example.com', trialEnd: now - 5 * day }),
-      makeSub({ status: 'canceled', email: 'e@example.com', trialEnd: now - 5 * day }),
-      // Test users — must NOT be in sample
-      makeSub({ status: 'canceled', email: 'cartermheidt@gmail.com', trialEnd: now - 5 * day }),
-      makeSub({ status: 'canceled', email: 'dallasheidt@gmail.com', trialEnd: now - 5 * day }),
-    ];
-    const result = computeConversion(subs, now, excluded);
-    expect(result.sample).toBe(5);
-    expect(result.converted).toBe(4);
-    expect(result.percent).toBe(80);
-    expect(result.excluded).toBe(2);
-  });
-
-  it('email match is case-insensitive', () => {
-    const excluded = new Set(['dallasheidt@gmail.com']);
-    const subs = [makeSub({ status: 'canceled', email: 'DallasHeidt@Gmail.com', trialEnd: now - 5 * day })];
-    const result = computeConversion(subs, now, excluded);
-    expect(result.sample).toBe(0);
-    expect(result.excluded).toBe(1);
-  });
-
-  it('regression: a 7-day trial that started 10 days ago and converted IS counted', () => {
-    // This was the reported bug: the old logic required trial_start to be 31-60d ago,
-    // so a recently-converted trial (typical case for a young business) was dropped.
-    const subs = Array.from({ length: 9 }, (_, i) =>
-      makeSub({ status: 'active', email: `user${i}@example.com`, trialEnd: now - 3 * day })
-    );
-    const result = computeConversion(subs, now);
-    expect(result.sample).toBe(9);
-    expect(result.converted).toBe(9);
-    expect(result.percent).toBe(100);
   });
 });
 
