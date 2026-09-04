@@ -37,6 +37,7 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     csv_unsafe,
     decide,
     describe_runtime,
+    exit_code,
     drop_colliding_renames,
     fetch_state_blocks,
     fetch_target_teams,
@@ -983,6 +984,98 @@ def test_the_state_filter_is_upper_cased():
 @pytest.mark.parametrize("calls,delay,expected", [(8, 3.0, "24 sec"), (485, 3.0, "24 min"), (0, 3.0, "0 sec")])
 def test_a_short_run_is_estimated_in_seconds(calls, delay, expected):
     assert describe_runtime(calls, delay) == expected
+
+
+class _ScriptedResolver:
+    """A resolver whose every lookup fails the way a WAF block does: empty, uncached."""
+
+    def __init__(self, answers=None):
+        self.cache = {}
+        self._answers = answers or {}
+
+    def resolve(self, pid):
+        answer = self._answers.get(pid, {})
+        if answer:
+            self.cache[pid] = answer
+        return answer
+
+
+def _run_main(monkeypatch, tmp_path, argv, teams, answers=None):
+    import reconcile_teams_with_gotsport as script
+
+    supabase = _supabase()
+    monkeypatch.setattr(script, "load_env", lambda: None)
+    monkeypatch.setattr(script, "get_supabase", lambda require_service_role=False: supabase)
+    monkeypatch.setattr(script, "fetch_target_teams", lambda *a, **k: (teams, teams))
+    monkeypatch.setattr(script, "fetch_gotsport_aliases", lambda *a, **k: {t["team_id_master"]: PID for t in teams})
+    monkeypatch.setattr(script, "fetch_state_blocks", lambda *a, **k: set())
+    monkeypatch.setattr(script, "TeamDetailsResolver", lambda: _ScriptedResolver(answers))
+    monkeypatch.setattr(script.time, "sleep", lambda _: None)
+    monkeypatch.setattr(script, "EXPORTS_DIR", tmp_path)
+    monkeypatch.setattr(sys, "argv", ["reconcile_teams_with_gotsport.py", *argv])
+    return script.main(), supabase
+
+
+def test_main_exits_nonzero_when_a_run_aborts(monkeypatch, tmp_path):
+    """The end-to-end contract a chunked driver reads. Three earlier rounds tested the
+    decision but not the call site, and a live TX sweep walked eight consecutive
+    offsets into a blocked endpoint because an abort exited 0."""
+    teams = [_team(team_id_master=f"t{i:02d}") for i in range(20)]
+
+    code, _ = _run_main(monkeypatch, tmp_path, ["--state", "AZ", "--limit", "0", "--dry-run"], teams)
+
+    assert code != 0
+
+
+def test_main_exits_zero_when_every_team_resolves(monkeypatch, tmp_path):
+    teams = [_team(team_id_master=f"t{i:02d}") for i in range(5)]
+
+    code, _ = _run_main(
+        monkeypatch, tmp_path, ["--state", "AZ", "--limit", "0", "--dry-run"], teams, {PID: _resolved()}
+    )
+
+    assert code == 0
+
+
+def test_main_writes_nothing_on_a_dry_run(monkeypatch, tmp_path):
+    teams = [_team(team_id_master=f"t{i:02d}") for i in range(5)]
+
+    _, supabase = _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--state", "AZ", "--limit", "0", "--dry-run"],
+        teams,
+        {PID: _resolved(name="Renamed By GotSport")},
+    )
+
+    assert supabase.recorder == []
+
+
+def test_main_stamps_a_dry_run_log_as_unrevertable(monkeypatch, tmp_path):
+    """The producer side of the refusal `revert` enforces."""
+    teams = [_team(team_id_master=f"t{i:02d}") for i in range(3)]
+
+    _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--state", "AZ", "--limit", "0", "--dry-run"],
+        teams,
+        {PID: _resolved(name="Renamed By GotSport")},
+    )
+
+    log = next(tmp_path.glob("*.csv"))
+    assert {r["run_mode"] for r in csv.DictReader(log.open(encoding="utf-8", newline=""))} == {"dry-run"}
+
+
+def test_an_aborted_run_does_not_report_success():
+    """A driver walking a cohort in chunks reads the exit code to decide whether to
+    continue; a WAF abort that exits 0 sends the remaining offsets into a blocked
+    endpoint, which is what a live TX run did across eight consecutive chunks."""
+    assert exit_code(aborted=True) != 0
+
+
+def test_a_completed_run_reports_success():
+    assert exit_code(aborted=False) == 0
 
 
 @pytest.mark.parametrize("limit,offset", [(-1, 0), (0, -1), (-5, -5)])
