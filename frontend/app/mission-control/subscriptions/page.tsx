@@ -229,8 +229,7 @@ export default async function SubscriptionsDashboardPage() {
               <p className="pt-2 text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">What this month&apos;s signups are worth.</span> Counts
                 every trial that starts in {monthName}, including the ones whose first charge does not land until next
-                month. Bigger than the figure above, and the right one for judging whether a month&apos;s marketing
-                worked.
+                month. This is the one for judging whether a month&apos;s marketing worked.
               </p>
               <Card variant="flat">
                 <CardContent className="p-0">
