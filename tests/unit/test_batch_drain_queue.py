@@ -2335,3 +2335,89 @@ class TestTaskStatusDispatch:
 
         assert API_KEY not in out
         assert "REDACTED" in out
+
+
+class TestJobHandlePublication:
+    """The caller must hold the freshest handle at every moment a failure can land.
+
+    Both cases below passed before the fixes: the job existed, the run was billing,
+    and cleanup had nothing to stop or stale counts to settle on.
+    """
+
+    @pytest.mark.parametrize("lifecycle", ["closed", "open"])
+    def test_the_handle_reaches_the_caller_before_anything_that_can_fail(self, lifecycle, monkeypatch, capsys):
+        """`_log_job_ids` writes to stdout. A broken pipe or an interrupt there would
+        otherwise unwind past the callback and leave the caller with no job.
+
+        Both lifecycles publish the handle in their own branch, so both are driven.
+        """
+        monkeypatch.setenv("ZENROWS_API_KEY", API_KEY)
+        if lifecycle == "open":
+            session = _open_lifecycle_session()
+            session.route("POST", "/jobs/job_01SYNTHETICOPEN/stop", FakeResponse(200, fixture("run_poll_completed")))
+            session.route(
+                "GET",
+                "/jobs/job_01SYNTHETICOPEN/runs/run_01SYNTHETICOPEN",
+                FakeResponse(200, fixture("run_poll_completed")),
+            )
+            argv = ["--premium-proxy", "false", "--wait-cap-minutes", "30", "--club-reserve-minutes", "5"]
+            for team_id in range(MAX_TASKS_PER_SUBMISSION + 1):
+                argv = ["--team-id", str(team_id)] + argv
+            stop_path = "/jobs/job_01SYNTHETICOPEN/stop"
+        else:
+            session = _happy_path_session()
+            session.route(
+                "POST", "/jobs/job_01SYNTHETICCLOSED/stop", FakeResponse(200, fixture("run_poll_completed"))
+            )
+            argv = _real_run_argv("false")
+            stop_path = "/jobs/job_01SYNTHETICCLOSED/stop"
+
+        import scripts.batch_drain_queue as module
+
+        original = module._log_job_ids
+
+        def exploding_log(job, api_key=None):
+            raise KeyboardInterrupt("interrupted while printing the ids")
+
+        monkeypatch.setattr(module, "_log_job_ids", exploding_log)
+        try:
+            exit_code = main(argv, client=make_client(session, FakeClock()))
+        finally:
+            monkeypatch.setattr(module, "_log_job_ids", original)
+        capsys.readouterr()
+
+        assert exit_code == 130
+        assert len(session.calls_to("POST", stop_path)) == 1
+
+    def test_a_failure_mid_submission_settles_on_the_counts_it_actually_reached(self, monkeypatch, capsys):
+        """An open job's counts advance chunk by chunk, so the handle the callback
+        first saw is 0/0. Settling on that reads accepted >= submitted and would
+        report a final spend while an unacknowledged chunk is still ingesting."""
+        monkeypatch.setenv("ZENROWS_API_KEY", API_KEY)
+        session = FakeSession()
+        session.route("POST", "/jobs", FakeResponse(200, fixture("create_open")))
+        session.route(
+            "POST",
+            "/jobs/job_01SYNTHETICOPEN/tasks",
+            FakeResponse(200, {"job_id": "job_01SYNTHETICOPEN", "accepted_tasks": 1000}),
+            FakeResponse(500, {"message": "ambiguous"}),
+        )
+        session.route("POST", "/jobs/job_01SYNTHETICOPEN/stop", FakeResponse(200, fixture("run_poll_completed")))
+        stopped_short = fixture("run_poll_completed")
+        stopped_short["status"] = "stopped"
+        stopped_short["stats"] = {**stopped_short["stats"], "total": 1001, "completed": 400}
+        session.route(
+            "GET", "/jobs/job_01SYNTHETICOPEN/runs/run_01SYNTHETICOPEN", FakeResponse(200, stopped_short)
+        )
+
+        argv = ["--premium-proxy", "false", "--wait-cap-minutes", "30", "--club-reserve-minutes", "5"]
+        for team_id in range(MAX_TASKS_PER_SUBMISSION + 1):
+            argv = ["--team-id", str(team_id)] + argv
+
+        exit_code = main(argv, client=make_client(session, FakeClock()))
+        out = flat_output(capsys)
+
+        assert exit_code == 1
+        # 1001 submitted against 1000 acknowledged: the count is not trustworthy, so
+        # the figure stays a lower bound however settled the run looks.
+        assert "lower bound" in out

@@ -910,7 +910,8 @@ def submit_tasks(
     The deadline is passed rather than derived, so a caller can hold pass 1 to the
     budget's pass-1 boundary and keep it out of the club reserve.
 
-    ``on_job`` fires the instant the handle exists. Returning it would be too late:
+    ``on_job`` fires the instant the handle exists, before any output that could
+    itself fail. Returning it would be too late:
     an interrupt during an open job's add-tasks or close unwinds before the
     assignment at the call site.
     """
@@ -936,9 +937,9 @@ def submit_tasks(
                 # after the billing job existed.
                 accepted_tasks=int(counted) if counted is not None else len(tasks),
             )
-            _log_job_ids(job, client.api_key)
             if on_job is not None:
                 on_job(job)
+            _log_job_ids(job, client.api_key)
         else:
             payload = client.create_job_open(key_supplier=key_supplier, deadline=deadline)
             job_id, run_id = _job_ids(client, payload, lifecycle, "create open job")
@@ -949,9 +950,9 @@ def submit_tasks(
                 submitted_tasks=0,
                 accepted_tasks=0,
             )
-            _log_job_ids(job, client.api_key)
             if on_job is not None:
                 on_job(job)
+            _log_job_ids(job, client.api_key)
             for chunk in chunks:
                 # Count the chunk as submitted before the call, not after. An
                 # add-tasks response lost to a timeout may still have been accepted,
@@ -1215,7 +1216,10 @@ def run_batch(
             match_count = len(body) if isinstance(body, list) else 0
             console.print(f"  {label}: {match_count} match(es)")
     except BatchRunError as exc:
-        job = job or exc.job
+        # Prefer the exception's handle: an open job's counts advance chunk by chunk,
+        # and the callback only ever saw the first. A stale one would let settle read
+        # accepted >= submitted and call an unacknowledged chunk settled.
+        job = exc.job or job
         detail = _operator_text(exc, client.api_key)
         if job is None:
             console.print(f"[red]Submission failed before a job existed:[/red] {detail}")
