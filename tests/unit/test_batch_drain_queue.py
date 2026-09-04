@@ -631,8 +631,8 @@ class TestResultsAndBodies:
 class TestRunBudget:
     def test_the_reserve_sits_exactly_below_the_whole_run_deadline(self):
         clock = FakeClock()
-        budget = RunBudget(30, 5, time_source=clock.now)
-        budget.start()
+        budget = RunBudget(30, 5)
+        budget.start(clock.now)
 
         assert budget.deadline == clock.now() + 30 * 60
         assert budget.pass1_deadline == budget.deadline - 5 * 60
@@ -640,6 +640,28 @@ class TestRunBudget:
     def test_the_deadline_is_unreadable_before_the_first_request(self):
         with pytest.raises(RuntimeError, match="start"):
             _ = RunBudget(30, 5).deadline
+
+    def test_the_run_arms_the_budget_on_the_clock_that_checks_it(self, monkeypatch, capsys):
+        """`main` builds the budget before the client exists, so a budget holding
+        a clock of its own measures against one nobody else reads. The deadline
+        then sits an arbitrary distance from every check of it — the machine's
+        uptime — which reads as a budget already spent on a freshly booted host
+        and as an unreachable one on a long-lived desktop.
+        """
+        monkeypatch.setenv("ZENROWS_API_KEY", API_KEY)
+        clock = FakeClock(start=1000.0)
+        budget = RunBudget(30, 5)
+
+        run_batch(
+            _args(dry_run=False, team_id=["1"]),
+            premium=False,
+            sequence=SubmissionSequence("run"),
+            budget=budget,
+            client=make_client(_happy_path_session(), clock),
+        )
+        capsys.readouterr()
+
+        assert budget.deadline == 1000.0 + 30 * 60
 
     def test_the_cleanup_allowance_outlives_the_run_budget(self):
         assert _cleanup_deadline(lambda: 1000.0) == 1000.0 + STOP_CLEANUP_SECONDS
@@ -2318,7 +2340,7 @@ class TestTaskStatusDispatch:
         redacted, not merely escaped."""
         assert _operator_text(f"rejected {API_KEY}", API_KEY) == "rejected REDACTED"
         # Escaping neutralises the tag rather than deleting the bracket.
-        assert _operator_text("[bold]x", None) == "\[bold]x"
+        assert _operator_text("[bold]x", None) == r"\[bold]x"
 
     def test_a_failure_reason_carrying_the_key_is_redacted_end_to_end(self, monkeypatch, capsys):
         monkeypatch.setenv("ZENROWS_API_KEY", API_KEY)

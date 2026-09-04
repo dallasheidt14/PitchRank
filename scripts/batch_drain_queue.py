@@ -258,20 +258,19 @@ def _key_supplier(sequence: SubmissionSequence) -> Callable[[Optional[str]], str
 class RunBudget:
     """The whole-run ZenRows wall clock, with a carve-out pass 1 may not consume."""
 
-    def __init__(
-        self,
-        wait_cap_minutes: int,
-        club_reserve_minutes: int,
-        *,
-        time_source: Callable[[], float] = time.monotonic,
-    ):
+    def __init__(self, wait_cap_minutes: int, club_reserve_minutes: int):
         self.wait_cap_minutes = wait_cap_minutes
         self.club_reserve_minutes = club_reserve_minutes
-        self._now = time_source
         self._deadline: Optional[float] = None
 
-    def start(self) -> None:
-        self._deadline = self._now() + self.wait_cap_minutes * 60
+    def start(self, time_source: Callable[[], float]) -> None:
+        """Arm the deadlines against the clock that will be checked against them.
+
+        The budget is built before the client exists, so it has no clock of its
+        own to default to. Two clocks make every comparison meaningless: the
+        offset between them is whatever the machine's uptime happens to be.
+        """
+        self._deadline = time_source() + self.wait_cap_minutes * 60
 
     @property
     def deadline(self) -> float:
@@ -1160,7 +1159,7 @@ def run_batch(
     tasks = _build_tasks(args.team_id, premium=premium)
     console.print(f"\n[bold]Submitting {len(tasks)} task(s)[/bold] (premium_proxy={str(premium).lower()})")
 
-    budget.start()
+    budget.start(client._now)
     job: Optional[BatchJob] = None
     outcome: Optional[RunOutcome] = None
     fetched = 0
