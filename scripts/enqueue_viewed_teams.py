@@ -170,15 +170,20 @@ def select_targets(supabase, gotsport_provider_id, window_hours, cooldown_hours,
     # team filed under another provider: it looks for an approved GotSport alias and
     # scrapes that instead. Filtering on teams.provider_id alone would discard teams
     # the drainer can serve, so admit those too and drop only the genuinely unservable.
+    #
+    # teams.provider_id is nullable, and process_missing_games validates the queue row
+    # before it reaches that fallback, so a team carrying no provider of its own is
+    # unservable whatever aliases it has. Enqueueing one buys a failed queue item.
     aliased = teams_with_gotsport_alias(supabase, set(team_rows), gotsport_provider_id)
     eligible = {
         tid: row
         for tid, row in team_rows.items()
-        if row.get("provider_id") == gotsport_provider_id or tid in aliased
+        if row.get("provider_id") and (row["provider_id"] == gotsport_provider_id or tid in aliased)
     }
     if len(eligible) < len(team_rows):
         logger.info(
-            f"{len(team_rows) - len(eligible)} viewed teams skipped: no GotSport row or approved alias"
+            f"{len(team_rows) - len(eligible)} viewed teams skipped: "
+            f"no provider, or no GotSport row and no approved alias"
         )
 
     fresh = {

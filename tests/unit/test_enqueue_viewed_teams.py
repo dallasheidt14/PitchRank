@@ -326,6 +326,18 @@ def test_an_unapproved_alias_does_not_make_a_team_eligible():
     assert select(supabase) == []
 
 
+def test_a_team_with_no_provider_is_skipped_even_with_an_approved_alias():
+    """teams.provider_id is nullable, and process_missing_games validates the queue row
+    before reaching its alias fallback, so such a row can only become a failed item."""
+    supabase = build_supabase(
+        views=[view("t-nullprov")],
+        teams=[team("t-nullprov", provider_id=None)],
+        aliases=[alias("t-nullprov")],
+    )
+
+    assert select(supabase) == []
+
+
 def test_an_alias_on_another_provider_does_not_count():
     supabase = build_supabase(
         views=[view("t-tgs")],
