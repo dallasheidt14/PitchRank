@@ -229,6 +229,38 @@ taking over weekly, and that fallback has never written a row. Do not copy its s
 
 ## NEVER DO
 
+### ❌ Grant a Browser Role Write Access to a Server-Only Table
+
+An RLS policy and a table GRANT are independent axes, and checking one reads as having
+checked both. `FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id)` makes
+attribution unforgeable and says nothing about who may write at all. Pair it with
+`GRANT INSERT ... TO authenticated` and any signed-in account, free tier included, can take
+the public `NEXT_PUBLIC_SUPABASE_ANON_KEY` plus its own session JWT and POST straight to
+`/rest/v1/<table>`, skipping every check the API route performs.
+
+When only server code should write, grant the browser roles nothing and have the route use
+`createServiceSupabase()` after its own auth check:
+
+```sql
+ALTER TABLE <table> ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "<table>_deny_all" ON <table>;
+CREATE POLICY "<table>_deny_all" ON <table>
+    FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
+
+DROP POLICY IF EXISTS "<table>_service_role_all" ON <table>;
+CREATE POLICY "<table>_service_role_all" ON <table>
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+REVOKE ALL ON public.<table> FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE public.<table>_id_seq FROM anon, authenticated;
+```
+
+The sequence needs its own REVOKE — a table-level one does not reach it, and
+`pg_default_acl` grants `rwU` on new sequences here. `team_state_probe_log_id_seq` still
+carries `anon=rwU` in production because its migration revoked only the table. `REVOKE ALL`
+is also what removes TRUNCATE, which RLS does not govern.
+
 ### ❌ Delete From `teams`
 
 `teams` has **18 inbound foreign keys**, and a `DELETE` fails or destroys depending on
@@ -373,4 +405,4 @@ def merge_team(client, deprecated_id: str, canonical_id: str, *, dry_run: bool =
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin access (server-side only!) |
 | `SUPABASE_KEY` | Anon key (client-side) |
 
-**NEVER expose SERVICE_ROLE_KEY in frontend code!**
+**NEVER expose SERVICE_ROLE_KEY in browser code!**

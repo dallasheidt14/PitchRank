@@ -43,6 +43,14 @@ load_dotenv(".env")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from scripts.enqueue_helpers import (  # noqa: E402
+    USER_CLICK_REQUEST_TYPE,
+    _paged,
+    load_team_rows,
+    resolve_merges,
+    teams_with_pending_user_request,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -53,33 +61,9 @@ PRIORITY_USER_INTEREST = 1
 # last week, and the list would grow on its own forever.
 REQUEST_TYPE = "retention_hygiene"
 
-# The signal is a user clicking "find missing game" on a team page, which
-# frontend/app/api/scrape-missing-game writes as missing_game at priority 1.
-# create-team's new_team rows are an admin action, not user interest.
-USER_CLICK_REQUEST_TYPE = "missing_game"
-
 # A watchlist entry is standing interest; a single click is a one-off. Age the
 # click out after a full season-and-then-some so the batch stops growing forever.
 CLICK_WINDOW_DAYS = 365
-
-PAGE_SIZE = 1000
-BATCH_SIZE = 100
-
-
-def _paged(query_builder):
-    """Page a PostgREST select past the 1000-row cap."""
-    rows, offset = [], 0
-    while True:
-        batch = query_builder().range(offset, offset + PAGE_SIZE - 1).execute().data or []
-        rows.extend(batch)
-        if len(batch) < PAGE_SIZE:
-            return rows
-        offset += PAGE_SIZE
-
-
-def _chunks(items, size=BATCH_SIZE):
-    for i in range(0, len(items), size):
-        yield items[i : i + size]
 
 
 def collect_watchlisted_teams(supabase):
@@ -117,69 +101,6 @@ def collect_user_requested_teams(supabase, window_days=CLICK_WINDOW_DAYS):
         .gte("requested_at", cutoff)
     )
     return {r["team_id_master"] for r in rows if r["team_id_master"]}
-
-
-def resolve_merges(supabase, team_ids):
-    """Map deprecated team ids onto their canonical survivor.
-
-    execute_team_merge flattens chains, so one hop is enough.
-    """
-    canonical = {}
-    for batch in _chunks(sorted(team_ids)):
-        rows = (
-            supabase.table("team_merge_map")
-            .select("deprecated_team_id,canonical_team_id")
-            .in_("deprecated_team_id", batch)
-            .execute()
-            .data
-            or []
-        )
-        for r in rows:
-            canonical[r["deprecated_team_id"]] = r["canonical_team_id"]
-    return {t: canonical.get(t, t) for t in team_ids}
-
-
-def load_team_rows(supabase, team_ids):
-    """Fetch the provider fields enqueue_scrape_request needs, keyed by master id."""
-    teams = {}
-    for batch in _chunks(sorted(team_ids)):
-        rows = (
-            supabase.table("teams")
-            .select("team_id_master,team_name,provider_id,provider_team_id")
-            .in_("team_id_master", batch)
-            .execute()
-            .data
-            or []
-        )
-        for r in rows:
-            teams[r["team_id_master"]] = r
-    return teams
-
-
-def teams_with_pending_user_request(supabase, team_ids):
-    """Teams holding a pending row this job must not touch.
-
-    enqueue_scrape_request's UPDATE branch rewrites game_date from the parameter,
-    so calling it on a user's own pending missing_game row would move that row's
-    +/-90 day scrape window onto today, off the date the user asked about. That
-    row's date is the only one worth protecting: every automatic producer anchors
-    on today or yesterday, so promoting those to priority 1 through the RPC costs
-    nothing and moves an interest team ahead of the lower tiers.
-    """
-    protected = set()
-    for batch in _chunks(sorted(team_ids)):
-        rows = (
-            supabase.table("scrape_requests")
-            .select("team_id_master")
-            .in_("team_id_master", batch)
-            .eq("status", "pending")
-            .eq("request_type", USER_CLICK_REQUEST_TYPE)
-            .execute()
-            .data
-            or []
-        )
-        protected.update(r["team_id_master"] for r in rows if r["team_id_master"])
-    return protected
 
 
 def enqueue_team(supabase, team):

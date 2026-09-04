@@ -159,6 +159,26 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
         rank_in_cohort_final: team.rank_in_cohort_final,
         power_score_final: team.power_score_final,
       });
+
+      // First-party record of the same view. The daily enqueue reads this to keep
+      // the teams subscribers actually open up to date, which GA4 cannot answer.
+      // Fire-and-forget on purpose: a failed beacon must never surface to the
+      // reader, and a non-subscriber's 403 here is the expected case.
+      //
+      // Both guards are load-bearing. .catch handles a rejected request; the
+      // try/catch handles a fetch that throws synchronously, which a browser
+      // extension wrapping window.fetch can do — without it that throw escapes the
+      // effect and React unmounts the page the subscriber came to read.
+      try {
+        fetch('/api/track-team-view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamId: team.team_id_master }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        // Deliberately empty: recording a view is never worth a blank page.
+      }
     }
   }, [team]);
 
