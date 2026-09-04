@@ -1,0 +1,5 @@
+{
+  "code": "run_not_stoppable",
+  "status": 409,
+  "message": "The run has already reached a terminal state and cannot be stopped."
+}

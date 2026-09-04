@@ -56,6 +56,25 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   while every enqueue actually raised and the script's own `except` swallowed it. Record in
   `execute()`, assert on what `execute()` recorded, and make removing `.execute()` one of the
   mutations the guard is checked against.
+- **A test double that is more permissive than the real thing proves nothing, on four
+  axes that each hid a real defect.** A `requests` fake that drops the query string
+  cannot see a request that stopped sending its pagination cursor; one that ignores
+  `allow_redirects` cannot see an auth header follow a redirect to another host, because
+  `requests` strips only `Authorization` on a host change and carries a custom header
+  verbatim; one that stores `text` instead of decoding `content` cannot see a JSON body
+  served under an HTML content type with no charset decode as ISO-8859-1, mojibaking
+  every non-ASCII name; and one with no session-level headers cannot see a credential
+  pinned onto the session reach a third-party link. Model what the library does, then
+  assert on what the fake recorded: the URL, the headers, the timeout, the bytes.
+- **A test that reads the thing under test on both sides of its assertion cannot fail.**
+  `assert build(...)["params"] == MODULE_CONSTANT` passes for every value of that
+  constant, including one that bills ten times the intended rate; a parametrization
+  drawn from the set it is checking shrinks silently when a member leaves; a fixture
+  where the secret *is* the whole JSON value makes the right and wrong redaction
+  coincide; and `assert x is not None` cannot distinguish the value a rule is about from
+  the one it replaced. Name the expected value as a literal. Five defects in one change
+  took this shape, and none of them reddened a suite at 96% branch coverage; only
+  mutation runs found them.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
