@@ -1539,3 +1539,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/assign_team_states.py` `fetch_recent_probes`, `bought_answers`, `probe_list`, `anchor_candidates`
 - **Why**: The ledger reader keys a cached answer by team, so an answer bought via an alias later quarantined (`review_status = pending`) would be reused for up to `REPROBE_AFTER_DAYS` while the approved sibling alias is suppressed, and anchor mode prefers such a cached mapping. Measured 2026-09-02: 0 probe rows in the window for the 30 affected masters, so latent. Fix: the reader returns `provider_team_id` and a cached answer is reused only when it matches the alias the approved-only reader would pick now. Touches paths the `C:/pitchrank-state-converge` worktree also edits. Raised by the Codex peer reviewer.
 - **Noted**: 2026-09-02
+
+### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
+
+- **ID**: IMP-167
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/batch_drain_queue.py` — `run_batch`'s `exc.job is None` branch; `.turbo/specs/zenrows-batch-bulk-scrape.md` Risks
+- **Why**: When the initial `POST /jobs` times out, `BudgetExpired.job` is `None` and the run prints "Submission failed before a job existed" and exits — but the job may well have been accepted and is billing. The spec states as fact that "the verified contract exposes no endpoint that lists jobs or looks one up by idempotency key", and the vendor OpenAPI (`ZenRows/zenrows-python-sdk`, `docs/openapi.yaml`, read 2026-09-03) contradicts it twice: `Idempotency-Key` on `POST /jobs` is documented as "Re-submitting with the same key returns the original response (or 409 on body mismatch)", and `GET /jobs` (`operationId: listJobs`) exists. So replaying the same keyed create inside the cleanup allowance recovers the handle, and if the create never landed the replay simply creates the job — correct either way. **Correct the spec's premise in the same change**, since the later slices read it and it also justifies the manual-dashboard-only recovery path. Parked to keep the fetching-layer PR to defect fixes.
+- **Noted**: 2026-09-03
+
+### Lift a chunking helper into src/utils/ instead of a seventh local copy
+
+- **ID**: IMP-168
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/batch_drain_queue.py:_chunked`, `scripts/prepare_prospective_match_predictions.py:226`, `scripts/settle_prospective_match_predictions.py:69`, `scripts/import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `scripts/enqueue_user_interest_teams.py:80`, `scripts/find_regid_duplicate_merges.py:79`
+- **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
+- **Noted**: 2026-09-03

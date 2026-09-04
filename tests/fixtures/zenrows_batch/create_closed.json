@@ -1,0 +1,16 @@
+{
+  "job_id": "job_01SYNTHETICCLOSED",
+  "status": "closed",
+  "accepted_tasks": 2,
+  "latest_run": {
+    "run_id": "run_01SYNTHETICCLOSED",
+    "job_id": "job_01SYNTHETICCLOSED",
+    "status": "pending",
+    "stats": {
+      "spend": {
+        "credits": 0,
+        "cost": 0
+      }
+    }
+  }
+}

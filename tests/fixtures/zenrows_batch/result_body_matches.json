@@ -1,0 +1,50 @@
+[
+  {
+    "match_id": 91110001,
+    "match_date": "2026-08-23T17:00:00Z",
+    "home_score": 3,
+    "away_score": 1,
+    "event_name": "Synthetic Fall League",
+    "homeTeam": {
+      "team_id": 126693,
+      "name": "Synthetic SC 2014 Boys Blue",
+      "age_group": "U13",
+      "birth_year": 2014,
+      "club": {
+        "name": "Synthetic SC"
+      }
+    },
+    "awayTeam": {
+      "team_id": 998001,
+      "name": "Example United 14B Red",
+      "age_group": "U13",
+      "birth_year": 2014,
+      "club": {
+        "name": "Example United"
+      }
+    }
+  },
+  {
+    "match_id": 91110002,
+    "match_date": "2026-08-16T15:30:00Z",
+    "home_score": 0,
+    "away_score": 2,
+    "event_name": "Synthetic Fall League",
+    "homeTeam": {
+      "team_id": 998002,
+      "name": "Placeholder FC 14B White",
+      "age_group": "U13",
+      "birth_year": 2014,
+      "club": {}
+    },
+    "awayTeam": {
+      "team_id": 126693,
+      "name": "Synthetic SC 2014 Boys Blue",
+      "age_group": "U13",
+      "birth_year": 2014,
+      "club": {
+        "name": "Synthetic SC"
+      }
+    }
+  }
+]
