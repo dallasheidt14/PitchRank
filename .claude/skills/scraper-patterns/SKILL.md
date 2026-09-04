@@ -80,6 +80,122 @@ Do not raise the local default without re-measuring the sustained rate — empir
 ~15 req/s sustained from one IP trips the WAF (measured 2026-05-18). Back off when it
 trips; do not route around it.
 
+## ZenRows Tiers and Routing
+
+Credit tiers: base request 1, `js_render` 5, `premium_proxy` 10, both 25. The scrapers default
+to `premium_proxy=true, js_render=false`, so every proxied GotSport API call costs **10
+credits**. Measured three times on 2026-09-03 against the live API, the same
+`/api/v1/teams/{id}/matches` fetch costs **1 credit** on default params. `mode: 'auto'` is worse
+than either — it escalates on failure and billed 25 credits for one dead team id.
+
+**Treat the cheap tier as unproven at volume.** Those 1-credit measurements come from 10- and
+11-URL probes, and the operator reports that running with ZenRows off entirely usually trips the
+CloudFront WAF, which is why `use_zenrows` stays on. Whether datacenter IPs survive a few
+thousand URLs is open; residential is the known-good configuration. Recommend the cheap tier
+only alongside volume evidence.
+
+**Inside `GotSportScraper.scrape_team_games`, only the match-list call routes through
+ZenRows.** `_extract_club_name` (`src/scrapers/gotsport.py:638`) and
+`_fetch_club_name_for_team_id` (`:797`) both use `self.session` directly, so 1–31 requests per
+team leave the runner's IP sequentially, inside the parse loop. `drain_queue.py` at concurrency
+20 measured 0.45–1.6 teams/sec with **zero** WAF or CloudFront hits in the slowest run — those
+runs are latency-bound, not block-bound, and work that only speeds up the match-list call
+addresses the smaller half. The event-scraping class is not affected: `_subpage_fetcher`
+(`:3427`) and the API resolver both route through ZenRows already.
+
+### ZenRows Batch API
+
+Base `https://async.api.zenrows.com/v1`, header `X-API-Key`.
+
+**Three sources, in this order: a live capture of the deployed service, then the
+schema, then the prose.** Read the vendor OpenAPI schema — docs/openapi.yaml in the
+GitHub repository `ZenRows/zenrows-python-sdk`, 2026-09-03 — which corrected four prose
+claims that each fail only on a paid run. But a capture from the running service
+outranks it in turn for anything operational: the
+schema says a result link lasts 24 hours and the observed one carried
+`X-Amz-Expires=7200`, and plans built on the longer figure silently lose bodies.
+
+**Submissions cap at 1,000 tasks.** `maxItems: 1000` on both `SubmitJobRequest.tasks`
+and `AddTasksRequest.tasks`; the prose says 10,000.
+
+- ≤1,000 tasks: `POST /jobs` with `status:'closed'`, tasks inline.
+- Above that: `POST /jobs` with `status:'open'` → `POST /jobs/{id}/tasks` in ≤1,000 batches →
+  `POST /jobs/{id}/close`. An **open run fetches immediately** rather than waiting for the close,
+  so later chunks stream in while earlier ones are in flight; `last_batch_received` stays false
+  until close. One job means one `run_id` and one cumulative spend.
+
+**The poll response is a run; a create response is a job.** `GET /jobs/{id}/runs/{run_id}`
+answers with `status` and `stats` at the root. Only a create nests the run under
+`latest_run` — and a create's own root `status` is the *job's* (`open`/`closed`), so a
+reader that accepts either shape files a job status as a run status.
+
+**`stats.spend` is an object**, carrying an integer `credits` and a currency `cost`.
+Reporting it whole prints a dict where an operator expects a number.
+
+**`POST /jobs/{id}/stop` answers 409 once the run is already terminal.** Re-read the run
+and treat it as terminal rather than as a failure; the vendor documents one meaning for
+that status and never enumerates its `code` values, so the run's own status is the
+discriminator. `POST /jobs/{id}/close` behaves the same way on an already-closed job.
+
+**Settle on the run's counter, never on result rows.** `RunStats` requires `total`,
+`completed`, `successful` and `failed`, with `completed` defined as `successful + failed`.
+A `TaskResult` row exists from task creation and carries a `pending` status, so counting
+rows counts work that has not happened. After a stop the counter cannot reach `total` at
+all: `stopJob` leaves pending tasks "as-is — not re-queued, not synchronously failed", and
+`RunStatus.stopped` *means* `completed < total`. Wait for `completed` to stop advancing,
+under a cap — the counter going quiet is the signal, and the cap is what stops a stalled
+run waiting forever.
+
+**`Idempotency-Key` is declared on `submitJob` and `rerunJob` only.** `addTasks` takes no
+such parameter and offers no dedupe, so replaying a lost add-tasks response appends the
+chunk again and bills every task in it twice. Send the key on job creation, reuse it on an
+unknown outcome, and rotate it on an explicit 503.
+
+**Send add-tasks once, and read its rejections narrowly.** A 409 or a 429 there means the
+chunk was refused rather than taken, so both are safe to repeat — the documented cause of
+that 409 is ingestion still in progress. Everything else leaves the outcome unknown and
+must not be replayed. **A create's 409 is a different animal**: it is a conflict, not a job
+to adopt. The `Problem` envelope defines no job id, a genuine same-body replay returns the
+original 2xx instead, and no endpoint looks a job up by key — so a job that may exist is
+found through `GET /jobs` or the dashboard.
+
+**`result_url` comes in two forms.** A presigned link, which must not carry the
+credential, or a relative `/v1/jobs/<id>/runs/<run>/tasks/<tid>/content` path, which
+requires `X-API-Key`. That path already includes `/v1`, so appending it to a base that ends
+in `/v1` yields `/v1/v1/...` and a per-task 404 — `urljoin` handles it. Attach the
+credential per request rather than as a session default, and set `allow_redirects=False`
+so each hop is authorised on its own origin: `requests` strips only `Authorization` when a
+redirect changes host and carries a custom header verbatim, so a key attached to the
+content endpoint would otherwise follow a 302 to whatever storage host it names.
+
+**Bodies are raw JSON even though a result row's `type` field reports `html`.** Separately,
+the body response's own `Content-Type` carries no charset, which is what drives `requests`
+to ISO-8859-1: `response.text` then mojibakes every accented name while still parsing
+cleanly. Parse the bytes — `json.loads(response.content)`.
+
+**Results are cursor-paginated** at `GET /jobs/{id}/runs/{run_id}/results` →
+`{results, next_cursor}`; follow the cursor until it is absent, and stop if a page returns
+the one just used.
+
+**Statuses, and what each obliges.** `RunStatus` is exactly `running`, `pending`,
+`completed`, `stopped`, `failed`, `deleted`; `failed` is an account-level fault
+(insufficient credits, inactive subscription) carrying a `failure_reason`, so it must
+reach the operator as a failure rather than as an empty but successful sweep. `TaskStatus`
+is `pending`, `processing`, `successful`, `failed`. `result_url` and `error` are exclusive
+across the two *terminal* states only — a non-terminal row has neither — so read per-task
+outcome from `status`. The run-level `failure_reasons` is a rollup that cannot identify
+which task failed; its buckets are `bad_target` (bad host, 404, 410, too large) and
+`blocked` (anti-bot denials). No per-task code means "target returned 403" — `RESP002` is
+404-specific, `AUTH009`/`BLK0001` are ZenRows-side.
+
+**`ScraperParams` rejects an unknown key with `400 invalid_argument`**, and lists
+`premium_proxy` and `proxy_country` among the supported ones, so a typo fails the
+submission rather than silently billing the other tier.
+
+**`TaskInput.external_id`**: `maxLength: 128`, pattern `^[A-Za-z0-9._-]+$`. Match it with
+`re.fullmatch` — Python's `$` admits a trailing newline that the vendor's ECMA pattern
+rejects, and one bad id fails the whole chunk.
+
 ## GotSport Endpoint Quirks
 
 ### Team details payload contract
@@ -143,7 +259,7 @@ games.
   - `200` + non-empty list with NO self-match → conservatively treat as unresolved. Promoting `{id}` would risk re-injecting a registration ID into `team_alias_map` as if it were canonical.
   - `200` + empty list → ambiguous (brand-new team, or stale id). Treat as unresolved.
   - `404` → `{id}` is a registration ID, not an API team ID. Deterministic.
-- Resolver lives at `src/scrapers/gotsport.py:_resolve_api_team_id_from_event_page` and routes through the module-level `_zenrows_get` helper. ZenRows uses basic proxy (`js_render=false`) since this is a JSON endpoint — ~1 credit per call vs ~25 with JS render.
+- Resolver lives at `src/scrapers/gotsport.py:_resolve_api_team_id_from_event_page` and routes through the module-level `_zenrows_get` helper. It sends `js_render=false` since this is a JSON endpoint, but also `premium_proxy=true` (`gotsport.py:1033-1038`), so it bills at the premium-proxy tier — see the ZenRows section above for what that costs.
 
 ### HTML-CAPTCHA failure vs API-resolution failure
 
@@ -163,6 +279,26 @@ These are different failure modes with different telemetry surfaces:
 
 Per-team walk roughly 5x's the HTTP request count vs per-group walk alone (~96 team pages vs ~20 group pages for a typical event). Stays well under the 3-hour workflow timeout but will exceed the `GOTSPORT_EVENT_TIMEOUT=240s` warn-only threshold for some events.
 
+### Silent type traps at the parser boundary
+
+Four adjacent seams disagree about how a team id is typed, and every one fails without raising:
+
+- `_parse_api_match` (`gotsport.py:660`) takes `team_id: int` and matches by strict equality
+  against the payload's integer at `:671`. A string id matches nothing, so the team yields
+  **zero games and no error**. Its `since_date` is a `date` with no default; a raw timestamp
+  raises a `TypeError` the method catches, returning `None`.
+- `_game_data_to_dict` (`:841`) takes `team_id: str`, and `src/scrapers/base.py:52` emits
+  `"team_id": str(team_id)` — game rows carry the **provider** id as text.
+- `club_cache` (`:330`) is string-keyed behind an exact `in` test at `:805`. An integer key
+  misses and falls through to a direct `self.session.get`.
+- `_finalize_queue_items` (`scripts/drain_queue.py:365`) indexes by **`team_id_master`**, not the
+  provider id.
+
+`src/scrapers/base.py:28-40` is the canonical pattern for the split: provider id for scraping and
+for the game dict, master id for `_get_last_scrape_date` and `_log_team_scrape`. Carry both ids
+per team, and verify a change here by asserting a **non-zero game count** — asserting that
+nothing raised passes while the parser silently returns nothing.
+
 ## Request Pattern
 
 ### Standard Request
@@ -177,7 +313,9 @@ def create_session():
     retries = Retry(
         total=2,
         backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504]
+        # 429 is deliberately absent: src/scrapers/_http.py owns it at the app
+        # level ("Do NOT add 429 to urllib3's Retry — it is owned here", :13).
+        status_forcelist=[500, 502, 503, 504]
     )
     session.mount('https://', HTTPAdapter(max_retries=retries))
     return session
@@ -185,6 +323,35 @@ def create_session():
 session = create_session()
 response = session.get(url, timeout=30)
 ```
+
+This sets no `allowed_methods`, so urllib3's default applies and POST is excluded from
+*read*-error retries only. The connect-replay gap in **Retry Semantics** below applies to this
+session exactly as it does to an explicit `["GET","HEAD"]` mount.
+
+### Retry Semantics
+
+**`allowed_methods` does not keep POSTs out of urllib3's retry.** `Retry.increment` gates its
+*read*-error branch on `_is_method_retryable(method)` but leaves the *connection*-error branch
+ungated (verified against the installed urllib3 2.5.0). So an `allowed_methods=["GET","HEAD"]`
+mount — the shape used in `src/scrapers/_zenrows.py:74-88` — still lets a POST be replayed when
+the connection fails.
+
+`src/scrapers/sincsports_clubs.py` is where this actually bites. Its `_init_http_session`
+docstring at `:151-158` records the belief being corrected — *"POST is deliberately excluded
+from `allowed_methods` because EO callbacks rotate form state on every response — an
+HTTP-level POST retry would resend a stale body"* — and `:286` POSTs through that session. The
+app level is sound there: `:284` re-fetches form state on every attempt. The uncovered gap is
+the transport-level connect replay, which resends the stale body the docstring is guarding
+against. A client that must own replay itself — anything sending an `Idempotency-Key` that
+changes between attempts, for instance — mounts `HTTPAdapter(max_retries=0)` and retries at the
+app level.
+
+**Decide retriability from the status, not from the backoff value.** `backoff_for_event`
+(`src/scrapers/_http.py:86`) returns `0.0` for a 409, for a 200, and for a 503 carrying
+`Retry-After: 0` — all three identical (measured). Treating a `0.0` wait as "not retriable"
+therefore skips exactly the retry the server explicitly asked for, silently. Branch on status
+membership the way `retry_session_get` does at `src/scrapers/_http.py:179-182`, and use
+`backoff_for_event` only for how long to wait.
 
 ### Headers
 ```python
