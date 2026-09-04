@@ -49,6 +49,13 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   `ALTER TABLE`, which is how tables here actually evolve. Either resolve the object's effective
   final state, or assert that nothing later touches it, so the next `ALTER` fails loudly and
   forces the guard to be widened deliberately.
+- **A double for a deferred builder must record at the terminal call, not at construction.**
+  `supabase.rpc(...)` and `.table(...).select(...)` build a request that does nothing until
+  `.execute()`. A fake that appends to its call log inside `rpc()` reports a write for a caller
+  that never executed: dropping `.execute()` from an enqueue script left the whole suite green
+  while every enqueue actually raised and the script's own `except` swallowed it. Record in
+  `execute()`, assert on what `execute()` recorded, and make removing `.execute()` one of the
+  mutations the guard is checked against.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -524,6 +531,13 @@ opposite reason — it is shaped like the scheduled enqueue jobs but only an ope
 it. The RPC keeps at most one pending row per team and promotes
 priority via `LEAST`. Consumers:
 
+**A non-GotSport team is not unservable.** `process_missing_games` looks up an approved
+GotSport row in `team_alias_map` when the canonical provider has no scraper, and scrapes
+that instead. The four scheduled enqueue jobs still filter to `teams.provider_id = gotsport`,
+which reads like the drainer cannot serve anything else — it can, and filtering a
+behaviour-driven selector that way silently discards teams. Gate on "has a GotSport row or an
+approved GotSport alias", not on the provider column alone.
+
 - `process_missing_games.py` — the automatic drainer, every 15 min, `--limit 40`.
 - `drain_queue.py` — **this is the "Help Clear Queue" action** (`clear-queue.yml`).
   Manual only. `--limit` is a total scrape target: it claims queue rows via
@@ -672,6 +686,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 - Team IDs are UUIDs — never use integer IDs
 - Game records are **immutable** — never update, only quarantine bad data
 - Use `MergeResolver` for any team ID lookup (handles deprecated teams)
+- Import a sibling script packaged (`from scripts.x import ...`), never bare (`from x import ...`). `scripts/` is a real package and most scripts also append their own directory to `sys.path`, so both spellings resolve — and a module imported under both ends up in `sys.modules` twice, as two objects. Nothing breaks until the module gains state or a test patches `scripts.x.f` while another caller holds the bare copy. The bare form also hides callers from a search for `scripts.`, which is how an extraction missed one.
 - Age groups: the stored form is lowercase `u` + number, so normalize to it and compare on it (`"U14"` → `"u14"`). `teams.age_group` holds `u14`, and `AGE_GROUPS` in `config/settings.py` keys on `f"u{age}"`. The bare integer is engine-internal: `age_group_to_age` in `src/rankings/data_adapter.py` strips the `u` for the `age` column, and the adapter rebuilds the `u` form before writing rankings back.
 - Gender: always normalize to `"Male"` or `"Female"`
 - PowerScore must be clamped to [0.0, 1.0] after calculation
