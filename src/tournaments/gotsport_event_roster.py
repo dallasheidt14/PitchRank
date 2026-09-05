@@ -94,6 +94,8 @@ _RUN_NUMBER = re.compile(r"[0-9]{1,4}")
 _GENDER_WORD = re.compile(r"\b(male|female|boys?|girls?)\b", re.IGNORECASE)
 
 _EARLIEST_BIRTH_YEAR = 1990
+# Two-digit birth years are read as 2000s; every board sits well inside that.
+_COMPACT_YEAR_CENTURY = 2000
 
 _GENDER_WORDS = {
     "male": "Male",
@@ -215,6 +217,17 @@ def _read_run(match: re.Match) -> _AgeRun:
     has_u = bool(match.group("tail_u")) or "u" in body.lower()
     if numbers and numbers[0] >= _EARLIEST_BIRTH_YEAR:
         return _AgeRun("birth_year", frozenset(_birth_year_cohorts(numbers)), genders)
+    if not has_u and letters and numbers and all(number < 100 for number in numbers):
+        # `14B` names a birth year, not an age: 2014 is U13, not U14. The `U`
+        # is the only thing separating the two forms, so this branch sits after
+        # the `has_u` test below can no longer claim the label. A gender letter
+        # is required, which keeps `Flight 14` from becoming a cohort, and a
+        # year off the boards resolves to "" like any other.
+        return _AgeRun(
+            "birth_year",
+            frozenset(_birth_year_cohorts([_COMPACT_YEAR_CENTURY + n for n in numbers])),
+            genders,
+        )
     if has_u:
         # `normalize_age` owns the U18->U19 merge and the boardable band, and
         # answers None outside it. That None is kept as "" so a label naming
@@ -509,6 +522,14 @@ def _fetch_once(getter, api_key: str, url: str, timeout: int) -> str:
         },
         timeout=timeout,
     )
+
+    # GotSport sends `text/html` with no charset on every captured page, and
+    # `requests` then falls back to ISO-8859-1, which turns an accented or
+    # non-Latin team name into mojibake. Those names are exactly what an
+    # unlinked team is matched on later, so the loss lands where the provider
+    # id could not help. Set before `.text` is read anywhere below.
+    if "charset" not in str(response.headers.get("content-type", "")).lower():
+        response.encoding = "utf-8"
 
     # Before raise_for_status: with original_status the challenge arrives under
     # the target's own code (AWS WAF's CAPTCHA action answers 405), so raising

@@ -609,10 +609,25 @@ class TestWalkOrder:
 
 
 class _FakeResponse:
-    def __init__(self, text: str, status_code: int = 200, url: str = ""):
-        self.text = text
+    """Decodes the way `requests` does, so an encoding bug fails here too.
+
+    Handing back a ready-made `str` would make every charset the same, which is
+    how an ISO-8859-1 fallback survived a full suite.
+    """
+
+    def __init__(self, text: str = "", status_code: int = 200, url: str = ""):
+        self._text = text
+        self.content: bytes | None = None
+        self.encoding = "utf-8"
+        self.headers: dict = {"content-type": "text/html; charset=utf-8"}
         self.status_code = status_code
         self.url = url
+
+    @property
+    def text(self) -> str:
+        if self.content is None:
+            return self._text
+        return self.content.decode(self.encoding, errors="replace")
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -1512,3 +1527,80 @@ class TestStandingsTableTeams:
         roster = scrape_event_roster("52975", fetch=_fetch_for(_one_division_event()))
 
         assert len(roster.teams) == 1
+
+
+class TestCompactBirthYearLabels:
+    """`14B` is a 2014 birth year, so U13 — never U14.
+
+    CLAUDE.md pins this house convention explicitly. Reading the number as an
+    age files a division one board too high, and reading nothing at all leaves
+    every compact-form division with no cohort.
+    """
+
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            ("14B", ("u13", "Male")),
+            ("14B Gold", ("u13", "Male")),
+            ("B14", ("u13", "Male")),
+            ("15G Premier", ("u12", "Female")),
+            ("G16 Silver", ("u11", "Female")),
+        ],
+    )
+    def test_a_compact_birth_year_resolves_to_its_board(self, label, expected):
+        assert resolve_cohort(label) == expected
+
+    @pytest.mark.parametrize(
+        "label,expected",
+        [
+            ("U14B", ("u14", "Male")),
+            ("U14 Boys", ("u14", "Male")),
+            ("14U Boys", ("u14", "Male")),
+        ],
+    )
+    def test_a_u_prefixed_number_is_still_an_age_not_a_year(self, label, expected):
+        assert resolve_cohort(label) == expected, (
+            "the U is the only thing separating an age from a compact birth year"
+        )
+
+    @pytest.mark.parametrize("label", ["Flight 14", "Field 15", "Pool 16"])
+    def test_a_bare_number_without_a_gender_letter_is_not_a_year(self, label):
+        assert resolve_cohort(label)[0] == "", (
+            "a pool or field number would otherwise become a cohort"
+        )
+
+    @pytest.mark.parametrize("label", ["99B", "50G"])
+    def test_a_two_digit_year_off_the_boards_withholds(self, label):
+        assert resolve_cohort(label)[0] == ""
+
+
+class TestResponseDecoding:
+    """GotSport serves UTF-8 and declares no charset, on any of 55 captured pages.
+
+    `requests` then falls back to ISO-8859-1 for `text/html`, which turns every
+    accented or non-Latin team name into mojibake. Those names are what the
+    unlinked teams are matched on, so the damage lands exactly where the
+    provider id could not help.
+    """
+
+    NAME = "Club Álvarez الع"
+
+    def _response(self, content_type: str):
+        body = f"<html><body><p>{self.NAME}</p></body></html>".encode("utf-8")
+        response = _FakeResponse("")
+        response.content = body
+        response.headers = {"content-type": content_type}
+        response.encoding = "ISO-8859-1" if "charset" not in content_type else "utf-8"
+        return response
+
+    @pytest.mark.parametrize(
+        "content_type", ["text/html", "text/html; charset=utf-8", "text/html;charset=UTF-8"]
+    )
+    def test_a_utf8_body_survives_the_fetch(self, content_type):
+        captured = self._response(content_type)
+
+        fetcher = make_zenrows_fetcher(
+            "KEY", get=lambda url, params=None, timeout=None: captured, attempts=1
+        )
+
+        assert self.NAME in fetcher(EVENT_BASE + "/52975")
