@@ -1,5 +1,5 @@
 ---
-status: ready
+status: done
 ---
 
 # Plan: Scrape a GotSport event URL from the Seeding tab

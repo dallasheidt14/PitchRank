@@ -1609,3 +1609,104 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
 - **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
 - **Noted**: 2026-09-05
+
+### Give the event-roster CLI the same seeding intake as the app
+
+- **ID**: IMP-174
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/scrape_event_roster.py` (the `roster.json` path in `main`), `src/tournaments/event_roster_intake.py`, `src/tournaments/seeding_run_store.py`
+- **Why**: The CLI still writes `reports/seeding/gotsport_<id>/roster.json` and nothing reads it — a grep over `*.py`, `*.md` and `*.yml` on 2026-09-05 finds only the writer. The Streamlit path now converts a walk into a seeding run instead, so a scrape started from the terminal produces an artifact the app cannot open while a scrape started from the app produces one the terminal cannot. The option not taken when wiring the UI: have the CLI call `to_seeding_rows` and the `SeedingRun` writer, so both entry points land in the same place. Deliberately left out to keep the UI change to one path.
+- **Noted**: 2026-09-05
+
+### Cancel the in-flight batch when an event walk is blocked
+
+- **ID**: IMP-175
+- **Status**: open
+- **Type**: direct
+- **Category**: cost
+- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
+- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
+- **Noted**: 2026-09-05
+
+### Decide whether a group page's header can supply a missing gender
+
+- **ID**: IMP-176
+- **Status**: open
+- **Type**: plan
+- **Category**: data-quality
+- **Where**: `src/tournaments/gotsport_event_roster.py` `parse_division_label` / `_header_division`
+- **Why**: Measured over the captured corpus 2026-09-05: of 39 group pages with a readable division label, the page header names a gender on 5 where the fixture-table label does not. Those 5 teams currently land with a blank gender, and a blank gender is not inert downstream — `seeding_optimizer.normalize_gender_label("")` answers `"Male"`. The header is not a free win, though: it leads with a U-age stamped in the season the event ran, which `parse_division_label`'s own docstring records as disagreeing with the durable birth year on 3 other captured divisions. So the question is whether the header can be read for gender alone while its age is still ignored, which needs its own look at the corpus rather than a one-line change.
+- **Noted**: 2026-09-05
+
+### Fold the WAF-clearing fetch mode into the one GotSport event scraper
+
+- **ID**: IMP-177
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `src/scrapers/gotsport.py:1466`, `src/tournaments/gotsport_event_roster.py` `EVENT_BASE`
+- **Why**: Both define the same `EVENT_BASE`, both walk `.../schedules?group=`, and they share no code. The newer one exists because the older meets an AWS WAF challenge on `/org_event/*` that only a JS-rendered proxied fetch clears. That is a fetch-layer difference, not a parsing one, so a single walker taking its fetcher as a parameter would leave one implementation to fix when GotSport's markup next moves. These two have already drifted once: IMP-173 records the charset fix that landed in the roster module's fetch and not in the other.
+- **Noted**: 2026-09-05
+
+### Carry a club name through the scraped seeding rows
+
+- **ID**: IMP-178
+- **Status**: open
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/event_roster_intake.py` `to_seeding_rows`, `tournament_intake.py` `_render_seeding_override`
+- **Why**: `EventRosterTeam` carries no club name, so every scraped row has `club_raw=""`: the results table's "Club" column is blank and the manual-override heading renders as a leading separator followed by the team name. This is legibility only — nothing in the seeding path matches on a club name, since `search_gotsport_teams` and `make_exact_name_lookup` both read the team name and cohort alone — but it is what an operator reads while deciding the rows the scrape could not link. The team page the walk already fetches for the rankings link is where a club name would come from, at no extra request.
+- **Noted**: 2026-09-05
+
+### Consider saving a scraped seeding run without a button press
+
+- **ID**: IMP-179
+- **Status**: deferred
+- **Type**: plan
+- **Category**: ux
+- **Where**: `tournament_intake.py` `_run_event_roster_scrape`, `_autosave_seeding_run`
+- **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
+- **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
+- **Noted**: 2026-09-05
+
+### Neutralize formula-leading fields in the seeding review CSV
+
+- **ID**: IMP-180
+- **Status**: open
+- **Type**: direct
+- **Category**: security
+- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
+- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
+- **Noted**: 2026-09-05
+
+### Give the GotSport event walk one home for its tuned concurrency
+
+- **ID**: IMP-181
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `tournament_intake.py` `_SEEDING_EVENT_WORKERS`, `scripts/scrape_event_roster.py`'s `--concurrency` default
+- **Why**: Both callers of `scrape_event_roster` pick 8 workers, independently. The scraper itself defaults `max_workers=1` deliberately — serial is the safe default for a caller that has not thought about it — so the 8 is a caller policy rather than a restatement of a module default, and there is nowhere it currently belongs: `gotsport_event_roster.py`'s module constants are all structural (URLs, regexes, headings), and `config/settings.py` carries no per-provider tuning of this kind. If GotSport tightens its WAF and the safe concurrency drops, both numbers have to move together with nothing linking them. Deciding the home is the work; the move itself is two lines.
+- **Noted**: 2026-09-05
+
+### Honour an injected Supabase client without also requiring the env vars
+
+- **ID**: IMP-182
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/event_roster_intake.py` `resolve_master_ids`
+- **Why**: The function takes `client_factory` so a caller can hand in a live client, and the Streamlit app does exactly that. But it still returns `({}, ["No Supabase credentials..."])` when `SUPABASE_URL` is absent, or when neither `SUPABASE_SERVICE_ROLE_KEY` nor `SUPABASE_KEY` is set, before `client_factory` is consulted — so an injected client is only honoured when env vars the caller does not own happen to be set. In the app this is masked because `config/settings.py` loads them at import, but a caller supplying its own client and no env would silently get name matching instead of the direct-id resolution the walk paid for. The guard exists for the CLI, which builds its client from those values; splitting the two paths would let the injected client stand on its own.
+- **Noted**: 2026-09-05
+
+### Give an ambiguous exact-name match candidates the operator can tell apart
+
+- **ID**: IMP-183
+- **Status**: open
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/roster_resolver.py` `make_exact_name_lookup`, and the `len(local) > 1` branches in `resolve_row` and `event_roster_intake._relink_known_id`
+- **Why**: When a team name matches two live teams in one cohort, both branches build `candidates` as `{"team_id_master": id}` only, so `_seeding_candidate_label`'s `team_name or team_id_master` fallback renders the review card as a list of bare UUIDs — the operator cannot choose between them without looking each one up by hand. `make_exact_name_lookup` already selects `team_id_master,team_name` and discards the name on the way out, so the fix is in the shared lookup's return shape rather than in either caller; both would then match the richer shape `resolve_row` produces from a GotSport search hit. Left out of the event-intake change because the two callers are consistent with each other today and changing `ExactNameLookup`'s contract touches the pasted path as well.
+- **Noted**: 2026-09-05

@@ -173,3 +173,58 @@ def test_a_team_with_no_provider_id_anywhere_is_not_queued():
     assert rpc.calls == []
     assert result.queued == 0
     assert result.skipped == 1
+
+
+def test_an_unresolved_rows_scraped_id_is_never_sent_as_another_teams_id():
+    """A scraped row keeps the id the event published even when it mapped to nothing.
+
+    Pairing that id with a ``team_id_master`` settled some other way would queue
+    one team under another's provider id, so the scraper refreshes the wrong
+    squad and the one being seeded stays stale.
+    """
+    rpc = _RecordingRpc()
+    asked: list[str] = []
+
+    def lookup(team_id_master):
+        asked.append(team_id_master)
+        return "own-id"
+
+    enqueue_resolved_teams(
+        _rows(),
+        (
+            ResolvedTeam(
+                source_index=0,
+                status="exact_name",
+                team_id_master="master-1",
+                provider_team_id="an-id-that-mapped-to-nothing",
+            ),
+        ),
+        {},
+        enqueue=rpc,
+        lookup_provider_team_id=lookup,
+    )
+
+    assert asked == ["master-1"], "the team's own id must be looked up, not the event's"
+    assert rpc.calls[0]["p_provider_team_id"] == "own-id"
+
+
+def test_an_override_retires_the_provider_id_it_replaced():
+    """The operator overrode the match, so the row's own id names a different team."""
+    rpc = _RecordingRpc()
+    asked: list[str] = []
+
+    def lookup(team_id_master):
+        asked.append(team_id_master)
+        return "the-picked-teams-id"
+
+    enqueue_resolved_teams(
+        _rows(),
+        (ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-1", provider_team_id="534748"),),
+        {0: {"team_id_master": "operator-picked"}},
+        enqueue=rpc,
+        lookup_provider_team_id=lookup,
+    )
+
+    assert asked == ["operator-picked"]
+    assert rpc.calls[0]["p_team_id_master"] == "operator-picked"
+    assert rpc.calls[0]["p_provider_team_id"] == "the-picked-teams-id"

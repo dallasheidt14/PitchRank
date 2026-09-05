@@ -17,9 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
-import unicodedata
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,15 +29,16 @@ from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
+from src.tournaments.event_roster_intake import resolve_master_ids
 from src.tournaments.gotsport_event_roster import (
+    EVENT_ID,
+    EVENT_ID_IN_URL,
     WafChallengeError,
     make_zenrows_fetcher,
+    printable_text,
     scrape_event_roster,
 )
-from src.tournaments.roster_resolver import make_provider_id_lookup
 from src.tournaments.storage._io import write_json
-from src.utils.merge_resolver import MergeResolver
-from supabase import create_client
 
 console = Console()
 _ENV_LOCAL = Path(__file__).resolve().parent.parent / ".env.local"
@@ -47,42 +46,6 @@ if _ENV_LOCAL.exists():
     load_dotenv(_ENV_LOCAL, override=True)
 else:
     load_dotenv()
-
-# Both patterns refuse a longer token rather than taking a valid prefix of it:
-# `/events/1234567890123` must not scrape event 123456789012 and write it under
-# that event's path. `\Z` rather than `$`, which would accept a trailing newline.
-_EVENT_ID_IN_URL = re.compile(r"/events/([0-9]{1,12})(?![0-9])")
-_EVENT_ID = re.compile(r"^[0-9]{1,12}\Z")
-
-
-_KEPT_CONTROLS = frozenset({chr(9), chr(10)})
-# Zl/Zp are the line and paragraph separators: legal JSON under
-# ensure_ascii=False, and a break in every JavaScript consumer that reads it.
-_STRIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp"})
-
-
-def _printable(text: str) -> str:
-    """Strip terminal control sequences out of provider-authored text.
-
-    ``rich.markup.escape`` neutralises ``[`` but not ESC, and rich's own
-    control-code filter does not cover it either, so a division or team name
-    carrying ``&#x1B;`` reaches the operator's terminal live — and is written
-    into a roster under ``reports/``, which this repository does not gitignore,
-    where a later ``cat`` fires it again. Bidi and zero-width formats matter
-    for the same reason one step further out: they survive into the JSON and
-    reverse or hide a name in every viewer that renders it.
-
-    Decided by Unicode category rather than by a list of ranges, because a list
-    is what let U+061C, U+FEFF and the Tags block through while naming exactly
-    the class they belong to. Letters, marks, punctuation, symbols and spaces
-    all pass, so accented names, emoji and combining marks are untouched; tab
-    and newline are kept deliberately.
-    """
-    return "".join(
-        ch
-        for ch in str(text or "")
-        if ch in _KEPT_CONTROLS or unicodedata.category(ch) not in _STRIPPED_CATEGORIES
-    )
 
 
 def _positive_int(value: str) -> int:
@@ -105,28 +68,6 @@ def _non_negative_float(value: str) -> float:
     return number
 
 
-def _redact(exc: Exception, secret: str) -> str:
-    """Never let a credential reach the roster file through an error message.
-
-    Replaces the whole value and each of its whitespace-separated runs. A key
-    soft-wrapped in ``.env.local`` comes back carrying an internal newline, and
-    ``h11`` formats the offending header with ``{!r}`` — so the value never
-    appears whole, but a 41-character run of it does, and deleting the escape
-    recovers the key exactly. That shape is self-triggering: the wrapped key is
-    both what leaks and what caused the request to fail.
-
-    ``SUPABASE_URL`` is deliberately not redacted. It is public by construction
-    — the same value ships to browsers as ``NEXT_PUBLIC_SUPABASE_URL`` — and
-    hiding it removes the one detail telling an operator which project failed.
-    """
-    text = str(exc)
-    runs = sorted((run for run in secret.split() if len(run) >= 8), key=len, reverse=True)
-    for form in (secret, secret.strip(), *runs):
-        if form:
-            text = text.replace(form, "REDACTED")
-    return text
-
-
 def _event_id_from(args: argparse.Namespace) -> str:
     """Read the event id, refusing anything that is not a bare number.
 
@@ -134,82 +75,14 @@ def _event_id_from(args: argparse.Namespace) -> str:
     lets ``../`` escape the directory the roster is meant to live in.
     """
     if args.event_id:
-        if not _EVENT_ID.match(args.event_id):
+        if not EVENT_ID.match(args.event_id):
             raise SystemExit(f"Not a GotSport event id: {args.event_id}")
         return args.event_id
 
-    match = _EVENT_ID_IN_URL.search(args.event_url or "")
+    match = EVENT_ID_IN_URL.search(args.event_url or "")
     if not match:
         raise SystemExit(f"Could not read an event id from: {args.event_url}")
     return match.group(1)
-
-
-def _resolve_master_ids(
-    teams,
-    *,
-    enabled: bool,
-    client_factory=create_client,
-    resolver_factory=MergeResolver,
-    lookup_factory=make_provider_id_lookup,
-) -> tuple[dict[str, str], list[str]]:
-    """Map each scraped provider id to our canonical team id.
-
-    Returns the mapping and any warnings. A database failure here must not cost
-    the walk: the roster is the paid artifact, and re-running resolution is free
-    where re-running the scrape is not.
-
-    The three collaborators are injectable so each arm — including the one that
-    redacts a credential out of a failure message — can be driven without a
-    database. A redactor tested only as a pure function does not prove it is
-    actually called here.
-    """
-    provider_ids = [team.provider_team_id for team in teams if team.provider_team_id]
-    if not enabled or not provider_ids:
-        return {}, []
-
-    url = (os.getenv("SUPABASE_URL") or "").strip()
-    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or "").strip()
-    if not (url and key):
-        return {}, ["No Supabase credentials; provider ids were not resolved to PitchRank teams"]
-    if any(character.isspace() for character in key):
-        # Refuse before the key reaches any client. `MergeResolver.load_merge_map`
-        # catches its own exception and logs the text unredacted, and `h11`
-        # formats the offending header with `repr`, so a key soft-wrapped in
-        # `.env.local` reaches stderr before `_redact` below is ever consulted.
-        # The message names the variable and never the value.
-        return {}, [
-            "SUPABASE_SERVICE_ROLE_KEY has whitespace inside it, which no valid key "
-            "does; provider ids were not resolved. Re-save it on a single line."
-        ]
-
-    warnings: list[str] = []
-    try:
-        supabase = client_factory(url, key)
-        merge_resolver = resolver_factory(supabase)
-        merge_resolver.load_merge_map()
-        if getattr(merge_resolver, "version", None) == "error":
-            # load_merge_map catches its own exceptions and returns normally, so
-            # this is the only signal that merges were not applied. Without it a
-            # team_id_master that was merged away is reported as resolved.
-            warnings.append(
-                "Merge map failed to load; ids were resolved without merge resolution "
-                "and may name deprecated teams"
-            )
-        lookup = lookup_factory(supabase, merge_resolver)
-
-        resolved = {}
-        for provider_id in dict.fromkeys(provider_ids):
-            master_id = lookup(provider_id)
-            if master_id:
-                resolved[provider_id] = master_id
-        return resolved, warnings
-    except Exception as exc:
-        # This message is written into reports/, which is not gitignored, in a
-        # public repo — and a key with a stray newline makes httpx raise
-        # `Illegal header value b'<the key>'`, putting the key in the text.
-        return {}, [
-            f"Master-id resolution failed, roster kept without it: {_redact(exc, key)}"
-        ]
 
 
 def _summary_table(teams, master_ids: dict[str, str]) -> Table:
@@ -226,7 +99,7 @@ def _summary_table(teams, master_ids: dict[str, str]) -> Table:
         resolved = [row for row in with_id if row.provider_team_id in master_ids]
         cohort = " ".join(part for part in (rows[0].age_group, rows[0].gender) if part) or "—"
         table.add_row(
-            escape(_printable(label) or "—"),
+            escape(printable_text(label) or "—"),
             cohort,
             str(len(rows)),
             str(len(with_id)),
@@ -308,7 +181,7 @@ def main() -> int:
         # degrade to warnings. Exit like the missing-key check, not with a traceback.
         raise SystemExit(f"Could not read event {event_id}: {exc}") from exc
 
-    master_ids, resolve_warnings = _resolve_master_ids(roster.teams, enabled=not args.no_resolve)
+    master_ids, resolve_warnings = resolve_master_ids(roster.teams, enabled=not args.no_resolve)
     warnings = list(roster.warnings) + resolve_warnings
     with_id = [team for team in roster.teams if team.provider_team_id]
     resolved = [team for team in with_id if team.provider_team_id in master_ids]
@@ -323,7 +196,7 @@ def main() -> int:
     if not roster.is_complete:
         console.print("[yellow]Partial walk — this roster is not the whole event[/yellow]")
     for warning in warnings:
-        console.print(f"[yellow]{escape(_printable(warning))}[/yellow]")
+        console.print(f"[yellow]{escape(printable_text(warning))}[/yellow]")
 
     payload = {
         "event_id": roster.event_id,
@@ -333,12 +206,12 @@ def main() -> int:
         "divisions_walked": roster.divisions_walked,
         "divisions_unreadable": roster.divisions_unreadable,
         "teams_unreadable": roster.teams_unreadable,
-        "warnings": [_printable(warning) for warning in warnings],
+        "warnings": [printable_text(warning) for warning in warnings],
         "teams": [
             asdict(team)
             | {
-                "division_label": _printable(team.division_label),
-                "team_name": _printable(team.team_name),
+                "division_label": printable_text(team.division_label),
+                "team_name": printable_text(team.team_name),
                 "team_id_master": master_ids.get(team.provider_team_id or ""),
             }
             for team in roster.teams

@@ -330,7 +330,7 @@ session exactly as it does to an explicit `["GET","HEAD"]` mount.
 
 ### Decoding an HTML response
 
-**A `text/html` response carrying no `charset` decodes as ISO-8859-1**, the RFC 2616 default:
+**A `Content-Type: text/html` response carrying no charset decodes as ISO-8859-1**, the RFC 2616 default:
 `requests.utils.get_encoding_from_headers({"content-type": "text/html"})` returns `'ISO-8859-1'`
 (requests 2.32.5). GotSport serves UTF-8 and declares no charset anywhere — of the 55 fixture
 pages, 53 carry non-ASCII including Arabic, and not one declares a `<meta charset>`. (The two

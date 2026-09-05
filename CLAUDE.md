@@ -56,6 +56,16 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   while every enqueue actually raised and the script's own `except` swallowed it. Record in
   `execute()`, assert on what `execute()` recorded, and make removing `.execute()` one of the
   mutations the guard is checked against.
+- **A double must refuse what production refuses.** The rule above is one instance of a
+  wider one: wherever the double is more permissive than the real thing, the test passes
+  for the wrong reason, and it passes hardest on the defect it was written to catch.
+  Streamlit is the second framework this has bitten. Its `session_state` checks for a
+  queued rerun before every write and raises from `BaseException`, so a plain-dict double
+  accepts writes production would abort on; and a fake `st.rerun` raising an ordinary
+  `Exception` is swallowed by a handler the real one bypasses. Both hid ordering defects
+  that lose work already paid for, through two review rounds and twenty-six mutation
+  checks. Write the double against the contract rather than the call, and when a mutation
+  survives, suspect the double before the assertion.
 - **A test double that is more permissive than the real thing proves nothing, on four
   axes that each hid a real defect.** A `requests` fake that drops the query string
   cannot see a request that stopped sending its pagination cursor; one that ignores
