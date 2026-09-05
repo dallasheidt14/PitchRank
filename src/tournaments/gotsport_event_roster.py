@@ -109,6 +109,7 @@ _DIVISION_HEADING = "Division"
 _RANKINGS_ANCHOR_TEXT = "View Rankings"
 _HOME_HEADING = "Home Team"
 _AWAY_HEADING = "Away Team"
+_STANDINGS_HEADING = "Team"
 
 _BLOCK_MARKERS = re.compile(
     r"gokuProps|awswaf|verify_captchas|g-recaptcha|Please verify to continue", re.IGNORECASE
@@ -338,20 +339,30 @@ def _squashed(text: str) -> str:
     return " ".join(str(text or "").replace("\xa0", " ").split()).casefold()
 
 
-def _team_columns(headings: list[str]) -> tuple[int, int] | None:
+def _team_columns(headings: list[str]) -> tuple[int, ...] | None:
+    """Which columns of this heading row name a team, if any.
+
+    Two shapes carry teams. A fixture table names both sides, and a standings
+    table names each team once under a bare "Team" column. The standings table
+    is the one that matters while an event is being seeded, because it lists
+    every accepted team before any fixture exists.
+    """
     home = _squashed(_HOME_HEADING)
     away = _squashed(_AWAY_HEADING)
     if home in headings and away in headings:
         return headings.index(home), headings.index(away)
+    standings = _squashed(_STANDINGS_HEADING)
+    if standings in headings:
+        return (headings.index(standings),)
     return None
 
 
-def schedule_table_found(html: str) -> bool:
-    """Did any table carry the headings a schedule is read from?
+def team_table_found(html: str) -> bool:
+    """Did any table carry headings this module reads teams from?
 
-    This separates a division whose fixtures are simply not posted yet — normal
-    for an event being seeded — from one whose markup this module no longer
-    understands. Only the second means teams were lost.
+    This separates a division whose tables are simply empty from one whose
+    markup this module no longer understands. Only the second means teams
+    were lost.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     for table in soup.find_all("table"):
@@ -669,14 +680,14 @@ def _read_divisions(
             warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
 
         teams = parse_group_teams(group_html)
-        if not schedule_table_found(group_html):
+        if not team_table_found(group_html):
             unreadable.append(group_id)
             warnings.append(
-                f"Division {named}: no schedule table this module recognizes, so its "
+                f"Division {named}: no team table this module recognizes, so its "
                 "teams could not be read"
             )
         elif not teams:
-            warnings.append(f"Division {named} has no fixtures posted yet")
+            warnings.append(f"Division {named} lists no teams yet")
         divisions.append(
             _Division(
                 group_id=group_id,

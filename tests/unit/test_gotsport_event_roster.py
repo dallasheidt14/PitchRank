@@ -36,6 +36,7 @@ from src.tournaments.gotsport_event_roster import (
     parse_provider_team_id,
     resolve_cohort,
     scrape_event_roster,
+    team_table_found,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gotsport"
@@ -114,6 +115,7 @@ def _group_html(
     extra_rows: str = "",
     home_heading: str = "Home Team",
     away_heading: str = "Away Team",
+    standings_heading: str = "Team",
 ) -> str:
     standings = "".join(
         f"<tr><td>{i + 1}</td><td>{name}</td><td>0</td><td>0</td><td>0</td>"
@@ -125,7 +127,7 @@ def _group_html(
     return (
         "<html><body>"
         f'<a href="/org_event/events/52975/matches_export?team={export_id}">Export</a>'
-        f"<table><tr><td></td><td>Team</td><td>MP</td><td>W</td><td>L</td>"
+        f"<table><tr><td></td><td>{standings_heading}</td><td>MP</td><td>W</td><td>L</td>"
         f"<td>D</td><td>GF</td><td>GA</td><td>GD</td><td>PTS</td></tr>{standings}</table>"
         f"<table><tr><th>Match #</th><th>Time</th><th>{home_heading}</th><th>Results</th>"
         f"<th>{away_heading}</th><th>Location</th><th>Division</th></tr>{fixtures}</table>"
@@ -409,7 +411,9 @@ class TestScrapeEventRoster:
         assert any("BU12/BU13" in warning for warning in roster.warnings)
 
     def test_reports_a_division_whose_schedule_table_it_cannot_recognize(self):
-        pages = _one_division_event(home_heading="Host", away_heading="Visitor")
+        pages = _one_division_event(
+            home_heading="Host", away_heading="Visitor", standings_heading="Squad"
+        )
 
         roster = scrape_event_roster("52975", fetch=_fetch_for(pages))
 
@@ -961,7 +965,9 @@ class TestUnreadableVersusEmptyDivisions:
     """
 
     def test_an_unrecognized_schedule_table_is_not_a_complete_walk(self):
-        pages = _one_division_event(home_heading="Host", away_heading="Visitor")
+        pages = _one_division_event(
+            home_heading="Host", away_heading="Visitor", standings_heading="Squad"
+        )
 
         roster = scrape_event_roster("52975", fetch=_fetch_for(pages))
 
@@ -985,7 +991,7 @@ class TestUnreadableVersusEmptyDivisions:
             "an event whose schedule is not posted yet must still be able to complete, "
             "or its overwrite guard never arms again"
         )
-        assert any("no fixtures posted" in warning for warning in roster.warnings)
+        assert any("lists no teams yet" in warning for warning in roster.warnings)
 
     def test_a_division_with_teams_leaves_the_unreadable_count_at_zero(self):
         roster = scrape_event_roster("52975", fetch=_fetch_for(_one_division_event()))
@@ -1438,3 +1444,71 @@ class TestMain:
 
         assert "--force" in str(caught.value)
         assert json.loads(out.read_text(encoding="utf-8"))["teams"] == [1, 2]
+
+
+def _standings_only_html(division, teams):
+    """A division whose teams are accepted but whose fixtures are not posted.
+
+    Built to match the real markup: `('', 'Team', 'MP', 'W', 'L', 'D', 'GF',
+    'GA', 'GD', 'PTS')` appears 52 times across the captured group pages, and
+    each standings row links its team name to `?team=<id>`.
+    """
+    rows = "".join(
+        f"<tr><td>{i + 1}</td><td>"
+        f'<a href="/org_event/events/52975/schedules?team={reg}">{name}</a>'
+        "</td><td>0</td><td>0</td><td>0</td><td>0</td>"
+        "<td>0</td><td>0</td><td>0</td><td>0</td></tr>"
+        for i, (reg, name) in enumerate(teams)
+    )
+    return (
+        "<html><body>"
+        f"<h1>{division}</h1>"
+        "<table><tr><td></td><td>Team</td><td>MP</td><td>W</td><td>L</td>"
+        f"<td>D</td><td>GF</td><td>GA</td><td>GD</td><td>PTS</td></tr>{rows}</table>"
+        "</body></html>"
+    )
+
+
+class TestStandingsTableTeams:
+    """An event being seeded has no fixtures yet, which is the whole use case.
+
+    GotSport still lists every accepted team in the division standings, linked
+    by registration id. Reading only Home/Away fixture cells walks past them,
+    so a division would report zero teams at the exact moment the operator
+    needs them.
+    """
+
+    TEAMS = [("4205984", "RSL-AZ North U11B Kauffman"), ("4205985", "Phoenix Rising U11B")]
+
+    def test_a_division_with_no_fixtures_still_yields_its_teams(self):
+        html = _standings_only_html(DIVISION, self.TEAMS)
+
+        assert parse_group_teams(html) == tuple(self.TEAMS)
+
+    def test_such_a_division_is_readable_rather_than_unrecognized(self):
+        html = _standings_only_html(DIVISION, self.TEAMS)
+
+        assert team_table_found(html)
+
+    def test_the_walk_records_them_and_reports_itself_complete(self):
+        pages = {
+            "/org_event/events/52975": _landing_html(["483088"]),
+            "schedules?group=483088": _standings_only_html(DIVISION, self.TEAMS),
+        }
+        for reg, _ in self.TEAMS:
+            pages[f"schedules?team={reg}"] = _team_html("521426")
+
+        roster = scrape_event_roster("52975", fetch=_fetch_for(pages))
+
+        assert [team.team_name for team in roster.teams] == [name for _, name in self.TEAMS]
+        assert roster.is_complete
+
+    def test_a_page_with_neither_table_is_still_unreadable(self):
+        html = "<html><body><table><tr><th>Field</th><th>Time</th></tr></table></body></html>"
+
+        assert not team_table_found(html)
+
+    def test_a_standings_team_appearing_in_fixtures_too_is_recorded_once(self):
+        roster = scrape_event_roster("52975", fetch=_fetch_for(_one_division_event()))
+
+        assert len(roster.teams) == 1
