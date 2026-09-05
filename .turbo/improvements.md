@@ -1590,9 +1590,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
 - **Noted**: 2026-09-03
 
-### Bound the open-invoice fetch the way the paid one beside it is bounded
+### Fold U18 to u19 in the pasted-roster heading parser
 
 - **ID**: IMP-172
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
+- **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
+- **Noted**: 2026-09-04
+
+### Bound the open-invoice fetch the way the paid one beside it is bounded
+
+- **ID**: IMP-173
 - **Status**: open
 - **Type**: direct
 - **Category**: performance
@@ -1602,7 +1612,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Settle whether subscription items are read as a list or as `data[0]`
 
-- **ID**: IMP-173
+- **ID**: IMP-174
 - **Status**: open
 - **Type**: plan
 - **Category**: refactor
@@ -1612,7 +1622,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Price projected churn at the revenue actually at risk
 
-- **ID**: IMP-174
+- **ID**: IMP-175
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
@@ -1622,7 +1632,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Treat a pending cancellation as a certainty rather than an average-rate risk
 
-- **ID**: IMP-175
+- **ID**: IMP-176
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
