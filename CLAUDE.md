@@ -258,6 +258,15 @@ historical event one group higher every Aug 1.
 
 ### Adding a new scraper
 
+**First check whether this repo already scrapes it.** Search for the provider's base URL or
+endpoint path, not for a feature name — a walker is named for what it produces, so "does anything
+scrape events" finds nothing while the URL finds it immediately. Skipping this shipped a second
+GotSport event walker: `src/scrapers/gotsport.py:1466` and
+`src/tournaments/gotsport_event_roster.py:65` define the identical `EVENT_BASE`, walk the identical
+`/schedules?group=` URL, and share no code. When an existing walker is close but blocked on one
+thing (a bot challenge it cannot clear, a payload it cannot read), fixing that one thing is the
+change — not a parallel implementation.
+
 When planning a new provider, audit what per-team metadata the source exposes (state_code, club_name, coach, gender, age) BEFORE locking in match/create policy. `state_code` availability is load-bearing — without it, auto-created canonical teams land with NULL state and cannot benefit from location-scoped fuzzy matching downstream.
 
 - If state is only on a per-team detail page (not on the index/flight pages), a two-pass scrape (flights → unique team enrichment) is acceptable when the team count is bounded (~hundreds, not tens of thousands).

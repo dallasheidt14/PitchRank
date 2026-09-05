@@ -1599,3 +1599,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
 - **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
 - **Noted**: 2026-09-04
+
+### Set the response encoding in the other GotSport HTML fetch
+
+- **ID**: IMP-173
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
+- **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
+- **Noted**: 2026-09-05
