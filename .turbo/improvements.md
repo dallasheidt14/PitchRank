@@ -1569,3 +1569,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
 - **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
 - **Noted**: 2026-09-03
+
+### Fold U18 to u19 in the pasted-roster heading parser
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
+- **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
+- **Noted**: 2026-09-04
