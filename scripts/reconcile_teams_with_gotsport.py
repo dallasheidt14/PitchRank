@@ -716,7 +716,20 @@ def describe_runtime(calls: int, delay: float) -> str:
     return f"{seconds:.0f} sec" if seconds < 60 else f"{seconds / 60:.0f} min"
 
 
-def main() -> None:
+ABORTED_EXIT_CODE = 75
+
+
+def exit_code(aborted: bool) -> int:
+    """A WAF abort examined only part of the slice, so it is not success.
+
+    Without a distinct code a driver walking a cohort in chunks cannot tell the two
+    apart, and marches its remaining offsets into a blocked endpoint -- which is what
+    a live TX run did across eight consecutive chunks before this existed.
+    """
+    return ABORTED_EXIT_CODE if aborted else 0
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--execute", action="store_true", help="Apply changes (default is a dry run)")
     parser.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
@@ -764,7 +777,7 @@ def main() -> None:
         for name in ("partial", "refused_changed", "refused_shape"):
             if counts[name]:
                 print(f"{name}: {counts[name]}")
-        return
+        return 0
 
     scope = ", ".join(filter(None, [",".join(age_groups), ",".join(states)])) or "all GotSport teams"
     run_mode = "execute" if execute else "dry-run"
@@ -777,7 +790,7 @@ def main() -> None:
     window = f" of {matched:,}" + (f" from offset {args.offset:,}" if args.offset else " (--limit cap)")
     print(f"Teams in scope: {len(teams):,}{window if matched > len(teams) else ''}")
     if not teams:
-        return
+        return 0
 
     team_ids = [t["team_id_master"] for t in teams]
     aliases = fetch_gotsport_aliases(supabase, team_ids)
@@ -851,6 +864,8 @@ def main() -> None:
     if not execute and counts.get("updated"):
         print(f"Re-run with --execute to apply. Undo with --revert {log_path} --execute")
 
+    return exit_code(aborted)
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
