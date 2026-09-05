@@ -7,9 +7,9 @@ description: Reading Stripe subscription and invoice data correctly in PitchRank
 
 The client pins an explicit `apiVersion` in `frontend/lib/stripe/server.ts`. Several fields moved
 in versions before it, and TypeScript will not catch a read of a removed field once the value is
-cast. Read the pin there, and verify any field you are unsure of against
-`frontend/node_modules/stripe/types/` rather than from memory — that directory is the pinned
-version's own truth.
+cast. Read the pin there, and verify any field you are unsure of against the installed typings
+under `frontend/` — `node_modules/stripe/types/` — rather than from memory. That directory is the
+pinned version's own truth.
 
 ## Where fields actually live
 
