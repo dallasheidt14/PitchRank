@@ -304,6 +304,14 @@ def parse_division_label(html: str) -> str:
     Located by its own heading rather than by column count, so a neighbouring
     standings table that happens to be the same width cannot supply a ``PTS``
     cell in its place.
+
+    Falls back to the page header, which names the division whether or not any
+    fixture exists — the state of an event being seeded, where the fixture
+    table is absent and every division would otherwise go unnamed. The header
+    is a fallback and not the preferred source: it leads with a U-age stamped
+    in the season the event ran, and on three of the captured B2015/B2014
+    divisions that stale age disagrees with the durable birth year the table's
+    own label carries.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     for table in soup.find_all("table"):
@@ -315,7 +323,18 @@ def parse_division_label(html: str) -> str:
                 column = squashed.index(_squashed(_DIVISION_HEADING))
             elif column is not None and len(cells) > column and cells[column]:
                 return cells[column]
-    return ""
+    return _header_division(soup)
+
+
+def _header_division(soup) -> str:
+    """The division as the page header states it, or empty.
+
+    Read by class rather than by tag: the same text ships twice, in a
+    ``div.lead`` for wide viewports and an ``h5`` for narrow ones, and every
+    one of the 39 captured group pages carries the ``lead`` form.
+    """
+    header = soup.find(class_="lead")
+    return " ".join(header.get_text(" ").split()) if header else ""
 
 
 def parse_group_teams(html: str) -> tuple[tuple[str, str], ...]:

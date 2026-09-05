@@ -1604,3 +1604,58 @@ class TestResponseDecoding:
         )
 
         assert self.NAME in fetcher(EVENT_BASE + "/52975")
+
+
+class TestDivisionLabelHeaderFallback:
+    """A division with no fixtures has no fixture table to name it.
+
+    The page header carries the division regardless. It is a fallback and not
+    the preferred source: it leads with a U-age written in the season the event
+    ran, and on three captured B2015/B2014 divisions that stale age disagrees
+    with the durable birth year the table's own label carries.
+    """
+
+    HEADER = "Male U13 - U13 Boys Red"
+
+    def _page(self, *, with_fixture_table: bool) -> str:
+        table = (
+            "<table><tr><th>Home Team</th><th>Away Team</th><th>Division</th></tr>"
+            '<tr><td><a href="?team=1">A</a></td><td><a href="?team=2">B</a></td>'
+            "<td>U13 Boys Blue</td></tr></table>"
+            if with_fixture_table
+            else ""
+        )
+        return (
+            "<html><body>"
+            f"<div class='lead no-margin-bottom'> {self.HEADER} </div>"
+            f"{table}</body></html>"
+        )
+
+    def test_the_header_names_the_division_when_no_table_does(self):
+        assert parse_division_label(self._page(with_fixture_table=False)) == self.HEADER
+
+    def test_the_fixture_table_still_wins_when_present(self):
+        assert parse_division_label(self._page(with_fixture_table=True)) == "U13 Boys Blue", (
+            "the header's U-age is season-stamped; the table's label is not"
+        )
+
+    def test_a_page_naming_no_division_anywhere_stays_empty(self):
+        assert parse_division_label("<html><body><p>nothing</p></body></html>") == ""
+
+    def test_a_standings_only_division_still_gets_its_cohort(self):
+        teams = [("4205984", "RSL-AZ North U13B")]
+        page = _standings_only_html(DIVISION, teams).replace(
+            "<html><body>",
+            f"<html><body><div class='lead'> {self.HEADER} </div>",
+        )
+        pages = {
+            "/org_event/events/52975": _landing_html(["483088"]),
+            "schedules?group=483088": page,
+            "schedules?team=4205984": _team_html("521426"),
+        }
+
+        roster = scrape_event_roster("52975", fetch=_fetch_for(pages))
+
+        assert [(t.age_group, t.gender) for t in roster.teams] == [("u13", "Male")], (
+            "an event being seeded would otherwise lose every cohort it has"
+        )
