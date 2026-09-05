@@ -1124,8 +1124,9 @@ def test_a_probed_but_unwalked_event_is_still_for_sale(app):
     assert runs == [{"limit_groups": None}]
 
 
-def test_a_full_walk_marks_the_event_complete(app):
-    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape())
+def test_a_full_walk_of_every_division_marks_the_event_complete(app):
+    roster = _roster(_team(0), divisions_found=1, divisions_walked=1)
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(roster))
     fake_st = _install(app, _FakeSt())
 
     _scrape(limit_groups=None)
@@ -1390,3 +1391,114 @@ def test_the_recovery_write_precedes_the_id_resolution_it_does_not_need(app, tmp
     _scrape(limit_groups=None)
 
     assert order == ["recovery", "resolve"]
+
+
+# -------- a walk that returned nothing must not leave the last one showing ---
+
+
+def test_an_empty_walk_clears_the_previous_events_roster(app):
+    """The probe now describes this event; the table must not still hold the last.
+
+    Left alone, the zero-team caption for event B sits above event A's teams, and
+    those teams can be saved or queued under B's name.
+    """
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster()))
+    fake_st = _install(app, _FakeSt())
+    fake_st.session_state._seeding_result = ("event A parsed", "event A resolved")
+    fake_st.session_state._seeding_overrides = {0: {"team_id_master": "picked-for-event-a"}}
+    fake_st.session_state._seeding_sheet_html = "<html>event A</html>"
+
+    _scrape(limit_groups=2)
+
+    assert fake_st.session_state._seeding_result is None
+    assert fake_st.session_state._seeding_overrides == {}
+    assert fake_st.session_state._seeding_sheet_html is None
+
+
+# -------- completeness is the roster's answer, not a team count -------------
+
+
+def test_a_walk_that_lost_a_division_is_not_complete(app):
+    """Teams came back, but a division's table was unreadable, so more is owed.
+
+    Marking it complete would retire the full-walk button for the session and
+    leave no way to pick up the division that was missed.
+    """
+    roster = _roster(_team(0), divisions_found=40, divisions_walked=40, divisions_unreadable=1)
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(roster))
+    fake_st = _install(app, _FakeSt())
+
+    _scrape(limit_groups=None)
+
+    assert fake_st.session_state._seeding_event_probe["complete"] is False
+
+
+def test_a_walk_that_read_everything_is_complete(app):
+    roster = _roster(_team(0), divisions_found=1, divisions_walked=1)
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(roster))
+    fake_st = _install(app, _FakeSt())
+
+    _scrape(limit_groups=None)
+
+    assert fake_st.session_state._seeding_event_probe["complete"] is True
+
+
+# -------- the probe spends too, so it obeys the same gate -------------------
+
+
+def test_the_probe_is_closed_once_the_event_has_been_walked_in_full(app):
+    """A probe over a finished event replaces its roster with two divisions."""
+    runs: list[dict[str, Any]] = []
+    fake_st = _install(
+        app,
+        _FakeSt(buttons={"_seeding_event_probe_run": True}, text={"seeding_event_url": EVENT_URL}),
+    )
+    fake_st.session_state._seeding_event_probe = _probe(limit_groups=None, complete=True)
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda url, c, **kw: runs.append(kw))
+
+    _render_controls()
+
+    assert fake_st.button_by_key("_seeding_event_probe_run")["disabled"] is True
+    assert runs == [], "a probe would overwrite the full roster this event already has"
+    assert fake_st.errors
+
+
+def test_a_partial_walk_cannot_overwrite_a_complete_recovery_file(app, tmp_path):
+    """The guard the command-line scraper already applies to its roster file."""
+    written: list[Any] = []
+    app.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    app.setattr(tournament_intake, "write_json", lambda path, payload: written.append(payload))
+    app.setattr(tournament_intake, "read_json", lambda _path: {"is_complete": True, "teams": [1, 2, 3]})
+    _install(app, _FakeSt())
+
+    tournament_intake._write_event_roster_recovery(_roster(_team(0), divisions_walked=2, divisions_found=40))
+
+    assert written == [], "two cheap divisions replaced a walk someone paid for in full"
+
+
+def test_a_complete_walk_does_replace_an_earlier_one(app, tmp_path):
+    written: list[Any] = []
+    app.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    app.setattr(tournament_intake, "write_json", lambda path, payload: written.append(payload))
+    app.setattr(tournament_intake, "read_json", lambda _path: {"is_complete": True})
+    _install(app, _FakeSt())
+
+    tournament_intake._write_event_roster_recovery(_roster(_team(0), divisions_found=1, divisions_walked=1))
+
+    assert len(written) == 1
+
+
+def test_an_unreadable_recovery_file_does_not_block_the_walk_in_hand(app, tmp_path):
+    written: list[Any] = []
+    app.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    app.setattr(tournament_intake, "write_json", lambda path, payload: written.append(payload))
+
+    def _corrupt(_path):
+        raise ValueError("not json")
+
+    app.setattr(tournament_intake, "read_json", _corrupt)
+    _install(app, _FakeSt())
+
+    tournament_intake._write_event_roster_recovery(_roster(_team(0), divisions_walked=2, divisions_found=40))
+
+    assert len(written) == 1, "an unreadable file reads as absent; the walk in hand is what matters"

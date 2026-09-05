@@ -3683,20 +3683,28 @@ def _park_event_roster(
         "divisions_walked": roster.divisions_walked,
         "teams": len(roster.teams),
         "linked": sum(1 for team in roster.teams if team.provider_team_id),
-        "complete": limit_groups is None and bool(roster.teams),
+        # A walk that lost a division to an unreadable table returned teams and
+        # still has more to fetch, so having teams is not the same as being done.
+        "complete": roster.is_complete,
     }
+    # Not `_seeding_loaded_slug`: that is what stops the resume selector from
+    # reloading the saved run it still has selected over this fresh scrape.
+    st.session_state._seeding_overrides = {}
+    st.session_state._seeding_sheet_html = None
+
     if not roster.teams:
+        # The probe above now describes this event while the table would still
+        # hold the last one's teams, and an operator could save or queue those
+        # under this event's name.
+        st.session_state._seeding_result = None
+        st.session_state._seeding_resolution_failed = False
         return 0
 
-    st.session_state._seeding_overrides = {}
     st.session_state._seeding_result = (parsed, resolved)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
     st.session_state._seeding_resolution_failed = True
-    # Not `_seeding_loaded_slug`: that is what stops the resume selector from
-    # reloading the saved run it still has selected over this fresh scrape.
-    st.session_state._seeding_sheet_html = None
     return len(parsed.rows)
 
 
@@ -3706,12 +3714,21 @@ def _write_event_roster_recovery(roster: EventRoster) -> None:
     Takes the roster rather than the converted pair so it can run before any of
     the conversion, which is free to redo and can itself be interrupted.
 
+    Refuses to replace a complete walk with a partial one, the guard the
+    command-line scraper already applies to its own roster file: a probe targets
+    the same path as a full walk, so without it two cheap divisions overwrite an
+    event someone paid to walk in full.
+
     Best-effort by construction: this exists to protect a paid artifact, so a
     failure to write it must not itself cost the walk.
     """
+    path = reports_dir() / "seeding" / f"gotsport_{roster.event_id}" / "last_walk.json"
+    if not roster.is_complete and _recovery_holds_a_complete_walk(path):
+        logger.info("Kept the complete walk already at %s rather than this partial one", path)
+        return
     try:
         write_json(
-            reports_dir() / "seeding" / f"gotsport_{roster.event_id}" / "last_walk.json",
+            path,
             {
                 "event_id": roster.event_id,
                 "walked_at": utc_now_iso(),
@@ -3724,6 +3741,21 @@ def _write_event_roster_recovery(roster: EventRoster) -> None:
         )
     except Exception as exc:  # noqa: BLE001 — the roster outranks its own backup
         logger.warning("Could not write the event roster recovery file: %s", exc)
+
+
+def _recovery_holds_a_complete_walk(path: Path) -> bool:
+    """Does a complete walk already sit at this path?
+
+    Only a mapping whose flag is literally ``True`` counts. An array or a scalar
+    raises on ``.get``, and the string ``"false"`` is truthy, so a looser test
+    throws away the run that cost money. An unreadable file reads as absent, for
+    the same reason: the walk in hand is the one to keep.
+    """
+    try:
+        existing = read_json(path)
+    except (OSError, ValueError):
+        return False
+    return isinstance(existing, dict) and existing.get("is_complete") is True
 
 
 def _run_seeding_name_lookup(
@@ -4181,7 +4213,7 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key="_seeding_event_probe_run",
-            disabled=not url or in_progress,
+            disabled=not url or in_progress or already_walked,
         )
     with right:
         full_clicked = st.button(
@@ -4202,11 +4234,11 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
                 _run_seeding_name_lookup(result[0], result[1], supabase_client)
                 st.rerun()
 
-    if probe_clicked:
+    if probe_clicked and not already_walked:
         _run_event_roster_scrape(url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS)
     elif full_clicked and priced and not already_walked:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None)
-    elif full_clicked:
+    elif probe_clicked or full_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
         # trigger of any button that was enabled when it was clicked. That covers
         # editing the URL and clicking in one go, and a second click queued while
