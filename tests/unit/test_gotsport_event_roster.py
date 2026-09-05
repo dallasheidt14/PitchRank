@@ -1659,3 +1659,57 @@ class TestDivisionLabelHeaderFallback:
         assert [(t.age_group, t.gender) for t in roster.teams] == [("u13", "Male")], (
             "an event being seeded would otherwise lose every cohort it has"
         )
+
+
+class TestCredentialIsCheckedBeforeUse:
+    """A malformed key must never reach the client that logs it raw.
+
+    `MergeResolver.load_merge_map` catches its own exception and logs the text
+    at `src/utils/merge_resolver.py:108`, unredacted. `h11` formats the
+    offending header with `repr`, so a service-role key carrying an internal
+    newline — the shape `python-dotenv` returns for a soft-wrapped value —
+    reaches stderr before this module's own redaction is ever reached.
+    """
+
+    KEY = "eyJhbGciOiJIUzI1NiJ9.SERVICE_ROLE\n.signature_tail"
+
+    def _run(self, monkeypatch, key):
+        import scripts.scrape_event_roster as cli
+
+        built: list = []
+        monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
+        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", key)
+        team = EventRosterTeam(
+            source_index=0, group_id="1", division_label="U13 Boys",
+            age_group="u13", gender="Male", team_name="A",
+            registration_id="1", provider_team_id="521426",
+        )
+        return cli._resolve_master_ids(
+            [team],
+            enabled=True,
+            client_factory=lambda url, key: built.append((url, key)) or object(),
+            resolver_factory=lambda client: (_ for _ in ()).throw(AssertionError("reached")),
+            lookup_factory=lambda client, resolver: (lambda pid: None),
+        ), built
+
+    def test_a_key_with_an_internal_newline_never_reaches_the_client(self, monkeypatch):
+        (resolved, warnings), built = self._run(monkeypatch, self.KEY)
+
+        assert built == [], "the client was constructed, so the key can still be logged raw"
+        assert resolved == {}
+        assert warnings and "SUPABASE_SERVICE_ROLE_KEY" in warnings[0]
+
+    def test_the_refusal_does_not_echo_the_key(self, monkeypatch):
+        (_, warnings), _ = self._run(monkeypatch, self.KEY)
+
+        joined = " ".join(warnings)
+        # Naming the variable is the point of the message; echoing its value is
+        # the leak, so assert on the key's own material rather than on a word
+        # that legitimately appears in the variable name.
+        assert "eyJhbGciOiJIUzI1NiJ9" not in joined
+        assert "signature_tail" not in joined
+
+    def test_a_merely_trailing_newline_is_stripped_and_used(self, monkeypatch):
+        (_, warnings), built = self._run(monkeypatch, "cleankey123\n")
+
+        assert built and built[0][1] == "cleankey123", "a trailing newline is not malformed"

@@ -167,10 +167,20 @@ def _resolve_master_ids(
     if not enabled or not provider_ids:
         return {}, []
 
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+    url = (os.getenv("SUPABASE_URL") or "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or "").strip()
     if not (url and key):
         return {}, ["No Supabase credentials; provider ids were not resolved to PitchRank teams"]
+    if any(character.isspace() for character in key):
+        # Refuse before the key reaches any client. `MergeResolver.load_merge_map`
+        # catches its own exception and logs the text unredacted, and `h11`
+        # formats the offending header with `repr`, so a key soft-wrapped in
+        # `.env.local` reaches stderr before `_redact` below is ever consulted.
+        # The message names the variable and never the value.
+        return {}, [
+            "SUPABASE_SERVICE_ROLE_KEY has whitespace inside it, which no valid key "
+            "does; provider ids were not resolved. Re-save it on a single line."
+        ]
 
     warnings: list[str] = []
     try:
