@@ -1599,3 +1599,43 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
 - **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
 - **Noted**: 2026-09-04
+
+### Bound the open-invoice fetch the way the paid one beside it is bounded
+
+- **ID**: IMP-173
+- **Status**: open
+- **Type**: direct
+- **Category**: performance
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getSubscriptionMetrics`, the `{ status: 'open' }` call)
+- **Why**: The paid-invoice fetch carries `created: { gte: now - COHORT_FETCH_DAYS }`; the open one carries no date floor and no page cap, so it auto-paginates every unpaid invoice the account has ever accumulated on each render of a `force-dynamic` page with a Refresh link. Not a regression — the pre-existing `safeList({ status: 'canceled' })` is unbounded the same way — and fine at today's 47 invoices. It scales badly, and unlike the canceled list the open list only grows while collection keeps failing, which is exactly the condition under which someone reloads the page. A `created` floor matching the cohort window is the whole change; decide whether the canceled fetch moves with it.
+- **Noted**: 2026-09-04
+
+### Settle whether subscription items are read as a list or as `data[0]`
+
+- **ID**: IMP-174
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getInterval`, `bucketActivePaid`), `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`)
+- **Why**: One feature now reads the same Stripe object two ways. `computeMrr` iterates `sub.items.data` in full, and `countAnnualRenewals` was changed to match after review; `getInterval` and `bucketActivePaid` still read `items.data[0]` only. Stripe designates no canonical item, and `current_period_end` is documented per item, so a multi-item subscription can renew its items on different dates. Verified unreachable today: 0 of 188 subscriptions carry more than one item, `items.has_more` is false throughout, and no code path in the product creates a second item (both checkout calls pass a single `line_items` entry, and the billing portal swaps a price rather than adding items). So this is consistency, not a live bug — but the divergence is the kind that silently decides a number once an add-on or a second plan ever ships. Pick one convention and apply it to all four.
+- **Noted**: 2026-09-04
+
+### Price projected churn at the revenue actually at risk
+
+- **ID**: IMP-175
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `lostMrr`)
+- **Why**: `lostMrr` multiplies churned subscribers by `arpu`, which is the blended monthly-equivalent of the historical paid-*acquisition* cohort. The population actually at risk in a month is different: currently 100% monthly at $6.99, where the acquisition mix is about 18% annual at $5.83 monthly-equivalent. Measured on live data the code reports $50.09 against $51.68 for the at-risk mix, a $1.58 gap on a $50 line. Left alone because that is an order of magnitude below the sampling error on the churn rate feeding it — the same report shows that rate swinging five points on lookback choice alone, worth roughly $10. Worth revisiting only alongside a better churn estimate, and note that neither formulation handles annual correctly: a lapsed annual renewal removes $69.99 of cash, not $5.83.
+- **Noted**: 2026-09-04
+
+### Treat a pending cancellation as a certainty rather than an average-rate risk
+
+- **ID**: IMP-176
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
+- **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
+- **Noted**: 2026-09-04

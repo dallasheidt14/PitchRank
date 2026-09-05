@@ -24,6 +24,11 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, `.env` edits, and `commit --amend` once HEAD is on a remote. It reads a shell wrapper's quoted argument as a command, so `powershell -Command "git push --force"` is refused too. A `BLOCKED:` message is the hook, not a transient error.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
 - After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+- `delete_branch_on_merge` is on, so GitHub removes the head branch the moment a PR merges. Cleanup is
+  only the local side (`git worktree remove`, `git branch -D`); `git push origin --delete <branch>`
+  errors with "remote ref does not exist". It also breaks the obvious merge check —
+  `git merge-base --is-ancestor origin/<branch> origin/main` reports NOT merged for a branch that
+  merged cleanly, because the ref it names is already gone. Check `gh pr view <n> --json state` instead.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
 - Keep the working tree clean — stage selectively (`git add <paths>`), never `git add -A`.
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
@@ -86,6 +91,12 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - When a change needs different behavior from a database function shared by several callers, prefer a direct PostgREST query in the calling script. Adding parameters to a Postgres function creates an overload rather than replacing it, so every existing call fails with "function is not unique" until the old signature is dropped, and the drop also wipes its GRANTs.
 
 ## Improvement Backlog
+
+`.gitignore` un-ignores `.turbo/plans/` and `.turbo/reports/` while hiding the rest of `.turbo/`, and
+this repo is **public** — so a file written under `.turbo/reports/` is published on the next push, and
+history keeps it after any later edit. Keep live account identifiers out of one (a Stripe `acct_`, a
+customer email, an invoice or subscription id); aggregate figures are a disclosure judgement for the
+owner rather than a leak. Everything else under `.turbo/` is local scratch and never ships.
 
 Out-of-scope ideas noticed during work go to `.turbo/improvements.md` via
 `/note-improvement`, rather than being acted on or dropped. Closed entries move to
