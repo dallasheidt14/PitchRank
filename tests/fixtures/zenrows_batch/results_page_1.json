@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "external_id": "126693",
+      "type": "html",
+      "status": "successful",
+      "result_url": "https://zenrows-results.s3.amazonaws.invalid/r/126693?X-Amz-Expires=7200"
+    },
+    {
+      "external_id": "126694",
+      "type": "html",
+      "status": "successful",
+      "result_url": "https://zenrows-results.s3.amazonaws.invalid/r/126694?X-Amz-Expires=7200"
+    }
+  ],
+  "next_cursor": "cursor-page-2"
+}

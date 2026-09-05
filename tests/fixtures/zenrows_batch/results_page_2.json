@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "external_id": "126695",
+      "type": "html",
+      "status": "failed",
+      "result_url": "",
+      "error": {
+        "code": "RESP002",
+        "status": 404,
+        "message": "The target returned 404 Not Found."
+      }
+    },
+    {
+      "external_id": "126696",
+      "type": "html",
+      "status": "pending",
+      "result_url": ""
+    }
+  ],
+  "next_cursor": null
+}

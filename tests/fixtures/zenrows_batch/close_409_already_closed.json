@@ -1,0 +1,5 @@
+{
+  "code": "job_already_closed",
+  "status": 409,
+  "message": "This job has already been closed."
+}
