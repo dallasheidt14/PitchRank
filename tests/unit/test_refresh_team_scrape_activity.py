@@ -33,6 +33,10 @@ def _run_main(argv, pages=None, rpc_error=None, errors=None, record=None):
     transient failure can be injected without failing every call the way
     `rpc_error` does. Pass `record` to read the calls back from a run that exits,
     since the return value is unreachable through a SystemExit.
+
+    Recording and error injection both happen inside execute(), not when the
+    request is built: `sb.rpc(...)` only constructs, so counting constructions
+    would let a request that was never sent stand in for one that was.
     """
     supabase = Mock()
     calls = record if record is not None else []
@@ -41,15 +45,18 @@ def _run_main(argv, pages=None, rpc_error=None, errors=None, record=None):
     err_seq = list(errors or [])
 
     def _rpc(*args, **kwargs):
-        calls.append(args)
         result = Mock()
-        injected = err_seq.pop(0) if err_seq else None
-        if rpc_error is not None:
-            result.execute.side_effect = rpc_error
-        elif injected is not None:
-            result.execute.side_effect = injected
-        else:
-            result.execute.return_value = Mock(data=seq.pop(0) if seq else [])
+
+        def _execute():
+            calls.append(args)
+            if rpc_error is not None:
+                raise rpc_error
+            injected = err_seq.pop(0) if err_seq else None
+            if injected is not None:
+                raise injected
+            return Mock(data=seq.pop(0) if seq else [])
+
+        result.execute.side_effect = _execute
         return result
 
     supabase.rpc.side_effect = _rpc
