@@ -442,7 +442,8 @@ class TestScrapeEventRoster:
             "52975", fetch=_fetch_for(_one_division_event()), delay_min=0.4, delay_max=0.4
         )
 
-        assert slept == [0.4, 0.4, 0.4]
+        # Two landing reads, one division page, one team page: every fetch paced.
+        assert slept == [0.4, 0.4, 0.4, 0.4]
 
     def test_reports_progress_for_every_team_page(self):
         seen: list[tuple[int, int]] = []
@@ -1739,4 +1740,94 @@ class TestSkippedDivisionsDoNotLookLikeLosses:
         )
 
         assert roster.divisions_unreadable == 1
+        assert not roster.is_complete
+
+
+class TestDivisionListIsCorroborated:
+    """One read of the event page is not evidence of how many divisions exist.
+
+    The fetcher waits for the first division link, which is satisfied while the
+    rest are still rendering. Event 52975 answered 57 divisions on one read and
+    4 on another from the same URL, an hour apart.
+    """
+
+    def _landing(self, *reads):
+        """A fetcher whose event page answers differently on successive reads."""
+        answers = iter(reads)
+
+        def fetch(url):
+            if url.endswith("/52975"):
+                return _landing_html(list(next(answers)))
+            if "group=" in url:
+                group_id = url.split("group=")[1]
+                return _group_html("U11 Boys Gold", [(f"{group_id}0", f"Team {group_id}")])
+            return _team_html("521426")
+
+        return fetch
+
+    def test_reads_the_event_page_more_than_once(self):
+        calls: list[str] = []
+        fetch = self._landing(["1"], ["1"])
+
+        def counting(url):
+            calls.append(url)
+            return fetch(url)
+
+        scrape_event_roster("52975", fetch=counting)
+
+        assert len([url for url in calls if url.endswith("/52975")]) == 2
+
+    def test_agreeing_reads_are_stable(self):
+        roster = scrape_event_roster("52975", fetch=self._landing(["1", "2"], ["1", "2"]))
+
+        assert roster.divisions_found == 2
+        assert roster.divisions_stable
+        assert roster.is_complete
+
+    def test_keeps_every_division_either_read_saw(self):
+        """The union never reports fewer divisions than a single read found.
+
+        Both directions, because the live failure was the awkward one: the
+        first read saw the whole list and a later one saw a fraction of it, so
+        keeping the most recent answer would have thrown the list away.
+        """
+        later_is_larger = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+        earlier_is_larger = scrape_event_roster("52975", fetch=self._landing(["1", "2", "3"], ["1"]))
+
+        assert later_is_larger.divisions_found == 3
+        assert earlier_is_larger.divisions_found == 3
+
+    def test_a_page_that_disagrees_with_itself_is_not_a_complete_walk(self):
+        """This is what stops a short read locking an event as fully walked."""
+        roster = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+
+        assert roster.divisions_stable is False
+        assert not roster.is_complete, "a walk missing divisions nobody saw is not the whole event"
+
+    def test_two_partial_reads_of_the_same_size_are_not_agreement(self):
+        """The counts match and the divisions do not, which is still disagreement.
+
+        Comparing sizes would call this stable, walk the union end to end, and
+        declare a roster missing whatever neither read saw to be the whole event.
+        """
+        roster = scrape_event_roster("52975", fetch=self._landing(["1", "2"], ["2", "3"]))
+
+        assert roster.divisions_found == 3
+        assert roster.divisions_stable is False
+        assert not roster.is_complete
+
+    def test_says_the_count_is_a_floor_when_the_reads_disagree(self):
+        roster = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+
+        assert any("floor rather than the total" in warning for warning in roster.warnings)
+
+    def test_the_observed_failure_recovers_the_larger_list(self):
+        """The shape seen live: four divisions on one read, fifty-seven on another."""
+        full = [str(n) for n in range(57)]
+        short = [str(n) for n in range(4)]
+
+        # The order the live reads came in: the whole list first, a fraction after.
+        roster = scrape_event_roster("52975", fetch=self._landing(full, short))
+
+        assert roster.divisions_found == 57
         assert not roster.is_complete

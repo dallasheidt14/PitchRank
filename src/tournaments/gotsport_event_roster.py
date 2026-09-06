@@ -135,6 +135,9 @@ _BLOCK_MARKERS = re.compile(
 _ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
 _EVENT_PAGE_READY = 'a[href*="group="]'
 _SCHEDULE_READY = "table"
+# The landing page is read this many times and the division ids unioned, because
+# one read can arrive before the list has finished rendering.
+_LANDING_READS = 2
 
 
 @dataclass(frozen=True)
@@ -160,6 +163,7 @@ class EventRoster:
     divisions_walked: int = 0
     divisions_unreadable: int = 0
     divisions_skipped: int = 0
+    divisions_stable: bool = True
     teams_unreadable: int = 0
 
     @property
@@ -168,6 +172,11 @@ class EventRoster:
 
         Every division must have been reached, every schedule table
         recognized, and every team page read.
+
+        A list of divisions the page gave differently on two reads counts as
+        incomplete however well the rest of the walk went: the roster may be
+        missing whole divisions nobody saw, and the caller reads this flag to
+        decide an event is finished with.
 
         A division with no fixtures posted is complete. That is the normal
         state of an event being seeded before its schedule goes up, and
@@ -179,6 +188,7 @@ class EventRoster:
         """
         return (
             self.divisions_found > 0
+            and self.divisions_stable
             and self.divisions_found == self.divisions_walked
             and self.divisions_unreadable == 0
             and self.teams_unreadable == 0
@@ -750,7 +760,7 @@ def scrape_event_roster(
     warnings: list[str] = []
     throttled = _throttled(fetch, delay_min, delay_max)
 
-    group_ids = parse_group_ids(throttled(f"{EVENT_BASE}/{event_id}"))
+    group_ids, stable = _read_group_ids(throttled, event_id, warnings)
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
@@ -813,6 +823,7 @@ def scrape_event_roster(
         divisions_walked=divisions_walked,
         divisions_unreadable=len(unreadable_divisions),
         divisions_skipped=len(skipped),
+        divisions_stable=stable,
         teams_unreadable=unreadable,
     )
 
@@ -824,6 +835,48 @@ class _Division:
     age_group: str
     gender: str
     teams: tuple[tuple[str, str], ...]
+
+
+def _read_group_ids(
+    fetch: HtmlFetcher, event_id: str, warnings: list[str]
+) -> tuple[tuple[str, ...], bool]:
+    """Read the event's division list, and say whether the page agreed with itself.
+
+    One read cannot be trusted. The fetcher waits for the first
+    ``a[href*="group="]`` to appear, which is satisfied while the rest of the
+    list is still rendering — event 52975 answered 57 divisions on one read and
+    4 on another an hour later, from the same URL.
+
+    So it is read twice and the ids unioned. The union never reports fewer
+    divisions than either read saw, and disagreement between the reads is the
+    signal that the page had not settled: the caller must not treat a walk built
+    on it as the whole event. The second read costs one page against the tens a
+    walk spends, and the figure it protects is the one an operator authorises a
+    full walk from.
+    """
+    seen: set[str] = set()
+    reads: list[frozenset[str]] = []
+    ordered: list[str] = []
+    for _ in range(_LANDING_READS):
+        found = parse_group_ids(fetch(f"{EVENT_BASE}/{event_id}"))
+        reads.append(frozenset(found))
+        for group_id in found:
+            if group_id not in seen:
+                seen.add(group_id)
+                ordered.append(group_id)
+
+    # Compared as sets, not counts. Two partial renders can be the same length
+    # and still name different divisions, and a count test calls that agreement
+    # — then the union is walked end to end, `found` equals `walked`, and a
+    # roster missing whatever neither read saw is declared the whole event.
+    stable = len(set(reads)) == 1
+    if not stable:
+        warnings.append(
+            f"The event page listed different divisions on each read "
+            f"({', '.join(str(len(read)) for read in reads)} of them); it had not "
+            f"finished loading, so {len(ordered)} is a floor rather than the total"
+        )
+    return tuple(ordered), stable
 
 
 def _read_divisions(
