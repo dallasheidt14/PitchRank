@@ -7,9 +7,11 @@ has actually read a division, and that a failure in the free lookups afterwards
 cannot throw away the roster that was paid for.
 
 ``tournament_intake.st`` is replaced wholesale, the way the other tests of this
-app's Streamlit-touching helpers do it. The scrape lock is replaced too: the
-real one creates ``reports/gotsport__<id>__unknown/intake/.scrape.lock`` and
-would either mutate the operator's own storage or contend with a live scrape.
+app's Streamlit-touching helpers do it. Two things that reach the filesystem are
+replaced too, because both write where the operator keeps their own runs: the
+scrape lock, which creates ``reports/gotsport__<id>__unknown/intake/.scrape.lock``
+and would contend with a live scrape, and ``reports_dir`` itself, which the walk
+writes its recovery file through.
 """
 
 from __future__ import annotations
@@ -253,6 +255,20 @@ class _RecordingScrape:
 @contextlib.contextmanager
 def _no_lock(_key: str):
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reports_under_tmp(monkeypatch, tmp_path):
+    """Keep every test in this file out of the operator's own reports directory.
+
+    A walk writes its recovery file through ``reports_dir()``, so a test that
+    exercises the runner without redirecting it drops a fake event into
+    ``reports/seeding/`` on every suite run, beside real saved runs. Autouse
+    rather than part of ``app``: the protection should not depend on which
+    fixture a future test happens to ask for.
+    """
+    monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    return tmp_path
 
 
 @pytest.fixture
@@ -1502,3 +1518,27 @@ def test_an_unreadable_recovery_file_does_not_block_the_walk_in_hand(app, tmp_pa
     tournament_intake._write_event_roster_recovery(_roster(_team(0), divisions_walked=2, divisions_found=40))
 
     assert len(written) == 1, "an unreadable file reads as absent; the walk in hand is what matters"
+
+
+# -------- the suite keeps out of the operator's own reports directory ------
+
+
+def test_a_walk_writes_its_recovery_file_under_the_tests_own_directory(app, tmp_path):
+    """Fails if the reports redirect is removed, which is the regression to catch.
+
+    Without it the runner writes a fake event into `reports/seeding/`, beside
+    the operator's real saved runs, every time the suite runs.
+    """
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape())
+    _install(app, _FakeSt())
+
+    _scrape(limit_groups=None)
+
+    written = list(tmp_path.rglob("last_walk.json"))
+    assert written, "the recovery write escaped the test's own directory"
+    assert all(str(path).startswith(str(tmp_path)) for path in written)
+
+
+def test_the_runner_resolves_reports_through_the_redirected_helper(app, tmp_path):
+    """Pins the seam the redirect uses, so a direct path build is caught too."""
+    assert tournament_intake.reports_dir() == tmp_path
