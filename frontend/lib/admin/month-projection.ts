@@ -1,6 +1,7 @@
 import 'server-only';
 import type Stripe from 'stripe';
 import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
+import { startOfMonth, wallClockDate } from './timezone';
 
 /** Window over which a converted subscriber is checked for surviving their first paid month. */
 const CHURN_WINDOW_DAYS = 30;
@@ -43,7 +44,10 @@ export type CohortWindow = {
 
 export type TrialProjection = {
   trialsToDate: number;
+  /** Fraction of the month actually elapsed. Drives every rate; see `monthBounds`. */
   daysElapsed: number;
+  /** Calendar day number, for display only — never a denominator. */
+  dayOfMonth: number;
   daysInMonth: number;
   dailyRate: number;
   projected: number;
@@ -217,14 +221,32 @@ function finalizeRate(observed: number, sample: number, excluded: number, fallba
   return { rate: observed / sample, observed, sample, excluded, isFallback: false };
 }
 
-function monthBounds(now: Date): { monthStart: number; monthEnd: number; daysInMonth: number; daysElapsed: number } {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
+/**
+ * The current calendar month in the business timezone, as instants.
+ *
+ * `daysElapsed` is how much of the month has actually passed, fractionally.
+ * The calendar day number overstates that by up to a full day — on the 6th at
+ * one minute past midnight, `6` claims six days of evidence for a few seconds
+ * of it — which understates every run rate derived from it and made the
+ * projection lurch downward each time the day ticked over. `dayOfMonth` keeps
+ * the integer for display, where "day 5.2 of 30" would read as a defect.
+ */
+function monthBounds(now: Date): {
+  monthStart: number;
+  monthEnd: number;
+  daysInMonth: number;
+  daysElapsed: number;
+  dayOfMonth: number;
+} {
+  const { year, month, day } = wallClockDate(now);
+  const monthStartMs = startOfMonth(year, month);
+  const monthEndMs = month === 12 ? startOfMonth(year + 1, 1) : startOfMonth(year, month + 1);
   return {
-    monthStart: Date.UTC(year, month, 1) / 1000,
-    monthEnd: Date.UTC(year, month + 1, 1) / 1000,
-    daysInMonth: new Date(Date.UTC(year, month + 1, 0)).getUTCDate(),
-    daysElapsed: now.getUTCDate(),
+    monthStart: monthStartMs / 1000,
+    monthEnd: monthEndMs / 1000,
+    daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(),
+    daysElapsed: (now.getTime() - monthStartMs) / (SECONDS_PER_DAY * 1000),
+    dayOfMonth: day,
   };
 }
 
@@ -242,7 +264,8 @@ function monthBounds(now: Date): { monthStart: number; monthEnd: number; daysInM
  * `landedConverted` counts those rather than estimating them, so the figure
  * converges on the actual as the month fills instead of drifting from it.
  *
- * Month boundaries are UTC, matching the Stripe timestamps counted.
+ * Month boundaries are the business timezone's, so the month the operator is
+ * living in is the month this counts.
  */
 export function computeTrialProjection(
   subs: Stripe.Subscription[],
@@ -250,7 +273,7 @@ export function computeTrialProjection(
   paidSubIds: Set<string>,
   excludedEmails: Set<string>
 ): TrialProjection {
-  const { monthStart, monthEnd, daysInMonth, daysElapsed } = monthBounds(now);
+  const { monthStart, monthEnd, daysInMonth, daysElapsed, dayOfMonth } = monthBounds(now);
   const nowSec = Math.floor(now.getTime() / 1000);
 
   let trialsToDate = 0;
@@ -270,9 +293,15 @@ export function computeTrialProjection(
     }
   }
 
-  const dailyRate = trialsToDate / daysElapsed;
+  // Floored at one day so the opening hours of a month cannot be scaled up:
+  // undivided, two signups at 00:30 on the 1st extrapolate to well over a
+  // thousand. Below a day of evidence the run rate is reported as that day's
+  // rather than projected out of a fraction of it, and the same denominator
+  // feeds the band so `projected` stays inside it.
+  const elapsedForRate = Math.max(daysElapsed, 1);
+  const dailyRate = trialsToDate / elapsedForRate;
   const projected = dailyRate * daysInMonth;
-  const scale = daysInMonth / daysElapsed;
+  const scale = daysInMonth / elapsedForRate;
   const margin = PROJECTION_Z * Math.sqrt(trialsToDate);
 
   // Starts still to come that begin early enough for a 7-day trial to close
@@ -284,6 +313,7 @@ export function computeTrialProjection(
   return {
     trialsToDate,
     daysElapsed,
+    dayOfMonth,
     daysInMonth,
     dailyRate,
     projected,
