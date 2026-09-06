@@ -56,6 +56,16 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   while every enqueue actually raised and the script's own `except` swallowed it. Record in
   `execute()`, assert on what `execute()` recorded, and make removing `.execute()` one of the
   mutations the guard is checked against.
+- **A double must refuse what production refuses.** The rule above is one instance of a
+  wider one: wherever the double is more permissive than the real thing, the test passes
+  for the wrong reason, and it passes hardest on the defect it was written to catch.
+  Streamlit is the second framework this has bitten. Its `session_state` checks for a
+  queued rerun before every write and raises from `BaseException`, so a plain-dict double
+  accepts writes production would abort on; and a fake `st.rerun` raising an ordinary
+  `Exception` is swallowed by a handler the real one bypasses. Both hid ordering defects
+  that lose work already paid for, through two review rounds and twenty-six mutation
+  checks. Write the double against the contract rather than the call, and when a mutation
+  survives, suspect the double before the assertion.
 - **A test double that is more permissive than the real thing proves nothing, on four
   axes that each hid a real defect.** A `requests` fake that drops the query string
   cannot see a request that stopped sending its pagination cursor; one that ignores
@@ -257,6 +267,15 @@ id range indefinitely, so a clock-derived cohort would re-file the same
 historical event one group higher every Aug 1.
 
 ### Adding a new scraper
+
+**First check whether this repo already scrapes it.** Search for the provider's base URL or
+endpoint path, not for a feature name — a walker is named for what it produces, so "does anything
+scrape events" finds nothing while the URL finds it immediately. Skipping this shipped a second
+GotSport event walker: `src/scrapers/gotsport.py:1466` and
+`src/tournaments/gotsport_event_roster.py:65` define the identical `EVENT_BASE`, walk the identical
+`/schedules?group=` URL, and share no code. When an existing walker is close but blocked on one
+thing (a bot challenge it cannot clear, a payload it cannot read), fixing that one thing is the
+change — not a parallel implementation.
 
 When planning a new provider, audit what per-team metadata the source exposes (state_code, club_name, coach, gender, age) BEFORE locking in match/create policy. `state_code` availability is load-bearing — without it, auto-created canonical teams land with NULL state and cannot benefit from location-scoped fuzzy matching downstream.
 

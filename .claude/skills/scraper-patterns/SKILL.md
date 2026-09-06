@@ -328,6 +328,33 @@ This sets no `allowed_methods`, so urllib3's default applies and POST is exclude
 *read*-error retries only. The connect-replay gap in **Retry Semantics** below applies to this
 session exactly as it does to an explicit `["GET","HEAD"]` mount.
 
+### Decoding an HTML response
+
+**A `Content-Type: text/html` response carrying no charset decodes as ISO-8859-1**, the RFC 2616 default:
+`requests.utils.get_encoding_from_headers({"content-type": "text/html"})` returns `'ISO-8859-1'`
+(requests 2.32.5). GotSport serves UTF-8 and declares no charset anywhere — of the 55 fixture
+pages, 53 carry non-ASCII including Arabic, and not one declares a `<meta charset>`. (The two
+without non-ASCII are synthetic fixtures rather than captured pages.)
+
+Set the encoding before anything reads `.text`:
+
+```python
+if "charset" not in str(response.headers.get("content-type", "")).lower():
+    response.encoding = "utf-8"
+```
+
+Skipping it costs matches, not just tidiness. A team the provider gives no id for is matched on
+its **name**, so a mojibaked name loses exactly the team a provider id could not rescue.
+`_fetch_once` in `src/tournaments/gotsport_event_roster.py` carries the shipped form, placed ahead
+of the bot-challenge check because that check reads `.text` too.
+
+Give the test double raw bytes plus an `encoding`, and let its `text` decode them the way
+`requests` does. A double that hands back a ready-made `str` makes every charset look identical and
+cannot fail when this regresses.
+
+The same default drives the JSON-body trap under ZenRows Batch API above, where the remedy is to
+parse `response.content` instead.
+
 ### Retry Semantics
 
 **`allowed_methods` does not keep POSTs out of urllib3's retry.** `Retry.increment` gates its

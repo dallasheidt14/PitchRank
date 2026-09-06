@@ -49,15 +49,20 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EVENT_BASE",
+    "EVENT_ID",
+    "EVENT_ID_IN_URL",
     "ZENROWS_ENDPOINT",
     "EventRoster",
     "EventRosterTeam",
     "WafChallengeError",
+    "event_id_from",
     "make_zenrows_fetcher",
     "parse_division_label",
     "parse_group_ids",
     "parse_group_teams",
     "parse_provider_team_id",
+    "printable_text",
+    "redact_secret",
     "resolve_cohort",
     "scrape_event_roster",
 ]
@@ -76,6 +81,16 @@ _TEAM_ID = re.compile(r"[?&]team=([0-9]{1,12})(?![0-9])")
 _RANKINGS_TEAM = re.compile(
     r"rankings\.gotsport\.com/teams/([0-9]{1,12})(?![0-9])"
 )
+# Both refuse a longer token rather than taking a valid prefix of it: `/events/
+# 1234567890123` must not resolve to event 123456789012 and write under that
+# event's path. `\Z` rather than `$`, which would accept a trailing newline.
+EVENT_ID_IN_URL = re.compile(r"/events/([0-9]{1,12})(?![0-9])")
+EVENT_ID = re.compile(r"^[0-9]{1,12}\Z")
+
+_KEPT_CONTROLS = frozenset({chr(9), chr(10)})
+# Zl/Zp are the line and paragraph separators: legal JSON under
+# ensure_ascii=False, and a break in every JavaScript consumer that reads it.
+_STRIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp"})
 
 # One grammar reads the whole label. A run is an age expression with an optional
 # gender letter at either end: `BU12`, `U-12`, `U12B`, `12U`, `12UB`, `B2015`,
@@ -293,6 +308,52 @@ def _gender_of(label: str, runs: list[_AgeRun]) -> str:
     return named.pop() if len(named) == 1 else ""
 
 
+def printable_text(text: str) -> str:
+    """Strip terminal control sequences out of provider-authored text.
+
+    Everything this module returns was written by a tournament organizer or a
+    club, and lands in an operator's terminal, in JSON under ``reports/`` which
+    this repository does not gitignore, and in the seeding UI. ``rich.markup``
+    escaping neutralises ``[`` but not ESC, and rich's own control-code filter
+    does not cover it either, so a division or team name carrying ``&#x1B;``
+    reaches the terminal live and fires again on a later ``cat``. Bidi and
+    zero-width formats matter one step further out: they survive into the JSON
+    and reverse or hide a name in every viewer that renders it.
+
+    Decided by Unicode category rather than by a list of ranges, because a list
+    is what let U+061C, U+FEFF and the Tags block through while naming exactly
+    the class they belong to. Letters, marks, punctuation, symbols and spaces
+    all pass, so accented names, emoji and combining marks are untouched; tab
+    and newline are kept deliberately.
+
+    Punctuation surviving is what this does not solve: a name is still free to
+    carry Markdown or a spreadsheet formula, so a renderer that interprets
+    either needs its own escaping at that boundary.
+    """
+    return "".join(
+        ch
+        for ch in str(text or "")
+        if ch in _KEPT_CONTROLS or unicodedata.category(ch) not in _STRIPPED_CATEGORIES
+    )
+
+
+def event_id_from(url_or_id: str) -> str | None:
+    """Read an event id out of a full event URL or a bare id, or return ``None``.
+
+    Permissive about which of the two it was handed, because an operator pasting
+    into one box has no second box to be wrong about. The CLI stays strict — it
+    has a flag per form and says which one disagreed.
+
+    The id becomes a path segment under ``reports/``, so an unvalidated value
+    lets ``../`` escape the directory the run is meant to live in.
+    """
+    candidate = str(url_or_id or "").strip()
+    if EVENT_ID.match(candidate):
+        return candidate
+    match = EVENT_ID_IN_URL.search(candidate)
+    return match.group(1) if match else None
+
+
 def parse_group_ids(html: str) -> tuple[str, ...]:
     """Return each division's group id once, in the order the page lists them."""
     return tuple(dict.fromkeys(_GROUP_ID.findall(html or "")))
@@ -505,13 +566,13 @@ def make_zenrows_fetcher(
                     attempt + 1,
                     attempts,
                     url,
-                    _redact(str(exc), api_key),
+                    redact_secret(exc, api_key),
                 )
                 if attempt + 1 < attempts and backoff_seconds:
                     time.sleep(backoff_seconds * (attempt + 1))
         raise RuntimeError(
             f"ZenRows gave up on {url} after {attempts} attempts: "
-            f"{_redact(str(last_error), api_key)}"
+            f"{redact_secret(last_error, api_key)}"
         )
 
     return fetch
@@ -583,18 +644,37 @@ def _wait_for(url: str) -> str:
     return _SCHEDULE_READY if "/schedules" in url else _EVENT_PAGE_READY
 
 
-def _redact(text: str, api_key: str) -> str:
-    """Keep the key out of anything a caller may log.
+def redact_secret(value: object, secret: str) -> str:
+    """Keep a credential out of anything a caller may log, write or render.
 
-    ``requests`` puts query parameters in the URL it names in an ``HTTPError``,
-    percent-encoded, so a key containing ``+``, ``/`` or ``=`` does not appear
-    literally and a plain replace would silently miss it. That text reaches the
-    roster's warnings and from there a file under ``reports/``, which is not
-    gitignored, in a public repository.
+    Two shapes leak a key, and neither catches the other:
+
+    - **Percent-encoded.** ``requests`` puts query parameters in the URL it
+      names in an ``HTTPError``, so a key containing ``+``, ``/`` or ``=`` never
+      appears literally and a plain replace misses it.
+    - **Split across whitespace.** A key soft-wrapped in ``.env.local`` comes
+      back carrying an internal newline, and ``h11`` formats the offending
+      header with ``{!r}`` — so the value never appears whole, but a
+      41-character run of it does, and deleting the escape recovers it exactly.
+      That shape is self-triggering: the wrapped key is both what leaks and what
+      caused the request to fail.
+
+    ``SUPABASE_URL`` is deliberately not redacted anywhere. It is public by
+    construction — the same value ships to browsers as
+    ``NEXT_PUBLIC_SUPABASE_URL`` — and hiding it removes the one detail telling
+    an operator which project failed.
+
+    That text reaches a file under ``reports/``, which this repository does not
+    gitignore, in a public repo.
     """
-    if not api_key:
+    text = str(value)
+    if not secret:
         return text
-    return text.replace(api_key, "REDACTED").replace(quote_plus(api_key), "REDACTED")
+    runs = sorted((run for run in secret.split() if len(run) >= 8), key=len, reverse=True)
+    for form in (secret, secret.strip(), quote_plus(secret), *runs):
+        if form:
+            text = text.replace(form, "REDACTED")
+    return text
 
 
 def scrape_event_roster(
