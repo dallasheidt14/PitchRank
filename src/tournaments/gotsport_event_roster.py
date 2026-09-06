@@ -855,22 +855,26 @@ def _read_group_ids(
     full walk from.
     """
     seen: set[str] = set()
-    counts: list[int] = []
+    reads: list[frozenset[str]] = []
     ordered: list[str] = []
     for _ in range(_LANDING_READS):
         found = parse_group_ids(fetch(f"{EVENT_BASE}/{event_id}"))
-        counts.append(len(found))
+        reads.append(frozenset(found))
         for group_id in found:
             if group_id not in seen:
                 seen.add(group_id)
                 ordered.append(group_id)
 
-    stable = len(set(counts)) == 1
+    # Compared as sets, not counts. Two partial renders can be the same length
+    # and still name different divisions, and a count test calls that agreement
+    # — then the union is walked end to end, `found` equals `walked`, and a
+    # roster missing whatever neither read saw is declared the whole event.
+    stable = len(set(reads)) == 1
     if not stable:
         warnings.append(
-            f"The event page listed a different number of divisions on each read "
-            f"({', '.join(str(count) for count in counts)}); it had not finished "
-            f"loading, so {len(ordered)} is a floor rather than the total"
+            f"The event page listed different divisions on each read "
+            f"({', '.join(str(len(read)) for read in reads)} of them); it had not "
+            f"finished loading, so {len(ordered)} is a floor rather than the total"
         )
     return tuple(ordered), stable
 

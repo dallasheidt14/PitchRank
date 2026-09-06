@@ -1804,6 +1804,18 @@ class TestDivisionListIsCorroborated:
         assert roster.divisions_stable is False
         assert not roster.is_complete, "a walk missing divisions nobody saw is not the whole event"
 
+    def test_two_partial_reads_of_the_same_size_are_not_agreement(self):
+        """The counts match and the divisions do not, which is still disagreement.
+
+        Comparing sizes would call this stable, walk the union end to end, and
+        declare a roster missing whatever neither read saw to be the whole event.
+        """
+        roster = scrape_event_roster("52975", fetch=self._landing(["1", "2"], ["2", "3"]))
+
+        assert roster.divisions_found == 3
+        assert roster.divisions_stable is False
+        assert not roster.is_complete
+
     def test_says_the_count_is_a_floor_when_the_reads_disagree(self):
         roster = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
 
