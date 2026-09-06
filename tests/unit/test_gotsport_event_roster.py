@@ -29,7 +29,7 @@ from src.tournaments.gotsport_event_roster import (
     WafChallengeError,
     event_id_from,
     make_zenrows_fetcher,
-    named_cohort,
+    names_cohort_outside,
     parse_division_label,
     parse_group_ids,
     parse_group_teams,
@@ -1582,28 +1582,42 @@ def _mixed_age_event():
     }
 
 
-class TestNamedCohort:
+class TestNamesCohortOutside:
     """What the label said, as distinct from what we board.
 
     ``resolve_cohort`` answers "" for both a cohort outside the boards and a
     label nobody can parse. A caller deciding what to pay for needs those apart.
     """
 
-    def test_reports_a_cohort_below_the_boards(self):
-        assert named_cohort("U9 Boys Gold") == "u9"
-        assert resolve_cohort("U9 Boys Gold")[0] == ""
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "U9 Boys Gold",      # below the boards, as a U-age
+            "U8 Boys",
+            "U6 Coed",
+            "U5 Boys",           # below what `normalize_age` will name at all
+            "U20 Boys",          # above the boards
+            "U21 Boys",
+            "B2018 Silver",      # below the boards, as a birth year
+            "B2020 Red",
+            "B2005 Gold",        # aged out, as a birth year
+        ],
+    )
+    def test_names_a_cohort_the_boards_exclude(self, label):
+        assert names_cohort_outside(label, BOARDED) is True
+        assert resolve_cohort(label)[0] == "", "and it is still withheld as a cohort"
 
-    def test_reports_a_below_board_cohort_written_as_a_birth_year(self):
-        assert named_cohort("B2018 Silver") == "u9"
+    @pytest.mark.parametrize("label", ["U10 Boys", "U11 Boys Gold", "U19 Boys", "B2017 Gold"])
+    def test_keeps_a_cohort_the_boards_include(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
 
-    def test_reports_a_boarded_cohort_unchanged(self):
-        assert named_cohort("U11 Boys Gold") == "u11"
+    @pytest.mark.parametrize("label", ["Flight A", "Gold Division", "", "Championship"])
+    def test_will_not_judge_a_label_naming_no_cohort(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
 
-    def test_answers_empty_for_a_label_naming_no_cohort(self):
-        assert named_cohort("Flight A") == ""
-
-    def test_answers_empty_for_a_label_naming_two(self):
-        assert named_cohort("BU12/BU13") == ""
+    @pytest.mark.parametrize("label", ["BU12/BU13", "17/19U BOYS", "U13-14 Boys", "U18/U19/20"])
+    def test_will_not_judge_a_label_naming_two(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
 
 
 class TestCohortFilter:
@@ -1681,3 +1695,48 @@ class TestCohortFilter:
         assert len(kept_claims) == 1
         assert "Flight A" in kept_claims[0]
         assert not any("U9 Boys Gold" in w for w in kept_claims)
+
+
+class TestSkippedDivisionsDoNotLookLikeLosses:
+    """A division we chose not to walk is not a gap in the roster.
+
+    `is_complete` is what the seeding tab reads to decide an event is finished.
+    A false answer there reopens the full-event button on an event already
+    bought, so a deliberate skip must not look like a division that got away.
+    """
+
+    def _event_with_an_unreadable_young_division(self):
+        return {
+            "/org_event/events/52975": _landing_html(["1", "2"]),
+            "schedules?group=1": _group_html("U11 Boys Gold", [("11", "Good FC")]),
+            "schedules?group=2": _group_html(
+                "U9 Boys Gold",
+                [("21", "Little FC")],
+                home_heading="Host",
+                away_heading="Visitor",
+                standings_heading="Squad",
+            ),
+            "schedules?team=11": _team_html("521426"),
+            "schedules?team=21": _team_html("521427"),
+        }
+
+    def test_a_skipped_division_is_not_counted_unreadable(self):
+        roster = scrape_event_roster(
+            "52975",
+            fetch=_fetch_for(self._event_with_an_unreadable_young_division()),
+            wanted_cohorts=BOARDED,
+        )
+
+        assert roster.divisions_skipped == 1
+        assert roster.divisions_unreadable == 0
+        assert roster.is_complete, "the walk got every division it asked for"
+
+    def test_an_unreadable_division_we_did_want_still_counts(self):
+        """The count still means what it meant; only the skipped ones leave it."""
+        roster = scrape_event_roster(
+            "52975",
+            fetch=_fetch_for(self._event_with_an_unreadable_young_division()),
+        )
+
+        assert roster.divisions_unreadable == 1
+        assert not roster.is_complete
