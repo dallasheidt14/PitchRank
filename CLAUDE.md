@@ -553,6 +553,7 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 |----------|---------|----------|---------|
 | `frontend/app/api/scrape-missing-game` | User-clicked | 1 | One team |
 | `frontend/app/api/create-team` | Admin creates a team | 1 | The new team, GotSport only |
+| `frontend/app/api/watchlist/add` | User watchlists a team | 1 | That team — skipped when it has no `provider_id`, and capped at 100 distinct teams per user per hour so a scripted sweep cannot starve the shared priority-1 lane. Fires on the localStorage-watchlist migration too, which is the only signal for a team a user starred before subscribing |
 | `enqueue_viewed_teams.py` | Daily | 2 | Teams a signed-in subscriber opened in the last 36h, GotSport-servable only — admin views excluded, and skips any team already holding a pending user click |
 | `enqueue_yesterday_games.py` | Daily | 2 | Teams whose yesterday games have null scores, excluding any already scraped today |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
@@ -562,9 +563,9 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | `enqueue_stranded_merge_fixtures.py` | Operator-run | 2 | Surviving teams whose unplayed fixtures a merge stranded — dry run unless `--execute`, and no workflow runs it |
 | `enqueue_user_interest_teams.py` | Weekly | 1 | Teams a user watchlisted, captured a report card for, or clicked "find missing game" on — skips any team already holding a pending row. No workflow runs it; a cloud routine fires the `user-activity-retention-hygiene` skill |
 
-That is every caller of `enqueue_scrape_request`. The two `new_team` paths are easy to
-miss when tracing why a team entered the queue, because neither lives in an
-`enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
+That is every caller of `enqueue_scrape_request`. The two `new_team` paths and the
+watchlist route are easy to miss when tracing why a team entered the queue, because none
+of them lives in an `enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
 opposite reason — it is shaped like the scheduled enqueue jobs but only an operator runs
 it. The RPC keeps at most one pending row per team and promotes
 priority via `LEAST`. Consumers:
