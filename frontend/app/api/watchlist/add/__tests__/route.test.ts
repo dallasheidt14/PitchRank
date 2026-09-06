@@ -130,6 +130,44 @@ describe('POST /api/watchlist/add', () => {
     expect(mockCheckRateLimit).toHaveBeenCalledWith('watchlist-enqueue:user-1', 100, 3_600_000);
   });
 
+  it('leaves a pending priority-1 row alone, so a user-chosen game date is not re-anchored to today', async () => {
+    queueSuccessfulAdd();
+    svc.queueFrom('scrape_requests', { data: [{ id: 'req-1' }], error: null });
+
+    const res = await POST(makeRequest({ teamIdMaster: TEAM_ID }));
+
+    expect(res.status).toBe(200);
+    expect(svc.rpc).not.toHaveBeenCalled();
+
+    // The lookup must be the one teams_with_pending_user_request makes: this
+    // team's pending rows at priority 1, not merely any row for the team.
+    const lookup = svc.from.mock.results[0].value;
+    expect(lookup.eq).toHaveBeenCalledWith('team_id_master', TEAM_ID);
+    expect(lookup.eq).toHaveBeenCalledWith('status', 'pending');
+    expect(lookup.eq).toHaveBeenCalledWith('priority', 1);
+  });
+
+  it('enqueues when the team holds no pending priority-1 row', async () => {
+    queueSuccessfulAdd();
+    svc.queueFrom('scrape_requests', { data: [], error: null });
+
+    const res = await POST(makeRequest({ teamIdMaster: TEAM_ID }));
+
+    expect(res.status).toBe(200);
+    expect(svc.from).toHaveBeenCalledWith('scrape_requests');
+    expect(svc.rpc).toHaveBeenCalledOnce();
+  });
+
+  it('skips the enqueue when the pending lookup fails, rather than overwriting blind', async () => {
+    queueSuccessfulAdd();
+    svc.queueFrom('scrape_requests', { data: null, error: { message: 'lookup exploded' } });
+
+    const res = await POST(makeRequest({ teamIdMaster: TEAM_ID }));
+
+    expect(res.status).toBe(200);
+    expect(svc.rpc).not.toHaveBeenCalled();
+  });
+
   it('rejects a non-UUID teamIdMaster before any query', async () => {
     const res = await POST(makeRequest({ teamIdMaster: 'not-a-uuid; or=(1,1)' }));
 

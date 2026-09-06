@@ -128,7 +128,8 @@ export async function POST(req: Request) {
  *
  * Priority 1, matching the other user-driven producers (missing_game, new_team).
  * The RPC is an idempotent UPSERT keyed on one pending row per team and promotes
- * priority via LEAST, so re-adding a team costs nothing.
+ * priority via LEAST, so re-adding a team costs nothing. A team already holding a
+ * pending priority-1 row is left alone — see the comment on the lookup below.
  *
  * Never fatal: the team is already on the watchlist by the time this runs, and a
  * missed enqueue is picked up by the weekly interest pass.
@@ -160,6 +161,34 @@ async function enqueueWatchlistScrape(
 
   try {
     const supabase = createServiceSupabase();
+
+    // Leave an existing pending priority-1 row alone. The RPC's UPDATE branch sets
+    // game_date = COALESCE(p_game_date, game_date), and we always pass a date, so
+    // enqueueing over a user's own "find missing game" request would move that
+    // row's +/-90 day window off the date they asked about and onto today.
+    //
+    // Priority 1 is the proxy for "a user chose this date", exactly as
+    // scripts/enqueue_helpers.teams_with_pending_user_request reasons: the UPDATE
+    // branch does not touch request_type, so a row's type cannot be trusted to say
+    // who wrote it. The other priority-1 producers all anchor on today, so skipping
+    // them costs nothing beyond a re-anchor the team does not need — it is already
+    // at the front of the queue.
+    const { data: pending, error: pendingError } = await supabase
+      .from('scrape_requests')
+      .select('id')
+      .eq('team_id_master', team.team_id_master)
+      .eq('status', 'pending')
+      .eq('priority', 1)
+      .limit(1);
+
+    // A failed lookup is not a licence to overwrite: we cannot tell whether a
+    // user's row is there, so leave the queue as it is.
+    if (pendingError) {
+      console.error('[Watchlist Add] Pending-request lookup failed, skipping enqueue:', pendingError);
+      return;
+    }
+    if (pending && pending.length > 0) return;
+
     const { error } = await supabase.rpc('enqueue_scrape_request', {
       p_team_id_master: team.team_id_master,
       p_team_name: team.team_name,
