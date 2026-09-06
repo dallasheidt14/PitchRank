@@ -23,9 +23,12 @@ vi.mock('@/lib/supabase/service', () => ({
 import { getSubscriptionMetrics } from '../subscription-metrics';
 
 const DAY = 86_400;
-const NOW = Date.UTC(2026, 8, 15, 12, 0, 0); // day 15 of a 30-day September
+// Midnight on Sept 16 in America/Phoenix (UTC-7): calendar day 16, with exactly
+// 15.0 of the 30 days elapsed. Fixtures are anchored to Phoenix midnights so a
+// "Sept 1" trial is one there and not on the evening of Aug 31.
+const NOW = Date.UTC(2026, 8, 16, 7, 0, 0);
 const nowSec = Math.floor(NOW / 1000);
-const sept = (d: number) => Date.UTC(2026, 8, d) / 1000;
+const sept = (d: number) => Date.UTC(2026, 8, d, 7) / 1000;
 const at = (y: number, m: number, d: number) => Date.UTC(y, m, d) / 1000;
 
 /** Trial that ended 40 days ago — matured, so it reaches the churn cohort. */
