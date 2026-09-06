@@ -28,7 +28,6 @@ from src.tournaments.gotsport_event_roster import (
     EventRosterTeam,
     WafChallengeError,
 )
-from src.tournaments.storage import reports_dir
 
 EVENT_URL = "https://system.gotsport.com/org_event/events/52975"
 EVENT_LOCK_DIR = "gotsport__52975__unknown"
@@ -330,15 +329,21 @@ def test_the_runner_forwards_a_full_walk_as_no_limit(app):
     assert scrape.calls[0]["limit_groups"] is None
 
 
-def test_the_walk_never_creates_a_lock_directory_under_reports(app, monkeypatch):
-    """The lock is stubbed here; this fails loudly if a future edit unstubs it."""
+def test_the_walk_never_creates_a_lock_directory_under_reports(app, tmp_path):
+    """The lock is stubbed here; this fails loudly if a future edit unstubs it.
+
+    Asserted against the redirected reports directory rather than the real one,
+    because the real one legitimately holds a lock folder for any event the
+    operator has actually scraped, and that has nothing to do with this walk.
+    """
     scrape = _RecordingScrape()
     app.setattr(tournament_intake, "scrape_event_roster", scrape)
     _install(app, _FakeSt())
 
     _scrape(limit_groups=2)
 
-    assert not (reports_dir() / EVENT_LOCK_DIR).exists()
+    assert not (tmp_path / EVENT_LOCK_DIR).exists()
+    assert tournament_intake.reports_dir() == tmp_path, "the redirect must be what we just checked"
 
 
 # -------- guards before any money is spent --------------------------------
@@ -1542,3 +1547,26 @@ def test_a_walk_writes_its_recovery_file_under_the_tests_own_directory(app, tmp_
 def test_the_runner_resolves_reports_through_the_redirected_helper(app, tmp_path):
     """Pins the seam the redirect uses, so a direct path build is caught too."""
     assert tournament_intake.reports_dir() == tmp_path
+
+
+# -------- the walk only pays for ages that can be ranked -------------------
+
+
+def test_the_walk_asks_only_for_the_ages_pitchrank_boards(app):
+    """Otherwise the app pays for team pages it can never rank or seed."""
+    scrape = _RecordingScrape()
+    app.setattr(tournament_intake, "scrape_event_roster", scrape)
+    _install(app, _FakeSt())
+
+    _scrape(limit_groups=None)
+
+    assert scrape.calls[0]["wanted_cohorts"] == tournament_intake._RANKED_COHORTS
+
+
+def test_the_boarded_ages_come_from_config_not_a_list_here():
+    """Derived, so the set follows the August rollover instead of going stale."""
+    from config.settings import AGE_GROUPS
+
+    assert tournament_intake._RANKED_COHORTS == frozenset(AGE_GROUPS)
+    assert "u9" not in tournament_intake._RANKED_COHORTS
+    assert {"u10", "u19"} <= tournament_intake._RANKED_COHORTS
