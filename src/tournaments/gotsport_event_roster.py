@@ -32,7 +32,7 @@ import random
 import re
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Lock
@@ -57,6 +57,7 @@ __all__ = [
     "WafChallengeError",
     "event_id_from",
     "make_zenrows_fetcher",
+    "named_cohort",
     "parse_division_label",
     "parse_group_ids",
     "parse_group_teams",
@@ -158,6 +159,7 @@ class EventRoster:
     divisions_found: int = 0
     divisions_walked: int = 0
     divisions_unreadable: int = 0
+    divisions_skipped: int = 0
     teams_unreadable: int = 0
 
     @property
@@ -203,14 +205,24 @@ def resolve_cohort(label: str) -> tuple[str, str]:
     are the band it spans.
     """
     runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
+    named = named_cohort(label)
+    return (named if named in AGE_GROUPS else ""), _gender_of(label, runs)
+
+
+def named_cohort(label: str) -> str:
+    """The one cohort this label names, whether or not PitchRank boards it.
+
+    ``resolve_cohort`` withholds a cohort outside the boards, which makes
+    ``U9 Boys Gold`` and a label nobody can parse arrive as the same empty
+    string. To a caller deciding what to pay for they are not the same thing:
+    the first is a division known to be unwanted, the second is one that cannot
+    be judged and must therefore be kept. This reports what the label said, so
+    that caller can tell them apart. ``resolve_cohort`` still answers the
+    narrower question of what we board.
+    """
+    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
     cohorts = _cohorts_of(runs, "u_age") or _cohorts_of(runs, "birth_year")
-
-    age_group = ""
-    if len(cohorts) == 1:
-        candidate = cohorts.pop()
-        age_group = candidate if candidate in AGE_GROUPS else ""
-
-    return age_group, _gender_of(label, runs)
+    return cohorts.pop() if len(cohorts) == 1 else ""
 
 
 @dataclass(frozen=True)
@@ -685,6 +697,7 @@ def scrape_event_roster(
     delay_max: float = 0.0,
     limit_groups: int | None = None,
     max_workers: int = 1,
+    wanted_cohorts: Collection[str] | None = None,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> EventRoster:
     """Walk one event and return every team it publishes.
@@ -707,6 +720,14 @@ def scrape_event_roster(
     gets priced against a couple of them before paying for all of it. The result
     reports ``is_complete`` so a truncated or blocked walk cannot be mistaken
     for a whole one.
+
+    ``wanted_cohorts`` drops a division whose label plainly names a cohort
+    outside it, before any of its team pages are fetched. Team pages are most of
+    an event's bill, so an event carrying age groups nobody ranks is much cheaper
+    to walk with this set. The division's own page is still paid for, because its
+    label is the thing being read. A label naming no single cohort is always
+    kept: an unreadable label is not evidence a division is unwanted, and
+    guessing costs teams.
     """
     warnings: list[str] = []
     throttled = _throttled(fetch, delay_min, delay_max)
@@ -722,6 +743,17 @@ def scrape_event_roster(
     divisions, unreadable_divisions = _read_divisions(
         throttled, event_id, group_ids, max_workers, warnings
     )
+    # Counted before the filter: a division we read and then chose not to pay
+    # further for was still walked, and `is_complete` compares this against the
+    # number found. Counting only the kept ones would report every filtered walk
+    # as partial, which retires the full-walk control and disarms the guard that
+    # stops a probe overwriting a complete roster.
+    divisions_walked = len(divisions)
+    divisions, skipped = _wanted_divisions(divisions, wanted_cohorts, warnings)
+    for division in divisions:
+        if not division.age_group:
+            named = division.label or f"group {division.group_id}"
+            warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
     pending = [(division, entry) for division in divisions for entry in division.teams]
     outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, on_progress)
 
@@ -751,8 +783,9 @@ def scrape_event_roster(
         teams=tuple(teams),
         warnings=tuple(warnings),
         divisions_found=divisions_found,
-        divisions_walked=len(divisions),
+        divisions_walked=divisions_walked,
         divisions_unreadable=len(unreadable_divisions),
+        divisions_skipped=len(skipped),
         teams_unreadable=unreadable,
     )
 
@@ -796,9 +829,6 @@ def _read_divisions(
         label = parse_division_label(group_html)
         age_group, gender = resolve_cohort(label)
         named = label or f"group {group_id}"
-        if not age_group:
-            warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
-
         teams = parse_group_teams(group_html)
         if not team_table_found(group_html):
             unreadable.append(group_id)
@@ -818,6 +848,38 @@ def _read_divisions(
             )
         )
     return divisions, unreadable
+
+
+def _wanted_divisions(
+    divisions: list[_Division],
+    wanted_cohorts: Collection[str] | None,
+    warnings: list[str],
+) -> tuple[list[_Division], list[_Division]]:
+    """Split the divisions into the ones worth paying for and the ones that are not.
+
+    Only a division whose label names one cohort can be dropped. A label naming
+    none, or naming two, is kept: the caller cannot act on a cohort this module
+    would not assert, and dropping on a guess costs real teams.
+    """
+    if wanted_cohorts is None:
+        return divisions, []
+
+    keep: list[_Division] = []
+    skipped: list[_Division] = []
+    for division in divisions:
+        named = named_cohort(division.label)
+        if named and named not in wanted_cohorts:
+            skipped.append(division)
+        else:
+            keep.append(division)
+
+    if skipped:
+        labels = ", ".join(sorted({division.label or division.group_id for division in skipped}))
+        warnings.append(
+            f"Skipped {len(skipped)} division(s) outside the ages you rank, "
+            f"and did not fetch their team pages: {labels}"
+        )
+    return keep, skipped
 
 
 def _provider_ids_for(

@@ -28,6 +28,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from config.settings import (
+    AGE_GROUPS,
     PROJECT_NAME,
     SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_URL,
@@ -3483,6 +3484,12 @@ _SEEDING_PLACEHOLDER = (
     "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
 )
 
+# The ages PitchRank boards, read from the config the rest of the app uses so the
+# set moves with the August rollover rather than being restated here. A division
+# outside it is not worth a team page: `rankings_full` holds no row for those
+# cohorts, so a seeding sheet has nothing to say about their teams.
+_RANKED_COHORTS = frozenset(AGE_GROUPS)
+
 _SEEDING_EVENT_PROBE_DIVISIONS = 2
 # The scraper defaults to serial; a whole event walked one page at a time is hours.
 _SEEDING_EVENT_WORKERS = 8
@@ -3616,6 +3623,7 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
                         fetch=make_zenrows_fetcher(api_key),
                         limit_groups=limit_groups,
                         max_workers=_SEEDING_EVENT_WORKERS,
+                        wanted_cohorts=_RANKED_COHORTS,
                     )
                     parked = _park_event_roster(url, roster, limit_groups, supabase_client)
             finally:
