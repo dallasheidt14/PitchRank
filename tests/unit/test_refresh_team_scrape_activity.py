@@ -26,18 +26,28 @@ def _page(rows_changed, last_team_id):
     return [{"rows_changed": rows_changed, "last_team_id": last_team_id}]
 
 
-def _run_main(argv, pages=None, rpc_error=None):
-    """Drive main() with a stubbed client. `pages` is one RPC result per call."""
+def _run_main(argv, pages=None, rpc_error=None, errors=None, record=None):
+    """Drive main() with a stubbed client. `pages` is one RPC result per call.
+
+    `errors` is one exception-or-None per call, consumed before `pages`, so a
+    transient failure can be injected without failing every call the way
+    `rpc_error` does. Pass `record` to read the calls back from a run that exits,
+    since the return value is unreachable through a SystemExit.
+    """
     supabase = Mock()
-    calls = []
+    calls = record if record is not None else []
 
     seq = list(pages if pages is not None else [_page(0, None)])
+    err_seq = list(errors or [])
 
     def _rpc(*args, **kwargs):
         calls.append(args)
         result = Mock()
+        injected = err_seq.pop(0) if err_seq else None
         if rpc_error is not None:
             result.execute.side_effect = rpc_error
+        elif injected is not None:
+            result.execute.side_effect = injected
         else:
             result.execute.return_value = Mock(data=seq.pop(0) if seq else [])
         return result
@@ -48,6 +58,7 @@ def _run_main(argv, pages=None, rpc_error=None):
         patch.object(refresh, "create_client", return_value=supabase),
         patch.object(refresh, "SUPABASE_URL", "https://example.supabase.co"),
         patch.object(refresh, "SUPABASE_KEY", "service-role-key"),
+        patch.object(refresh, "RETRY_BACKOFF_SECONDS", 0),
         patch.object(sys, "argv", ["refresh_team_scrape_activity.py", *argv]),
     ):
         refresh.main()
@@ -132,13 +143,60 @@ def test_missing_rows_changed_does_not_break_the_total(capsys):
     assert SUMMARY_LINE.findall(capsys.readouterr().out) == ["Updated: 0"]
 
 
-def test_rpc_failure_exits_non_zero():
+def test_a_transient_page_failure_is_retried_and_the_walk_finishes(capsys):
+    """A page costs about a quarter-second against an 8s budget, so a timeout is
+    a database stall. Both scheduled runs up to 2026-09-06 died on one at page 0."""
+    calls = _run_main(
+        [],
+        pages=[_page(6, "t-a"), _page(0, None)],
+        errors=[RuntimeError("canceling statement due to statement timeout")],
+    )
+
+    assert len(calls) == 3
+    assert SUMMARY_LINE.findall(capsys.readouterr().out) == ["Updated: 6"]
+
+
+def test_a_retry_replays_the_same_page_rather_than_advancing():
+    """Advancing past a failed page would silently skip every team on it, and the
+    run would still report success."""
+    calls = _run_main(
+        [],
+        pages=[_page(6, "t-a"), _page(0, None)],
+        errors=[RuntimeError("canceling statement due to statement timeout")],
+    )
+
+    assert [c[1]["p_after"] for c in calls] == [None, None, "t-a"]
+
+
+def test_a_retried_page_is_counted_once(capsys):
+    """The cancelled attempt wrote nothing, so only the succeeding attempt counts."""
+    _run_main(
+        [],
+        pages=[_page(6, None)],
+        errors=[RuntimeError("canceling statement due to statement timeout")],
+    )
+
+    assert SUMMARY_LINE.findall(capsys.readouterr().out) == ["Updated: 6"]
+
+
+def test_rpc_failure_exits_non_zero_once_attempts_are_exhausted():
     """There is no Python fallback by design, so a failure has to go red rather
     than report a silent partial count as success."""
     with pytest.raises(SystemExit) as exc:
         _run_main([], rpc_error=RuntimeError("statement timeout"))
 
     assert exc.value.code == 1
+
+
+def test_a_failing_page_is_attempted_three_times_and_no_more():
+    """The literal is the point: asserting against PAGE_ATTEMPTS itself would hold
+    for any value, including one that retries a genuine outage until the workflow's
+    30-minute timeout kills it."""
+    calls = []
+    with pytest.raises(SystemExit):
+        _run_main([], rpc_error=RuntimeError("statement timeout"), record=calls)
+
+    assert len(calls) == 3
 
 
 def test_missing_credentials_exit_non_zero():
