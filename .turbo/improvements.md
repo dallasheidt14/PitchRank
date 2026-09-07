@@ -1499,3 +1499,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
 - **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
 - **Noted**: 2026-09-01
+
+### Skip operator-decided teams in the contradiction audit's paid probe list
+
+- **ID**: IMP-161
+- **Status**: deferred
+- **Type**: direct
+- **Category**: performance
+- **Where**: `scripts/assign_team_states.py` — `contradiction_candidates`, the `state_source != TIER_A_SOURCE` clause
+- **Why**: The selection excludes teams the provider already answered but not teams a person decided — 31 set by hand (`state_source = 'operator'`) and 98 approved from the review queue. Since the authority test added in `state-corrections-converge` can only ever queue a correction over an operator decision, each of those buys a GotSport call whose answer is unappliable. **Deferred deliberately on 2026-09-02**: the stored-`DC` clause keeps such teams in the population on the grounds that a review row carrying the provider's answer is worth the call, and the same argument applies here. Revisit only if paid probe volume becomes a concern. Whichever way it goes, the selection tests should assert the choice — they currently enumerate exclusions one literal at a time rather than deriving them from what `decide` can act on, so neither the present behaviour nor its opposite is pinned. Raised by the coverage reviewer.
+- **Trigger**: paid GotSport probe volume becomes a cost concern, or the audit's candidate count stops falling
+- **Noted**: 2026-09-02

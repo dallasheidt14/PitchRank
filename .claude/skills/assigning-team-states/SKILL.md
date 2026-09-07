@@ -47,7 +47,10 @@ Migrations here go on by hand, so the ledger does too:
 **Prove the rules.** Run `python scripts/check_state_skill_assumptions.py`. It drives the real
 decision code and asserts the behaviours this document promises: that a stored Canadian
 province is never corrected, that a curated club queues rather than applies, that a correction
-from a name never auto-applies, that a reverted value is not re-applied. **A failure means
+from a name never auto-applies, that a reverted value is not re-applied, that no tier overturns
+a state of equal or better provenance or one an operator approved, that the provider may
+refresh its own record, and that a state predating this tool is still correctable. **A failure
+means
 this skill is now wrong, not that the codebase is broken** — fix the prose, then continue. The
 measurements below the assertions never fail; they warn when a count this document quotes has
 drifted more than 20%.
@@ -134,12 +137,21 @@ Apply it the same way as any other snapshot, from Step 4 on.
 
 ## Step 3: Read the evidence before writing anything
 
-The run prints a table of fills and corrections per tier. Before applying, know these three
+The run prints a table of fills and corrections per tier. Before applying, know these four
 things about what you are looking at.
 
 **Corrections outnumber fills, and that is the point.** The blanks are nearly gone; the
 remaining work is fixing values earlier heuristics guessed. On the 2026-08-29 run, 96% of
 proposed corrections replaced a state no provider had ever reported.
+
+**A correction that does not outrank the stored value queues rather than applying.** A
+stronger tier still applies — Tier A over a `tier_b` state goes through. What queues is a tier
+meeting or falling below what already wrote the value, and the reason string says which:
+`tier_b wrote the stored value`, or `an operator approved the stored value`. That is not the
+tool being timid: without it, a fill changes the clubmate distribution the next run's Tier B
+reads and two sweeps rewrite each other forever. Those rows are the ones most worth reading by
+hand, because both answers came from evidence the tool trusts. See
+[references/failure-modes.md](references/failure-modes.md#a-sweep-that-argues-with-itself).
 
 **Tier B is the workhorse and it has one blind spot.** It reads the club, so a club whose
 teams are *uniformly* mislabelled agrees with itself and gets its error propagated to the last
@@ -158,6 +170,12 @@ state. Those need `--set`.
 ```bash
 python scripts/assign_team_states.py --execute --snapshot run.json --limit 50
 ```
+
+**A snapshot decided under older rules is refused outright**, naming the rules it carries.
+`--execute` never recomputes, so a file taken before a decision rule existed holds applies
+that rule would have refused — and the pre-image predicate does not catch them, because the
+teams have not moved, only the reasoning about them has. Take a fresh dry run; nothing is
+recoverable from the old file that a new one will not decide better.
 
 Then verify — not from the run's output:
 

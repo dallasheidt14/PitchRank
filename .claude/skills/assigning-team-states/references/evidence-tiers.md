@@ -142,13 +142,27 @@ Stated pairwise rather than as one ordering, because the intents genuinely diffe
 | A stored `DC` | queue | Tier A's exemption below |
 | A curated club | Tiers B, C, E queue | applies when nothing above fired |
 | A stored value that was *reported* | a non-A correction queues | Tiers B, C, E |
+| A stored value of equal or better provenance | the correction queues | any auto-apply, except Tier A refreshing its own record |
 | The ledger holds a revert away from this value | queue | any auto-apply |
 
-The last two are worth spelling out. A state some writer also spelled into the full-name
+The last three are worth spelling out. A state some writer also spelled into the full-name
 `state` column came from a provider payload, a TGS import or an admin form rather than from a
 heuristic — counting a club is not evidence enough to overrule it, though a per-team
 registration record is. And a value an operator has already reverted must not be re-applied
 next week, which is the only thing that makes a revert stick.
+
+The provenance rule is what makes repeated sweeps settle. `teams.state_source` records which
+tier wrote a state, and a correction has to outrank it: Tier B never overwrites a `tier_a`
+record, and — the part that does the work — **no tier overwrites its own earlier answer**.
+Equal authority loses, because re-reading evidence the sweep itself moved is not new evidence.
+Two exceptions, in opposite directions. Tier A may refresh its *own* record, because its input
+is a registration bought fresh from the provider rather than a recount of something this tool
+wrote. And an answer an operator gave — by `--set`, or by approving a queue row — outranks
+every tier, which is read from the ledger rather than from `state_source`: `approve_team_state`
+stamps the *proposing tier* there, so the column alone would rank a person's decision at the
+tier's confidence and let a stronger tier overwrite it. The vast majority of states carry no
+`state_source` at all, predate this tool, and are correctable as they always were. See
+[failure-modes.md](failure-modes.md#a-sweep-that-argues-with-itself).
 
 ## What is deliberately not a tier
 

@@ -18,12 +18,24 @@ state is a **fill**; a team whose state a tier disputes is a **correction**. Fil
 auto-apply from any tier; corrections auto-apply only from A or B. Everything else
 writes a review-queue row and changes nothing.
 
-One correction never auto-applies whatever the tier: one that would overwrite a state
-some writer also spelled out in the full-name ``state`` column. That column is set by
-four writers and by nothing else, so an empty one is hard evidence the state was derived
--- which is the 96% case this tool exists for -- while a filled one means the value came
-from a provider payload, a TGS import, or an admin form. Counting a club's other teams is
-not evidence enough to overrule that; a per-team provider record is, so Tier A is exempt.
+Two corrections never auto-apply whatever the tier.
+
+One would overwrite a state some writer also spelled out in the full-name ``state``
+column. That column is set by four writers and by nothing else, so an empty one is hard
+evidence the state was derived -- which is the 96% case this tool exists for -- while a
+filled one means the value came from a provider payload, a TGS import, or an admin form.
+Counting a club's other teams is not evidence enough to overrule that; a per-team
+provider record is, so Tier A is exempt.
+
+The other would overwrite a state this tool or an operator recorded, without outranking
+whatever recorded it. That is what makes the sweep converge: a fill changes the clubmate
+distribution the next run's Tier B reads, so without the test a second run rewrites what
+the first just wrote, forever. Equal authority loses, so a tier never overturns its own
+earlier answer on evidence that is no better -- except Tier A against its own record,
+whose input is a registration bought fresh rather than a recount. An operator's answer
+outranks every tier and is read from the ledger, because ``approve_team_state`` stamps
+``state_source`` with the tier that proposed the value rather than the person who ratified
+it. A state with no ``state_source`` predates this tool and is correctable as before.
 
 Usage:
     python scripts/assign_team_states.py --out run.json                  # dry run
@@ -114,8 +126,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY
 ACTOR = "assign_team_states"
 
 # A person's answer is stamped separately from the sweep's, because a revert scopes by
-# actor and undoing a sweep must never undo the answers a person gave.
+# actor and undoing a sweep must never undo the answers a person gave. The provenance
+# it stamps is separate for the same reason, and outranks every tier below.
 OPERATOR_ACTOR = "operator"
+OPERATOR_SOURCE = "operator"
 
 TIER_CONFIDENCE = {"A": 0.95, "B": 0.90, "C": 0.85, "D": 0.85, "E": 0.85, "R9": 0.90}
 
@@ -187,6 +201,22 @@ def state_source_for(tier: str) -> str:
 MAPPED_OUTCOME = "mapped"
 TIER_A_SOURCE = state_source_for("A")
 
+# How much authority a state already carries, keyed by what recorded it. A correction has
+# to beat this outright, so a tier never overwrites its own earlier answer or a better
+# one's. Derived from the tiers rather than listed again, so a tier cannot be reweighted
+# in one place and left ranked by the old number in the other. A source this map does not
+# know scores zero -- that is every state written before this tool, and no tier has had a
+# say in one yet.
+SOURCE_AUTHORITY = {state_source_for(tier): confidence for tier, confidence in TIER_CONFIDENCE.items()}
+SOURCE_AUTHORITY[OPERATOR_SOURCE] = 1.0
+
+# Which decision rules a snapshot's contents were computed under. ``--execute`` replays a
+# file and never recomputes, so a snapshot taken before a rule existed carries decisions
+# that rule would have refused -- and the pre-image predicate does not catch it, because
+# the team's state has not moved, only the reasoning about it. Bump this whenever a change
+# would make an older snapshot's applies wrong, and the replay refuses them instead.
+SNAPSHOT_RULES = "authority"
+
 
 # An outcome that says something about the run rather than about the team. These are the
 # only ones worth retrying, and the only ones that must never suppress a later probe: a
@@ -249,9 +279,10 @@ def stored_state(team: Dict) -> Optional[str]:
 def fetch_live_teams(sb) -> List[Dict]:
     """Every non-deprecated team, with the fields the tiers read.
 
-    ``state_source`` is read by the contradiction audit alone, to find the teams a
-    provider record has already confirmed. No tier consults it: a tier decides what a
-    state should be, and this says where the current one came from.
+    ``state_source`` says where the current state came from, not what it should be, so no
+    tier derives an answer from it. Two things read it: the contradiction audit, to find
+    the teams a provider record has already confirmed, and the authority test every
+    correction has to pass.
     """
     teams: List[Dict] = []
     offset = 0
@@ -294,6 +325,41 @@ def fetch_revert_blocks(sb) -> Set[Tuple[str, str]]:
                 blocks.add((row["team_id_master"], row["old_state_code"].strip()))
         if len(rows) < PAGE_SIZE:
             return blocks
+        offset += PAGE_SIZE
+
+
+def fetch_approved_states(sb) -> Set[Tuple[str, str]]:
+    """``(team, state)`` pairs an operator approved out of the review queue.
+
+    The sibling of ``fetch_revert_blocks``, and needed for the same reason: a person's
+    decision has to outlive the sweep that proposed it. ``approve_team_state`` writes the
+    approved value through ``apply_team_state`` with source ``'tier_' || lower(tier)``, so
+    ``teams.state_source`` names the tier that *proposed* the state, never the person who
+    ratified it. Ranked on that alone a Tier E answer someone approved sits at 0.85 and any
+    Tier B correction outranks it: 98 teams hold an approved state today and 64 would be
+    auto-overwritable. The ledger is where the ratification actually lives, so authority is
+    read from there rather than from the provenance column.
+
+    Keyed on ``new_state_code``, which is where an approve row records the value written --
+    the mirror of the revert reader above, which keys on the value undone. A team whose
+    state has moved on since simply stops matching.
+    """
+    approved: Set[Tuple[str, str]] = set()
+    offset = 0
+    while True:
+        page = (
+            sb.table("team_state_audit")
+            .select("team_id_master,new_state_code")
+            .eq("action", "approve")
+            .range(offset, offset + PAGE_SIZE - 1)
+            .execute()
+        )
+        rows = page.data or []
+        for row in rows:
+            if row.get("new_state_code"):
+                approved.add((row["team_id_master"], row["new_state_code"].strip()))
+        if len(rows) < PAGE_SIZE:
+            return approved
         offset += PAGE_SIZE
 
 
@@ -764,6 +830,7 @@ def decide(
     locality_index: Dict[str, str],
     association_states: Dict[str, str],
     revert_blocks: Set[Tuple[str, str]],
+    approved_states: Set[Tuple[str, str]] = frozenset(),
 ) -> Optional[Dict]:
     """One team's decision, or None when nothing fires or nothing would change."""
     team_id = team["team_id_master"]
@@ -838,6 +905,22 @@ def decide(
     if not is_fill and tier != "A" and (team.get("state") or "").strip():
         return _decision(team, proposed, tier, "queue", f"{reason}; stored value was reported")
 
+    # A correction has to outrank whatever recorded the state it replaces, or this tool
+    # overwrites itself forever -- a fill moves the clubmate distribution the next run's
+    # Tier B counts. Equal authority loses, because re-reading evidence the sweep itself
+    # moved is not new evidence. Tier A is exempt against its own record: its input is a
+    # freshly bought per-team registration, so a changed answer is a changed fact rather
+    # than a recount. See failure-modes.md, "A sweep that argues with itself".
+    recorded = (team.get("state_source") or "").strip()
+    authority = SOURCE_AUTHORITY.get(recorded, 0.0)
+    wrote_it = f"{recorded} wrote the stored value"
+    if (team_id, stored) in approved_states:
+        authority = SOURCE_AUTHORITY[OPERATOR_SOURCE]
+        recorded, wrote_it = OPERATOR_SOURCE, "an operator approved the stored value"
+    refreshing_own_record = tier == "A" and recorded == TIER_A_SOURCE
+    if not is_fill and not refreshing_own_record and TIER_CONFIDENCE[tier] <= authority:
+        return _decision(team, proposed, tier, "queue", f"{reason}; {wrote_it}")
+
     # R5. Fills auto-apply from any tier; corrections only from A or B.
     if is_fill or tier in ("A", "B"):
         return _decision(team, proposed, tier, "apply", reason)
@@ -890,6 +973,10 @@ def build_snapshot(
     revert_blocks = fetch_revert_blocks(sb)
     if revert_blocks:
         console.print(f"  {len(revert_blocks):,} reverted (team, state) pairs to respect")
+
+    approved_states = fetch_approved_states(sb)
+    if approved_states:
+        console.print(f"  {len(approved_states):,} approved (team, state) pairs to respect")
 
     # Not "is tgs_events populated": the tier has no implementation, so a populated
     # table would silence this warning while changing nothing. Filling the table is the
@@ -966,7 +1053,10 @@ def build_snapshot(
         # worth spending a GotSport call on; the second re-decides them with Tier A in hand.
         disputed = {
             d["team_id"]
-            for d in (decide(t, club_index, locality_index, {}, revert_blocks) for t in teams)
+            for d in (
+                decide(t, club_index, locality_index, {}, revert_blocks, approved_states)
+                for t in teams
+            )
             if d
         }
         # Plus every team with no state at all, decided or not. A stateless team no other
@@ -1032,7 +1122,9 @@ def build_snapshot(
     decisions = [
         d
         for d in (
-            decide(team, club_index, locality_index, association_states, revert_blocks)
+            decide(
+                team, club_index, locality_index, association_states, revert_blocks, approved_states
+            )
             for team in teams
         )
         if d
@@ -1066,6 +1158,7 @@ def build_snapshot(
     snapshot = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "actor": ACTOR,
+        "rules": SNAPSHOT_RULES,
         "mode": "audit" if auditing else "normal",
         "live_teams": len(teams),
         # In audit mode this counts cache-seeded answers too, so it is not a paid-call
@@ -1221,18 +1314,27 @@ def mirror_rankings(sb, applied: List[Dict]) -> int:
 def apply_snapshot(
     sb, snapshot: Dict, limit: Optional[int], fills_only: bool = False
 ) -> None:
+    if snapshot.get("rules") != SNAPSHOT_RULES:
+        console.print(
+            f"[red]ERROR: this snapshot was decided under rules {snapshot.get('rules') or 'older'!r}, "
+            f"not {SNAPSHOT_RULES!r}. Its applies were computed by a version of decide() whose "
+            "answers no longer stand, and the pre-image predicate will not catch that -- the teams "
+            "have not moved, the reasoning about them has. Take a fresh dry run.[/red]"
+        )
+        sys.exit(1)
+
     decisions = snapshot["decisions"]
     to_apply = [d for d in decisions if d["action"] == "apply"]
     to_queue = [d for d in decisions if d["action"] == "queue"]
 
-    # A correction is not safe to write unattended, and that is measured rather than
-    # cautious. Two consecutive dry runs propose 664 applies, 90 of which overwrite what
-    # the first pass just wrote: a fill changes the clubmate distribution Tier B reads
-    # next time, so the club count starts overruling per-team records it agreed with an
-    # hour ago. Two teams of one club oscillate between NV and WA with no fixed point.
-    # A fill cannot do that -- it overwrites nothing, and its worst case is a wrong state
-    # on a team that had none, which is visible, logged and reversible. So the scheduled
-    # job takes the fills and leaves every correction to an operator running the sweep.
+    # A correction is not safe to write unattended, and that was measured rather than
+    # assumed: two consecutive dry runs once proposed 664 applies of which 90 overwrote
+    # what the first pass had just written, with two teams of one club oscillating between
+    # NV and WA forever. The authority test in ``decide`` closed that loop -- a correction
+    # now has to outrank whatever recorded the value it replaces -- and a repeat of the
+    # two-pass comparison in failure-modes.md is what would show it is safe to open this
+    # gate. Until someone runs it against a real apply, the scheduled job takes the fills
+    # and leaves every correction to an operator running the sweep.
     # Filtered before --limit, so that limit still counts rows this will actually write.
     if fills_only:
         withheld = sum(1 for d in to_apply if d["pre_image"] is not None)
@@ -1490,7 +1592,7 @@ def assign_by_hand(sb, team_id: str, state: str, reason: Optional[str], execute:
             "p_team_id": team_id,
             "p_expected_state_code": current,
             "p_state_code": state,
-            "p_source": "operator",
+            "p_source": OPERATOR_SOURCE,
             "p_confidence": 1.0,
             "p_actor": OPERATOR_ACTOR,
             "p_action": "fill" if current is None else "correct",
