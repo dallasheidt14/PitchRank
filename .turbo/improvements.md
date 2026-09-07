@@ -1729,7 +1729,66 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py:475`
 - **Why**: Two tracked creation paths write a fixed state rather than deciding one: affinity_wa hardcodes `"WA"` (729 teams, 100% WA) and playmetrics' league path takes `default_state_code` (702 teams, 92% WI). A third population, 25 NJ teams stamped by a Squadi matcher, is **historical only**: no Squadi writer exists in any tracked file (`.turbo/plans/squadi-scraper.md` is the design note, not an implementation), and the unmerged branch that carried `SquadiGameMatcher` was deleted 2026-09-07 — so those rows need a data fix, not a code fix, and nothing recreates them. None sets `state_source`, so the corrector cannot distinguish a provider-reported state from a constant. Worse, the constant feeds Tier B's documented blind spot -- a club whose teams are uniformly stamped agrees with itself and is never corrected, which is why only **1 of 729** affinity_wa teams was touched by the full 2026-08-30 sweep. A visiting out-of-state club would be mislabelled permanently and invisibly. There is already a correct pattern to mirror in the same file family: PlayMetrics' tournament path passes `default_state_code=None` and falls back to `_resolve_state_from_club(club_name)`. No contamination is measurable in affinity_wa's names today (0 of 729 clubs read as out-of-state), so this is a latent-risk and provenance fix rather than a live-damage one.
+
+### Ingest Fall League Washington from the sctour JSON API
+
+- **ID**: IMP-190
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: new `scripts/scrape_sctour_league.py`; `src/models/affinity_wa_matcher.py` for reuse; `.github/workflows/wa-scraper.yml` if it joins the weekly run
+- **Why**: A WA league PitchRank does not ingest, on Affinity's newer Blazor platform rather than the classic `.asp` pages `scrape_affinity_wa_tournament.py` speaks, so it needs its own scraper. The data is easy once reached: same-origin REST at `https://sctour.sportsaffinity.com/api/schedules?organizationId=<org>&tournamentId=<tourn>` returns JSON with team ids, club ids, goals, forfeit flags, play dates and venue `stateCode`; `/api/standings` carries `ageGroupName` + `flightKey`, which is the only way to age-group a game since `flightName` is empty on the schedules payload. **Blocked on a season id**: the known pair (org `7379E8F5-2B0D-4729-BDF9-967A08999A37`, tourn `fd4c6e27-142e-448e-8fb3-e83a5bcc15de`) is "2025 Fall League Washington", Sep 6 - Nov 23 2025, 570 played games — already historical. No endpoint enumerates a league's tournaments (`/api/tournaments`, `/api/organization` both 404), so the current-season id has to come from the organizers. Verified live 2026-08-31.
 - **Noted**: 2026-08-31
+
+### Ingest North Puget Sound League once Demosphere publishes scores
+
+- **ID**: IMP-191
+- **Status**: open
+- **Type**: investigate
+- **Category**: feature
+- **Where**: new scraper against `https://elements.demosphere.com/74274/schedules/Fall2026/`
+- **Why**: A WA league PitchRank does not ingest, on Demosphere (OttoSport) rather than Affinity. The public page `northpugetsoundleague.ottosport.ai/fall-2026-schedule` renders nothing server-side; the content is an embedded Demosphere element at the URL above, which is clean static HTML needing no JS — an index of ~50 divisions (BU9-BU19, GU9-GU19) each linking to a per-division schedule page. Division labels are U-age with no birth year (`BU13 Division 1`), and the season is unambiguous from the URL path, so cohorting is safe. **Blocked on scores**: the game tables carry only `GAME# | Time | Home | Away | Location` — no score column exists, so there is nothing to import yet. Season opens 2026-09-12; re-check a week or two after to see whether scores land in the same table or a separate results view, which decides the scope. Verified live 2026-08-31.
+- **Noted**: 2026-08-31
+
+### Bound the open-invoice fetch the way the paid one beside it is bounded
+
+- **ID**: IMP-186
+- **Status**: open
+- **Type**: direct
+- **Category**: performance
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getSubscriptionMetrics`, the `{ status: 'open' }` call)
+- **Why**: The paid-invoice fetch carries `created: { gte: now - COHORT_FETCH_DAYS }`; the open one carries no date floor and no page cap, so it auto-paginates every unpaid invoice the account has ever accumulated on each render of a `force-dynamic` page with a Refresh link. Not a regression — the pre-existing `safeList({ status: 'canceled' })` is unbounded the same way — and fine at today's 47 invoices. It scales badly, and unlike the canceled list the open list only grows while collection keeps failing, which is exactly the condition under which someone reloads the page. **A `created` floor is the wrong remedy here**, despite the symmetry with the paid fetch: the paid list is evidence for a bounded conversion cohort, while this one feeds `buildUnpaidInvoices` (`month-projection.ts:472`), a *current* outstanding-debt total that sums `amount_remaining`. Bounding it by creation date would silently omit any invoice still owed from before the window and could show "No unpaid invoices" while collection is failing on an old one. Take the cost off pagination instead — a page cap with an explicit "showing N of M" affordance, or a cached total — and leave the date range open. The unbounded `safeList({ status: 'canceled' })` beside it is a separate call and can take the cohort floor safely, since nothing reads it as a current total.
+- **Noted**: 2026-09-04
+
+### Settle whether subscription items are read as a list or as `data[0]`
+
+- **ID**: IMP-187
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getInterval`, `bucketActivePaid`), `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`)
+- **Why**: One feature now reads the same Stripe object two ways. `computeMrr` iterates `sub.items.data` in full, and `countAnnualRenewals` was changed to match after review; `getInterval` and `bucketActivePaid` still read `items.data[0]` only. Stripe designates no canonical item, and `current_period_end` is documented per item, so a multi-item subscription can renew its items on different dates. Verified unreachable today: 0 of 188 subscriptions carry more than one item, `items.has_more` is false throughout, and no code path in the product creates a second item (both checkout calls pass a single `line_items` entry, and the billing portal swaps a price rather than adding items). So this is consistency, not a live bug — but the divergence is the kind that silently decides a number once an add-on or a second plan ever ships. Pick one convention and apply it to all four.
+- **Noted**: 2026-09-04
+
+### Price projected churn at the revenue actually at risk
+
+- **ID**: IMP-188
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `lostMrr`)
+- **Why**: `lostMrr` multiplies churned subscribers by `arpu`, which is the blended monthly-equivalent of the historical paid-*acquisition* cohort. The population actually at risk in a month is different: currently 100% monthly at $6.99, where the acquisition mix is about 18% annual at $5.83 monthly-equivalent. Measured on live data the code reports $50.09 against $51.68 for the at-risk mix, a $1.58 gap on a $50 line. Left alone because that is an order of magnitude below the sampling error on the churn rate feeding it — the same report shows that rate swinging five points on lookback choice alone, worth roughly $10. Worth revisiting only alongside a better churn estimate, and note that neither formulation handles annual correctly: a lapsed annual renewal removes $69.99 of cash, not $5.83.
+- **Noted**: 2026-09-04
+
+### Treat a pending cancellation as a certainty rather than an average-rate risk
+
+- **ID**: IMP-189
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
+- **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
+- **Noted**: 2026-09-04
 
 - **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
 - **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
