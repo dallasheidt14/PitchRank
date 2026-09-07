@@ -92,11 +92,13 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 
 ## Improvement Backlog
 
-`.gitignore` un-ignores `.turbo/plans/` and `.turbo/reports/` while hiding the rest of `.turbo/`, and
-this repo is **public** — so a file written under `.turbo/reports/` is published on the next push, and
-history keeps it after any later edit. Keep live account identifiers out of one (a Stripe `acct_`, a
-customer email, an invoice or subscription id); aggregate figures are a disclosure judgement for the
-owner rather than a leak. Everything else under `.turbo/` is local scratch and never ships.
+`.gitignore` hides `.turbo/*` and then un-ignores **seven** paths inside it — `plans/`, `shells/`,
+`specs/`, `handoff/`, `reports/`, `improvements.md` and `improvements-archive.md` (`.gitignore:55-65`)
+— and this repo is **public**, so a file written under any of the seven is published on the next push
+and history keeps it after any later edit. Keep live account identifiers out of all of them (a Stripe
+`acct_`, a customer email, an invoice or subscription id); aggregate figures are a disclosure
+judgement for the owner rather than a leak. Only paths *not* on that list are local scratch — check
+`git check-ignore -v <path>` before assuming a new `.turbo/` subdirectory is one of them.
 
 Out-of-scope ideas noticed during work go to `.turbo/improvements.md` via
 `/note-improvement`, rather than being acted on or dropped. Closed entries move to
