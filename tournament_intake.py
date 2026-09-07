@@ -3105,6 +3105,13 @@ def _build_registry_by_pid(event_key: str, scenario: str) -> dict[str, Any]:
     return {pid: entry for entry in registry if (pid := registry_provider_id(entry))}
 
 
+# A comment rather than an attribute docstring: Streamlit renders any bare
+# string at module level, so a docstring here lands on the page as body copy.
+#
+# The structural-shape errors are the non-obvious members. A legacy or
+# hand-edited run_metadata.json parses as JSON but carries the wrong shape,
+# and without them one such file takes out the whole previous-runs dropdown
+# rather than just its own entry.
 _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     FileNotFoundError,
     json.JSONDecodeError,
@@ -3114,13 +3121,6 @@ _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     TypeError,
     ValueError,
 )
-"""Exceptions the dropdown-filter loop tolerates when probing run-dir
-metadata. Covers I/O (``FileNotFoundError`` / ``OSError``), JSON
-(``json.JSONDecodeError`` / ``ValueError``), AND structural-shape errors
-(``AttributeError`` / ``KeyError`` / ``TypeError``) — a JSON-valid but
-shape-invalid ``run_metadata.json`` (legacy/manually-edited) would
-otherwise crash the entire previous-runs dropdown render.
-"""
 
 
 def _read_ended_at(event_key: str, scenario: str, run_id_: str) -> str | None:
