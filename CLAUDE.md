@@ -534,10 +534,37 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
-| `weekly-prospective-refresh.yml` | Tue 7:00 PM UTC | Scrape upcoming GotSport events, prepare new prospective predictions |
+| `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
+
+### Prospective predictions are shelved, and event-page scraping is why
+
+`weekly-prospective-refresh.yml` had its cron paused on 2026-09-07 after 19 consecutive
+weekly failures. **Do not re-enable it expecting it to work**; two things block it, and
+only the first matters:
+
+1. **GotSport serves a reCAPTCHA on event pages.** One sitekey across every event sampled
+   2026-09-07, reached *through* ZenRows, so the proxy is not the answer on its own. The
+   scrape returns zero games. `.turbo/plans/gotsport-waf-circuit-breaker.md` has the
+   background on the WAF and reCAPTCHA rollout that began around 2026-05-01.
+2. **The offline model artifact expired** on 2026-04-27 — one day before the first
+   failure — and no newer one exists, because `train-point-in-time-match-model.yml` has
+   failed or been cancelled on every run since 2026-04-15.
+
+Fixing (2) alone accomplishes nothing: the run gets further and still has no fixtures to
+predict on. `weekly-prospective-settle-evaluate.yml` still runs on its own cron and is
+unaffected — it settles predictions already recorded.
+
+**A green event-scrape step is not evidence that fixtures were found.**
+`scrape_games_from_schedule_pages` catches a 403 or a CAPTCHA, logs one line and returns
+an empty list, and the workflow step only checks that a JSONL exists, not that it has
+rows. That is how a missing `ZENROWS_API_KEY` produced four months of green scrape steps
+finding nothing, hidden behind the artifact failure downstream.
+`tests/unit/test_gotsport_event_scrape_zenrows_coverage.py` now pins the key onto every
+workflow step that runs an event-page script, deriving the script list rather than
+listing it.
 
 ### No scheduled *guess-based backfill* of `state_code` runs any more
 
