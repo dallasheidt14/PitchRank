@@ -1,0 +1,16 @@
+{
+  "run_id": "run_01SYNTHETICCLOSED",
+  "job_id": "job_01SYNTHETICCLOSED",
+  "status": "failed",
+  "failure_reason": "insufficient_credits",
+  "stats": {
+    "total": 3,
+    "completed": 1,
+    "successful": 1,
+    "failed": 0,
+    "spend": {
+      "credits": 1,
+      "cost": 0.0011
+    }
+  }
+}

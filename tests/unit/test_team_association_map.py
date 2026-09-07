@@ -81,13 +81,39 @@ def test_split_targets_are_absent_from_identity_and_complete():
     assert set(SPLIT.values()) == {"CA", "NY", "PA", "TX"}
 
 
+def test_every_us_state_is_reachable():
+    """Derived from the fifty states, not from the map, so it fails for the one the
+    map omits rather than agreeing with whatever the map happens to contain.
+
+    Montana was the last hold-out and is the reason this exists: it read as no
+    signal, so a probe that answered ``MT`` was paid for and discarded, and the
+    team kept the wrong state while the ledger recorded a durable non-answer that
+    suppressed asking again. The gap cost real calls before anyone saw it.
+
+    DC is deliberately outside this list. No payload has named it, and the map's
+    rule is that a code is added on evidence rather than by inference.
+    """
+    states = set(
+        "AK AL AR AZ CA CO CT DE FL GA HI IA ID IL IN KS KY LA MA MD ME MI MN MO "
+        "MS MT NC ND NE NH NJ NM NV NY OH OK OR PA RI SC SD TN TX UT VA VT WA WI "
+        "WV WY".split()
+    )
+    assert len(states) == 50, "the reference list itself is wrong"
+    reachable = set(IDENTITY) | set(SPLIT.values())
+
+    assert states - reachable == set()
+
+
 @pytest.mark.parametrize("code", sorted(CANADIAN_PROVINCES | NON_US_BODIES))
 def test_known_non_us_bodies_never_resolve(code):
     assert to_state_code(code) is None
 
 
-@pytest.mark.parametrize("value", ["", "   ", None, "ZZ", "XX", "MT", "DC", "USA", "12"])
+@pytest.mark.parametrize("value", ["", "   ", None, "ZZ", "XX", "DC", "USA", "12"])
 def test_unmapped_input_fails_closed(value):
+    """``USA`` is the interesting one: a real code, from a real body, naming no
+    state. It must stay unmapped however many payloads carry it, which is what
+    separates "we have not seen this yet" from "this cannot answer the question"."""
     assert to_state_code(value) is None
 
 

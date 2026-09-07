@@ -1,0 +1,144 @@
+name: Contradiction Report Weekly
+
+on:
+  schedule:
+    # Thursday 08:17 UTC. The day barely matters: this population only grows when a
+    # team gains a provider-confirmed state, which no scheduled job does -- an operator
+    # sweep or a dashboard approval of a Tier A queue row is what mints one. Thursday
+    # keeps it clear of Monday's hygiene and ranking runs and of Wednesday's state fill,
+    # so the 200k-row read never overlaps a writer. Minute 17 rather than 0, GitHub's
+    # most contended slot.
+    - cron: '17 8 * * 4'
+  workflow_dispatch:
+
+# The read is heavy enough that two of them racing wastes a runner for no benefit.
+concurrency:
+  group: contradiction-report
+  cancel-in-progress: false
+
+# No AGE_ROLLOVER_FREEZE gate: this writes nothing at all.
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+  # rich wraps to 80 columns when stdout is not a terminal, which would break the counts
+  # the summary greps out of these logs mid-number.
+  COLUMNS: '200'
+
+jobs:
+  contradiction-report:
+    name: Count the contradictions waiting
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Five packages, not requirements.txt, for the same reason the weekly fill job
+          # gives: the only path into src.scrapers.gotsport -- and so bs4, pandas, scipy,
+          # sklearn and xgboost -- is the paid probe, and it is imported inside the
+          # function that makes the call. `--probe-limit 0` leaves nothing to probe, so
+          # that function never runs and the import never fires.
+          pip install supabase python-dotenv truststore rich requests
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Create logs directory
+        run: mkdir -p logs
+
+      - name: Count what is waiting
+        id: count
+        run: |
+          # `--probe-limit 0` is the whole safety property, not a tuning choice. It is
+          # what makes this free: the selection runs in full, and the budget then leaves
+          # nothing to buy. No `--out`, so no snapshot; no `--execute`, so no writes.
+          # Never raise the limit here. A run that spends money belongs to an operator
+          # watching it, because the mode applies corrections rather than fills and a
+          # wrong correction moves a team on a public state board.
+          set -o pipefail
+          python scripts/assign_team_states.py --audit-contradictions --probe-limit 0 2>&1 \
+            | tee logs/report.log
+
+          # `|| true` because pipefail is on and a no-match grep exits 1, which bash -e
+          # takes as the step's status before any default can apply. `${VAR:-0}` because
+          # the pipeline then yields an empty string rather than a number. Commas are
+          # stripped so the arithmetic below sees integers.
+          strip() { tr -d ',' <<< "${1:-0}"; }
+          CANDIDATES=$(grep -oP 'Audit: \K[\d,]+(?= contradict)' logs/report.log | tail -1 || true)
+          ANSWERED=$(grep -oP 'GotSport id, \K[\d,]+(?= answered)' logs/report.log | tail -1 || true)
+          SKIPPED=$(grep -oP '^\s+\K[\d,]+(?= skipped: answered before)' logs/report.log | tail -1 || true)
+
+          C=$(strip "$CANDIDATES"); A=$(strip "$ANSWERED"); S=$(strip "$SKIPPED")
+          # The candidates nothing has answered yet: a team already answered costs nothing
+          # to decide again, and one answered without a state is suppressed until its
+          # window expires. This is a ceiling on the spend, not the spend. A candidate
+          # without a GotSport id never reaches the paid call -- it takes a no-alias
+          # ledger row instead -- and this run cannot tell which those are, because
+          # `--probe-limit 0` leaves nothing to probe and so skips the alias lookup that
+          # would say. Reported as "at most" for that reason. Do not restate it as the
+          # expected cost without counting aliases first.
+          WAITING=$(( C - A - S ))
+          [ "$WAITING" -lt 0 ] && WAITING=0
+
+          echo "candidates=$C" >> $GITHUB_OUTPUT
+          echo "answered=$A" >> $GITHUB_OUTPUT
+          echo "skipped=$S" >> $GITHUB_OUTPUT
+          echo "waiting=$WAITING" >> $GITHUB_OUTPUT
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: contradiction-report-${{ github.run_number }}
+          path: logs/*.log
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        env:
+          CANDIDATES: ${{ steps.count.outputs.candidates || 'unknown' }}
+          ANSWERED: ${{ steps.count.outputs.answered || 'unknown' }}
+          SKIPPED: ${{ steps.count.outputs.skipped || 'unknown' }}
+          WAITING: ${{ steps.count.outputs.waiting || 'unknown' }}
+        run: |
+          echo "## 🔎 Contradictions waiting" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Teams contradicting a confirmed club-mate | $CANDIDATES |" >> $GITHUB_STEP_SUMMARY
+          echo "| … already answered, free to decide again | $ANSWERED |" >> $GITHUB_STEP_SUMMARY
+          echo "| … answered without a state, suppressed for now | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+          echo "| **At most this many paid lookups** | **$WAITING** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This run spent nothing and changed nothing." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The last row is a ceiling rather than an estimate. A candidate with no" >> $GITHUB_STEP_SUMMARY
+          echo "GotSport id costs nothing to ask about, and this run cannot tell which" >> $GITHUB_STEP_SUMMARY
+          echo "those are: it skips the alias lookup along with the probe. Most candidates" >> $GITHUB_STEP_SUMMARY
+          echo "do carry one, so the real figure sits a little under this." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To act on it, run the audit through the \`assigning-team-states\` skill:" >> $GITHUB_STEP_SUMMARY
+          echo "take a capped batch with \`--probe-limit\`, read what came back against the" >> $GITHUB_STEP_SUMMARY
+          echo "database, then apply the rest from that same snapshot." >> $GITHUB_STEP_SUMMARY

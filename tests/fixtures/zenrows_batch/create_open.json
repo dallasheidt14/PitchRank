@@ -1,0 +1,17 @@
+{
+  "job_id": "job_01SYNTHETICOPEN",
+  "status": "open",
+  "accepted_tasks": 0,
+  "last_batch_received": false,
+  "latest_run": {
+    "run_id": "run_01SYNTHETICOPEN",
+    "job_id": "job_01SYNTHETICOPEN",
+    "status": "pending",
+    "stats": {
+      "spend": {
+        "credits": 0,
+        "cost": 0
+      }
+    }
+  }
+}

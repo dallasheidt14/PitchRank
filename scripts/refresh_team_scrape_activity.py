@@ -23,8 +23,14 @@ small is what makes the refresh finish at all.
 There is deliberately NO Python fallback for the aggregation itself. Computing it
 client-side would page roughly 3M game rows plus 2.5M scrape-log rows over
 PostgREST, which is the reason the work lives in Postgres. A failure here is a
-failure: the script exits non-zero and the workflow retries, leaving the previous
-refresh's values in place.
+failure: once a page has exhausted its attempts the script exits non-zero and the
+workflow retries, leaving the previous refresh's values in place.
+
+A page is retried before that point because the 8-second budget is the only thing
+between a healthy call and a dead run: a page costs about a quarter-second, so a
+timeout means the database stalled rather than the page being too large. Both
+scheduled runs up to 2026-09-06 died on one such stall at page 0 with no second
+attempt, having written nothing.
 
 LOAD-BEARING INVARIANT (do NOT violate when editing this file):
     The script MUST emit EXACTLY ONE stdout line of the form ``Updated: N`` or
@@ -40,6 +46,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 import truststore
@@ -66,6 +73,31 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY
 # Teams per RPC call. The ceiling is the server's 8s statement_timeout, not the
 # client's; 2,000 keeps a page's aggregate plus its guarded UPDATE well inside it.
 DEFAULT_BATCH_SIZE = 2000
+
+# A cancelled statement takes its transaction down with it, so a page that timed
+# out wrote nothing and replaying it cannot double-count.
+PAGE_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 2
+
+
+def _refresh_page(sb, after, batch_size, dry_run, pages_done):
+    """Run one keyset page, retrying the SAME p_after on a transient failure."""
+    for attempt in range(1, PAGE_ATTEMPTS + 1):
+        try:
+            return sb.rpc(
+                "refresh_team_scrape_activity",
+                {"p_after": after, "p_batch_size": batch_size, "p_dry_run": dry_run},
+            ).execute()
+        except Exception as e:
+            if attempt == PAGE_ATTEMPTS:
+                console.print(
+                    f"[red]refresh_team_scrape_activity failed after {pages_done} pages: {e}[/red]"
+                )
+                sys.exit(1)
+            console.print(
+                f"[yellow]  Page {pages_done + 1} attempt {attempt} failed, retrying: {e}[/yellow]"
+            )
+            time.sleep(RETRY_BACKOFF_SECONDS * attempt)
 
 
 def main():
@@ -96,14 +128,7 @@ def main():
     pages = 0
     after = None
     while True:
-        try:
-            result = sb.rpc(
-                "refresh_team_scrape_activity",
-                {"p_after": after, "p_batch_size": args.batch_size, "p_dry_run": args.dry_run},
-            ).execute()
-        except Exception as e:
-            console.print(f"[red]refresh_team_scrape_activity failed after {pages} pages: {e}[/red]")
-            sys.exit(1)
+        result = _refresh_page(sb, after, args.batch_size, args.dry_run, pages)
 
         rows = result.data or []
         if not rows:

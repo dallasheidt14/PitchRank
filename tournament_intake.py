@@ -13,19 +13,22 @@ import html
 import json
 import logging
 import os
+import re
 import sys
 import uuid
-from collections.abc import Callable, Iterator, Mapping
-from dataclasses import replace
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import asdict, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
 from config.settings import (
+    AGE_GROUPS,
     PROJECT_NAME,
     SUPABASE_SERVICE_ROLE_KEY,
     SUPABASE_URL,
@@ -38,10 +41,24 @@ from src.scrapers.provider import (
     get_provider_scraper,
 )
 from src.tournaments.division_render import render_division_container
+from src.tournaments.event_roster_intake import (
+    needs_name_lookup,
+    resolve_master_ids,
+    resolve_unlinked,
+    to_seeding_rows,
+)
 from src.tournaments.event_team_matcher import (
     EventTeamSearchQuery,
     enrich_registry_rows_with_matcher,
     search_event_team_in_db,
+)
+from src.tournaments.gotsport_event_roster import (
+    EventRoster,
+    WafChallengeError,
+    event_id_from,
+    make_zenrows_fetcher,
+    redact_secret,
+    scrape_event_roster,
 )
 from src.tournaments.reports import (
     ReportCardError,
@@ -56,15 +73,46 @@ from src.tournaments.reports.ui import (
     safe_read_comparison_json,
     zip_run_csvs,
 )
+from src.tournaments.roster_paste import ParsedRoster, parse_roster
+from src.tournaments.roster_resolver import (
+    ProviderIdLookup,
+    ResolvedTeam,
+    fetch_gotsport_provider_id,
+    make_exact_name_lookup,
+    make_provider_id_lookup,
+    make_team_details_lookup,
+    resolve_manual_reference,
+    resolve_roster,
+    search_gotsport_teams,
+    summarize,
+)
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
     execute_run,
     override_in_cohort,
     preflight,
 )
+from src.tournaments.seeding_enqueue import (
+    enqueue_resolved_teams,
+    make_enqueue_caller,
+    make_provider_team_id_lookup,
+)
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
+)
+from src.tournaments.seeding_run_store import (
+    SeedingRun,
+    slugify,
+)
+from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
+from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
+from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
+from src.tournaments.seeding_sheet import (
+    build_cohort_sheets,
+    fetch_ranking_run_date,
+    make_ratings_lookup,
+    render_sheet_html,
 )
 from src.tournaments.storage import (
     CohortConstraints,
@@ -106,7 +154,7 @@ from src.tournaments.storage import (
 from src.tournaments.storage import (
     run_dir as _run_dir,
 )
-from src.tournaments.storage._io import read_json, utc_now_iso
+from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.triage import (
     _STRENGTH_MODES,
     SOURCE_EXPLICIT,
@@ -121,6 +169,7 @@ from src.tournaments.triage import (
     registry_provider_id,
     resolve_division_assignment,
 )
+from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
 
 logger = logging.getLogger(__name__)
@@ -511,6 +560,9 @@ def _init_session_state() -> None:
     if "current_run_id_by_cohort" not in st.session_state:
         st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
+    st.session_state.setdefault("_seeding_result", None)
+    st.session_state.setdefault("_seeding_overrides", {})
+    st.session_state.setdefault("_seeding_sheet_html", None)
 
 
 def _render_rekey_banner() -> None:
@@ -3053,6 +3105,13 @@ def _build_registry_by_pid(event_key: str, scenario: str) -> dict[str, Any]:
     return {pid: entry for entry in registry if (pid := registry_provider_id(entry))}
 
 
+# A comment rather than an attribute docstring: Streamlit renders any bare
+# string at module level, so a docstring here lands on the page as body copy.
+#
+# The structural-shape errors are the non-obvious members. A legacy or
+# hand-edited run_metadata.json parses as JSON but carries the wrong shape,
+# and without them one such file takes out the whole previous-runs dropdown
+# rather than just its own entry.
 _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     FileNotFoundError,
     json.JSONDecodeError,
@@ -3062,13 +3121,6 @@ _METADATA_READ_ERRORS: tuple[type[BaseException], ...] = (
     TypeError,
     ValueError,
 )
-"""Exceptions the dropdown-filter loop tolerates when probing run-dir
-metadata. Covers I/O (``FileNotFoundError`` / ``OSError``), JSON
-(``json.JSONDecodeError`` / ``ValueError``), AND structural-shape errors
-(``AttributeError`` / ``KeyError`` / ``TypeError``) — a JSON-valid but
-shape-invalid ``run_metadata.json`` (legacy/manually-edited) would
-otherwise crash the entire previous-runs dropdown render.
-"""
 
 
 def _read_ended_at(event_key: str, scenario: str, run_id_: str) -> str | None:
@@ -3407,11 +3459,911 @@ def _render_cohort_containers(
                 )
 
 
-def main() -> None:
-    """Top-level render flow."""
-    _init_session_state()
-    supabase_client = get_database()
-    _render_rekey_banner()
+# ---------------------------------------------------------------------------
+# Seeding intake — paste an accepted-teams list for an unplayed tournament
+# ---------------------------------------------------------------------------
+
+_VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
+
+_SEEDING_LOOKUP_DELAY_SECONDS = 0.4
+
+_SEEDING_STATUS_LABEL = {
+    "gotsport_id": "GotSport ID",
+    "exact_name": "Exact name",
+    "review": "Pick one",
+    "unresolved": "Not found",
+    "override": "You picked",
+}
+
+_SEEDING_NEEDS_DECISION = ("review", "unresolved")
+
+_SEEDING_PLACEHOLDER = (
+    "Teams Accepted (16 of 331)\n"
+    "Male U14\n"
+    "Club\tTeam\tState\n"
+    "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
+)
+
+# The ages PitchRank boards, read from the config the rest of the app uses so the
+# set moves with the August rollover rather than being restated here. A division
+# outside it is not worth a team page: `rankings_full` holds no row for those
+# cohorts, so a seeding sheet has nothing to say about their teams.
+_RANKED_COHORTS = frozenset(AGE_GROUPS)
+
+_SEEDING_EVENT_PROBE_DIVISIONS = 2
+# The scraper defaults to serial; a whole event walked one page at a time is hours.
+_SEEDING_EVENT_WORKERS = 8
+_SEEDING_EVENT_PAGE_COST_USD = 0.004
+# Teams per division dominates every cost here and is the thing a probe exists
+# to discover, so both prices are quoted as this band around the typical count
+# rather than as a figure.
+_SEEDING_EVENT_ESTIMATE_SPREAD = 0.5
+_SEEDING_EVENT_TEAMS_PER_DIVISION = 6
+
+
+def _merge_map_loaded(resolver: Any) -> bool:
+    """Did this resolver actually get a merge map?
+
+    ``load_merge_map`` catches its own failure and returns normally, leaving
+    ``version == "error"`` as the only signal — and it sets ``_loaded``, so the
+    resolver never retries by itself. Caching one in that state would resolve
+    nothing for the cache's whole lifetime.
+    """
+    return getattr(resolver, "version", None) != "error"
+
+
+@st.cache_resource(ttl=600, validate=_merge_map_loaded)
+def _seeding_merge_resolver(_supabase_client: Any) -> Any:
+    """A loaded ``MergeResolver`` for the seeding lookups to resolve ids through.
+
+    Cached because every intake in this tab needs the same map and it changes on
+    the weekly merge pass rather than between clicks. The leading underscore
+    keeps ``st.cache_resource`` from trying to hash the client.
+
+    ``validate`` is what stops a failed load from being served for the rest of
+    the TTL: Streamlit discards an entry its validator rejects and recomputes,
+    so the next click retries the database instead of silently resolving nothing.
+    """
+    resolver = MergeResolver(_supabase_client)
+    resolver.load_merge_map()
+    return resolver
+
+
+def _seeding_provider_id_lookup(supabase_client: Any) -> ProviderIdLookup:
+    """``make_provider_id_lookup`` with merges applied.
+
+    Its ``team_alias_map`` fallback is filtered to approved rows but not to live
+    ones, and an alias can name a team that was later merged away — so without a
+    resolver a deprecated id reaches the scrape queue and the cohort sheet naming
+    a team that no longer exists. Every ``provider_team_id`` -> ``team_id_master``
+    lookup in this tab goes through here, including the bulk pass inside the
+    event walk, so the intakes cannot answer the same question differently.
+
+    The exact-name lookup beside it is left without a resolver deliberately: it
+    queries ``teams`` filtered to ``is_deprecated=False``, so a merged-away row
+    is already excluded before any resolution would run.
+    """
+    return make_provider_id_lookup(supabase_client, _seeding_merge_resolver(supabase_client))
+
+
+def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
+    """Parse the pasted roster, resolve every row, and park the result in session state."""
+    parsed = parse_roster(text)
+    st.session_state._seeding_overrides = {}
+    st.session_state._seeding_resolution_failed = False
+    st.session_state._seeding_sheet_html = None
+    if not parsed.rows:
+        st.session_state._seeding_result = None
+        st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
+        return
+
+    session = requests.Session()
+    progress = st.progress(0.0, text=f"Looking up 0 of {len(parsed.rows)} teams...")
+
+    def on_progress(done: int, total: int) -> None:
+        progress.progress(done / total, text=f"Looking up {done} of {total} teams...")
+
+    try:
+        resolved = resolve_roster(
+            parsed.rows,
+            gotsport_search=lambda name, age_group, gender: search_gotsport_teams(
+                name, age_group, gender, session=session
+            ),
+            lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
+            lookup_exact_name=make_exact_name_lookup(supabase_client),
+            delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
+            on_progress=on_progress,
+        )
+    except requests.RequestException as exc:
+        st.error(f"GotSport lookup failed: {exc}")
+        return
+    finally:
+        progress.empty()
+        session.close()
+
+    st.session_state._seeding_result = (parsed, resolved)
+
+
+def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: int | None) -> None:
+    """Walk a GotSport event and park its teams as this tab's result.
+
+    The walk is the only part that costs money, so everything after it is
+    ordered to protect it: the roster reaches disk before any of the work that
+    derives from it, and the free name lookups run afterwards with a retry
+    offered if they fall over.
+
+    Progress is a spinner and not a bar. Both of the scrape's phases run off the
+    script thread, its progress callback is handed only to the team-page pool,
+    and the scraper swallows any exception that callback raises — so a
+    ``st.progress`` driven from there silently no-ops and sits frozen for the
+    length of the walk. Running the walk serially would restore the callback and
+    cost the concurrency that makes an event affordable in time.
+    """
+    api_key = os.getenv("ZENROWS_API_KEY")
+    if not api_key:
+        st.error(
+            "ZENROWS_API_KEY is not set. These event pages sit behind a bot challenge "
+            "and cannot be read without it."
+        )
+        return
+
+    event_id = event_id_from(url)
+    if not event_id:
+        st.error("That does not look like a GotSport event URL or id: " + _as_plain_text(url))
+        return
+
+    parked = 0
+    try:
+        with _acquire_scrape_lock(event_key("gotsport", event_id, None)):
+            st.session_state._scrape_in_progress = True
+            try:
+                with st.spinner("Walking the event..."):
+                    roster = scrape_event_roster(
+                        event_id,
+                        fetch=make_zenrows_fetcher(api_key),
+                        limit_groups=limit_groups,
+                        max_workers=_SEEDING_EVENT_WORKERS,
+                        wanted_cohorts=_RANKED_COHORTS,
+                    )
+                    parked = _park_event_roster(url, roster, limit_groups, supabase_client)
+            finally:
+                st.session_state._scrape_in_progress = False
+    except _ScrapeLockContended:
+        st.error("This event is already being scraped in another tab — wait for it to finish and reload.")
+        return
+    except WafChallengeError:
+        st.error(
+            f"GotSport answered event {event_id} with a bot challenge instead of the page, "
+            "so the walk stopped. Try again later."
+        )
+        return
+    except RuntimeError as exc:
+        st.error(f"Could not read event {event_id}: {exc}")
+        return
+
+    if not parked:
+        st.warning(f"Event {event_id} published no teams in the divisions that were walked.")
+        st.rerun()
+
+    parsed, resolved = st.session_state._seeding_result
+    _run_seeding_name_lookup(parsed, resolved, supabase_client)
+    # The gate, the price and the retry button were all drawn from session state
+    # before this ran, so without a rerun they describe the previous walk — and a
+    # full-event button still greyed out invites a second paid probe.
+    st.rerun()
+
+
+def _park_event_roster(
+    url: str,
+    roster: EventRoster,
+    limit_groups: int | None,
+    supabase_client: Any,
+) -> int:
+    """Keep the walk's result, and return how many rows it holds.
+
+    The file is written first, from the roster alone, and that ordering is the
+    whole point. Streamlit raises a queued rerun from ``BaseException``, which no
+    handler here can catch, and it checks for one before every session-state
+    write *and* on every message it enqueues — including the spinner
+    ``st.cache_resource`` opens on a miss. So resolving ids, converting rows and
+    parking state are all places this function can stop. Only the walk itself was
+    paid for, and only the roster is needed to redo the rest.
+
+    That file is a crash artifact, not a saved run: it is keyed by event id, the
+    named-run store is untouched, and nothing reloads it automatically. Naming a
+    run and keeping it stays the operator's step.
+    """
+    _write_event_roster_recovery(roster)
+
+    master_ids, resolve_warnings = resolve_master_ids(
+        roster.teams,
+        enabled=True,
+        client_factory=lambda *_: supabase_client,
+        resolver_factory=lambda _client: _seeding_merge_resolver(supabase_client),
+        lookup_factory=lambda _client, _resolver: _seeding_provider_id_lookup(supabase_client),
+    )
+    parsed, resolved = to_seeding_rows(roster, master_ids, resolve_warnings)
+
+    st.session_state._seeding_event_probe = {
+        "url": url,
+        "limit_groups": limit_groups,
+        "divisions_found": roster.divisions_found,
+        "divisions_walked": roster.divisions_walked,
+        "teams": len(roster.teams),
+        "linked": sum(1 for team in roster.teams if team.provider_team_id),
+        # A walk that lost a division to an unreadable table returned teams and
+        # still has more to fetch, so having teams is not the same as being done.
+        "complete": roster.is_complete,
+    }
+    # Not `_seeding_loaded_slug`: that is what stops the resume selector from
+    # reloading the saved run it still has selected over this fresh scrape.
+    st.session_state._seeding_overrides = {}
+    st.session_state._seeding_sheet_html = None
+
+    if not roster.teams:
+        # The probe above now describes this event while the table would still
+        # hold the last one's teams, and an operator could save or queue those
+        # under this event's name.
+        st.session_state._seeding_result = None
+        st.session_state._seeding_resolution_failed = False
+        return 0
+
+    st.session_state._seeding_result = (parsed, resolved)
+    # Marked failed until the free name pass commits its result: that pass runs
+    # under a spinner too, so it has the same yield point, and a run lost there
+    # would otherwise leave no retry offered.
+    st.session_state._seeding_resolution_failed = True
+    return len(parsed.rows)
+
+
+def _write_event_roster_recovery(roster: EventRoster) -> None:
+    """Drop the walked roster where a lost run can be recovered from.
+
+    Takes the roster rather than the converted pair so it can run before any of
+    the conversion, which is free to redo and can itself be interrupted.
+
+    Refuses to replace a complete walk with a partial one, the guard the
+    command-line scraper already applies to its own roster file: a probe targets
+    the same path as a full walk, so without it two cheap divisions overwrite an
+    event someone paid to walk in full.
+
+    Best-effort by construction: this exists to protect a paid artifact, so a
+    failure to write it must not itself cost the walk.
+    """
+    path = reports_dir() / "seeding" / f"gotsport_{roster.event_id}" / "last_walk.json"
+    if not roster.is_complete and _recovery_holds_a_complete_walk(path):
+        logger.info("Kept the complete walk already at %s rather than this partial one", path)
+        return
+    try:
+        write_json(
+            path,
+            {
+                "event_id": roster.event_id,
+                "walked_at": utc_now_iso(),
+                "is_complete": roster.is_complete,
+                "divisions_found": roster.divisions_found,
+                "divisions_walked": roster.divisions_walked,
+                "warnings": list(roster.warnings),
+                "teams": [asdict(team) for team in roster.teams],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — the roster outranks its own backup
+        logger.warning("Could not write the event roster recovery file: %s", exc)
+
+
+def _recovery_holds_a_complete_walk(path: Path) -> bool:
+    """Does a complete walk already sit at this path?
+
+    Only a mapping whose flag is literally ``True`` counts. An array or a scalar
+    raises on ``.get``, and the string ``"false"`` is truthy, so a looser test
+    throws away the run that cost money. An unreadable file reads as absent, for
+    the same reason: the walk in hand is the one to keep.
+    """
+    try:
+        existing = read_json(path)
+    except (OSError, ValueError):
+        return False
+    return isinstance(existing, dict) and existing.get("is_complete") is True
+
+
+def _run_seeding_name_lookup(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    supabase_client: Any,
+) -> None:
+    """Give the unlinked teams their free name pass, updating the parked result.
+
+    Catches every exception rather than a named set. The Supabase lookups raise
+    transport and API errors that no combination of ``RequestException``,
+    ``ValueError`` and ``KeyError`` covers, and anything escaping here would
+    discard a roster that has already been paid for.
+    """
+    indices = needs_name_lookup(parsed, resolved)
+    if not indices:
+        st.session_state._seeding_resolution_failed = False
+        return
+
+    session = requests.Session()
+    try:
+        with st.spinner(f"Looking up {len(indices)} teams the event did not link..."):
+            spliced = resolve_unlinked(
+                parsed,
+                resolved,
+                indices=indices,
+                gotsport_search=lambda name, age_group, gender: search_gotsport_teams(
+                    name, age_group, gender, session=session
+                ),
+                lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
+                lookup_exact_name=make_exact_name_lookup(supabase_client),
+                delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
+            )
+    except Exception as exc:  # noqa: BLE001 — the paid roster must outlive any lookup failure
+        st.session_state._seeding_resolution_failed = True
+        logger.warning("Seeding name lookup failed: %s", redact_secret(exc, SUPABASE_SERVICE_ROLE_KEY or ""))
+        return
+    finally:
+        session.close()
+
+    st.session_state._seeding_result = (parsed, spliced)
+    st.session_state._seeding_resolution_failed = False
+
+
+# Streamlit renders every message as Markdown, and provider-authored text is
+# free to carry its link and emphasis syntax. Escaping the characters that build
+# a link, an image or a code span leaves the punctuation a real team name uses —
+# a hyphen, a slash, an apostrophe — untouched.
+_MARKDOWN_SYNTAX = re.compile(r"([\\`*_\[\]()<>!])")
+# GitHub-flavored Markdown links a bare address using none of the delimiters
+# above, so escaping cannot reach it — measured against the renderer Streamlit
+# ships, a code span is the only thing that does.
+_LINK_BODY = r"[^\s`<>()\[\]]+"
+_AUTOLINKED = re.compile(
+    rf"(https?://{_LINK_BODY}|www\.{_LINK_BODY}|{_LINK_BODY}@{_LINK_BODY}\.{_LINK_BODY})",
+    re.IGNORECASE,
+)
+
+
+def _as_plain_text(text: str) -> str:
+    """Show provider-authored text as itself, not as the Markdown it resembles.
+
+    An organizer names the divisions and a club names its team, and every
+    Streamlit message renders as Markdown — so a label is otherwise free to put
+    a working link, or an image that fetches on sight, in front of the operator.
+    Anything that would autolink is shown monospace instead; the rest of the
+    sentence is escaped and reads normally.
+    """
+    parts = []
+    for index, run in enumerate(_AUTOLINKED.split(str(text or ""))):
+        if index % 2:
+            parts.append(f"`{run.replace('`', '')}`")
+        else:
+            parts.append(_MARKDOWN_SYNTAX.sub(r"\\\1", run))
+    return "".join(parts)
+
+
+def _seeding_candidate_label(candidate: dict[str, Any]) -> str:
+    return str(candidate.get("team_name") or candidate.get("team_id_master") or "")
+
+
+def _seeding_row_outcome(row: Any, item: ResolvedTeam, overrides: Mapping[int, dict[str, Any]]) -> tuple[str, str, str]:
+    """Return ``(status_key, matched_name, team_id_master)`` with any override applied."""
+    override = overrides.get(row.source_index)
+    if override:
+        return "override", str(override.get("team_name") or ""), str(override.get("team_id_master") or "")
+    return item.status, item.matched_name or "", item.team_id_master or ""
+
+
+def _seeding_result_frame(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]],
+) -> pd.DataFrame:
+    """One row per roster team, in the order the director listed them."""
+    by_index = {item.source_index: item for item in resolved}
+    records = []
+    for row in parsed.rows:
+        item = by_index[row.source_index]
+        status_key, matched_name, team_id_master = _seeding_row_outcome(row, item, overrides)
+        records.append(
+            {
+                "#": row.source_index + 1,
+                "Cohort": f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}",
+                "Club": row.club_raw,
+                "Team": row.team_name_raw,
+                "Status": _SEEDING_STATUS_LABEL[status_key],
+                "Matched to": matched_name,
+                "team_id_master": team_id_master,
+                "Candidates": "; ".join(_seeding_candidate_label(candidate) for candidate in item.candidates),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any) -> None:
+    """One paste box for a team the resolver could not settle.
+
+    Accepts a rankings.gotsport.com link, a bare GotSport id, or one of our own
+    ``team_id_master`` UUIDs. A team name is not accepted: name matching is what
+    this box exists to bypass.
+    """
+    heading = f"{row.club_raw} · {row.team_name_raw}"
+    with st.container(border=True):
+        cohort_label = f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}"
+        st.markdown(f"**{_as_plain_text(heading)}** · {cohort_label}")
+        if item.candidates:
+            found = "; ".join(_seeding_candidate_label(c) for c in item.candidates)
+            st.caption("Searched and found: " + _as_plain_text(found))
+
+        pasted = st.text_input(
+            "GotSport link, GotSport id, or team_id_master",
+            key=f"_seed_fix_{row.source_index}",
+            placeholder="https://rankings.gotsport.com/teams/534748",
+        )
+        if not pasted:
+            return
+
+        outcome = resolve_manual_reference(
+            pasted,
+            row,
+            lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
+            lookup_team_details=make_team_details_lookup(supabase_client),
+        )
+        if outcome.status == "unrecognized":
+            st.error(
+                "Not a link or id I can read. Paste a rankings.gotsport.com link, its number, "
+                "or a team_id_master."
+            )
+            return
+        if outcome.status == "not_found":
+            st.error("That id is readable, but no team in our database matches it.")
+            return
+
+        details = outcome.details or {}
+        st.success(
+            f"{details.get('team_name', '')} · {details.get('club_name') or 'no club'} · "
+            f"{str(details.get('age_group', '')).upper()} {details.get('gender', '')}"
+        )
+        if not outcome.cohort_matches:
+            st.warning(
+                "This team sits in a different cohort from the section it was listed under. "
+                "Check it is the one you meant."
+            )
+
+        if st.button("Use this team", key=f"_seed_use_{row.source_index}"):
+            st.session_state._seeding_overrides[row.source_index] = {
+                "team_id_master": outcome.team_id_master,
+                "team_name": details.get("team_name", ""),
+            }
+            _autosave_seeding_run()
+            st.rerun()
+
+
+def _seeding_run_name() -> str:
+    return str(st.session_state.get("seeding_event_name") or "").strip()
+
+
+def _autosave_seeding_run() -> bool:
+    """Persist the run, reporting whether it actually landed.
+
+    Silent when unnamed: a run has to be called something before it can have a
+    folder, and nagging on every rerun would drown the page. An unnamed run and a
+    failed write both answer False, so a caller that announces success does not
+    announce it over the warning this just raised.
+    """
+    name = _seeding_run_name()
+    result = st.session_state.get("_seeding_result")
+    if not name or not result:
+        return False
+    parsed, resolved = result
+    try:
+        save_seeding_run_file(
+            SeedingRun(
+                name=name,
+                rows=parsed.rows,
+                resolved=resolved,
+                overrides=dict(st.session_state._seeding_overrides),
+                warnings=parsed.warnings,
+            )
+        )
+    except (OSError, ValueError) as exc:
+        st.warning(f"Could not save this run: {exc}")
+        return False
+    return True
+
+
+def _load_seeding_run(slug: str) -> None:
+    try:
+        run = load_seeding_run_file(slug)
+    except (OSError, ValueError, TypeError) as exc:
+        st.error(f"Could not open that run: {exc}")
+        return
+    st.session_state._seeding_result = (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved)
+    st.session_state._seeding_overrides = dict(run.overrides)
+    st.session_state._seeding_resolution_failed = False
+    st.session_state._seeding_sheet_html = None
+    st.session_state._seeding_loaded_slug = slug
+    st.session_state._seeding_pending_name = run.name
+
+
+def _apply_pending_seeding_widgets() -> None:
+    """Move a loaded run's values into their widgets before those widgets exist.
+
+    Streamlit refuses a write to a widget's key once that widget has been
+    instantiated during the same run, and the run is opened from a control that
+    sits beside the name box. Handing the value over on the following run keeps
+    that legal however the two controls are later ordered on the page.
+    """
+    pending_name = st.session_state.pop("_seeding_pending_name", None)
+    if pending_name is None:
+        return
+    st.session_state["seeding_event_name"] = pending_name
+    st.session_state["seeding_roster_text"] = ""
+
+
+def _render_seeding_run_controls() -> None:
+    _apply_pending_seeding_widgets()
+    left, right = st.columns([2, 2])
+    with left:
+        st.text_input(
+            "Event name",
+            key="seeding_event_name",
+            placeholder="STX Cup 2026",
+            help="Naming the event saves your work, so a refresh does not lose your manual fixes.",
+        )
+    with right:
+        entries = list_seeding_runs()
+        if not entries:
+            st.selectbox("Reopen a saved run", options=[], placeholder="(nothing saved yet)", disabled=True)
+            return
+        labels = {entry.slug: f"{entry.name} · {entry.team_count} teams" for entry in entries}
+        chosen = st.selectbox(
+            "Reopen a saved run",
+            options=list(labels),
+            format_func=lambda slug: labels[slug],
+            index=None,
+            placeholder="Select a run...",
+            key="seeding_resume_choice",
+        )
+        if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
+            _load_seeding_run(chosen)
+            st.rerun()
+
+
+def _long_date(day: date) -> str:
+    """`September 2, 2026` — strftime's no-pad flag is not portable across platforms."""
+    return f"{day:%B} {day.day}, {day.year}"
+
+
+def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) -> list[str]:
+    by_index = {item.source_index: item for item in resolved}
+    overrides = st.session_state._seeding_overrides
+    ids: list[str] = []
+    for row in parsed.rows:
+        override = overrides.get(row.source_index)
+        resolved_id = getattr(by_index.get(row.source_index), "team_id_master", None)
+        team_id = (override or {}).get("team_id_master") or resolved_id
+        if team_id:
+            ids.append(str(team_id))
+    return ids
+
+
+def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
+    """Build the branded, print-ready cohort sheet.
+
+    Behind a button rather than on every rerun: the ratings come from the
+    database, and a full roster is several round trips.
+    """
+    st.markdown("#### Cohort sheet")
+    event_name = _seeding_run_name()
+    if not event_name:
+        st.caption("Name the event above to build the sheet — the name is its headline.")
+        return
+
+    st.caption("Downloads a designed page. Open it and press Ctrl+P, then Save as PDF.")
+    if st.button("Build the sheet", key="_seeding_build_sheet"):
+        with st.spinner("Fetching ratings..."):
+            ratings = make_ratings_lookup(supabase_client)(_seeding_team_ids(parsed, resolved))
+            sheets = build_cohort_sheets(parsed.rows, resolved, st.session_state._seeding_overrides, ratings)
+            st.session_state._seeding_sheet_html = render_sheet_html(
+                event_name,
+                sheets,
+                generated_on=_long_date(date.today()),
+                ranking_run=fetch_ranking_run_date(supabase_client),
+            )
+
+    document = st.session_state.get("_seeding_sheet_html")
+    if not document:
+        return
+
+    st.download_button(
+        "Download the sheet",
+        data=document.encode("utf-8"),
+        file_name=f"{slugify(event_name)}-matchbalance.html",
+        mime="text/html",
+        key="_seeding_sheet_download",
+    )
+    with st.expander("Preview"):
+        components.html(document, height=900, scrolling=True)
+
+
+def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
+    """Queue every resolved team for a fresh scrape before any seeding is proposed."""
+    overrides = st.session_state._seeding_overrides
+    provider_id = fetch_gotsport_provider_id(supabase_client)
+    lookup_provider_team_id = make_provider_team_id_lookup(supabase_client, provider_id)
+    rehearsal = enqueue_resolved_teams(
+        parsed.rows,
+        resolved,
+        overrides,
+        enqueue=lambda _payload: None,
+        lookup_provider_team_id=lookup_provider_team_id,
+        dry_run=True,
+    )
+    if not rehearsal.would_queue:
+        return
+
+    st.markdown("#### Refresh the data first")
+    st.caption(
+        f"Queues {rehearsal.would_queue} teams for a scrape at the same priority a user-clicked "
+        "refresh uses, so their ratings are current before anything is seeded."
+    )
+    if rehearsal.skipped:
+        st.caption(
+            f"{rehearsal.skipped} team(s) cannot be queued and will be left out: either unresolved, "
+            "or with no GotSport id on record for the scraper to follow."
+        )
+
+    if st.button(f"Add {rehearsal.would_queue} teams to the scrape queue", key="_seeding_enqueue"):
+        with st.spinner("Queueing..."):
+            outcome = enqueue_resolved_teams(
+                parsed.rows,
+                resolved,
+                overrides,
+                enqueue=make_enqueue_caller(supabase_client, provider_id),
+                lookup_provider_team_id=lookup_provider_team_id,
+            )
+        if outcome.queued:
+            st.success(f"Queued {outcome.queued} teams.")
+        if outcome.failed:
+            st.error(f"{outcome.failed} could not be queued.")
+            for failure in outcome.failures[:5]:
+                st.caption(_as_plain_text(failure))
+
+
+def _seeding_event_probe_for(url: str) -> dict[str, Any] | None:
+    """The last walk's counts, but only while they describe this same URL."""
+    probe = st.session_state.get("_seeding_event_probe") or {}
+    return probe if probe.get("url") == url and url else None
+
+
+def _money(amount: float) -> str:
+    """A dollar figure Streamlit will not read as arithmetic.
+
+    ``$`` opens inline LaTeX in the Markdown every message renders as, so a
+    plain ``$0.04-$0.08`` reaches the operator as maths symbols.
+    """
+    return rf"\${amount:.2f}"
+
+
+def _seeding_probe_price() -> tuple[float, float]:
+    """What a probe spends: a landing page, its divisions, and their teams.
+
+    A range because the term that dominates is teams per division, which is the
+    quantity the probe is being run to discover in the first place.
+    """
+    low_teams = _SEEDING_EVENT_TEAMS_PER_DIVISION * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD)
+    high_teams = _SEEDING_EVENT_TEAMS_PER_DIVISION * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD)
+    return (_probe_pages(low_teams) * _SEEDING_EVENT_PAGE_COST_USD,
+            _probe_pages(high_teams) * _SEEDING_EVENT_PAGE_COST_USD)
+
+
+def _probe_pages(teams_per_division: float) -> float:
+    return 1 + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
+
+
+def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
+    """What the walk saw, and what the rest of the event would cost."""
+    walked = int(probe.get("divisions_walked") or 0)
+    found = int(probe.get("divisions_found") or 0)
+    teams = int(probe.get("teams") or 0)
+    linked = int(probe.get("linked") or 0)
+    head = f"Walked {walked} of {found} divisions: {teams} teams, {linked} carrying a GotSport id."
+
+    # Team pages are most of an event's bill, so a sample that found no team
+    # prices nothing — which is the normal state of an event being seeded before
+    # its schedules go up, not a rare one.
+    if not walked or not teams:
+        return f"{head} That is not enough to price the rest of the event from."
+    if probe.get("limit_groups") is None:
+        return head
+
+    pages = 1 + found + found * teams / walked
+    low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+    high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+    return (
+        f"{head} The whole event looks like {_money(low)}-{_money(high)}, "
+        "and a page that has to be retried bills up to three times."
+    )
+
+
+def _render_seeding_event_scrape(supabase_client: Any) -> None:
+    """Scrape a GotSport event instead of pasting its accepted-teams list.
+
+    Two buttons rather than one, because the walk is billed a page at a time and
+    an event's size is not knowable from its URL: the first prices the event
+    against a couple of divisions, and only a probe that actually read one
+    unlocks the second.
+    """
+    st.markdown("#### Or scrape a GotSport event")
+    st.caption(
+        "Reads each division's teams and follows every team page for its GotSport id, "
+        "which links a team outright rather than by name. Check a couple of divisions first — "
+        "every page is paid for."
+    )
+    if not os.getenv("ZENROWS_API_KEY"):
+        st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
+
+    in_progress = st.session_state.get("_scrape_in_progress")
+    url = st.text_input(
+        "GotSport event URL",
+        key="seeding_event_url",
+        placeholder="https://system.gotsport.com/org_event/events/52975",
+        disabled=in_progress,
+    )
+    probe = _seeding_event_probe_for(url) or {}
+    priced = bool(probe.get("divisions_walked"))
+    already_walked = bool(probe.get("complete"))
+
+    left, right = st.columns([2, 2])
+    with left:
+        probe_clicked = st.button(
+            "Check {} divisions (~{}-{})".format(
+                _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
+            ),
+            key="_seeding_event_probe_run",
+            disabled=not url or in_progress or already_walked,
+        )
+    with right:
+        full_clicked = st.button(
+            "Scrape the whole event",
+            key="_seeding_event_full_run",
+            disabled=not url or in_progress or not priced or already_walked,
+        )
+
+    if probe:
+        st.caption(_seeding_probe_caption(probe))
+        st.caption("Name this run above and press Save to keep it.")
+
+    if st.session_state.get("_seeding_resolution_failed"):
+        st.warning("Name matching did not finish, so some teams may still be linkable.")
+        if st.button("Retry name matching", key="_seeding_retry_lookup"):
+            result = st.session_state.get("_seeding_result")
+            if result:
+                _run_seeding_name_lookup(result[0], result[1], supabase_client)
+                st.rerun()
+
+    if probe_clicked and not already_walked:
+        _run_event_roster_scrape(url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS)
+    elif full_clicked and priced and not already_walked:
+        _run_event_roster_scrape(url, supabase_client, limit_groups=None)
+    elif probe_clicked or full_clicked:
+        # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
+        # trigger of any button that was enabled when it was clicked. That covers
+        # editing the URL and clicking in one go, and a second click queued while
+        # the first walk was still running — which would otherwise arrive once the
+        # run it was queued behind had finished, and buy the same event twice.
+        st.error(
+            "Nothing to buy: check a couple of divisions first, or this event has already been walked."
+        )
+
+
+def _render_seeding_warnings(parsed: ParsedRoster) -> None:
+    """Show what the intake could not do, without letting it author the page."""
+    for warning in parsed.warnings:
+        st.warning(_as_plain_text(warning))
+
+
+def _render_seeding_save() -> None:
+    """Offer to keep the run, once it has a name to be kept under.
+
+    Announces success only on a write that happened: ``_autosave_seeding_run``
+    turns a failed save into a warning and returns False, and a green "Saved"
+    printed beside that warning is what would send an operator away from a
+    session whose manual fixes are about to be lost.
+    """
+    if not _seeding_run_name():
+        st.info("Name the event above to save this run, so a refresh does not lose your manual fixes.")
+        return
+    if st.button("Save this run", key="_seeding_save_run") and _autosave_seeding_run():
+        st.success("Saved. Reopen it from the dropdown above.")
+
+
+def _render_seeding_tab(supabase_client: Any) -> None:
+    """Paste-a-roster intake for a tournament that has not been played yet.
+
+    An unplayed event has no schedule to scrape, so the director's list is the
+    only input. Resolution is two lookups, not a fuzzy score — see
+    ``src.tournaments.roster_resolver``.
+    """
+    st.markdown("### Seeding intake")
+    st.caption(
+        "Paste the director's accepted-teams list. Age and gender come from the section "
+        "headings, so keep lines like 'Male U14' in."
+    )
+    _render_seeding_run_controls()
+    st.text_area(
+        "Accepted teams",
+        key="seeding_roster_text",
+        height=220,
+        placeholder=_SEEDING_PLACEHOLDER,
+    )
+    if st.button(
+        "Resolve teams",
+        type="primary",
+        disabled=not st.session_state.get("seeding_roster_text"),
+    ):
+        _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client)
+        _autosave_seeding_run()
+
+    _render_seeding_event_scrape(supabase_client)
+
+    result = st.session_state.get("_seeding_result")
+    if not result:
+        return
+
+    parsed, resolved = result
+    overrides = st.session_state._seeding_overrides
+    by_index = {item.source_index: item for item in resolved}
+    outstanding = [
+        row
+        for row in parsed.rows
+        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+    ]
+
+    columns = st.columns(4)
+    columns[0].metric("Teams", len(parsed.rows))
+    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
+    columns[2].metric("You fixed", len(overrides))
+    columns[3].metric("Still open", len(outstanding))
+
+    counts = summarize(resolved)
+    st.caption(
+        f"{counts['gotsport_id']} matched by GotSport id, {counts['exact_name']} by exact name."
+    )
+
+    _render_seeding_warnings(parsed)
+
+    frame = _seeding_result_frame(parsed, resolved, overrides)
+    st.dataframe(frame, width="stretch", hide_index=True)
+
+    if outstanding:
+        st.markdown(f"#### {len(outstanding)} still need a decision")
+        st.caption(
+            "Look the team up on rankings.gotsport.com and paste the link, or paste a team_id_master "
+            "if you already have it."
+        )
+        for row in outstanding:
+            _render_seeding_override(row, by_index[row.source_index], supabase_client)
+
+        st.download_button(
+            f"Download these {len(outstanding)} as CSV",
+            data=frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
+            .to_csv(index=False)
+            .encode("utf-8"),
+            file_name="seeding_intake_review.csv",
+            mime="text/csv",
+        )
+    else:
+        st.success("Every team on the list is resolved.")
+
+    _render_seeding_save()
+
+    _render_seeding_enqueue(parsed, resolved, supabase_client)
+    _render_seeding_sheet(parsed, resolved, supabase_client)
+
+
+def _render_backtest_tab(supabase_client: Any) -> None:
+    """Scrape-and-triage flow for a tournament that has already been played."""
     _render_intake_section(supabase_client)
     _render_registry_persist_results()
 
@@ -3455,6 +4407,24 @@ def main() -> None:
         event_name=meta.event_name,
         supabase_client=supabase_client,
     )
+
+
+def main() -> None:
+    """Top-level render flow."""
+    _init_session_state()
+    supabase_client = get_database()
+    _render_rekey_banner()
+    st.segmented_control(
+        "View",
+        options=_VIEWS,
+        default=_VIEWS[0],
+        key="active_view",
+        label_visibility="collapsed",
+    )
+    if st.session_state.get("active_view") == "Seeding":
+        _render_seeding_tab(supabase_client)
+    else:
+        _render_backtest_tab(supabase_client)
 
 
 if __name__ == "__main__":

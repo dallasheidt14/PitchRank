@@ -93,6 +93,7 @@ PATH_SKIP_EXACT = {
     "and/or",
     "id/team_id_master",
     "dallasheidt14/PitchRank",  # GitHub repo slug, not a path
+    "ZenRows/zenrows-python-sdk",  # GitHub repo slug, not a path
     "sos_norm_national/state",  # two column names written as one enumeration
 }
 # Paths that are gitignored by design, so a tracked-file lookup can never find them.
