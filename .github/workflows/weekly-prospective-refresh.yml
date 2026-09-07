@@ -114,6 +114,16 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
+          # Required, not optional. GotsportScraper sets `use_zenrows` from the mere
+          # presence of this variable (src/scrapers/gotsport.py:318), and with it absent
+          # `_fetch_event_page` falls back to a direct session get (:1636-1641). GotSport
+          # 403s that from a GitHub runner and redirects to a login host that then times
+          # out, so every event yields zero games and the step exits 1 on the missing
+          # JSONL. The fallback is silent -- nothing logs that the proxy was skipped --
+          # which is how this ran red for 19 consecutive weeks from 2026-04-28. The
+          # sibling workflow calling this same script, auto-gotsport-upcoming-event-scrape,
+          # has always passed it.
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           GOTSPORT_DELAY_MIN: "0.1"
           GOTSPORT_DELAY_MAX: "0.2"
           GOTSPORT_MAX_RETRIES: "2"
