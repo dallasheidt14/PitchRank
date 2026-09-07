@@ -602,6 +602,24 @@ def test_approving_carries_the_queue_row_as_its_pre_image():
     assert body.index("IF NOT v_applied THEN") < body.index("SET status = 'approved'")
 
 
+def test_approving_stamps_the_provenance_python_ranks_authority_by():
+    """`assign_team_states` keys `SOURCE_AUTHORITY` on `state_source_for(tier)`, and this
+    line is the SQL half of that format, built independently with nothing holding the two
+    equal. Drift is silent and costly both ways: an unrecognised source scores zero
+    authority, so every correction over an approved state auto-applies again, and the
+    contradiction audit's anchor index stops recognising a Tier A write.
+
+    Asserted against the `apply_team_state` call's own arguments rather than the whole
+    body, so the same string in a comment cannot satisfy it.
+    """
+    from scripts.assign_team_states import state_source_for
+
+    body = _flat(_function(APPROVE_FUNCTION))
+    call = body[body.index(f"public.{WRITE_FUNCTION}(") :]
+    assert "'tier_' || lower(v_row.tier)" in call[: call.index(");")]
+    assert state_source_for("E") == "tier_e"
+
+
 def test_approving_mirrors_the_board_with_an_update():
     """Monday's ranking run re-derives this column from teams, so an inserted row would be
     a ranking no run produced."""

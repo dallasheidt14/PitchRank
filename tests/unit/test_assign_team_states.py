@@ -43,13 +43,21 @@ def team(**fields):
         "club_name": "",
         "state_code": None,
         "state": None,
+        "state_source": None,
     }
     base.update(fields)
     return base
 
 
-def decision(team_row, clubs=None, locality=None, associations=None, reverts=None):
-    return decide(team_row, clubs or {}, locality or {}, associations or {}, reverts or set())
+def decision(team_row, clubs=None, locality=None, associations=None, reverts=None, approved=None):
+    return decide(
+        team_row,
+        clubs or {},
+        locality or {},
+        associations or {},
+        reverts or set(),
+        approved or set(),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -317,6 +325,171 @@ def test_a_decision_carries_the_state_it_was_computed_against():
 
 
 # --------------------------------------------------------------------------- #
+# Why the sweep settles
+# --------------------------------------------------------------------------- #
+
+
+def test_the_club_count_does_not_overturn_a_provider_record():
+    """Eight of ten sampled rewrites in the two-pass comparison were this: Tier B
+    counting clubmates over a state the provider had already answered for."""
+    result = decision(
+        team(state_code="ID", state_source="tier_a", club_name="clean club"), CLEAN_CLUB
+    )
+    assert result["action"] == "queue"
+
+
+def test_a_tier_does_not_overturn_its_own_earlier_answer():
+    """The Femac pair: each team's fill flipped the club majority the other's Tier B
+    reads, so pass 2 wanted to swap them back and would have gone on doing it."""
+    result = decision(
+        team(state_code="NV", state_source="tier_b", club_name="clean club"), CLEAN_CLUB
+    )
+    assert result["action"] == "queue"
+
+
+def test_a_provider_record_still_overturns_a_weaker_source():
+    result = decision(
+        team(state_code="WY", state_source="tier_e", club_name="clean club"),
+        CLEAN_CLUB,
+        associations={"t": "ID"},
+    )
+    assert (result["tier"], result["proposed"], result["action"]) == ("A", "ID", "apply")
+
+
+def test_no_tier_overturns_a_state_a_person_assigned():
+    result = decision(
+        team(state_code="ID", state_source="operator", club_name="clean club"),
+        CLEAN_CLUB,
+        associations={"t": "WY"},
+    )
+    assert result["action"] == "queue"
+
+
+def test_no_tier_overturns_a_state_a_person_approved():
+    """``approve_team_state`` stamps the proposing tier, not the approver, so the column
+    ranks a person's decision at the tier's own confidence. 98 teams held an approved state
+    when this was found, and 64 were auto-overwritable by Tier B alone."""
+    approved = team(state_code="ID", state_source="tier_e", club_name="clean club")
+    assert decision(approved, CLEAN_CLUB)["action"] == "apply"
+    assert decision(approved, CLEAN_CLUB, approved={("t", "ID")})["action"] == "queue"
+
+
+def test_an_approval_protects_the_state_approved_rather_than_the_team():
+    """A team whose state has moved on since is not the team that was approved."""
+    moved_on = team(state_code="WY", state_source="tier_e", club_name="clean club")
+    assert decision(moved_on, CLEAN_CLUB, approved={("t", "ID")})["action"] == "apply"
+
+
+def test_the_provider_may_refresh_its_own_record():
+    """Tier A's input is a registration bought fresh from GotSport, so a changed answer is
+    a changed fact rather than a recount of what this tool wrote. The sweep re-probes every
+    disputed team each run with no recency filter, so this path is live for 6,442 teams."""
+    result = decision(
+        team(state_code="NV", state_source="tier_a", club_name="clean club"),
+        CLEAN_CLUB,
+        associations={"t": "WA"},
+    )
+    assert (result["tier"], result["proposed"], result["action"]) == ("A", "WA", "apply")
+
+
+def test_a_tier_that_only_recounted_gets_no_such_exemption():
+    result = decision(
+        team(state_code="NV", state_source="tier_b", club_name="clean club"), CLEAN_CLUB
+    )
+    assert (result["tier"], result["action"]) == ("B", "queue")
+
+
+def test_a_snapshot_decided_under_older_rules_is_refused(monkeypatch):
+    """--execute never recomputes, so a file from before the authority test carries applies
+    that test would have refused. The pre-image predicate does not catch them: the teams
+    have not moved, the reasoning about them has."""
+    with pytest.raises(SystemExit):
+        apply_snapshot(None, {"created_at": "2026-08-29T00:00:00+00:00", "decisions": []}, None)
+
+
+def test_a_snapshot_this_run_took_carries_the_rules_it_was_decided_under(monkeypatch):
+    monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: [])
+    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
+    monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
+    assert assign.build_snapshot(None, use_tier_a=False, workers=1)["rules"] == assign.SNAPSHOT_RULES
+
+
+def test_a_state_this_tool_never_wrote_is_correctable_as_before():
+    """193,789 live teams carry no source at all. The rule is about not overwriting an
+    answer, and those are not answers this tool gave."""
+    result = decision(team(state_code="WY", club_name="clean club"), CLEAN_CLUB)
+    assert result["action"] == "apply"
+
+
+def test_a_recorded_source_does_not_hold_back_a_fill():
+    """A revert can blank a state and leave the source behind. Nothing is being
+    overwritten, so the authority test has nothing to say about it."""
+    result = decision(team(state_source="tier_a", club_name="clean club"), CLEAN_CLUB)
+    assert result["action"] == "apply"
+
+
+def test_every_tier_can_be_outranked_by_something():
+    """The map is derived from TIER_CONFIDENCE, so a tier added there without a thought
+    for authority ranks by its confidence rather than falling to zero and correcting
+    everything."""
+    for tier in assign.TIER_CONFIDENCE:
+        assert assign.SOURCE_AUTHORITY[assign.state_source_for(tier)] == assign.TIER_CONFIDENCE[tier]
+    assert assign.SOURCE_AUTHORITY[assign.OPERATOR_SOURCE] > max(assign.TIER_CONFIDENCE.values())
+
+
+def _sweep(teams, approved=frozenset()):
+    """One pass of the real thing: rebuild the indexes, decide, apply the applies.
+
+    Applying stamps ``state_source`` exactly as ``apply_team_state`` does, so the next
+    pass reads the provenance this pass wrote — which is the whole mechanism under test.
+    """
+    club_index = build_club_index(teams)
+    decisions = [d for d in (decide(t, club_index, {}, {}, set(), approved) for t in teams) if d]
+    by_id = {t["team_id_master"]: t for t in teams}
+    for d in (d for d in decisions if d["action"] == "apply"):
+        by_id[d["team_id"]]["state_code"] = d["proposed"]
+        by_id[d["team_id"]]["state_source"] = assign.state_source_for(d["tier"])
+    return decisions
+
+
+def _evenly_split_club():
+    """The Femac shape: one club, two states, no majority once a team excludes itself.
+
+    Four teams rather than two, because Tier B needs two clubmates in a state before it
+    counts one, and it excludes the team being decided. At two-all, every team sees the
+    *other* state holding two and its own holding one, so every team is told to flip —
+    and flipping them all recreates the same split mirrored. There is no fixed point.
+    """
+    return [
+        team(team_id_master="femac-06", club_name="femac", state_code="NV"),
+        team(team_id_master="femac-09", club_name="femac", state_code="WA"),
+        team(team_id_master="femac-11", club_name="femac", state_code="NV"),
+        team(team_id_master="femac-13", club_name="femac", state_code="WA"),
+    ]
+
+
+def test_two_sweeps_of_an_evenly_split_club_reach_a_fixed_point():
+    teams = _evenly_split_club()
+    written = {d["team_id"] for d in _sweep(teams) if d["action"] == "apply"}
+    rewrites = [d for d in _sweep(teams) if d["action"] == "apply" and d["team_id"] in written]
+    assert rewrites == []
+
+
+def test_that_fixed_point_is_the_rule_and_not_the_fixture():
+    """The same club with the provenance discarded between passes, which is what the tool
+    did before this rule. It oscillates — so the test above passes because the authority
+    test held, not because Tier B was too timid to fire on this fixture."""
+    teams = _evenly_split_club()
+    first = _sweep(teams)
+    for t in teams:
+        t["state_source"] = None
+    written = {d["team_id"] for d in first if d["action"] == "apply"}
+    rewrites = [d for d in _sweep(teams) if d["action"] == "apply" and d["team_id"] in written]
+    assert rewrites, "the fixture cannot oscillate, so the fixed point above proves nothing"
+
+
+# --------------------------------------------------------------------------- #
 # What the scheduled job has to be able to install
 # --------------------------------------------------------------------------- #
 
@@ -389,7 +562,14 @@ def _replay(monkeypatch, decisions, reverts=frozenset(), sources=None, refuse=fr
         lambda sb, d, existing: (captured["order"].append("queue"), captured["queued"].append(d["team_id"]))
         and "queued",
     )
-    apply_snapshot(None, {"created_at": "2026-08-29T00:00:00+00:00", "decisions": decisions}, **kwargs)
+    snapshot = {
+        "created_at": "2026-08-29T00:00:00+00:00",
+        # apply_snapshot refuses a snapshot whose rules predate the authority test, so the
+        # replay helper has to stamp the current one or every caller below fails at the gate.
+        "rules": assign.SNAPSHOT_RULES,
+        "decisions": decisions,
+    }
+    apply_snapshot(None, snapshot, **kwargs)
     return captured
 
 
@@ -649,6 +829,7 @@ def audit(
 
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: teams)
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     # Faithful to the real reader, which drops transient outcomes before they can
     # suppress anything. A stub returning them raw would let a fixture prove something
     # production never sees.
@@ -946,6 +1127,7 @@ def test_a_blocked_sweep_is_told_to_use_the_flag_the_parser_allows_it(monkeypatc
     names `--no-tier-a` -- and an audit's must not, because that combination is refused."""
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
     monkeypatch.setattr(assign, "write_probe_log", lambda sb, rows: None)
     monkeypatch.setattr(assign, "fetch_gotsport_aliases", lambda sb, ids: {t: "p" for t in ids})
@@ -965,6 +1147,7 @@ def test_a_normal_run_records_its_mode(monkeypatch):
     """Every snapshot carries it, so a reader never has to infer the mode from absence."""
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
 
     snapshot = assign.build_snapshot(None, use_tier_a=False, workers=1)
@@ -1266,6 +1449,7 @@ def test_a_blocked_sweep_still_exits_before_deciding(monkeypatch):
     defers, and only because it has paid-for answers to protect."""
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     monkeypatch.setattr(assign, "fetch_gotsport_aliases", lambda sb, ids: {t: "p" for t in ids})
     monkeypatch.setattr(assign, "write_probe_log", lambda sb, rows: None)
     monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
@@ -1774,6 +1958,7 @@ def test_a_blocked_probe_stops_a_named_team_run_even_in_audit_mode(monkeypatch):
     uniformly-mislabelled club the one-off route exists for."""
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     monkeypatch.setattr(assign, "fetch_recent_probes", lambda sb, cutoff: {})
     monkeypatch.setattr(assign, "fetch_gotsport_aliases", lambda sb, ids: {t: "p" for t in ids})
     monkeypatch.setattr(assign, "write_probe_log", lambda sb, rows: None)

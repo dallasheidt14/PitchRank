@@ -105,11 +105,12 @@ jobs:
         if: github.event.inputs.dry_run != 'true'
         run: |
           # --fills-only is what makes this safe to run unattended. Two consecutive dry
-          # runs propose 664 applies, 90 of them overwriting what the first pass just
-          # wrote: a fill moves the clubmate counts Tier B reads next time, so two teams
-          # of one club oscillate between NV and WA with no fixed point. A fill has no
-          # such feedback. Corrections stay operator-run until a second pass proposes
-          # zero rewrites of the first.
+          # runs once proposed 664 applies, 90 of them overwriting what the first pass had
+          # just written: a fill moves the clubmate counts Tier B reads next time, so two
+          # teams of one club oscillated between NV and WA with no fixed point. A fill has
+          # no such feedback. The authority test in decide() has since closed that loop,
+          # but corrections stay operator-run until someone repeats the two-pass
+          # comparison against a real apply and sees zero rewrites.
           set -o pipefail
           python scripts/assign_team_states.py \
             --execute --snapshot logs/snapshot.json --fills-only 2>&1 \

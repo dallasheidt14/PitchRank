@@ -483,6 +483,7 @@ def snapshot_with(monkeypatch, teams, aliases, only_team=None):
 
     monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: teams)
     monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
     monkeypatch.setattr(assign, "fetch_gotsport_aliases", fake_aliases)
     monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
     monkeypatch.setattr(assign, "write_probe_log", lambda sb, rows: written.extend(rows))

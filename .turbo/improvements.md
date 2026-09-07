@@ -1789,3 +1789,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
 - **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
 - **Noted**: 2026-09-04
+
+### Two operator-facing prints interpolate a team name into Rich markup unescaped
+
+- **ID**: IMP-193
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
+- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
+- **Noted**: 2026-09-01
+
+### Skip operator-decided teams in the contradiction audit's paid probe list
+
+- **ID**: IMP-192
+- **Status**: deferred
+- **Type**: direct
+- **Category**: performance
+- **Where**: `scripts/assign_team_states.py` — `contradiction_candidates`, the `state_source != TIER_A_SOURCE` clause
+- **Why**: The selection excludes teams the provider already answered but not teams a person decided — 31 set by hand (`state_source = 'operator'`) and 98 approved from the review queue. Since the authority test added in `state-corrections-converge` can only ever queue a correction over an operator decision, each of those buys a GotSport call whose answer is unappliable. **Deferred deliberately on 2026-09-02**: the stored-`DC` clause keeps such teams in the population on the grounds that a review row carrying the provider's answer is worth the call, and the same argument applies here. Revisit only if paid probe volume becomes a concern. Whichever way it goes, the selection tests should assert the choice — they currently enumerate exclusions one literal at a time rather than deriving them from what `decide` can act on, so neither the present behaviour nor its opposite is pinned. Raised by the coverage reviewer.
+- **Trigger**: paid GotSport probe volume becomes a cost concern, or the audit's candidate count stops falling
+- **Noted**: 2026-09-02
+
+### A reverted approval still grants operator authority if the value later returns
+
+- **ID**: IMP-194
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `fetch_approved_states`
+- **Why**: The reader collects every historical `approve` row as a `(team, new_state_code)` pair and never asks whether that approval was later undone. Keying on the written value covers the ordinary case -- once a team's state moves on, the pair stops matching -- but not the return trip: approve to ID, revert, then some other writer puts the team back in ID, and the stale pair matches again and hands an operator-level authority of 1.0 to a value the operator's own revert had rejected. `decide()` then refuses every correction away from it, permanently and silently, which is the exact failure the authority test was added to prevent, inverted. Not reachable through the sweep alone, since `fetch_revert_blocks` already refuses to re-apply a reverted value; it needs a provider import or a by-hand write to restore the state. Zero pairs are affected today (98 approvals, no reverted-then-restored team). The fix is to fold the ledger in event order per team -- the last of approve/revert wins -- rather than accumulating approvals as a flat set, which is why it was kept out of the PR that added the reader. Raised by Codex on #1102.
+- **Noted**: 2026-09-07

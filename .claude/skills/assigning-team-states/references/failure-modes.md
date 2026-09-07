@@ -12,6 +12,7 @@ quickly, and to spend review effort hunting for new ones.
 - [A city that is not a city](#a-city-that-is-not-a-city)
 - [A border club that is not wrong](#a-border-club-that-is-not-wrong)
 - [Evidence that corroborates itself](#evidence-that-corroborates-itself)
+- [A sweep that argues with itself](#a-sweep-that-argues-with-itself)
 - [A silent zero](#a-silent-zero)
 
 ## A club that is uniformly mislabelled
@@ -145,6 +146,42 @@ and are not.
 
 Treat a filled `state` column as "not obviously guessed", never as corroboration. When
 measuring, exclude teams whose state was written by the run you are measuring.
+
+## A sweep that argues with itself
+
+The tool's own writes are evidence for its next run, which is how it came to have no fixed
+point. Tier B counts a club's stored states, so every fill changes what the next pass reads.
+Two consecutive dry runs proposed 664 applies, **90 of which overwrote what the first pass had
+just written an hour earlier**. Two teams of one club, *Femac 2006* and *FEMAC 2009 JA*, took
+turns: each write flipped the club majority and dragged the other back, NV to WA to NV,
+indefinitely. Eight of ten sampled were Tier B overruling a state Tier A had recorded — a club
+count beating a per-team registration record, purely because the sweep had moved the count.
+
+The fix is the provenance rule in
+[evidence-tiers.md](evidence-tiers.md#what-outranks-the-cascade): a correction must outrank
+whatever wrote the value, and equal authority loses. The evidence has not improved between two
+runs a week apart, so neither has the answer.
+
+**Where the provenance column is not enough.** `teams.state_source` answers "which tier
+produced this", not "who decided this", and those come apart on the review queue:
+`approve_team_state` stamps the *proposing* tier, so a Tier E answer a person approved is
+recorded as `tier_e` and any Tier B correction outranks it. 98 teams held an approved state
+when this was found and 64 were auto-overwritable that way — the highest-trust values in the
+table, rankable as ordinary tier output. So an operator's authority is read from
+`team_state_audit` (`action = 'approve'`, plus the `operator` source `--set` writes), not from
+the column.
+
+**Recognising it:** run the dry run twice, an apply in between, and compare — a decision in
+pass 2 whose `team_id` appears among pass 1's applies is a rewrite. The target is zero.
+
+    python scripts/assign_team_states.py --no-tier-a --out pass1.json
+    # apply pass1, then
+    python scripts/assign_team_states.py --no-tier-a --out pass2.json
+
+**Where it will come back:** any new tier that reads a column this tool writes. Tier E already
+does — it learns place names from the same `state_code` it corrects — and is held back by
+never correcting on its own. A tier reading `state_source` to *derive* an answer rather than
+to rank one would reintroduce the loop directly.
 
 ## A silent zero
 

@@ -122,7 +122,14 @@ def get_client():
 
 
 def _team(**fields):
-    base = {"team_id_master": "t", "team_name": "", "club_name": "", "state_code": None, "state": None}
+    base = {
+        "team_id_master": "t",
+        "team_name": "",
+        "club_name": "",
+        "state_code": None,
+        "state": None,
+        "state_source": None,
+    }
     base.update(fields)
     return base
 
@@ -293,6 +300,50 @@ def check_decision_rules(r: Result) -> None:
         ).get("action")
         == "queue",
         "club says OH, ledger holds a revert away from OH -> queue",
+    )
+    r.check(
+        "no tier overturns a state of equal or better provenance",
+        (
+            decide(
+                _team(state_code="NV", state_source="tier_b", club_name="clean club"),
+                club_index, {}, {}, set(),
+            )
+            or {}
+        ).get("action")
+        == "queue",
+        "club says OH but tier_b wrote NV -> queue",
+    )
+    r.check(
+        "a state predating this tool is still correctable",
+        (
+            decide(_team(state_code="NV", club_name="clean club"), club_index, {}, {}, set()) or {}
+        ).get("action")
+        == "apply",
+        "club says OH and nothing recorded NV -> apply",
+    )
+    r.check(
+        "no tier overturns a state an operator approved from the queue",
+        (
+            decide(
+                _team(state_code="NV", state_source="tier_e", club_name="clean club"),
+                club_index, {}, {}, set(), {("t", "NV")},
+            )
+            or {}
+        ).get("action")
+        == "queue",
+        "approve_team_state stamps tier_e, so the ledger is what protects the approval",
+    )
+    r.check(
+        "the provider may refresh its own record",
+        (
+            decide(
+                _team(state_code="NV", state_source="tier_a", club_name="clean club"),
+                club_index, {}, {"t": "WA"}, set(),
+            )
+            or {}
+        ).get("action")
+        == "apply",
+        "a re-probed registration is a changed fact, not a recount -> apply",
     )
 
 
