@@ -43,9 +43,24 @@ on:
         required: false
         default: "2000"
         type: string
-  schedule:
-    # Tuesday 19:00 UTC = Tuesday 12:00 PM America/Phoenix
-    - cron: '0 19 * * 2'
+  # Schedule paused 2026-09-07 — run manually from the Actions tab.
+  # Prior cadence (kept for reference): Tuesday 19:00 UTC = Tue 12:00 PM America/Phoenix
+  #   - cron: '0 19 * * 2'
+  #
+  # Paused because a scheduled run cannot currently succeed, so the weekly red X
+  # carried no information. Two blockers, neither fixed here:
+  #
+  #  1. GotSport serves a reCAPTCHA on event pages (one sitekey across every event
+  #     sampled 2026-09-07), so the scrape returns zero games even through ZenRows.
+  #     `.turbo/plans/gotsport-waf-circuit-breaker.md` has the background. This is the
+  #     binding constraint: nothing downstream matters while there are no fixtures.
+  #  2. `point-in-time-match-model-24367490034` expired 2026-04-27 — one day before the
+  #     first failure — and no newer artifact exists, because
+  #     train-point-in-time-match-model.yml has failed or been cancelled on every run
+  #     since 2026-04-15.
+  #
+  # Re-enable by uncommenting the cron above once (1) is resolved. Fixing (2) alone
+  # changes nothing: the run would get further and still have no games to predict on.
 
 concurrency:
   group: weekly-prospective-refresh
