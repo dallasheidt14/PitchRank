@@ -21,6 +21,7 @@ export async function middleware(request: NextRequest) {
   if (hostname === 'pitchrank.io') {
     const wwwUrl = new URL(request.url);
     wwwUrl.host = 'www.pitchrank.io';
+    // eslint-disable-next-line no-restricted-syntax -- runs before the Supabase client exists, so there is no refreshed cookie to lose
     return NextResponse.redirect(wwwUrl, 301);
   }
 
@@ -38,6 +39,7 @@ export async function middleware(request: NextRequest) {
     searchParams.forEach((value, key) => {
       callbackUrl.searchParams.set(key, value);
     });
+    // eslint-disable-next-line no-restricted-syntax -- runs before the Supabase client exists, so there is no refreshed cookie to lose
     return NextResponse.redirect(callbackUrl);
   }
 
@@ -45,6 +47,19 @@ export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
+
+  // A redirect built from scratch carries none of the refreshed session cookies
+  // that @supabase/ssr writes onto `response` below, so the browser would keep a
+  // refresh token the auth server has already rotated and arrive signed out on
+  // the next request. Every redirect issued after the refresh must go through here.
+  const redirectWithSession = (url: URL) => {
+    // eslint-disable-next-line no-restricted-syntax -- the sanctioned constructor every other exit is pointed at
+    const redirectResponse = NextResponse.redirect(url);
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie);
+    });
+    return redirectResponse;
+  };
 
   // Create Supabase client for middleware
   const supabase = createServerClient(
@@ -92,12 +107,12 @@ export async function middleware(request: NextRequest) {
       // Premium routes: redirect to upgrade page which can handle sign up/login
       const upgradeUrl = new URL('/upgrade', request.url);
       upgradeUrl.searchParams.set('next', pathname);
-      return NextResponse.redirect(upgradeUrl);
+      return redirectWithSession(upgradeUrl);
     } else {
       // Other protected routes: redirect to login
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('next', pathname);
-      return NextResponse.redirect(loginUrl);
+      return redirectWithSession(loginUrl);
     }
   }
 
@@ -114,20 +129,20 @@ export async function middleware(request: NextRequest) {
       // This prevents users from bypassing premium check when profile is null
       if (profileError || !profile) {
         console.warn('[Middleware] Profile not found or error:', profileError?.message);
-        return NextResponse.redirect(new URL('/upgrade', request.url));
+        return redirectWithSession(new URL('/upgrade', request.url));
       }
 
       // Redirect free users to upgrade page
       // Allow admin and premium users through
       if (profile.plan !== 'premium' && profile.plan !== 'admin') {
-        return NextResponse.redirect(new URL('/upgrade', request.url));
+        return redirectWithSession(new URL('/upgrade', request.url));
       }
     }
 
     if (isAdminRoute) {
       // Fail closed on lookup errors, matching the premium branch above
       if (profileError || !profile || profile.plan !== 'admin') {
-        return NextResponse.redirect(new URL('/', request.url));
+        return redirectWithSession(new URL('/', request.url));
       }
     }
   }
@@ -135,7 +150,7 @@ export async function middleware(request: NextRequest) {
   // Redirect authenticated users from auth routes to rankings (accessible to all users)
   // This prevents redirect loops for free users who would be redirected from /watchlist
   if (isAuthRoute && user) {
-    return NextResponse.redirect(new URL('/rankings', request.url));
+    return redirectWithSession(new URL('/rankings', request.url));
   }
 
   return response;
