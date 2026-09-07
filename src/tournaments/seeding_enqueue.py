@@ -17,6 +17,9 @@ a ``provider_team_id`` — ``process_missing_games`` raises
 failure instead of a scrape. Only the GotSport-id pass yields that id directly,
 so rows settled by name or by hand have it looked up. Both kinds of omission
 are reported as skipped, so the count says what was left out.
+
+A row's own provider id is read only from the pass that resolved the team from
+it; everything else is looked up from the team.
 """
 
 from __future__ import annotations
@@ -61,6 +64,24 @@ def _team_id_for(row: RosterRow, item: ResolvedTeam, overrides: Mapping[int, dic
     return item.team_id_master or None
 
 
+def _provider_team_id_for(
+    row: RosterRow, item: ResolvedTeam, overrides: Mapping[int, dict[str, Any]]
+) -> str | None:
+    """The row's own provider id, but only where it names the team being queued.
+
+    Trustworthy in exactly one case: the GotSport-id pass, where the id is what
+    resolved ``team_id_master`` in the first place. A scraped row also carries
+    the id the event published when that id resolved to nothing, and an override
+    replaces the team outright — in both cases the id names a different team, and
+    passing it would queue one team under another's id, sending the scraper after
+    the wrong squad and leaving the right one unrefreshed. Returning ``None``
+    here hands the row to the caller's lookup, which asks the team itself.
+    """
+    if overrides.get(row.source_index):
+        return None
+    return item.provider_team_id if item.status == "gotsport_id" else None
+
+
 def enqueue_resolved_teams(
     rows: Sequence[RosterRow],
     resolved: Sequence[ResolvedTeam],
@@ -93,7 +114,7 @@ def enqueue_resolved_teams(
         if team_id_master in seen:
             continue
 
-        provider_team_id = item.provider_team_id
+        provider_team_id = _provider_team_id_for(row, item, overrides)
         if not provider_team_id and lookup_provider_team_id is not None:
             provider_team_id = lookup_provider_team_id(team_id_master)
         if not provider_team_id:

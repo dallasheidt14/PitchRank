@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { getSubscriptionMetrics } from '@/lib/admin/subscription-metrics';
 import { describeRate } from '@/lib/admin/month-projection';
+import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 
 // Admin gate is enforced by frontend/middleware.ts (ADMIN_ROUTES).
 export const dynamic = 'force-dynamic';
@@ -30,8 +31,16 @@ function signedDollars(n: number): string {
   return `${n >= 0 ? '+' : '−'}${formatDollars(Math.abs(n))}`;
 }
 
+// Every date on this page is named in BUSINESS_TIMEZONE. Vercel runs with
+// TZ=UTC, so an unzoned format renders the server's calendar day, which is
+// already tomorrow's from 5pm local onward.
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: BUSINESS_TIMEZONE,
+  });
 }
 
 function formatRelative(iso: string): string {
@@ -50,7 +59,10 @@ function formatRelative(iso: string): string {
 export default async function SubscriptionsDashboardPage() {
   const metrics = await getSubscriptionMetrics();
   const projection = metrics.monthProjection;
-  const monthName = new Date(metrics.generatedAt).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+  const monthName = new Date(metrics.generatedAt).toLocaleDateString('en-US', {
+    month: 'long',
+    timeZone: BUSINESS_TIMEZONE,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -66,7 +78,11 @@ export default async function SubscriptionsDashboardPage() {
             </div>
             <h1 className="font-display text-3xl font-bold tracking-tight">Subscriptions</h1>
             <p className="text-sm text-muted-foreground">
-              As of {new Date(metrics.generatedAt).toLocaleString('en-US')}
+              As of{' '}
+              {new Date(metrics.generatedAt).toLocaleString('en-US', {
+                timeZone: BUSINESS_TIMEZONE,
+                timeZoneName: 'short',
+              })}
             </p>
           </div>
           <Link href="/mission-control/subscriptions">
@@ -136,7 +152,7 @@ export default async function SubscriptionsDashboardPage() {
             <h2 className="font-display text-xl font-semibold">Month Projection</h2>
             <span className="text-sm text-muted-foreground">
               {projection.available
-                ? `day ${projection.trials.daysElapsed} of ${projection.trials.daysInMonth} · measured from paid invoices`
+                ? `day ${projection.trials.dayOfMonth} of ${projection.trials.daysInMonth} · measured from paid invoices`
                 : 'could not be loaded'}
             </span>
           </div>

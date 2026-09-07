@@ -54,6 +54,7 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
       trials: {
         trialsToDate: 11,
         daysElapsed: 4,
+        dayOfMonth: 5,
         daysInMonth: 30,
         dailyRate: 2.75,
         projected: 82.5,
@@ -89,6 +90,30 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
 beforeEach(() => getSubscriptionMetrics.mockReset());
 
 describe('SubscriptionsDashboardPage', () => {
+  it('dates the page in the business timezone, not the UTC the server runs in', async () => {
+    // 00:33 UTC on Sept 6 is 5:33pm on Sept 5 in Phoenix. Rendered unzoned this
+    // read as the 6th to an operator for whom it was still the 5th.
+    getSubscriptionMetrics.mockReturnValue(metrics({ generatedAt: '2026-09-06T00:33:00.000Z' }));
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('9/5/2026');
+    expect(text).not.toContain('9/6/2026');
+    // Named on the page so the reader never has to guess which clock it is.
+    expect(text).toContain('MST');
+  });
+
+  it('names the month the operator is still in on the last evening of it', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics({ generatedAt: '2026-10-01T02:00:00.000Z' }));
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('September');
+    expect(text).not.toContain('October');
+  });
+
+  it('labels the projection with the calendar day, not the elapsed fraction', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('day 5 of 30');
+  });
+
   it('says every charge cleared only when the fetch actually succeeded', async () => {
     getSubscriptionMetrics.mockReturnValue(metrics());
     const text = textOf(await SubscriptionsDashboardPage());

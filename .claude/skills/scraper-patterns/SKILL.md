@@ -299,6 +299,38 @@ for the game dict, master id for `_get_last_scrape_date` and `_log_team_scrape`.
 per team, and verify a change here by asserting a **non-zero game count** — asserting that
 nothing raised passes while the parser silently returns nothing.
 
+## TGS Endpoint Quirks
+
+### The API host is AthleteOne, not Total Global Sports
+
+Call TGS at `https://api.athleteone.com/api` — the `BASE` constant in
+`scripts/scrape_tgs_event.py`. TGS migrated to AthleteOne;
+`public.totalglobalsports.com` is only the human-facing site and the value stored in
+`games.source_url`, and `providers.base_url` still records it, so both point at the
+wrong host for API work.
+
+Requesting an API path on the public host returns **HTTP 200 with HTML**, so the call
+fails at `json()` rather than as a clean 404 and reads like a WAF block. Check the host
+before investigating a block.
+
+### Event details payload contract
+
+`{BASE}/Event/get-event-details-by-eventID/{event_id}` — verified live across three
+events. Under `data`, the fields worth reading:
+
+```
+eventID, name, eventTypeID, eventSubTypeID, stateCode, stateID,
+city, address, zip, country, countryID, startDate, endDate
+```
+
+`eventTypeID` is 1 for a tournament and 2 for a league — the only way to tell them apart,
+and it exists nowhere in the database. `stateCode` is **where the event was held**, so it
+is a travel signal: use it to gate or cross-check, never as a team's own state. Canadian
+events return a province (`ON`, `BC`), not a US state.
+
+`scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
+only `name`, so the other fields cost no extra request.
+
 ## Request Pattern
 
 ### Standard Request
@@ -327,6 +359,33 @@ response = session.get(url, timeout=30)
 This sets no `allowed_methods`, so urllib3's default applies and POST is excluded from
 *read*-error retries only. The connect-replay gap in **Retry Semantics** below applies to this
 session exactly as it does to an explicit `["GET","HEAD"]` mount.
+
+### Decoding an HTML response
+
+**A `Content-Type: text/html` response carrying no charset decodes as ISO-8859-1**, the RFC 2616 default:
+`requests.utils.get_encoding_from_headers({"content-type": "text/html"})` returns `'ISO-8859-1'`
+(requests 2.32.5). GotSport serves UTF-8 and declares no charset anywhere — of the 55 fixture
+pages, 53 carry non-ASCII including Arabic, and not one declares a `<meta charset>`. (The two
+without non-ASCII are synthetic fixtures rather than captured pages.)
+
+Set the encoding before anything reads `.text`:
+
+```python
+if "charset" not in str(response.headers.get("content-type", "")).lower():
+    response.encoding = "utf-8"
+```
+
+Skipping it costs matches, not just tidiness. A team the provider gives no id for is matched on
+its **name**, so a mojibaked name loses exactly the team a provider id could not rescue.
+`_fetch_once` in `src/tournaments/gotsport_event_roster.py` carries the shipped form, placed ahead
+of the bot-challenge check because that check reads `.text` too.
+
+Give the test double raw bytes plus an `encoding`, and let its `text` decode them the way
+`requests` does. A double that hands back a ready-made `str` makes every charset look identical and
+cannot fail when this regresses.
+
+The same default drives the JSON-body trap under ZenRows Batch API above, where the remedy is to
+parse `response.content` instead.
 
 ### Retry Semantics
 

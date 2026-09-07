@@ -300,6 +300,13 @@ cn('base-class', condition && 'conditional-class');
 5. Premium routes → check `user_profiles.plan` = `premium` or `admin`
 6. Redirect logged-in users away from `/login`, `/signup`
 
+Every redirect built after step 3 goes through `redirectWithSession`, which carries the
+refreshed cookies onto it. A bare `NextResponse.redirect` starts an empty response, so a
+rotated refresh token never reaches the browser and the user arrives signed out on the next
+request — fixed once in 4bf752fd0, lost again in e5730a194, and now held by a
+`no-restricted-syntax` rule scoped to this file in `eslint.config.mjs`. Steps 1-2 run before
+the Supabase client exists and opt out with an `eslint-disable-next-line` naming that reason.
+
 ---
 
 ## SEO

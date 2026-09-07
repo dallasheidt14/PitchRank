@@ -289,10 +289,12 @@ describe('computePaidChurnRate', () => {
 });
 
 describe('computeTrialProjection', () => {
-  // 2026-09-04 UTC — day 4 of a 30-day month.
-  const now = new Date(Date.UTC(2026, 8, 4, 12, 0, 0));
-  const sept = (d: number) => Date.UTC(2026, 8, d) / 1000;
-  const aug = (d: number) => Date.UTC(2026, 7, d) / 1000;
+  // Midnight on Sept 5 in America/Phoenix (UTC-7, no DST): the 5th calendar
+  // day, with exactly 4.0 days of the month elapsed. The gap between those two
+  // numbers is the bug this suite pins — the run rate divides by the 4.
+  const now = new Date(Date.UTC(2026, 8, 5, 7, 0, 0));
+  const sept = (d: number) => Date.UTC(2026, 8, d, 7) / 1000;
+  const aug = (d: number) => Date.UTC(2026, 7, d, 7) / 1000;
   const septTrial = (id: string, startDay: number) =>
     sub({ id, trialStart: sept(startDay), trialEnd: sept(startDay + 7) });
   const eleven = () => [1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 4].map((d, i) => septTrial(`s${i}`, d));
@@ -301,6 +303,7 @@ describe('computeTrialProjection', () => {
     const result = computeTrialProjection(eleven(), now, NONE, NONE);
     expect(result.trialsToDate).toBe(11);
     expect(result.daysElapsed).toBe(4);
+    expect(result.dayOfMonth).toBe(5);
     expect(result.daysInMonth).toBe(30);
     expect(result.dailyRate).toBeCloseTo(2.75);
     expect(result.projected).toBeCloseTo(82.5);
@@ -387,7 +390,7 @@ describe('computeTrialProjection', () => {
   });
 
   it('drops late-month starts whose trial ends after the month does', () => {
-    const lateInMonth = new Date(Date.UTC(2026, 8, 28, 12, 0, 0));
+    const lateInMonth = new Date(Date.UTC(2026, 8, 28, 19, 0, 0));
     const subs = Array.from({ length: 84 }, (_, i) => septTrial(`s${i}`, Math.floor(i / 3) + 1));
     const result = computeTrialProjection(subs, lateInMonth, new Set(subs.map((s) => s.id)), NONE);
     expect(result.trialsToDate).toBe(84);
@@ -399,18 +402,54 @@ describe('computeTrialProjection', () => {
   });
 
   it('stays finite on the last day of the month', () => {
-    const lastDay = new Date(Date.UTC(2026, 8, 30, 12, 0, 0));
+    const lastDay = new Date(Date.UTC(2026, 8, 30, 19, 0, 0));
     const subs = Array.from({ length: 60 }, (_, i) => septTrial(`s${i}`, (i % 28) + 1));
     const result = computeTrialProjection(subs, lastDay, NONE, NONE);
     expect(Number.isFinite(result.landingUnresolved)).toBe(true);
     expect(Number.isFinite(result.projected)).toBe(true);
-    expect(result.daysElapsed).toBe(30);
+    expect(result.daysElapsed).toBe(29.5);
+    expect(result.dayOfMonth).toBe(30);
   });
 
   it('uses the real length of a short month', () => {
-    const feb = new Date(Date.UTC(2026, 1, 10, 12, 0, 0));
-    const subs = [sub({ id: 'f', trialStart: Date.UTC(2026, 1, 2) / 1000, trialEnd: Date.UTC(2026, 1, 9) / 1000 })];
+    const feb = new Date(Date.UTC(2026, 1, 10, 19, 0, 0));
+    const subs = [
+      sub({ id: 'f', trialStart: Date.UTC(2026, 1, 2, 7) / 1000, trialEnd: Date.UTC(2026, 1, 9, 7) / 1000 }),
+    ];
     expect(computeTrialProjection(subs, feb, NONE, NONE).daysInMonth).toBe(28);
+  });
+
+  it('measures the month in America/Phoenix, not the UTC the server runs in', () => {
+    // 00:30 UTC on Sept 1 is still 5:30pm on Aug 31 in Phoenix. Bucketing by
+    // UTC put this trial in September and rolled the day counter over seven
+    // hours early, which is how the dashboard came to show the 6th on the 5th.
+    const augustEvening = sub({ id: 'aug31', trialStart: Date.UTC(2026, 8, 1, 0, 30) / 1000, trialEnd: sept(8) });
+    const result = computeTrialProjection([augustEvening, septTrial('sep', 2)], now, NONE, NONE);
+    expect(result.trialsToDate).toBe(1);
+  });
+
+  it('does not credit the run rate with a day that has barely started', () => {
+    // One minute past midnight on the 6th: the calendar says day 6, but only
+    // five days of evidence exist. Dividing by 6 understated every rate, and
+    // made the projection drop at the moment the day ticked over.
+    const justAfterMidnight = new Date(Date.UTC(2026, 8, 6, 7, 1, 0));
+    const subs = Array.from({ length: 15 }, (_, i) => septTrial(`s${i}`, (i % 5) + 1));
+    const result = computeTrialProjection(subs, justAfterMidnight, NONE, NONE);
+    expect(result.dayOfMonth).toBe(6);
+    expect(result.daysElapsed).toBeCloseTo(5, 2);
+    expect(result.dailyRate).toBeCloseTo(3, 2);
+    expect(result.projected).toBeCloseTo(90, 1);
+  });
+
+  it('does not extrapolate out of the opening hours of a month', () => {
+    // 30 minutes into the 1st. Undivided this projects past 1,400; the run rate
+    // is held to what a full first day would show until one has passed.
+    const dayOne = new Date(Date.UTC(2026, 8, 1, 7, 30, 0));
+    const subs = [septTrial('a', 1), septTrial('b', 1)];
+    const result = computeTrialProjection(subs, dayOne, NONE, NONE);
+    expect(result.dailyRate).toBe(2);
+    expect(result.projected).toBe(60);
+    expect(result.high).toBeLessThan(150);
   });
 });
 
@@ -485,6 +524,7 @@ describe('buildMonthProjection', () => {
   const trials = {
     trialsToDate: 11,
     daysElapsed: 15,
+    dayOfMonth: 16,
     daysInMonth: 30,
     dailyRate: 2.75,
     projected: 82.5,

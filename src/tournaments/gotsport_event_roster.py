@@ -32,7 +32,7 @@ import random
 import re
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Lock
@@ -49,15 +49,21 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EVENT_BASE",
+    "EVENT_ID",
+    "EVENT_ID_IN_URL",
     "ZENROWS_ENDPOINT",
     "EventRoster",
     "EventRosterTeam",
     "WafChallengeError",
+    "event_id_from",
     "make_zenrows_fetcher",
+    "names_cohort_outside",
     "parse_division_label",
     "parse_group_ids",
     "parse_group_teams",
     "parse_provider_team_id",
+    "printable_text",
+    "redact_secret",
     "resolve_cohort",
     "scrape_event_roster",
 ]
@@ -76,6 +82,16 @@ _TEAM_ID = re.compile(r"[?&]team=([0-9]{1,12})(?![0-9])")
 _RANKINGS_TEAM = re.compile(
     r"rankings\.gotsport\.com/teams/([0-9]{1,12})(?![0-9])"
 )
+# Both refuse a longer token rather than taking a valid prefix of it: `/events/
+# 1234567890123` must not resolve to event 123456789012 and write under that
+# event's path. `\Z` rather than `$`, which would accept a trailing newline.
+EVENT_ID_IN_URL = re.compile(r"/events/([0-9]{1,12})(?![0-9])")
+EVENT_ID = re.compile(r"^[0-9]{1,12}\Z")
+
+_KEPT_CONTROLS = frozenset({chr(9), chr(10)})
+# Zl/Zp are the line and paragraph separators: legal JSON under
+# ensure_ascii=False, and a break in every JavaScript consumer that reads it.
+_STRIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp"})
 
 # One grammar reads the whole label. A run is an age expression with an optional
 # gender letter at either end: `BU12`, `U-12`, `U12B`, `12U`, `12UB`, `B2015`,
@@ -119,6 +135,9 @@ _BLOCK_MARKERS = re.compile(
 _ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
 _EVENT_PAGE_READY = 'a[href*="group="]'
 _SCHEDULE_READY = "table"
+# The landing page is read this many times and the division ids unioned, because
+# one read can arrive before the list has finished rendering.
+_LANDING_READS = 2
 
 
 @dataclass(frozen=True)
@@ -143,6 +162,8 @@ class EventRoster:
     divisions_found: int = 0
     divisions_walked: int = 0
     divisions_unreadable: int = 0
+    divisions_skipped: int = 0
+    divisions_stable: bool = True
     teams_unreadable: int = 0
 
     @property
@@ -151,6 +172,11 @@ class EventRoster:
 
         Every division must have been reached, every schedule table
         recognized, and every team page read.
+
+        A list of divisions the page gave differently on two reads counts as
+        incomplete however well the rest of the walk went: the roster may be
+        missing whole divisions nobody saw, and the caller reads this flag to
+        decide an event is finished with.
 
         A division with no fixtures posted is complete. That is the normal
         state of an event being seeded before its schedule goes up, and
@@ -162,6 +188,7 @@ class EventRoster:
         """
         return (
             self.divisions_found > 0
+            and self.divisions_stable
             and self.divisions_found == self.divisions_walked
             and self.divisions_unreadable == 0
             and self.teams_unreadable == 0
@@ -188,14 +215,39 @@ def resolve_cohort(label: str) -> tuple[str, str]:
     are the band it spans.
     """
     runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
+    named = _named_cohort(label)
+    return (named if named in AGE_GROUPS else ""), _gender_of(label, runs)
+
+
+def names_cohort_outside(label: str, wanted: Collection[str]) -> bool:
+    """Does this label plainly name one cohort, and is that cohort unwanted?
+
+    ``resolve_cohort`` withholds a cohort outside the boards, which makes
+    ``U9 Boys Gold`` and a label nobody can parse arrive as the same empty
+    string. To a caller deciding what to pay for they are not the same thing:
+    the first is a division known to be unwanted, the second is one that cannot
+    be judged and must therefore be kept.
+
+    False whenever the label names nothing, or names more than one cohort. Both
+    mean the same thing here — no single claim to act on — and a division is
+    only ever dropped on a claim this module would make.
+    """
+    named = _named_cohort(label)
+    return bool(named) and named not in wanted
+
+
+def _named_cohort(label: str) -> str:
+    """The one cohort this label names, in whatever form names it.
+
+    A boarded cohort comes back as itself. An age the boards exclude comes back
+    as the label's own literal (``u20``) and an unboarded birth year as its year
+    (``by2005``), which are deliberately not cohort ids: nothing may match them
+    against a board, and their only job is to be distinguishable from the empty
+    string an unreadable label yields.
+    """
+    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
     cohorts = _cohorts_of(runs, "u_age") or _cohorts_of(runs, "birth_year")
-
-    age_group = ""
-    if len(cohorts) == 1:
-        candidate = cohorts.pop()
-        age_group = candidate if candidate in AGE_GROUPS else ""
-
-    return age_group, _gender_of(label, runs)
+    return cohorts.pop() if len(cohorts) == 1 else ""
 
 
 @dataclass(frozen=True)
@@ -230,11 +282,14 @@ def _read_run(match: re.Match) -> _AgeRun:
         )
     if has_u:
         # `normalize_age` owns the U18->U19 merge and the boardable band, and
-        # answers None outside it. That None is kept as "" so a label naming
-        # one boardable age and one unboardable one (`U18/U19/20`) reads as two
-        # cohorts and is withheld, rather than quietly keeping the valid half.
+        # answers None outside it. An age it will not board keeps the label's own
+        # literal — `u20`, `u5` — rather than collapsing to "". Both forms stay
+        # out of `AGE_GROUPS`, so `resolve_cohort` still withholds them and a
+        # label naming one boardable age and one unboardable one (`U18/U19/20`)
+        # still reads as two cohorts. What the literal buys is a caller being
+        # able to tell "an age we do not board" from "an age nobody can read".
         return _AgeRun(
-            "u_age", frozenset(normalize_age(number) or "" for number in numbers), genders
+            "u_age", frozenset(normalize_age(number) or f"u{number}" for number in numbers), genders
         )
     return _AgeRun("none", frozenset(), genders)
 
@@ -253,7 +308,7 @@ def _birth_year_cohorts(numbers: list[int]) -> set[str]:
     cohorts = set()
     for number in numbers:
         year = number if number >= _EARLIEST_BIRTH_YEAR else century + number
-        cohorts.add(calculate_age_group_from_birth_year(year) or "")
+        cohorts.add(calculate_age_group_from_birth_year(year) or f"by{year}")
     return {cohort.lower() for cohort in cohorts}
 
 
@@ -291,6 +346,52 @@ def _gender_of(label: str, runs: list[_AgeRun]) -> str:
     named = {_GENDER_WORDS[word.group(1).lower()] for word in _GENDER_WORD.finditer(label or "")}
     named |= {gender for run in runs for gender in run.genders}
     return named.pop() if len(named) == 1 else ""
+
+
+def printable_text(text: str) -> str:
+    """Strip terminal control sequences out of provider-authored text.
+
+    Everything this module returns was written by a tournament organizer or a
+    club, and lands in an operator's terminal, in JSON under ``reports/`` which
+    this repository does not gitignore, and in the seeding UI. ``rich.markup``
+    escaping neutralises ``[`` but not ESC, and rich's own control-code filter
+    does not cover it either, so a division or team name carrying ``&#x1B;``
+    reaches the terminal live and fires again on a later ``cat``. Bidi and
+    zero-width formats matter one step further out: they survive into the JSON
+    and reverse or hide a name in every viewer that renders it.
+
+    Decided by Unicode category rather than by a list of ranges, because a list
+    is what let U+061C, U+FEFF and the Tags block through while naming exactly
+    the class they belong to. Letters, marks, punctuation, symbols and spaces
+    all pass, so accented names, emoji and combining marks are untouched; tab
+    and newline are kept deliberately.
+
+    Punctuation surviving is what this does not solve: a name is still free to
+    carry Markdown or a spreadsheet formula, so a renderer that interprets
+    either needs its own escaping at that boundary.
+    """
+    return "".join(
+        ch
+        for ch in str(text or "")
+        if ch in _KEPT_CONTROLS or unicodedata.category(ch) not in _STRIPPED_CATEGORIES
+    )
+
+
+def event_id_from(url_or_id: str) -> str | None:
+    """Read an event id out of a full event URL or a bare id, or return ``None``.
+
+    Permissive about which of the two it was handed, because an operator pasting
+    into one box has no second box to be wrong about. The CLI stays strict — it
+    has a flag per form and says which one disagreed.
+
+    The id becomes a path segment under ``reports/``, so an unvalidated value
+    lets ``../`` escape the directory the run is meant to live in.
+    """
+    candidate = str(url_or_id or "").strip()
+    if EVENT_ID.match(candidate):
+        return candidate
+    match = EVENT_ID_IN_URL.search(candidate)
+    return match.group(1) if match else None
 
 
 def parse_group_ids(html: str) -> tuple[str, ...]:
@@ -505,13 +606,13 @@ def make_zenrows_fetcher(
                     attempt + 1,
                     attempts,
                     url,
-                    _redact(str(exc), api_key),
+                    redact_secret(exc, api_key),
                 )
                 if attempt + 1 < attempts and backoff_seconds:
                     time.sleep(backoff_seconds * (attempt + 1))
         raise RuntimeError(
             f"ZenRows gave up on {url} after {attempts} attempts: "
-            f"{_redact(str(last_error), api_key)}"
+            f"{redact_secret(last_error, api_key)}"
         )
 
     return fetch
@@ -583,18 +684,37 @@ def _wait_for(url: str) -> str:
     return _SCHEDULE_READY if "/schedules" in url else _EVENT_PAGE_READY
 
 
-def _redact(text: str, api_key: str) -> str:
-    """Keep the key out of anything a caller may log.
+def redact_secret(value: object, secret: str) -> str:
+    """Keep a credential out of anything a caller may log, write or render.
 
-    ``requests`` puts query parameters in the URL it names in an ``HTTPError``,
-    percent-encoded, so a key containing ``+``, ``/`` or ``=`` does not appear
-    literally and a plain replace would silently miss it. That text reaches the
-    roster's warnings and from there a file under ``reports/``, which is not
-    gitignored, in a public repository.
+    Two shapes leak a key, and neither catches the other:
+
+    - **Percent-encoded.** ``requests`` puts query parameters in the URL it
+      names in an ``HTTPError``, so a key containing ``+``, ``/`` or ``=`` never
+      appears literally and a plain replace misses it.
+    - **Split across whitespace.** A key soft-wrapped in ``.env.local`` comes
+      back carrying an internal newline, and ``h11`` formats the offending
+      header with ``{!r}`` — so the value never appears whole, but a
+      41-character run of it does, and deleting the escape recovers it exactly.
+      That shape is self-triggering: the wrapped key is both what leaks and what
+      caused the request to fail.
+
+    ``SUPABASE_URL`` is deliberately not redacted anywhere. It is public by
+    construction — the same value ships to browsers as
+    ``NEXT_PUBLIC_SUPABASE_URL`` — and hiding it removes the one detail telling
+    an operator which project failed.
+
+    That text reaches a file under ``reports/``, which this repository does not
+    gitignore, in a public repo.
     """
-    if not api_key:
+    text = str(value)
+    if not secret:
         return text
-    return text.replace(api_key, "REDACTED").replace(quote_plus(api_key), "REDACTED")
+    runs = sorted((run for run in secret.split() if len(run) >= 8), key=len, reverse=True)
+    for form in (secret, secret.strip(), quote_plus(secret), *runs):
+        if form:
+            text = text.replace(form, "REDACTED")
+    return text
 
 
 def scrape_event_roster(
@@ -605,6 +725,7 @@ def scrape_event_roster(
     delay_max: float = 0.0,
     limit_groups: int | None = None,
     max_workers: int = 1,
+    wanted_cohorts: Collection[str] | None = None,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> EventRoster:
     """Walk one event and return every team it publishes.
@@ -627,11 +748,19 @@ def scrape_event_roster(
     gets priced against a couple of them before paying for all of it. The result
     reports ``is_complete`` so a truncated or blocked walk cannot be mistaken
     for a whole one.
+
+    ``wanted_cohorts`` drops a division whose label plainly names a cohort
+    outside it, before any of its team pages are fetched. Team pages are most of
+    an event's bill, so an event carrying age groups nobody ranks is much cheaper
+    to walk with this set. The division's own page is still paid for, because its
+    label is the thing being read. A label naming no single cohort is always
+    kept: an unreadable label is not evidence a division is unwanted, and
+    guessing costs teams.
     """
     warnings: list[str] = []
     throttled = _throttled(fetch, delay_min, delay_max)
 
-    group_ids = parse_group_ids(throttled(f"{EVENT_BASE}/{event_id}"))
+    group_ids, stable = _read_group_ids(throttled, event_id, warnings)
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
@@ -642,6 +771,26 @@ def scrape_event_roster(
     divisions, unreadable_divisions = _read_divisions(
         throttled, event_id, group_ids, max_workers, warnings
     )
+    # Counted before the filter: a division we read and then chose not to pay
+    # further for was still walked, and `is_complete` compares this against the
+    # number found. Counting only the kept ones would report every filtered walk
+    # as partial, which retires the full-walk control and disarms the guard that
+    # stops a probe overwriting a complete roster.
+    divisions_walked = len(divisions)
+    divisions, skipped = _wanted_divisions(divisions, wanted_cohorts, warnings)
+    # A division we chose not to walk cannot have lost us teams, so its
+    # unreadable table is not a gap in this roster. Counting it would make
+    # `is_complete` false for a walk that got everything it asked for, and the
+    # caller reads that flag to decide whether the event is finished — a false
+    # one there reopens a paid full walk on an event already bought.
+    skipped_ids = {division.group_id for division in skipped}
+    unreadable_divisions = [
+        group_id for group_id in unreadable_divisions if group_id not in skipped_ids
+    ]
+    for division in divisions:
+        if not division.age_group:
+            named = division.label or f"group {division.group_id}"
+            warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
     pending = [(division, entry) for division in divisions for entry in division.teams]
     outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, on_progress)
 
@@ -671,8 +820,10 @@ def scrape_event_roster(
         teams=tuple(teams),
         warnings=tuple(warnings),
         divisions_found=divisions_found,
-        divisions_walked=len(divisions),
+        divisions_walked=divisions_walked,
         divisions_unreadable=len(unreadable_divisions),
+        divisions_skipped=len(skipped),
+        divisions_stable=stable,
         teams_unreadable=unreadable,
     )
 
@@ -684,6 +835,48 @@ class _Division:
     age_group: str
     gender: str
     teams: tuple[tuple[str, str], ...]
+
+
+def _read_group_ids(
+    fetch: HtmlFetcher, event_id: str, warnings: list[str]
+) -> tuple[tuple[str, ...], bool]:
+    """Read the event's division list, and say whether the page agreed with itself.
+
+    One read cannot be trusted. The fetcher waits for the first
+    ``a[href*="group="]`` to appear, which is satisfied while the rest of the
+    list is still rendering — event 52975 answered 57 divisions on one read and
+    4 on another an hour later, from the same URL.
+
+    So it is read twice and the ids unioned. The union never reports fewer
+    divisions than either read saw, and disagreement between the reads is the
+    signal that the page had not settled: the caller must not treat a walk built
+    on it as the whole event. The second read costs one page against the tens a
+    walk spends, and the figure it protects is the one an operator authorises a
+    full walk from.
+    """
+    seen: set[str] = set()
+    reads: list[frozenset[str]] = []
+    ordered: list[str] = []
+    for _ in range(_LANDING_READS):
+        found = parse_group_ids(fetch(f"{EVENT_BASE}/{event_id}"))
+        reads.append(frozenset(found))
+        for group_id in found:
+            if group_id not in seen:
+                seen.add(group_id)
+                ordered.append(group_id)
+
+    # Compared as sets, not counts. Two partial renders can be the same length
+    # and still name different divisions, and a count test calls that agreement
+    # — then the union is walked end to end, `found` equals `walked`, and a
+    # roster missing whatever neither read saw is declared the whole event.
+    stable = len(set(reads)) == 1
+    if not stable:
+        warnings.append(
+            f"The event page listed different divisions on each read "
+            f"({', '.join(str(len(read)) for read in reads)} of them); it had not "
+            f"finished loading, so {len(ordered)} is a floor rather than the total"
+        )
+    return tuple(ordered), stable
 
 
 def _read_divisions(
@@ -716,9 +909,6 @@ def _read_divisions(
         label = parse_division_label(group_html)
         age_group, gender = resolve_cohort(label)
         named = label or f"group {group_id}"
-        if not age_group:
-            warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
-
         teams = parse_group_teams(group_html)
         if not team_table_found(group_html):
             unreadable.append(group_id)
@@ -738,6 +928,37 @@ def _read_divisions(
             )
         )
     return divisions, unreadable
+
+
+def _wanted_divisions(
+    divisions: list[_Division],
+    wanted_cohorts: Collection[str] | None,
+    warnings: list[str],
+) -> tuple[list[_Division], list[_Division]]:
+    """Split the divisions into the ones worth paying for and the ones that are not.
+
+    Only a division whose label names one cohort can be dropped. A label naming
+    none, or naming two, is kept: the caller cannot act on a cohort this module
+    would not assert, and dropping on a guess costs real teams.
+    """
+    if wanted_cohorts is None:
+        return divisions, []
+
+    keep: list[_Division] = []
+    skipped: list[_Division] = []
+    for division in divisions:
+        if names_cohort_outside(division.label, wanted_cohorts):
+            skipped.append(division)
+        else:
+            keep.append(division)
+
+    if skipped:
+        labels = ", ".join(sorted({division.label or division.group_id for division in skipped}))
+        warnings.append(
+            f"Skipped {len(skipped)} division(s) outside the ages you rank, "
+            f"and did not fetch their team pages: {labels}"
+        )
+    return keep, skipped
 
 
 def _provider_ids_for(

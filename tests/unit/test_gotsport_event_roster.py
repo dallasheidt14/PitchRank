@@ -17,23 +17,24 @@ from scripts.scrape_event_roster import (
     _event_id_from,
     _non_negative_float,
     _positive_int,
-    _printable,
-    _redact,
-    _resolve_master_ids,
     _summary_table,
     _write_roster,
 )
 from src.tournaments.gotsport_event_roster import (
     _ZENROWS_SIDE_STATUSES,
     EVENT_BASE,
+    EVENT_ID,
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
+    event_id_from,
     make_zenrows_fetcher,
+    names_cohort_outside,
     parse_division_label,
     parse_group_ids,
     parse_group_teams,
     parse_provider_team_id,
+    printable_text,
     resolve_cohort,
     scrape_event_roster,
     team_table_found,
@@ -441,7 +442,8 @@ class TestScrapeEventRoster:
             "52975", fetch=_fetch_for(_one_division_event()), delay_min=0.4, delay_max=0.4
         )
 
-        assert slept == [0.4, 0.4, 0.4]
+        # Two landing reads, one division page, one team page: every fetch paced.
+        assert slept == [0.4, 0.4, 0.4, 0.4]
 
     def test_reports_progress_for_every_team_page(self):
         seen: list[tuple[int, int]] = []
@@ -816,6 +818,43 @@ class TestKeyRedaction:
         assert quote_plus(self.KEY) not in logged
 
 
+class TestEventIdFrom:
+    """The permissive reader the app hands a pasted box to.
+
+    It answers ``None`` where the CLI raises, because an operator with one box
+    has no second box to have been wrong about. What it must not do is widen
+    the id itself: the value becomes a path segment under ``reports/``.
+    """
+
+    def test_reads_a_bare_id(self):
+        assert event_id_from("52975") == "52975"
+
+    def test_reads_an_id_out_of_a_full_url(self):
+        assert event_id_from(f"{EVENT_BASE}/52975") == "52975"
+
+    def test_refuses_an_overlong_bare_id_rather_than_truncating_it(self):
+        assert event_id_from("1234567890123") is None
+
+    def test_refuses_an_overlong_id_inside_a_url(self):
+        assert event_id_from(f"{EVENT_BASE}/1234567890123") is None
+
+    def test_trims_the_whitespace_a_paste_carries(self):
+        assert event_id_from("52975\n") == "52975"
+
+    def test_the_cli_pattern_itself_still_refuses_a_trailing_newline(self):
+        assert EVENT_ID.match("52975\n") is None
+
+    def test_refuses_an_attempt_to_escape_the_reports_directory(self):
+        assert event_id_from("../../etc") is None
+        assert event_id_from("52975/../../etc") is None
+
+    def test_keeps_only_the_digits_from_a_url_with_a_traversal_tail(self):
+        assert event_id_from(f"{EVENT_BASE}/52975/../../etc") == "52975"
+
+    def test_answers_none_for_nothing_at_all(self):
+        assert event_id_from("") is None
+
+
 class TestCli:
     def _args(self, **fields):
         return type("Args", (), {"event_id": None, "event_url": None, **fields})()
@@ -845,9 +884,17 @@ class TestCli:
         with pytest.raises(SystemExit):
             _event_id_from(self._args(event_id="x/../../etc"))
 
+    def test_a_url_handed_to_the_id_flag_still_exits(self):
+        with pytest.raises(SystemExit, match="Not a GotSport event id"):
+            _event_id_from(self._args(event_id=f"{EVENT_BASE}/52975"))
+
+    def test_a_bare_id_handed_to_the_url_flag_still_exits(self):
+        with pytest.raises(SystemExit, match="Could not read an event id from"):
+            _event_id_from(self._args(event_url="52975"))
+
     def test_strips_terminal_control_sequences_from_scraped_text(self):
-        assert _printable("Rush\x1b[2J SC") == "Rush[2J SC"
-        assert "\x1b" not in _printable("\x1b]0;title\x07")
+        assert printable_text("Rush\x1b[2J SC") == "Rush[2J SC"
+        assert "\x1b" not in printable_text("\x1b]0;title\x07")
 
     def test_a_bracketed_team_name_cannot_abort_the_summary(self):
         table = _summary_table([self._team(division_label="U12 [/b] Gold")], {})
@@ -1060,40 +1107,6 @@ class TestRetryableStatuses:
         assert attempts["n"] == 2
 
 
-class TestCredentialRedaction:
-    """The resolution warning is serialized into a file this repo does not ignore."""
-
-    def test_a_resolution_error_carrying_the_key_is_redacted(self):
-        key = "eyJhbGciOiJIUzI1NiJ9.SERVICE_ROLE_SECRET.sig"
-        exc = ValueError("Illegal header value b'" + key + "'")
-
-        assert key not in _redact(exc, key)
-
-    def test_redaction_catches_the_stripped_form_too(self):
-        key = "SECRET_KEY_VALUE"
-        exc = ValueError("bad header " + key)
-
-        assert "SECRET" not in _redact(exc, key + "\n")
-
-    def test_redaction_catches_a_soft_wrapped_key_run_by_run(self):
-        """The shape that leaks is the shape that causes the failure.
-
-        A key wrapped across lines in .env.local never appears whole in the
-        error, because h11 formats the header with repr — but a long run of it
-        does, and deleting the escape recovers the key.
-        """
-        key = "eyJhbGciOiJIUzI1NiJ9.SERVICE_ROLE_SECRET\n.signature_tail_value"
-        exc = ValueError("Illegal header value " + repr(key))
-
-        redacted = _redact(exc, key)
-
-        assert "SERVICE_ROLE_SECRET" not in redacted
-        assert "signature_tail_value" not in redacted
-
-    def test_a_message_without_the_key_is_left_alone(self):
-        assert _redact(ValueError("connection refused"), "SECRET") == "connection refused"
-
-
 class TestExistingRosterShapes:
     @pytest.mark.parametrize("body", ["[]", "null", '"a string"', "42"])
     def test_a_non_object_roster_does_not_discard_the_walk(self, tmp_path, body):
@@ -1111,115 +1124,6 @@ class TestExistingRosterShapes:
         _write_roster(out, {"is_complete": False}, force=False)
 
         assert json.loads(out.read_text(encoding="utf-8"))["is_complete"] is False
-
-
-class TestResolveMasterIds:
-    """Drive every arm, including the redaction, at its call site.
-
-    A guard proved only against the helper it calls does not show the helper is
-    reached — the reason this class exists is that a mutation removing the
-    redaction from this function left the whole suite green.
-    """
-
-    KEY = "eyJhbGciOiJIUzI1NiJ9.SERVICE_ROLE_SECRET.sig"
-
-    def _team(self, provider_team_id):
-        return EventRosterTeam(
-            source_index=0,
-            group_id="1",
-            division_label=DIVISION,
-            age_group="u11",
-            gender="Male",
-            team_name="A FC",
-            registration_id="1",
-            provider_team_id=provider_team_id,
-        )
-
-    def _credentials(self, monkeypatch):
-        monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
-        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", self.KEY)
-
-    def test_skips_the_lookup_when_resolution_is_disabled(self):
-        mapping, warnings = _resolve_master_ids([self._team("521426")], enabled=False)
-
-        assert (mapping, warnings) == ({}, [])
-
-    def test_skips_the_lookup_when_no_team_has_a_provider_id(self):
-        mapping, warnings = _resolve_master_ids([self._team(None)], enabled=True)
-
-        assert (mapping, warnings) == ({}, [])
-
-    def test_warns_and_continues_without_credentials(self, monkeypatch):
-        monkeypatch.delenv("SUPABASE_URL", raising=False)
-        monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
-        monkeypatch.delenv("SUPABASE_KEY", raising=False)
-
-        mapping, warnings = _resolve_master_ids([self._team("521426")], enabled=True)
-
-        assert mapping == {}
-        assert any("credentials" in warning for warning in warnings)
-
-    def test_maps_each_provider_id_once(self, monkeypatch):
-        self._credentials(monkeypatch)
-        asked = []
-
-        def lookup_factory(_client, _resolver):
-            def lookup(provider_id):
-                asked.append(provider_id)
-                return "master-" + provider_id
-
-            return lookup
-
-        mapping, warnings = _resolve_master_ids(
-            [self._team("521426"), self._team("521426"), self._team("999")],
-            enabled=True,
-            client_factory=lambda url, key: object(),
-            resolver_factory=lambda client: type("R", (), {"load_merge_map": lambda self: None})(),
-            lookup_factory=lookup_factory,
-        )
-
-        assert mapping == {"521426": "master-521426", "999": "master-999"}
-        assert asked == ["521426", "999"], "each provider id is looked up once"
-        assert warnings == []
-
-    def test_warns_when_the_merge_map_failed_to_load(self, monkeypatch):
-        self._credentials(monkeypatch)
-
-        class BrokenResolver:
-            version = "error"
-
-            def load_merge_map(self):
-                return None
-
-        _, warnings = _resolve_master_ids(
-            [self._team("521426")],
-            enabled=True,
-            client_factory=lambda url, key: object(),
-            resolver_factory=lambda client: BrokenResolver(),
-            lookup_factory=lambda client, resolver: (lambda pid: "master"),
-        )
-
-        assert any("merge" in warning.lower() for warning in warnings), (
-            "load_merge_map swallows its own errors, so this state is the only signal"
-        )
-
-    def test_a_database_failure_keeps_the_walk_and_hides_the_key(self, monkeypatch):
-        self._credentials(monkeypatch)
-
-        def exploding_client(url, key):
-            raise ValueError("Illegal header value b'" + self.KEY + "'")
-
-        mapping, warnings = _resolve_master_ids(
-            [self._team("521426")], enabled=True, client_factory=exploding_client
-        )
-
-        assert mapping == {}
-        assert len(warnings) == 1
-        assert self.KEY not in warnings[0], (
-            "this warning is serialized into reports/, which is not gitignored, "
-            "in a public repository"
-        )
-        assert "REDACTED" in warnings[0]
 
 
 class TestPrintableByCategory:
@@ -1240,13 +1144,13 @@ class TestPrintableByCategory:
         ],
     )
     def test_strips_every_invisible_character(self, invisible):
-        assert _printable("A" + invisible + "B") == "AB"
+        assert printable_text("A" + invisible + "B") == "AB"
 
     @pytest.mark.parametrize(
         "keep", ["\u00e9", "\u00f1", "\U0001f525", "\t", "\n", " ", "\u2014", "\u4e2d"]
     )
     def test_keeps_everything_legitimate(self, keep):
-        assert _printable("A" + keep + "B") == "A" + keep + "B"
+        assert printable_text("A" + keep + "B") == "A" + keep + "B"
 
 
 class TestDashSpansByCategory:
@@ -1392,7 +1296,7 @@ class TestMain:
         monkeypatch.setattr(
             cli, "scrape_event_roster", stubs.get("scrape", lambda *a, **k: roster or self._roster())
         )
-        monkeypatch.setattr(cli, "_resolve_master_ids", lambda teams, **k: ({}, []))
+        monkeypatch.setattr(cli, "resolve_master_ids", lambda teams, **k: ({}, []))
         monkeypatch.setattr(cli.console, "file", io.StringIO())
         out = tmp_path / "roster.json"
         monkeypatch.setattr(
@@ -1661,55 +1565,269 @@ class TestDivisionLabelHeaderFallback:
         )
 
 
-class TestCredentialIsCheckedBeforeUse:
-    """A malformed key must never reach the client that logs it raw.
+BOARDED = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
 
-    `MergeResolver.load_merge_map` catches its own exception and logs the text
-    at `src/utils/merge_resolver.py:108`, unredacted. `h11` formats the
-    offending header with `repr`, so a service-role key carrying an internal
-    newline — the shape `python-dotenv` returns for a soft-wrapped value —
-    reaches stderr before this module's own redaction is ever reached.
+
+def _mixed_age_event():
+    """One event carrying a boarded division, two below the boards, one unreadable."""
+    return {
+        "/org_event/events/52975": _landing_html(["1", "2", "3", "4"]),
+        "schedules?group=1": _group_html("U11 Boys Gold", [("11", "Boarded FC")]),
+        "schedules?group=2": _group_html("U9 Boys Gold", [("21", "Little FC")]),
+        "schedules?group=3": _group_html("B2018 Silver", [("31", "Younger FC")]),
+        "schedules?group=4": _group_html("Flight A", [("41", "Unreadable FC")]),
+        "schedules?team=11": _team_html("521426"),
+        "schedules?team=21": _team_html("521427"),
+        "schedules?team=31": _team_html("521428"),
+        "schedules?team=41": _team_html("521429"),
+    }
+
+
+class TestNamesCohortOutside:
+    """What the label said, as distinct from what we board.
+
+    ``resolve_cohort`` answers "" for both a cohort outside the boards and a
+    label nobody can parse. A caller deciding what to pay for needs those apart.
     """
 
-    KEY = "eyJhbGciOiJIUzI1NiJ9.SERVICE_ROLE\n.signature_tail"
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "U9 Boys Gold",      # below the boards, as a U-age
+            "U8 Boys",
+            "U6 Coed",
+            "U5 Boys",           # below what `normalize_age` will name at all
+            "U20 Boys",          # above the boards
+            "U21 Boys",
+            "B2018 Silver",      # below the boards, as a birth year
+            "B2020 Red",
+            "B2005 Gold",        # aged out, as a birth year
+        ],
+    )
+    def test_names_a_cohort_the_boards_exclude(self, label):
+        assert names_cohort_outside(label, BOARDED) is True
+        assert resolve_cohort(label)[0] == "", "and it is still withheld as a cohort"
 
-    def _run(self, monkeypatch, key):
-        import scripts.scrape_event_roster as cli
+    @pytest.mark.parametrize("label", ["U10 Boys", "U11 Boys Gold", "U19 Boys", "B2017 Gold"])
+    def test_keeps_a_cohort_the_boards_include(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
 
-        built: list = []
-        monkeypatch.setenv("SUPABASE_URL", "https://project.supabase.co")
-        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", key)
-        team = EventRosterTeam(
-            source_index=0, group_id="1", division_label="U13 Boys",
-            age_group="u13", gender="Male", team_name="A",
-            registration_id="1", provider_team_id="521426",
+    @pytest.mark.parametrize("label", ["Flight A", "Gold Division", "", "Championship"])
+    def test_will_not_judge_a_label_naming_no_cohort(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
+
+    @pytest.mark.parametrize("label", ["BU12/BU13", "17/19U BOYS", "U13-14 Boys", "U18/U19/20"])
+    def test_will_not_judge_a_label_naming_two(self, label):
+        assert names_cohort_outside(label, BOARDED) is False
+
+
+class TestCohortFilter:
+    def test_drops_a_division_below_the_boards(self):
+        roster = scrape_event_roster(
+            "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
         )
-        return cli._resolve_master_ids(
-            [team],
-            enabled=True,
-            client_factory=lambda url, key: built.append((url, key)) or object(),
-            resolver_factory=lambda client: (_ for _ in ()).throw(AssertionError("reached")),
-            lookup_factory=lambda client, resolver: (lambda pid: None),
-        ), built
 
-    def test_a_key_with_an_internal_newline_never_reaches_the_client(self, monkeypatch):
-        (resolved, warnings), built = self._run(monkeypatch, self.KEY)
+        assert [team.team_name for team in roster.teams] == ["Boarded FC", "Unreadable FC"]
+        assert roster.divisions_skipped == 2
 
-        assert built == [], "the client was constructed, so the key can still be logged raw"
-        assert resolved == {}
-        assert warnings and "SUPABASE_SERVICE_ROLE_KEY" in warnings[0]
+    def test_never_fetches_a_skipped_divisions_team_pages(self):
+        """Team pages are most of an event's bill, so this is the saving."""
+        fetch = _fetch_for(_mixed_age_event())
 
-    def test_the_refusal_does_not_echo_the_key(self, monkeypatch):
-        (_, warnings), _ = self._run(monkeypatch, self.KEY)
+        scrape_event_roster("52975", fetch=fetch, wanted_cohorts=BOARDED)
 
-        joined = " ".join(warnings)
-        # Naming the variable is the point of the message; echoing its value is
-        # the leak, so assert on the key's own material rather than on a word
-        # that legitimately appears in the variable name.
-        assert "eyJhbGciOiJIUzI1NiJ9" not in joined
-        assert "signature_tail" not in joined
+        team_pages = sorted(url.split("team=")[1] for url in fetch.calls if "team=" in url)
+        assert team_pages == ["11", "41"], "a division we skipped was paid for anyway"
 
-    def test_a_merely_trailing_newline_is_stripped_and_used(self, monkeypatch):
-        (_, warnings), built = self._run(monkeypatch, "cleankey123\n")
+    def test_keeps_a_division_whose_label_names_no_cohort(self):
+        """An unreadable label is not evidence a division is unwanted."""
+        roster = scrape_event_roster(
+            "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
+        )
 
-        assert built and built[0][1] == "cleankey123", "a trailing newline is not malformed"
+        assert "Unreadable FC" in [team.team_name for team in roster.teams]
+
+    def test_keeps_a_division_naming_two_cohorts(self):
+        pages = _one_division_event(division="BU12/BU13", teams=[("1", "Split FC")], provider_ids={})
+
+        roster = scrape_event_roster("52975", fetch=_fetch_for(pages), wanted_cohorts=BOARDED)
+
+        assert [team.team_name for team in roster.teams] == ["Split FC"]
+        assert roster.divisions_skipped == 0
+
+    def test_walks_everything_when_no_cohorts_are_named(self):
+        """The default is unchanged: a caller that asks for no filter gets none."""
+        roster = scrape_event_roster("52975", fetch=_fetch_for(_mixed_age_event()))
+
+        assert len(roster.teams) == 4
+        assert roster.divisions_skipped == 0
+
+    def test_a_filtered_walk_is_still_a_complete_one(self):
+        """Skipping is a choice, not a failure.
+
+        Counting a skipped division as unwalked would report every filtered walk
+        as partial, which retires the full-walk control and disarms the guard
+        that stops a probe replacing a complete roster.
+        """
+        roster = scrape_event_roster(
+            "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
+        )
+
+        assert roster.divisions_found == 4
+        assert roster.divisions_walked == 4
+        assert roster.is_complete
+
+    def test_names_the_divisions_it_skipped(self):
+        roster = scrape_event_roster(
+            "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
+        )
+        skipped = [warning for warning in roster.warnings if "Skipped" in warning]
+
+        assert len(skipped) == 1
+        assert "U9 Boys Gold" in skipped[0] and "B2018 Silver" in skipped[0]
+
+    def test_does_not_claim_it_kept_the_teams_of_a_skipped_division(self):
+        """The cohort-unset warning says "teams kept", which must stay true."""
+        roster = scrape_event_roster(
+            "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
+        )
+        kept_claims = [w for w in roster.warnings if "teams kept" in w]
+
+        assert len(kept_claims) == 1
+        assert "Flight A" in kept_claims[0]
+        assert not any("U9 Boys Gold" in w for w in kept_claims)
+
+
+class TestSkippedDivisionsDoNotLookLikeLosses:
+    """A division we chose not to walk is not a gap in the roster.
+
+    `is_complete` is what the seeding tab reads to decide an event is finished.
+    A false answer there reopens the full-event button on an event already
+    bought, so a deliberate skip must not look like a division that got away.
+    """
+
+    def _event_with_an_unreadable_young_division(self):
+        return {
+            "/org_event/events/52975": _landing_html(["1", "2"]),
+            "schedules?group=1": _group_html("U11 Boys Gold", [("11", "Good FC")]),
+            "schedules?group=2": _group_html(
+                "U9 Boys Gold",
+                [("21", "Little FC")],
+                home_heading="Host",
+                away_heading="Visitor",
+                standings_heading="Squad",
+            ),
+            "schedules?team=11": _team_html("521426"),
+            "schedules?team=21": _team_html("521427"),
+        }
+
+    def test_a_skipped_division_is_not_counted_unreadable(self):
+        roster = scrape_event_roster(
+            "52975",
+            fetch=_fetch_for(self._event_with_an_unreadable_young_division()),
+            wanted_cohorts=BOARDED,
+        )
+
+        assert roster.divisions_skipped == 1
+        assert roster.divisions_unreadable == 0
+        assert roster.is_complete, "the walk got every division it asked for"
+
+    def test_an_unreadable_division_we_did_want_still_counts(self):
+        """The count still means what it meant; only the skipped ones leave it."""
+        roster = scrape_event_roster(
+            "52975",
+            fetch=_fetch_for(self._event_with_an_unreadable_young_division()),
+        )
+
+        assert roster.divisions_unreadable == 1
+        assert not roster.is_complete
+
+
+class TestDivisionListIsCorroborated:
+    """One read of the event page is not evidence of how many divisions exist.
+
+    The fetcher waits for the first division link, which is satisfied while the
+    rest are still rendering. Event 52975 answered 57 divisions on one read and
+    4 on another from the same URL, an hour apart.
+    """
+
+    def _landing(self, *reads):
+        """A fetcher whose event page answers differently on successive reads."""
+        answers = iter(reads)
+
+        def fetch(url):
+            if url.endswith("/52975"):
+                return _landing_html(list(next(answers)))
+            if "group=" in url:
+                group_id = url.split("group=")[1]
+                return _group_html("U11 Boys Gold", [(f"{group_id}0", f"Team {group_id}")])
+            return _team_html("521426")
+
+        return fetch
+
+    def test_reads_the_event_page_more_than_once(self):
+        calls: list[str] = []
+        fetch = self._landing(["1"], ["1"])
+
+        def counting(url):
+            calls.append(url)
+            return fetch(url)
+
+        scrape_event_roster("52975", fetch=counting)
+
+        assert len([url for url in calls if url.endswith("/52975")]) == 2
+
+    def test_agreeing_reads_are_stable(self):
+        roster = scrape_event_roster("52975", fetch=self._landing(["1", "2"], ["1", "2"]))
+
+        assert roster.divisions_found == 2
+        assert roster.divisions_stable
+        assert roster.is_complete
+
+    def test_keeps_every_division_either_read_saw(self):
+        """The union never reports fewer divisions than a single read found.
+
+        Both directions, because the live failure was the awkward one: the
+        first read saw the whole list and a later one saw a fraction of it, so
+        keeping the most recent answer would have thrown the list away.
+        """
+        later_is_larger = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+        earlier_is_larger = scrape_event_roster("52975", fetch=self._landing(["1", "2", "3"], ["1"]))
+
+        assert later_is_larger.divisions_found == 3
+        assert earlier_is_larger.divisions_found == 3
+
+    def test_a_page_that_disagrees_with_itself_is_not_a_complete_walk(self):
+        """This is what stops a short read locking an event as fully walked."""
+        roster = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+
+        assert roster.divisions_stable is False
+        assert not roster.is_complete, "a walk missing divisions nobody saw is not the whole event"
+
+    def test_two_partial_reads_of_the_same_size_are_not_agreement(self):
+        """The counts match and the divisions do not, which is still disagreement.
+
+        Comparing sizes would call this stable, walk the union end to end, and
+        declare a roster missing whatever neither read saw to be the whole event.
+        """
+        roster = scrape_event_roster("52975", fetch=self._landing(["1", "2"], ["2", "3"]))
+
+        assert roster.divisions_found == 3
+        assert roster.divisions_stable is False
+        assert not roster.is_complete
+
+    def test_says_the_count_is_a_floor_when_the_reads_disagree(self):
+        roster = scrape_event_roster("52975", fetch=self._landing(["1"], ["1", "2", "3"]))
+
+        assert any("floor rather than the total" in warning for warning in roster.warnings)
+
+    def test_the_observed_failure_recovers_the_larger_list(self):
+        """The shape seen live: four divisions on one read, fifty-seven on another."""
+        full = [str(n) for n in range(57)]
+        short = [str(n) for n in range(4)]
+
+        # The order the live reads came in: the whole list first, a fraction after.
+        roster = scrape_event_roster("52975", fetch=self._landing(full, short))
+
+        assert roster.divisions_found == 57
+        assert not roster.is_complete
