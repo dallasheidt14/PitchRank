@@ -412,6 +412,11 @@ def fetch_approved_states(sb) -> Set[Tuple[str, str]]:
             sb.table("team_state_audit")
             .select("team_id_master,new_state_code")
             .eq("action", "approve")
+            # Ordered for the same reason the revert reader above is: without it Postgres
+            # may return these offset pages in different orders, and a row skipped at a
+            # page boundary silently drops that team's operator authority -- which is the
+            # one thing this reader exists to establish.
+            .order("id")
             .range(offset, offset + PAGE_SIZE - 1)
             .execute()
         )
