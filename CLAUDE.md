@@ -516,7 +516,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
-| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and `state_code` |
+| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` only — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
@@ -524,6 +524,28 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
+
+### No scheduled *guess-based backfill* of `state_code` runs any more
+
+All four state-writing steps of `update-missing-club-and-state.yml` are hard-disabled with
+`if: false` — Step 0 (from `team_name`), Step 4 (`match_state_from_club.py`), Step 5 (GotSport
+API) and Step 6 (`backfill_state_from_opponents.py`). Only the `club_name` steps (1–3) run, so
+read the workflow's name as aspirational. They were switched off deliberately: each derived a
+state from a guess or from travel, and together they produced most of the wrong values the
+2026-08-30 sweep had to correct.
+
+The supported backfill is now `scripts/assign_team_states.py` plus its review queue, documented
+by the `assigning-team-states` skill, and reaching a schedule through `fill-team-states-weekly.yml`
+(fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
+comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
+
+**Two provider imports still stamp a state on team creation, on a schedule**, which is a
+different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
+Affinity matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`), and
+`playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes its
+`default_state_code` (`src/models/playmetrics_matcher.py:237`). Neither sets `state_source`.
+An audit of "what writes state" has to count these; the backlog entry on constant-state
+provenance tracks the fix.
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
