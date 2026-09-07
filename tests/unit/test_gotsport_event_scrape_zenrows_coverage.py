@@ -7,10 +7,14 @@
 
 so a step that omits it does not fail, warn, or log anything -- ``_fetch_event_page``
 quietly fetches ``system.gotsport.com`` through a plain session instead. GotSport 403s
-that from a GitHub runner and redirects to a login host that then times out, so the
-event yields zero games and the failure surfaces far downstream as a missing output
-file. ``weekly-prospective-refresh.yml`` ran red every week from 2026-04-28 to
-2026-09-07 on exactly that, 19 consecutive runs, because the omission is invisible.
+that from a GitHub runner and redirects to a login host that then times out.
+
+The omission is invisible at both ends. ``scrape_games_from_schedule_pages`` catches the
+403, logs one line and returns an empty list, so the scrape writes a zero-row file and
+**exits 0**: the step goes green having found nothing. ``weekly-prospective-refresh.yml``
+scraped zero games this way from 2026-04-28 to 2026-09-07 while its red X came from an
+unrelated expired model artifact, so the empty scrape went unnoticed for four months.
+A green event-scrape step is not evidence that fixtures were found.
 
 The invariant is pinned rather than the four steps that hold it today: the script list
 is derived by searching for the event-page calls themselves, so a new caller, or a new
