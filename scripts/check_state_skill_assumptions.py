@@ -45,17 +45,39 @@ WORKFLOW = ROOT / ".github" / "workflows" / "update-missing-club-and-state.yml"
 
 DRIFT_TOLERANCE = 0.20
 
-# Figures quoted in the skill, with the date they were measured. Update both together.
+# Figures worth watching, with the date they were measured. Update both together. The
+# sweep's own price in SKILL.md Step 2 is a hand count this script does not guard, because
+# measuring it means running every tier over every team.
 RECORDED = {
-    "live_teams": 200164,
-    "teams_without_state": 2543,
+    # Measured for the operator's eye and quoted nowhere: a drift here is news about the
+    # database, not a stale sentence.
+    "teams_without_state": 2386,
     "stateless_and_visible": 0,
+    "ledger_rows": 20274,
+    "queue_pending": 2016,
+    # references/evidence-tiers.md quotes the team count and the curated clubs; its "45
+    # clubs are homed" is registry_entries less registry_curated, guarded by subtraction.
+    "live_teams": 204798,
     "registry_entries": 69,
     "registry_curated": 24,
-    "ledger_rows": 1273,
-    "queue_pending": 50,
+    # SKILL.md Step 2a is where these are maintained. They fall as the audit runs and regrow
+    # after every Tier A write elsewhere -- a sweep or an anchor pass -- which is why they
+    # need watching at all: prose that can only get more wrong reads exactly like prose that
+    # is right.
+    "audit_candidates": 1558,
+    "audit_candidates_with_alias": 1386,
+    # SKILL.md Step 2b, as the current population the operator sizes --probe-limit
+    # against. Measured by the selectors the tool runs -- anchorable_clubs and
+    # unclubbed_candidates over the same teams list -- so a drift here is a drift in what
+    # the next run will select, not in a proxy. The alias lookups cost one batched call per
+    # hundred ids, which a preflight can afford.
+    "anchorable_clubs": 947,
+    "teams_in_anchorable_clubs": 6973,
+    "teams_in_anchorable_clubs_with_alias": 3181,
+    "unclubbed_population": 16455,
+    "unclubbed_with_alias": 15628,
 }
-RECORDED_ON = "2026-08-29"
+RECORDED_ON = "2026-09-02"
 
 # The four homes the operator confirmed by hand, blind to the analysis, on 2026-08-28.
 # The only external ground truth this problem has.
@@ -162,8 +184,13 @@ def check_association_map(r: Result) -> None:
     )
     r.check(
         "an unseen code fails closed rather than passing itself through",
-        to_state_code("ZZ") is None and to_state_code("MT") is None,
-        "to_state_code('ZZ') and ('MT') -> None (Montana was never observed)",
+        to_state_code("ZZ") is None and to_state_code("QQ") is None,
+        "to_state_code('ZZ') and ('QQ') -> None",
+    )
+    r.check(
+        "a national body names no state, however often it is seen",
+        to_state_code("USA") is None,
+        "to_state_code('USA') -> None (a real code, but not a state)",
     )
 
 
@@ -269,6 +296,46 @@ def check_decision_rules(r: Result) -> None:
     )
 
 
+def check_audit_selection(r: Result) -> None:
+    """The audit reaches a team no free tier disputes, which is its whole reason to exist.
+
+    The skill tells an operator this tier is no longer probed only for teams something
+    else already flagged. That claim is only true while candidate selection is driven by
+    the provider-confirmed anchor rather than by the tiers.
+    """
+    from scripts.assign_team_states import (
+        TIER_A_SOURCE,
+        build_anchor_index,
+        build_club_index,
+        contradiction_candidates,
+        decide,
+    )
+
+    confirmed = _team(club_name="clean club", state_code="OH", state_source=TIER_A_SOURCE)
+    mislabelled = _team(club_name="clean club", state_code="WY", team_id_master="quiet")
+    # One population for both halves. Proving "quiet" against a hand-built Counter and
+    # "selected" against a different team list would let either half drift into describing
+    # a club the other never contained -- which is how the claim reads true while the two
+    # facts stop being about the same thing.
+    teams = (
+        [dict(confirmed, team_id_master=f"a{i}") for i in range(2)]
+        + [dict(mislabelled, team_id_master=f"w{i}") for i in range(4)]
+        + [mislabelled]
+    )
+
+    r.check(
+        "no free tier disputes a team its whole club agrees with",
+        decide(mislabelled, build_club_index(teams), {}, {}, set()) is None,
+        "club of 5 WY against 2 confirmed OH, team WY -> no tier fires",
+    )
+    r.check(
+        "the audit selects that team anyway, from the confirmed club-mate",
+        [t for t, _ in contradiction_candidates(teams, build_anchor_index(teams))]
+        == ["quiet", "w0", "w1", "w2", "w3"],
+        "two club-mates confirmed OH, five WY teams -> all five selected",
+    )
+
+
 def check_workflow_retired(r: Result) -> None:
     """Every state-writing step of the weekly chain is off, or this tool has a rival."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -335,6 +402,32 @@ def measure(r: Result, sb) -> None:
         visible += page.count or 0
     r.measure("stateless_and_visible", visible)
 
+    # The audit's own population, measured the way the tool measures it: the real selector
+    # over the real table, not a query that reimplements the rule and drifts from it.
+    from scripts.assign_team_states import (
+        anchor_pool,
+        anchorable_clubs,
+        build_anchor_index,
+        contradiction_candidates,
+        fetch_gotsport_aliases,
+        fetch_live_teams,
+        unclubbed_candidates,
+    )
+
+    teams = fetch_live_teams(sb)
+    candidates = [t for t, _ in contradiction_candidates(teams, build_anchor_index(teams))]
+    r.measure("audit_candidates", len(candidates))
+    r.measure("audit_candidates_with_alias", len(fetch_gotsport_aliases(sb, candidates)))
+
+    clubs, _ = anchorable_clubs(teams)
+    pool = anchor_pool(clubs)
+    r.measure("anchorable_clubs", len(clubs))
+    r.measure("teams_in_anchorable_clubs", len(pool))
+    r.measure("teams_in_anchorable_clubs_with_alias", len(fetch_gotsport_aliases(sb, pool)))
+    unclubbed = [team_id for team_id, _ in unclubbed_candidates(teams)]
+    r.measure("unclubbed_population", len(unclubbed))
+    r.measure("unclubbed_with_alias", len(fetch_gotsport_aliases(sb, unclubbed)))
+
 
 def render(result: Result) -> None:
     print("\nASSERTIONS -- a failure means the skill is now wrong, not the codebase\n")
@@ -372,6 +465,7 @@ def main() -> int:
     check_association_map(result)
     check_name_reading(result)
     check_decision_rules(result)
+    check_audit_selection(result)
     check_workflow_retired(result)
 
     if not args.code_only:

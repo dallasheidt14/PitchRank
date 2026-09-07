@@ -182,3 +182,25 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-29
 - **Refs**: `fix/opponent-cohort-inheritance`
 - **Update (2026-08-30)**: Fixed on `fix/opponent-cohort-inheritance`. The keys now read `team_association`, `display_age_group` and `display_gender`, and `full_name` was dropped rather than repointed, as this entry recommended. The measured before/after over a sample was NOT done: the fix shipped because review established this is the only stage the weekly workflow passes `--resolve-gotsport-details` to, so leaving it broken made every other stage's fix inert. Behavioral coverage now exists (`tests/unit/test_unknown_opponent_resolvers.py`), but the match-versus-create shift across ~6,400 teams/week is still unmeasured — watch the first Tuesday run.
+
+### Two team-state readers page without ORDER BY, so a concurrent write can duplicate or skip a row
+
+- **ID**: IMP-154
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `fetch_live_teams` and `fetch_revert_blocks`
+- **Why**: Both hand-roll a `.range(offset, offset + PAGE_SIZE - 1)` loop with no `.order()`. postgrest-py's `range` emits `offset`/`limit` and adds no ordering, and LIMIT/OFFSET without ORDER BY has no defined row order across statements — `EXPLAIN (COSTS OFF)` on `fetch_live_teams`' query at OFFSET 150000 returns a bare `Seq Scan` under a `Limit`. The concrete writer is `_log_team_scrape`, updating `teams.last_scraped_at`; that column is indexed, so the update is non-HOT and moves the tuple to a new heap page, and a tuple crossing the cursor during a 200-page read is returned twice or not at all. Two consequences: a skipped row that is the lone dissenting `state_source='tier_a'` team in a genuinely split club flips `build_anchor_index` from "omit" to "anchor", turning every club-mate into a paid GotSport probe; and a dropped `fetch_revert_blocks` row means R17 silently fails to suppress a re-apply the operator already rejected. `fetch_recent_probes` and `fetch_queue_rows` already order by `id`. Not urgent — the `teams` heap is 73 MB against the 512 MB `synchronize_seqscans` threshold, so realistic loss is a handful of rows with no bad-write path — but the contradiction audit now makes its whole candidate population depend on that read being complete. One `.order()` per reader; check the plan does not regress, since `fetch_live_teams` is the tool's heaviest query at 201,032 rows. Raised by an api-usage review on the contradiction-audit branch and kept out of it as pre-existing.
+- **Noted**: 2026-09-01
+- **Refs**: branch state-audit-2026-09-02 — both readers now order by their key
+
+### Two operator-facing prints interpolate a team name into Rich markup unescaped
+
+- **ID**: IMP-160
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
+- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
+- **Noted**: 2026-09-01
+- **Refs**: branch state-audit-2026-09-02 — `escape()` at the three `assign_by_hand` prints, which that branch rewrote

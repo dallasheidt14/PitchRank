@@ -238,11 +238,11 @@ def check_workflow_flags(r: Result) -> None:
         )
 
 
-def check_enqueue_migration_unapplied(r: Result, sb) -> None:
-    """Step 7 may only be skipped once this is applied to the database, not merely on disk."""
+def check_enqueue_migration_applied(r: Result, sb) -> None:
+    """Step 7's stranded-fixture repair is obsolete once this is applied, not merely on disk."""
     on_disk = (ROOT / "supabase" / "migrations" / ENQUEUE_MIGRATION).exists()
     version = ENQUEUE_MIGRATION.split("_")[0]
-    name = "Step 7 is still required (enqueue migration not applied)"
+    name = "Step 7's stranded-fixture repair is obsolete (enqueue migration applied)"
     try:
         rows = (
             sb.schema("supabase_migrations")
@@ -256,12 +256,13 @@ def check_enqueue_migration_unapplied(r: Result, sb) -> None:
         r.needs_human(
             name,
             f"file on disk: {on_disk}. Applied state UNVERIFIED: supabase_migrations is not "
-            f"exposed through PostgREST ({type(exc).__name__}). Query schema_migrations for "
-            f"version {version} directly before skipping Step 7.",
+            f"exposed through PostgREST ({type(exc).__name__}). Verified applied 2026-08-31 by "
+            f"direct query, with both enqueue RPCs confirmed to read team_merge_map; re-confirm "
+            f"version {version} the same way before trusting Step 7's skip.",
         )
         return
 
-    r.check(name, not rows, f"file on disk: {on_disk}; applied: {bool(rows)}")
+    r.check(name, bool(rows), f"file on disk: {on_disk}; applied: {bool(rows)}")
 
 
 U_LABEL = re.compile(r"(^|[^a-zA-Z0-9])[uU]-?\d{1,2}([^a-zA-Z0-9]|$)")
@@ -378,7 +379,7 @@ def main() -> int:
 
     if not args.code_only:
         sb = get_client()
-        check_enqueue_migration_unapplied(result, sb)
+        check_enqueue_migration_applied(result, sb)
         measure_counts(result, sb)
         measure_names(result, sb)
 

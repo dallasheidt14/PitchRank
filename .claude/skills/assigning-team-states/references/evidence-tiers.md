@@ -38,10 +38,43 @@ as a postal code, which is what would send a Brazilian team to a US state board.
 Measured against the club count on 1,572 teams where both answered, they agree 97.1%, and
 where they differ the registration record is usually visibly right from the team's own name.
 
-**It is only probed for teams something else already disputes.** One HTTP call per team means
-probing all 200,164 to find the ones nobody flagged is not a thing the sweep does. A named
-team is always probed — `--team <uuid>` — which is how a uniformly mislabelled club gets
-resolved.
+**Five things get a team probed**, because one HTTP call per team means asking all 204,798 is
+not on the table:
+
+- the sweep, which probes what a tier disputes and what has no state at all;
+- `--anchor-clubs`, which probes one team of every club with two or more askable teams and no
+  confirmed member, so that the audit below has something to hold the rest against. An
+  answer that agrees is written as a *confirm*: provenance without a state change, ledgered
+  under its own action, which is the only way an agreeing call leaves a mark the audit can
+  read. A team stored as a Canadian province or set by an operator is not askable, and does
+  not count toward the two;
+- `--probe-unclubbed`, which probes the teams no anchor reaches — no club name, or the only
+  team of their club — directly, with the same exclusions;
+- `--audit-contradictions`, which probes teams whose state contradicts a club-mate this tier
+  already confirmed, with the same exclusions. It does not subtract the disputed set: roughly
+  39% of them a tier flags too. Its population is stated once, in SKILL.md Step 2a;
+- `--team <uuid>`, always, whatever the tiers think.
+
+The anchor and unclubbed passes are stricter than the audit in one place: a club-derived
+correction on a team whose record was the unset default is queued rather than applied. Their
+populations are stated in SKILL.md Step 2b.
+
+**It never runs unattended.** `fill-team-states-weekly.yml` passes `--no-tier-a`, so the
+scheduled job stops at the free tiers and this one fires only when a person runs the sweep.
+That is why the cost is bounded, and why a sweep can afford to abort outright on a blocked
+probe: there is always someone watching it. An audit run decides from the answers it already
+holds before it stops, because those were paid for.
+
+A probe run is also a long foreground command an operator may interrupt, so anything it has
+paid for should already be on disk by the time it is.
+
+**Every probe is recorded in `team_state_probe_log`**, one row per call: the state reported,
+the state stored, whether they agreed, and the raw outcome of the call — including a row for
+a selected team that turned out to have no GotSport alias. The agreements are the point: on a
+sweep a probe that agrees changes no state, so it fires no ledger trigger, and without this
+table a verified-correct team is indistinguishable from one nobody has ever checked. The
+three paid modes — anchor, unclubbed and the audit — go one step further and write the
+agreement as a confirm, which is ledgered under its own action.
 
 ## Tier B — the club's own teams
 
@@ -56,6 +89,17 @@ reach the two-team floor and silence the tier on exactly the teams it should cor
 Group clubs on `lower(btrim(club_name))`. Raw `club_name` splits one club across case and
 whitespace variants; `normalize_club_name` merges clubs that are not the same club, deleting
 the parentheses that are often the only state disambiguator.
+
+**A placeholder club name is not a club, and keys to nothing.** Providers write a literal
+dropdown value rather than leaving the field empty, so `club_name` arrives non-null and every
+repair path that looks for a *missing* club walks past it. TGS's "No Club Selection" is the
+largest single `club_name` in the database — 1,596 teams, more than any real club — spanning
+23 states. `src/utils/placeholder_clubs.py` is the one list; `club_key` returns `""` for a
+member, which makes Tier B abstain and keeps the name out of Tier E's index. Without that
+list the tier would abstain only when no single state was meaningful enough to win, which is
+a property of the data rather than a rule. `athlete one` is a member for a different reason:
+it is the provider AthleteOne's name in `club_name`, and only two of its 23 teams carry a
+state — both FL, exactly enough to propose Florida for 21 teams that are not one club.
 
 Where a club has an entry in `src/utils/club_state_registry.py` carrying a `home`, that home
 **is** the club's state for every team in it, replacing the computed test. 45 clubs are homed

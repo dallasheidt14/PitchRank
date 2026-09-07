@@ -1,21 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NextRequest } from 'next/server';
+import { NextRequest, type NextResponse } from 'next/server';
+
+type CookiesToSet = { name: string; value: string; options?: Record<string, unknown> }[];
 
 // Hoist mock fns for use inside vi.mock factory
-const { mockGetUser, mockGetSession, mockFrom } = vi.hoisted(() => ({
+const { mockGetUser, mockGetSession, mockFrom, capturedCookies } = vi.hoisted(() => ({
   mockGetUser: vi.fn(),
   mockGetSession: vi.fn(),
   mockFrom: vi.fn(),
+  // The real client writes refreshed session cookies back through this callback;
+  // capturing it lets a test drive a rotation the way a live refresh would.
+  capturedCookies: { current: null as null | { setAll: (cookies: CookiesToSet) => void } },
 }));
 
 vi.mock('@supabase/ssr', () => ({
-  createServerClient: vi.fn(() => ({
-    auth: {
-      getUser: mockGetUser,
-      getSession: mockGetSession,
-    },
-    from: mockFrom,
-  })),
+  createServerClient: vi.fn(
+    (_url: string, _key: string, options: { cookies: { setAll: (c: CookiesToSet) => void } }) => {
+      capturedCookies.current = options.cookies;
+      return {
+        auth: {
+          getUser: mockGetUser,
+          getSession: mockGetSession,
+        },
+        from: mockFrom,
+      };
+    }
+  ),
 }));
 
 import { middleware } from '../middleware';
@@ -52,6 +62,60 @@ const ANON_AUTH = () => {
 const AUTH_AS = (id: string) => {
   mockGetUser.mockResolvedValue({ data: { user: { id, email: `${id}@test.io` } } });
   mockGetSession.mockResolvedValue({ data: { session: { user: { id } } } });
+};
+
+const AUTH_COOKIE = 'sb-test-auth-token';
+
+/**
+ * A real session is split across numbered chunks once it outgrows @supabase/ssr's
+ * size limit, and the attributes travel with it. Both matter to what the middleware
+ * must copy: 4bf752fd0 fixed this same bug by copying name and value alone, which
+ * silently downgraded every cookie, so the assertions below pin the attributes, and
+ * the chunk after the first is what catches a copy that stops at one entry.
+ */
+const ROTATED_COOKIES: CookiesToSet = [0, 1, 2].map((chunk) => ({
+  name: `${AUTH_COOKIE}.${chunk}`,
+  value: `rotated-chunk-${chunk}`,
+  options: { path: '/', httpOnly: true, secure: true, sameSite: 'strict', maxAge: 34560000 },
+}));
+
+/**
+ * A refresh the auth server rejects signs the user out instead, and @supabase/ssr
+ * clears each chunk with maxAge 0. Losing that turns "delete this cookie" into
+ * "keep it, empty", so the dead session outlives the response that killed it.
+ */
+const CLEARED_COOKIES: CookiesToSet = [0, 1].map((chunk) => ({
+  name: `${AUTH_COOKIE}.${chunk}`,
+  value: '',
+  options: { path: '/', maxAge: 0 },
+}));
+
+function expectCookiesCarried(res: NextResponse, expected: CookiesToSet) {
+  expected.forEach(({ name, value, options }) => {
+    expect(res.cookies.get(name)).toMatchObject({ value, ...options });
+  });
+}
+
+/**
+ * Sign a user in whose access token expired, so the session refresh inside
+ * getSession() hands the middleware rotated cookies — the case where a redirect
+ * built from scratch would drop them and sign the user out.
+ */
+const AUTH_AS_REFRESHING = (id: string) => {
+  AUTH_AS(id);
+  mockGetSession.mockImplementation(async () => {
+    capturedCookies.current?.setAll(ROTATED_COOKIES);
+    return { data: { session: { user: { id } } } };
+  });
+};
+
+/** The same request for a user whose refresh was rejected: the session is cleared, not rotated. */
+const ANON_AUTH_CLEARING = () => {
+  ANON_AUTH();
+  mockGetSession.mockImplementation(async () => {
+    capturedCookies.current?.setAll(CLEARED_COOKIES);
+    return { data: { session: null } };
+  });
 };
 
 describe('middleware', () => {
@@ -245,6 +309,83 @@ describe('middleware', () => {
       const res = await middleware(makeRequest('https://www.pitchrank.io/login'));
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  // One case per exit the middleware can take after the session refresh. Each asserts
+  // every chunk and every attribute, so a copy that drops options, stops at the first
+  // entry, or is removed outright fails here rather than in production.
+  describe('refreshed session cookies survive the response', () => {
+    it('carries the cleared cookies when bouncing an anonymous visitor to /upgrade', async () => {
+      ANON_AUTH_CLEARING();
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/watchlist'));
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/upgrade');
+      expectCookiesCarried(res, CLEARED_COOKIES);
+    });
+
+    it('carries the cleared cookies when bouncing an anonymous visitor to /login', async () => {
+      ANON_AUTH_CLEARING();
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/mission-control'));
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/login');
+      expectCookiesCarried(res, CLEARED_COOKIES);
+    });
+
+    it('carries the rotated cookies when the profile lookup fails', async () => {
+      AUTH_AS_REFRESHING('user-orphan');
+      mockFrom.mockReturnValue(profileFetchReturning({ data: null, error: { message: 'PGRST116' } }));
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/watchlist'));
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/upgrade');
+      expectCookiesCarried(res, ROTATED_COOKIES);
+    });
+
+    it('carries the rotated cookies when bouncing a free user to /upgrade', async () => {
+      AUTH_AS_REFRESHING('user-free');
+      mockFrom.mockReturnValue(profileFetchReturning({ data: { plan: 'free' }, error: null }));
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/teams/abc-123'));
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/upgrade');
+      expectCookiesCarried(res, ROTATED_COOKIES);
+    });
+
+    it('carries the rotated cookies when bouncing a premium user off /mission-control', async () => {
+      AUTH_AS_REFRESHING('user-premium');
+      mockFrom.mockReturnValue(profileFetchReturning({ data: { plan: 'premium' }, error: null }));
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/mission-control'));
+
+      expect(res.status).toBe(307);
+      expectCookiesCarried(res, ROTATED_COOKIES);
+    });
+
+    it('carries the rotated cookies when bouncing a signed-in user off /login', async () => {
+      AUTH_AS_REFRESHING('user-any');
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/login'));
+
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toContain('/rankings');
+      expectCookiesCarried(res, ROTATED_COOKIES);
+    });
+
+    it('carries the rotated cookies on a pass-through response', async () => {
+      AUTH_AS_REFRESHING('user-premium');
+      mockFrom.mockReturnValue(profileFetchReturning({ data: { plan: 'premium' }, error: null }));
+
+      const res = await middleware(makeRequest('https://www.pitchrank.io/watchlist'));
+
+      expect(res.status).toBe(200);
+      expectCookiesCarried(res, ROTATED_COOKIES);
     });
   });
 

@@ -41,6 +41,50 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   the thing itself — the endpoint URL, the function name — and name known-broken members in an
   explicit set with a second test that fails when one is fixed and left listed.
 - **Resolve a guarded SQL object by function name across all migrations, never by filename.** Functions here are superseded by new migration files rather than edited in place, so a test pinned to `20260827100300_*.sql` stops covering `find_stale_teams` the moment anyone redefines it — passing green against a file the database no longer reflects. Glob `supabase/migrations/*.sql`, take the newest definition per name, and assert against that.
+- **Searching the whole tree proves a statement was written once, not that it still holds.**
+  A later migration can undo what an earlier one established, and a guard that substring-matches
+  across every file stays green while the live table has moved on — appending one migration that
+  dropped an index and re-granted a table to `anon` was accepted by three separate assertions.
+  Parsing `CREATE TABLE` has the same blind spot from the other side: it never folds in
+  `ALTER TABLE`, which is how tables here actually evolve. Either resolve the object's effective
+  final state, or assert that nothing later touches it, so the next `ALTER` fails loudly and
+  forces the guard to be widened deliberately.
+- **A double for a deferred builder must record at the terminal call, not at construction.**
+  `supabase.rpc(...)` and `.table(...).select(...)` build a request that does nothing until
+  `.execute()`. A fake that appends to its call log inside `rpc()` reports a write for a caller
+  that never executed: dropping `.execute()` from an enqueue script left the whole suite green
+  while every enqueue actually raised and the script's own `except` swallowed it. Record in
+  `execute()`, assert on what `execute()` recorded, and make removing `.execute()` one of the
+  mutations the guard is checked against.
+- **A double must refuse what production refuses.** The rule above is one instance of a
+  wider one: wherever the double is more permissive than the real thing, the test passes
+  for the wrong reason, and it passes hardest on the defect it was written to catch.
+  Streamlit is the second framework this has bitten. Its `session_state` checks for a
+  queued rerun before every write and raises from `BaseException`, so a plain-dict double
+  accepts writes production would abort on; and a fake `st.rerun` raising an ordinary
+  `Exception` is swallowed by a handler the real one bypasses. Both hid ordering defects
+  that lose work already paid for, through two review rounds and twenty-six mutation
+  checks. Write the double against the contract rather than the call, and when a mutation
+  survives, suspect the double before the assertion.
+- **A test double that is more permissive than the real thing proves nothing, on four
+  axes that each hid a real defect.** A `requests` fake that drops the query string
+  cannot see a request that stopped sending its pagination cursor; one that ignores
+  `allow_redirects` cannot see an auth header follow a redirect to another host, because
+  `requests` strips only `Authorization` on a host change and carries a custom header
+  verbatim; one that stores `text` instead of decoding `content` cannot see a JSON body
+  served under an HTML content type with no charset decode as ISO-8859-1, mojibaking
+  every non-ASCII name; and one with no session-level headers cannot see a credential
+  pinned onto the session reach a third-party link. Model what the library does, then
+  assert on what the fake recorded: the URL, the headers, the timeout, the bytes.
+- **A test that reads the thing under test on both sides of its assertion cannot fail.**
+  `assert build(...)["params"] == MODULE_CONSTANT` passes for every value of that
+  constant, including one that bills ten times the intended rate; a parametrization
+  drawn from the set it is checking shrinks silently when a member leaves; a fixture
+  where the secret *is* the whole JSON value makes the right and wrong redaction
+  coincide; and `assert x is not None` cannot distinguish the value a rule is about from
+  the one it replaced. Name the expected value as a literal. Five defects in one change
+  took this shape, and none of them reddened a suite at 96% branch coverage; only
+  mutation runs found them.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -161,6 +205,50 @@ PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
 Do not "fix" this by splitting the cohort.
 
+#### A stored birth year does not pick out one cohort, so who a team plays decides
+
+Because a band runs Aug 1 – Jul 31, a single calendar year sits in two of them: 2014
+is the younger year of `u13` and the older year of `u12`. `teams` stores birth
+*years*, never birth *dates*, so a row labelled "2014" is genuinely consistent with
+either. Leagues then disagree about what a bare year in a team name means — some use
+it for the band's younger year, others as shorthand for the whole `2013-2014` band —
+so a provider or a name that disagrees with the stored cohort is not on its own
+evidence that either side is wrong.
+
+**Settle it from the fixtures — but read the opponent's NAME, not its column.** A
+team plays inside its own cohort, so who it plays is the signal. An opponent's
+`age_group`, however, is not independent: the same import and hygiene paths that
+mislabelled the target set it too, so a systematically wrong slice corroborates
+itself unanimously. `scripts/audit_name_age_disagreements.py` states the principle in
+`attach_game_evidence` and is the prior art to read before building anything here.
+
+Which opponents count as witnesses depends on the question. Where the dispute is what
+a **bare year** means, the independent witnesses are opponents whose names carry a
+U-age (`Whitpain U13 Black`) or a two-year band (`2013-2014 Girls White`), because
+those state a cohort without relying on the convention under test; a bare-year
+opponent is the circular one. Where the dispute is name-versus-column, that filter
+inverts, which is why the script above keeps single-birth-year witnesses and excludes
+bands — bands agree with each other by construction.
+
+Restrict to the current season: prior-season fixtures describe last year's cohort. On
+a live AZ u13 slice, all seven rows GotSport filed as U12 played u13 opposition across
+243 games. In PA the same test found six St Thomas More teams a year too high, one of
+which a customer had reported. Across five states 52 teams were corrected on stored-
+column evidence and then re-checked against name-derived witnesses: 29 supported, none
+contradicted, 21 had too few unambiguous opponents to say — which is also the measure
+of how much weaker the independent test is, and why it is the one to run first.
+
+Two cautions the same measurements produced. A team that plays a year *up* all season
+is correctly labelled and simply strong — Pre-ECNL and ECNL RL squads do it routinely,
+and a naive fixture test reads that as an error. And a name that disagrees while the
+fixtures back the stored value is usually just stale, which described 1,071 teams.
+
+That asymmetry is what makes a provider cohort safely usable as a **veto** while it
+stays unusable as a **value**: withholding a write on a disagreement costs a skipped
+update when it is wrong, whereas writing on one costs a mislabelled team on the wrong
+ranking board. IMP-145 bars the second; the first is what any tool reading a
+provider's cohort should do with a disagreement.
+
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
 - `G2016` = Girls, 2016 birth year = **U11 Female**
@@ -223,6 +311,15 @@ id range indefinitely, so a clock-derived cohort would re-file the same
 historical event one group higher every Aug 1.
 
 ### Adding a new scraper
+
+**First check whether this repo already scrapes it.** Search for the provider's base URL or
+endpoint path, not for a feature name — a walker is named for what it produces, so "does anything
+scrape events" finds nothing while the URL finds it immediately. Skipping this shipped a second
+GotSport event walker: `src/scrapers/gotsport.py:1466` and
+`src/tournaments/gotsport_event_roster.py:65` define the identical `EVENT_BASE`, walk the identical
+`/schedules?group=` URL, and share no code. When an existing walker is close but blocked on one
+thing (a bot challenge it cannot clear, a payload it cannot read), fixing that one thing is the
+change — not a parallel implementation.
 
 When planning a new provider, audit what per-team metadata the source exposes (state_code, club_name, coach, gender, age) BEFORE locking in match/create policy. `state_code` availability is load-bearing — without it, auto-created canonical teams land with NULL state and cannot benefit from location-scoped fuzzy matching downstream.
 
@@ -401,6 +498,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 |----------|----------|---------|
 | `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint, Python Tests, Frontend Lint, Frontend Format, Frontend Typecheck, Frontend Tests, Frontend llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
+| `enqueue-viewed-teams.yml` | Daily 05:47 UTC | Queue teams a signed-in subscriber opened in the last 36h (priority 2) |
 | `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue teams whose yesterday games have null scores (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:28 UTC | Queue teams active in the last 3 days (priority 2) |
 | `enqueue-discovery.yml` | Sun 14:41 UTC | Queue teams with no future games (priority 3) |
@@ -419,13 +517,15 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` only — **every `state_code` step is `if: false`** (see below) |
+| `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
+| `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Tue 7:00 PM UTC | Scrape upcoming GotSport events, prepare new prospective predictions |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
 
-### Nothing writes `state_code` on a schedule any more
+### No scheduled *guess-based backfill* of `state_code` runs any more
 
 All four state-writing steps of `update-missing-club-and-state.yml` are hard-disabled with
 `if: false` — Step 0 (from `team_name`), Step 4 (`match_state_from_club.py`), Step 5 (GotSport
@@ -434,9 +534,18 @@ read the workflow's name as aspirational. They were switched off deliberately: e
 state from a guess or from travel, and together they produced most of the wrong values the
 2026-08-30 sweep had to correct.
 
-The supported path is now `scripts/assign_team_states.py` plus its review queue, documented by
-the `assigning-team-states` skill. **Do not re-enable a step to fix a missing state** — a
+The supported backfill is now `scripts/assign_team_states.py` plus its review queue, documented
+by the `assigning-team-states` skill, and reaching a schedule through `fill-team-states-weekly.yml`
+(fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
 comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
+
+**Two provider imports still stamp a state on team creation, on a schedule**, which is a
+different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
+Affinity matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`), and
+`playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes its
+`default_state_code` (`src/models/playmetrics_matcher.py:237`). Neither sets `state_source`.
+An audit of "what writes state" has to count these; the backlog entry on constant-state
+provenance tracks the fix.
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
@@ -510,19 +619,29 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 |----------|---------|----------|---------|
 | `frontend/app/api/scrape-missing-game` | User-clicked | 1 | One team |
 | `frontend/app/api/create-team` | Admin creates a team | 1 | The new team, GotSport only |
+| `frontend/app/api/watchlist/add` | User watchlists a team | 1 | That team — skipped when it has no `provider_id`, and capped at 100 distinct teams per user per hour so a scripted sweep cannot starve the shared priority-1 lane. Fires on the localStorage-watchlist migration too, which is the only signal for a team a user starred before subscribing |
+| `enqueue_viewed_teams.py` | Daily | 2 | Teams a signed-in subscriber opened in the last 36h, GotSport-servable only — admin views excluded, and skips any team already holding a pending user click |
 | `enqueue_yesterday_games.py` | Daily | 2 | Teams whose yesterday games have null scores, excluding any already scraped today |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
 | `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
 | `enqueue_safety_net.py` | Weekly | 4 | Never scraped, or not in 90+ days |
 | `enqueue_stranded_merge_fixtures.py` | Operator-run | 2 | Surviving teams whose unplayed fixtures a merge stranded — dry run unless `--execute`, and no workflow runs it |
+| `enqueue_user_interest_teams.py` | Weekly | 1 | Teams a user watchlisted, captured a report card for, or clicked "find missing game" on — skips any team already holding a pending row. No workflow runs it; a cloud routine fires the `user-activity-retention-hygiene` skill |
 
-That is every caller of `enqueue_scrape_request`. The two `new_team` paths are easy to
-miss when tracing why a team entered the queue, because neither lives in an
-`enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
+That is every caller of `enqueue_scrape_request`. The two `new_team` paths and the
+watchlist route are easy to miss when tracing why a team entered the queue, because none
+of them lives in an `enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
 opposite reason — it is shaped like the scheduled enqueue jobs but only an operator runs
 it. The RPC keeps at most one pending row per team and promotes
 priority via `LEAST`. Consumers:
+
+**A non-GotSport team is not unservable.** `process_missing_games` looks up an approved
+GotSport row in `team_alias_map` when the canonical provider has no scraper, and scrapes
+that instead. The four scheduled enqueue jobs still filter to `teams.provider_id = gotsport`,
+which reads like the drainer cannot serve anything else — it can, and filtering a
+behaviour-driven selector that way silently discards teams. Gate on "has a GotSport row or an
+approved GotSport alias", not on the provider column alone.
 
 - `process_missing_games.py` — the automatic drainer, every 15 min, `--limit 40`.
 - `drain_queue.py` — **this is the "Help Clear Queue" action** (`clear-queue.yml`).
@@ -672,6 +791,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 - Team IDs are UUIDs — never use integer IDs
 - Game records are **immutable** — never update, only quarantine bad data
 - Use `MergeResolver` for any team ID lookup (handles deprecated teams)
+- Import a sibling script packaged (`from scripts.x import ...`), never bare (`from x import ...`). `scripts/` is a real package and most scripts also append their own directory to `sys.path`, so both spellings resolve — and a module imported under both ends up in `sys.modules` twice, as two objects. Nothing breaks until the module gains state or a test patches `scripts.x.f` while another caller holds the bare copy. The bare form also hides callers from a search for `scripts.`, which is how an extraction missed one.
 - Age groups: the stored form is lowercase `u` + number, so normalize to it and compare on it (`"U14"` → `"u14"`). `teams.age_group` holds `u14`, and `AGE_GROUPS` in `config/settings.py` keys on `f"u{age}"`. The bare integer is engine-internal: `age_group_to_age` in `src/rankings/data_adapter.py` strips the `u` for the `age` column, and the adapter rebuilds the `u` form before writing rankings back.
 - Gender: always normalize to `"Male"` or `"Female"`
 - PowerScore must be clamped to [0.0, 1.0] after calculation

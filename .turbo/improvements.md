@@ -1275,6 +1275,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/rankings/data_adapter.py:291`, `scripts/cleanup_dupe_games_by_composite.py`
 - **Why**: `execute_team_merge` never touches `games`, so when two rows held the same match because it was imported twice, both rows now resolve to the survivor and its schedule contains the match twice. Nothing downstream removes them: the adapter dedupes with `drop_duplicates(subset=["id"])` — the game row's own id — so both copies feed the engine, and `game_uid` embeds master team ids so they never collided on insert either. Measured 604 duplicated fixture tuples across a 200-merge sample of the 2026-08-27 batch; no ranking run has consumed them yet (last run 101 days ago). `cleanup_dupe_games_by_composite.py` cannot find them — it keys on the raw master ids, which still differ — and it deletes rows outright, against the game-immutability rule. Decide between merge-resolved dedupe in the adapter and marking the redundant copies `is_excluded`.
 - **Noted**: 2026-08-27
+- **Update (2026-08-31)**: Decided in favour of `is_excluded`, and the existing backlog is cleared. `scripts/exclude_merge_duplicate_games.py` groups every game in a merge cluster by merge-resolved `(home, away, date, home_score, away_score)`, keeps the copy naming the surviving row and excludes the rest. Applied 2,135 exclusions (50 verified, then 2,085); merge-created duplicates now measure 0, all 2,135 kept counterparts verified still live. The full 639-merge batch held 2,062 of them, not the 604 the 200-merge sample projected. What remains open is prevention: this is a manual repair that must be remembered after every merge batch, and it belongs in `execute_team_merge` or a post-merge workflow step, the way `20260822000000` closed the stranded-fixture hole at the source. Two findings for whoever takes that on — the discriminator is that the two rows carry *different* raw master ids, since a genuine same-day rematch recorded once carries identical ones; and the grouping key must keep home/away orientation or it collapses real reverse fixtures. Separately, 842 same-date same-score groups sharing identical raw ids remain untouched here: those are the pre-existing double-import class `cleanup_dupe_games_by_composite.py` targets, not merge damage.
+- **Update (2026-08-31, second)**: `is_excluded` **cannot** fix that same-id class, and the attempt was reverted. `EnhancedETLPipeline`'s auto-exclude cascade (`src/etl/enhanced_pipeline.py:1899-1926`) keys on `(sorted raw master ids, scores)` for a `game_date`, which both copies of a same-id duplicate share exactly. Excluding one therefore makes the next import touching that fixture exclude its twin, and the match leaves the rankings entirely. Measured: 50 rows excluded 2026-08-31, 48 twins gone within minutes (`process-missing-games` runs every 15 min); all 100 restored, `games.is_excluded` back to 8,088. The merge-damage class is immune only because its two copies carry differing raw ids, so the excluded copy's cascade key never matches the survivor's — the same property that distinguishes the two classes. `scripts/exclude_merge_duplicate_games.py` now refuses the same-id class at every scope and prints `SAME_ID_NOTE` explaining why. Fixing it needs the source: a `game_uid` stable across recipe changes and across a team holding two provider ids, or an importer matching on merge-resolved fixture identity. Diagnosis of the 842: ~97% modular11, whose uid moved from integer team ids to UUIDs so an Apr 2026 re-scrape did not collide with its own Dec 2025 rows; the rest gotsport/tgs where one team held both a registration id and a real team id.
 
 ### Modular11 import files some U13 fixtures onto the U14 team row
 
@@ -1388,9 +1390,330 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-30
 - **Update (2026-08-30)**: The impossible-cohort pass ran. 13 teams were re-resolved onto real boards (u3 -> u10/u12/u13/u14/u15) and u3 fell from 44 to 31. 58 candidates were deliberately left alone: their GotSport record reads exactly one cohort higher than stored, which is the Aug 1 rollover rather than a correction, so writing it would move them between two unboarded cohorts and churn again next August. 6 more have no cohort at the provider. Remaining here: the u20 population, which still wants its own evidence-based pass.
 
-### Populate `tgs_events` and implement Tier D, the only path the stateless TGS teams have
+### A blank state_code is decided as a fill but can never be written
 
 - **ID**: IMP-150
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `_decision` / `apply_decision`, `apply_team_state` in `supabase/migrations/20260829120000_add_team_state_provenance.sql`
+- **Why**: `_decision` normalizes `state_code` with `(... or "").strip() or None`, so a team stored blank rather than NULL records `pre_image: None` and is classified as a fill. `apply_team_state` then predicates on `state_code IS NOT DISTINCT FROM p_expected_state_code::character(2)`, which NULL cannot match against a blank-padded `'  '`, so the write returns false, the run reports the team as "moved", and the next run decides it identically — a team that can never be filled and is retried forever. Zero rows are affected today (3,080 NULL, 0 blank, measured 2026-08-31), but `scripts/import_teams_enhanced.py:73` still writes `""` on a CSV import and `scripts/match_state_from_club.py:180-189` pages for both spellings because they have existed. Fix by carrying the raw pre-image separately from the fill/correction classification, or by making the predicate accept both blanks. Found by Codex on #1066; pre-existing, not introduced by `--fills-only`. Related: #1065 closed the creation side of the same split in `GameHistoryMatcher._resolve_state_from_club`.
+- **Noted**: 2026-08-31
+
+### `--team <uuid>` on a deprecated team logs a false "no stored state" in the probe ledger
+
+- **ID**: IMP-151
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `build_snapshot` — the `only_team` branch and the `stored_states` map
+- **Why**: `stored_states` is built from `fetch_live_teams`, which filters `is_deprecated = false`, but the `only_team` branch sets `candidates = [only_team]` with no membership check against it. `team_alias_map` carries no such filter, so a deprecated id still resolves a GotSport alias and is still probed. The resulting `team_state_probe_log` row records `stored_state_code` NULL and so `agreed` NULL, which reads as "we asked and it had no state" rather than "it was not in the snapshot" — and the contradiction audit that consumes this ledger cannot tell those apart. Measured 2026-08-31: exactly 2 deprecated teams carry a GotSport alias and both have a `state_code`, so the blast radius is small today, but a row is permanent once written. Fix: check membership in `stored_states` in the `only_team` branch and warn-and-skip rather than probing, which also saves a wasted paid ZenRows call. Raised by two independent reviewers on the probe-ledger branch and kept out of that change to keep it scoped to the ledger.
+- **Noted**: 2026-08-31
+
+### Three tables in the team-state provenance migration still carry anon's default grants
+
+- **ID**: IMP-152
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `supabase/migrations/20260829120000_add_team_state_provenance.sql` — `team_state_audit`, `team_state_review_queue`, `tgs_events`
+- **Why**: `pg_default_acl` grants anon and authenticated `arwdDxtm` on every new public relation here, and RLS governs SELECT/INSERT/UPDATE/DELETE but not TRUNCATE or REFERENCES — so a deny-all policy leaves those two intact. Verified live 2026-08-31: all three read `anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres` in `pg_class.relacl`, while the two tables shipping `REVOKE ALL ON public.<table> FROM anon, authenticated` (`20260801000000_age_group_rollover_2026_27.sql:84-85`) read only `postgres` and `service_role` — the remedy works and does not lock out the ETL writer. `team_state_audit` is the append-only ledger every state write lands in; emptying it destroys the provenance `revert_team_states` depends on. `team_state_probe_log` ships the REVOKE plus a test scoped to itself, because widening that assertion to all four would fail for these three. Fix: one REVOKE per table in a follow-up migration, then widen the test to loop over `NEW_TABLES`. Worth deciding at the same time whether the REVOKE belongs in the shared RLS convention so new tables get it by default. Raised during the probe-ledger review and kept out of that change to keep it scoped.
+- **Noted**: 2026-08-31
+
+### anon retains DELETE and TRUNCATE on public.user_profiles
+
+- **ID**: IMP-153
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `public.user_profiles`; lockdown migration `20260610120000`
+- **Why**: Verified live 2026-08-31: `user_profiles` reads `anon=rdDxtm/postgres`. The 2026-06-10 lockdown revoked INSERT and UPDATE and left DELETE (`d`) and TRUNCATE (`D`). DELETE is constrained by RLS policies; TRUNCATE is not governed by RLS at all. Not reachable today — anon reaches Postgres only through PostgREST, which exposes no TRUNCATE verb — so this is defence-in-depth rather than a live hole, and the table's current policies should be read before acting. `user_profiles` holds the Stripe subscription state `reconcile-stripe-daily.yml` reconciles, so loss would be user-visible. Typed investigate because the right fix depends on which roles legitimately delete rows today. Surfaced incidentally by a security review on the probe-ledger branch; unrelated to that change.
+- **Noted**: 2026-08-31
+
+### The `--team --execute` write path has both its guards and no test of either
+
+- **ID**: IMP-155
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `scripts/assign_team_states.py` — `report_team`
+- **Why**: `report_team` is the terminal writer of the documented one-off route `--team <uuid> --execute`, and two mutations survive the whole suite: removing the `decision["action"] != "apply"` refusal, and neutering `if not execute: return`. The first would write a decision the tiers deliberately queued — a DC relabel under R8, a value the operator reverted under R17, a curated club, a Tier C/E correction — unattended, exiting 0. The second makes the documented dry run write. CLAUDE.md § Code Quality requires a dry-run guard on every mutating path; this one has the guard and nothing pinning it. Pre-existing and untouched by the contradiction-audit branch, whose diff hunks jump 1307 → 1435. It matters more now because that branch's first review round fixed a P1 filed against exactly this route, and its three new named-team tests all stop at `build_snapshot` and assert the *decision* where the defect was the *write*. Mutation-verified in an isolated worktree 2026-09-01; the operator chose to backlog it rather than widen that PR.
+- **Noted**: 2026-09-01
+
+### The tier provenance string is built in SQL as well as Python, and nothing pins the two together
+
+- **ID**: IMP-156
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `state_source_for`; `supabase/migrations/20260829200000_add_team_state_review_actions.sql:56`
+- **Why**: Python now derives `TIER_A_SOURCE` from `state_source_for("A")`, so its writer and the anchor reader can no longer drift. But `approve_team_state` builds the same format independently in SQL as `'tier_' || lower(v_row.tier)`, and a dashboard approval of a Tier A queue row is what mints many of the anchors `build_anchor_index` reads. If the SQL half drifts, `--audit-contradictions` finds no anchors and reports "0 contradict a confirmed club-mate" — a clean zero that reads as "nothing to fix" rather than as a broken audit. No Python change reaches it and no test covers it. Live scale 2026-09-01: 5,921 teams carry `state_source='tier_a'`, 1,467 `tier_b`, 15 `tier_r9`. `tests/unit/test_team_state_provenance_migration.py` exists and is the right home for a pinning assertion, but does not currently assert this format. Kept out of the contradiction-audit PR because that PR touches no migrations.
+- **Noted**: 2026-09-01
+
+### `--limit` validates itself where the argv test harness cannot reach it
+
+- **ID**: IMP-157
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/assign_team_states.py` — the `--limit` check inside `apply_snapshot`, against the argv guard block in `main()`
+- **Why**: The contradiction-audit branch added four numeric-flag guards to `main()`'s argv block, deliberately ahead of the credential check so they are testable: CI sets no keys, so anything after that check exits 1 for every argv and a test asserting the exit code alone could never fail. `--limit`'s near-identically-worded check ("it would apply all but the last") stayed buried in `apply_snapshot` and gets none of that, so `--execute --snapshot missing.json --limit -1` dies on the missing file rather than on the negative limit. Two same-shaped validations in two places for no stated reason; moving `--limit`'s up makes all three uniform and reachable by the harness that branch already built.
+- **Noted**: 2026-09-01
+
+### `--workers` is unbounded while its three sibling numeric flags are guarded
+
+- **ID**: IMP-158
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/assign_team_states.py` — the `--workers` argument in `main()`
+- **Why**: `--workers 0` raises a bare `ValueError` out of `ThreadPoolExecutor` rather than the named refusal every other numeric flag on this tool now gives; `--limit`, `--probe-limit` and `--reprobe-after-days` all reject out-of-range values by name. Cosmetic rather than dangerous — it fails closed, before any paid call — but it is the one remaining flag that fails as a stack trace. Surfaced by an api-usage review on the contradiction-audit branch and kept out of it as pre-existing.
+- **Noted**: 2026-09-01
+
+### An interrupted probe run still loses the calls that were in flight
+
+- **ID**: IMP-159
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `probe_associations`
+- **Why**: The contradiction-audit PR put the probe-log flush in a `try/finally`, which closed the large loss — before it, a Ctrl-C discarded everything buffered since the last drain. What remains is the calls already in flight across the pool when the interrupt lands. Measured on the shipped code with a stubbed 2 ms round trip: n=1200 workers=10 → 72 paid against 60 ledgered (12 lost); n=200 workers=10 → 79 paid against 60 ledgered (19 lost). The loss is bounded by `--workers` rather than by queue depth, because `Executor.map`'s result generator cancels pending futures as the exception unwinds, before the pool's `__exit__` — which is also why an interrupt does not keep spending through the remaining ~1,100 candidates. The lost teams stay due and are re-bought next run. Closing it means bounded submission — a window of futures, drained and resubmitted — rather than `Executor.map`, which is real machinery for a bounded cost, so it was typed plan and kept out. Two round-3 reviewers appeared to contradict each other here; both reproduce, one at n=5/workers=1 where a single worker races ahead, the other at production shape. The production shape governs.
+- **Noted**: 2026-09-01
+
+### Tier B tells both halves of a two-and-two club to swap states, forever
+
+- **ID**: IMP-161
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `club_derived_state`, the exclude-the-team-being-decided count
+- **Why**: A club stored as exactly two teams in state X and two in Y makes every one of its teams a correction: excluding the team being decided leaves its own side below the two-team floor and the other side as the only meaningful state. Seen in one free-tier dry run on 2026-09-02: RSL-AZ Yuma (2 CA + 2 TX, and really Arizona) proposed as two CA→TX and two TX→CA, Amigos FC (2 MO + 2 CA + 1 KS) the same shape. Applying the swap recreates the 2/2 split, so the club oscillates every sweep and never settles; with Tier A on, only the teams the provider answers escape it. The fix is a test for the shape — abstain when excluding the team would drop its own side below the floor while the rest of the club is not a clear majority — plus a fixture at 2/2 and 3/2 (3/2 already behaves: excluding a minority team leaves 3 v 1 and fires correctly).
+- **Noted**: 2026-09-02
+
+### A state correction leaves the full-name `teams.state` column contradicting the code it just wrote
+
+- **ID**: IMP-162
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `apply_team_state` (`supabase/migrations/20260829120000_add_team_state_provenance.sql`) and `decide` in `scripts/assign_team_states.py` at the `stored value was reported` test
+- **Why**: The RPC writes `state_code` and provenance and leaves `state` as it was, so after a Tier A correction the row reads e.g. `state_code = TX, state = 'Alabama', state_source = tier_a`. Measured 2026-09-02: 158 live teams carry a full-name column that contradicts their code (17 TX/"Washington" under Valencia CF with no provenance, 16 HI/"Washington" on Hawaii Rush set by the operator, 11 AZ/"California" on Legends FC AZ, and ~100 tier_a rows whose old name survived). The `decide` reported test reads a non-empty `state` as "a provider reported this" and queues instead of applying, so a stale name from a backfill now protects a code the provider has already overruled. Decide whether a correction should clear the name, rewrite it to match, or whether the reported test should require the name to agree with the code before it counts.
+- **Noted**: 2026-09-02
+
+### Non-US clubs carry a US state and bounce between two states every sweep
+
+- **ID**: IMP-163
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `teams.state_code` for touring clubs; `scripts/assign_team_states.py` Tier B; the state boards
+- **Why**: Hyde United FC, AFC Sudbury, AFC Greenwich Borough, Macclesfield FC, Red Lions UK, 7 Elite Academy (GB), Paris FC and Valencia CF are UK/European clubs that entered US tournaments; their teams hold US states from whichever event stamped them and Tier B now proposes UT→MI and MI→UT for Hyde United, WA↔KS for AFC Sudbury, MI↔CA for AFC Greenwich in the same run. 17 more live teams carry codes that are not a state or province at all (`RJ`, `SP`, `NW`, `13`, `EC`, `SJ`…) because their home region was imported verbatim. None of these belongs on a state board. Wants a decision — NULL with a country marker, or a `non_us` flag the boards exclude — before the sweep keeps writing US states onto them.
+- **Noted**: 2026-09-02
+
+### The association map cannot read a Canadian province, so Tier A is mute for every Canadian club
+
+- **ID**: IMP-164
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/utils/team_association_map.py` `to_state_code`; `scripts/assign_team_states.py` Tier A
+- **Why**: GotSport reports a Canadian team's association as its province — 83 of 2,545 probes on 2026-09-02 came back `ON` (65), `QC` (11), `AB` (5), `NB`, `BC` — and the map fails closed on all of them, so the paid answer is discarded and Tier B decides the team from its club instead. Today that agreed for the Ontario and Alberta clubs, and was wrong for AS Gatineau, which the provider placed in Québec and the club count sent to Ontario. The map already knows `CND` as Canada-national; adding the ten provinces lets the record answer directly. Check the policy wording first: a *stored* province is never corrected, but filling a blank or correcting a US state to a province is exactly what these clubs need.
+- **Noted**: 2026-09-02
+
+### A state approved through the review queue is not protected by the provenance gate
+
+- **ID**: IMP-165
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `supabase/migrations` (`approve_team_state`); `scripts/assign_team_states.py` `outranked` / `vouched_for`
+- **Why**: `approve_team_state` stamps an approval as `tier_<x>` (action `'approve'`; 98 rows as of 2026-09-02), so the gate cannot tell a hand-approved Tier C fill from an automatic one and an operator-run sweep's Tier B correction overwrites it unreported. The scheduled job (`--no-tier-a --fills-only`) cannot trigger it. Fix: a migration so approvals stamp an operator-distinguishable provenance the gate reads from the one column, with the ledger repair note; the skill's Step 5 already says the gate does not protect approved values. Raised by the correctness reviewer on the state-audit branch.
+- **Noted**: 2026-09-02
+
+### A cached probe answer is not bound to the alias it was bought through
+
+- **ID**: IMP-166
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `fetch_recent_probes`, `bought_answers`, `probe_list`, `anchor_candidates`
+- **Why**: The ledger reader keys a cached answer by team, so an answer bought via an alias later quarantined (`review_status = pending`) would be reused for up to `REPROBE_AFTER_DAYS` while the approved sibling alias is suppressed, and anchor mode prefers such a cached mapping. Measured 2026-09-02: 0 probe rows in the window for the 30 affected masters, so latent. Fix: the reader returns `provider_team_id` and a cached answer is reused only when it matches the alias the approved-only reader would pick now. Touches paths the `C:/pitchrank-state-converge` worktree also edits. Raised by the Codex peer reviewer.
+- **Noted**: 2026-09-02
+
+### Collapse the five copies of get_gotsport_provider_id into enqueue_helpers
+
+- **ID**: IMP-167
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/enqueue_active_teams.py`, `enqueue_yesterday_games.py`, `enqueue_discovery_teams.py`, `enqueue_safety_net.py`, `enqueue_viewed_teams.py`, `enqueue_helpers.py`
+- **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all five, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
+- **Noted**: 2026-09-03
+
+### scrape_requests accepts unauthenticated inserts
+
+- **ID**: IMP-168
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `supabase/migrations` (`public.scrape_requests` policies and ACL)
+- **Why**: Live policies are `Enable insert for all users` (`FOR INSERT TO public WITH CHECK (true)`) and `Enable read for authenticated users` (`FOR SELECT TO public USING (true)`), with `relacl` granting `anon=arwdDxtm`. `game_date` and `priority` are the only NOT NULL columns and `priority` defaults to 5, so the insert is trivial: anyone holding the public anon key can queue priority-1 paid scrapes. `enqueue_scrape_request` is correctly locked to `postgres`/`service_role`; the table underneath it is not. Fix shape is the one `20260903120000_add_team_page_views.sql` uses — deny-all for anon/authenticated, a service_role policy, `REVOKE ALL` — but needs care so the frontend routes and Python jobs keep writing. Found by the security reviewer tracing the viewed-teams change, 2026-09-03.
+- **Noted**: 2026-09-03
+
+### enqueue_active_teams' game_date docstring contradicts the RPC
+
+- **ID**: IMP-169
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
+- **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
+- **Noted**: 2026-09-03
+
+### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
+
+- **ID**: IMP-170
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/batch_drain_queue.py` — `run_batch`'s `exc.job is None` branch; `.turbo/specs/zenrows-batch-bulk-scrape.md` Risks
+- **Why**: When the initial `POST /jobs` times out, `BudgetExpired.job` is `None` and the run prints "Submission failed before a job existed" and exits — but the job may well have been accepted and is billing. The spec states as fact that "the verified contract exposes no endpoint that lists jobs or looks one up by idempotency key", and the vendor OpenAPI (`ZenRows/zenrows-python-sdk`, `docs/openapi.yaml`, read 2026-09-03) contradicts it twice: `Idempotency-Key` on `POST /jobs` is documented as "Re-submitting with the same key returns the original response (or 409 on body mismatch)", and `GET /jobs` (`operationId: listJobs`) exists. So replaying the same keyed create inside the cleanup allowance recovers the handle, and if the create never landed the replay simply creates the job — correct either way. **Correct the spec's premise in the same change**, since the later slices read it and it also justifies the manual-dashboard-only recovery path. Parked to keep the fetching-layer PR to defect fixes.
+- **Noted**: 2026-09-03
+
+### Lift a chunking helper into src/utils/ instead of a seventh local copy
+
+- **ID**: IMP-171
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/batch_drain_queue.py:_chunked`, `scripts/prepare_prospective_match_predictions.py:226`, `scripts/settle_prospective_match_predictions.py:69`, `scripts/import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `scripts/enqueue_user_interest_teams.py:80`, `scripts/find_regid_duplicate_merges.py:79`
+- **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
+- **Noted**: 2026-09-03
+
+### Fold U18 to u19 in the pasted-roster heading parser
+
+- **ID**: IMP-172
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
+- **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
+- **Noted**: 2026-09-04
+
+### Set the response encoding in the other GotSport HTML fetch
+
+- **ID**: IMP-173
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
+- **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
+- **Noted**: 2026-09-05
+
+### Give the event-roster CLI the same seeding intake as the app
+
+- **ID**: IMP-174
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/scrape_event_roster.py` (the `roster.json` path in `main`), `src/tournaments/event_roster_intake.py`, `src/tournaments/seeding_run_store.py`
+- **Why**: The CLI still writes `reports/seeding/gotsport_<id>/roster.json` and nothing reads it — a grep over `*.py`, `*.md` and `*.yml` on 2026-09-05 finds only the writer. The Streamlit path now converts a walk into a seeding run instead, so a scrape started from the terminal produces an artifact the app cannot open while a scrape started from the app produces one the terminal cannot. The option not taken when wiring the UI: have the CLI call `to_seeding_rows` and the `SeedingRun` writer, so both entry points land in the same place. Deliberately left out to keep the UI change to one path.
+- **Noted**: 2026-09-05
+
+### Cancel the in-flight batch when an event walk is blocked
+
+- **ID**: IMP-175
+- **Status**: open
+- **Type**: direct
+- **Category**: cost
+- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
+- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
+- **Noted**: 2026-09-05
+
+### Decide whether a group page's header can supply a missing gender
+
+- **ID**: IMP-176
+- **Status**: open
+- **Type**: plan
+- **Category**: data-quality
+- **Where**: `src/tournaments/gotsport_event_roster.py` `parse_division_label` / `_header_division`
+- **Why**: Measured over the captured corpus 2026-09-05: of 39 group pages with a readable division label, the page header names a gender on 5 where the fixture-table label does not. Those 5 teams currently land with a blank gender, and a blank gender is not inert downstream — `seeding_optimizer.normalize_gender_label("")` answers `"Male"`. The header is not a free win, though: it leads with a U-age stamped in the season the event ran, which `parse_division_label`'s own docstring records as disagreeing with the durable birth year on 3 other captured divisions. So the question is whether the header can be read for gender alone while its age is still ignored, which needs its own look at the corpus rather than a one-line change.
+- **Noted**: 2026-09-05
+
+### Fold the WAF-clearing fetch mode into the one GotSport event scraper
+
+- **ID**: IMP-177
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `src/scrapers/gotsport.py:1466`, `src/tournaments/gotsport_event_roster.py` `EVENT_BASE`
+- **Why**: Both define the same `EVENT_BASE`, both walk `.../schedules?group=`, and they share no code. The newer one exists because the older meets an AWS WAF challenge on `/org_event/*` that only a JS-rendered proxied fetch clears. That is a fetch-layer difference, not a parsing one, so a single walker taking its fetcher as a parameter would leave one implementation to fix when GotSport's markup next moves. These two have already drifted once: IMP-173 records the charset fix that landed in the roster module's fetch and not in the other.
+- **Noted**: 2026-09-05
+
+### Carry a club name through the scraped seeding rows
+
+- **ID**: IMP-178
+- **Status**: open
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/event_roster_intake.py` `to_seeding_rows`, `tournament_intake.py` `_render_seeding_override`
+- **Why**: `EventRosterTeam` carries no club name, so every scraped row has `club_raw=""`: the results table's "Club" column is blank and the manual-override heading renders as a leading separator followed by the team name. This is legibility only — nothing in the seeding path matches on a club name, since `search_gotsport_teams` and `make_exact_name_lookup` both read the team name and cohort alone — but it is what an operator reads while deciding the rows the scrape could not link. The team page the walk already fetches for the rankings link is where a club name would come from, at no extra request.
+- **Noted**: 2026-09-05
+
+### Consider saving a scraped seeding run without a button press
+
+- **ID**: IMP-179
+- **Status**: deferred
+- **Type**: plan
+- **Category**: ux
+- **Where**: `tournament_intake.py` `_run_event_roster_scrape`, `_autosave_seeding_run`
+- **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
+- **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
+- **Noted**: 2026-09-05
+
+### Neutralize formula-leading fields in the seeding review CSV
+
+- **ID**: IMP-180
+- **Status**: open
+- **Type**: direct
+- **Category**: security
+- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
+- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
+- **Noted**: 2026-09-05
+
+### Give the GotSport event walk one home for its tuned concurrency
+
+- **ID**: IMP-181
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `tournament_intake.py` `_SEEDING_EVENT_WORKERS`, `scripts/scrape_event_roster.py`'s `--concurrency` default
+- **Why**: Both callers of `scrape_event_roster` pick 8 workers, independently. The scraper itself defaults `max_workers=1` deliberately — serial is the safe default for a caller that has not thought about it — so the 8 is a caller policy rather than a restatement of a module default, and there is nowhere it currently belongs: `gotsport_event_roster.py`'s module constants are all structural (URLs, regexes, headings), and `config/settings.py` carries no per-provider tuning of this kind. If GotSport tightens its WAF and the safe concurrency drops, both numbers have to move together with nothing linking them. Deciding the home is the work; the move itself is two lines.
+- **Noted**: 2026-09-05
+
+### Honour an injected Supabase client without also requiring the env vars
+
+- **ID**: IMP-182
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/event_roster_intake.py` `resolve_master_ids`
+- **Why**: The function takes `client_factory` so a caller can hand in a live client, and the Streamlit app does exactly that. But it still returns `({}, ["No Supabase credentials..."])` when `SUPABASE_URL` is absent, or when neither `SUPABASE_SERVICE_ROLE_KEY` nor `SUPABASE_KEY` is set, before `client_factory` is consulted — so an injected client is only honoured when env vars the caller does not own happen to be set. In the app this is masked because `config/settings.py` loads them at import, but a caller supplying its own client and no env would silently get name matching instead of the direct-id resolution the walk paid for. The guard exists for the CLI, which builds its client from those values; splitting the two paths would let the injected client stand on its own.
+- **Noted**: 2026-09-05
+
+### Give an ambiguous exact-name match candidates the operator can tell apart
+
+- **ID**: IMP-183
+- **Status**: open
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/roster_resolver.py` `make_exact_name_lookup`, and the `len(local) > 1` branches in `resolve_row` and `event_roster_intake._relink_known_id`
+- **Why**: When a team name matches two live teams in one cohort, both branches build `candidates` as `{"team_id_master": id}` only, so `_seeding_candidate_label`'s `team_name or team_id_master` fallback renders the review card as a list of bare UUIDs — the operator cannot choose between them without looking each one up by hand. `make_exact_name_lookup` already selects `team_id_master,team_name` and discards the name on the way out, so the fix is in the shared lookup's return shape rather than in either caller; both would then match the richer shape `resolve_row` produces from a GotSport search hit. Left out of the event-intake change because the two callers are consistent with each other today and changing `ExactNameLookup`'s contract touches the pasted path as well.
+- **Noted**: 2026-09-05
+
+### Populate `tgs_events` and implement Tier D, the only path the stateless TGS teams have
+
+- **ID**: IMP-184
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
@@ -1400,10 +1723,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Provider matchers stamp a constant `state_code` with no provenance
 
-- **ID**: IMP-151
+- **ID**: IMP-185
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py:475`, the squadi matcher
-- **Why**: Three creation paths write a fixed state rather than deciding one: affinity_wa hardcodes `"WA"` (729 teams, 100% WA), squadi NJ (25 teams, 100%), and playmetrics' league path takes `default_state_code` (702 teams, 92% WI). None sets `state_source`, so the corrector cannot distinguish a provider-reported state from a constant. Worse, the constant feeds Tier B's documented blind spot -- a club whose teams are uniformly stamped agrees with itself and is never corrected, which is why only **1 of 729** affinity_wa teams was touched by the full 2026-08-30 sweep. A visiting out-of-state club would be mislabelled permanently and invisibly. There is already a correct pattern to mirror in the same file family: PlayMetrics' tournament path passes `default_state_code=None` and falls back to `_resolve_state_from_club(club_name)`. No contamination is measurable in affinity_wa's names today (0 of 729 clubs read as out-of-state), so this is a latent-risk and provenance fix rather than a live-damage one.
+- **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py:475`
+- **Why**: Two tracked creation paths write a fixed state rather than deciding one: affinity_wa hardcodes `"WA"` (729 teams, 100% WA) and playmetrics' league path takes `default_state_code` (702 teams, 92% WI). A third population, 25 NJ teams stamped by a Squadi matcher, is **historical only**: no Squadi writer exists in any tracked file (`.turbo/plans/squadi-scraper.md` is the design note, not an implementation), and the unmerged branch that carried `SquadiGameMatcher` was deleted 2026-09-07 — so those rows need a data fix, not a code fix, and nothing recreates them. None sets `state_source`, so the corrector cannot distinguish a provider-reported state from a constant. Worse, the constant feeds Tier B's documented blind spot -- a club whose teams are uniformly stamped agrees with itself and is never corrected, which is why only **1 of 729** affinity_wa teams was touched by the full 2026-08-30 sweep. A visiting out-of-state club would be mislabelled permanently and invisibly. There is already a correct pattern to mirror in the same file family: PlayMetrics' tournament path passes `default_state_code=None` and falls back to `_resolve_state_from_club(club_name)`. No contamination is measurable in affinity_wa's names today (0 of 729 clubs read as out-of-state), so this is a latent-risk and provenance fix rather than a live-damage one.
 - **Noted**: 2026-08-31

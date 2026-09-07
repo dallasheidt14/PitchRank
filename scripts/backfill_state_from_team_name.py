@@ -257,16 +257,28 @@ def state_from_name(team_name: Optional[str]) -> Optional[str]:
         return None
     inferred = found.pop()
 
-    # An explicit affiliate code overrides the name: "Utah Royals FC-AZ" is the
-    # Arizona side. Refuse rather than pick -- the marker means the name and the
-    # location genuinely disagree, and guessing either way is what caused this
-    # whole class of bug.
-    for code in _AFFILIATE_CODE.findall(team_name or ""):
+    return None if affiliate_contradicts(team_name, inferred) else inferred
+
+
+def affiliate_contradicts(text: Optional[str], inferred: Optional[str]) -> bool:
+    """Whether an explicit affiliate marker in ``text`` names a state other than ``inferred``.
+
+    "Utah Royals FC-AZ" is the Arizona side. Refuse rather than pick -- the marker means
+    the name and the location genuinely disagree, and guessing either way is what caused
+    this whole class of bug.
+
+    Shared with Tier E in ``assign_team_states``, which reads learned place words rather
+    than state names but needs the same refusal for the same reason: "utah" is exactly
+    the word that would otherwise carry those 22 Arizona teams to Utah.
+    """
+    if not inferred:
+        return False
+    for code in _AFFILIATE_CODE.findall(text or ""):
         if code in _NOT_STATE_TOKENS:
             continue
         if code in STATE_NAMES.values() and code != inferred:
-            return None
-    return inferred
+            return True
+    return False
 
 
 def _state_to_code(value: str) -> Optional[str]:

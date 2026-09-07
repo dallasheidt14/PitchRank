@@ -18,7 +18,7 @@ Hybrid design:
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
@@ -64,10 +64,6 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         # ``state_code=None`` for the tournament path so it doesn't collide
         # with state-scoped entries.
         self._candidate_cache: Dict = {}
-        # club_name → resolved (state_code, state) for autocreate. Built lazily
-        # on first miss in ``_resolve_state_from_club``. Cached so repeated
-        # autocreates within one batch don't re-query teams.
-        self._club_state_cache: Dict[str, Optional[Tuple[Optional[str], Optional[str]]]] = {}
 
     @staticmethod
     def _normalize_gender(gender: Optional[str]) -> Optional[str]:
@@ -385,44 +381,6 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 logger.error(f"[PlayMetrics] Error creating team for {team_name}: {e}")
 
         return base_result
-
-    def _resolve_state_from_club(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-        """Look up ``(state_code, state)`` for a brand-new team in the multi-state path.
-
-        Returns the unique non-null ``(state_code, state)`` pair if every existing
-        ``teams`` row for this ``club_name`` agrees on it. Returns ``(None, None)``
-        when the club spans multiple states, has no rows, or has rows but all have
-        NULL state — those cases defer state assignment to the review queue or a
-        later import that *does* know the state.
-        """
-        if not club_name:
-            return (None, None)
-        cached = self._club_state_cache.get(club_name)
-        if cached is not None:
-            return cached
-        try:
-            result = (
-                self.db.table("teams")
-                .select("state_code, state")
-                .eq("club_name", club_name)
-                .not_.is_("state_code", "null")
-                .limit(500)
-                .execute()
-            )
-            rows = list(result.data) if result and result.data else []
-        except Exception as e:
-            logger.debug(f"[PlayMetrics] club→state lookup failed for '{club_name}': {e}")
-            rows = []
-        distinct_codes = {row.get("state_code") for row in rows if row.get("state_code")}
-        if len(distinct_codes) == 1:
-            code = next(iter(distinct_codes))
-            # Take the canonical full-name `state` from the first row that has it.
-            full = next((row.get("state") for row in rows if row.get("state")), None)
-            resolved = (code, full)
-        else:
-            resolved = (None, None)
-        self._club_state_cache[club_name] = resolved
-        return resolved
 
     def _create_new_playmetrics_team(
         self,

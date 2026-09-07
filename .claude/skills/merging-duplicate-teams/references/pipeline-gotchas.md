@@ -57,8 +57,13 @@ named by no game. The team's unplayed fixtures stop being enqueued for a score f
 other producer looks at NULL scores.
 
 `supabase/migrations/20260822000000_resolve_merges_in_scrape_enqueue_rpcs.sql` resolves both
-RPCs through `team_merge_map`. Until it is applied, run
-`scripts/enqueue_stranded_merge_fixtures.py` after every merge batch.
+RPCs through `team_merge_map`, and is applied — verified 2026-08-31, both function bodies
+confirmed to read `team_merge_map`. The paragraph above is therefore history, not current
+behaviour. `scripts/enqueue_stranded_merge_fixtures.py` remains only for fixtures stranded
+before that date.
+
+What a merge still leaves behind is the *played* fixture recorded twice; see
+`scripts/exclude_merge_duplicate_games.py` and Step 7 of the skill.
 
 ## Merged teams lose their rank chart
 
