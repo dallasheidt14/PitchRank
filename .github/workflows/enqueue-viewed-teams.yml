@@ -1,0 +1,74 @@
+name: Enqueue Viewed Teams
+run-name: >-
+  Enqueue viewed teams · ${{
+    inputs.dry_run == true && 'DRY RUN' || 'live'
+  }}
+
+on:
+  schedule:
+    # 05:47 UTC daily — after US evening browsing has finished, and first among the
+    # enqueue jobs. Running first is what matters: this job anchors game_date on
+    # today, so a date-specific producer that runs later overwrites its anchor
+    # rather than the reverse. Do not rely on the ordering holding to the minute —
+    # scheduled runs here have started hours past their cron under load. GH Actions
+    # cron is UTC-only, so this also drifts ±1h with DST.
+    #
+    # Minute 47, not 0: minute 0 is the most contended slot on GitHub's
+    # scheduler and scheduled runs are dropped under load. The enqueue jobs use
+    # spread minutes so they cannot collide with each other either.
+    - cron: '47 5 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: log targets without enqueueing'
+        required: false
+        type: boolean
+        default: false
+      limit:
+        description: 'Max teams to enqueue (blank = 2000)'
+        required: false
+        type: string
+        default: ''
+      window_hours:
+        description: 'Enqueue teams viewed within this many hours (blank = 36)'
+        required: false
+        type: string
+        default: ''
+      cooldown_hours:
+        description: 'Skip teams scraped within this many hours (blank = 20)'
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: enqueue-viewed-teams
+  cancel-in-progress: false
+
+jobs:
+  enqueue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DRY_RUN_FLAG: ${{ inputs.dry_run == true && '--dry-run' || '' }}
+      LIMIT_FLAG: ${{ inputs.limit != '' && format('--limit {0}', inputs.limit) || '' }}
+      WINDOW_FLAG: ${{ inputs.window_hours != '' && format('--window-hours {0}', inputs.window_hours) || '' }}
+      COOLDOWN_FLAG: ${{ inputs.cooldown_hours != '' && format('--cooldown-hours {0}', inputs.cooldown_hours) || '' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install supabase python-dotenv
+
+      - name: Enqueue viewed teams
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python scripts/enqueue_viewed_teams.py $DRY_RUN_FLAG $LIMIT_FLAG $WINDOW_FLAG $COOLDOWN_FLAG

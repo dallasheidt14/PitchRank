@@ -1,0 +1,15 @@
+{
+  "run_id": "run_01SYNTHETICCLOSED",
+  "job_id": "job_01SYNTHETICCLOSED",
+  "status": "completed",
+  "stats": {
+    "total": 3,
+    "completed": 3,
+    "successful": 2,
+    "failed": 1,
+    "spend": {
+      "credits": 3,
+      "cost": 0.0033
+    }
+  }
+}

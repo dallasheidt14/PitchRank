@@ -37,14 +37,22 @@ from supabase import create_client  # noqa: E402
 load_dotenv(".env.local")
 load_dotenv(".env")
 
+# The scripts directory for the sibling import below, and the repo root for the
+# packaged one. enqueue_helpers has to be imported packaged: enqueue_user_interest_teams
+# already holds it as scripts.enqueue_helpers, and a bare import here would give one
+# file two module identities in the same process.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from enqueue_user_interest_teams import (  # noqa: E402
     REQUEST_TYPE,
-    _chunks,
     collect_report_card_teams,
     collect_user_requested_teams,
     collect_watchlisted_teams,
+)
+
+from scripts.enqueue_helpers import (  # noqa: E402
+    _chunks,
     load_team_rows,
     resolve_merges,
 )

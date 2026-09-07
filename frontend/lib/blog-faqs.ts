@@ -196,6 +196,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'idaho-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Idaho youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Idaho teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 595 ranked Idaho teams drawn from 922 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer organizations in Idaho?',
+      answer:
+        "By ranked team count: Idaho Rush Soccer Club (51), Bonneville Youth Soccer League (46), Boise Timbers | Thorns FC (35), Idaho Inferno Soccer Club (34), North Boise FC (32), Sting Soccer Club of Coeur d'Alene (32), PVSC United of Pocatello (28), ALBION SC Idaho (23) and Idaho Surf SC (22).",
+    },
+    {
+      question: 'Does Idaho have ECNL or MLS NEXT teams?',
+      answer:
+        'Idaho has 18 ranked ECNL teams and 25 ranked ECNL Regional League teams, all based in the Treasure Valley and split between Boise Timbers | Thorns FC and Idaho Rush. We currently track no MLS NEXT or Girls Academy teams based in Idaho, so families seeking those specific pathways are looking at out-of-state options.',
+    },
+    {
+      question: 'How do North Idaho and Treasure Valley clubs compare in rankings?',
+      answer:
+        "The Treasure Valley holds about a third of Idaho's ranked teams and every one of the state's ECNL and ECNL Regional League rosters. North Idaho clubs such as Sting Soccer Club in Coeur d'Alene and Sandpoint Strikers play heavily toward Spokane, which means their opponents are often out of state — that usually leaves their rankings better connected to the national picture than a team playing only inside Idaho.",
+    },
+    {
+      question: "Why does travel matter so much for an Idaho team's ranking?",
+      answer:
+        "Idaho's soccer regions are hundreds of miles apart, so a team that plays only locally faces the same small set of opponents repeatedly. The algorithm can rate a team confidently only through the opponents it shares with the rest of the country, so a schedule that crosses regions or state lines produces a far more reliable number than one that never leaves home.",
+    },
+  ],
+
   'illinois-youth-soccer-rankings-guide': [
     {
       question: 'How are youth soccer teams ranked in Illinois?',
@@ -480,6 +508,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'nevada-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Nevada youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Nevada teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 509 ranked Nevada teams drawn from 1,088 we track statewide, including their games against California and Arizona opposition.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Nevada?',
+      answer:
+        'By ranked team count: Albion SC Las Vegas (64), Las Vegas Heat Surf SC (55), Las Vegas Sports Academy (49), Players SC (42), Reno Apex Soccer Club (38), Sierra Surf SC (24) and Villarreal Las Vegas Academy (20).',
+    },
+    {
+      question: 'What youth soccer leagues operate in Nevada?',
+      answer:
+        'Nevada has an unusually complete ladder for its size, almost all of it in Las Vegas: MLS NEXT through Albion SC Las Vegas, Las Vegas Sports Academy, Downtown Las Vegas SC and Players SC; ECNL and ECNL Regional League through Las Vegas Heat Surf SC; Girls Academy through Las Vegas Sports Academy and Albion; plus NPL, EA and DPL. NPL is the main national-league presence in Northern Nevada through Reno Apex and Sierra Surf.',
+    },
+    {
+      question: 'How do Las Vegas and Reno clubs compare in rankings?',
+      answer:
+        "About four in five of Nevada's ranked teams are in the Las Vegas Valley, and virtually every MLS NEXT, ECNL and Girls Academy roster in the state is based there. Reno and Carson City clubs such as Reno Apex and Sierra Surf compete mainly into Northern California instead. The two markets rarely play each other, so their rankings are largely connected through shared California opponents rather than head-to-head results — which is what makes Nevada State Cup unusually informative.",
+    },
+    {
+      question: 'Should a Nevada team watch its state rank or its national rank?',
+      answer:
+        'National rank generally carries more information for a Nevada team. Because Las Vegas clubs play a heavily out-of-state schedule against Southern California and Arizona opposition, their results are well connected to the national picture, while the state board is small at 509 ranked teams. When the two numbers disagree, the national one is usually the better-supported read.',
+    },
+  ],
+
   'new-jersey-youth-soccer-rankings-guide': [
     {
       question: 'How are New Jersey youth soccer teams ranked?',
@@ -637,6 +693,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How often are PA U10 boys rankings updated?',
       answer:
         'PA U10 boys soccer rankings are updated every Monday morning with the latest game results from the previous week.',
+    },
+  ],
+
+  'oklahoma-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Oklahoma youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Oklahoma teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 993 ranked Oklahoma teams drawn from 2,412 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Oklahoma?',
+      answer:
+        'By ranked team count: Oklahoma Energy FC (120), West Side Alliance SC (88), Oklahoma Celtic (67), Broken Arrow SC (58), FC Tulsa Academy (48), Tulsa Soccer Club (40), Enid SC (39), South Lakes SC (37) and Mustang YSA (30).',
+    },
+    {
+      question: 'What youth soccer leagues operate in Oklahoma?',
+      answer:
+        'ECNL Regional League is the largest national league in the state with 102 ranked Oklahoma teams, led by West Side Alliance and Oklahoma Energy FC. Oklahoma also has ECNL, MLS NEXT through Sporting Oklahoma and Tulsa Greenwood SC, Girls Academy through Tulsa Soccer Club, plus NPL and DPL competition and state play through the Oklahoma Soccer Association.',
+    },
+    {
+      question: 'How do Oklahoma City and Tulsa clubs compare in rankings?',
+      answer:
+        "The OKC metro is concentrated around one very large club — Oklahoma Energy FC carries more ranked teams than the next two clubs combined — while Tulsa's competitive market is split among West Side Alliance, Broken Arrow, FC Tulsa Academy, Tulsa SC, Owasso and Claremore. Because most teams play inside their own metro, cross-metro results and State Cup are where the two markets actually get measured against each other.",
+    },
+    {
+      question: 'Why do some Oklahoma age groups have so many more ranked teams than others?',
+      answer:
+        'U11, U13 and U15 carry far more ranked teams than U12, U14 and U16 — 217, 195 and 158 against 106, 102 and 85. That reflects how Oklahoma teams actually register rather than a gap in our coverage; the same pattern appears across the full set of Oklahoma teams we track, not just the ranked ones.',
     },
   ],
 
