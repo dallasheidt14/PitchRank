@@ -205,6 +205,50 @@ PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
 Do not "fix" this by splitting the cohort.
 
+#### A stored birth year does not pick out one cohort, so who a team plays decides
+
+Because a band runs Aug 1 – Jul 31, a single calendar year sits in two of them: 2014
+is the younger year of `u13` and the older year of `u12`. `teams` stores birth
+*years*, never birth *dates*, so a row labelled "2014" is genuinely consistent with
+either. Leagues then disagree about what a bare year in a team name means — some use
+it for the band's younger year, others as shorthand for the whole `2013-2014` band —
+so a provider or a name that disagrees with the stored cohort is not on its own
+evidence that either side is wrong.
+
+**Settle it from the fixtures — but read the opponent's NAME, not its column.** A
+team plays inside its own cohort, so who it plays is the signal. An opponent's
+`age_group`, however, is not independent: the same import and hygiene paths that
+mislabelled the target set it too, so a systematically wrong slice corroborates
+itself unanimously. `scripts/audit_name_age_disagreements.py` states the principle in
+`attach_game_evidence` and is the prior art to read before building anything here.
+
+Which opponents count as witnesses depends on the question. Where the dispute is what
+a **bare year** means, the independent witnesses are opponents whose names carry a
+U-age (`Whitpain U13 Black`) or a two-year band (`2013-2014 Girls White`), because
+those state a cohort without relying on the convention under test; a bare-year
+opponent is the circular one. Where the dispute is name-versus-column, that filter
+inverts, which is why the script above keeps single-birth-year witnesses and excludes
+bands — bands agree with each other by construction.
+
+Restrict to the current season: prior-season fixtures describe last year's cohort. On
+a live AZ u13 slice, all seven rows GotSport filed as U12 played u13 opposition across
+243 games. In PA the same test found six St Thomas More teams a year too high, one of
+which a customer had reported. Across five states 52 teams were corrected on stored-
+column evidence and then re-checked against name-derived witnesses: 29 supported, none
+contradicted, 21 had too few unambiguous opponents to say — which is also the measure
+of how much weaker the independent test is, and why it is the one to run first.
+
+Two cautions the same measurements produced. A team that plays a year *up* all season
+is correctly labelled and simply strong — Pre-ECNL and ECNL RL squads do it routinely,
+and a naive fixture test reads that as an error. And a name that disagrees while the
+fixtures back the stored value is usually just stale, which described 1,071 teams.
+
+That asymmetry is what makes a provider cohort safely usable as a **veto** while it
+stays unusable as a **value**: withholding a write on a disagreement costs a skipped
+update when it is wrong, whereas writing on one costs a mislabelled team on the wrong
+ranking board. IMP-145 bars the second; the first is what any tool reading a
+provider's cohort should do with a disagreement.
+
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
 - `G2016` = Girls, 2016 birth year = **U11 Female**

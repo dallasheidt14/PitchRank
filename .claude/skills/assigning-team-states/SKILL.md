@@ -335,3 +335,6 @@ database with wrong states.
   order is what it is, and the exceptions that outrank the cascade.
 - [references/failure-modes.md](references/failure-modes.md) — shapes in which the evidence has
   already been wrong, and how to recognise them.
+- [references/calling-apply-team-state.md](references/calling-apply-team-state.md) — what the
+  RPC does not do for you: mirroring the board, restoring provenance on a revert, and which
+  tier to stamp. For new code calling it directly, not for the operator path above.
