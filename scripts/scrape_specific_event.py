@@ -36,6 +36,26 @@ if env_local.exists():
     load_dotenv(env_local, override=True)
 
 
+def preflight_verdict(response_url: str, *, use_zenrows: bool) -> str:
+    """Read the pre-flight fetch's landing URL: ``ok``, ``archived`` or ``inconclusive``.
+
+    The pre-flight is the one fetch in the run that does not go through ZenRows, and it
+    cannot: the proxy hands back the ``api.zenrows.com`` URL with the target
+    percent-encoded inside it, so there is no landing URL here to test. That leaves this
+    signal measuring the caller's own IP as much as the event. From a GitHub runner
+    GotSport's WAF redirects to the login host, which is indistinguishable from a real
+    archive redirect -- so when a proxy is configured the redirect is ``inconclusive``
+    and the proxied scrape that follows is left to decide, rather than aborting a live
+    event on a signal this fetch cannot resolve.
+    """
+    redirected_away = (
+        "org_event/events" not in response_url or response_url == "https://home.gotsport.com/"
+    )
+    if not redirected_away:
+        return "ok"
+    return "inconclusive" if use_zenrows else "archived"
+
+
 def scrape_specific_event(
     event_id: str,
     lookback_days: int = 30,
@@ -75,23 +95,32 @@ def scrape_specific_event(
 
     scraper = GotSportEventScraper(supabase, "gotsport")
 
-    # Get event name. The pre-flight fetch uses scraper.session directly
-    # (not the CAPTCHA-aware _fetch_event_page) so an archived/redirect
-    # response is distinguishable from a CAPTCHA gate. The main scrape call
-    # below triggers the real CAPTCHA detection.
+    # Get event name. Deliberately not _fetch_event_page: that raises on a CAPTCHA,
+    # and here a gate has to stay distinguishable from a genuine archive redirect.
+    # preflight_verdict carries the reasoning about why a redirect is not conclusive
+    # once a proxy is configured.
     try:
         event_url = f"https://system.gotsport.com/org_event/events/{event_id}"
         response = scraper.session.get(event_url, timeout=10, allow_redirects=True)
-        if "org_event/events" not in response.url or response.url == "https://home.gotsport.com/":
+        verdict = preflight_verdict(response.url, use_zenrows=scraper.use_zenrows)
+
+        if verdict == "archived":
             console.print(f"[red]❌ Event {event_id} not accessible (may be archived or invalid)[/red]")
             return
 
-        from bs4 import BeautifulSoup
+        if verdict == "inconclusive":
+            console.print(
+                f"[yellow]⚠️  Pre-flight for event {event_id} was redirected "
+                f"(likely the WAF, not an archive); continuing via proxy[/yellow]"
+            )
+            event_name = f"Event {event_id}"
+        else:
+            from bs4 import BeautifulSoup
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        title = soup.find("title")
-        event_name = title.get_text(strip=True) if title else f"Event {event_id}"
-        console.print(f"[cyan]Event: {event_name}[/cyan]\n")
+            soup = BeautifulSoup(response.text, "html.parser")
+            title = soup.find("title")
+            event_name = title.get_text(strip=True) if title else f"Event {event_id}"
+            console.print(f"[cyan]Event: {event_name}[/cyan]\n")
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not get event name: {e}[/yellow]")
         event_name = f"Event {event_id}"

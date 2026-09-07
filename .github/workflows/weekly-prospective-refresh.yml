@@ -114,6 +114,16 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
+          # Required, not optional, and its absence is silent in BOTH directions.
+          # GotsportScraper sets `use_zenrows` from the mere presence of this variable
+          # (src/scrapers/gotsport.py:318); without it `_fetch_event_page` falls back to
+          # a direct session get (:1636-1641), which GotSport 403s from a GitHub runner.
+          # `scrape_games_from_schedule_pages` catches that, logs one line, and returns
+          # an empty list, so the run writes a zero-row JSONL and this step still EXITS 0
+          # -- the step's only guard is that the file exists, not that it has rows.
+          # Measured 2026-09-07: with the key, the same three events stop 403ing and are
+          # reached. Do not read a green step here as evidence that fixtures were found.
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           GOTSPORT_DELAY_MIN: "0.1"
           GOTSPORT_DELAY_MAX: "0.2"
           GOTSPORT_MAX_RETRIES: "2"

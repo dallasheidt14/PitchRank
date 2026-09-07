@@ -51,6 +51,12 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
+          # Required for any event-page scrape: without it GotsportScraper silently
+          # fetches system.gotsport.com directly and GotSport 403s a GitHub runner.
+          # The scrape then returns zero games and still exits 0, so the omission
+          # shows up as an empty result rather than a failure. Same omission that
+          # made weekly-prospective-refresh scrape nothing from 2026-04-28.
+          ZENROWS_API_KEY: ${{ secrets.ZENROWS_API_KEY }}
           # Optional: Configure scraping delays
           GOTSPORT_DELAY_MIN: '1.5'
           GOTSPORT_DELAY_MAX: '2.5'
