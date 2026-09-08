@@ -1585,16 +1585,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-05
 - **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
 
-### Neutralize formula-leading fields in the seeding review CSV
-
-- **ID**: IMP-180
-- **Status**: open
-- **Type**: direct
-- **Category**: security
-- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
-- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
-- **Noted**: 2026-09-05
-
 ### Give the GotSport event walk one home for its tuned concurrency
 
 - **ID**: IMP-181

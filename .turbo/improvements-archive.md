@@ -313,3 +313,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
+
+### Neutralize formula-leading fields in the seeding review CSV
+
+- **ID**: IMP-180
+- **Status**: done
+- **Type**: direct
+- **Category**: security
+- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
+- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
+- **Noted**: 2026-09-05
+- **Refs**: `fix/seeding-csv-formula-injection` — the review CSV is mapped through `csv_safe` at the export boundary. That helper already existed in `src/tournaments/reports/render_csv.py` with the OWASP prefix set including tab/CR/LF; it was promoted from `_csv_safe` to public rather than a second copy being written. Ten tests drive `_render_seeding_tab` and assert on the downloaded bytes; dropping the map fails seven.
