@@ -159,15 +159,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: First PlayMetrics import reported `Teams created: 0` and `Auto-matched: 0` while actually creating 431 new teams and fuzzy-matching ~92 to existing TGS teams (verified via SQL counts on `teams` and `team_alias_map`). The matcher returns `{"matched": True, "created": True, "method": "direct_id", ...}` from the autocreate branch but the pipeline isn't crediting that to `teams_created`. Likely because the counter branches on `method` (treating `direct_id` as an existing-team match) rather than on the `created` flag. AffinityWA returns the same shape so it probably has the same misreport. Data integrity is fine; only the console/build_log summaries are wrong. Fix by having the pipeline read `metrics.teams_created` from the `created=True` signal, independent of `method`.
 - **Noted**: 2026-04-21
 
-### Make the Python birth-year filter dynamic so it stays in sync with SQL RPC
-
-- **ID**: IMP-014
-- **Status**: open
-- **Category**: reliability
-- **Where**: `scripts/scrape_games.py:352`
-- **Why**: Hardcoded `birth_year in [2005, 2006, 2017, 2018, 2019]` will drift on 2027-01-01 from the SQL RPC `get_teams_to_scrape_limited` (which computes the same set via `EXTRACT(YEAR FROM NOW())`). Correct today; wrong next year. Either derive from `datetime.now().year` (`[yr-21, yr-20, yr-9, yr-8, yr-7]`) or drop the Python post-filter entirely now that the RPC enforces it. Flagged by review-correctness during /polish-code on scrape-games-perf; the plan's own tech-debt section also called this out.
-- **Noted**: 2026-04-22
-
 ### Add integration tests for the three scrape-games RPCs
 
 - **ID**: IMP-015
@@ -290,18 +281,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_name_utils.py:503-512` (logic), `:443` (docstring example), `:453-456` (rationale comment)
 - **Why**: Slash dual-age branch uses `max(y1, y2)` for 2-digit slash tokens like `'10/11`, picking the YOUNGER birth year (→ u15 in 2025-2026). PR #711 just merged the older-cohort fix into `scripts/fix_team_age_groups.py` and `scripts/normalize_team_names.py` per the PitchRank business rule (Dallas, 2026-05-01): dual-age teams classify as the OLDER cohort — older birth year for year pairs, higher U-age for U-age pairs. The canonical helper still has the inverted logic. Low blast radius today (helper takes single fullmatch token, narrow scope vs. the scripts' free-form parsing) but any caller that flows slash 2-digit tokens silently gets the wrong cohort. Fix: flip `max` → `min` on `:508`, update docstring example `'10/11 → u15` to `→ u16`, rewrite rationale comment to state older-cohort rule. Audit callers of `canonicalize_age_group` and `_RE_SLASH_DUAL` first to confirm no downstream depends on younger-cohort behavior. Add tests for both 2-digit (`'10/11`, `15/16U`) and 4-digit (`2010/2011`) slash forms.
 - **Noted**: 2026-05-01
-
-### Matcher autocreate writes ignore pipeline dry_run
-
-- **ID**: IMP-028
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `src/models/game_matcher.py` (base `_create_alias`), `src/models/playmetrics_matcher.py`, `src/models/tgs_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/sincsports_matcher.py`, `src/models/modular11_matcher.py` (each subclass `_create_new_*_team`), `src/etl/enhanced_pipeline.py` (`_ensure_initialized`)
-- **Why**: `EnhancedETLPipeline.dry_run` only gates the games-table insert. Base `_create_alias` writes to `team_alias_map` and each subclass `_create_new_*_team` writes to `teams` unconditionally. Confirmed live 2026-05-01: `import_games_enhanced.py --dry-run` for `playmetrics_tournament` provider silently inserted 193 `teams` + 262 `team_alias_map` rows into production despite the flag — required manual SQL DELETE cleanup. Affects all 5 matcher subclasses. Fix: add `dry_run: bool = False` to `GameHistoryMatcher.__init__` (partially started — base accepts kwarg, but `_create_alias` and `_create_new_*_team` don't gate yet); gate all writes; return a deterministic stub UUID (`uuid.uuid5` over `(team_name, age, gender, provider_team_id)`) without inserting; thread `dry_run=self.dry_run` from `EnhancedETLPipeline._ensure_initialized()` to all 5 matcher constructors. Until landed, treat `import_games_enhanced.py --dry-run` as unsafe — use a standalone analytics dryrun that monkey-patches `_create_new_*_team` and `_create_alias` post-construction for safe simulation.
-- **Noted**: 2026-05-01
-- **Update (2026-05-07 audit)**: PR #729 (origin/main `136e292c0`) added dry_run gating for playmetrics path. Verify scope — base `_create_alias` and the other 4 subclasses (tgs, affinity_wa, sincsports, modular11) likely still write unconditionally.
-- **Update (2026-08-19)**: Hit again in production. A `--dry-run` TGS import of event 4125 created 118 `teams` and 117 `team_match_review_queue` rows while printing "Teams created: 0" and "no changes were made"; the queue rows were deleted, the teams were kept since the authorized real import would have created them. Root cause was two-part and the same shape everywhere: `_ensure_initialized` never passed `dry_run` to `TGSGameMatcher`, so the base class's *existing* gates on `_create_alias` and the review-queue insert saw `dry_run=False`, and `tgs_matcher._create_new_tgs_team` had no gate of its own. **Fixed for tgs in PR #974** (constructor threads the flag, insert is gated, 5 regression tests in `tests/unit/test_tgs_matcher_dry_run.py` incl. one asserting the pipeline wiring). **Still open: `sincsports` and `affinity_wa`** — both constructed without `dry_run` in `_ensure_initialized`, both with unconditional inserts (`sincsports_matcher.py:741`, `affinity_wa_matcher.py:396`). modular11 and playmetrics already receive the flag. The stub-UUID idea above was not adopted: the TGS fix returns the real generated UUID unwritten, which keeps downstream match reporting accurate.
 
 ### Add `.vercel/` to repo-root `.gitignore`
 
@@ -464,16 +443,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: No upper bound means a future Scrapy major can silently re-break every spider the way 2.13 did — an overridden `start_requests()` is never called, so the spider makes 0 requests with green CI and 0 data. Add `scrapy>=2.13,<3` (or pin the tested version) in requirements.txt and drop/pin the workflows' unpinned `pip install scrapy`. See auto-memory `gotcha_scrapy_async_start`.
 - **Noted**: 2026-06-01
 
-### Untrack committed Python bytecode (`__pycache__/*.pyc`)
-
-- **ID**: IMP-047
-- **Status**: open
-- **Type**: direct
-- **Category**: dx
-- **Where**: tracked `*.pyc` under `scrapers/`, `config/`, `src/` (and elsewhere)
-- **Why**: Committed bytecode shows as modified on every spider/test run, creates dirty-tree noise, and blocks clean `git worktree remove`. Add `__pycache__/` + `*.pyc` to `.gitignore` and `git rm -r --cached` the tracked files.
-- **Noted**: 2026-06-01
-
 ### Wire brand fonts + logo into `@vercel/og` infographic endpoints
 
 - **ID**: IMP-048
@@ -585,16 +554,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both public endpoints email attacker-supplied addresses unverified (audit S9) — sender-domain reputation risk. Needs a confirm-before-send step designed around the report-card lead funnel and Beehiiv flows; per-IP rate limits currently blunt volume.
 - **Noted**: 2026-06-12
 
-### Add a pytest job to CI
-
-- **ID**: IMP-061
-- **Status**: open
-- **Type**: direct
-- **Category**: testing
-- **Where**: `.github/workflows/ci.yml`
-- **Why**: CI runs only ruff lint for Python, so test regressions merge silently — PR #884 broke `tests/unit/test_ranking_history_relocation.py` undetected. `tests/unit` is ~1,600 tests in ~5 min, viable CI scope.
-- **Noted**: 2026-06-12
-
 ### Age-group rankings page — progressive loading (Option B) to cut mobile interaction jank (TBT)
 
 - **ID**: IMP-062
@@ -615,16 +574,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `n_base = n - n_ml - n_cap` and the `(n_ml + n_cap)` verdict threshold assume ML-lifted and cap-bound are disjoint, but a team can be both — double-counting the overlap understates the "base/SCF-driven" bucket and can overstate the attribution verdict. Pre-existing; currently inert (cap-bound = 0 on both the 2026-06-16 prod and SCF-off boards). Surfaced by Codex peer review during the SCF-off staging review. Fix: count `cap_bound` and `(ml_lifted AND NOT cap_bound)` separately.
 - **Noted**: 2026-06-19
 
-### GoogleAnalytics leaks Stripe session_id to GA4 on /upgrade/success
-
-- **ID**: IMP-064
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `frontend/components/GoogleAnalytics.tsx` (GoogleAnalyticsContent gtag config)
-- **Why**: GA4 still sends `session_id` in the auto-collected `dl=` param despite the component sanitizing `page_location` — a prod browser smoke test observed `google-analytics.com/g/collect?...dl=...session_id=...`. session_id is a replayable bearer secret for the anonymous `/api/stripe/sync` path; same class of leak just fixed for the Meta/Google Ads pixels (which skip the page via usePathname). GA's page_location strip doesn't cover dl=, so fully fixing it needs either gating GA on pathname (loses the GA pageview for that page) or a server-side URL scrub — warrants a plan. Pre-existing; out of scope of the pixel PR (payment flow left untouched).
-- **Noted**: 2026-06-20
-
 ### Complete the prod→base rename in ranking_stability_check.py compare functions
 
 - **ID**: IMP-065
@@ -634,16 +583,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/ranking_stability_check.py` (compare_movement / compare_top_movers / compare_stage_shift / compare_topn_composition)
 - **Why**: The `--baseline-table` change rebranded print headers, help text, verdict strings, and the block comment to "baseline" but left the internal SQL CTE/aliases and locals as `prod` / `r_prod` / `prod_avg` / `prod_med`, so one line prints `baseline avg {prod_avg}`. Rename prod→base / r_prod→r_base / prod_avg→base_avg / prod_med→base_med across the four functions to remove the var/label mismatch. Rendered output is already correct; pre-existing naming, skipped for scope discipline during the `--baseline-table` change (surfaced by the consistency reviewer).
 - **Noted**: 2026-06-22
-
-### Switch the webhook set-password email to a token_hash callback URL (not raw action_link)
-
-- **ID**: IMP-066
-- **Status**: open
-- **Type**: investigate-then-plan
-- **Category**: reliability
-- **Where**: `frontend/app/api/stripe/webhook/route.ts` (anonymous-checkout set-password email: `linkData.properties.action_link` → `sendPasswordSetupEmail`)
-- **Why**: The webhook emails Supabase's raw `action_link` to new guest-checkout users. A server-generated recovery link forwarded to a browser that never started the flow hits the PKCE `code` path in `auth/callback/route.ts` with no `code_verifier` cookie and falls through to `/login` instead of the recovery session — the same P1 the monitor was fixed for (PR #928), and it matches the manual rescue runbook ([[stripe_guest_checkout_lockout]]) which uses `?token_hash=<hashed_token>&type=recovery`. This is the PRIMARY set-password path and currently "works" for many users, so do NOT change blindly: validate end-to-end in staging (does the current action_link actually succeed, or do most users fall back to forgot-password?) before switching `properties.action_link` → a `${SITE_URL}/auth/callback?token_hash=${properties.hashed_token}&type=recovery&next=/reset-password` URL. Owner deferred for safety during PR #928.
-- **Noted**: 2026-06-30
 
 ### De-dup the stuck-signup monitor so it doesn't rotate recovery tokens every run
 
@@ -1025,16 +964,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Stage 10 names `save_ranking_snapshot()` but omits its sibling `_save_prediction_feature_snapshot_safe()` → `prediction_feature_history`, and presents both as unconditional; both are gated by `save_snapshot` (skipped under --dry-run). Round-3 review P3, deferred as pre-existing text outside the dry-run branch.
 - **Noted**: 2026-08-24
 
-### URGENT: scrape-eligibility filters roll on the calendar year, excluding real U10 teams every Aug-Dec
+### Audit the `teams.birth_year` rows the dashboard's old stale-map write stamped
 
 - **ID**: IMP-110
 - **Status**: open
-- **Type**: direct
+- **Type**: investigate
 - **Category**: reliability
-- **Where**: `scripts/drain_queue.py:84-93` (`_excluded_birth_years`), `scripts/scrape_games.py:389` (hardcoded `[2005, 2006, 2017, 2018, 2019]`), and six RPCs using `c.yr - 9` (`get_teams_to_scrape_limited`, `get_scrape_eligibility_counts`, `find_discovery_teams`, `find_stale_teams`, `find_recently_active_teams`, `resolve_merges_in_scrape_enqueue_rpcs`) — the RPC fix needs a migration; mind the CREATE OR REPLACE overload trap
-- **Why**: The "U8/U9" exclusions derive years from `date.today().year` while cohorts roll Aug 1, so from Aug 1 to Dec 31 they exclude the U10 cohort: 2017-born U10 teams are dropped from every enqueue path, drain_queue, and scrape_games right now. Surfaced by the birth-year-derivation review 2026-08-24. Follow-up in the same pass: audit `teams.birth_year` rows the dashboard's old stale-map write overwrote (needs name/provider-sourced correction, not a blanket increment; the write itself was removed 2026-08-24). `scripts/enrich_instagram_handles.py` searches and scores on the stored year, so corrupted rows actively mislead it. The same off-by-one also fails open on the old end: 2007-born (real U20) teams are NOT excluded Aug-Dec.
+- **Where**: `teams.birth_year` (database column); `scripts/enrich_instagram_handles.py`, which searches and scores on the stored year
+- **Why**: The dashboard once wrote a stale age→birth-year map over `teams.birth_year`. The write itself was removed 2026-08-24, but the rows it stamped were never audited, and they need name- or provider-sourced correction rather than a blanket increment — a corrupted year actively misleads `enrich_instagram_handles.py`. Scope the affected population first; nobody has measured it.
 - **Noted**: 2026-08-24
-- **Refs**: #1018 closed the derivation half. Still open: the audit of teams.birth_year rows the old dashboard write stamped
+- **Update (2026-09-07)**: Retitled. The original entry was the calendar-year scrape-eligibility bug, marked URGENT, and **that half is done** — #1018 moved `scrape_games.py` and `drain_queue._excluded_birth_years` onto `team_utils.scrape_excluded_birth_years` (season-derived), and migration 20260824120000 moved the six RPCs to match. Verified live 2026-09-07. Only the `teams.birth_year` audit, always a follow-up rather than the headline, is still open, so the title and `Where` now name it. Left open rather than closed because that audit has not been done.
 
 ### Single-source modular11's age-to-birth-year derivation
 
@@ -1546,9 +1485,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: direct
 - **Category**: refactor
-- **Where**: `scripts/enqueue_active_teams.py`, `enqueue_yesterday_games.py`, `enqueue_discovery_teams.py`, `enqueue_safety_net.py`, `enqueue_viewed_teams.py`, `enqueue_helpers.py`
-- **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all five, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
+- **Where**: `scripts/enqueue_active_teams.py`, `enqueue_yesterday_games.py`, `enqueue_discovery_teams.py`, `enqueue_safety_net.py`, `enqueue_viewed_teams.py`, `audit_polluted_gotsport_aliases.py`, `maintain_gotsport_direct_id_aliases.py`, `enqueue_helpers.py`
+- **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all seven, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
 - **Noted**: 2026-09-03
+- **Update (2026-09-07)**: Now seven copies, not five — `audit_polluted_gotsport_aliases.py` and `maintain_gotsport_direct_id_aliases.py` carry it too, so the count in the original text was corrected. The two new ones are not enqueue jobs, which is why a grep over `enqueue_*.py` missed them.
 
 ### scrape_requests accepts unauthenticated inserts
 
@@ -1599,6 +1539,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
 - **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
 - **Noted**: 2026-09-04
+- **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
 
 ### Set the response encoding in the other GotSport HTML fetch
 
@@ -1668,8 +1609,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: ux
 - **Where**: `tournament_intake.py` `_run_event_roster_scrape`, `_autosave_seeding_run`
 - **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
-- **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
 - **Noted**: 2026-09-05
+- **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
 
 ### Neutralize formula-leading fields in the seeding review CSV
 
@@ -1790,16 +1731,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
 - **Noted**: 2026-09-04
 
-### Two operator-facing prints interpolate a team name into Rich markup unescaped
-
-- **ID**: IMP-193
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
-- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
-- **Noted**: 2026-09-01
-
 ### Skip operator-decided teams in the contradiction audit's paid probe list
 
 - **ID**: IMP-192
@@ -1808,8 +1739,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: performance
 - **Where**: `scripts/assign_team_states.py` — `contradiction_candidates`, the `state_source != TIER_A_SOURCE` clause
 - **Why**: The selection excludes teams the provider already answered but not teams a person decided — 31 set by hand (`state_source = 'operator'`) and 98 approved from the review queue. Since the authority test added in `state-corrections-converge` can only ever queue a correction over an operator decision, each of those buys a GotSport call whose answer is unappliable. **Deferred deliberately on 2026-09-02**: the stored-`DC` clause keeps such teams in the population on the grounds that a review row carrying the provider's answer is worth the call, and the same argument applies here. Revisit only if paid probe volume becomes a concern. Whichever way it goes, the selection tests should assert the choice — they currently enumerate exclusions one literal at a time rather than deriving them from what `decide` can act on, so neither the present behaviour nor its opposite is pinned. Raised by the coverage reviewer.
-- **Trigger**: paid GotSport probe volume becomes a cost concern, or the audit's candidate count stops falling
 - **Noted**: 2026-09-02
+- **Trigger**: paid GotSport probe volume becomes a cost concern, or the audit's candidate count stops falling
 
 ### A reverted approval still grants operator authority if the value later returns
 
