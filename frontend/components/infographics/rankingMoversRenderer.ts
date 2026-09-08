@@ -237,24 +237,42 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 /**
+ * Which board the graphic is about. Required rather than defaulted: a state
+ * graphic silently ranked by national movement is the defect this parameter
+ * exists to prevent, so every call site must say which it wants and the compiler
+ * names any that does not.
+ */
+export type MoverScope = 'national' | 'state';
+
+/**
  * Split rankings into the five biggest climbers and five biggest fallers.
  *
- * Reads the stored `rank_change_7d` the ranking run computes. It deliberately does
- * not reuse `selectTopMovers` from `@/lib/movers`: that applies the homepage's
- * stricter top-500 band and played-in-window filters, and whether every movers
- * surface should adopt them is an open product question (IMP-115). Answering it
- * here would decide it for the social graphics alone.
+ * Reads the deltas the ranking run stores for the requested board. National and
+ * state movement genuinely differ -- on CA / U12 / Male, 242 of 500 teams carry a
+ * different state delta and 248 a different rank (2026-09-07) -- so a state-scoped
+ * graphic ranked by national movement names the wrong teams.
+ *
+ * It deliberately does not reuse `selectTopMovers` from `@/lib/movers`: that
+ * applies the homepage's stricter top-500 band and played-in-window filters, and
+ * whether every movers surface should adopt them is an open product question
+ * (IMP-115). Answering it here would decide it for the social graphics alone.
  */
-export function generateMoverData(rankings: RankingRow[]): {
+export function generateMoverData(
+  rankings: RankingRow[],
+  scope: MoverScope
+): {
   climbers: MoverRow[];
   fallers: MoverRow[];
 } {
+  const changeField = scope === 'state' ? 'rank_change_state_7d' : 'rank_change_7d';
+  const rankField = scope === 'state' ? 'rank_in_state_final' : 'rank_in_cohort_final';
+
   const withChanges = rankings
-    .filter((team) => team.rank_change_7d !== null && team.rank_change_7d !== undefined)
+    .filter((team) => team[changeField] !== null && team[changeField] !== undefined)
     .map((team) => ({
       ...team,
-      rank: team.rank_in_cohort_final,
-      change: team.rank_change_7d as number,
+      rank: team[rankField],
+      change: team[changeField] as number,
     }));
 
   const climbers = withChanges
