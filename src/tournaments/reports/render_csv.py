@@ -23,6 +23,7 @@ from src.tournaments.storage._io import write_csv
 
 __all__ = [
     "METRICS_FIELDNAMES",
+    "csv_safe",
     "REPORT_CARD_CSV_NAMES",
     "RISK_FLAG_FIELDNAMES",
     "TEAM_MOVEMENT_FIELDNAMES",
@@ -58,7 +59,7 @@ reach the Report Card CSVs verbatim, so we prepend ``'`` (single quote)
 """
 
 
-def _csv_safe(value: object) -> object:
+def csv_safe(value: object) -> object:
     """Return ``value`` with spreadsheet formula prefixes defanged.
 
     Numeric and ``None`` values pass through unchanged — they cannot host
@@ -108,7 +109,7 @@ def render_metrics_csv(report_card: ReportCard, dir_path: Path) -> Path:
     """Write ``comparison_metrics.csv`` to ``dir_path``."""
     rows = [
         {
-            "metric": _csv_safe(metric.label),
+            "metric": csv_safe(metric.label),
             "actual": _none_to_blank(metric.actual),
             "optimized": _none_to_blank(metric.optimized),
             "delta": _none_to_blank(metric.delta),
@@ -131,9 +132,9 @@ def render_risk_flags_csv(report_card: ReportCard, dir_path: Path) -> Path:
     rows = [
         {
             "severity": flag.severity,
-            "category": _csv_safe(flag.category),
-            "message": _csv_safe(flag.message),
-            "affected_teams": _csv_safe(";".join(flag.affected_teams)),
+            "category": csv_safe(flag.category),
+            "message": csv_safe(flag.message),
+            "affected_teams": csv_safe(";".join(flag.affected_teams)),
         }
         for flag in report_card.risk_flags
     ]
@@ -146,10 +147,10 @@ def render_team_movements_csv(report_card: ReportCard, dir_path: Path) -> Path:
     """Write ``comparison_team_movements.csv`` to ``dir_path``."""
     rows = [
         {
-            "canonical_team_id": _csv_safe(movement.canonical_team_id),
-            "team_name": _csv_safe(movement.team_name),
-            "from_division": _csv_safe(movement.from_division),
-            "to_division": _csv_safe(movement.to_division),
+            "canonical_team_id": csv_safe(movement.canonical_team_id),
+            "team_name": csv_safe(movement.team_name),
+            "from_division": csv_safe(movement.from_division),
+            "to_division": csv_safe(movement.to_division),
             "move": movement.move,
         }
         for movement in report_card.team_movements

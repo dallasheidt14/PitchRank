@@ -327,6 +327,18 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
 
 
+### Neutralize formula-leading fields in the seeding review CSV
+
+- **ID**: IMP-180
+- **Status**: done
+- **Type**: direct
+- **Category**: security
+- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
+- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
+- **Noted**: 2026-09-05
+- **Refs**: `fix/seeding-csv-formula-injection` — the review CSV is mapped through `csv_safe` at the export boundary. That helper already existed in `src/tournaments/reports/render_csv.py` with the OWASP prefix set including tab/CR/LF; it was promoted from `_csv_safe` to public rather than a second copy being written. Ten tests drive `_render_seeding_tab` and assert on the downloaded bytes; dropping the map fails seven.
+
+
 ### data-hygiene Step 1b goes red when its grep finds nothing
 
 - **ID**: IMP-133
