@@ -81,7 +81,13 @@ def _name(match: re.Match) -> str:
     return match.group(2) or match.group(3)
 
 
-MULTI_WORD_TYPES = ("double precision", "character varying", "timestamp with time zone", "timestamp without time zone", "time with time zone")
+MULTI_WORD_TYPES = (
+    "timestamp without time zone",
+    "timestamp with time zone",
+    "time with time zone",
+    "character varying",
+    "double precision",
+)
 ARG_MODES = ("in", "out", "inout", "variadic")
 
 
