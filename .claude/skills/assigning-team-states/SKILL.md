@@ -72,12 +72,14 @@ with itself. And the other weekly writers can move a team between the two comman
 decision recorded as a fill into an unrecorded correction. Each write carries the snapshotted
 state as a predicate, so a team that moved is skipped and reported rather than overwritten.
 
-The GotSport probe costs one paid request per candidate — about 2,600 on a full run as of
-2026-09-02 (1,636 disputed teams and 982 stateless ones that carry a GotSport id; a hand
-count, which `check_state_skill_assumptions.py` does not guard because measuring it means
-running every tier over every team), routed through ZenRows because a direct burst gets
-blocked. `--no-tier-a` skips it deliberately and
-says so in the report. Do not confuse that with the tier being quiet: on a sweep a blocked
+The GotSport probe costs one paid request per candidate — **4,600 or more on a full run**,
+and rising. The stateless half of that is cheap to count and was 2,987 teams carrying a
+GotSport id on 2026-09-08, up from 982 on 2026-09-02 as imports landed. The disputed half
+was 1,636 on 2026-09-02 and is a hand count `check_state_skill_assumptions.py` does not
+guard, because measuring it means running every tier over every team. Traffic is routed
+through ZenRows because a direct burst gets blocked. `--no-tier-a` skips the probe
+deliberately and says so in the report, which is also how to price a run before paying for
+it. Do not confuse that with the tier being quiet: on a sweep a blocked
 probe aborts the run rather than deciding without evidence it was supposed to have.
 
 Every one of those calls lands in `team_state_probe_log`, whatever it returned — which is why
@@ -107,7 +109,7 @@ itself.
 directions: it falls as the audit runs — an agreeing answer is written as a confirm, so the
 team leaves the population — and it regrows whenever a Tier A write lands somewhere new,
 because every anchor exposes its dissenters, which is the point of Step 2b. Measured at the
-end of 2026-09-02, after the pilot: **1,558 teams qualify, 1,386 with a GotSport id**, all of
+end of 2026-09-08: **437 teams qualify, 331 with a GotSport id**, all of
 them already answered on an earlier run. A club that comes to hold two confirmed states is
 dropped from the anchor index as two clubs sharing a name, so its remaining dissent is never
 audited. `check_state_skill_assumptions.py` warns when this drifts.
@@ -156,8 +158,8 @@ python scripts/assign_team_states.py --anchor-clubs --probe-limit 2500 --out anc
 
 The audit only works inside a club that already holds a provider-confirmed team. The
 current population is stated here and guarded by `check_state_skill_assumptions.py`: at the
-end of 2026-09-02, **947 clubs with two or more askable teams have no confirmed member,
-holding 6,973 teams, 3,181 of them with a GotSport id**. That is the population the checker
+end of 2026-09-08, **893 clubs with two or more askable teams have no confirmed member,
+holding 5,851 teams, 2,138 of them with a GotSport id**. That is the population the checker
 measures; the tool prints fewer, the clubs it can pick a team from once the alias lookup and
 the retry cap have had their say. The base rate says about 2.9% of their teams are wrong.
 This mode asks **one team per unanchored club**,
@@ -209,7 +211,7 @@ python scripts/assign_team_states.py --probe-unclubbed --probe-limit 2000 --out 
 ```
 
 is the tail no anchor reaches — a team with no club name, or the only askable team of its
-club: **16,455 teams at the end of 2026-09-02, 15,628 with a GotSport id** — the tool
+club: **5,898 teams at the end of 2026-09-08, 5,073 with a GotSport id** — the tool
 prints the aliased count — asked directly, lowest id first, with the same confirm rule and
 the same exclusions (a stored province, an operator's answer, a team the record already
 vouches for). Teams with no GotSport id are reported under "passed over (teams)" as "no

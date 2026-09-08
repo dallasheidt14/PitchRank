@@ -38,7 +38,7 @@ as a postal code, which is what would send a Brazilian team to a US state board.
 Measured against the club count on 1,572 teams where both answered, they agree 97.1%, and
 where they differ the registration record is usually visibly right from the team's own name.
 
-**Five things get a team probed**, because one HTTP call per team means asking all 204,798 is
+**Five things get a team probed**, because one HTTP call per team means asking all 207,991 is
 not on the table:
 
 - the sweep, which probes what a tier disputes and what has no state at all;
@@ -116,7 +116,7 @@ states is a fixture rather than a home, and an affiliate marker that contradicts
 
 Confidence 0.85. Learned rather than curated: for every word appearing in team and club names,
 where do the teams carrying that word actually sit. A word earns a state at ten teams and 90%
-agreement.
+agreement, and only if three quarters of the *clubs* carrying it agree as well.
 
 It exists because Tier B has a blind spot it cannot see. "Boise" appears in 173 team names and
 95% of them are Idaho, but the six teams of *Boise Timbers | Thorns* said Wyoming — five of
@@ -126,6 +126,23 @@ Nothing local disputed it. GotSport says Idaho.
 The thresholds are what keep it honest: "Springfield" spans four states and "Portland" three,
 and neither reaches 90%. Brand words are excluded outright — "Surf" and "Rush" are national
 franchises with a dominant state, which is exactly the shape that reads as a place.
+
+**The club test is what separates a place from a mascot**, and the team share cannot do it
+alone. A place is used by the clubs near it, so its support is spread across many of them; a
+mascot belongs to one club, and a club with enough teams carries the team share by itself.
+"Pioneers" reached 94% Massachusetts across 70 teams because 66 were Western United Pioneers
+FC, while the three other clubs using the word — one Michigan, two New Jersey — all
+disagreed, and Dunellen FC of New Jersey was filled as Massachusetts on 2026-09-08 because of
+it. Each club votes once, for the state most of its teams carrying the token sit in, and an
+unclubbed team votes for itself. Measured that day against the 26,081 teams whose state came
+from the provider record, requiring three quarters of clubs cut this tier's contradictions of
+that record from 394 to 177 while reaching 9% fewer teams.
+
+It does not address a place word that names a *fixture* rather than a home. "Club ABC Fútbol
+Base - 2013 Philadelphia 2026" is a Spanish academy at a Philadelphia tournament, and every
+team of that club sits in the state of an event it travelled to. `locality_state` refuses a
+name pointing at two states, which is what catches "Dallas Texans at the Vegas Cup"; a single
+unopposed event city still reads as a home.
 
 **It is learned from the column being audited**, so it is circular in the strict sense. That
 is why its first job is to raise doubt rather than to assert: any two of the club, the name

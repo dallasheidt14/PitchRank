@@ -133,6 +133,51 @@ def test_a_token_earns_a_state_only_with_enough_teams_and_agreement():
     assert "springfield" not in index
 
 
+def test_one_club_cannot_mint_a_place_word_out_of_its_own_name():
+    """"Pioneers" reached 94% Massachusetts across 70 teams because 66 of them were
+    Western United Pioneers FC, and Dunellen FC of New Jersey was filled as Massachusetts
+    on the strength of it. The team share cannot see that: a club with enough teams
+    carries the word alone, and here every other club using it disagreed."""
+    teams = [
+        team(team_name=f"Western United Pioneers {n}", club_name="Western United Pioneers FC", state_code="MA")
+        for n in range(27)
+    ]
+    teams.append(team(team_name="Michigan Pioneers 2013", club_name="Michigan Youth SC", state_code="MI"))
+    teams.append(team(team_name="Dunellen FC Pioneers", club_name="Dunellen FC", state_code="NJ"))
+    teams.append(team(team_name="Millburn Pioneers", club_name="Millburn SC", state_code="NJ"))
+
+    # 27 of 30 clears the team share, so only the club test can refuse this word.
+    assert sum(t["state_code"] == "MA" for t in teams) / len(teams) == 0.9
+    assert "pioneers" not in build_locality_index(teams)
+
+
+def test_a_place_word_survives_the_club_that_disagrees():
+    """The club test refuses a mascot, not a dissenter: a real place is used by the clubs
+    near it, so its support is spread across several of them and one wrong club cannot
+    take the word away."""
+    teams = []
+    for club in ("Boise Timbers", "Boise Nationals", "Boise Rush FC", "West Boise SC"):
+        teams += [team(team_name=f"{club} U{n}", club_name=club, state_code="ID") for n in range(7)]
+    teams.append(team(team_name="Boise Timbers | Thorns", club_name="Boise Timbers Thorns", state_code="WY"))
+
+    assert build_locality_index(teams)["boise"] == "ID"
+
+
+def test_a_club_split_between_two_states_casts_no_vote():
+    """A club with no single modal state cannot vouch for one, and breaking the tie by
+    whichever row was read first would let team order decide the token. It still counts
+    among the clubs carrying the word, so ambiguity dilutes the share rather than
+    deciding it or vanishing from it."""
+    teams = [team(team_name=f"Riverton SC {n}", club_name="Riverton SC", state_code="UT") for n in range(10)]
+    teams += [team(team_name=f"Riverton United {n}", club_name="Riverton United", state_code="UT") for n in range(4)]
+    teams.append(team(team_name="Riverton Rovers A", club_name="Riverton Rovers", state_code="UT"))
+    teams.append(team(team_name="Riverton Rovers B", club_name="Riverton Rovers", state_code="CO"))
+
+    # 15 of 16 clears the team share, and two of the three clubs vouch for Utah.
+    assert sum(t["state_code"] == "UT" for t in teams) / len(teams) == 0.9375
+    assert "riverton" not in build_locality_index(teams)
+
+
 def test_an_affiliate_marker_outranks_a_learned_place_word():
     """Tier C has always refused "Utah Royals FC-AZ"; Tier E did not, and read 22 Arizona
     teams as Utah because the club name holds the word "utah". The marker sits on the club

@@ -51,33 +51,33 @@ DRIFT_TOLERANCE = 0.20
 RECORDED = {
     # Measured for the operator's eye and quoted nowhere: a drift here is news about the
     # database, not a stale sentence.
-    "teams_without_state": 2386,
+    "teams_without_state": 5147,
     "stateless_and_visible": 0,
-    "ledger_rows": 20274,
-    "queue_pending": 2016,
+    "ledger_rows": 32455,
+    "queue_pending": 2477,
     # references/evidence-tiers.md quotes the team count and the curated clubs; its "45
     # clubs are homed" is registry_entries less registry_curated, guarded by subtraction.
-    "live_teams": 204798,
+    "live_teams": 207991,
     "registry_entries": 69,
     "registry_curated": 24,
     # SKILL.md Step 2a is where these are maintained. They fall as the audit runs and regrow
     # after every Tier A write elsewhere -- a sweep or an anchor pass -- which is why they
     # need watching at all: prose that can only get more wrong reads exactly like prose that
     # is right.
-    "audit_candidates": 1558,
-    "audit_candidates_with_alias": 1386,
+    "audit_candidates": 437,
+    "audit_candidates_with_alias": 331,
     # SKILL.md Step 2b, as the current population the operator sizes --probe-limit
     # against. Measured by the selectors the tool runs -- anchorable_clubs and
     # unclubbed_candidates over the same teams list -- so a drift here is a drift in what
     # the next run will select, not in a proxy. The alias lookups cost one batched call per
     # hundred ids, which a preflight can afford.
-    "anchorable_clubs": 947,
-    "teams_in_anchorable_clubs": 6973,
-    "teams_in_anchorable_clubs_with_alias": 3181,
-    "unclubbed_population": 16455,
-    "unclubbed_with_alias": 15628,
+    "anchorable_clubs": 893,
+    "teams_in_anchorable_clubs": 5851,
+    "teams_in_anchorable_clubs_with_alias": 2138,
+    "unclubbed_population": 5898,
+    "unclubbed_with_alias": 5073,
 }
-RECORDED_ON = "2026-09-02"
+RECORDED_ON = "2026-09-08"
 
 # The four homes the operator confirmed by hand, blind to the analysis, on 2026-08-28.
 # The only external ground truth this problem has.
