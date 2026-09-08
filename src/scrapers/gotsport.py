@@ -1639,6 +1639,12 @@ class GotsportScraper(ProviderScraper):
         else:
             response = self.session.get(event_url, timeout=self.timeout)
 
+        # GotSport declares no charset, and requests then falls back to ISO-8859-1
+        # for text/*, so accented and non-Latin event metadata decodes to mojibake.
+        # Same fix as gotsport_event_roster._fetch_once. Set before `.text` is read.
+        if "charset" not in str(response.headers.get("content-type", "")).lower():
+            response.encoding = "utf-8"
+
         captcha = _extract_captcha_signals(response, fallback_target_url=event_url)
         if captcha is not None:
             artifact_path = self._write_captcha_artifact(event_id, captcha, event_url)

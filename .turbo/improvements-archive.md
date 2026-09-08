@@ -349,3 +349,39 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/hygiene-step1b-pipefail` — `|| true` inside the substitution, matching `refresh-team-scrape-activity.yml`. `tests/unit/test_workflow_pipefail_substitutions.py` now globs every workflow for the shape so it cannot return. Writing that guard corrected the entry's own reasoning: `|| echo "0"` IS a sound fallback under pipefail (`||` binds looser than `|`), so the 21 assignments using it were never broken; what strands a step is a piped substitution with no or-else at all.
+
+
+### Due diligence batches .in_() at 500 ids against the documented 100-id limit
+
+- **ID**: IMP-146
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/due_diligence_unknown_opponents.py:405`
+- **Why**: Root `CLAUDE.md` and the `supabase-pitchrank` skill both cap `.in_()` at 100 ids for URI length. This call passes 500, so it works only while the ids stay short enough; it fails as a request-too-long error rather than a partial result, which makes it a silent-until-sudden break.
+- **Noted**: 2026-08-30
+- **Refs**: `fix/due-diligence-in-batch-size` — the cohort fetch now batches at a module-level `IN_BATCH = 100`, mirroring `assign_team_states.py`'s constant and its comment rather than repeating the literal.
+
+
+### enqueue_active_teams' game_date docstring contradicts the RPC
+
+- **ID**: IMP-169
+- **Status**: done
+- **Type**: direct
+- **Category**: docs
+- **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
+- **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
+- **Noted**: 2026-09-03
+- **Refs**: `fix/due-diligence-in-batch-size` — docstring corrected. Checking it also corrected this entry: the "pending-row protection" it says the viewed-teams and user-interest jobs depend on is not the COALESCE at all. All ten callers of the RPC pass a non-null `p_game_date`, so none preserves the stored date; what the RPC actually protects on an existing pending row is priority, via `LEAST`.
+
+
+### Set the response encoding in the other GotSport HTML fetch
+
+- **ID**: IMP-173
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
+- **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
+- **Noted**: 2026-09-05
+- **Refs**: `fix/due-diligence-in-batch-size` — `_fetch_event_page` sets `response.encoding = "utf-8"` when the content-type carries no charset, the same line and reasoning as `gotsport_event_roster._fetch_once`.
