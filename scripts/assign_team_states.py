@@ -166,6 +166,13 @@ NOT_A_PLACE = frozenset(
 LOCALITY_MIN_TEAMS = 10
 LOCALITY_MIN_SHARE = 0.90
 
+# And three quarters of the clubs carrying it have to agree as well. The team share alone
+# lets one large club mint any word out of its own name: "pioneers" reached 94% on 70
+# teams because 66 of them were Western United Pioneers FC, while every other club
+# carrying the word -- one in Michigan, two in New Jersey -- disagreed, and Dunellen FC of
+# New Jersey was filled as Massachusetts on the strength of it.
+LOCALITY_MIN_CLUB_SHARE = 0.75
+
 # A stored province is legitimate data. No tier corrects it, and it is never counted as
 # malformed -- 1,412 teams are Canadian.
 CANADIAN_PROVINCES = frozenset(
@@ -612,14 +619,30 @@ def build_locality_index(teams: List[Dict]) -> Dict[str, str]:
     ``decide``. The thresholds are what keep it honest: a token needs ten teams and
     ninety percent agreement, which "springfield" (four states) and "portland" (three)
     never reach.
+
+    The clubs have to agree as well as the teams, because those are not the same test. A
+    place word is used by the clubs near that place, so its support is spread across many
+    of them; a mascot belongs to one club, whose own teams can carry the team share on
+    their own. Each club votes once, for the state most of its teams carrying the token
+    sit in.
     """
     counts: Dict[str, Counter] = defaultdict(Counter)
+    club_counts: Dict[Tuple[str, str], Counter] = defaultdict(Counter)
     for team in teams:
         state = (team.get("state_code") or "").strip()
         if not state:
             continue
+        # An unclubbed team is its own club. It is an independent use of the word, and
+        # ``club_key`` returns "" for a placeholder, which would otherwise pool thousands
+        # of unrelated teams behind a single vote.
+        club = club_key(team.get("club_name")) or team["team_id_master"]
         for token in set(name_tokens(team)):
             counts[token][state] += 1
+            club_counts[(token, club)][state] += 1
+
+    club_votes: Dict[str, Counter] = defaultdict(Counter)
+    for (token, _club), states in club_counts.items():
+        club_votes[token][states.most_common(1)[0][0]] += 1
 
     index: Dict[str, str] = {}
     for token, states in counts.items():
@@ -627,7 +650,10 @@ def build_locality_index(teams: List[Dict]) -> Dict[str, str]:
         if total < LOCALITY_MIN_TEAMS:
             continue
         state, hits = states.most_common(1)[0]
-        if hits / total >= LOCALITY_MIN_SHARE:
+        if hits / total < LOCALITY_MIN_SHARE:
+            continue
+        votes = club_votes[token]
+        if votes[state] / sum(votes.values()) >= LOCALITY_MIN_CLUB_SHARE:
             index[token] = state
     return index
 
