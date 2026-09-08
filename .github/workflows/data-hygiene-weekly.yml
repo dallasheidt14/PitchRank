@@ -183,9 +183,14 @@ jobs:
           # status, and the run: block's default `bash -e` would kill the step
           # before the default below could apply -- so a run whose backfill
           # succeeded reported failure whenever the summary line was absent.
-          # `${VAR:-0}` because the pipeline then yields an empty string rather
-          # than a number; `|| echo 0` cannot do that job, since tail exits 0 on
-          # empty input and the fallback never fires.
+          # `${VAR:-0}` because with `|| true` the substitution yields an empty
+          # string rather than a number.
+          #
+          # `|| echo 0` would close it equally well and is what
+          # update-missing-club-and-state.yml uses: `||` binds looser than `|`, so
+          # the or-else runs on the whole pipeline's status. The two differ only
+          # in what the variable then holds. `|| true` is used here because this
+          # line already had the `${VAR:-0}` default, making it the smaller edit.
           DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1 || true)
           echo "distinction_updated=${DISTINCTION_UPDATED:-0}" >> $GITHUB_OUTPUT
 
