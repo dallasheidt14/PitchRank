@@ -271,6 +271,66 @@ The sequence needs its own REVOKE — a table-level one does not reach it, and
 carries `anon=rwU` in production because its migration revoked only the table. `REVOKE ALL`
 is also what removes TRUNCATE, which RLS does not govern.
 
+Check whether the table even has a sequence before copying that line: a `uuid` primary key
+with `gen_random_uuid()` has none, and `REVOKE ALL ON SEQUENCE` on a non-existent sequence
+errors. `SELECT pg_get_serial_sequence('public.<table>','id');` returns NULL when there is
+nothing to revoke.
+
+### The grant and the policy are independent axes — the exposure is their intersection
+
+Neither alone tells you whether something is reachable, and checking one reads as having
+checked both. Resolve both before calling a gap a hole or dismissing one:
+
+- **`anon` holds DELETE and TRUNCATE on `user_profiles`** (live ACL `anon=rdDxtm`), which
+  looks alarming. It is inert: the table's only policy is `FOR SELECT`, RLS denies a command
+  with no permissive policy, and `anon` is not a login role — PostgREST is the only way to
+  reach it and it never issues TRUNCATE. Defense-in-depth, not a live hole.
+- **`scrape_requests` was the opposite**: `anon=arwdDxtm` *and* an `INSERT … WITH CHECK
+  (true)` policy, so anonymous callers really could write. Grant plus policy is what made it
+  reachable.
+
+TRUNCATE and REFERENCES are the asymmetry to remember: RLS governs SELECT/INSERT/UPDATE/
+DELETE only, so for those two the grant is the whole story.
+
+### Migration history cannot prove a grant EXISTS
+
+It can only prove that nothing revoked one. `pg_default_acl` grants `anon`/`authenticated`
+`arwdDxtm` on every new public relation here, so the privilege usually arrives from outside
+any migration file. A tree-wide grep therefore answers "was this ever revoked?" and never
+"can `anon` do this today?".
+
+Resolve the live ACL instead:
+
+```sql
+SELECT c.relname, COALESCE(array_to_string(c.relacl, E'\n'), '(owner-only defaults)')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relname = '<table>';
+```
+
+Read the flags as `a`=INSERT, `r`=SELECT, `w`=UPDATE, `d`=DELETE, `D`=TRUNCATE,
+`x`=REFERENCES, `t`=TRIGGER, `m`=MAINTAIN.
+
+**Do not use `information_schema.role_table_grants` for this.** Like
+`constraint_column_usage` above, it is privilege-filtered: it returns **zero rows** for
+`anon` and `authenticated` under the MCP server's role, which reads as "no grants exist" when
+the table in fact grants everything to both.
+
+### A Realtime subscription is gated by publication membership before RLS
+
+`postgres_changes` delivers nothing for a table that is not in the `supabase_realtime`
+publication, whatever its policies say — and membership is usually set in the dashboard, so
+it is invisible in `supabase/migrations/`. Confirm it before concluding that a policy change
+broke a live subscription, or that keeping SELECT open preserves one:
+
+```sql
+SELECT tablename FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+```
+
+As of 2026-09-08 that returns exactly one public table, `announcements`. A subscription on
+`scrape_requests` (`frontend/hooks/useScrapeRequestNotifications.ts`) has therefore never
+fired, and no migration adds the table. An RLS-gated UPDATE subscription may additionally
+need `REPLICA IDENTITY FULL` — `relreplident` is `d` by default.
+
 ### ❌ Delete From `teams`
 
 `teams` has **18 inbound foreign keys**, and a `DELETE` fails or destroys depending on
