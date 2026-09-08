@@ -314,6 +314,19 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
 
+### Fold U18 to u19 in the pasted-roster heading parser
+
+- **ID**: IMP-172
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
+- **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
+- **Noted**: 2026-09-04
+- **Refs**: `fix/roster-paste-u18-fold` — `_parse_heading` now calls `seeding_optimizer.normalize_age_group`, the fold the package already owned, rather than formatting the digits itself. Three regression tests; reverting the call fails two.
+- **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
+
+
 ### Due diligence batches .in_() at 500 ids against the documented 100-id limit
 
 - **ID**: IMP-146
@@ -325,6 +338,7 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-30
 - **Refs**: `fix/due-diligence-in-batch-size` — the cohort fetch now batches at a module-level `IN_BATCH = 100`, mirroring `assign_team_states.py`'s constant and its comment rather than repeating the literal.
 
+
 ### enqueue_active_teams' game_date docstring contradicts the RPC
 
 - **ID**: IMP-169
@@ -335,6 +349,7 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
 - **Noted**: 2026-09-03
 - **Refs**: `fix/due-diligence-in-batch-size` — docstring corrected. Checking it also corrected this entry: the "pending-row protection" it says the viewed-teams and user-interest jobs depend on is not the COALESCE at all. All ten callers of the RPC pass a non-null `p_game_date`, so none preserves the stored date; what the RPC actually protects on an existing pending row is priority, via `LEAST`.
+
 
 ### Set the response encoding in the other GotSport HTML fetch
 

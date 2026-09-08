@@ -22,6 +22,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from src.tournaments.seeding_optimizer import normalize_age_group
+
 __all__ = ["ParsedRoster", "RosterRow", "parse_roster"]
 
 _GENDER_WORDS = {
@@ -64,7 +66,7 @@ def _parse_heading(line: str) -> tuple[str, str] | None:
     age_match = _HEADING_AGE.search(line)
     if not gender_match or not age_match:
         return None
-    return f"u{int(age_match.group(1))}", _GENDER_WORDS[gender_match.group(1).lower()]
+    return normalize_age_group(age_match.group(1)), _GENDER_WORDS[gender_match.group(1).lower()]
 
 
 def _split_markers(team_name: str) -> tuple[str, bool, bool]:
