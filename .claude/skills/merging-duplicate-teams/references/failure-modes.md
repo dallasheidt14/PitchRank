@@ -151,13 +151,17 @@ carries its numeric suffix into the token because `EA2` is a separate league fro
 as a name rule — the names carry no information — but it means the whole placeholder class can
 only be reached through Doorway B.
 
-**Rows the fetch never returned.** `fetch_teams` in `find_fuzzy_duplicate_teams.py:197-225`
-pages 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable
-order across pages without one, so every cohort scan silently drops a share of its own input —
-16% when reproduced on `u19`. These rows are not skipped by a rule; they are never fetched, so
-they appear in no count, no verdict and no report, and the loss is invisible from the output.
-A one-line fix in the scan, but until it lands, treat every per-cohort figure this pipeline
-produces as a floor.
+**Rows the fetch never returned — closed.** `fetch_teams` paged 1,000 rows at a time with no
+`.order()` clause, and PostgREST does not guarantee a stable order across pages without one, so
+every cohort scan dropped a share of its own input — 16% when reproduced on `u19`. Those rows
+were never fetched, so they appeared in no count, no verdict and no report.
+`.order("team_id_master")` closed it (IMP-134), guarded by
+`tests/unit/test_find_fuzzy_duplicate_teams.py`, whose Supabase double refuses `range()` before
+`order()`.
+
+Figures this pipeline produced before that are floors. The scan now reaches rows it never saw,
+so a pre-fix estimate of what auto-merge would touch is a floor too — the pool is larger than
+the one the 2026-08-19 run drew 1,772 wrong merges from.
 
 ## Shapes no name rule can reach
 

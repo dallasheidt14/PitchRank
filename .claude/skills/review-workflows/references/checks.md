@@ -181,6 +181,20 @@ run: |
 - A `|| true` inside a *nested* substitution, which exempts the outer one.
 - An unterminated `$(` or quote, which yields no body and is skipped rather than guessed.
 
+**A second check for this runs in CI.** `tests/unit/test_workflow_pipefail_substitutions.py`
+enforces it on every PR, so the two move together — `PIPEFAIL_ENABLE` in
+`scripts/audit_workflows.py` here, `_PIPEFAIL` there. Extend one of those two rather than adding
+a third.
+
+Their reach overlaps without either containing the other, by design. The test flags a piped
+substitution with no rescue, where this check additionally requires the block to reference
+`${VAR:-...}` — so the test fires on sites this check passes over. Each also misses what the
+other catches: the test requires an upper-case name and nothing after the closing paren, so
+`count=$(...)` and a trailing comment escape it; this check anchors the whole `set` line, so
+`set -o pipefail  # comment` escapes it. Sites read and found safe live in the test's `ACCEPTED`
+map with the reason the pipeline's first command cannot fail, and a companion test fails when an
+accepted entry stops being flagged.
+
 ## Tuning false positives
 
 When a finding is a confirmed false positive, the right fix depends on the check:

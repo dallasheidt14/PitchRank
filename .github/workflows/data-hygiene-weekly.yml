@@ -77,8 +77,16 @@ env:
   #   prefix alone, and "EPIC SC 2008 Dash" vs "EPIC SC 2009 Dash" scores 0.941,
   #   +0.15 for the matching club, so distinct birth years merge — and U19 holds
   #   both 2008 and 2009, which is why that one cohort produced 780 suggestions.
-  # The 2026-08-19 run merged 1,772 pairs this way. Re-enable only once scoring
-  # rejects placeholder names and treats a differing birth year as disqualifying.
+  # The 2026-08-19 run merged 1,772 pairs this way. score_team_pair now refuses
+  # both shapes -- is_placeholder_name and birth_years_conflict -- so treat the
+  # two failure modes above as history rather than as the remaining bar. They are
+  # not the condition for re-enabling, and reading them as one is how a stale
+  # comment nearly re-enabled this flag.
+  # The bar is in .claude/skills/merging-duplicate-teams, "Re-enabling the weekly
+  # job": port the rules into the scan, run report-only for several weeks against
+  # human judgement, then auto-merge only a side with no games at all. Note also
+  # that birth_years_conflict is blind to a U-label or a two-digit-plus-gender
+  # name, so the guard is narrower than it reads (IMP-136).
   FUZZY_AUTO_MERGE_ENABLED: 'false'
   # Disables Step 4. find_queue_matches narrows candidates by the age_group
   # stamped on a queue row when it was imported, then passes
