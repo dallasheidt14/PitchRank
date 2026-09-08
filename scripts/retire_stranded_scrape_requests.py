@@ -166,11 +166,12 @@ def main() -> None:
         console.print("[red]ERROR: Missing SUPABASE_URL or SUPABASE_KEY[/red]")
         sys.exit(1)
 
-    # RLS grants UPDATE on scrape_requests to service_role alone
-    # (20251113150557_add_scrape_requests.sql). Under any other key every batch
-    # matches nothing and PostgREST still answers 200, so the run would report a
-    # data problem instead of the permissions problem it actually hit. SELECT is
-    # open to all, so a report-only run needs no service-role key.
+    # scrape_requests is service-role only, reads included
+    # (20260908120000_lock_down_scrape_requests_writes.sql revoked the browser
+    # roles' default grant). Without the service-role key the report's own SELECT
+    # raises PostgREST 42501 and this script aborts, so both modes need it now —
+    # the check below still names --execute because that is the destructive half,
+    # but a dry run without the key fails at fetch_stranded rather than here.
     if not dry_run and not SERVICE_ROLE_KEY:
         console.print(
             "[red]ERROR: --execute needs SUPABASE_SERVICE_ROLE_KEY; "

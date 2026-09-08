@@ -1,6 +1,7 @@
 """Tests for the stuck-signup monitor (paying customers who never logged in)."""
 
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -9,7 +10,6 @@ from unittest.mock import Mock
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from scripts.check_stuck_signups import (
-    LINK_FAILED,
     PER_PAGE,
     STUCK_MIN_AGE,
     STUCK_STATUSES,
@@ -19,6 +19,12 @@ from scripts.check_stuck_signups import (
     fetch_billing_by_id,
     find_stuck_users,
 )
+
+# A real Supabase recovery token_hash and the URL it would be embedded in. The digest
+# must contain neither. Asserting against a link-free fixture would pass against the
+# unchanged renderer, which is the shape this pair of tests exists to rule out.
+LIVE_TOKEN = "hashed-xyz"
+LIVE_LINK = f"https://pitchrank.io/auth/confirm?token_hash={LIVE_TOKEN}&type=recovery&next=/reset-password"
 
 NOW = datetime.now(timezone.utc)
 
@@ -48,7 +54,7 @@ def make_supabase(auth_users, billing_rows):
     supabase = Mock()
     supabase.auth.admin.list_users.return_value = auth_users
     supabase.auth.admin.generate_link.return_value = SimpleNamespace(
-        properties=SimpleNamespace(action_link="https://supabase.example/verify?token=raw", hashed_token="hashed-xyz")
+        properties=SimpleNamespace(action_link="https://supabase.example/verify?token=raw", hashed_token=LIVE_TOKEN)
     )
     table = supabase.table.return_value
     table.select.return_value.range.return_value.execute.return_value = SimpleNamespace(data=billing_rows)
@@ -83,10 +89,22 @@ def test_flags_paying_customer_who_never_logged_in():
     supabase = make_supabase([user], [billing_row("u1", "stuck@example.com")])
     stuck = find_stuck_users(supabase)
     assert [s["email"] for s in stuck] == ["stuck@example.com"]
-    # Forwardable token_hash URL through our callback, not Supabase's raw action_link
-    assert stuck[0]["action_link"] == (
-        "https://pitchrank.io/auth/confirm?token_hash=hashed-xyz&type=recovery&next=/reset-password"
-    )
+    assert "action_link" not in stuck[0]
+
+
+def test_no_recovery_token_is_minted_for_a_stuck_user():
+    """The whole point of the monitor's redesign: it reports, it does not mint.
+
+    Dropping the rendered column alone would leave generation in place, and every run
+    would still put a live 24h credential into Supabase's flow_state and invalidate the
+    set-password link the customer already received at checkout.
+    """
+    user = make_user("u1", "stuck@example.com")
+    supabase = make_supabase([user], [billing_row("u1", "stuck@example.com")])
+
+    find_stuck_users(supabase)
+
+    supabase.auth.admin.generate_link.assert_not_called()
 
 
 def test_skips_user_who_has_signed_in():
@@ -144,7 +162,6 @@ def stuck_entry(**overrides):
         "created_at": "2026-01-01",
         "period_end": "—",
         "source": "stripe_checkout",
-        "action_link": "https://pitchrank.io/auth/callback",
     }
     entry.update(overrides)
     return entry
@@ -159,15 +176,33 @@ def test_build_digest_html_escapes_attacker_influenceable_fields():
     assert "<img src=x onerror=alert(2)>" not in html_out
 
 
-def test_build_digest_html_renders_failed_link_as_warning_not_anchor():
-    html_out = build_digest_html([stuck_entry(action_link=LINK_FAILED)])
-    assert "link generation failed" in html_out
-    assert "<a " not in html_out  # no clickable anchor is rendered for a failed-link row
+def test_build_digest_html_carries_no_credential_even_when_handed_one():
+    """The digest goes to a shared mailbox and on into Resend's delivery history, so a
+    live token there outlives the incident that produced it.
+
+    The fixture carries a real token_hash on purpose. A link-free fixture would make
+    these assertions pass against the unchanged renderer, which is exactly the vacuous
+    shape this test replaces.
+    """
+    html_out = build_digest_html([stuck_entry(action_link=LIVE_LINK)])
+
+    assert LIVE_TOKEN not in html_out
+    assert "token_hash" not in html_out
+    assert "/auth/confirm" not in html_out
+
+    # Anchors as such are fine — the digest links /forgot-password. What must never appear
+    # is one whose href carries a credential or an auth-redemption path.
+    hrefs = re.findall(r"href=['\"]([^'\"]+)['\"]", html_out)
+    assert not [h for h in hrefs if "token" in h or "/auth/" in h], hrefs
 
 
-def test_build_digest_html_renders_anchor_for_a_good_link():
-    html_out = build_digest_html([stuck_entry(action_link="https://pitchrank.io/auth/callback")])
-    assert "<a href='https://pitchrank.io/auth/callback'>set-password link</a>" in html_out
+def test_build_digest_html_still_names_the_stuck_account():
+    """Removing the link must not remove the report: the digest's remaining job is to
+    say who is locked out."""
+    html_out = build_digest_html([stuck_entry(email="stuck@example.com", subscription_status="trialing")])
+
+    assert "stuck@example.com" in html_out
+    assert "trialing" in html_out
 
 
 def test_fetch_billing_by_id_paginates_until_short_page():
@@ -179,3 +214,66 @@ def test_fetch_billing_by_id_paginates_until_short_page():
     billing = fetch_billing_by_id(supabase)
     assert len(billing) == PER_PAGE + 1
     assert execute.call_count == 2
+
+
+def _run_main(monkeypatch, caplog, supabase, argv):
+    """Drive main() against a stubbed client, returning (exit_code, sent, log_text)."""
+    import logging
+
+    import scripts.check_stuck_signups as mod
+
+    sent: list = []
+    monkeypatch.setattr(mod, "create_client", lambda url, key: supabase)
+    monkeypatch.setattr(mod, "send_alert_email", lambda stuck: sent.append(stuck) or True)
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-key")
+    monkeypatch.setattr(sys, "argv", ["check_stuck_signups.py", *argv])
+
+    caplog.set_level(logging.INFO, logger=mod.logger.name)
+    code = 0
+    try:
+        mod.main()
+    except SystemExit as exit_:
+        code = exit_.code
+    return code, sent, "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_main_never_logs_a_customer_address(monkeypatch, caplog):
+    """This repo is public and Actions logs on a public repo are readable unauthenticated,
+    and the stuck list is by construction people awaiting a set-password email — a
+    pre-qualified target set for a forged one. The digest carries the addresses; stdout
+    must not."""
+    users = [make_user("u1", "stuck@example.com"), make_user("u2", "other@example.com")]
+    rows = [billing_row("u1", "stuck@example.com"), billing_row("u2", "other@example.com", status="trialing")]
+
+    _, _, log_text = _run_main(monkeypatch, caplog, make_supabase(users, rows), [])
+
+    assert "@" not in log_text, log_text
+    assert "stuck@example.com" not in log_text
+
+
+def test_main_reports_real_counts_per_status(monkeypatch, caplog):
+    """A hardcoded count would leave the run's only remaining operator signal wrong."""
+    users = [make_user(f"u{i}", f"{i}@x.com") for i in range(3)]
+    rows = [
+        billing_row("u0", "0@x.com", status="active"),
+        billing_row("u1", "1@x.com", status="active"),
+        billing_row("u2", "2@x.com", status="trialing"),
+    ]
+
+    _, _, log_text = _run_main(monkeypatch, caplog, make_supabase(users, rows), [])
+
+    assert "active: 2" in log_text
+    assert "trialing: 1" in log_text
+
+
+def test_dry_run_sends_nothing_and_signals_action_needed(monkeypatch, caplog):
+    """--dry-run must not reach send_alert_email, and must exit non-zero so the workflow
+    surfaces that someone is locked out."""
+    users = [make_user("u1", "stuck@example.com")]
+    rows = [billing_row("u1", "stuck@example.com")]
+
+    code, sent, _ = _run_main(monkeypatch, caplog, make_supabase(users, rows), ["--dry-run"])
+
+    assert sent == [], "dry run sent the digest"
+    assert code == 1

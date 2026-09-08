@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run (print digest, no email)'
+        description: 'Dry run (report counts, no email)'
         required: false
         default: 'false'
         type: choice
