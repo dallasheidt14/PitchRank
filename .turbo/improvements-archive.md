@@ -280,6 +280,7 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: `generateMoverData` fills `change` with `Math.floor(Math.random()*15)-7`, so downloaded social graphics name real teams with invented rank changes; the rows already carry real `rank_change_7d/30d` and `/api/infographic/movers` shows the correct pattern. Violates the no-fabricated-data rule.
 - **Noted**: 2026-08-24
 - **Refs**: `fix/infographics-fabricated-rank-changes` — `generateMoverData` now reads `rank_change_7d` and `rank_in_cohort_final`, with `frontend/components/infographics/rankingMoversRenderer.test.ts` as the first test under `components/infographics/`. Deliberately not routed through `selectTopMovers`, which would decide IMP-115 for this surface alone.
+
 ### `fetch_teams` pages without `.order()`, silently dropping ~16% of every cohort
 
 - **ID**: IMP-134
@@ -290,3 +291,25 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: The paginated fetch pulls 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable row order across pages without one, so each cohort scan silently drops and duplicates part of its own input. Reproduced on `u19`: an ordered pass returns 26,756 distinct rows, an unordered one 22,508 — 16% never fetched. Those teams are not skipped by a rule, they never arrive, so they appear in no count, no verdict and no report, and the loss is invisible from the output. Every per-cohort figure the duplicate pipeline produces is therefore a floor. Fix is `.order("team_id_master")`; sweep the other paginated fetches for the same gap while there. Found while building `scripts/check_merge_skill_assumptions.py`, whose own figures disagreed until the clause was added.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/fuzzy-duplicate-unordered-paging` — `.order("team_id_master")` on `fetch_teams`, plus `tests/unit/test_find_fuzzy_duplicate_teams.py`, whose Supabase double refuses `range()` before `order()`. The wider sweep of the other 85 unordered paginated reads across `src/` and `scripts/` belongs with IMP-055 (shared pagination helper) and is deliberately not done here.
+
+### Fix _backfill_game_stats_python NOT NULL failures for unpublished teams
+
+- **ID**: IMP-106
+- **Status**: dropped
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/calculate_rankings.py:564` (`_backfill_game_stats_python`)
+- **Why**: It upserts stats for every team seen in games; teams with no `rankings_full` row make the INSERT violate the `age_group` NOT NULL constraint, killing whole 500-row batches (incl. retry) so existing teams in those batches keep stale stats. Filter to team_ids present in `rankings_full` first. Seen in the 2026-08-17 run log ("Backfill batch 318 failed").
+- **Noted**: 2026-08-24
+- **Refs**: `fix/backfill-total-game-stats-paged` — dropped rather than fixed, because `_backfill_game_stats_python` was deleted there. The diagnosis in this entry was right and was the reason IMP-128's fallback had never written a row: 44,855 of 184,692 teams with games have no `rankings_full` row, and `age_group`/`gender` are NOT NULL, so nearly every 500-row upsert raised and was swallowed (measured 2026-09-07). Repairing it would have created a second definition of the four `total_*` columns that could not resolve merges — the ranking-change reviewer held the PR on exactly that, per the single-source-of-truth rule — so the path was removed instead.
+
+### backfill_total_game_stats is cancelled on every run and its fallback writes nothing
+
+- **ID**: IMP-128
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `supabase/migrations/20260325100000_batch_backfill_game_stats.sql:35`, `scripts/calculate_rankings.py:1006-1016` (`_backfill_game_stats_python`)
+- **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
+- **Noted**: 2026-08-27
+- **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -245,11 +243,6 @@ async def test_save_rankings_raises_when_rankings_full_publish_is_incomplete(mon
         )
 
     assert calls == [("rankings_full", 1, "rankings_full")]
-
-
-def test_python_backfill_uses_non_destructive_upsert_semantics():
-    source = Path("scripts/calculate_rankings.py").read_text(encoding="utf-8")
-    assert 'upsert(records, on_conflict="team_id", default_to_null=False)' in source
 
 
 @pytest.mark.asyncio

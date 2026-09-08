@@ -937,16 +937,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: ~55 of 150 min of the weekly run is these row-batch writes (profile: `.turbo/reports/ranking-run-profile-2026-08-17.md`). Larger RPC payloads or a staging-table merge would cut the run by a third.
 - **Noted**: 2026-08-24
 
-### Fix _backfill_game_stats_python NOT NULL failures for unpublished teams
-
-- **ID**: IMP-106
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/calculate_rankings.py:564` (`_backfill_game_stats_python`)
-- **Why**: It upserts stats for every team seen in games; teams with no `rankings_full` row make the INSERT violate the `age_group` NOT NULL constraint, killing whole 500-row batches (incl. retry) so existing teams in those batches keep stale stats. Filter to team_ids present in `rankings_full` first. Seen in the 2026-08-17 run log ("Backfill batch 318 failed").
-- **Noted**: 2026-08-24
-
 ### Silence the false "SUPABASE_KEY is not set" warning in ranking runs
 
 - **ID**: IMP-107
@@ -1126,16 +1116,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/drain_queue.py:70` and `scripts/scrape_games.py:51` (byte-identical `_is_placeholder_unknown_team`), `frontend/lib/utils.ts:201` (`UNRESOLVED_NAME`)
 - **Why**: One canonical shape, three definitions, and the frontend one already drifted. It shipped as `/^unknown_/i`, which classifies any name starting with `unknown_` as a placeholder; a real team with a club would then render its club label instead of its name, recreating the cohort collapse PR #1043 fixed. Caught in review and tightened to `/^unknown_\d+$/i`, but `tests/unit/test_scrape_games.py:98` had asserted `unknown_elite` is a real name the whole time and nothing stopped the frontend disagreeing. The two Python copies are identical and want one import. The frontend cannot do the backend's exact `team_name == f"unknown_{provider_team_id}"` comparison because the payload carries no `provider_team_id` — decide whether that column should reach the frontend or whether the regex stays the sanctioned approximation.
-- **Noted**: 2026-08-27
-
-### backfill_total_game_stats is cancelled on every run and its fallback writes nothing
-
-- **ID**: IMP-128
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `supabase/migrations/20260325100000_batch_backfill_game_stats.sql:35`, `scripts/calculate_rankings.py:1006-1016` (`_backfill_game_stats_python`)
-- **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
 - **Noted**: 2026-08-27
 
 ### Hoist the team_scrape_log bulk writer into src/etl/bulk_ops.py
@@ -1753,4 +1733,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `.github/workflows/refresh-team-scrape-activity.yml`, `.github/workflows/enqueue-discovery.yml`, `.github/workflows/enqueue-safety-net.yml`
 - **Why**: `refresh_team_scrape_activity` recomputes the four `teams` columns the scrape-eligibility functions read, and the Sunday crons are ordered around it deliberately -- refresh 12:19, discovery 14:41, safety net 16:56 -- so both selectors read fresh values. Nothing enforces that ordering as a dependency. When the refresh died at page 0 on 2026-08-30 and 2026-09-06 it wrote nothing, and both downstream jobs still ran and still succeeded, selecting on values up to a week stale. Verified from run times: the whole Sunday chain is delayed 2-4 hours by GitHub's scheduler but its *relative* order held both weeks, so the ordering assumption is sound and only the failure case is unhandled. Impact is a week of mis-targeted enqueues -- teams that became active look idle and are passed over, retired ones look live and are queued -- self-correcting the following Sunday, and bounded by the fixed `--limit` on every selector, so the volume never changes. #1097 closed the refresh's own failure mode by retrying a stalled page three times, which makes this rarer but not impossible. Options: have the refresh write a freshness marker the enqueue jobs assert on, or make them `workflow_run` consumers of it rather than independent crons. Worth deciding only if a scheduled refresh fails again now that the retry is in.
+- **Noted**: 2026-09-07
+
+### v53e sets four `total_*` columns that the rankings_full adapter then drops
+
+- **ID**: IMP-196
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/etl/v53e.py` (the `teams["total_games_played"] = teams["gp"]` block and its three siblings), against `v53e_to_rankings_full_format`'s `expected_columns` list in `src/rankings/data_adapter.py`
+- **Why**: v53e copies the CAPPED engine `gp`/`wins`/`losses`/`draws` onto `total_games_played`/`total_wins`/`total_losses`/`total_draws`, which reads as a writer of the four uncapped columns. It is not one: `v53e_to_rankings_full_format` builds its payload from an explicit `expected_columns` allowlist, and `total_` appears nowhere in `src/rankings/data_adapter.py`, so all four are dropped before the upsert. Verified 2026-09-07. So this is a dead assignment rather than a correctness risk -- but it is dead code that looks exactly like a third writer competing with `backfill_total_game_stats_page`, which is how it was first reported. Delete the four lines, or comment them with the reason they cannot reach the database.
 - **Noted**: 2026-09-07

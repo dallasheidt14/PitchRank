@@ -58,13 +58,13 @@ def _patch_environment(monkeypatch, argv):
         captured["save_calls"] += 1
         return len(teams_df)
 
-    async def fake_backfill(_supabase, _console):
+    def fake_backfill(_supabase, _console):
         captured["backfill_calls"] += 1
         return 0
 
     monkeypatch.setattr(calc, "compute_all_cohorts", fake_compute_all_cohorts)
     monkeypatch.setattr(calc, "save_rankings_to_supabase", fake_save_rankings)
-    monkeypatch.setattr(calc, "_backfill_game_stats_python", fake_backfill)
+    monkeypatch.setattr(calc, "_backfill_total_game_stats", fake_backfill)
     monkeypatch.setattr(calc, "create_client", lambda *_args, **_kwargs: object())
     monkeypatch.setattr(calc, "MergeResolver", _FakeMergeResolver)
     monkeypatch.setenv("SUPABASE_URL", "http://localhost")
@@ -100,5 +100,7 @@ async def test_live_run_keeps_every_writer_enabled(monkeypatch, argv):
     for flag in _PERSISTENCE_FLAGS:
         assert captured[flag] is True, flag
     assert captured["save_calls"] == 1
-    # The faked client has no .rpc, so the live path reaches the Python fallback.
+    # The total-game-stats walk is the single writer of the four total_* columns;
+    # its Python fallback was removed with IMP-128 rather than repaired, so this is
+    # the only path a live run can take to them.
     assert captured["backfill_calls"] == 1
