@@ -270,6 +270,28 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-01
 - **Refs**: #1082 — `rich.markup.escape` is applied at both `assign_by_hand` print sites (`scripts/assign_team_states.py:2065,2072,2097`).
 
+### Infographics Biggest Movers generator fabricates rank changes
+
+- **ID**: IMP-114
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/components/infographics/rankingMoversRenderer.ts:247`, call sites in `frontend/app/infographics/page.tsx`
+- **Why**: `generateMoverData` fills `change` with `Math.floor(Math.random()*15)-7`, so downloaded social graphics name real teams with invented rank changes; the rows already carry real `rank_change_7d/30d` and `/api/infographic/movers` shows the correct pattern. Violates the no-fabricated-data rule.
+- **Noted**: 2026-08-24
+- **Refs**: `fix/infographics-fabricated-rank-changes` — `generateMoverData` now reads `rank_change_7d` and `rank_in_cohort_final`, with `frontend/components/infographics/rankingMoversRenderer.test.ts` as the first test under `components/infographics/`. Deliberately not routed through `selectTopMovers`, which would decide IMP-115 for this surface alone.
+
+### `fetch_teams` pages without `.order()`, silently dropping ~16% of every cohort
+
+- **ID**: IMP-134
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/find_fuzzy_duplicate_teams.py:197-225`
+- **Why**: The paginated fetch pulls 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable row order across pages without one, so each cohort scan silently drops and duplicates part of its own input. Reproduced on `u19`: an ordered pass returns 26,756 distinct rows, an unordered one 22,508 — 16% never fetched. Those teams are not skipped by a rule, they never arrive, so they appear in no count, no verdict and no report, and the loss is invisible from the output. Every per-cohort figure the duplicate pipeline produces is therefore a floor. Fix is `.order("team_id_master")`; sweep the other paginated fetches for the same gap while there. Found while building `scripts/check_merge_skill_assumptions.py`, whose own figures disagreed until the clause was added.
+- **Noted**: 2026-08-27
+- **Refs**: `fix/fuzzy-duplicate-unordered-paging` — `.order("team_id_master")` on `fetch_teams`, plus `tests/unit/test_find_fuzzy_duplicate_teams.py`, whose Supabase double refuses `range()` before `order()`. The wider sweep of the other 85 unordered paginated reads across `src/` and `scripts/` belongs with IMP-055 (shared pagination helper) and is deliberately not done here.
+
 ### Fix _backfill_game_stats_python NOT NULL failures for unpublished teams
 
 - **ID**: IMP-106
