@@ -14,7 +14,11 @@ import {
 } from '@/components/infographics';
 import { renderInfographicToCanvas, canvasToBlob } from '@/components/infographics/canvasRenderer';
 import { renderTeamSpotlightToCanvas } from '@/components/infographics/teamSpotlightRenderer';
-import { renderRankingMoversToCanvas, generateMoverData } from '@/components/infographics/rankingMoversRenderer';
+import {
+  renderRankingMoversToCanvas,
+  generateMoverData,
+  type MoverScope,
+} from '@/components/infographics/rankingMoversRenderer';
 import { renderHeadToHeadToCanvas } from '@/components/infographics/headToHeadRenderer';
 import { renderStateChampionsToCanvas, generateStateChampions } from '@/components/infographics/stateChampionsRenderer';
 import { renderStoryTemplateToCanvas, STORY_TYPES } from '@/components/infographics/storyTemplateRenderer';
@@ -138,6 +142,9 @@ export default function InfographicsPage() {
     [selectedRegion]
   );
 
+  // Same national/state split as getPublishedRank, for the movers graphic's deltas.
+  const moverScope: MoverScope = selectedRegion ? 'state' : 'national';
+
   const publishedRankings = React.useMemo(() => {
     if (!rankings || rankings.length === 0) return [];
 
@@ -180,7 +187,7 @@ export default function InfographicsPage() {
         }
         break;
       case 'movers': {
-        const movers = generateMoverData(rankings);
+        const movers = generateMoverData(rankings, moverScope);
         teamIds = [...movers.climbers, ...movers.fallers].map((t) => t.team_id_master);
         break;
       }
@@ -198,6 +205,7 @@ export default function InfographicsPage() {
     return collectHandlesForCaption(handleMap, teamIds);
   }, [
     handleMap,
+    moverScope,
     rankings,
     top10Teams,
     selectedInfographicType,
@@ -291,7 +299,7 @@ export default function InfographicsPage() {
           break;
 
         case 'movers':
-          const moverData = generateMoverData(rankings!);
+          const moverData = generateMoverData(rankings!, moverScope);
           canvas = await renderRankingMoversToCanvas({
             climbers: moverData.climbers,
             fallers: moverData.fallers,
@@ -367,6 +375,7 @@ export default function InfographicsPage() {
       return null;
     }
   }, [
+    moverScope,
     rankings,
     selectedInfographicType,
     selectedPlatform,
@@ -925,8 +934,8 @@ export default function InfographicsPage() {
                     }}
                   >
                     <BiggestMoversPreview
-                      climbers={generateMoverData(rankings).climbers}
-                      fallers={generateMoverData(rankings).fallers}
+                      climbers={generateMoverData(rankings, moverScope).climbers}
+                      fallers={generateMoverData(rankings, moverScope).fallers}
                       platform={selectedPlatform}
                       scale={previewScale}
                       generatedDate={new Date().toISOString()}
