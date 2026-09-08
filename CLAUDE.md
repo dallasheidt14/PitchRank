@@ -90,6 +90,25 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   the one it replaced. Name the expected value as a literal. Five defects in one change
   took this shape, and none of them reddened a suite at 96% branch coverage; only
   mutation runs found them.
+- **Deriving the file list is not enough; the in-scope predicate must cover every form
+  in use.** A guard can glob correctly and still skip most of what it claims to cover,
+  because the condition deciding whether a file *counts* is too narrow — and a guard
+  that skips silently reports green, which is worse than not having it. A new guard
+  matched the literal `set -o pipefail` while three workflows write `set -euo pipefail`
+  or `set -uo pipefail`, so a third of its scope went unexamined. Enumerate the forms
+  from the tree (`grep` the construct, not one spelling of it) before writing the test,
+  and assert on a sample of each. Where the same construct already has a detector —
+  `review-workflows/scripts/audit_workflows.py` carries several — read that one first
+  rather than deriving a second.
+- **A scheduled job reporting success is not evidence the step did its work.** When a
+  step catches its own failure and falls back, the run's status describes the fallback,
+  not the outcome. `backfill_total_game_stats` was "fixed" twice in March 2026 and never
+  once completed: the RPC was cancelled every run, the Python fallback swallowed every
+  batch exception, and the summary printed `Backfill status: complete` for months while
+  the four `total_*` columns drifted further from the games table each week. Nothing was
+  red. After shipping a fix to a scheduled job, confirm from the data it should have
+  changed — re-derive the figure the step exists to produce and compare — rather than
+  from the run log.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -437,6 +456,13 @@ supabase.rpc('batch_update_ml_overperformance', {'updates': data}).execute()
 ## Development Commands
 
 ### Backend (Python)
+
+> **`requirements.txt` declares floors; CI installs `requirements.lock`.** So an API
+> newer than a package's declared floor passes every check and breaks only a fresh
+> `pip install -r requirements.txt`. `pandas>=2.0.0` with `pandas==2.3.3` locked is the
+> live case: `DataFrame.map` arrived in 2.1, and using it went green through the whole
+> gate. Check the floor in `requirements.txt`, not the version you happen to have, before
+> reaching for a recent API — or raise the floor deliberately in the same change.
 
 ```bash
 # Install dependencies (CI installs requirements.lock; ruff is in neither file)

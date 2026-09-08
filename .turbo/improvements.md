@@ -1663,3 +1663,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `csv_safe` in `src/tournaments/reports/render_csv.py` (imported by `tournament_intake.py`) and `csv_safe` in `scripts/reconcile_teams_with_gotsport.py`
 - **Why**: Both prefix a leading `=` `+` `-` `@` or whitespace with `'`, over the same frozen prefix set. The reconcile copy also escapes a value that ALREADY starts with `'`, without which the encoding is not injective -- `=x` and `'=x` both encode to `'=x`, so an undo restores the wrong one. The shared copy lacks that, so the module named as the common home is the weaker of the two. Verified 2026-09-08. Fold the reconcile behaviour into the shared function and import it there too. Noted after PR #1111 promoted the shared one to public and its description claimed "one definition" -- there were two, which is why the claim is corrected here rather than left in the PR body.
 - **Noted**: 2026-09-08
+
+### Two regexes detect pipefail-substitution, and the newer one is the weaker
+
+- **ID**: IMP-198
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_PIPEFAIL` in `tests/unit/test_workflow_pipefail_substitutions.py` and `PIPEFAIL_ENABLE` in `.claude/skills/review-workflows/scripts/audit_workflows.py`
+- **Why**: Both decide whether a workflow step has enabled `pipefail`, over the same files, for the same defect. The skill's has been correct from the start; the test's first draft matched only the literal `set -o pipefail` and silently skipped three workflows using `set -euo pipefail` / `set -uo pipefail` until a reviewer caught it. Verified 2026-09-08 by reading both. Nothing links them, so the next spelling has to be added twice. Importing across the boundary is not the repo's habit -- no test imports from `.claude/skills/` -- so the realistic fix is a cross-reference in each, naming the other as the sibling to update. Noted while closing IMP-133.
+- **Noted**: 2026-09-08

@@ -75,9 +75,11 @@ same club spelled two ways; either row named `unknown_<digits>`; either name car
 substring test that also caught EAST, EAGLES and ADAMS, withholding 2,418 unrelated rows; it
 matches whole tokens as of IMP-135, so those names now reach the scan.
 
-A fifth loss sits below all of these: `fetch_teams` pages without an `.order()` clause, so each
-cohort scan silently drops a share of its own input — 16% when reproduced on `u19`. Those rows
-reach no rule and appear in no report. Every per-cohort count this pipeline produces is a floor.
+Separately, `fetch_teams` paged without an `.order()` clause, dropping ~16% of each cohort scan;
+`.order("team_id_master")` closed it (IMP-134). Counts this pipeline produced before that are
+floors, including any estimate of what auto-merge would touch — the scan now reaches rows it
+never fetched. The bar for moving `FUZZY_AUTO_MERGE_ENABLED` is in **Re-enabling the weekly job**
+below.
 
 **The blockers stack, so do not read any one of them as the barrier.** A worked pair —
 `Black Conshy '12 G` against `Black Conshy '11/'12 (G) *`, one squad registered twice — is
