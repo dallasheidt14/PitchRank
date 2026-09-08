@@ -2,7 +2,15 @@
 
 Every one of the 97 then-live entries was checked against `origin/main` @ `e3c81a55b` by
 nine parallel read-only verifiers, one per domain. 11 closed, 3 became `deferred`, 15 had
-their premise corrected in place. What follows orders the 81 that remain open.
+their premise corrected in place.
+
+The batches below order the 79 open entries that existed when this was written. Three more
+have joined the backlog since, from work done the same day, and are **not** placed in any
+batch: the dead missing-game completion toast, the five-way duplication of SQL helpers across
+the migration guard tests, and the untested `main()` in the stuck-signup monitor. IMP-192 is
+`deferred`, not open, so ignore its appearance in batch 3 below until its trigger fires.
+Re-derive the live figure with `python scripts/sweep_improvements.py --dry-run` rather than
+trusting the count here — it moves whenever anything ships.
 
 The ordering is by **what is actually going wrong today**, not by category or by age.
 Within a batch, cheapest first.
@@ -37,8 +45,8 @@ This is the only batch with a reason to start today.
 |----|---------------|--------|
 | IMP-168 | `scrape_requests` accepts anonymous inserts. `20251113150557_add_scrape_requests.sql:28-29` is `FOR INSERT WITH CHECK (true)`, and `priority` has no CHECK constraint, so anyone holding the public anon key can inject `priority: 1` rows into the same lane a paying subscriber's click uses. Four later migrations touch the table and none of them alter this policy. | S |
 | IMP-153 | **Downgraded on live evidence — moved to batch 4.** See below. | S |
-| IMP-091 | `scripts/check_stuck_signups.py` (~155-180) calls `admin.generate_link(type="recovery")` and mails the live `token_hash` into a shared mailbox every 6 hours. Anyone with mailbox or Resend-history access holds a working password reset. Replace with `reset_password_for_email`, which mails the user instead. | S |
-| IMP-090 | `frontend/app/auth/callback/route.ts:62-65` spends a PKCE `?code=` on a plain GET, so a scanner or link prefetcher can burn it with no click. The same file already added a `HEAD` override and an interstitial for `token_hash` links — this is the same fix, applied to the branch that was missed. | M |
+| IMP-091 | **Shipped.** `scripts/check_stuck_signups.py` called `admin.generate_link(type="recovery")` and mailed the live `token_hash` into a shared mailbox every 6 hours. The remedy is **not** the `reset_password_for_email` this entry originally proposed: the digest drops the link and sends no replacement, because the customer already holds a set-password link from checkout and `/forgot-password` issues a fresh one. Mailing an unrequested reset every six hours would be a second unsolicited credential. | S |
+| IMP-090 | **Parked, and not a code fix.** The in-code interstitial for `?code=` cannot work: the browser client is constructed on every route and exchanges a query-string code on page load, and the middleware sends a bare code back to the callback. The threat model is also narrower than the entry implies — a scanner has no verifier and cannot redeem the code at all, so this is a reliability bug, not takeover. The effective remedy is repointing the Supabase dashboard email template at `token_hash`, which is a hosted setting. See the entry's 2026-09-08 update. | — |
 
 ### Live-database check, 2026-09-08 — read this before working batch 1
 
