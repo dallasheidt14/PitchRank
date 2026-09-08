@@ -204,3 +204,68 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
 - **Noted**: 2026-09-01
 - **Refs**: branch state-audit-2026-09-02 — `escape()` at the three `assign_by_hand` prints, which that branch rewrote
+
+### Make the Python birth-year filter dynamic so it stays in sync with SQL RPC
+
+- **ID**: IMP-014
+- **Status**: done
+- **Category**: reliability
+- **Where**: `scripts/scrape_games.py:352`
+- **Why**: Hardcoded `birth_year in [2005, 2006, 2017, 2018, 2019]` will drift on 2027-01-01 from the SQL RPC `get_teams_to_scrape_limited` (which computes the same set via `EXTRACT(YEAR FROM NOW())`). Correct today; wrong next year. Either derive from `datetime.now().year` (`[yr-21, yr-20, yr-9, yr-8, yr-7]`) or drop the Python post-filter entirely now that the RPC enforces it. Flagged by review-correctness during /polish-code on scrape-games-perf; the plan's own tech-debt section also called this out.
+- **Noted**: 2026-04-22
+- **Refs**: #1018 — `scrape_games.py:390` and `drain_queue._excluded_birth_years` both delegate to `team_utils.scrape_excluded_birth_years`, which derives from `_soccer_season_year`; migration 20260824120000 moved the SQL side to match.
+
+### Untrack committed Python bytecode (`__pycache__/*.pyc`)
+
+- **ID**: IMP-047
+- **Status**: done
+- **Type**: direct
+- **Category**: dx
+- **Where**: tracked `*.pyc` under `scrapers/`, `config/`, `src/` (and elsewhere)
+- **Why**: Committed bytecode shows as modified on every spider/test run, creates dirty-tree noise, and blocks clean `git worktree remove`. Add `__pycache__/` + `*.pyc` to `.gitignore` and `git rm -r --cached` the tracked files.
+- **Noted**: 2026-06-01
+- **Refs**: #1005 — `git ls-files "*.pyc"` returns 0.
+
+### Add a pytest job to CI
+
+- **ID**: IMP-061
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `.github/workflows/ci.yml`
+- **Why**: CI runs only ruff lint for Python, so test regressions merge silently — PR #884 broke `tests/unit/test_ranking_history_relocation.py` undetected. `tests/unit` is ~1,600 tests in ~5 min, viable CI scope.
+- **Noted**: 2026-06-12
+- **Refs**: #1016 — `ci.yml:43` runs `pytest tests/ --ignore=tests/test_enhanced_pipeline.py` as a required check.
+
+### GoogleAnalytics leaks Stripe session_id to GA4 on /upgrade/success
+
+- **ID**: IMP-064
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/components/GoogleAnalytics.tsx` (GoogleAnalyticsContent gtag config)
+- **Why**: GA4 still sends `session_id` in the auto-collected `dl=` param despite the component sanitizing `page_location` — a prod browser smoke test observed `google-analytics.com/g/collect?...dl=...session_id=...`. session_id is a replayable bearer secret for the anonymous `/api/stripe/sync` path; same class of leak just fixed for the Meta/Google Ads pixels (which skip the page via usePathname). GA's page_location strip doesn't cover dl=, so fully fixing it needs either gating GA on pathname (loses the GA pageview for that page) or a server-side URL scrub — warrants a plan. Pre-existing; out of scope of the pixel PR (payment flow left untouched).
+- **Noted**: 2026-06-20
+- **Refs**: #887 — closed by a different route than this entry proposed: `/upgrade/success` calls `router.replace` to strip `session_id` before the sync round-trip, so GA4 never sees it in `dl=`. The GA component was left alone.
+
+### Switch the webhook set-password email to a token_hash callback URL (not raw action_link)
+
+- **ID**: IMP-066
+- **Status**: done
+- **Type**: investigate-then-plan
+- **Category**: reliability
+- **Where**: `frontend/app/api/stripe/webhook/route.ts` (anonymous-checkout set-password email: `linkData.properties.action_link` → `sendPasswordSetupEmail`)
+- **Why**: The webhook emails Supabase's raw `action_link` to new guest-checkout users. A server-generated recovery link forwarded to a browser that never started the flow hits the PKCE `code` path in `auth/callback/route.ts` with no `code_verifier` cookie and falls through to `/login` instead of the recovery session — the same P1 the monitor was fixed for (PR #928), and it matches the manual rescue runbook ([[stripe_guest_checkout_lockout]]) which uses `?token_hash=<hashed_token>&type=recovery`. This is the PRIMARY set-password path and currently "works" for many users, so do NOT change blindly: validate end-to-end in staging (does the current action_link actually succeed, or do most users fall back to forgot-password?) before switching `properties.action_link` → a `${SITE_URL}/auth/callback?token_hash=${properties.hashed_token}&type=recovery&next=/reset-password` URL. Owner deferred for safety during PR #928.
+- **Noted**: 2026-06-30
+- **Refs**: #967 — the webhook builds `${SITE_URL}/auth/confirm?token_hash=${hashedToken}&type=recovery&next=/reset-password`; `route.test.ts:992` pins it.
+
+### Two operator-facing prints interpolate a team name into Rich markup unescaped
+
+- **ID**: IMP-193
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` — `assign_by_hand`, the two `console.print` calls rendering `team['team_name']`
+- **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
+- **Noted**: 2026-09-01
+- **Refs**: #1082 — `rich.markup.escape` is applied at both `assign_by_hand` print sites (`scripts/assign_team_states.py:2065,2072,2097`).
