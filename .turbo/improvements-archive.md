@@ -325,3 +325,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-04
 - **Refs**: `fix/roster-paste-u18-fold` — `_parse_heading` now calls `seeding_optimizer.normalize_age_group`, the fold the package already owned, rather than formatting the digits itself. Three regression tests; reverting the call fails two.
 - **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
+
+### ComparePanel's tests cannot fail on a team-name regression
+
+- **ID**: IMP-121
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/components/ComparePanel.test.tsx:199,231-236`, `frontend/components/EnhancedPredictionCard.tsx:87`
+- **Why**: The suite's only assertions are `toContain('Match Prediction')` and a mocked `explanation.summary` string that `EnhancedPredictionCard` renders verbatim, independent of the `teamAName`/`teamBName` props. All ten team-name call sites in `ComparePanel.tsx` are therefore unfalsifiable — reverting every one of them leaves both tests green. The fixtures compound it: `team_name: 'Alpha FC'` with `club_name: 'Alpha'` differ only by a suffix no assertion reads. Assert on the two comparison-table `<th>` cells with a fixture whose `club_name` is not a prefix of its `team_name`.
+- **Noted**: 2026-08-27
+- **Refs**: `test/comparepanel-team-names` — the two comparison-table `<th>` cells are now asserted, with fixtures whose `club_name` is not a prefix of `team_name` (`Alpha FC 2013 Red` under `Northside United`). Reverting a `teamDisplayName` call site to the club fails it. The mocked `explanation.summary` assertion beside it is kept but annotated: it is a canned string the card echoes verbatim, so it can witness nothing about naming, which is the reason this gap existed.
