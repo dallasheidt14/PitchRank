@@ -17,7 +17,13 @@ variable then holds, which is why the `|| true` sites pair with a `${VAR:-0}`
 default. What strands a step is a piped substitution with no or-else at all.
 
 The file list is derived by globbing, never enumerated, so a workflow added
-tomorrow is covered without anyone remembering to list it.
+tomorrow is covered without anyone remembering to list it. `pipefail` is matched
+in every spelling the repo uses — `set -o`, `set -euo`, `set -uo` — because
+matching only the first skipped three workflows entirely, which is the failure
+this guard exists to prevent.
+
+Sites read and found safe live in `ACCEPTED` with the reason their pipeline's
+first command cannot fail, and a second test deletes-or-fails a stale entry.
 """
 
 from __future__ import annotations
@@ -29,6 +35,11 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
 _SUBSTITUTION = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)=\$\((.+)\)\s*$", re.M)
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+
+# `set -o pipefail`, `set -euo pipefail` and `set -uo pipefail` are all in use
+# here. Matching only the first spelling made this guard skip three workflows
+# silently, which is the failure mode it exists to prevent.
+_PIPEFAIL = re.compile(r"^\s*set\s+[-\w\s]*\bpipefail\b", re.M)
 
 
 def _steps(text: str) -> list[str]:
@@ -62,28 +73,62 @@ def has_shell_pipe(body: str) -> bool:
     return "|" in bare
 
 
-def _unguarded() -> list[str]:
-    findings = []
+# Substitutions this rule flags that were read and found safe. Each needs a reason
+# that says why the pipeline's FIRST command cannot fail, which is the only thing
+# `|| true` would be protecting against. Adding an entry here is a claim about the
+# workflow, and `test_no_accepted_exception_has_gone_stale` makes a wrong one fail.
+ACCEPTED: dict[str, str] = {
+    "playmetrics-scrape-import.yml: BEFORE": (
+        "find exits 0 on an existing directory, and the 'Create data directories' step "
+        "runs mkdir -p data/raw/playmetrics earlier in the same job"
+    ),
+    "playmetrics-scrape-import.yml: AFTER": (
+        "same find, same directory, same job -- and it runs after the scraper, so the "
+        "directory certainly exists by then"
+    ),
+    "playmetrics-scrape-import.yml: CSV_FILE": (
+        "the ls glob is reached only past `if [ \"$AFTER\" -le \"$BEFORE\" ]; then continue`, "
+        "which has already proved a new CSV exists, so ls cannot exit 2 on no-match"
+    ),
+}
+
+
+def _unguarded() -> dict[str, str]:
+    findings: dict[str, str] = {}
     for path in sorted(WORKFLOWS.glob("*.yml")):
         text = path.read_text(encoding="utf-8")
         for step in _steps(text):
-            if "set -o pipefail" not in step:
+            if not _PIPEFAIL.search(step):
                 continue
             for match in _SUBSTITUTION.finditer(step):
                 variable, body = match.group(1), match.group(2)
                 if not has_shell_pipe(body) or has_fallback(body):
                     continue
-                findings.append(f"{path.name}: {variable}=$({body.strip()})")
+                findings[f"{path.name}: {variable}"] = body.strip()
     return findings
 
 
 def test_no_piped_substitution_under_pipefail_is_left_unguarded():
-    unguarded = _unguarded()
+    unguarded = {k: v for k, v in _unguarded().items() if k not in ACCEPTED}
 
-    assert unguarded == [], (
+    assert unguarded == {}, (
         "these assignments end their step when the pipeline finds nothing, "
-        "skipping the $GITHUB_OUTPUT write that follows:\n  " + "\n  ".join(unguarded)
+        "skipping the $GITHUB_OUTPUT write that follows:\n  "
+        + "\n  ".join(f"{k}=$({v})" for k, v in unguarded.items())
     )
+
+
+def test_no_accepted_exception_has_gone_stale():
+    """An entry that no longer matches must be deleted, not left asserting nothing.
+
+    Without this, adding `|| true` to one of the accepted sites would leave a
+    stale claim here that quietly widens the allowlist for whatever occupies that
+    name next.
+    """
+    found = set(_unguarded())
+    stale = sorted(set(ACCEPTED) - found)
+
+    assert stale == [], f"no longer flagged, so remove from ACCEPTED: {stale}"
 
 
 def test_the_scan_actually_sees_the_shape_it_is_guarding():
