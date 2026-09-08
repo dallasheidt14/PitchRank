@@ -1148,16 +1148,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
 - **Noted**: 2026-08-27
 
-### data-hygiene Step 1b goes red when its grep finds nothing
-
-- **ID**: IMP-133
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `.github/workflows/data-hygiene-weekly.yml:184`
-- **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
-- **Noted**: 2026-08-27
-
 ### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
 
 - **ID**: IMP-136
@@ -1239,16 +1229,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/backfill_unknown_team_names.py:27-29` vs `scripts/discover_teams_from_opponents.py:_build_team_metadata`
 - **Why**: The backfill states as a deliberate decision that `display_age_group` is the registered event cohort rather than the birth-year cohort, that the two disagree across the Aug 1 rollover, and that it therefore never writes `age_group`. Discovery now treats the same field as its highest-precedence cohort source, and due diligence compares it against stored rows. Live sampling on 2026-08-30 found them agreeing, but that is one point in the season — the claimed divergence is a rollover effect. One position is wrong; whichever loses, the other's comment should be corrected in the same change so the contradiction does not outlive it. Same hazard class as the TGS U-age labels in CLAUDE.md.
-- **Noted**: 2026-08-30
-
-### Due diligence batches .in_() at 500 ids against the documented 100-id limit
-
-- **ID**: IMP-146
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/due_diligence_unknown_opponents.py:405`
-- **Why**: Root `CLAUDE.md` and the `supabase-pitchrank` skill both cap `.in_()` at 100 ids for URI length. This call passes 500, so it works only while the ids stay short enough; it fails as a request-too-long error rather than a partial result, which makes it a silent-until-sudden break.
 - **Noted**: 2026-08-30
 
 ### Repair the 2,937 teams stored outside the boarded cohorts
@@ -1453,16 +1433,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Live policies are `Enable insert for all users` (`FOR INSERT TO public WITH CHECK (true)`) and `Enable read for authenticated users` (`FOR SELECT TO public USING (true)`), with `relacl` granting `anon=arwdDxtm`. `game_date` and `priority` are the only NOT NULL columns and `priority` defaults to 5, so the insert is trivial: anyone holding the public anon key can queue priority-1 paid scrapes. `enqueue_scrape_request` is correctly locked to `postgres`/`service_role`; the table underneath it is not. Fix shape is the one `20260903120000_add_team_page_views.sql` uses — deny-all for anon/authenticated, a service_role policy, `REVOKE ALL` — but needs care so the frontend routes and Python jobs keep writing. Found by the security reviewer tracing the viewed-teams change, 2026-09-03.
 - **Noted**: 2026-09-03
 
-### enqueue_active_teams' game_date docstring contradicts the RPC
-
-- **ID**: IMP-169
-- **Status**: open
-- **Type**: direct
-- **Category**: docs
-- **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
-- **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
-- **Noted**: 2026-09-03
-
 ### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
 
 - **ID**: IMP-170
@@ -1482,16 +1452,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/batch_drain_queue.py:_chunked`, `scripts/prepare_prospective_match_predictions.py:226`, `scripts/settle_prospective_match_predictions.py:69`, `scripts/import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `scripts/enqueue_user_interest_teams.py:80`, `scripts/find_regid_duplicate_merges.py:79`
 - **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
 - **Noted**: 2026-09-03
-
-### Set the response encoding in the other GotSport HTML fetch
-
-- **ID**: IMP-173
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
-- **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
-- **Noted**: 2026-09-05
 
 ### Give the event-roster CLI the same seeding intake as the app
 
@@ -1553,16 +1513,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
 - **Noted**: 2026-09-05
 - **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
-
-### Neutralize formula-leading fields in the seeding review CSV
-
-- **ID**: IMP-180
-- **Status**: open
-- **Type**: direct
-- **Category**: security
-- **Where**: `tournament_intake.py` `_render_seeding_tab`'s review `st.download_button`, `_seeding_result_frame`
-- **Why**: The downloadable review CSV carries provider-authored text in its `Team`, `Matched to` and `Candidates` columns with no formula-prefix guard, so a team registered as `=WEBSERVICE(...)` is live the moment an operator opens the file in Excel or Sheets — CSV quoting does not neutralize a formula. Pre-existing rather than introduced here: verified 2026-09-05 that `HEAD` already has the same `to_csv` call and already routes GotSport search results into `Candidates` via the pasted path. The fix belongs at the export boundary, prefixing a leading `=`, `+`, `-` or `@` so the original name is kept for matching and display.
-- **Noted**: 2026-09-05
 
 ### Give the GotSport event walk one home for its tuned concurrency
 

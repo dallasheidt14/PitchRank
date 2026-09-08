@@ -89,8 +89,17 @@ def enqueue_team(supabase, team_id_master, team_name, provider_id, provider_team
 
     scrape_requests.game_date is NOT NULL, so we pass today's date as a placeholder.
     The processor scrapes the team's full schedule (±90 days from this anchor), which
-    captures whatever new games the team has accrued. The RPC's UPDATE branch uses
-    COALESCE, so existing pending rows keep their original game_date when upserted.
+    captures whatever new games the team has accrued.
+
+    An existing pending row does NOT keep its original game_date. The RPC's UPDATE
+    branch is `game_date = COALESCE(p_game_date, game_date)`, and every caller in
+    the repo passes a non-null date, so the upsert always overwrites it. Only a
+    caller passing NULL would preserve the stored value, and none does.
+
+    Re-anchoring on today is what this job wants -- the ±90 day window should
+    follow the run, not the first time the team was queued. What the RPC does
+    protect on an existing pending row is priority, via LEAST, which promotes but
+    never demotes.
     """
     return supabase.rpc(
         "enqueue_scrape_request",

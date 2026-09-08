@@ -64,6 +64,7 @@ from src.tournaments.reports import (
     ReportCardError,
     render_html,
 )
+from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.reports.ui import (
     derive_export_filenames,
     ensure_report_card,
@@ -4345,11 +4346,14 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         for row in outstanding:
             _render_seeding_override(row, by_index[row.source_index], supabase_client)
 
+        # Defang at the export boundary only: Team, Matched to and Candidates carry
+        # provider-authored text, and CSV quoting does not stop a spreadsheet
+        # executing a cell that opens with = + - or @. The on-screen frame keeps the
+        # original strings, so nothing that matches or displays a name sees the guard.
+        review = frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
         st.download_button(
             f"Download these {len(outstanding)} as CSV",
-            data=frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
-            .to_csv(index=False)
-            .encode("utf-8"),
+            data=review.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
             file_name="seeding_intake_review.csv",
             mime="text/csv",
         )
