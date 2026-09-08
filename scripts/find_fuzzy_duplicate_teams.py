@@ -195,7 +195,13 @@ def _normalize_stored_age_group(age_group: str | None) -> str | None:
 
 
 def fetch_teams(supabase, age_group: str, gender: str, state: str | None = None):
-    """Fetch non-deprecated teams for cohort (paginated). age_group: u16/U16, gender: male/female/Male/Female."""
+    """Fetch non-deprecated teams for cohort (paginated). age_group: u16/U16, gender: male/female/Male/Female.
+
+    The .order() is load-bearing. PostgREST leaves row order unspecified without it, so
+    paging a cohort silently drops and duplicates part of its own input -- and the loss is
+    invisible downstream, because a team that never arrives appears in no count, no verdict
+    and no report, making every per-cohort figure a floor rather than a total.
+    """
     age = _normalize_cohort_age_group(age_group)
     g = gender.strip().capitalize()
     if g not in ("Male", "Female"):
@@ -211,6 +217,7 @@ def fetch_teams(supabase, age_group: str, gender: str, state: str | None = None)
             .eq("is_deprecated", False)
             .ilike("gender", g)
             .or_(_build_age_group_or_filter(age))
+            .order("team_id_master")
         )
         if state:
             q = q.eq("state_code", state.upper())
