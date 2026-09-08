@@ -215,19 +215,6 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-04-22
 - **Refs**: #1018 — `scrape_games.py:390` and `drain_queue._excluded_birth_years` both delegate to `team_utils.scrape_excluded_birth_years`, which derives from `_soccer_season_year`; migration 20260824120000 moved the SQL side to match.
 
-### Matcher autocreate writes ignore pipeline dry_run
-
-- **ID**: IMP-028
-- **Status**: done
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `src/models/game_matcher.py` (base `_create_alias`), `src/models/playmetrics_matcher.py`, `src/models/tgs_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/sincsports_matcher.py`, `src/models/modular11_matcher.py` (each subclass `_create_new_*_team`), `src/etl/enhanced_pipeline.py` (`_ensure_initialized`)
-- **Why**: `EnhancedETLPipeline.dry_run` only gates the games-table insert. Base `_create_alias` writes to `team_alias_map` and each subclass `_create_new_*_team` writes to `teams` unconditionally. Confirmed live 2026-05-01: `import_games_enhanced.py --dry-run` for `playmetrics_tournament` provider silently inserted 193 `teams` + 262 `team_alias_map` rows into production despite the flag — required manual SQL DELETE cleanup. Affects all 5 matcher subclasses. Fix: add `dry_run: bool = False` to `GameHistoryMatcher.__init__` (partially started — base accepts kwarg, but `_create_alias` and `_create_new_*_team` don't gate yet); gate all writes; return a deterministic stub UUID (`uuid.uuid5` over `(team_name, age, gender, provider_team_id)`) without inserting; thread `dry_run=self.dry_run` from `EnhancedETLPipeline._ensure_initialized()` to all 5 matcher constructors. Until landed, treat `import_games_enhanced.py --dry-run` as unsafe — use a standalone analytics dryrun that monkey-patches `_create_new_*_team` and `_create_alias` post-construction for safe simulation.
-- **Noted**: 2026-05-01
-- **Refs**: #977 (with #974 and #729) — base `_create_alias` gates its `team_alias_map` write on `self.dry_run`, `EnhancedETLPipeline` passes `dry_run=self.dry_run` to all six matchers, and each subclass gates its own autocreate. Now a documented convention in CLAUDE.md § Code Quality.
-- **Update (2026-05-07 audit)**: PR #729 (origin/main `136e292c0`) added dry_run gating for playmetrics path. Verify scope — base `_create_alias` and the other 4 subclasses (tgs, affinity_wa, sincsports, modular11) likely still write unconditionally.
-- **Update (2026-08-19)**: Hit again in production. A `--dry-run` TGS import of event 4125 created 118 `teams` and 117 `team_match_review_queue` rows while printing "Teams created: 0" and "no changes were made"; the queue rows were deleted, the teams were kept since the authorized real import would have created them. Root cause was two-part and the same shape everywhere: `_ensure_initialized` never passed `dry_run` to `TGSGameMatcher`, so the base class's *existing* gates on `_create_alias` and the review-queue insert saw `dry_run=False`, and `tgs_matcher._create_new_tgs_team` had no gate of its own. **Fixed for tgs in PR #974** (constructor threads the flag, insert is gated, 5 regression tests in `tests/unit/test_tgs_matcher_dry_run.py` incl. one asserting the pipeline wiring). **Still open: `sincsports` and `affinity_wa`** — both constructed without `dry_run` in `_ensure_initialized`, both with unconditional inserts (`sincsports_matcher.py:741`, `affinity_wa_matcher.py:396`). modular11 and playmetrics already receive the flag. The stub-UUID idea above was not adopted: the TGS fix returns the real generated UUID unwritten, which keeps downstream match reporting accurate.
-
 ### Untrack committed Python bytecode (`__pycache__/*.pyc`)
 
 - **ID**: IMP-047

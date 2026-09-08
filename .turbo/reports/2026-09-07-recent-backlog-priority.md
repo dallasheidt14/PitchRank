@@ -1,6 +1,6 @@
 # Backlog noted 2026-08-24 → 2026-09-07, ranked
 
-84 entries were noted in this window. Seven of the whole backlog closed in the
+84 entries were noted in this window. Six of the whole backlog closed in the
 2026-09-07 sweep (none of them from this window except IMP-193), leaving **81 open
 and 2 deferred** here.
 
