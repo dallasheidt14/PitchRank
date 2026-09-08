@@ -163,6 +163,21 @@ def test_a_place_word_survives_the_club_that_disagrees():
     assert build_locality_index(teams)["boise"] == "ID"
 
 
+def test_a_club_split_between_two_states_casts_no_vote():
+    """A club with no single modal state cannot vouch for one, and breaking the tie by
+    whichever row was read first would let team order decide the token. It still counts
+    among the clubs carrying the word, so ambiguity dilutes the share rather than
+    deciding it or vanishing from it."""
+    teams = [team(team_name=f"Riverton SC {n}", club_name="Riverton SC", state_code="UT") for n in range(10)]
+    teams += [team(team_name=f"Riverton United {n}", club_name="Riverton United", state_code="UT") for n in range(4)]
+    teams.append(team(team_name="Riverton Rovers A", club_name="Riverton Rovers", state_code="UT"))
+    teams.append(team(team_name="Riverton Rovers B", club_name="Riverton Rovers", state_code="CO"))
+
+    # 15 of 16 clears the team share, and two of the three clubs vouch for Utah.
+    assert sum(t["state_code"] == "UT" for t in teams) / len(teams) == 0.9375
+    assert "riverton" not in build_locality_index(teams)
+
+
 def test_an_affiliate_marker_outranks_a_learned_place_word():
     """Tier C has always refused "Utah Royals FC-AZ"; Tier E did not, and read 22 Arizona
     teams as Utah because the club name holds the word "utah". The marker sits on the club

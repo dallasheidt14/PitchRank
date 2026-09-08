@@ -624,7 +624,10 @@ def build_locality_index(teams: List[Dict]) -> Dict[str, str]:
     place word is used by the clubs near that place, so its support is spread across many
     of them; a mascot belongs to one club, whose own teams can carry the team share on
     their own. Each club votes once, for the state most of its teams carrying the token
-    sit in.
+    sit in. A club with no single such state does not vote, and still counts among the
+    clubs carrying the token, so a club that cannot make up its mind dilutes the share
+    rather than breaking it. ``build_anchor_index`` refuses an ambiguous club the same
+    way, and for the same reason: resolving one by majority invents evidence.
     """
     counts: Dict[str, Counter] = defaultdict(Counter)
     club_counts: Dict[Tuple[str, str], Counter] = defaultdict(Counter)
@@ -641,8 +644,13 @@ def build_locality_index(teams: List[Dict]) -> Dict[str, str]:
             club_counts[(token, club)][state] += 1
 
     club_votes: Dict[str, Counter] = defaultdict(Counter)
+    clubs_carrying: Counter = Counter()
     for (token, _club), states in club_counts.items():
-        club_votes[token][states.most_common(1)[0][0]] += 1
+        clubs_carrying[token] += 1
+        ranked = states.most_common(2)
+        if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+            continue
+        club_votes[token][ranked[0][0]] += 1
 
     index: Dict[str, str] = {}
     for token, states in counts.items():
@@ -652,8 +660,7 @@ def build_locality_index(teams: List[Dict]) -> Dict[str, str]:
         state, hits = states.most_common(1)[0]
         if hits / total < LOCALITY_MIN_SHARE:
             continue
-        votes = club_votes[token]
-        if votes[state] / sum(votes.values()) >= LOCALITY_MIN_CLUB_SHARE:
+        if club_votes[token][state] / clubs_carrying[token] >= LOCALITY_MIN_CLUB_SHARE:
             index[token] = state
     return index
 
