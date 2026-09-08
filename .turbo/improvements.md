@@ -1158,16 +1158,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
 - **Noted**: 2026-08-27
 
-### data-hygiene Step 1b goes red when its grep finds nothing
-
-- **ID**: IMP-133
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `.github/workflows/data-hygiene-weekly.yml:184`
-- **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
-- **Noted**: 2026-08-27
-
 ### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
 
 - **ID**: IMP-136

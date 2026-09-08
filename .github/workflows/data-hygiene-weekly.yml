@@ -178,10 +178,15 @@ jobs:
           set -o pipefail
           python scripts/backfill_team_distinction.py $DRY_RUN_FLAG 2>&1 | tee logs/step1b_distinction.log
 
-          # `|| echo 0` cannot fire on a pipeline whose last command is tail, which
-          # exits 0 on empty input -- the fallback yielded "" and the summary printed
-          # "skipped", indistinguishable from skip_steps=1b. Default the variable instead.
-          DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1)
+          # Both guards are needed and neither is redundant. `|| true` because
+          # pipefail is still on: a no-match grep exits 1, the pipeline takes that
+          # status, and the run: block's default `bash -e` would kill the step
+          # before the default below could apply -- so a run whose backfill
+          # succeeded reported failure whenever the summary line was absent.
+          # `${VAR:-0}` because the pipeline then yields an empty string rather
+          # than a number; `|| echo 0` cannot do that job, since tail exits 0 on
+          # empty input and the fallback never fires.
+          DISTINCTION_UPDATED=$(grep -oP '(Would update|Updated): \K\d+' logs/step1b_distinction.log | tail -1 || true)
           echo "distinction_updated=${DISTINCTION_UPDATED:-0}" >> $GITHUB_OUTPUT
 
       # ── Step 2: Fix Age Year Discrepancies ─────────────────
