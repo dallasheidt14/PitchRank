@@ -269,3 +269,25 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: The same class as the fix the contradiction-audit PR applied to the probe outcome histogram, which now calls `rich.markup.escape`. Team names are provider-written and Rich reads square brackets as markup: a name carrying a closing tag like `[/dim]` raises `rich.errors.MarkupError` and aborts the run between the state write and the ranking mirror — so a retry crashes at the same line and that team can never be mirrored — while one shaped like `[red]…[/red]` renders as styling and quietly falsifies the operator's record of what was written. Not reachable today: production holds 8 team names containing `[`, all bracket-literal like `SGA U17 [MLS Next HD]`, none shaped as a closing or style tag. Pre-existing, in a region that PR does not touch, so it was kept out; the fix is `escape()` at each site. Raised independently by a security review and an api-usage review on the contradiction-audit branch.
 - **Noted**: 2026-09-01
 - **Refs**: #1082 — `rich.markup.escape` is applied at both `assign_by_hand` print sites (`scripts/assign_team_states.py:2065,2072,2097`).
+
+### Fix _backfill_game_stats_python NOT NULL failures for unpublished teams
+
+- **ID**: IMP-106
+- **Status**: dropped
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/calculate_rankings.py:564` (`_backfill_game_stats_python`)
+- **Why**: It upserts stats for every team seen in games; teams with no `rankings_full` row make the INSERT violate the `age_group` NOT NULL constraint, killing whole 500-row batches (incl. retry) so existing teams in those batches keep stale stats. Filter to team_ids present in `rankings_full` first. Seen in the 2026-08-17 run log ("Backfill batch 318 failed").
+- **Noted**: 2026-08-24
+- **Refs**: `fix/backfill-total-game-stats-paged` — dropped rather than fixed, because `_backfill_game_stats_python` was deleted there. The diagnosis in this entry was right and was the reason IMP-128's fallback had never written a row: 44,855 of 184,692 teams with games have no `rankings_full` row, and `age_group`/`gender` are NOT NULL, so nearly every 500-row upsert raised and was swallowed (measured 2026-09-07). Repairing it would have created a second definition of the four `total_*` columns that could not resolve merges — the ranking-change reviewer held the PR on exactly that, per the single-source-of-truth rule — so the path was removed instead.
+
+### backfill_total_game_stats is cancelled on every run and its fallback writes nothing
+
+- **ID**: IMP-128
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `supabase/migrations/20260325100000_batch_backfill_game_stats.sql:35`, `scripts/calculate_rankings.py:1006-1016` (`_backfill_game_stats_python`)
+- **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
+- **Noted**: 2026-08-27
+- **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
