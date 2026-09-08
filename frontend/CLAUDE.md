@@ -307,6 +307,30 @@ request — fixed once in 4bf752fd0, lost again in e5730a194, and now held by a
 `no-restricted-syntax` rule scoped to this file in `eslint.config.mjs`. Steps 1-2 run before
 the Supabase client exists and opt out with an `eslint-disable-next-line` naming that reason.
 
+### A `?code=` cannot be gated behind an interstitial, and does not need to be
+
+Step 2's exemption is deliberately narrow — `token_hash` only. Do not extend the
+render-then-confirm treatment to a PKCE `code`; it cannot work here, for two independent
+reasons, both verified against installed source on 2026-09-08.
+
+`@supabase/ssr` 0.9.0 `createBrowserClient` hardcodes `flowType: "pkce"` and
+`detectSessionInUrl: isBrowser()` **after** spreading caller options, so neither is
+overridable. `@supabase/auth-js` 2.100.1 `_isPKCECallback` fires on
+`!!(params.code && verifier)`, and `parseParametersFromURL` reads `url.searchParams` — a
+query-string `code` is detected, not just a hash fragment. The root layout renders
+`Navigation` → `useUser` → `createClientSupabase()` on **every** route, so any page that
+displays a `?code=` exchanges it on load, before a button can be pressed.
+
+Second, `middleware.ts` funnels a bare `code` on `/auth/confirm` back to `/auth/callback`;
+routing it the other way is an infinite redirect loop, which the comment there already says.
+
+The threat model is also narrower than it looks: the auto-exchange needs the verifier from
+_that browser's_ storage, so a mail scanner cannot redeem a `code` at all. What spends one
+early is the recipient's own browser or prefetcher — a reliability bug, not takeover. The
+effective fix is to stop issuing `code`-shaped recovery links: point the Supabase dashboard
+email templates at `token_hash`, which routes every reset through the interstitial that
+already works. That is a hosted setting, not code.
+
 ---
 
 ## SEO
