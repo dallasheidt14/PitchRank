@@ -4353,7 +4353,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         review = frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
         st.download_button(
             f"Download these {len(outstanding)} as CSV",
-            data=review.map(csv_safe).to_csv(index=False).encode("utf-8"),
+            data=review.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
             file_name="seeding_intake_review.csv",
             mime="text/csv",
         )
