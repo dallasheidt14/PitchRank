@@ -1261,16 +1261,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The backfill states as a deliberate decision that `display_age_group` is the registered event cohort rather than the birth-year cohort, that the two disagree across the Aug 1 rollover, and that it therefore never writes `age_group`. Discovery now treats the same field as its highest-precedence cohort source, and due diligence compares it against stored rows. Live sampling on 2026-08-30 found them agreeing, but that is one point in the season — the claimed divergence is a rollover effect. One position is wrong; whichever loses, the other's comment should be corrected in the same change so the contradiction does not outlive it. Same hazard class as the TGS U-age labels in CLAUDE.md.
 - **Noted**: 2026-08-30
 
-### Due diligence batches .in_() at 500 ids against the documented 100-id limit
-
-- **ID**: IMP-146
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/due_diligence_unknown_opponents.py:405`
-- **Why**: Root `CLAUDE.md` and the `supabase-pitchrank` skill both cap `.in_()` at 100 ids for URI length. This call passes 500, so it works only while the ids stay short enough; it fails as a request-too-long error rather than a partial result, which makes it a silent-until-sudden break.
-- **Noted**: 2026-08-30
-
 ### Repair the 2,937 teams stored outside the boarded cohorts
 
 - **ID**: IMP-147
@@ -1473,16 +1463,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Live policies are `Enable insert for all users` (`FOR INSERT TO public WITH CHECK (true)`) and `Enable read for authenticated users` (`FOR SELECT TO public USING (true)`), with `relacl` granting `anon=arwdDxtm`. `game_date` and `priority` are the only NOT NULL columns and `priority` defaults to 5, so the insert is trivial: anyone holding the public anon key can queue priority-1 paid scrapes. `enqueue_scrape_request` is correctly locked to `postgres`/`service_role`; the table underneath it is not. Fix shape is the one `20260903120000_add_team_page_views.sql` uses — deny-all for anon/authenticated, a service_role policy, `REVOKE ALL` — but needs care so the frontend routes and Python jobs keep writing. Found by the security reviewer tracing the viewed-teams change, 2026-09-03.
 - **Noted**: 2026-09-03
 
-### enqueue_active_teams' game_date docstring contradicts the RPC
-
-- **ID**: IMP-169
-- **Status**: open
-- **Type**: direct
-- **Category**: docs
-- **Where**: `scripts/enqueue_active_teams.py` `enqueue_team`
-- **Why**: It claims "The RPC's UPDATE branch uses COALESCE, so existing pending rows keep their original game_date when upserted." The RPC does `game_date = COALESCE(p_game_date, game_date)` (`supabase/migrations/20260520044853_enqueue_scrape_request_rpc.sql:34`) and every caller passes a non-null date, so the UPDATE overwrites it — verified directly, 2026-09-03. Not cosmetic: this is the comment that would talk the next person out of the pending-row protection `enqueue_viewed_teams.py` and `enqueue_user_interest_teams.py` both depend on, and `enqueue_user_interest_teams.py`'s own docstring describes the mechanism correctly, so the two contradict each other today.
-- **Noted**: 2026-09-03
-
 ### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
 
 - **ID**: IMP-170
@@ -1513,16 +1493,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
 - **Noted**: 2026-09-04
 - **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
-
-### Set the response encoding in the other GotSport HTML fetch
-
-- **ID**: IMP-173
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `src/scrapers/gotsport.py` `_fetch_event_page`
-- **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
-- **Noted**: 2026-09-05
 
 ### Give the event-roster CLI the same seeding intake as the app
 
