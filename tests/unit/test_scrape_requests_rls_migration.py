@@ -384,11 +384,14 @@ def test_the_queue_claim_function_is_not_browser_callable():
                     )
                 elif verb.startswith("drop"):
                     granted.pop(key, None)
-                elif verb == "create function":
-                    # A fresh definition defaults to EXECUTE for PUBLIC. CREATE OR REPLACE
-                    # preserves the existing ACL, so it deliberately falls through here —
-                    # treating it as a reset reddens the next legitimate redefinition.
-                    granted[key] = {"public"}
+                else:
+                    # A function that does not yet exist defaults to EXECUTE for PUBLIC.
+                    # CREATE OR REPLACE preserves the ACL of one that does, and creates one
+                    # that does not — so preserve only what has already been seen. Treating
+                    # OR REPLACE as an unconditional reset reddens a legitimate
+                    # redefinition; treating it as an unconditional no-op lets a brand-new
+                    # queue-touching function ship publicly executable.
+                    granted.setdefault(key, {"public"})
 
         for match in re.finditer(
             r"(?is)\b(grant|revoke)\s+execute\s+on\s+all\s+functions\s+in\s+schema\s+\"?public\"?", sql
