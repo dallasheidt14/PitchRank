@@ -270,6 +270,16 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-01
 - **Refs**: #1082 — `rich.markup.escape` is applied at both `assign_by_hand` print sites (`scripts/assign_team_states.py:2065,2072,2097`).
 
+### Infographics Biggest Movers generator fabricates rank changes
+
+- **ID**: IMP-114
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/components/infographics/rankingMoversRenderer.ts:247`, call sites in `frontend/app/infographics/page.tsx`
+- **Why**: `generateMoverData` fills `change` with `Math.floor(Math.random()*15)-7`, so downloaded social graphics name real teams with invented rank changes; the rows already carry real `rank_change_7d/30d` and `/api/infographic/movers` shows the correct pattern. Violates the no-fabricated-data rule.
+- **Noted**: 2026-08-24
+- **Refs**: `fix/infographics-fabricated-rank-changes` — `generateMoverData` now reads `rank_change_7d` and `rank_in_cohort_final`, with `frontend/components/infographics/rankingMoversRenderer.test.ts` as the first test under `components/infographics/`. Deliberately not routed through `selectTopMovers`, which would decide IMP-115 for this surface alone.
 ### `fetch_teams` pages without `.order()`, silently dropping ~16% of every cohort
 
 - **ID**: IMP-134
