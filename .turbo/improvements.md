@@ -937,16 +937,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: ~55 of 150 min of the weekly run is these row-batch writes (profile: `.turbo/reports/ranking-run-profile-2026-08-17.md`). Larger RPC payloads or a staging-table merge would cut the run by a third.
 - **Noted**: 2026-08-24
 
-### Silence the false "SUPABASE_KEY is not set" warning in ranking runs
-
-- **ID**: IMP-107
-- **Status**: open
-- **Type**: direct
-- **Category**: dx
-- **Where**: startup logging in the calculate-rankings path (module logs "SUPABASE_KEY is not set — database calls will fail" while the run proceeds on SUPABASE_SERVICE_ROLE_KEY)
-- **Why**: Every weekly run log opens with a scary false warning, training readers to ignore real credential errors. Accept SUPABASE_SERVICE_ROLE_KEY as satisfying the check.
-- **Noted**: 2026-08-24
-
 ### Give compute_all_cohorts a single no-persistence preset instead of four loose kwargs
 
 - **ID**: IMP-108
@@ -1209,16 +1199,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/backfill_unknown_team_names.py` (`fetch_placeholder_teams`), `.github/workflows/backfill-unknown-team-names.yml`
 - **Why**: Candidates are selected only by the placeholder name pattern plus the new provider-ID bound, so nothing marks a team as already tried and 404'd, or tried and returned no usable name. Every rankings-space placeholder that fails to resolve is re-fetched by the every-15-minute cron at 12s/call indefinitely, on the shared per-IP GotSport WAF budget that workflow's own cron comment exists to protect, and the pool cannot drain below its unresolvable residue. The run summary already prints "Gone from GotSport (404, needs marking)" — the marking is the missing half. Wants a persisted attempt/outcome marker (a `teams` column or a small attempts table) that `fetch_placeholder_teams` excludes on. Surfaced by the code review of the max-provider-id change on 2026-08-28; out of scope for that PR.
 - **Noted**: 2026-08-28
-
-### A dry run of the club/state chain reports "Updated: N", which reads as a live write
-
-- **ID**: IMP-140
-- **Status**: open
-- **Type**: direct
-- **Category**: readability
-- **Where**: `scripts/backfill_missing_club_names.py:404`, `scripts/extract_missing_club_names.py` (same summary line)
-- **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
-- **Noted**: 2026-08-29
 
 ### Seven hand-copied GotSport resolvers, two of them still reading keys that do not exist
 

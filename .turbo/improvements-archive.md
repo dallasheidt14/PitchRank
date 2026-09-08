@@ -313,3 +313,25 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
+
+### Silence the false "SUPABASE_KEY is not set" warning in ranking runs
+
+- **ID**: IMP-107
+- **Status**: done
+- **Type**: direct
+- **Category**: dx
+- **Where**: startup logging in the calculate-rankings path (module logs "SUPABASE_KEY is not set — database calls will fail" while the run proceeds on SUPABASE_SERVICE_ROLE_KEY)
+- **Why**: Every weekly run log opens with a scary false warning, training readers to ignore real credential errors. Accept SUPABASE_SERVICE_ROLE_KEY as satisfying the check.
+- **Noted**: 2026-08-24
+- **Refs**: `fix/dry-run-labels-and-key-warning` — `config/settings.py` warns only when BOTH `SUPABASE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are absent. The documented entry points read the service-role key and never the anon one, so the old check warned on every ranking run.
+
+### A dry run of the club/state chain reports "Updated: N", which reads as a live write
+
+- **ID**: IMP-140
+- **Status**: done
+- **Type**: direct
+- **Category**: readability
+- **Where**: `scripts/backfill_missing_club_names.py:404`, `scripts/extract_missing_club_names.py` (same summary line)
+- **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
+- **Noted**: 2026-08-29
+- **Refs**: `fix/dry-run-labels-and-key-warning` — both summary lines are now `{'Would update' if args.dry_run else 'Updated'}`, and the two greps in `update-missing-club-and-state.yml` that consume them were widened to `^(?:Would update|Updated):` so the count still reaches the Pipeline Summary in dry-run mode.

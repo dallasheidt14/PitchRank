@@ -454,7 +454,7 @@ def main() -> None:
 
     print("")
     print("=== Summary ===")
-    print(f"Updated: {updated:,}")
+    print(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")
     print(f"Skipped (no state_code): {skipped_no_state:,}")
     print(f"Skipped (state had no club lookup): {skipped_no_lookup:,}")
     print(f"Skipped (could not extract club): {skipped_unextractable:,}")
