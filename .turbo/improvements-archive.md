@@ -339,6 +339,18 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Refs**: `fix/seeding-csv-formula-injection` — the review CSV is mapped through `csv_safe` at the export boundary. That helper already existed in `src/tournaments/reports/render_csv.py` with the OWASP prefix set including tab/CR/LF; it was promoted from `_csv_safe` to public rather than a second copy being written. Ten tests drive `_render_seeding_tab` and assert on the downloaded bytes; dropping the map fails seven.
 
 
+### data-hygiene Step 1b goes red when its grep finds nothing
+
+- **ID**: IMP-133
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.github/workflows/data-hygiene-weekly.yml:184`
+- **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
+- **Noted**: 2026-08-27
+- **Refs**: `fix/hygiene-step1b-pipefail` — `|| true` inside the substitution, matching `refresh-team-scrape-activity.yml`. `tests/unit/test_workflow_pipefail_substitutions.py` now globs every workflow for the shape so it cannot return. Writing that guard corrected the entry's own reasoning: `|| echo "0"` IS a sound fallback under pipefail (`||` binds looser than `|`), so the 21 assignments using it were never broken; what strands a step is a piped substitution with no or-else at all.
+
+
 ### Due diligence batches .in_() at 500 ids against the documented 100-id limit
 
 - **ID**: IMP-146
