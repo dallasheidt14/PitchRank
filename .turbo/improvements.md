@@ -894,19 +894,9 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The hook subscribes to `scrape_requests` over Supabase Realtime with no polling fallback, but `postgres_changes` delivers nothing for a table outside the `supabase_realtime` publication, whatever its RLS says. Verified 2026-09-08 against production: `pg_publication_tables` for that publication returns exactly one public table, `announcements`. No migration adds `scrape_requests` — no migration mentions `supabase_realtime` at all except the two `DROP TABLE` calls in `20260608000000` — so membership was never set, and a user who clicks "find my missing game" has never seen a completion notification; they must reload to see the result. Fix candidates: add the table to the publication (`relreplident` is `d`, so an RLS-gated subscription may also need `REPLICA IDENTITY FULL`), or replace the subscription with polling against a service-role route, which would also free the anon SELECT grant that `.turbo/plans/batch-1-outsider-reachable-security.md` deliberately preserves for it.
 - **Noted**: 2026-09-08
 
-### The stuck-signup monitor's main() and mailer have no tests
-
-- **ID**: IMP-200
-- **Status**: open
-- **Type**: plan
-- **Category**: testing
-- **Where**: `scripts/check_stuck_signups.py` `main` and `send_alert_email`, tested by `tests/unit/test_check_stuck_signups.py`
-- **Why**: The suite covers `find_stuck_users`, `build_digest_html` and the fetch helpers, but never constructs the Supabase client or exercises `main`. Demonstrated during the 2026-09-08 review: moving a `supabase.auth.admin.generate_link` loop from `find_stuck_users` into `main`, between the fetch and the dry-run branch, leaves all 18 tests passing — so the guard that stops a live 24h recovery credential being minted per paid account only covers the one function it was written against. `send_alert_email` is untested too, and it is the job's sole remediation channel: a delivery regression would surface as locked-out customers going unreported rather than as a red test. Needs a harness that can drive `main` with a faked client and assert on both the mint and the send.
-- **Noted**: 2026-09-08
-
 ### Five migration-guard tests carry divergent copies of the same SQL helpers
 
-- **ID**: IMP-201
+- **ID**: IMP-200
 - **Status**: open
 - **Type**: plan
 - **Category**: testing
