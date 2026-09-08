@@ -1048,16 +1048,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The rankings table is the primary surface of the team-name display change and has zero unit coverage — a revert of any of its four `teamDisplayName` call sites (visible cell :582, sort comparator :148-149, aria-label :525, Schema.org payload :337) would ship with all seven required `ci.yml` checks green. `e2e/rankings.spec.ts` does not gate: `vitest.config.ts:9` excludes `e2e/**` and Playwright is not a required check. The obvious test is not writable as-is — a scratch probe reusing this repo's harness showed `useVirtualizer` renders **zero** rows under happy-dom (the scroll element measures zero height), so everything inside `virtualItems.map` never executes. Either mock `@tanstack/react-virtual` (no precedent here) or scope the test to the Schema.org payload and sort comparator, both of which sit outside the virtual list.
 - **Noted**: 2026-08-27
 
-### ComparePanel's tests cannot fail on a team-name regression
-
-- **ID**: IMP-121
-- **Status**: open
-- **Type**: direct
-- **Category**: testing
-- **Where**: `frontend/components/ComparePanel.test.tsx:199,231-236`, `frontend/components/EnhancedPredictionCard.tsx:87`
-- **Why**: The suite's only assertions are `toContain('Match Prediction')` and a mocked `explanation.summary` string that `EnhancedPredictionCard` renders verbatim, independent of the `teamAName`/`teamBName` props. All ten team-name call sites in `ComparePanel.tsx` are therefore unfalsifiable — reverting every one of them leaves both tests green. The fixtures compound it: `team_name: 'Alpha FC'` with `club_name: 'Alpha'` differ only by a suffix no assertion reads. Assert on the two comparison-table `<th>` cells with a fixture whose `club_name` is not a prefix of its `team_name`.
-- **Noted**: 2026-08-27
-
 ### No tests anywhere under components/infographics/
 
 - **ID**: IMP-122

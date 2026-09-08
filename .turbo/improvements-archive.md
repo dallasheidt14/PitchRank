@@ -409,3 +409,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
 - **Noted**: 2026-08-29
 - **Refs**: `fix/dry-run-labels-and-key-warning` — both summary lines are now `{'Would update' if args.dry_run else 'Updated'}`, and the two greps in `update-missing-club-and-state.yml` that consume them were widened to `^(?:Would update|Updated):` so the count still reaches the Pipeline Summary in dry-run mode.
+
+
+### ComparePanel's tests cannot fail on a team-name regression
+
+- **ID**: IMP-121
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/components/ComparePanel.test.tsx:199,231-236`, `frontend/components/EnhancedPredictionCard.tsx:87`
+- **Why**: The suite's only assertions are `toContain('Match Prediction')` and a mocked `explanation.summary` string that `EnhancedPredictionCard` renders verbatim, independent of the `teamAName`/`teamBName` props. All ten team-name call sites in `ComparePanel.tsx` are therefore unfalsifiable — reverting every one of them leaves both tests green. The fixtures compound it: `team_name: 'Alpha FC'` with `club_name: 'Alpha'` differ only by a suffix no assertion reads. Assert on the two comparison-table `<th>` cells with a fixture whose `club_name` is not a prefix of its `team_name`.
+- **Noted**: 2026-08-27
+- **Refs**: `test/comparepanel-team-names` — the two comparison-table `<th>` cells are now asserted, with fixtures whose `club_name` is not a prefix of `team_name` (`Alpha FC 2013 Red` under `Northside United`). Reverting a `teamDisplayName` call site to the club fails it. The mocked `explanation.summary` assertion beside it is kept but annotated: it is a canned string the card echoes verbatim, so it can witness nothing about naming, which is the reason this gap existed.

@@ -76,8 +76,8 @@ import { ComparePanel } from './ComparePanel';
 
 const teamA = {
   team_id_master: 'team-a',
-  team_name: 'Alpha FC',
-  club_name: 'Alpha',
+  team_name: 'Alpha FC 2013 Red',
+  club_name: 'Northside United',
   state: 'TX',
   age: 12,
   gender: 'M',
@@ -104,8 +104,8 @@ const teamA = {
 
 const teamB = {
   team_id_master: 'team-b',
-  team_name: 'Beta FC',
-  club_name: 'Beta',
+  team_name: 'Beta FC 2013 Blue',
+  club_name: 'Southbank Athletic',
   state: 'CA',
   age: 12,
   gender: 'M',
@@ -232,7 +232,26 @@ describe('ComparePanel', () => {
     await flushRender(root!);
 
     expect(container?.textContent).toContain('Match Prediction');
+    // A canned string the card echoes verbatim. It is deliberately NOT built from
+    // the fixture, which is why it cannot witness anything about team naming --
+    // see the header test below.
     expect(container?.textContent).toContain('Alpha FC is the clear favorite at 74% win probability');
+  });
+
+  it('heads the comparison table with each team’s registered name', async () => {
+    // The two <th> cells are the only place a team name is both rendered and
+    // attributable to a specific call site. The prediction summary above is a
+    // mocked string the card echoes verbatim, so it stays green however the
+    // component names its teams -- which is what left all ten call sites
+    // unfalsifiable. The fixtures deliberately carry a club_name that is not a
+    // prefix of team_name, so composing from the club would read differently.
+    await flushRender(root!);
+
+    const headers = Array.from(container?.querySelectorAll('thead th') ?? []).map((cell) => cell.textContent?.trim());
+
+    expect(headers).toEqual(['Metric', 'Alpha FC 2013 Red', 'Beta FC 2013 Blue']);
+    expect(headers).not.toContain('Northside United');
+    expect(headers).not.toContain('Southbank Athletic');
   });
 
   it('renders an explicit error state when the prediction query fails', async () => {
