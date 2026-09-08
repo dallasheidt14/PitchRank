@@ -122,17 +122,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-18
 - **Update (2026-09-08)**: **The in-code half of this entry cannot work as written — the dashboard half is the whole fix.** Verified against installed source: `@supabase/ssr` 0.9.0 hardcodes `detectSessionInUrl` and `flowType: "pkce"` in `createBrowserClient` (caller options are spread *before* those keys, so they cannot be overridden), and `@supabase/auth-js` 2.100.1 `_isPKCECallback` fires on `!!(params.code && verifier)` reading `url.searchParams` — query params are parsed, not just the hash. The root layout renders `Navigation` -> `useUser` -> `createClientSupabase()` on **every** route, so serving `/auth/confirm?code=` would spend the code on page load, before any button. A second obstacle: `frontend/middleware.ts:35` exempts `/auth/confirm` only when `token_hash` is present, and its own comment says routing a `code` there "is an infinite redirect loop"; any future attempt must widen that exemption first. **The threat model also needs correcting.** The auto-exchange requires the verifier from *that browser's* storage, so a mail scanner cannot redeem a `?code=` at all — what spends it is the recipient's own browser or prefetcher. That makes this a reliability bug (a reset link that silently fails) rather than the account-takeover risk the entry's wording implies, and it is why this was pulled out of the security batch. The entry's own first recommendation stands and is now the entire remedy: repoint the Supabase dashboard email templates at `/auth/confirm?token_hash={{ .TokenHash }}`, which routes every reset through the interstitial that already works. That is a hosted-dashboard setting, not a code change, so it cannot be done in a PR. The 5-of-29 measurement in this entry is the count of flows still on the `ConfirmationURL` shape; re-derive it from `auth.flow_state.auth_code_issued_at` after changing the template to confirm it reaches zero.
 
-### Weekly digest emails a live recovery token to a shared admin mailbox
-
-- **ID**: IMP-091
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `scripts/check_stuck_signups.py` `generate_recovery_link` (~line 156)
-- **Why**: The job mints an unsolicited, live 24h recovery token for every paying-but-never-signed-in customer and mails it to `pitchrankio@gmail.com` for an admin to forward. That token grants a full session on the customer's paid account, so anyone with access to that mailbox, the forwarded copy, or Resend's delivery history can take the account over. `reset_password_for_email(email)` sends the same token to the account owner instead, leaving the digest to carry only the list of who is stuck.
-- **Noted**: 2026-08-18
-- **Update (2026-09-08)**: Premise re-verified and accurate as written — this is a token-custody problem, and `scripts/check_stuck_signups.py` still mints a live 24h recovery token per stuck customer and mails it to `ALERT_EMAIL` (`send_alert_email`, the only sender in the file, `to: [ALERT_EMAIL]`). **The remedy has changed from what this entry proposes.** The digest will drop the link and **no** replacement email will be sent; the `reset_password_for_email(email)` call this entry suggests is deliberately not being added. The customer already receives a working set-password link at checkout from `sendPasswordSetupEmail` (`frontend/app/api/stripe/webhook/route.ts:416`), and anyone still locked out can self-serve through `/forgot-password`, so mailing an unrequested reset every six hours would be a second unsolicited credential rather than a fix. Decided with the operator 2026-09-08. Planned in `.turbo/plans/batch-1-outsider-reachable-security.md`.
-
 ### Implement validatePagination and route the hand-rollers through it
 
 - **ID**: IMP-094
@@ -638,16 +627,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-03
 - **Update (2026-09-07)**: Now seven copies, not five — `audit_polluted_gotsport_aliases.py` and `maintain_gotsport_direct_id_aliases.py` carry it too, so the count in the original text was corrected. The two new ones are not enqueue jobs, which is why a grep over `enqueue_*.py` missed them.
 
-### scrape_requests accepts unauthenticated inserts
-
-- **ID**: IMP-168
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `supabase/migrations` (`public.scrape_requests` policies and ACL)
-- **Why**: Live policies are `Enable insert for all users` (`FOR INSERT TO public WITH CHECK (true)`) and `Enable read for authenticated users` (`FOR SELECT TO public USING (true)`), with `relacl` granting `anon=arwdDxtm`. `game_date` and `priority` are the only NOT NULL columns and `priority` defaults to 5, so the insert is trivial: anyone holding the public anon key can queue priority-1 paid scrapes. `enqueue_scrape_request` is correctly locked to `postgres`/`service_role`; the table underneath it is not. Fix shape is the one `20260903120000_add_team_page_views.sql` uses — deny-all for anon/authenticated, a service_role policy, `REVOKE ALL` — but needs care so the frontend routes and Python jobs keep writing. Found by the security reviewer tracing the viewed-teams change, 2026-09-03.
-- **Noted**: 2026-09-03
-
 ### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
 
 - **ID**: IMP-170
@@ -913,4 +892,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `frontend/hooks/useScrapeRequestNotifications.ts` `useScrapeRequestNotifications` (the `postgres_changes` subscription), consumed by `frontend/components/MissingGamesForm.tsx`
 - **Why**: The hook subscribes to `scrape_requests` over Supabase Realtime with no polling fallback, but `postgres_changes` delivers nothing for a table outside the `supabase_realtime` publication, whatever its RLS says. Verified 2026-09-08 against production: `pg_publication_tables` for that publication returns exactly one public table, `announcements`. No migration adds `scrape_requests` — no migration mentions `supabase_realtime` at all except the two `DROP TABLE` calls in `20260608000000` — so membership was never set, and a user who clicks "find my missing game" has never seen a completion notification; they must reload to see the result. Fix candidates: add the table to the publication (`relreplident` is `d`, so an RLS-gated subscription may also need `REPLICA IDENTITY FULL`), or replace the subscription with polling against a service-role route, which would also free the anon SELECT grant that `.turbo/plans/batch-1-outsider-reachable-security.md` deliberately preserves for it.
+- **Noted**: 2026-09-08
+
+### The stuck-signup monitor's main() and mailer have no tests
+
+- **ID**: IMP-200
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `scripts/check_stuck_signups.py` `main` and `send_alert_email`, tested by `tests/unit/test_check_stuck_signups.py`
+- **Why**: The suite covers `find_stuck_users`, `build_digest_html` and the fetch helpers, but never constructs the Supabase client or exercises `main`. Demonstrated during the 2026-09-08 review: moving a `supabase.auth.admin.generate_link` loop from `find_stuck_users` into `main`, between the fetch and the dry-run branch, leaves all 18 tests passing — so the guard that stops a live 24h recovery credential being minted per paid account only covers the one function it was written against. `send_alert_email` is untested too, and it is the job's sole remediation channel: a delivery regression would surface as locked-out customers going unreported rather than as a red test. Needs a harness that can drive `main` with a faked client and assert on both the mint and the send.
+- **Noted**: 2026-09-08
+
+### Five migration-guard tests carry divergent copies of the same SQL helpers
+
+- **ID**: IMP-201
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `_executable` and `_flat` in `tests/unit/test_scrape_requests_rls_migration.py`, `test_team_page_views_migration.py`, `test_team_state_provenance_migration.py`, `test_backfill_total_game_stats_migration.py` and `test_scrape_activity_predicate.py`; `_executable_updates` in `test_age_rollover_migration_map.py` solves the same problem a sixth way
+- **Why**: `_executable` (strip SQL comments before asserting, so a commented-out clause cannot satisfy a guard) exists in five files with a near-verbatim docstring, and `_flat` exists in four with **three** different contracts under one name — one strips comments and trims, one does neither, one trims only. Only the newest copy strips `/* */` block comments, which was added after a block-commented REVOKE was shown to satisfy an assertion the server would never execute. Every one of these files exists because CI applies no SQL, so a helper that silently stops comment-stripping turns its whole module green for the wrong reason. Copying between them is the expected path — the newest was seeded from `test_team_page_views_migration.py` — and copying the wrong direction is silent. Lift them into a shared `tests/unit/_migration_sql.py` (or conftest) carrying the strongest contract, and re-verify each module's guards still redden under their own mutations afterwards. Deliberately deferred from the scrape_requests lockdown: touching four unrelated guards inside a security fix makes both harder to review.
 - **Noted**: 2026-09-08

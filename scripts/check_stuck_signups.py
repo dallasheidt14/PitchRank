@@ -4,14 +4,19 @@ Catch paying/trialing customers who can't log in.
 
 Guest checkout creates a password-less Supabase user and emails a single
 set-password link. When that email is slow, spam-filtered, mistyped, or
-opened after it expires, the customer is locked out with no self-service
-path. This monitor finds anyone who is paying/trialing but has never signed
-in, generates a fresh recovery link for each, and emails an admin digest with
-ready-to-forward links.
+opened after it expires, the customer is locked out. This monitor finds
+anyone who is paying/trialing but has never signed in and emails an admin
+digest naming them.
+
+The digest carries no recovery link. Minting one here put a live 24h
+credential for a paid account into a shared mailbox, and from there into
+Resend's delivery history, where it outlives the incident that produced it.
+The customer already has a working set-password link from checkout, and
+/forgot-password is the self-service path for anyone whose link has expired.
 
 Usage:
     python scripts/check_stuck_signups.py            # Send admin digest if any
-    python scripts/check_stuck_signups.py --dry-run  # Print digest, don't send
+    python scripts/check_stuck_signups.py --dry-run  # Report counts, do not send
 """
 
 import argparse
@@ -53,10 +58,6 @@ SITE_URL = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://pitchrank.io")
 STUCK_MIN_AGE = timedelta(hours=2)
 STUCK_STATUSES = ("active", "trialing", "past_due")
 PER_PAGE = 200
-
-# Sentinel returned by generate_recovery_link when Supabase link generation
-# fails — the digest renders these rows as a visible warning, not a dead link.
-LINK_FAILED = "(link generation failed — reset manually)"
 
 
 def _to_aware(value) -> datetime | None:
@@ -137,7 +138,6 @@ def find_stuck_users(supabase):
         if created is not None and now - created < STUCK_MIN_AGE:
             continue
 
-        action_link = generate_recovery_link(supabase, profile.get("email") or user.email)
         stuck.append(
             {
                 "email": profile.get("email") or user.email,
@@ -145,39 +145,10 @@ def find_stuck_users(supabase):
                 "subscription_status": profile.get("subscription_status"),
                 "period_end": profile.get("subscription_period_end") or "—",
                 "source": (user.user_metadata or {}).get("source", "—"),
-                "action_link": action_link,
             }
         )
 
     return stuck
-
-
-def generate_recovery_link(supabase, email: str) -> str:
-    """Generate a fresh set-password (recovery) link for a stuck user.
-
-    Build the URL from hashed_token through our own /auth/confirm instead of
-    returning Supabase's raw action_link: a link generated server-side and
-    forwarded to the customer hits the PKCE code path with no code_verifier
-    cookie in their browser and falls through to /login instead of establishing
-    the recovery session.
-
-    /auth/confirm rather than /auth/callback because this link is emailed to an
-    admin and forwarded on to the customer, so it passes through two mail
-    scanners. /auth/confirm redeems only on a button press, so neither
-    scanner's GET spends it.
-    """
-    try:
-        resp = supabase.auth.admin.generate_link(
-            {
-                "type": "recovery",
-                "email": email,
-                "options": {"redirect_to": f"{SITE_URL}/auth/confirm?next=/reset-password"},
-            }
-        )
-        return f"{SITE_URL}/auth/confirm?token_hash={resp.properties.hashed_token}&type=recovery&next=/reset-password"
-    except Exception as e:
-        logger.error(f"  ERROR generating recovery link for {email}: {e}")
-        return LINK_FAILED
 
 
 def build_digest_html(stuck: list) -> str:
@@ -188,11 +159,6 @@ def build_digest_html(stuck: list) -> str:
 
     rows_html = ""
     for s in stuck:
-        recovery = (
-            "<span style='color:#b91c1c'>⚠ link generation failed — reset manually</span>"
-            if s["action_link"] == LINK_FAILED
-            else f"<a href='{esc(s['action_link'])}'>set-password link</a>"
-        )
         rows_html += (
             f"<tr>"
             f"<td style='padding:6px 12px'>{esc(s['email'])}</td>"
@@ -200,15 +166,15 @@ def build_digest_html(stuck: list) -> str:
             f"<td style='padding:6px 12px'>{esc(s['created_at'])}</td>"
             f"<td style='padding:6px 12px'>{esc(s['period_end'])}</td>"
             f"<td style='padding:6px 12px'>{esc(s['source'])}</td>"
-            f"<td style='padding:6px 12px'>{recovery}</td>"
             f"</tr>"
         )
 
     return f"""
     <h2>Stuck signups — paying but never logged in</h2>
     <p>{len(stuck)} customer(s) are paying/trialing but have never signed in.
-       Forward each the set-password link below so they can get in.
-       Always use the latest alert: links from earlier alerts stop working.</p>
+       They each already had a set-password link from checkout. Point them at
+       <a href="{esc(SITE_URL)}/forgot-password">{esc(SITE_URL)}/forgot-password</a>,
+       which issues a fresh one to the account holder.</p>
     <table border="1" cellpadding="0" cellspacing="0"
            style="border-collapse:collapse; font-family:sans-serif; font-size:14px">
         <tr style="background:#f5f5f5">
@@ -217,7 +183,6 @@ def build_digest_html(stuck: list) -> str:
             <th style="padding:8px 12px; text-align:left">Created</th>
             <th style="padding:8px 12px; text-align:left">Renews</th>
             <th style="padding:8px 12px; text-align:left">Source</th>
-            <th style="padding:8px 12px; text-align:left">Recovery</th>
         </tr>
         {rows_html}
     </table>
@@ -270,7 +235,7 @@ def main():
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the digest without sending the email",
+        help="Report how many are stuck without sending the digest",
     )
     args = parser.parse_args()
 
@@ -289,23 +254,24 @@ def main():
 
     stuck = find_stuck_users(supabase)
 
+    # Addresses stay out of stdout. This repo is public and Actions logs on a public repo
+    # are readable unauthenticated, and these are, by construction, customers currently
+    # waiting on a set-password email — a pre-qualified target list for a forged one. The
+    # digest carries the names; it goes only to ALERT_EMAIL.
     logger.info("\n=== Summary ===")
     logger.info(f"Stuck signups: {len(stuck)}")
+    by_status: dict[str, int] = {}
     for s in stuck:
-        logger.info(f"  STUCK {s['email']} ({s['subscription_status']}, created {s['created_at']})")
+        by_status[s["subscription_status"]] = by_status.get(s["subscription_status"], 0) + 1
+    for status, count in sorted(by_status.items()):
+        logger.info(f"  {status}: {count}")
 
     if not stuck:
         logger.info("No stuck signups — everyone who paid has logged in.")
         return
 
     if args.dry_run:
-        # Never log the action_links: they are live account-recovery credentials
-        # and dry-run is reachable from workflow_dispatch, so the digest would
-        # leak them into GitHub Actions logs. Confirm generation, don't print it.
-        logger.info("\n=== Dry run — digest NOT sent; recovery links redacted from logs ===")
-        for s in stuck:
-            link_ok = s["action_link"] != LINK_FAILED
-            logger.info(f"  would-email: {s['email']} (recovery link generated: {link_ok})")
+        logger.info(f"\n=== Dry run — digest NOT sent ({len(stuck)} would be listed) ===")
         sys.exit(1)  # Signal "action needed" for dry-run
 
     if not send_alert_email(stuck):
