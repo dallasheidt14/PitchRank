@@ -30,6 +30,30 @@ def test_second_heading_switches_cohort():
     assert [r.section_age_group for r in parsed.rows] == ["u14", "u13"]
 
 
+def test_u18_heading_folds_into_the_u19_board():
+    """PitchRank files U18 into U19 and holds zero `u18` teams.
+
+    An unfolded `u18` matches an empty cohort everywhere downstream: the exact
+    lookup filters `.eq("age_group", "u18")` and the upstream search sends
+    `search[age]=18`, so a whole U18 division resolves against nothing.
+    """
+    parsed = parse_roster("Male U18\nA Club\tA Team\tTX")
+
+    assert [r.section_age_group for r in parsed.rows] == ["u19"]
+
+
+def test_u18_and_u19_headings_land_in_one_cohort():
+    parsed = parse_roster("Male U18\nA Club\tA Team\tTX\nMale U19\nB Club\tB Team\tTX")
+
+    assert [r.section_age_group for r in parsed.rows] == ["u19", "u19"]
+
+
+def test_a_cohort_that_is_not_merged_is_left_alone():
+    parsed = parse_roster("Male U17\nA Club\tA Team\tTX")
+
+    assert [r.section_age_group for r in parsed.rows] == ["u17"]
+
+
 def test_female_heading_normalizes_to_canonical_gender():
     parsed = parse_roster("Female U12\nA Club\tA Team\tTX")
 
