@@ -1653,3 +1653,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/etl/v53e.py` (the `teams["total_games_played"] = teams["gp"]` block and its three siblings), against `v53e_to_rankings_full_format`'s `expected_columns` list in `src/rankings/data_adapter.py`
 - **Why**: v53e copies the CAPPED engine `gp`/`wins`/`losses`/`draws` onto `total_games_played`/`total_wins`/`total_losses`/`total_draws`, which reads as a writer of the four uncapped columns. It is not one: `v53e_to_rankings_full_format` builds its payload from an explicit `expected_columns` allowlist, and `total_` appears nowhere in `src/rankings/data_adapter.py`, so all four are dropped before the upsert. Verified 2026-09-07. So this is a dead assignment rather than a correctness risk -- but it is dead code that looks exactly like a third writer competing with `backfill_total_game_stats_page`, which is how it was first reported. Delete the four lines, or comment them with the reason they cannot reach the database.
 - **Noted**: 2026-09-07
+
+### Two definitions of the CSV formula guard, and the shared one is the weaker
+
+- **ID**: IMP-197
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `csv_safe` in `src/tournaments/reports/render_csv.py` (imported by `tournament_intake.py`) and `csv_safe` in `scripts/reconcile_teams_with_gotsport.py`
+- **Why**: Both prefix a leading `=` `+` `-` `@` or whitespace with `'`, over the same frozen prefix set. The reconcile copy also escapes a value that ALREADY starts with `'`, without which the encoding is not injective -- `=x` and `'=x` both encode to `'=x`, so an undo restores the wrong one. The shared copy lacks that, so the module named as the common home is the weaker of the two. Verified 2026-09-08. Fold the reconcile behaviour into the shared function and import it there too. Noted after PR #1111 promoted the shared one to public and its description claimed "one definition" -- there were two, which is why the claim is corrected here rather than left in the PR body.
+- **Noted**: 2026-09-08
