@@ -313,3 +313,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: Its `SET LOCAL statement_timeout = '300s'` is inert. PostgreSQL arms that timer once per top-level client command and statements inside a function never re-arm it, so the budget in force is the session's — `pg_db_role_setting` gives `authenticator` 8s and has no `service_role` entry. Verified 2026-08-27: a `DO` block setting 1s still completed a `pg_sleep(3)`, while the same value set before the statement cancelled with 57014. `.turbo/backfill-review-2026-07-27.md` already documents the RPC failing weekly and the Python fallback never having written a row, but diagnoses it as outgrowing a 300s budget — the budget was never in force. So `rankings_full.total_games_played/wins/losses/draws` have been frozen for months. Fix by paging from the caller, as `refresh_team_scrape_activity` now does.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
+
+### data-hygiene Step 1b goes red when its grep finds nothing
+
+- **ID**: IMP-133
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.github/workflows/data-hygiene-weekly.yml:184`
+- **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
+- **Noted**: 2026-08-27
+- **Refs**: `fix/hygiene-step1b-pipefail` — `|| true` inside the substitution, matching `refresh-team-scrape-activity.yml`. `tests/unit/test_workflow_pipefail_substitutions.py` now globs every workflow for the shape so it cannot return. Writing that guard corrected the entry's own reasoning: `|| echo "0"` IS a sound fallback under pipefail (`||` binds looser than `|`), so the 21 assignments using it were never broken; what strands a step is a piped substitution with no or-else at all.
