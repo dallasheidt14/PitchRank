@@ -164,7 +164,7 @@ jobs:
 
           python scripts/backfill_missing_club_names.py --workers 10 $DRY_FLAG $LIMIT_FLAG 2>&1 | tee logs/step1_backfill_club.log
 
-          UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step1_backfill_club.log | tr -d ',' || echo "0")
+          UPDATED=$(grep -oP '^(?:Would update|Updated): \K[\d,]+' logs/step1_backfill_club.log | tr -d ',' || echo "0")
           echo "club_backfilled=${UPDATED:-0}" >> $GITHUB_OUTPUT
 
       # ── Step 2: team_name extraction → club_name ──────────
@@ -188,7 +188,7 @@ jobs:
 
           python scripts/extract_missing_club_names.py $DRY_FLAG $LIMIT_FLAG 2>&1 | tee logs/step2_extract_club.log
 
-          UPDATED=$(grep -oP '^Updated: \K[\d,]+' logs/step2_extract_club.log | tr -d ',' || echo "0")
+          UPDATED=$(grep -oP '^(?:Would update|Updated): \K[\d,]+' logs/step2_extract_club.log | tr -d ',' || echo "0")
           echo "club_extracted=${UPDATED:-0}" >> $GITHUB_OUTPUT
 
       # ── Step 3: Club Name Standardization ─────────────────

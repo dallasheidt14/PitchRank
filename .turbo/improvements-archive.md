@@ -385,3 +385,27 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: It never sets `response.encoding`, and GotSport declares no charset — verified 2026-09-05, none of the 55 fixture pages under `tests/fixtures/gotsport/` carries a `<meta charset>` while 53 hold non-ASCII including Arabic. `requests` then falls back to ISO-8859-1 for `text/*`, so accented and non-Latin text on the event landing page decodes to mojibake. This is the same defect fixed in `gotsport_event_roster._fetch_once`, and the fix is that same line: when the content-type carries no charset, set `response.encoding = "utf-8"` before anything reads `.text`. Lower impact than the roster case (the landing page yields event metadata, not the team names matching depends on), but it is the only other GotSport HTML fetch site. Found during a skill review; left out of that change because it was documentation-only.
 - **Noted**: 2026-09-05
 - **Refs**: `fix/due-diligence-in-batch-size` — `_fetch_event_page` sets `response.encoding = "utf-8"` when the content-type carries no charset, the same line and reasoning as `gotsport_event_roster._fetch_once`.
+
+
+### Silence the false "SUPABASE_KEY is not set" warning in ranking runs
+
+- **ID**: IMP-107
+- **Status**: done
+- **Type**: direct
+- **Category**: dx
+- **Where**: startup logging in the calculate-rankings path (module logs "SUPABASE_KEY is not set — database calls will fail" while the run proceeds on SUPABASE_SERVICE_ROLE_KEY)
+- **Why**: Every weekly run log opens with a scary false warning, training readers to ignore real credential errors. Accept SUPABASE_SERVICE_ROLE_KEY as satisfying the check.
+- **Noted**: 2026-08-24
+- **Refs**: `fix/dry-run-labels-and-key-warning` — `config/settings.py` warns only when BOTH `SUPABASE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are absent. The documented entry points read the service-role key and never the anon one, so the old check warned on every ranking run.
+
+
+### A dry run of the club/state chain reports "Updated: N", which reads as a live write
+
+- **ID**: IMP-140
+- **Status**: done
+- **Type**: direct
+- **Category**: readability
+- **Where**: `scripts/backfill_missing_club_names.py:404`, `scripts/extract_missing_club_names.py` (same summary line)
+- **Why**: With `dry_run=true` these steps print `Updated: 43` / `Updated: 57`, identical to a live run. The writes really are skipped (`if args.dry_run: ... continue` at :344 and :387, before the `.update()`), and `Mode: DRY-RUN` appears earlier in the step, but the summary line is what the workflow's Pipeline Summary greps and surfaces. Steps 0, 3 and 4 already label theirs correctly ("DRY RUN - no changes were made", "[DRY RUN] Would apply 285 club name fixes"). Verifying that nothing had been written on run 33235368592 took reading both scripts, which is the cost this imposes every time. Fix is a mode-aware label: `log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")`.
+- **Noted**: 2026-08-29
+- **Refs**: `fix/dry-run-labels-and-key-warning` — both summary lines are now `{'Would update' if args.dry_run else 'Updated'}`, and the two greps in `update-missing-club-and-state.yml` that consume them were widened to `^(?:Would update|Updated):` so the count still reaches the Pipeline Summary in dry-run mode.

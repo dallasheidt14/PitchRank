@@ -401,7 +401,7 @@ def main() -> None:
 
     log("")
     log("=== Summary ===")
-    log(f"Updated: {updated:,}")
+    log(f"{'Would update' if args.dry_run else 'Updated'}: {updated:,}")
     log(f"Skipped (GotSport says no club): {skipped_no_club:,}")
     log(f"Skipped (API/DB error): {skipped_error:,}")
 

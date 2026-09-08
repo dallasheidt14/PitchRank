@@ -277,8 +277,15 @@ _settings_logger = _logging.getLogger(__name__)
 if not USE_LOCAL_SUPABASE:
     if not SUPABASE_URL:
         _settings_logger.warning("SUPABASE_URL is not set — database calls will fail")
-    if not SUPABASE_KEY:
-        _settings_logger.warning("SUPABASE_KEY is not set — database calls will fail")
+    # Either key authenticates. The documented entry points (calculate_rankings,
+    # drain_queue, scrape_games, import_games_enhanced) read the service-role key
+    # and never SUPABASE_KEY, so warning on the anon key alone opened every weekly
+    # ranking run with a credential error that was not true — which is how a real
+    # one would go unread.
+    if not SUPABASE_KEY and not SUPABASE_SERVICE_ROLE_KEY:
+        _settings_logger.warning(
+            "Neither SUPABASE_KEY nor SUPABASE_SERVICE_ROLE_KEY is set — database calls will fail"
+        )
 
 # Validate ranking weights sum to 1.0
 # Note: PERF_BLEND_WEIGHT is applied additively on top of this sum,
