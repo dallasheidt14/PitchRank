@@ -1018,16 +1018,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Supabase's Claude Code docs prescribe `https://mcp.supabase.com/mcp` (`read_only=true`, `project_ref`) over the npx stdio package, removing the account-wide PAT — which `--read-only`/`--project-ref` do not constrain — and the local `npx -y` execution surface. Costs a browser login per machine/worktree, and headless/CI runs would still need a token, so stdio + PAT stays the default.
 - **Noted**: 2026-08-24
 
-### Infographics Biggest Movers generator fabricates rank changes
-
-- **ID**: IMP-114
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `frontend/components/infographics/rankingMoversRenderer.ts:247`, call sites in `frontend/app/infographics/page.tsx`
-- **Why**: `generateMoverData` fills `change` with `Math.floor(Math.random()*15)-7`, so downloaded social graphics name real teams with invented rank changes; the rows already carry real `rank_change_7d/30d` and `/api/infographic/movers` shows the correct pattern. Violates the no-fabricated-data rule.
-- **Noted**: 2026-08-24
-
 ### Decide whether all movers surfaces adopt the homepage's stricter definition
 
 - **ID**: IMP-115
