@@ -314,6 +314,19 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-27
 - **Refs**: `fix/backfill-total-game-stats-paged` — new keyset-paged `backfill_total_game_stats_page` (migration `20260907120000`), walked by `calculate_rankings._backfill_total_game_stats` with per-page retry. The diagnosis held: measured 2026-09-07, 13,159 of 139,837 ranked teams (9.4%) disagreed with a live recount and 32,972 played games were missing. The new function also resolves `team_merge_map`, which the old one did not, and excludes the 985 games a merge put on both endpoints of one team.
 
+### Fold U18 to u19 in the pasted-roster heading parser
+
+- **ID**: IMP-172
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/roster_paste.py` `_parse_heading`
+- **Why**: A `Male U18` heading resolves to `u18`, and PitchRank holds zero `u18` teams — verified 2026-09-04 by calling `parse_roster` directly. Every U18 division pasted into the Seeding tab then resolves against an empty cohort: `make_exact_name_lookup` filters `.eq("age_group","u18")` and matches nothing, and `build_search_params` sends `search[age]=18` upstream. The package already owns the correct fold at `seeding_optimizer.normalize_age_group`, which `event_team_matcher` imports; `gotsport_event_roster.resolve_cohort` folds correctly too, so the two seeding intake paths currently disagree. Shipped in PR #1081. Same U18-has-no-rows root cause as "Make U18-named queue entries matchable after the age rollover" above, different code path. User decision 2026-09-04: own PR, not mixed into the event-scraper branch.
+- **Noted**: 2026-09-04
+- **Refs**: `fix/roster-paste-u18-fold` — `_parse_heading` now calls `seeding_optimizer.normalize_age_group`, the fold the package already owned, rather than formatting the digits itself. Three regression tests; reverting the call fails two.
+- **Update (2026-09-07)**: The "Shipped in PR #1081" claim in the text above is **wrong** — verified live, `_parse_heading('Male U18')` still returns `('u18', 'Male')` and `roster_paste.py` contains no U18 fold. Whatever #1081 shipped, it was not this. Still open.
+
+
 ### data-hygiene Step 1b goes red when its grep finds nothing
 
 - **ID**: IMP-133
