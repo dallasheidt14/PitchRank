@@ -139,6 +139,7 @@ class _FakeSt:
         self.buttons: list[dict[str, Any]] = []
         self.metrics: list[tuple[str, Any]] = []
         self.downloads: list[str] = []
+        self.download_payloads: list[Any] = []
         self.dataframes = 0
         self.reruns = 0
         self._button_returns = buttons or {}
@@ -193,8 +194,12 @@ class _FakeSt:
     def dataframe(self, *_a: Any, **_kw: Any) -> None:
         self.dataframes += 1
 
-    def download_button(self, label: str, **_kw: Any) -> bool:
+    def download_button(self, label: str, **kw: Any) -> bool:
+        # Captures `data`, not just the label: the bytes are what the operator
+        # opens in a spreadsheet, so a guard applied at the export boundary is
+        # only observable here.
         self.downloads.append(str(label))
+        self.download_payloads.append(kw.get("data"))
         return False
 
     def button_by_key(self, key: str) -> dict[str, Any]:
