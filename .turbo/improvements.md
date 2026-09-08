@@ -1188,16 +1188,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `DISTINCTION_UPDATED=$(grep -oP ... | tail -1)` sits inside the step's `set -o pipefail` region. Actions runs `run:` under `bash -e`, so a no-match grep exits 1, the pipeline takes that status, and the step ends at the assignment — the `${DISTINCTION_UPDATED:-0}` on the next line never executes and the `$GITHUB_OUTPUT` write is skipped. The step's own comment argues for that default over `|| echo 0`, which is right about `tail` but does not survive pipefail. So a run whose backfill succeeded reports failure whenever the summary line is absent. Found by the new `pipefail-substitution` check in `review-workflows`; fix is `|| true` inside the substitution, as `refresh-team-scrape-activity.yml` now does.
 - **Noted**: 2026-08-27
 
-### `fetch_teams` pages without `.order()`, silently dropping ~16% of every cohort
-
-- **ID**: IMP-134
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/find_fuzzy_duplicate_teams.py:197-225`
-- **Why**: The paginated fetch pulls 1,000 rows at a time with no `.order()` clause. PostgREST does not guarantee a stable row order across pages without one, so each cohort scan silently drops and duplicates part of its own input. Reproduced on `u19`: an ordered pass returns 26,756 distinct rows, an unordered one 22,508 — 16% never fetched. Those teams are not skipped by a rule, they never arrive, so they appear in no count, no verdict and no report, and the loss is invisible from the output. Every per-cohort figure the duplicate pipeline produces is therefore a floor. Fix is `.order("team_id_master")`; sweep the other paginated fetches for the same gap while there. Found while building `scripts/check_merge_skill_assumptions.py`, whose own figures disagreed until the clause was added.
-- **Noted**: 2026-08-27
-
 ### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
 
 - **ID**: IMP-136
