@@ -45,6 +45,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 
+IN_BATCH = 100  # URI length caps .in_() lists
+
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
     """Execute a Supabase query with exponential backoff on transient HTTP errors."""
@@ -394,10 +396,10 @@ def main() -> None:
         if known_team_ids:
             unique_ids = list(dict.fromkeys(known_team_ids))
             cohort_rows = []
-            for i in range(0, len(unique_ids), 500):
+            for i in range(0, len(unique_ids), IN_BATCH):
                 cohort_rows.extend(
                     _execute_with_retry(
-                        lambda batch=unique_ids[i : i + 500]: (
+                        lambda batch=unique_ids[i : i + IN_BATCH]: (
                             supabase.table("teams")
                             .select("team_id_master,age_group,gender")
                             .in_("team_id_master", batch)
