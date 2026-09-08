@@ -2,9 +2,11 @@ import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { teamDisplayName } from '@/lib/utils';
 
+export type MoverRow = RankingRow & { change: number; rank?: number };
+
 interface RankingMoversOptions {
-  climbers: Array<RankingRow & { change: number; rank?: number }>;
-  fallers: Array<RankingRow & { change: number; rank?: number }>;
+  climbers: MoverRow[];
+  fallers: MoverRow[];
   platform: Platform;
   ageGroup: string;
   gender: 'M' | 'F';
@@ -234,18 +236,26 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-// Generate mock mover data from rankings (for demo)
+/**
+ * Split rankings into the five biggest climbers and five biggest fallers.
+ *
+ * Reads the stored `rank_change_7d` the ranking run computes. It deliberately does
+ * not reuse `selectTopMovers` from `@/lib/movers`: that applies the homepage's
+ * stricter top-500 band and played-in-window filters, and whether every movers
+ * surface should adopt them is an open product question (IMP-115). Answering it
+ * here would decide it for the social graphics alone.
+ */
 export function generateMoverData(rankings: RankingRow[]): {
-  climbers: Array<RankingRow & { change: number }>;
-  fallers: Array<RankingRow & { change: number }>;
+  climbers: MoverRow[];
+  fallers: MoverRow[];
 } {
-  // In real implementation, you'd compare with previous week's data
-  // For now, generate random but realistic changes
-  const withChanges = rankings.map((team, i) => ({
-    ...team,
-    rank: i + 1,
-    change: Math.floor(Math.random() * 15) - 7, // -7 to +7
-  }));
+  const withChanges = rankings
+    .filter((team) => team.rank_change_7d !== null && team.rank_change_7d !== undefined)
+    .map((team) => ({
+      ...team,
+      rank: team.rank_in_cohort_final,
+      change: team.rank_change_7d as number,
+    }));
 
   const climbers = withChanges
     .filter((t) => t.change > 0)
