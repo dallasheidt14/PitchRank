@@ -1315,3 +1315,123 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-27
 - **Refs**: `imp-136-gender-word-boundaries`
 - **Update (2026-09-08)**: The byte-level claim holds, and understates the spread — six raw 0x08 bytes across three files: three in `team_name_utils.py` (two of them the escapes in `_GENDER_WORD`, one in a comment), one in the copy of that same comment in `scripts/_team_distinction.py`, and two in a comment in `frontend/lib/matchPredictor.ts`. All six are repaired here; only the `_GENDER_WORD` pair affected behaviour. The 2,953 figure does not: it came from a stand-in regex in `check_merge_skill_assumptions.py` that counts any `NN Boys/Girls` shape including the U-age forms the extractor strips before reading. That count now reads 4,531; the population the branch actually decides is **427** live rows. Fixing the escapes alone was not safe: it revived the branch onto U-age labels and derived a wrong year for 106 rows (`'U13/14 Girls'` → 2014, `'Under 10 Boys'` → 2010, `'U 17 Girls'` → 2017), which feeds `birth_years_conflict` in `game_matcher`, `modular11_matcher` and `decide_team_merges`, and `is_aged_out` in `retire_aged_out_teams.py`. So `_UAGE_TOKEN` now consumes a whole band label instead of its first half — which also removes 156 rows' pre-existing wrong years, where `_AFFIX_2` was reading the `/14B` remnant of `'GSA U13/14B Grey'` as 2014 (132 of the 156 disagreed with the row's own cohort by two bands or more). Measured over all 207,991 live names. `tests/unit/test_birth_years_guard.py` pins both halves and scans the source text of every `.py` file under `src/`, `scripts/` and `config/` for a control character — reflection over compiled patterns was tried first and rejected, because it cannot see a pattern held as a string, an inline literal in a function body, or a comment, and one of the six bytes was in a comment. `frontend/lib/` is outside the guard's reach. Eighteen mutations of the fix all redden it. Review also added `_FORMAT_TOKEN`, so a game format (`11v11`) is no longer read as a birth year, and it is stripped before the U-age pass rather than after.
+
+### Lift a chunking helper into src/utils/ instead of a seventh local copy
+
+- **ID**: IMP-171
+- **Status**: dropped
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/batch_drain_queue.py:_chunked`, `scripts/prepare_prospective_match_predictions.py:226`, `scripts/settle_prospective_match_predictions.py:69`, `scripts/import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `scripts/enqueue_user_interest_teams.py:80`, `scripts/find_regid_duplicate_merges.py:79`
+- **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
+- **Noted**: 2026-09-03
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Seven local chunk helpers, but the batching rule they share has not changed and the 100-id cap is documented where it is enforced. Rewiring unrelated scripts costs more verification than the duplication costs.
+
+### Give the event-roster CLI the same seeding intake as the app
+
+- **ID**: IMP-174
+- **Status**: dropped
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/scrape_event_roster.py` (the `roster.json` path in `main`), `src/tournaments/event_roster_intake.py`, `src/tournaments/seeding_run_store.py`
+- **Why**: The CLI still writes `reports/seeding/gotsport_<id>/roster.json` and nothing reads it — a grep over `*.py`, `*.md` and `*.yml` on 2026-09-05 finds only the writer. The Streamlit path now converts a walk into a seeding run instead, so a scrape started from the terminal produces an artifact the app cannot open while a scrape started from the app produces one the terminal cannot. The option not taken when wiring the UI: have the CLI call `to_seeding_rows` and the `SeedingRun` writer, so both entry points land in the same place. Deliberately left out to keep the UI change to one path.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Seeding intake parity between the CLI and the app, with no reported case of anyone wanting the CLI path.
+
+### Cancel the in-flight batch when an event walk is blocked
+
+- **ID**: IMP-175
+- **Status**: dropped
+- **Type**: direct
+- **Category**: cost
+- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
+- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. The entry's own measurement settles it: Executor.map cancels un-yielded futures, so only the in-flight batch is paid for. An explicit cancel adds nothing at current concurrency.
+
+### Fold the WAF-clearing fetch mode into the one GotSport event scraper
+
+- **ID**: IMP-177
+- **Status**: dropped
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `src/scrapers/gotsport.py:1466`, `src/tournaments/gotsport_event_roster.py` `EVENT_BASE`
+- **Why**: Both define the same `EVENT_BASE`, both walk `.../schedules?group=`, and they share no code. The newer one exists because the older meets an AWS WAF challenge on `/org_event/*` that only a JS-rendered proxied fetch clears. That is a fetch-layer difference, not a parsing one, so a single walker taking its fetcher as a parameter would leave one implementation to fix when GotSport's markup next moves. These two have already drifted once: IMP-173 records the charset fix that landed in the roster module's fetch and not in the other.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Folding the WAF fetch mode into one scraper is a tidiness move on a path that is not currently failing.
+
+### Carry a club name through the scraped seeding rows
+
+- **ID**: IMP-178
+- **Status**: dropped
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/event_roster_intake.py` `to_seeding_rows`, `tournament_intake.py` `_render_seeding_override`
+- **Why**: `EventRosterTeam` carries no club name, so every scraped row has `club_raw=""`: the results table's "Club" column is blank and the manual-override heading renders as a leading separator followed by the team name. This is legibility only — nothing in the seeding path matches on a club name, since `search_gotsport_teams` and `make_exact_name_lookup` both read the team name and cohort alone — but it is what an operator reads while deciding the rows the scrape could not link. The team page the walk already fetches for the rankings link is where a club name would come from, at no extra request.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Carrying a club name through scraped seeding rows is presentation polish on an operator-only screen.
+
+### Give the GotSport event walk one home for its tuned concurrency
+
+- **ID**: IMP-181
+- **Status**: dropped
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `tournament_intake.py` `_SEEDING_EVENT_WORKERS`, `scripts/scrape_event_roster.py`'s `--concurrency` default
+- **Why**: Both callers of `scrape_event_roster` pick 8 workers, independently. The scraper itself defaults `max_workers=1` deliberately — serial is the safe default for a caller that has not thought about it — so the 8 is a caller policy rather than a restatement of a module default, and there is nowhere it currently belongs: `gotsport_event_roster.py`'s module constants are all structural (URLs, regexes, headings), and `config/settings.py` carries no per-provider tuning of this kind. If GotSport tightens its WAF and the safe concurrency drops, both numbers have to move together with nothing linking them. Deciding the home is the work; the move itself is two lines.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. One home for the event walk's concurrency constant, which nothing is currently tuning.
+
+### Honour an injected Supabase client without also requiring the env vars
+
+- **ID**: IMP-182
+- **Status**: dropped
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/tournaments/event_roster_intake.py` `resolve_master_ids`
+- **Why**: The function takes `client_factory` so a caller can hand in a live client, and the Streamlit app does exactly that. But it still returns `({}, ["No Supabase credentials..."])` when `SUPABASE_URL` is absent, or when neither `SUPABASE_SERVICE_ROLE_KEY` nor `SUPABASE_KEY` is set, before `client_factory` is consulted — so an injected client is only honoured when env vars the caller does not own happen to be set. In the app this is masked because `config/settings.py` loads them at import, but a caller supplying its own client and no env would silently get name matching instead of the direct-id resolution the walk paid for. The guard exists for the CLI, which builds its client from those values; splitting the two paths would let the injected client stand on its own.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Only reachable by a caller that injects a client and has no env vars. Nothing in the repo does that, and config/settings.py loads them at import.
+
+### Give an ambiguous exact-name match candidates the operator can tell apart
+
+- **ID**: IMP-183
+- **Status**: dropped
+- **Type**: direct
+- **Category**: ux
+- **Where**: `src/tournaments/roster_resolver.py` `make_exact_name_lookup`, and the `len(local) > 1` branches in `resolve_row` and `event_roster_intake._relink_known_id`
+- **Why**: When a team name matches two live teams in one cohort, both branches build `candidates` as `{"team_id_master": id}` only, so `_seeding_candidate_label`'s `team_name or team_id_master` fallback renders the review card as a list of bare UUIDs — the operator cannot choose between them without looking each one up by hand. `make_exact_name_lookup` already selects `team_id_master,team_name` and discards the name on the way out, so the fix is in the shared lookup's return shape rather than in either caller; both would then match the richer shape `resolve_row` produces from a GotSport search hit. Left out of the event-intake change because the two callers are consistent with each other today and changing `ExactNameLookup`'s contract touches the pasted path as well.
+- **Noted**: 2026-09-05
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Better candidate disambiguation on an operator screen where the operator can already open both rows.
+
+### v53e sets four `total_*` columns that the rankings_full adapter then drops
+
+- **ID**: IMP-196
+- **Status**: dropped
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/etl/v53e.py` (the `teams["total_games_played"] = teams["gp"]` block and its three siblings), against `v53e_to_rankings_full_format`'s `expected_columns` list in `src/rankings/data_adapter.py`
+- **Why**: v53e copies the CAPPED engine `gp`/`wins`/`losses`/`draws` onto `total_games_played`/`total_wins`/`total_losses`/`total_draws`, which reads as a writer of the four uncapped columns. It is not one: `v53e_to_rankings_full_format` builds its payload from an explicit `expected_columns` allowlist, and `total_` appears nowhere in `src/rankings/data_adapter.py`, so all four are dropped before the upsert. Verified 2026-09-07. So this is a dead assignment rather than a correctness risk -- but it is dead code that looks exactly like a third writer competing with `backfill_total_game_stats_page`, which is how it was first reported. Delete the four lines, or comment them with the reason they cannot reach the database.
+- **Noted**: 2026-09-07
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Four dead assignments the adapter drops before the upsert. Verified as having no path to the database, so this is reading comfort.
+
+### Two regexes detect pipefail-substitution, and the newer one is the weaker
+
+- **ID**: IMP-198
+- **Status**: dropped
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_PIPEFAIL` in `tests/unit/test_workflow_pipefail_substitutions.py` and `PIPEFAIL_ENABLE` in `.claude/skills/review-workflows/scripts/audit_workflows.py`
+- **Why**: Both decide whether a workflow step has enabled `pipefail`, over the same files, for the same defect. The skill's has been correct from the start; the test's first draft matched only the literal `set -o pipefail` and silently skipped three workflows using `set -euo pipefail` / `set -uo pipefail` until a reviewer caught it. Verified 2026-09-08 by reading both. Nothing links them, so the next spelling has to be added twice. Importing across the boundary is not the repo's habit -- no test imports from `.claude/skills/` -- so the realistic fix is a cross-reference in each, naming the other as the sibling to update. Noted while closing IMP-133.
+- **Noted**: 2026-09-08
+- **Refs**: backlog triage 2026-09-08; no code change
+- **Update (2026-09-08)**: Closed as dropped in a review of everything noted in the preceding seven days. Both detectors are correct today; the weaker one was already fixed. What is left is a cross-reference comment to slow future drift.
