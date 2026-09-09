@@ -596,10 +596,13 @@ predict on. `weekly-prospective-settle-evaluate.yml` still runs on its own cron 
 unaffected — it settles predictions already recorded.
 
 **A green event-scrape step is not evidence that fixtures were found.**
-`scrape_games_from_schedule_pages` catches a 403 or a CAPTCHA, logs one line and returns
-an empty list, and the workflow step only checks that a JSONL exists, not that it has
-rows. That is how a missing `ZENROWS_API_KEY` produced four months of green scrape steps
-finding nothing, hidden behind the artifact failure downstream.
+`scrape_games_from_schedule_pages` catches a 403 — and any other unexpected error — logs
+one line and returns an empty list, and the workflow step only checks that a JSONL exists,
+not that it has rows. That is how a missing `ZENROWS_API_KEY` produced four months of green
+scrape steps finding nothing, hidden behind the artifact failure downstream. A CAPTCHA is
+the exception rather than an example: `except EventCaptchaGatedError: raise` re-raises it
+deliberately, so the event is not marked scraped and its artifact survives. Anyone "fixing"
+that by making the CAPTCHA re-raise will find it already does.
 `tests/unit/test_gotsport_event_scrape_zenrows_coverage.py` now pins the key onto every
 workflow step that runs an event-page script, deriving the script list rather than
 listing it.

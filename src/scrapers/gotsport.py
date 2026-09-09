@@ -36,6 +36,7 @@ except ImportError:
 from src.base import GameData
 from src.scrapers._age_normalization import normalize_age
 from src.scrapers._http import RateLimitedError
+from src.scrapers._zenrows import ENDPOINT as _ZENROWS_ENDPOINT
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
 from src.scrapers.gotsport_tier_parser import (
@@ -1427,6 +1428,34 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
     return brackets
 
 
+# GotSport answers an unrendered event-page request with a reCAPTCHA v2. Measured
+# 2026-09-09 against event 51783 an hour apart: `js_render=false` with no
+# `wait_for` returned the challenge, and rendering plus a selector returned 200
+# with all 58 divisions. The challenge completes a proof-of-work in JavaScript
+# and then rebuilds the page, so what gets through is running the script and
+# waiting for an element only the finished page has.
+_EVENT_PAGE_READY = 'a[href*="group="]'
+_SCHEDULE_READY = "table"
+
+# ZenRows' own failure statuses, which the same URL routinely survives — a 422
+# means the `wait_for` selector missed its render budget. A target's status is a
+# settled answer and is never retried, because every attempt is billed.
+_ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
+_ZENROWS_RENDER_ATTEMPTS = 3
+
+# Above the vendor's 180s `wait_for` ceiling, deliberately. `requests` counts its
+# timeout as silence between bytes, so a client budget at the ceiling aborts just
+# as the 422 arrives. Read from its own variable rather than GOTSPORT_TIMEOUT,
+# which several workflows pin to 12s for the unrendered API calls — a render on
+# that budget dies mid-flight and is indistinguishable from a live challenge.
+_RENDER_TIMEOUT_DEFAULT = "240"
+
+
+def _render_wait_for(url: str) -> str:
+    """The element that only exists once this page has finished rebuilding."""
+    return _SCHEDULE_READY if "/schedules" in url else _EVENT_PAGE_READY
+
+
 class GotsportScraper(ProviderScraper):
     """ProviderScraper implementation for gotsport.com event/tournament intake.
 
@@ -1490,12 +1519,16 @@ class GotsportScraper(ProviderScraper):
         self.delay_max = float(os.getenv("GOTSPORT_DELAY_MAX", "0.3"))
         self.max_retries = int(os.getenv("GOTSPORT_MAX_RETRIES", "2"))
         self.timeout = int(os.getenv("GOTSPORT_TIMEOUT", "15"))
+        # Event pages are rendered, and a render is measured in minutes rather
+        # than the seconds `timeout` allows. Kept separate so a workflow tuning
+        # the API timeout down cannot starve one.
+        self.render_timeout = int(os.getenv("GOTSPORT_RENDER_TIMEOUT", _RENDER_TIMEOUT_DEFAULT))
         self.retry_delay = float(os.getenv("GOTSPORT_RETRY_DELAY", "0.5"))
 
         # ZenRows configuration (optional). Mirrors src/scrapers/gotsport.py:56.
         # When ZENROWS_API_KEY is set, event-URL fetches route through ZenRows'
-        # residential proxy to sidestep gotsport's domain-level UA/IP detection.
-        # Does NOT solve gotsport's per-event reCAPTCHA challenges — those are
+        # residential proxy and its renderer, which together clear the reCAPTCHA
+        # gotsport serves on event pages. A challenge that still gets through is
         # detected and surfaced via EventCaptchaGatedError.
         self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
         self.use_zenrows = bool(self.zenrows_api_key)
@@ -1587,22 +1620,50 @@ class GotsportScraper(ProviderScraper):
         return session
 
     def _make_zenrows_request(self, url: str) -> requests.Response:
-        """Route a GET through ZenRows' residential proxy.
+        """Route an event-page GET through ZenRows' proxy *and* its renderer.
 
-        Mirrors src/scrapers/gotsport.py:333-350. `js_render=false` +
-        `premium_proxy=true` is the cheapest mode that bypasses gotsport's
-        domain-level IP/UA reputation checks. CAPTCHA'd events still come
-        back as CAPTCHA pages — detection happens in _fetch_event_page.
+        Rendering is not a tier choice here. The cheaper unrendered mode this
+        used to send returns a reCAPTCHA v2 rather than the page, so it buys
+        nothing at any price: measured 2026-09-09 against event 51783, an hour
+        apart, unrendered got the challenge and rendered got 200 with all 58
+        divisions. Both the residential proxy and the renderer are needed, and
+        so is `wait_for` — the challenge rebuilds the DOM in JavaScript, and a
+        fetch that returns before that finishes carries none of the event's
+        links. Costs 25 credits against the 10 the unrendered proxy billed.
+
+        Retries only ZenRows' own failures, and only a bounded number of times,
+        because every attempt is billed. A target's status is a settled answer:
+        it is returned as-is for the caller to judge, which is what keeps
+        `_fetch_event_page`'s captcha detection ahead of any HTTP-error
+        short-circuit.
         """
-        zenrows_url = "https://api.zenrows.com/v1/"
         zenrows_params = {
             "apikey": self.zenrows_api_key,
             "url": url,
-            "js_render": "false",
+            "js_render": "true",
             "premium_proxy": "true",
             "proxy_country": "us",
+            "original_status": "true",
+            "wait_for": _render_wait_for(url),
         }
-        return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+
+        response = None
+        for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
+            response = self.session.get(
+                _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
+            )
+            if response.status_code not in _ZENROWS_SIDE_STATUSES:
+                return response
+            if attempt + 1 < _ZENROWS_RENDER_ATTEMPTS:
+                logger.warning(
+                    "ZenRows answered %s for %s (attempt %s/%s); retrying",
+                    response.status_code,
+                    url,
+                    attempt + 1,
+                    _ZENROWS_RENDER_ATTEMPTS,
+                )
+                time.sleep(self.retry_delay * (attempt + 1))
+        return response
 
     def _fetch_json_via_zenrows(self, url: str, *, timeout: Optional[int] = None) -> requests.Response:
         """Route a JSON GET through ZenRows when configured, else direct session.
