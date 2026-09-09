@@ -109,6 +109,15 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   red. After shipping a fix to a scheduled job, confirm from the data it should have
   changed — re-derive the figure the step exists to produce and compare — rather than
   from the run log.
+- **Reverting a whole fix is the weak mutation check; revert each half of a
+  multi-part guard on its own.** Two `.not(...)` filters, a compound `if`, an
+  `and`-joined predicate: a fixture that violates *both* conjuncts at once still
+  dies when either one survives, so the suite stays green with half the guard
+  deleted. A scheduled game carrying two null scores cannot tell the `home_score`
+  guard from the `away_score` one, and a test built on it passed with its own fix
+  reverted -- written after the double rules above had been read, and missed by a
+  seven-reviewer pass. Give the fixture one row per conjunct, each violating
+  exactly one, and mutate the guard a line at a time rather than a hunk at a time.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -428,7 +437,9 @@ Games (Supabase; 365-day window + 28-day grace taper)
 ### Supabase Patterns
 
 ```python
-# Pagination (1000-row limit)
+# Pagination. The cap is PostgREST's db-max-rows, measured at 200,000 on
+# 2026-09-09 (an unbounded select returned exactly that, content-range 0-199999).
+# Page anyway: it bounds memory, and a scan wider than the cap truncates silently.
 supabase.table('games').select('*').range(offset, offset + 999).execute()
 
 # Batch queries (100-ID limit for URI length). games.home_team_master_id /
@@ -855,7 +866,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 ### Python
 
 - Use `async/await` for Supabase operations
-- Supabase pagination: always handle the 1000-row limit
+- Supabase pagination: page every scan that can grow (see the cap note under Common Pitfalls)
 - Team IDs are UUIDs — never use integer IDs
 - Game records are **immutable** — never update, only quarantine bad data
 - Use `MergeResolver` for any team ID lookup (handles deprecated teams)
@@ -913,7 +924,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 
 ## Common Pitfalls
 
-1. **Supabase 1000-row limit** — Always paginate queries; a single `.select()` returns max 1000 rows
+1. **Supabase row cap is 200,000, not 1,000** — an unbounded `.select()` on `games` returned exactly 200,000 rows on 2026-09-09 (`content-range: 0-199999/*`), and explicit limits below that are honoured. The old "1000" figure in this file was wrong and produced a false review finding: a reviewer deduced silent truncation that measurement disproved. Still paginate any scan that can grow — the cap is real, just two orders of magnitude higher — and never diagnose missing rows as "hit the 1000 limit" without checking `content-range`
 2. **Team merge resolution** — Always apply `MergeResolver` before processing team IDs; deprecated teams must map to canonical
 3. **Game immutability** — Never UPDATE a game row; quarantine bad data instead
 4. **Age/birth year confusion** — `14B` = birth year 2014 = **U13** in 2026-27, not U14
