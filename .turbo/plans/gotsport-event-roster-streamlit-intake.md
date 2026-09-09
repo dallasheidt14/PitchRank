@@ -56,6 +56,12 @@ Resolved with the operator:
    old run over the new scrape. Not saving automatically removes all four, because none of the
    naming, overwrite-protection or run-mode machinery is needed. The cost is one extra click and
    that an unsaved scrape is lost if the tab closes — accepted deliberately.
+
+   **Correction (2026-09-09).** The second half of that cost no longer holds. The walk was already
+   written to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write, but
+   nothing read it back, so from the operator's seat an interrupted or closed scrape was gone.
+   `_render_recovered_walk` now offers it back for free whenever the file holds more teams than the
+   tab does. The decision itself stands: saving a *named* run is still a deliberate press.
 5. **Progress is a spinner, not a bar.** See step 5.
 
 ## Pattern Survey
@@ -398,8 +404,12 @@ Resolved with the operator:
   `https://system.gotsport.com/org_event/events/52975`, press *Check 2 divisions*. Expect: a
   spinner while it runs, two divisions reported with a cost range, teams in the table with
   `gotsport_id` status on those carrying a provider id, and the full-run button becoming enabled.
-  Confirm **no** file appears under `reports/seeding/`. Then type a name, press Save, and confirm
-  the run appears in the Reopen dropdown.
+  Confirm **no named run** appears in the Reopen dropdown. A `last_walk.json` under
+  `reports/seeding/gotsport_<id>/` is expected and must be left alone — since 2026-09-09 it is what
+  the *Load the walk already paid for* button reads back, so deleting it throws away a paid walk.
+  Then type a name, press Save, and confirm the run appears in the Reopen dropdown.
+  Reload the page mid-probe and confirm the reload button offers the walk back rather than the tab
+  going blank.
 - Then run the full event and confirm it replaces the table without touching the saved probe.
 - Spot-check that a division whose label did not parse still contributes its teams, with the blank
   cohort counted in a warning rather than the division missing.

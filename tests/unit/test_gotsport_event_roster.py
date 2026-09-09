@@ -30,9 +30,11 @@ from src.tournaments.gotsport_event_roster import (
     event_id_from,
     make_zenrows_fetcher,
     names_cohort_outside,
+    names_no_gender,
     parse_division_label,
     parse_group_ids,
     parse_group_teams,
+    parse_header_gender,
     parse_provider_team_id,
     printable_text,
     resolve_cohort,
@@ -86,6 +88,57 @@ CAPTURED_LABEL_COHORTS = {
     'U17 Boys Reyna': ('u17', 'Male'),
     'U17 Red': ('u17', ''),
     'U19 Gold': ('u19', ''),
+}
+
+# The same corpus read as pages rather than as labels, which is the only way to
+# see a gender the Division cell omits and the page header states. Snapshotted
+# 2026-09-09. Every captured page is pinned, including the two synthetic
+# collision pages that yield no team: dropping a page for yielding nothing is
+# how a parser regression would leave both corpus assertions satisfied.
+NO_TEAMS = ("<no teams>", "<no teams>")
+
+CAPTURED_PAGE_COHORTS = {
+    '42433__group_365847': ('u13', 'Male'),
+    '42433__group_365849': ('u13', 'Male'),
+    '42433__group_365850': ('u13', 'Male'),
+    '44692__group_391315': ('u12', 'Male'),
+    '44692__group_391318': ('u13', 'Male'),
+    '44692__group_474710': ('u13', 'Male'),
+    '45394__group_469715': ('u10', ''),
+    '45394__group_469721': ('u14', 'Male'),
+    '45394__group_469726': ('u19', 'Male'),
+    '46103__group_478925': ('u10', 'Male'),
+    '46103__group_478952': ('u17', 'Male'),
+    '46103__group_479440': ('u11', 'Female'),
+    '46958__group_409815': ('u10', 'Male'),
+    '46958__group_409827': ('u12', 'Male'),
+    '46958__group_409838': ('u15', 'Male'),
+    '49371__group_485294': ('u19', 'Male'),
+    '49371__group_485295': ('u17', 'Male'),
+    '49371__group_485296': ('u16', 'Male'),
+    '49371__group_485297': ('u15', 'Male'),
+    '49371__group_485298': ('u15', 'Male'),
+    '49371__group_485299': ('u14', 'Male'),
+    '49371__group_485300': ('u13', 'Male'),
+    '49371__group_485301': ('u12', 'Male'),
+    '49371__group_485425': ('u12', 'Male'),
+    '49371__group_485434': ('u11', 'Male'),
+    '49371__group_485435': ('u11', 'Male'),
+    '49371__group_485436': ('u10', 'Male'),
+    '49371__group_485439': ('u15', 'Female'),
+    '49371__group_485440': ('u13', 'Female'),
+    '49371__group_485441': ('u11', 'Female'),
+    '49371__group_485442': ('u10', 'Female'),
+    '49371__group_485444': ('u13', 'Male'),
+    '49371__group_485513': ('u12', 'Female'),
+    '49407__group_436891': ('u11', 'Male'),
+    '49407__group_436907': ('u14', 'Male'),
+    '49407__group_436924': ('', 'Male'),
+    '50469__group_477680': ('u13', 'Male'),
+    '50469__group_477685': ('u15', 'Male'),
+    '50469__group_477692': ('u17', 'Male'),
+    'synthetic_inverse_collision__group_1001': NO_TEAMS,
+    'synthetic_inverse_collision__group_1002': NO_TEAMS,
 }
 DIVISION = "U11 Boys Gold"
 
@@ -318,6 +371,28 @@ class TestPageParsers:
 
     def test_group_page_without_a_division_column_yields_no_label(self):
         assert parse_division_label("<html><body><table></table></body></html>") == ""
+
+    def test_group_page_yields_the_gender_its_header_states(self):
+        page = "<html><body><div class='lead no-margin-bottom'> Male U14 - U14 Gold </div></body></html>"
+
+        assert parse_header_gender(page) == "Male"
+
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "Coed U10 - U10 Blue",   # names none
+            "Boys/Girls U10 - Gold",  # names both
+            "U14 Gold",               # no gender anywhere
+        ],
+    )
+    def test_a_header_naming_no_single_gender_yields_nothing(self, header):
+        page = f"<html><body><div class='lead'> {header} </div></body></html>"
+
+        assert parse_header_gender(page) == ""
+
+    def test_a_page_with_no_header_yields_no_gender(self):
+        assert parse_header_gender("<html><body><table></table></body></html>") == ""
+        assert parse_header_gender("") == ""
 
     def test_a_seven_column_standings_table_cannot_supply_the_label(self):
         html = (
@@ -1565,6 +1640,108 @@ class TestDivisionLabelHeaderFallback:
         )
 
 
+class TestDivisionGenderFallsBackToTheHeader:
+    """Which of the two sources on a division page names its gender.
+
+    The reasoning is on ``parse_header_gender``; these pin the precedence.
+    """
+
+    def _page(self, label: str, header: str) -> str:
+        return _group_html(label, [("4205984", "Phoenix Rising FC")]).replace(
+            "<html><body>",
+            f"<html><body><div class='lead'> {header} </div>",
+        )
+
+    def _walk(self, page: str) -> list[tuple[str, str]]:
+        pages = {
+            "/org_event/events/52975": _landing_html(["483088"]),
+            "schedules?group=483088": page,
+            "schedules?team=4205984": _team_html("521426"),
+        }
+        roster = scrape_event_roster("52975", fetch=_fetch_for(pages))
+        return [(team.age_group, team.gender) for team in roster.teams]
+
+    def test_a_label_naming_no_gender_takes_the_headers(self):
+        assert self._walk(self._page("U14 Gold", "Male U14 - U14 Gold")) == [("u14", "Male")]
+
+    def test_the_header_supplies_the_gender_and_never_the_age(self):
+        assert self._walk(self._page("U14 Gold", "Male U13 - U14 Gold")) == [("u14", "Male")], (
+            "the header's U-age is written in the season the event ran; the label's is not"
+        )
+
+    def test_the_label_wins_when_the_two_disagree(self):
+        """No captured page disagrees, so only a written one can pin the precedence.
+
+        Without it ``label or header`` and ``header or label`` are the same
+        function for every input the corpus has.
+        """
+        assert self._walk(self._page("U14 Boys Gold", "Female U14 - U14 Girls Gold")) == [
+            ("u14", "Male")
+        ]
+
+    def test_a_label_naming_both_genders_is_not_overruled_by_the_header(self):
+        assert self._walk(self._page("Boys/Girls U10", "Male U10 - Gold")) == [("u10", "")]
+
+    def test_a_header_naming_no_single_gender_leaves_it_unset(self):
+        assert self._walk(self._page("U10 Blue", "Coed U10 - U10 Blue")) == [("u10", "")]
+
+    def _captured_cohorts(self) -> dict[str, tuple[str, str]]:
+        """What the walk makes of every captured group page, teams or not.
+
+        Every page is admitted, including the two that yield none. Keying this on
+        the walker's own output would let a fixture whose team table the walker
+        stopped recognizing drop silently out of both assertions below.
+        """
+        cohorts: dict[str, tuple[str, str]] = {}
+        for path in sorted(FIXTURES.glob("event_*__group_*.html")):
+            html = path.read_text(encoding="utf-8", errors="ignore")
+
+            def fetch(url: str, _html: str = html) -> str:
+                if "schedules?group=" in url:
+                    return _html
+                if "schedules?team=" in url:
+                    return _team_html(None)
+                return _landing_html(["1"])
+
+            roster = scrape_event_roster("52975", fetch=fetch)
+            key = path.name[len("event_") : -len(".html")]
+            first = roster.teams[0] if roster.teams else None
+            cohorts[key] = (first.age_group, first.gender) if first else NO_TEAMS
+        return cohorts
+
+    def test_every_captured_page_resolves_to_its_pinned_cohort(self):
+        """Pinned per page, not per label.
+
+        The label table next door cannot see this rule at all: it is handed a
+        string, and the gender under test lives on the page the string came
+        from.
+        """
+        assert self._captured_cohorts() == CAPTURED_PAGE_COHORTS
+
+    def test_the_pinned_page_table_covers_every_captured_page(self):
+        cohorts = self._captured_cohorts()
+
+        captured = {
+            path.name[len("event_") : -len(".html")]
+            for path in FIXTURES.glob("event_*__group_*.html")
+        }
+
+        assert len(cohorts) >= 41, "the captured corpus shrank"
+        assert set(cohorts) == captured, "a captured page went unread"
+        assert set(cohorts) == set(CAPTURED_PAGE_COHORTS), (
+            "a fixture was added or removed; re-pin the table after checking each answer"
+        )
+
+    def test_only_the_two_synthetic_collision_pages_yield_no_teams(self):
+        """A real page that stops yielding teams is a parser regression, not a re-pin."""
+        empty = {key for key, cohort in self._captured_cohorts().items() if cohort == NO_TEAMS}
+
+        assert empty == {
+            "synthetic_inverse_collision__group_1001",
+            "synthetic_inverse_collision__group_1002",
+        }
+
+
 BOARDED = frozenset({"u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"})
 
 
@@ -1831,3 +2008,29 @@ class TestDivisionListIsCorroborated:
 
         assert roster.divisions_found == 57
         assert not roster.is_complete
+
+
+class TestNamesNoGender:
+    """The distinction ``resolve_cohort`` cannot make, which the header fallback needs."""
+
+    @pytest.mark.parametrize(
+        "label",
+        ["U14 Gold", "U13 Red", "U10 Blue", "Flight A", "", "2015 Gold"],
+    )
+    def test_a_label_stating_no_gender_leaves_the_question_open(self, label):
+        assert names_no_gender(label) is True
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "U14 Boys Gold",
+            "Girls U11 Silver",
+            "Boys/Girls U10",      # both, by word
+            "BU12/GU12",           # both, by letter
+            "B2015 Gold (9v9)",    # by the run's lead letter
+            "U12G (AUG 1, 2014 - JULY 31, 2015)",
+        ],
+    )
+    def test_a_label_that_named_a_gender_closes_it(self, label):
+        assert names_no_gender(label) is False
+

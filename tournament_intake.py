@@ -54,6 +54,7 @@ from src.tournaments.event_team_matcher import (
 )
 from src.tournaments.gotsport_event_roster import (
     EventRoster,
+    EventRosterTeam,
     WafChallengeError,
     event_id_from,
     make_zenrows_fetcher,
@@ -562,6 +563,7 @@ def _init_session_state() -> None:
         st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
     st.session_state.setdefault("_seeding_result", None)
+    st.session_state.setdefault("_seeding_result_event_id", None)
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
 
@@ -3554,7 +3556,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
     if not parsed.rows:
-        st.session_state._seeding_result = None
+        _park_seeding_result(None, event_id=None)
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
         return
 
@@ -3582,7 +3584,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
         progress.empty()
         session.close()
 
-    st.session_state._seeding_result = (parsed, resolved)
+    _park_seeding_result((parsed, resolved), event_id=None)
 
 
 def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: int | None) -> None:
@@ -3614,8 +3616,10 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
         return
 
     parked = 0
+    lock_key = event_key("gotsport", event_id, None)
     try:
-        with _acquire_scrape_lock(event_key("gotsport", event_id, None)):
+        with _acquire_scrape_lock(lock_key):
+            st.session_state._seeding_scrape_lock_key = lock_key
             st.session_state._scrape_in_progress = True
             try:
                 with st.spinner("Walking the event..."):
@@ -3629,6 +3633,7 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
                     parked = _park_event_roster(url, roster, limit_groups, supabase_client)
             finally:
                 st.session_state._scrape_in_progress = False
+                st.session_state._seeding_scrape_lock_key = None
     except _ScrapeLockContended:
         st.error("This event is already being scraped in another tab — wait for it to finish and reload.")
         return
@@ -3671,10 +3676,11 @@ def _park_event_roster(
     paid for, and only the roster is needed to redo the rest.
 
     That file is a crash artifact, not a saved run: it is keyed by event id, the
-    named-run store is untouched, and nothing reloads it automatically. Naming a
+    named-run store is untouched, and ``_render_recovered_walk`` offers it back
+    only when the operator asks and the tab holds less than it does. Naming a
     run and keeping it stays the operator's step.
     """
-    _write_event_roster_recovery(roster)
+    _write_event_roster_recovery(roster, limit_groups)
 
     master_ids, resolve_warnings = resolve_master_ids(
         roster.teams,
@@ -3705,11 +3711,11 @@ def _park_event_roster(
         # The probe above now describes this event while the table would still
         # hold the last one's teams, and an operator could save or queue those
         # under this event's name.
-        st.session_state._seeding_result = None
+        _park_seeding_result(None, event_id=None)
         st.session_state._seeding_resolution_failed = False
         return 0
 
-    st.session_state._seeding_result = (parsed, resolved)
+    _park_seeding_result((parsed, resolved), event_id=roster.event_id)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
@@ -3717,7 +3723,50 @@ def _park_event_roster(
     return len(parsed.rows)
 
 
-def _write_event_roster_recovery(roster: EventRoster) -> None:
+def _scrape_still_running() -> bool:
+    """Is the walk that set the in-progress flag still holding its lock?
+
+    Streamlit's default ``fastReruns`` stops the running script the moment the
+    operator touches a widget, and it raises that stop from the same
+    session-state write the walk's own ``finally`` uses to clear the flag — so
+    the flag cannot be trusted to be cleared. The lock is released either way,
+    being a context manager on the dying thread, which makes it the fact and the
+    flag only a note that one was taken. Unchecked, a flag nobody cleared
+    disables this whole tab until the session is thrown away.
+
+    The lock key lives in its own session entry rather than in the flag.
+    ``_scrape_in_progress`` is shared with the Backtest surface, which feeds it
+    straight to ``st.text_input(disabled=...)`` — a bool protobuf field that
+    raises ``TypeError`` on a string or ``None`` — so this walk keeps writing the
+    bool that surface expects. A walk of that surface's own leaves no key here
+    and is answered on its flag alone; a seeding walk killed mid-run leaves one,
+    and it is cleared the next time this tab renders rather than on the spot.
+
+    Probing takes the lock for real, which is a sub-millisecond window in which a
+    *second tab walking this same event* would be told the event is already being
+    scraped. That costs a retryable message before any page is bought, where
+    clearing the flag unconditionally would re-arm both paid buttons mid-walk.
+    """
+    if not st.session_state.get("_scrape_in_progress"):
+        return False
+    key = st.session_state.get("_seeding_scrape_lock_key")
+    if not isinstance(key, str):
+        return True
+    try:
+        with _acquire_scrape_lock(key):
+            pass
+    except _ScrapeLockContended:
+        return True
+    st.session_state._seeding_scrape_lock_key = None
+    st.session_state._scrape_in_progress = False
+    return False
+
+
+def _event_recovery_path(event_id: str) -> Path:
+    return reports_dir() / "seeding" / f"gotsport_{event_id}" / "last_walk.json"
+
+
+def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None = None) -> None:
     """Drop the walked roster where a lost run can be recovered from.
 
     Takes the roster rather than the converted pair so it can run before any of
@@ -3728,10 +3777,17 @@ def _write_event_roster_recovery(roster: EventRoster) -> None:
     the same path as a full walk, so without it two cheap divisions overwrite an
     event someone paid to walk in full.
 
+    Every counter ``is_complete`` reads is written, not just the two an operator
+    reads. It is a property over five of them, so a payload keeping only
+    ``found`` and ``walked`` rebuilds a walk that lost divisions as a whole one —
+    which tells the operator an event is finished with and locks the buttons that
+    would finish it. ``divisions_skipped`` is not one of the five and nothing
+    downstream reads it, so it is not persisted.
+
     Best-effort by construction: this exists to protect a paid artifact, so a
     failure to write it must not itself cost the walk.
     """
-    path = reports_dir() / "seeding" / f"gotsport_{roster.event_id}" / "last_walk.json"
+    path = _event_recovery_path(roster.event_id)
     if not roster.is_complete and _recovery_holds_a_complete_walk(path):
         logger.info("Kept the complete walk already at %s rather than this partial one", path)
         return
@@ -3742,8 +3798,12 @@ def _write_event_roster_recovery(roster: EventRoster) -> None:
                 "event_id": roster.event_id,
                 "walked_at": utc_now_iso(),
                 "is_complete": roster.is_complete,
+                "limit_groups": limit_groups,
                 "divisions_found": roster.divisions_found,
                 "divisions_walked": roster.divisions_walked,
+                "divisions_unreadable": roster.divisions_unreadable,
+                "divisions_stable": roster.divisions_stable,
+                "teams_unreadable": roster.teams_unreadable,
                 "warnings": list(roster.warnings),
                 "teams": [asdict(team) for team in roster.teams],
             },
@@ -3765,6 +3825,75 @@ def _recovery_holds_a_complete_walk(path: Path) -> bool:
     except (OSError, ValueError):
         return False
     return isinstance(existing, dict) and existing.get("is_complete") is True
+
+
+def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
+    """The walk already paid for under this event id, and the limit it ran under.
+
+    The recovery file is written before anything in the parking step that can be
+    interrupted, which is what makes it survive; until something reads it back it
+    is a backup nothing restores. Streamlit's default ``fastReruns`` stops the running
+    script the moment the operator touches a widget, and every session-state
+    write the walk makes comes after its pages were bought — so the roster in
+    the UI is the one thing a stray click reliably destroys.
+
+    ``None`` for anything this cannot rebuild faithfully. A half-read payload
+    offered as a walk would be worse than offering nothing, because the operator
+    would stop looking for the one that cost money. Every field is refused rather
+    than coerced, ``warnings`` included — a bare string there is a sequence, and
+    would come back as one warning per character.
+
+    The caller's ``event_id`` is the only one used. The payload names one too,
+    and preferring it would let a file copied between event directories show one
+    event's teams under another — and would put an unvalidated segment back into
+    ``_event_recovery_path`` when the reload is parked, where ``event_id_from``'s
+    bounded digits are what keep ``..`` out of the reports directory.
+
+    A payload whose own ``is_complete`` disagrees with the one rebuilt from its
+    counters is refused rather than repaired. Files written before those counters
+    existed default to the clean values, so a walk that lost a division comes
+    back whole, which disables both buy buttons for that event and then persists
+    that verdict on the next write.
+
+    The cohort fields are constrained to what a walk can actually produce.
+    ``_render_seeding_override`` prints the cohort without escaping it, on the
+    strength of it coming from ``resolve_cohort``, and this is the one path that
+    could hand it anything else.
+    """
+    try:
+        payload = read_json(_event_recovery_path(event_id))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("teams"), list):
+        return None
+    if not isinstance(payload.get("warnings", []), list):
+        return None
+    try:
+        roster = EventRoster(
+            event_id=event_id,
+            teams=tuple(_recovered_team(team) for team in payload["teams"]),
+            warnings=tuple(payload.get("warnings") or ()),
+            divisions_found=int(payload.get("divisions_found") or 0),
+            divisions_walked=int(payload.get("divisions_walked") or 0),
+            divisions_unreadable=int(payload.get("divisions_unreadable") or 0),
+            divisions_stable=payload.get("divisions_stable") in (None, True),
+            teams_unreadable=int(payload.get("teams_unreadable") or 0),
+        )
+    except (TypeError, ValueError):
+        return None
+    if bool(payload.get("is_complete")) != roster.is_complete:
+        logger.info("Refused %s: its own is_complete disagrees with its counters", event_id)
+        return None
+    limit_groups = payload.get("limit_groups")
+    return roster, (limit_groups if isinstance(limit_groups, int) else None)
+
+
+def _recovered_team(team: Any) -> EventRosterTeam:
+    """One team from the recovery file, with its cohort held to the walk's range."""
+    rebuilt = EventRosterTeam(**team)
+    age_group = rebuilt.age_group if rebuilt.age_group in AGE_GROUPS else ""
+    gender = rebuilt.gender if rebuilt.gender in ("Male", "Female") else ""
+    return replace(rebuilt, age_group=age_group, gender=gender)
 
 
 def _run_seeding_name_lookup(
@@ -3805,7 +3934,9 @@ def _run_seeding_name_lookup(
     finally:
         session.close()
 
-    st.session_state._seeding_result = (parsed, spliced)
+    _park_seeding_result(
+        (parsed, spliced), event_id=st.session_state.get("_seeding_result_event_id")
+    )
     st.session_state._seeding_resolution_failed = False
 
 
@@ -3978,7 +4109,9 @@ def _load_seeding_run(slug: str) -> None:
     except (OSError, ValueError, TypeError) as exc:
         st.error(f"Could not open that run: {exc}")
         return
-    st.session_state._seeding_result = (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved)
+    _park_seeding_result(
+        (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved), event_id=None
+    )
     st.session_state._seeding_overrides = dict(run.overrides)
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
@@ -4187,6 +4320,71 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     )
 
 
+def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool) -> None:
+    """Offer back a walk that was paid for and then lost before it was shown.
+
+    Measured against the roster the tab actually holds, not against the probe
+    counters beside it. ``_park_event_roster`` writes those counters — already
+    describing the full walk — with two session-state writes in between before it
+    reaches the roster, and a stop landing in that gap is exactly the case this exists for:
+    the counters would match, the offer would be withheld, and the operator
+    would be left with a paid roster on disk, no table and no button.
+
+    Disabled while a walk runs. Clicking it then would kill the walk in flight
+    and park the previous roster in its place, which is the loss this is here to
+    undo rather than to cause.
+    """
+    event_id = event_id_from(url)
+    if not event_id:
+        return
+    recovered = _recovered_walk(event_id)
+    if recovered is None:
+        return
+    roster, limit_groups = recovered
+    if len(roster.teams) <= _parked_roster_size(event_id):
+        return
+
+    st.caption(
+        f"A walk of event {event_id} holding {len(roster.teams)} teams is already saved "
+        "here, and loading it costs nothing."
+    )
+    reload_clicked = st.button(
+        "Load the walk already paid for",
+        key="_seeding_event_reload_walk",
+        disabled=in_progress,
+    )
+    if reload_clicked and not in_progress:
+        _park_event_roster(url, roster, limit_groups, supabase_client)
+        parsed, resolved = st.session_state._seeding_result
+        _run_seeding_name_lookup(parsed, resolved, supabase_client)
+        st.rerun()
+
+
+def _park_seeding_result(pair: Any, *, event_id: str | None) -> None:
+    """Park the seeding table's contents, and say which event they came from.
+
+    The pair and the event that produced it are written together because the
+    reload gate compares them: a pasted list belongs to no event, and a walk of
+    a different event answers for its own. Kept apart, the id drifts from the
+    roster and the gate reads one about the other.
+
+    The roster goes first. A stop landing between the two writes then leaves a
+    stale id against a fresh roster, which reads as "this event has nothing
+    parked" and offers a reload that costs nothing to accept — where the other
+    order would claim the new roster for the old event and withhold one.
+    """
+    st.session_state._seeding_result = pair
+    st.session_state._seeding_result_event_id = event_id if pair else None
+
+
+def _parked_roster_size(event_id: str) -> int:
+    """How many rows the seeding table holds *for this event*, and none for any other."""
+    if st.session_state.get("_seeding_result_event_id") != event_id:
+        return 0
+    result = st.session_state.get("_seeding_result")
+    return len(result[0].rows) if result else 0
+
+
 def _render_seeding_event_scrape(supabase_client: Any) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
@@ -4204,7 +4402,7 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
-    in_progress = st.session_state.get("_scrape_in_progress")
+    in_progress = _scrape_still_running()
     url = st.text_input(
         "GotSport event URL",
         key="seeding_event_url",
@@ -4234,6 +4432,8 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
     if probe:
         st.caption(_seeding_probe_caption(probe))
         st.caption("Name this run above and press Save to keep it.")
+
+    _render_recovered_walk(url, supabase_client, in_progress=in_progress)
 
     if st.session_state.get("_seeding_resolution_failed"):
         st.warning("Name matching did not finish, so some teams may still be linkable.")
