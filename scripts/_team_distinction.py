@@ -216,7 +216,7 @@ US_STATES = frozenset(
 
 # Age/year patterns
 # The optional gender letter before the U is load-bearing: "GU12" and "BU08" are
-# ages, but a bare  before [Uu] cannot see them because the U is preceded by a
+# ages, but a bare \b before [Uu] cannot see them because the U is preceded by a
 # word character. Without it they escape every age pass and surface as squad
 # distinctions -- "LB GU12 Grey" resolved to "grey|gu12", which renders to a
 # reader as "LB Gu12 Grey". _canonicalize_age_token already maps gu12 -> u12.

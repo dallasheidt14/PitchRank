@@ -1180,7 +1180,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   // These were the other way round, and that is a rollover hazard: a name states
   // a birth year, which maps to a different cohort every Aug 1, while age_group
   // is rolled deliberately once a year. Reading the name first let a stale or
-  // ambiguous name silently override the column -- "SSA 14/15" matched 14
+  // ambiguous name silently override the column -- "SSA 14/15" matched \b14\b
   // and derived U13 for a team the database correctly holds at U12.
   const effectiveAge =
     teamA.age || teamB.age || extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);

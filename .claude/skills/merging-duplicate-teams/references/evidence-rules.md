@@ -37,7 +37,7 @@ Treat a `states differ` refusal as unexamined, not as answered.**
 `''`. That cuts both ways, and the direction matters:
 
 - **NULL against a named club** mismatches and refuses, on a comparison that never happened.
-  15,046 live rows have no club name, and each is refused against every named row.
+  17,600 live rows have no club name, and each is refused against every named row.
 - **NULL against NULL** compares *equal* and passes. Two club-less rows clear the precondition
   with nothing having been checked, so the club agreement in the verdict is vacuous.
 
@@ -109,9 +109,18 @@ birth-year sets. This is what separates `CFA OC SC U12 Miguel` / `CFA OC SC 2015
 two live squads — from `SW U12 - SOCAL` / `SW 2015 - SOCAL`, one squad re-registered.
 
 Read labels with `team_name_utils._UAGE_TOKEN`. It matches the gender-affixed forms
-(`GU11`, `U11G`, `BU12`, `U12B`) that make up most real labels. A hand-rolled pattern that
-misses them reads no cohort at all and silently disables the check — that mistake hid 99
-mergeable pairs and 14 genuine cohort conflicts in one run.
+(`GU11`, `U11G`, `BU12`, `U12B`) that make up most real labels, the spelled-out and spaced
+ones (`Under 11`, `U 11`), and a U-led band whole rather than its first half (`U13/14`,
+`U17/18/19B`). A hand-rolled pattern that misses them reads no cohort at all and silently
+disables the check — that mistake hid 99 mergeable pairs and 14 genuine cohort conflicts in
+one run. The band case matters twice over: half a band left in the string is read as a birth
+year by a later pass, which is how `GSA U13/14B Grey` used to state 2014.
+
+**The reverse-token spelling is the exception, and it is a live one.** `13/14U` matches from
+`14U` alone, so `label_numbers` reads 14 where `U13/14` reads 13 — one band, two cohorts,
+depending on which way the club wrote it. 38 live rows use it, and GotSport emits it
+(`src/scrapers/gotsport_tier_parser.py` calls it "Form 5. Reverse-token"). Resolve such a pair
+by hand rather than trusting a `birth years disagree` refusal.
 
 ## What a merge requires
 

@@ -64,17 +64,18 @@ The guard returns `False` — no conflict — whenever **either** side states no
 blind rate on the cohort you are working rather than assuming; on live `u19`:
 
 ```
-u19 live rows: 26,756
-birth_years() returns empty: 5,848  (21.9%)
+u19 live rows: 27,225
+birth_years() returns empty: 6,526  (24.0%)
 ```
 
 Measure it with `scripts/check_merge_skill_assumptions.py`, and **order the query**. PostgREST
 leaves row order unspecified without an `.order()` clause, so paging a cohort silently drops
-rows: the same u19 count came back as 22,508 rows and 4,855 blind unordered, against 26,756 and
-5,848 ordered. A 16% undercount, reproducible, in the direction that makes the problem look
-smaller than it is.
+rows: on 2026-08-27 the same u19 count came back as 22,508 rows and 4,855 blind unordered,
+against 26,756 and 5,848 ordered. A 16% undercount, reproducible, in the direction that makes
+the problem look smaller than it is.
 
-Three separate, verified causes make a side state no years, and none is visible in the output.
+Two causes leave a side stating no years, neither visible in the output. A third — a dead
+branch in the extractor — is closed, and is kept below because the shape recurs.
 
 **1. A U-label carries no year, and the weekly normalizer creates U-labels.**
 `scripts/normalize_team_names.py --all-teams` is Step 1 of the same Monday job, and it is the
@@ -93,30 +94,43 @@ birth_years_conflict('Club U19 Red', 'Club 2008 Red') -> False
 birth_years_conflict('Club U19 Red', 'Club 2009 Red') -> False
 ```
 
-20,146 live rows carry a U-label and no four-digit year in `team_name`. The normalizer disarms
+21,420 live rows carry a U-label and no four-digit year in `team_name`. The normalizer disarms
 the merge scan's own safety check, every week, on the row it just rewrote — and `u19` is the one
 cohort where that check has to earn its keep, because it is the only one holding two birth years.
 
 **The documented fallback does not rescue `u19`.** Reading `team_name_original` is partial
-corpus-wide (90,032 live rows have it NULL) but in `u19` it is effectively useless: of the 5,476
-blind rows, one has a year recoverable that way. Do not plan around the fallback in that cohort.
+corpus-wide (97,862 live rows have it NULL) but in `u19` it is effectively useless: of the 5,476
+blind rows counted on 2026-08-27, one had a year recoverable that way. Do not plan around the fallback in that cohort.
 
 **2. Gender is erased too.** `'Rush 14B Black'` and `'Rush 14G Black'` both normalize to
 `'Rush 2014 Black'`. 21,214 live rows are byte-identical in (club, name, age group) to an
 opposite-gender team. The stored `gender` column is the only thing separating them.
 
-**3. A dead branch in the extractor.** `_GENDER_WORD` in `team_name_utils.py` was written with
-literal backspace bytes where `\b` was intended, so the branch can never match:
+**3. A mangled escape reads as live code (closed 2026-09-08, IMP-136).** `_GENDER_WORD` was
+written with literal backspace bytes where `\b` was intended, so the branch could never match
+anything — and nothing said so: it compiled, imported, and returned an empty set. That is the
+shape to watch for, not this instance of it. `tests/unit/test_birth_years_guard.py` now scans
+the module's bytes for a control character, which is the only check that sees a mangled escape
+inside a string, a list, an inline literal or a comment.
+
+The extractor reads the gender-word form:
 
 ```
-birth_years('Club 12 Boys')  -> set()      # expected {2012}
-birth_years('Club Boys 12')  -> set()
-birth_years('Club 2012 Boys') -> {2012}    # different branch, works
+birth_years('Club 12 Boys')   -> {2012}
+birth_years('Club Boys 12')   -> {2012}
+birth_years('Cowboys 12 Red') -> set()     # the boundaries are real boundaries
 ```
 
-2,953 live rows use that form.
+427 live rows state a birth year that comes from this branch alone, and `_UAGE_TOKEN` consumes
+a whole band label rather than its first half — `'U13/14 Girls'` leaving `/14` behind is read as
+2014 by a later pass, which is what `'GSA U13/14B Grey'` used to state through `_AFFIX_2`.
 
-The documented workaround — read `team_name_original` — is partial: **90,032 live rows have
+**A birth year read off a name is still only as good as the name.** Of those 427, 349 land on the cohort the row is filed under and 56 on the neighbouring
+one, which is what a band label looks like from one end. The remaining 22 are names where the
+two digits were a squad or rec number (`'Polonia 19 Boys Red Eagles'`, filed `u11`). The guard
+refuses a merge on them; it does not approve one.
+
+The documented workaround — read `team_name_original` — is partial: **97,862 live rows have
 that column NULL**, because it is stashed only on the first rewrite and rows normalized before
 that behaviour shipped never got one. `birth_years`' own docstring says it reads the raw name
 and that `normalize_team_name` is the wrong substrate; the shipped scanner passes it
@@ -128,7 +142,7 @@ These remove pairs from consideration entirely. They produce no verdict, no log 
 entry in `decisions.json`, so nothing downstream can tell they existed.
 
 **A division token — `AD`, `HD`, `EA` or `MLS NEXT`.** `has_protected_division` withholds these
-from the scan, 4,823 live rows. That is intended: the tiers must not be merged across.
+from the scan, 4,890 live rows. That is intended: the tiers must not be merged across.
 
 Until IMP-135 it tested bare substrings, so any name whose second-or-later word merely began
 with those letters read as a division and was excluded with no log line:

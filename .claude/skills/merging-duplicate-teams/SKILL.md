@@ -71,7 +71,7 @@ lowercased `club_name`, and then score >= the threshold.
 
 So these are invisible at any threshold: same club with rows stamped in different states; the
 same club spelled two ways; either row named `unknown_<digits>`; either name carrying an `AD`,
-`HD` or `EA` division token, or `MLS NEXT` (4,823 live rows). That last exclusion used to be a
+`HD` or `EA` division token, or `MLS NEXT` (4,890 live rows). That last exclusion used to be a
 substring test that also caught EAST, EAGLES and ADAMS, withholding 2,418 unrelated rows; it
 matches whole tokens as of IMP-135, so those names now reach the scan.
 
