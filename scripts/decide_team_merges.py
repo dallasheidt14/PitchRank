@@ -92,8 +92,12 @@ def label_numbers(name: str | None) -> set[int]:
     """U-age numbers in a name.
 
     Uses team_name_utils._UAGE_TOKEN rather than a fresh pattern: it already matches the
-    gender-affixed forms (GU11, U11G, BU12, U12B) that make up most real labels, and a
-    hand-rolled regex that misses them silently reads no cohort at all.
+    gender-affixed forms (GU11, U11G, BU12, U12B) that make up most real labels, the
+    spelled-out and spaced ones (Under 11, U 11), and a U-led band (U13/14), and a
+    hand-rolled regex that misses them silently reads no cohort at all. _LABEL_DIGITS takes
+    the first number of the match, so U13/14 reports 13 -- but the reverse-token spelling
+    13/14U matches from 14U alone and reports 14, so one band written both ways yields
+    different cohorts here. 38 live rows use that spelling.
     """
     out = set()
     for match in _UAGE_TOKEN.finditer(name or ""):

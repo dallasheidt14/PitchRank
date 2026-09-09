@@ -230,7 +230,7 @@ needs no credentials and is the right substrate for offline parsing:
 | `resolve_distinction(name, club_name=, state_code=)` | The same distinguishers collapsed into one pipe-joined string with club tokens stripped. This is the form stored in `teams.distinction` |
 | `normalize_name_for_matching(name)` | Comparison form |
 | `extract_club_from_team_name(name)` | Club guess from a team name |
-| `_UAGE_TOKEN` | The U-age regex, including gender-affixed forms (`GU11`, `U11G`, `BU12`) |
+| `_UAGE_TOKEN` | The U-age regex. Covers the gender-affixed forms (`GU11`, `U11G`, `BU12`), the spelled-out and spaced ones (`Under 11`, `U 11`), and a U-led band whole (`U13/14`, `U17/18/19B`). Not the reverse-token spelling: `13/14U` matches from `14U` only |
 
 `calculate_age_group_from_birth_year()` in `src/utils/team_utils.py` returns **uppercase** `U12`
 while `teams.age_group` stores lowercase `u12`. Compare lowercased, or the query silently returns

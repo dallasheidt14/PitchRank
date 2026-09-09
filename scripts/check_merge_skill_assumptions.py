@@ -49,15 +49,18 @@ DRIFT_TOLERANCE = 0.20
 
 # Figures quoted in the skill, with the date they were measured. Update both together.
 RECORDED = {
-    "live_teams": 200161,
-    "null_club": 15046,
-    "null_team_name_original": 90032,
-    "u_label_no_year": 20146,
-    "u19_guard_blind": 5848,
-    "protected_division_rows": 4823,
-    "gender_word_year_rows": 2953,
+    "live_teams": 207991,
+    "null_club": 17600,
+    "null_team_name_original": 97862,
+    "u_label_no_year": 21420,
+    "u19_guard_blind": 6526,
+    "protected_division_rows": 4890,
+    # Renamed from gender_word_year_rows, which counted rows merely matching an
+    # NN Boys/Girls shape. A run predating IMP-136 reports 2,953 against this
+    # key: a change of metric, not movement in the data.
+    "gender_word_only_year_rows": 427,
 }
-RECORDED_ON = "2026-08-27"
+RECORDED_ON = "2026-09-08"
 
 
 @dataclass
@@ -109,7 +112,7 @@ def count(sb, table, apply_filters=None) -> int:
 
 
 def check_birth_year_guard(r: Result) -> None:
-    """The guard the skill leans on, and the three ways it goes silent."""
+    """The guard the skill leans on, and the two ways it still goes silent."""
     from src.utils.team_name_utils import birth_years, birth_years_conflict
 
     r.check(
@@ -129,9 +132,16 @@ def check_birth_year_guard(r: Result) -> None:
         "conflict('Club U19 Red', 'Club 2008 Red') and ..2009 both False",
     )
     r.check(
-        "birth_years still reads nothing from the 'NN Boys' form (_GENDER_WORD dead branch)",
-        birth_years("Club 12 Boys") == set(),
-        f"birth_years('Club 12 Boys') -> {sorted(birth_years('Club 12 Boys'))}",
+        "birth_years reads the 'NN Boys' form (IMP-136: _GENDER_WORD was a dead branch)",
+        birth_years("Club 12 Boys") == {2012} and birth_years("Club Boys 12") == {2012},
+        f"birth_years('Club 12 Boys') -> {sorted(birth_years('Club 12 Boys'))}, "
+        f"('Club Boys 12') -> {sorted(birth_years('Club Boys 12'))}",
+    )
+    bands = ("PDA-SCP U13/14 Girls", "Century United Under 10 Boys Gold", "Green Army U17/18/19B")
+    r.check(
+        "a U-age band contributes no year, in every spelling (the fix's other half)",
+        not any(birth_years(name) for name in bands),
+        ", ".join(f"{name!r} -> {sorted(birth_years(name))}" for name in bands),
     )
     r.check(
         "birth_years_conflict fires when both sides state a year",
@@ -267,7 +277,7 @@ def check_enqueue_migration_applied(r: Result, sb) -> None:
 
 U_LABEL = re.compile(r"(^|[^a-zA-Z0-9])[uU]-?\d{1,2}([^a-zA-Z0-9]|$)")
 FOUR_DIGIT_YEAR = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
-GENDER_WORD_YEAR = re.compile(r"(?<!\d)\d{2}\s+(boys|girls)(?![a-z])|(?<![a-z])(boys|girls)\s+\d{2}(?!\d)", re.I)
+GENDER_WORD = re.compile(r"\b(?:boys|girls)\b", re.I)
 
 
 def measure_counts(r: Result, sb) -> None:
@@ -318,7 +328,13 @@ def measure_names(r: Result, sb) -> None:
 
     r.measure("u_label_no_year", sum(1 for n, _ in names if U_LABEL.search(n) and not FOUR_DIGIT_YEAR.search(n)))
     r.measure("protected_division_rows", sum(1 for n, _ in names if has_protected_division(n)))
-    r.measure("gender_word_year_rows", sum(1 for n, _ in names if GENDER_WORD_YEAR.search(n)))
+    # Removing the gender word is what switches _GENDER_WORD off: no other branch
+    # reads "boys"/"girls", so a name that loses its year with them gone had no
+    # other source for it.
+    r.measure(
+        "gender_word_only_year_rows",
+        sum(1 for n, _ in names if birth_years(n) and not birth_years(GENDER_WORD.sub(" ", n))),
+    )
     r.measure("u19_guard_blind", sum(1 for n in u19 if not birth_years(n)))
     r.measurements[-1]["of_total"] = len(u19)
 

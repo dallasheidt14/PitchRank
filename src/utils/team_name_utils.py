@@ -422,7 +422,7 @@ _VARIANT_AGE_PATTERNS = [
 
 # Age/year regex applied to the raw name string
 # The optional gender letter before the U is load-bearing: "GU12" and "BU08" are
-# ages, but a bare  before [Uu] cannot see them because the U is preceded by a
+# ages, but a bare \b before [Uu] cannot see them because the U is preceded by a
 # word character. Without it they escape every age pass and surface as squad
 # distinctions -- "LB GU12 Grey" resolved to "grey|gu12", which renders to a
 # reader as "LB Gu12 Grey". _canonicalize_age_token already maps gu12 -> u12.
@@ -439,9 +439,26 @@ _BIRTH_YEAR_MIN, _BIRTH_YEAR_MAX = 2005, 2020
 
 # U-age tokens are cohort labels, not birth years, so they are removed before
 # any year is read — otherwise "GU18/19" reads as a 2018/2019 band.
+#
+# A band goes whole where the U leads it, because half a band left behind is
+# read as a year by a later pass -- "U13/14 Girls" stating 2014, and
+# "GSA U13/14B Grey" stating 2014 through _AFFIX_2. The reverse-token spelling
+# ("13/14U") is matched from its last token only, leaving "13/"; harmless here
+# since no branch reads a trailing separator, but it is why the token is not a
+# general band parser. The spaced and spelled-out forms ("U 17 Girls",
+# "Under 10 Boys") take no gender prefix, so the preceding-character guard is
+# what keeps "MK MU 12 Boys" out of them.
 _UAGE_TOKEN = re.compile(
-    r"(?<![A-Za-z0-9])(?:[BGMF]?U-?\d{1,2}[BGMF]?|[BGMF]?\d{1,2}U[BGMF]?)(?![\dA-Za-z])", re.I
+    r"(?<![A-Za-z0-9])"
+    r"(?:[BGMF]?U-?\d{1,2}[BGMF]?|[BGMF]?\d{1,2}U[BGMF]?|(?:under|u)\s+\d{1,2}[BGMF]?)"
+    r"(?:[/-]\d{1,2}[BGMF]?)*"
+    r"(?![\dA-Za-z])",
+    re.I,
 )
+# A game format is a squad size, not a year: "U19 OSC Girls 11v11" is not a 2011
+# team. Stripped before the U-age, not after: "U13/11 v 11" would otherwise lose
+# "U13/11" to the U-age pass and leave a "v 11" this can no longer recognise.
+_FORMAT_TOKEN = re.compile(r"(?<![A-Za-z0-9])\d{1,2}\s*v\s*\d{1,2}(?![\dA-Za-z])", re.I)
 _DUAL_4_4 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*(20\d{2})(?!\d)")
 _DUAL_4_2 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*'?(\d{2})(?!\d)")
 _DUAL_2_2 = re.compile(r"(?<![\dA-Za-z])'?([BG])?(\d{2})\s*[/-]\s*'?(\d{2})([BG])?(?![\dA-Za-z])", re.I)
@@ -454,7 +471,7 @@ _AFFIX_2 = re.compile(
     r"|(?<![\dA-Za-z])(\d{2})[BG](?:(?![Uu])[A-Za-z])?(?![\dA-Za-z])",
     re.I,
 )
-_GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)|(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
+_GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)\b|\b(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
 
 
 def _four_digit_year(two_digits: str) -> int:
@@ -471,7 +488,7 @@ def birth_years(team_name: str | None) -> set[int]:
     """
     if not team_name:
         return set()
-    text = _UAGE_TOKEN.sub(" ", team_name)
+    text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", team_name))
     years: set[int] = set()
     spans: list[tuple[int, int]] = []
 

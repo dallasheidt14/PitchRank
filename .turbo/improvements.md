@@ -387,16 +387,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `teams.last_scraped_at` is not only the re-probe clock; it is the incremental watermark `drain_queue.py` and `scrape_games.py` pass as `since_date`, and `GotSportScraper.scrape_team_games` enforces it hard. But this path scrapes only `[game_date-90, game_date+90]`, and `game_date` is today or yesterday for essentially every request. Stamping `now()` therefore claims coverage the scrape did not have: for a never-scraped team the history older than 90 days becomes unreachable, inside the 365-day ranking window, and the provider caps a response at 30 matches so a later full scrape cannot recover it. Rated P2 in review only because the watermark's consumers are manual-dispatch — but those are the same surface the activity filter benefits. Consider advancing only when the scraped window starts at or before the existing watermark, or keeping the re-probe clock in its own column.
 - **Noted**: 2026-08-27
 
-### `_GENDER_WORD` contains literal backspace bytes where a word-boundary escape was intended, so the branch is dead
-
-- **ID**: IMP-136
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `src/utils/team_name_utils.py` (`_GENDER_WORD`, consumed by `birth_years`)
-- **Why**: The compiled pattern holds raw 0x08 bytes in place of word-boundary escapes, so it can never match real input. Verified: `birth_years('Club 12 Boys')` and `birth_years('Club Boys 12')` both return the empty set, while `birth_years('Club 2012 Boys')` returns {2012} via a different branch. 2,953 live rows use the two-digit-plus-gender-word form and so state no birth year at all, which silently disarms `birth_years_conflict` on them — the one guard that stops a 2008 team absorbing a 2009 team. Fix the escapes and add a regression test; `scripts/check_merge_skill_assumptions.py` asserts the current broken behaviour, so that assertion must be inverted in the same commit.
-- **Noted**: 2026-08-27
-
 ### Merging a double-import duplicate leaves the fixture recorded twice against the survivor
 
 - **ID**: IMP-137
