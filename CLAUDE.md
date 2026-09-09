@@ -437,9 +437,9 @@ Games (Supabase; 365-day window + 28-day grace taper)
 ### Supabase Patterns
 
 ```python
-# Pagination. The cap is PostgREST's db-max-rows, measured at 200,000 on
-# 2026-09-09 (an unbounded select returned exactly that, content-range 0-199999).
-# Page anyway: it bounds memory, and a scan wider than the cap truncates silently.
+# Pagination. PostgREST's max-rows caps a response: 200,000 against the hosted
+# project (measured 2026-09-09, content-range 0-199999), but 1,000 under a local
+# `supabase start` -- supabase/config.toml commits max_rows = 1000. Page either way.
 supabase.table('games').select('*').range(offset, offset + 999).execute()
 
 # Batch queries (100-ID limit for URI length). games.home_team_master_id /
@@ -924,7 +924,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 
 ## Common Pitfalls
 
-1. **Supabase row cap is 200,000, not 1,000** — an unbounded `.select()` on `games` returned exactly 200,000 rows on 2026-09-09 (`content-range: 0-199999/*`), and explicit limits below that are honoured. The old "1000" figure in this file was wrong and produced a false review finding: a reviewer deduced silent truncation that measurement disproved. Still paginate any scan that can grow — the cap is real, just two orders of magnitude higher — and never diagnose missing rows as "hit the 1000 limit" without checking `content-range`
+1. **The row cap is 200,000 hosted, 1,000 locally** — an unbounded `.select()` on `games` against the hosted project returned exactly 200,000 rows on 2026-09-09 (`content-range: 0-199999/*`), and explicit limits below it are honoured. A local `supabase start` differs: `supabase/config.toml` commits `max_rows = 1000`, so the same query truncates there at 1,000. Paginate any scan that can grow either way, and read `content-range` before concluding which cap you hit. This file previously stated a flat 1,000 everywhere, which produced a false review finding about truncation in production
 2. **Team merge resolution** — Always apply `MergeResolver` before processing team IDs; deprecated teams must map to canonical
 3. **Game immutability** — Never UPDATE a game row; quarantine bad data instead
 4. **Age/birth year confusion** — `14B` = birth year 2014 = **U13** in 2026-27, not U14

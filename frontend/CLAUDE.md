@@ -411,7 +411,7 @@ RESEND_API_KEY
 - Config: `vitest.config.ts` (happy-dom environment, `@` path alias)
 - Test location: `*.test.ts(x)` colocated beside the module under test (`lib/movers.test.ts`, `components/RecentMovers.test.tsx`); API route tests live in a `__tests__/` dir beside the route (`app/api/stripe/webhook/__tests__/route.test.ts`)
 - Shared fixtures, setup, and mocks live in `test/` (`test/fixtures.ts`, `test/setup.ts`, `test/supabase-mock.ts`)
-- `test/supabase-mock.ts` exports two Supabase doubles and they are not interchangeable. `queryBuilder`/`serviceClientMock` replay a canned result and ignore the filters they are handed, which suits a route that just needs rows back. A test guarding a filter needs `filteringClientMock`, which applies `.eq`/`.in`/`.not`/`.or`, drops NULL on `.eq` and honours the column each `.or` term names, returns PGRST116 from `.single()` unless exactly one row survives, and throws on any shape it cannot model. Written against the canned builder, a filter guard keeps passing after the filter is deleted
+- `test/supabase-mock.ts` exports two Supabase doubles and they are not interchangeable. `queryBuilder`/`serviceClientMock` replay a canned result and ignore the filters they are handed, which suits a route that just needs rows back. A test guarding a filter needs `filteringClientMock`, which applies `.eq`/`.in`/`.not`/`.or`, drops NULL on `.eq` and honours the column each `.or` term names, returns PGRST116 from `.single()` unless exactly one row survives and from `.maybeSingle()` when more than one does, and throws on a `.not()` operator or `.or()` term it does not model. Written against the canned builder, a filter guard keeps passing after the filter is deleted
 - Mock Stripe/Supabase with `vi.mock()` and `vi.hoisted()` for hoisted mock refs
 - CI: `frontend-test` job in `.github/workflows/ci.yml`
 
@@ -432,7 +432,7 @@ RESEND_API_KEY
 3. **Gender is single letter** — `'M'`/`'F'` not `'Male'`/`'Female'`
 4. **Supabase client singleton** — Never create multiple browser clients (auth state duplication)
 5. **API routes over direct Supabase** — Prefer `/api/rankings/*` over direct Supabase in browser for caching
-6. **Paginate growing scans** — the PostgREST cap here is 200,000 rows, not 1,000 (measured 2026-09-09; an unbounded `games` select returned exactly 200,000 with `content-range: 0-199999/*`). Page anything unbounded anyway, and read `content-range` before blaming a row cap for missing data
+6. **Paginate growing scans** — the PostgREST cap is 200,000 rows against the hosted project (measured 2026-09-09; an unbounded `games` select returned exactly 200,000, `content-range: 0-199999/*`) but 1,000 under a local `supabase start`, which `supabase/config.toml` pins. Page anything unbounded regardless, and read `content-range` before blaming a row cap for missing data
 7. **Premium gating** — Check `hasPremiumAccess()` before rendering premium features
 8. **ISR revalidation** — Team pages cache for 1 hour; don't expect instant updates
 9. **Age 0 and null state are real** — `teams.age_group` includes the literal `'u0'`, and thousands of teams have `state_code = NULL`. `useTeamSearch` maps an unresolved cohort to `age: 0`, so guard on truthiness; `age != null` renders "U0"
