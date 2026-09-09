@@ -35,6 +35,35 @@ export function makeRankingRow(overrides: Partial<RankingRow> = {}): RankingRow 
   };
 }
 
+// A type alias, not an interface: only an alias carries the implicit index
+// signature that lets a fixture row satisfy the mock builder's `MockRow`.
+export type GameFixture = {
+  game_date: string;
+  home_team_master_id: string;
+  away_team_master_id: string;
+  home_score: number | null;
+  away_score: number | null;
+  is_excluded: boolean;
+};
+
+/**
+ * Defaults describe a played home game; override per test.
+ *
+ * A scheduled fixture is `makeGame({ home_score: null, away_score: null })` —
+ * the shape that stops a game being counted as a result.
+ */
+export function makeGame(overrides: Partial<GameFixture> = {}): GameFixture {
+  return {
+    game_date: '2026-09-06',
+    home_team_master_id: '11111111-1111-1111-1111-111111111111',
+    away_team_master_id: '22222222-2222-2222-2222-222222222222',
+    home_score: 3,
+    away_score: 1,
+    is_excluded: false,
+    ...overrides,
+  };
+}
+
 /**
  * Stripe subscription double, returned already typed so callers need no cast.
  *

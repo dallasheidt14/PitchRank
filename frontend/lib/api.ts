@@ -589,12 +589,15 @@ export const api = {
       .map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
       .join(',');
 
-    // Get all games for the team (including merged teams)
+    // Scheduled fixtures carry null scores and would otherwise open a trailing period
+    // with no results in it, which the chart draws as a goal differential of exactly zero.
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('*')
       .or(orConditions)
       .eq('is_excluded', false)
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null)
       .order('game_date', { ascending: true });
 
     if (gamesError) {
@@ -1023,19 +1026,25 @@ export const api = {
       .map((id) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`)
       .join(',');
 
-    // Get all games for team1 and team2 in parallel
+    // Get all games for team1 and team2 in parallel. Only the newest row per opponent
+    // is kept below, so a scheduled fixture left in would not sit alongside the real
+    // meeting — it would sort above it and replace it, leaving the card with no score.
     const [team1Result, team2Result] = await Promise.all([
       supabase
         .from('games')
         .select('*')
         .or(team1OrConditions)
         .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
         .order('game_date', { ascending: false }),
       supabase
         .from('games')
         .select('*')
         .or(team2OrConditions)
         .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
         .order('game_date', { ascending: false }),
     ]);
 

@@ -7,7 +7,7 @@ import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTeamUpcomingGames, usePrefetchTeam } from '@/lib/hooks';
-import { formatGameDate } from '@/lib/dateUtils';
+import { formatShortDate } from '@/lib/dateUtils';
 import type { GameWithTeams } from '@/lib/types';
 
 interface UpcomingGamesTableProps {
@@ -113,7 +113,7 @@ export function UpcomingGamesTable({ teamId, limit }: UpcomingGamesTableProps) {
               return (
                 <TableRow key={game.id}>
                   <TableCell className="text-xs sm:text-sm whitespace-nowrap">
-                    {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
+                    {formatShortDate(game.game_date)}
                   </TableCell>
                   <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
                     {opp.id && opp.name ? (
