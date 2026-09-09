@@ -163,17 +163,29 @@ def test_source_holds_no_mangled_escape():
     inline literal in a function body, and comments -- and one of the bytes this
     bug left behind was in a comment.
 
-    The file list is derived from the directories the lint job covers, because
-    the same mangled comment had been copied from `team_name_utils` into
-    `scripts/`, and a guard naming one module cannot fail for the copy.
-    `frontend/lib/` is outside its reach and carried one of these bytes too.
+    The scope is read out of the lint job's own argument list rather than
+    restated here, because the same mangled comment had been copied from
+    `team_name_utils` into `scripts/`, and a guard naming one module cannot fail
+    for the copy. `frontend/lib` is added on top: it is not Python, so the lint
+    job never names it, and it carried one of these bytes too.
 
     Tab, newline and carriage return are excluded as ordinary source whitespace.
     Every escape a lost backslash produces (`\\a \\b \\f \\v \\0`) is a control
     character outside that set, so the defect class is still fully covered.
     """
-    roots = [ROOT / name for name in ("src", "scripts", "config")]
-    sources = sorted(path for root in roots for path in root.rglob("*.py"))
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    lint = next(line for line in workflow.splitlines() if "ruff check" in line)
+    targets = [ROOT / arg for arg in lint.split("ruff check", 1)[1].split() if not arg.startswith("-")]
+    assert len(targets) >= 5, f"read only {targets} out of the lint job -- its command changed"
+
+    targets.append(ROOT / "frontend" / "lib")
+
+    def walk(target):
+        if target.is_file():
+            return [target]
+        return [path for ext in ("py", "ts", "tsx") for path in target.rglob(f"*.{ext}")]
+
+    sources = sorted(path for target in targets for path in walk(target))
     assert len(sources) > 100, f"only {len(sources)} sources found -- the layout moved"
 
     offenders = [
