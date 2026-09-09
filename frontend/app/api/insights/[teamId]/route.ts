@@ -57,11 +57,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     const orConditions = teamIdList
       .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
       .join(',');
+    // Scheduled fixtures sort ahead of every result on game_date, so leaving them in
+    // spends the 50-row budget on games that have not been played and shrinks the
+    // window each generator walks newest-first.
     const { data: games, error: gamesError } = await supabase
       .from('games')
       .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
       .or(orConditions)
       .eq('is_excluded', false)
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null)
       .order('game_date', { ascending: false })
       .limit(50);
 

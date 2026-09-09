@@ -8,7 +8,7 @@ import { LastUpdated } from '@/components/ui/LastUpdated';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
-import { formatGameDate } from '@/lib/dateUtils';
+import { formatGameDate, formatShortDate } from '@/lib/dateUtils';
 import { explainGameBreakdown } from '@/lib/gameExplainer';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
@@ -372,7 +372,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                   return (
                     <TableRow key={game.id} className="group">
                       <TableCell className="text-xs sm:text-sm whitespace-nowrap">
-                        {formatGameDate(game.game_date, { month: 'short', day: 'numeric', year: '2-digit' })}
+                        {formatShortDate(game.game_date)}
                       </TableCell>
                       <TableCell className="max-w-[140px] sm:max-w-none whitespace-normal sm:whitespace-nowrap">
                         {opponentId ? (

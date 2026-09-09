@@ -893,3 +893,53 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_executable` and `_flat` in `tests/unit/test_scrape_requests_rls_migration.py`, `test_team_page_views_migration.py`, `test_team_state_provenance_migration.py`, `test_backfill_total_game_stats_migration.py` and `test_scrape_activity_predicate.py`; `_executable_updates` in `test_age_rollover_migration_map.py` solves the same problem a sixth way
 - **Why**: `_executable` (strip SQL comments before asserting, so a commented-out clause cannot satisfy a guard) exists in five files with a near-verbatim docstring, and `_flat` exists in four with **three** different contracts under one name — one strips comments and trims, one does neither, one trims only. Only the newest copy strips `/* */` block comments, which was added after a block-commented REVOKE was shown to satisfy an assertion the server would never execute. Every one of these files exists because CI applies no SQL, so a helper that silently stops comment-stripping turns its whole module green for the wrong reason. Copying between them is the expected path — the newest was seeded from `test_team_page_views_migration.py` — and copying the wrong direction is silent. Lift them into a shared `tests/unit/_migration_sql.py` (or conftest) carrying the strongest contract, and re-verify each module's guards still redden under their own mutations afterwards. Deliberately deferred from the scrape_requests lockdown: touching four unrelated guards inside a security fix makes both harder to review.
 - **Noted**: 2026-09-08
+
+### MomentumMeter samples 8 scheduled games, not 8 played ones
+
+- **ID**: IMP-201
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
+- **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
+- **Noted**: 2026-09-09
+
+### Team page swallows notFound(), so a bad URL reaches the queries
+
+- **ID**: IMP-202
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `try`/`catch` wrapping `notFound()` in `frontend/app/teams/[id]/page.tsx`; `getTeamTrajectory` in `frontend/lib/api.ts`
+- **Why**: Verified 2026-09-09 by reading the file: four `notFound()` calls (lines 118, 132, 146, 168) sit inside a `try` opened at 113 whose `catch` at 171 logs and continues, and `unstable_rethrow` appears nowhere in `frontend/`. Next's `notFound()` throws an ordinary Error, so a malformed id falls through to `TeamPageShell` and is interpolated into the PostgREST `.or()` expression with no `isValidUuid` guard — unlike the sibling insights route, which validates first. Exposure is bounded: `games_anon_select` already grants `anon` SELECT `USING (true)`, and supabase-js percent-encodes the expression, so a crafted link spoofs which team's games are shown rather than reaching private data. The same swallowed `notFound()` also disables the deprecated-team `redirect()` and the zero-games 404, which is why the fix belongs at the `catch` and not as a per-query guard. Logged rather than patched by user decision on 2026-09-09: a single-query guard would read as fixed while the page's other queries kept the gap.
+- **Noted**: 2026-09-09
+
+### getTeamTrajectory hand-rolls the merge resolution its siblings share
+
+- **ID**: IMP-203
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `getTeamTrajectory` in `frontend/lib/api.ts`; `resolveMergedTeamIds` in `frontend/lib/team-merge.ts`
+- **Why**: The trajectory queries `team_merge_map` inline while `app/api/insights/[teamId]/route.ts` calls the shared helper. `lib/api.ts` already imports that helper for `getRankHistory` and still carries inline `from('team_merge_map')` queries elsewhere, so a cascade-merge fix would reach the route and miss the chart.
+- **Noted**: 2026-09-09
+
+### The played-scores predicate is repeated at 11 query sites
+
+- **ID**: IMP-204
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `.not('home_score', 'is', null)` pairs across 7 files — `lib/api.ts` (`getTeam`, `getTeamTrajectory`, both `getCommonOpponents` queries), `lib/matchPredictionService.ts`, and the `insights`, `watchlist`, `reports/team-card`, `teams/[teamId]/clutch` and `mission-control/model-snapshot` routes
+- **Why**: Counted 11 occurrences across those 7 files on 2026-09-09. If "played" ever gains a status column or forfeit semantics, every site needs the same edit and nothing enumerates them. A `withPlayedScores(query)` helper in `lib/api/` is the obvious extraction; typing a generic PostgREST builder passthrough is the awkward part.
+- **Noted**: 2026-09-09
+
+### Final trajectory period reports period_end as the current time
+
+- **ID**: IMP-205
+- **Status**: open
+- **Type**: direct
+- **Category**: correctness
+- **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
+- **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
+- **Noted**: 2026-09-09

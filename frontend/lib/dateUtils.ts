@@ -75,14 +75,18 @@ export function formatGameDate(
 }
 
 /**
- * Format a date for chart axis labels (short format).
+ * Format a date compactly for a chart axis or a dense table cell.
+ *
+ * Carries a 2-digit year because these surfaces span seasons, and a bare
+ * "Oct 18" reads as the current one.
  *
  * @param dateString - Date string in YYYY-MM-DD format
- * @returns Short formatted date (e.g., "Nov 2")
+ * @returns Short formatted date (e.g., "Nov 2, 25")
  */
-export function formatChartDate(dateString: string): string {
+export function formatShortDate(dateString: string): string {
   return formatGameDate(dateString, {
     month: 'short',
     day: 'numeric',
+    year: '2-digit',
   });
 }
