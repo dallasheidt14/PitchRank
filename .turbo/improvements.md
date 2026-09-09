@@ -659,16 +659,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
 - **Noted**: 2026-09-05
 
-### Decide whether a group page's header can supply a missing gender
-
-- **ID**: IMP-176
-- **Status**: open
-- **Type**: plan
-- **Category**: data-quality
-- **Where**: `src/tournaments/gotsport_event_roster.py` `parse_division_label` / `_header_division`
-- **Why**: Measured over the captured corpus 2026-09-05: of 39 group pages with a readable division label, the page header names a gender on 5 where the fixture-table label does not. Those 5 teams currently land with a blank gender, and a blank gender is not inert downstream — `seeding_optimizer.normalize_gender_label("")` answers `"Male"`. The header is not a free win, though: it leads with a U-age stamped in the season the event ran, which `parse_division_label`'s own docstring records as disagreeing with the durable birth year on 3 other captured divisions. So the question is whether the header can be read for gender alone while its age is still ignored, which needs its own look at the corpus rather than a one-line change.
-- **Noted**: 2026-09-05
-
 ### Fold the WAF-clearing fetch mode into the one GotSport event scraper
 
 - **ID**: IMP-177
@@ -699,6 +689,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
 - **Noted**: 2026-09-05
 - **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
+- **Update (2026-09-09)**: Recovering that file is no longer manual in the sense written above — `_render_recovered_walk` offers it back with one press whenever the disk holds more teams than the tab does. The entry stands: this is about *saving* a named run without a press, which is still deliberate, and the reload parks a run rather than naming one.
 
 ### Give the GotSport event walk one home for its tuned concurrency
 
@@ -942,4 +933,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: correctness
 - **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
 - **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
+- **Noted**: 2026-09-09
+
+### The Backtest scrape surface still strands its in-progress flag
+
+- **ID**: IMP-206
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_run_scrape` and `_render_intake_section` in `tournament_intake.py`
+- **Why**: `_run_scrape` sets `st.session_state._scrape_in_progress = True` inside its lock and clears it in a `finally`, and `_render_intake_section` reads it raw into four widget `disabled=` params. Verified 2026-09-09 by reading both: Streamlit 1.50.0 defaults `runner.fastReruns` to True, so touching a widget mid-walk stops the running script, and a STOP request is sticky (`script_requests.py`) — that `finally` cannot be relied on, and a flag nobody cleared disables that tab's URL box and Scrape button for the rest of the session. The Seeding surface was fixed on 2026-09-09: it records its lock key in `_seeding_scrape_lock_key` and `_scrape_still_running()` clears the flag once that lock probes free. `_run_scrape` already computes the same `key`, so the same treatment is a few lines. Measured the same day: `msvcrt.locking` refuses a second handle inside one process and `fcntl.flock` binds to the open file description, so the probe conflicts on both platforms.
+- **Noted**: 2026-09-09
+
+### Two hand-written EventRoster payload dicts, already drifted apart
+
+- **ID**: IMP-207
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `_write_event_roster_recovery` in `tournament_intake.py`; the `payload` dict in `scripts/scrape_event_roster.py`
+- **Why**: Both serialize the same frozen dataclass by hand, and read on 2026-09-09 they disagree. `EventRoster.is_complete` is a property over five counters, so a payload keeping only `divisions_found`/`divisions_walked` rebuilds a walk that lost divisions as a whole one — which is why the intake side now persists `divisions_stable` too. The CLI side does not, and spells its timestamp `scraped_at` where the intake writes `walked_at`; only the CLI runs `printable_text` over the names and warnings it writes. A shared `roster_payload(roster)` beside the dataclass, or in `event_roster_intake` which both already import, makes the next counter a one-line change instead of a two-file one that has been forgotten once.
+- **Noted**: 2026-09-09
+
+### A one-division walk outranks a real partial walk of the same event
+
+- **ID**: IMP-208
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_write_event_roster_recovery` and `_recovery_holds_a_complete_walk` in `tournament_intake.py`; `EventRoster.is_complete` in `src/tournaments/gotsport_event_roster.py`
+- **Why**: The overwrite guard asks only whether the file already holds a *complete* walk, and `is_complete` is satisfied by any walk that read every division it found — including a one-division event. So a small complete roster replaces a large partial one, which is backwards: the partial walk of 57 divisions is the expensive artifact. This is not theoretical. On 2026-09-09 a process sharing this checkout wrote a synthetic 1-division roster over `reports/seeding/gotsport_52975/last_walk.json`, and 9 of the real walk's 11 team entries were unrecoverable; the surviving file carries a `_restored_note` recording it. Comparing team counts, or refusing to replace a walk of a different `divisions_found`, would both have held. Related: the same file is the one `_recovered_walk` now reads back, so a wrong winner here is offered to the operator as the walk they paid for.
 - **Noted**: 2026-09-09

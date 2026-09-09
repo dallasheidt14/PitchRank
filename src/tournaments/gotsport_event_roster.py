@@ -58,9 +58,11 @@ __all__ = [
     "event_id_from",
     "make_zenrows_fetcher",
     "names_cohort_outside",
+    "names_no_gender",
     "parse_division_label",
     "parse_group_ids",
     "parse_group_teams",
+    "parse_header_gender",
     "parse_provider_team_id",
     "printable_text",
     "redact_secret",
@@ -343,9 +345,13 @@ def _cohorts_of(runs: list[_AgeRun], kind: str) -> set[str]:
 
 def _gender_of(label: str, runs: list[_AgeRun]) -> str:
     """Every gender the label names, or empty when it names none or several."""
-    named = {_GENDER_WORDS[word.group(1).lower()] for word in _GENDER_WORD.finditer(label or "")}
-    named |= {gender for run in runs for gender in run.genders}
+    named = _genders_named(label, runs)
     return named.pop() if len(named) == 1 else ""
+
+
+def _genders_named(label: str, runs: list[_AgeRun]) -> set[str]:
+    named = {_GENDER_WORDS[word.group(1).lower()] for word in _GENDER_WORD.finditer(label or "")}
+    return named | {gender for run in runs for gender in run.genders}
 
 
 def printable_text(text: str) -> str:
@@ -436,6 +442,40 @@ def _header_division(soup) -> str:
     """
     header = soup.find(class_="lead")
     return " ".join(header.get_text(" ").split()) if header else ""
+
+
+def names_no_gender(label: str) -> bool:
+    """Did this label decline to name a gender, as opposed to naming several?
+
+    ``resolve_cohort`` answers ``""`` for both, and to a caller looking for a
+    second opinion they are opposites. ``U14 Gold`` says nothing and leaves the
+    page's header free to say it; ``Boys/Girls U10`` has already said the
+    division holds both, and letting a header overrule that files every girl in
+    it as a boy.
+    """
+    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
+    return not _genders_named(label, runs)
+
+
+def parse_header_gender(html: str) -> str:
+    """The gender the page header states, for a Division cell that omits one.
+
+    The header is demoted as a source of the division's *age* because it leads
+    with a U-age written in the season the event ran, which disagrees with the
+    durable birth year on three of the captured divisions. That argument does
+    not reach the gender: across the captured corpus the two sources never
+    disagree about it, and five pages state it only here.
+
+    A blank gender is not a neutral omission downstream. ``resolve_unlinked``
+    gives a row the free name passes only when it carries both an age and a
+    gender, and the exact-name lookup filters a column holding nothing but
+    ``Male`` and ``Female`` — so a division left blank costs every team in it
+    both, and the operator recovers them one manual paste at a time.
+
+    Empty whenever the header names no gender or names several, so ``Coed U10``
+    still resolves to nothing rather than to a guess.
+    """
+    return resolve_cohort(_header_division(BeautifulSoup(html or "", "html.parser")))[1]
 
 
 def parse_group_teams(html: str) -> tuple[tuple[str, str], ...]:
@@ -908,6 +948,8 @@ def _read_divisions(
 
         label = parse_division_label(group_html)
         age_group, gender = resolve_cohort(label)
+        if names_no_gender(label):
+            gender = parse_header_gender(group_html)
         named = label or f"group {group_id}"
         teams = parse_group_teams(group_html)
         if not team_table_found(group_html):
