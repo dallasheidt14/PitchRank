@@ -599,22 +599,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 ### A cached probe answer is not bound to the alias it was bought through
 
 - **ID**: IMP-166
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/assign_team_states.py` `fetch_recent_probes`, `bought_answers`, `probe_list`, `anchor_candidates`
 - **Why**: The ledger reader keys a cached answer by team, so an answer bought via an alias later quarantined (`review_status = pending`) would be reused for up to `REPROBE_AFTER_DAYS` while the approved sibling alias is suppressed, and anchor mode prefers such a cached mapping. Measured 2026-09-02: 0 probe rows in the window for the 30 affected masters, so latent. Fix: the reader returns `provider_team_id` and a cached answer is reused only when it matches the alias the approved-only reader would pick now. Touches paths the `C:/pitchrank-state-converge` worktree also edits. Raised by the Codex peer reviewer.
 - **Noted**: 2026-09-02
+- **Trigger**: A probe row appears in the window for a team whose alias was quarantined -- zero today.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. A probe row appears in the window for a team whose alias was quarantined -- zero today.
 
 ### Collapse the five copies of get_gotsport_provider_id into enqueue_helpers
 
 - **ID**: IMP-167
-- **Status**: open
+- **Status**: deferred
 - **Type**: direct
 - **Category**: refactor
 - **Where**: `scripts/enqueue_active_teams.py`, `enqueue_yesterday_games.py`, `enqueue_discovery_teams.py`, `enqueue_safety_net.py`, `enqueue_viewed_teams.py`, `audit_polluted_gotsport_aliases.py`, `maintain_gotsport_direct_id_aliases.py`, `enqueue_helpers.py`
 - **Why**: `GOTSPORT_PROVIDER_CODE` plus `get_gotsport_provider_id` is byte-identical in all seven, and `enqueue_helpers.py` now exists expressly to hold what the enqueue scripts share. A `providers` change — a second GotSport row, a code rename, a `.single()` → `.maybe_single()` fix — has to land five times, and missing one leaves a job selecting against a stale id, which reads as "enqueues nothing" rather than an error. Pure move plus an import swap; the existing suite covers all five. Left out of the viewed-teams PR because it edits four daily jobs that change did not otherwise touch. Raised by the consistency reviewer; user chose to defer, 2026-09-03.
 - **Noted**: 2026-09-03
+- **Trigger**: Next time one of the five enqueue scripts is edited for another reason; deferred by the operator 2026-09-03.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. Next time one of the five enqueue scripts is edited for another reason; deferred by the operator 2026-09-03.
 - **Update (2026-09-07)**: Now seven copies, not five — `audit_polluted_gotsport_aliases.py` and `maintain_gotsport_direct_id_aliases.py` carry it too, so the count in the original text was corrected. The two new ones are not enqueue jobs, which is why a grep over `enqueue_*.py` missed them.
 
 ### Recover an orphaned ZenRows batch job instead of reporting nothing to recover
@@ -628,66 +632,17 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-03
 - **Update (2026-09-08)**: Verified — the spec half is done: `.turbo/specs/zenrows-batch-bulk-scrape.md` no longer carries the false no-lookup claim and R13 documents `Idempotency-Key` correctly. The code fix is not: `scripts/batch_drain_queue.py:1223-1225`'s `job is None` branch still prints failure and returns 1 with no replay.
 
-### Lift a chunking helper into src/utils/ instead of a seventh local copy
-
-- **ID**: IMP-171
-- **Status**: open
-- **Type**: plan
-- **Category**: refactor
-- **Where**: `scripts/batch_drain_queue.py:_chunked`, `scripts/prepare_prospective_match_predictions.py:226`, `scripts/settle_prospective_match_predictions.py:69`, `scripts/import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `scripts/enqueue_user_interest_teams.py:80`, `scripts/find_regid_duplicate_merges.py:79`
-- **Why**: There is no shared chunk helper in `src/utils/`, so every caller re-rolls one under three different names, and 14 further files inline `for i in range(0, len(x), 100)` for the same `.in_()` batching (counted 2026-09-03 over `src/` and `scripts/`). `itertools.batched` would settle it but is 3.12+ and this repo targets 3.11, so a helper is genuinely needed rather than merely tidy. The cost of the status quo is that a fix to the batching rule — an empty-input guard, a size assertion against the documented 100-id cap — needs the same edit in seven places with nothing linking them. Deferred from the ZenRows fetching-layer PR as out of scope: creating the util means rewiring unrelated scripts, each needing its own verification.
-- **Noted**: 2026-09-03
-- **Update (2026-09-08)**: Re-counted 2026-09-08 — six of the seven named sites still duplicate it (`batch_drain_queue.py:810`, `prepare_prospective_match_predictions.py:226`, `settle_prospective_match_predictions.py:69`, `import_teams_enhanced.py:240`, `src/etl/enhanced_pipeline.py:2720`, `find_regid_duplicate_merges.py:79`). `enqueue_user_interest_teams.py` has moved off. There is now an eighth copy under a fourth name at `scripts/enqueue_helpers.py:42`.
-
-### Give the event-roster CLI the same seeding intake as the app
-
-- **ID**: IMP-174
-- **Status**: open
-- **Type**: plan
-- **Category**: refactor
-- **Where**: `scripts/scrape_event_roster.py` (the `roster.json` path in `main`), `src/tournaments/event_roster_intake.py`, `src/tournaments/seeding_run_store.py`
-- **Why**: The CLI still writes `reports/seeding/gotsport_<id>/roster.json` and nothing reads it — a grep over `*.py`, `*.md` and `*.yml` on 2026-09-05 finds only the writer. The Streamlit path now converts a walk into a seeding run instead, so a scrape started from the terminal produces an artifact the app cannot open while a scrape started from the app produces one the terminal cannot. The option not taken when wiring the UI: have the CLI call `to_seeding_rows` and the `SeedingRun` writer, so both entry points land in the same place. Deliberately left out to keep the UI change to one path.
-- **Noted**: 2026-09-05
-
-### Cancel the in-flight batch when an event walk is blocked
-
-- **ID**: IMP-175
-- **Status**: open
-- **Type**: direct
-- **Category**: cost
-- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
-- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
-- **Noted**: 2026-09-05
-
 ### Decide whether a group page's header can supply a missing gender
 
 - **ID**: IMP-176
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: data-quality
 - **Where**: `src/tournaments/gotsport_event_roster.py` `parse_division_label` / `_header_division`
 - **Why**: Measured over the captured corpus 2026-09-05: of 39 group pages with a readable division label, the page header names a gender on 5 where the fixture-table label does not. Those 5 teams currently land with a blank gender, and a blank gender is not inert downstream — `seeding_optimizer.normalize_gender_label("")` answers `"Male"`. The header is not a free win, though: it leads with a U-age stamped in the season the event ran, which `parse_division_label`'s own docstring records as disagreeing with the durable birth year on 3 other captured divisions. So the question is whether the header can be read for gender alone while its age is still ignored, which needs its own look at the corpus rather than a one-line change.
 - **Noted**: 2026-09-05
-
-### Fold the WAF-clearing fetch mode into the one GotSport event scraper
-
-- **ID**: IMP-177
-- **Status**: open
-- **Type**: plan
-- **Category**: refactor
-- **Where**: `src/scrapers/gotsport.py:1466`, `src/tournaments/gotsport_event_roster.py` `EVENT_BASE`
-- **Why**: Both define the same `EVENT_BASE`, both walk `.../schedules?group=`, and they share no code. The newer one exists because the older meets an AWS WAF challenge on `/org_event/*` that only a JS-rendered proxied fetch clears. That is a fetch-layer difference, not a parsing one, so a single walker taking its fetcher as a parameter would leave one implementation to fix when GotSport's markup next moves. These two have already drifted once: IMP-173 records the charset fix that landed in the roster module's fetch and not in the other.
-- **Noted**: 2026-09-05
-
-### Carry a club name through the scraped seeding rows
-
-- **ID**: IMP-178
-- **Status**: open
-- **Type**: direct
-- **Category**: ux
-- **Where**: `src/tournaments/event_roster_intake.py` `to_seeding_rows`, `tournament_intake.py` `_render_seeding_override`
-- **Why**: `EventRosterTeam` carries no club name, so every scraped row has `club_raw=""`: the results table's "Club" column is blank and the manual-override heading renders as a leading separator followed by the team name. This is legibility only — nothing in the seeding path matches on a club name, since `search_gotsport_teams` and `make_exact_name_lookup` both read the team name and cohort alone — but it is what an operator reads while deciding the rows the scrape could not link. The team page the walk already fetches for the rankings link is where a club name would come from, at no extra request.
-- **Noted**: 2026-09-05
+- **Trigger**: Next time the event-roster corpus is opened; needs a corpus read, not a one-line change.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. Next time the event-roster corpus is opened; needs a corpus read, not a one-line change.
 
 ### Consider saving a scraped seeding run without a button press
 
@@ -699,36 +654,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A scraped run is deliberately not saved for the operator: the run name is widget-backed and only applies on the following script run, and an automatic save let a cheap two-division probe replace a completed full walk on disk, let a second event overwrite the first under the first's name, and interacted with the resume selector so a saved run reloaded over a fresh scrape. Requiring a name and a press removes all four. The walk itself is not at risk — `_write_event_roster_recovery` drops the rows and resolutions to `reports/seeding/gotsport_<id>/last_walk.json` before any session-state write — so the remaining cost is that recovering from that file is a manual step.
 - **Noted**: 2026-09-05
 - **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
-
-### Give the GotSport event walk one home for its tuned concurrency
-
-- **ID**: IMP-181
-- **Status**: open
-- **Type**: direct
-- **Category**: refactor
-- **Where**: `tournament_intake.py` `_SEEDING_EVENT_WORKERS`, `scripts/scrape_event_roster.py`'s `--concurrency` default
-- **Why**: Both callers of `scrape_event_roster` pick 8 workers, independently. The scraper itself defaults `max_workers=1` deliberately — serial is the safe default for a caller that has not thought about it — so the 8 is a caller policy rather than a restatement of a module default, and there is nowhere it currently belongs: `gotsport_event_roster.py`'s module constants are all structural (URLs, regexes, headings), and `config/settings.py` carries no per-provider tuning of this kind. If GotSport tightens its WAF and the safe concurrency drops, both numbers have to move together with nothing linking them. Deciding the home is the work; the move itself is two lines.
-- **Noted**: 2026-09-05
-
-### Honour an injected Supabase client without also requiring the env vars
-
-- **ID**: IMP-182
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `src/tournaments/event_roster_intake.py` `resolve_master_ids`
-- **Why**: The function takes `client_factory` so a caller can hand in a live client, and the Streamlit app does exactly that. But it still returns `({}, ["No Supabase credentials..."])` when `SUPABASE_URL` is absent, or when neither `SUPABASE_SERVICE_ROLE_KEY` nor `SUPABASE_KEY` is set, before `client_factory` is consulted — so an injected client is only honoured when env vars the caller does not own happen to be set. In the app this is masked because `config/settings.py` loads them at import, but a caller supplying its own client and no env would silently get name matching instead of the direct-id resolution the walk paid for. The guard exists for the CLI, which builds its client from those values; splitting the two paths would let the injected client stand on its own.
-- **Noted**: 2026-09-05
-
-### Give an ambiguous exact-name match candidates the operator can tell apart
-
-- **ID**: IMP-183
-- **Status**: open
-- **Type**: direct
-- **Category**: ux
-- **Where**: `src/tournaments/roster_resolver.py` `make_exact_name_lookup`, and the `len(local) > 1` branches in `resolve_row` and `event_roster_intake._relink_known_id`
-- **Why**: When a team name matches two live teams in one cohort, both branches build `candidates` as `{"team_id_master": id}` only, so `_seeding_candidate_label`'s `team_name or team_id_master` fallback renders the review card as a list of bare UUIDs — the operator cannot choose between them without looking each one up by hand. `make_exact_name_lookup` already selects `team_id_master,team_name` and discards the name on the way out, so the fix is in the shared lookup's return shape rather than in either caller; both would then match the richer shape `resolve_row` produces from a GotSport search hit. Left out of the event-intake change because the two callers are consistent with each other today and changing `ExactNameLookup`'s contract touches the pasted path as well.
-- **Noted**: 2026-09-05
 
 ### Populate `tgs_events` and implement Tier D, the only path the stateless TGS teams have
 
@@ -774,42 +699,50 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 ### Bound the open-invoice fetch the way the paid one beside it is bounded
 
 - **ID**: IMP-186
-- **Status**: open
+- **Status**: deferred
 - **Type**: direct
 - **Category**: performance
 - **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getSubscriptionMetrics`, the `{ status: 'open' }` call)
 - **Why**: The paid-invoice fetch carries `created: { gte: now - COHORT_FETCH_DAYS }`; the open one carries no date floor and no page cap, so it auto-paginates every unpaid invoice the account has ever accumulated on each render of a `force-dynamic` page with a Refresh link. Not a regression — the pre-existing `safeList({ status: 'canceled' })` is unbounded the same way — and fine at today's 47 invoices. It scales badly, and unlike the canceled list the open list only grows while collection keeps failing, which is exactly the condition under which someone reloads the page. **A `created` floor is the wrong remedy here**, despite the symmetry with the paid fetch: the paid list is evidence for a bounded conversion cohort, while this one feeds `buildUnpaidInvoices` (`month-projection.ts:472`), a *current* outstanding-debt total that sums `amount_remaining`. Bounding it by creation date would silently omit any invoice still owed from before the window and could show "No unpaid invoices" while collection is failing on an old one. Take the cost off pagination instead — a page cap with an explicit "showing N of M" affordance, or a cached total — and leave the date range open. The unbounded `safeList({ status: 'canceled' })` beside it is a separate call and can take the cohort floor safely, since nothing reads it as a current total.
 - **Noted**: 2026-09-04
+- **Trigger**: Open invoices approach a full page, or the admin page becomes slow to load.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. Open invoices approach a full page, or the admin page becomes slow to load.
 
 ### Settle whether subscription items are read as a list or as `data[0]`
 
 - **ID**: IMP-187
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getInterval`, `bucketActivePaid`), `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`)
 - **Why**: One feature now reads the same Stripe object two ways. `computeMrr` iterates `sub.items.data` in full, and `countAnnualRenewals` was changed to match after review; `getInterval` and `bucketActivePaid` still read `items.data[0]` only. Stripe designates no canonical item, and `current_period_end` is documented per item, so a multi-item subscription can renew its items on different dates. Verified unreachable today: 0 of 188 subscriptions carry more than one item, `items.has_more` is false throughout, and no code path in the product creates a second item (both checkout calls pass a single `line_items` entry, and the billing portal swaps a price rather than adding items). So this is consistency, not a live bug — but the divergence is the kind that silently decides a number once an add-on or a second plan ever ships. Pick one convention and apply it to all four.
 - **Noted**: 2026-09-04
+- **Trigger**: Any subscription first carries more than one item -- zero of 188 today.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. Any subscription first carries more than one item -- zero of 188 today.
 
 ### Price projected churn at the revenue actually at risk
 
 - **ID**: IMP-188
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `lostMrr`)
 - **Why**: `lostMrr` multiplies churned subscribers by `arpu`, which is the blended monthly-equivalent of the historical paid-*acquisition* cohort. The population actually at risk in a month is different: currently 100% monthly at $6.99, where the acquisition mix is about 18% annual at $5.83 monthly-equivalent. Measured on live data the code reports $50.09 against $51.68 for the at-risk mix, a $1.58 gap on a $50 line. Left alone because that is an order of magnitude below the sampling error on the churn rate feeding it — the same report shows that rate swinging five points on lookback choice alone, worth roughly $10. Worth revisiting only alongside a better churn estimate, and note that neither formulation handles annual correctly: a lapsed annual renewal removes $69.99 of cash, not $5.83.
 - **Noted**: 2026-09-04
+- **Trigger**: The churn rate it multiplies is put on a firmer footing; the gap is an order of magnitude inside that rate's own error.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. The churn rate it multiplies is put on a firmer footing; the gap is an order of magnitude inside that rate's own error.
 
 ### Treat a pending cancellation as a certainty rather than an average-rate risk
 
 - **ID**: IMP-189
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
 - **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
 - **Noted**: 2026-09-04
+- **Trigger**: Before the first annual renewal month it can affect, 2027-04.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. Before the first annual renewal month it can affect, 2027-04.
 
 ### Skip operator-decided teams in the contradiction audit's paid probe list
 
@@ -826,32 +759,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 ### A reverted approval still grants operator authority if the value later returns
 
 - **ID**: IMP-194
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `scripts/assign_team_states.py` — `fetch_approved_states`
 - **Why**: The reader collects every historical `approve` row as a `(team, new_state_code)` pair and never asks whether that approval was later undone. Keying on the written value covers the ordinary case -- once a team's state moves on, the pair stops matching -- but not the return trip: approve to ID, revert, then some other writer puts the team back in ID, and the stale pair matches again and hands an operator-level authority of 1.0 to a value the operator's own revert had rejected. `decide()` then refuses every correction away from it, permanently and silently, which is the exact failure the authority test was added to prevent, inverted. Not reachable through the sweep alone, since `fetch_revert_blocks` already refuses to re-apply a reverted value; it needs a provider import or a by-hand write to restore the state. Zero pairs are affected today (98 approvals, no reverted-then-restored team). The fix is to fold the ledger in event order per team -- the last of approve/revert wins -- rather than accumulating approvals as a flat set, which is why it was kept out of the PR that added the reader. Raised by Codex on #1102.
 - **Noted**: 2026-09-07
+- **Trigger**: A provider import or by-hand write restores a state value an operator had reverted.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. A provider import or by-hand write restores a state value an operator had reverted.
 
 ### The Sunday enqueue jobs cannot tell that the activity refresh failed ahead of them
 
 - **ID**: IMP-195
-- **Status**: open
+- **Status**: deferred
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `.github/workflows/refresh-team-scrape-activity.yml`, `.github/workflows/enqueue-discovery.yml`, `.github/workflows/enqueue-safety-net.yml`
 - **Why**: `refresh_team_scrape_activity` recomputes the four `teams` columns the scrape-eligibility functions read, and the Sunday crons are ordered around it deliberately -- refresh 12:19, discovery 14:41, safety net 16:56 -- so both selectors read fresh values. Nothing enforces that ordering as a dependency. When the refresh died at page 0 on 2026-08-30 and 2026-09-06 it wrote nothing, and both downstream jobs still ran and still succeeded, selecting on values up to a week stale. Verified from run times: the whole Sunday chain is delayed 2-4 hours by GitHub's scheduler but its *relative* order held both weeks, so the ordering assumption is sound and only the failure case is unhandled. Impact is a week of mis-targeted enqueues -- teams that became active look idle and are passed over, retired ones look live and are queued -- self-correcting the following Sunday, and bounded by the fixed `--limit` on every selector, so the volume never changes. #1097 closed the refresh's own failure mode by retrying a stalled page three times, which makes this rarer but not impossible. Options: have the refresh write a freshness marker the enqueue jobs assert on, or make them `workflow_run` consumers of it rather than independent crons. Worth deciding only if a scheduled refresh fails again now that the retry is in.
 - **Noted**: 2026-09-07
-
-### v53e sets four `total_*` columns that the rankings_full adapter then drops
-
-- **ID**: IMP-196
-- **Status**: open
-- **Type**: direct
-- **Category**: readability
-- **Where**: `src/etl/v53e.py` (the `teams["total_games_played"] = teams["gp"]` block and its three siblings), against `v53e_to_rankings_full_format`'s `expected_columns` list in `src/rankings/data_adapter.py`
-- **Why**: v53e copies the CAPPED engine `gp`/`wins`/`losses`/`draws` onto `total_games_played`/`total_wins`/`total_losses`/`total_draws`, which reads as a writer of the four uncapped columns. It is not one: `v53e_to_rankings_full_format` builds its payload from an explicit `expected_columns` allowlist, and `total_` appears nowhere in `src/rankings/data_adapter.py`, so all four are dropped before the upsert. Verified 2026-09-07. So this is a dead assignment rather than a correctness risk -- but it is dead code that looks exactly like a third writer competing with `backfill_total_game_stats_page`, which is how it was first reported. Delete the four lines, or comment them with the reason they cannot reach the database.
-- **Noted**: 2026-09-07
+- **Trigger**: refresh-team-scrape-activity fails again; green on every run since the retry fix landed.
+- **Update (2026-09-08)**: Closed as deferred in a review of everything noted in the preceding seven days. refresh-team-scrape-activity fails again; green on every run since the retry fix landed.
 
 ### Two definitions of the CSV formula guard, and the shared one is the weaker
 
@@ -862,17 +789,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `csv_safe` in `src/tournaments/reports/render_csv.py` (imported by `tournament_intake.py`) and `csv_safe` in `scripts/reconcile_teams_with_gotsport.py`
 - **Why**: Both prefix a leading `=` `+` `-` `@` or whitespace with `'`, over the same frozen prefix set. The reconcile copy also escapes a value that ALREADY starts with `'`, without which the encoding is not injective -- `=x` and `'=x` both encode to `'=x`, so an undo restores the wrong one. The shared copy lacks that, so the module named as the common home is the weaker of the two. Verified 2026-09-08. Fold the reconcile behaviour into the shared function and import it there too. Noted after PR #1111 promoted the shared one to public and its description claimed "one definition" -- there were two, which is why the claim is corrected here rather than left in the PR body.
 - **Noted**: 2026-09-08
-
-### Two regexes detect pipefail-substitution, and the newer one is the weaker
-
-- **ID**: IMP-198
-- **Status**: open
-- **Type**: direct
-- **Category**: testing
-- **Where**: `_PIPEFAIL` in `tests/unit/test_workflow_pipefail_substitutions.py` and `PIPEFAIL_ENABLE` in `.claude/skills/review-workflows/scripts/audit_workflows.py`
-- **Why**: Both decide whether a workflow step has enabled `pipefail`, over the same files, for the same defect. The skill's has been correct from the start; the test's first draft matched only the literal `set -o pipefail` and silently skipped three workflows using `set -euo pipefail` / `set -uo pipefail` until a reviewer caught it. Verified 2026-09-08 by reading both. Nothing links them, so the next spelling has to be added twice. Importing across the boundary is not the repo's habit -- no test imports from `.claude/skills/` -- so the realistic fix is a cross-reference in each, naming the other as the sibling to update. Noted while closing IMP-133.
-- **Noted**: 2026-09-08
-- **Update (2026-09-08)**: Corrected — the multi-spelling bug this entry names is already fixed on both sides: the test's `_PIPEFAIL` (`tests/unit/test_workflow_pipefail_substitutions.py:42`) and the skill's `PIPEFAIL_ENABLE` (`.claude/skills/review-workflows/scripts/audit_workflows.py:479`) both match `set -euo`/`set -uo` now. The one behavioural difference left is the skill's end-of-line anchor, which rejects `set -o pipefail; echo x` where the test accepts it — narrower, not weaker. The real remaining ask is that neither file cross-references the other, so a fourth spelling still has to be added twice with nothing to prompt it.
 
 ### The missing-game completion toast has never fired
 
