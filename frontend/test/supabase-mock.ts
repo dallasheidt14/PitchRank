@@ -68,9 +68,12 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  * passes just as well once the filter is deleted. This builder models PostgREST
  * closely enough to refuse what PostgREST refuses — `.eq` drops NULL, `.not(col,
  * 'is', null)` drops missing values, `.or` honours the column each term names
- * rather than accepting a match on either side, and `.single()` errors with
- * PGRST116 unless exactly one row survives. Anything it does not model throws,
- * so a query shape it cannot judge fails loudly instead of passing silently.
+ * rather than accepting a match on either side, `.single()` errors with PGRST116
+ * unless exactly one row survives, and `.maybeSingle()` errors once more than one
+ * does. That last one matters as much as the rest: a filter guard whose query ends
+ * in `.maybeSingle()` would otherwise still pass with the filter deleted, because
+ * the extra rows it lets through arrive as a silent `rows[0]`. A `.not()` operator
+ * or `.or()` term this builder cannot model throws rather than passing silently.
  *
  * Rows are recorded per query, not per table, so a second query against the same
  * table is a visible change rather than one that silently retargets an assertion.
@@ -141,6 +144,13 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
       },
       maybeSingle: async () => {
         const found = record();
+        if (found.length > 1) {
+          return {
+            data: null,
+            error: { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' },
+            status: 406,
+          };
+        }
         return { data: found[0] ?? null, error: null, status: 200 };
       },
       then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>

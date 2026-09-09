@@ -117,8 +117,9 @@ appear from a direct insert that bypasses the RPC.
 
 ### Pagination (REQUIRED for large tables)
 ```python
-# Supabase has ~1000 row default limit
-# Always paginate for large queries
+# PostgREST caps a response at max-rows: 200,000 on the hosted project (measured
+# 2026-09-09), but 1,000 under a local `supabase start` (supabase/config.toml).
+# Paginate regardless -- for memory, and for scans that could exceed either cap.
 
 def fetch_all_teams(client):
     all_teams = []
@@ -392,7 +393,7 @@ for batch in chunks(ids, 100):
 
 ### ❌ Skip Pagination
 ```python
-# BAD - only gets first ~1000 rows
+# BAD - unbounded; truncates silently at max-rows (200,000 hosted, 1,000 local)
 client.table('games').select('*').execute()
 
 # GOOD - paginate
