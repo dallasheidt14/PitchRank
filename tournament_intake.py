@@ -563,6 +563,7 @@ def _init_session_state() -> None:
         st.session_state.current_run_id_by_cohort = {}
     st.session_state.setdefault("_reviewer_email", "")
     st.session_state.setdefault("_seeding_result", None)
+    st.session_state.setdefault("_seeding_result_event_id", None)
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
 
@@ -3555,7 +3556,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
     if not parsed.rows:
-        st.session_state._seeding_result = None
+        _park_seeding_result(None, event_id=None)
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
         return
 
@@ -3583,7 +3584,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
         progress.empty()
         session.close()
 
-    st.session_state._seeding_result = (parsed, resolved)
+    _park_seeding_result((parsed, resolved), event_id=None)
 
 
 def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: int | None) -> None:
@@ -3710,11 +3711,11 @@ def _park_event_roster(
         # The probe above now describes this event while the table would still
         # hold the last one's teams, and an operator could save or queue those
         # under this event's name.
-        st.session_state._seeding_result = None
+        _park_seeding_result(None, event_id=None)
         st.session_state._seeding_resolution_failed = False
         return 0
 
-    st.session_state._seeding_result = (parsed, resolved)
+    _park_seeding_result((parsed, resolved), event_id=roster.event_id)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
@@ -3933,7 +3934,9 @@ def _run_seeding_name_lookup(
     finally:
         session.close()
 
-    st.session_state._seeding_result = (parsed, spliced)
+    _park_seeding_result(
+        (parsed, spliced), event_id=st.session_state.get("_seeding_result_event_id")
+    )
     st.session_state._seeding_resolution_failed = False
 
 
@@ -4106,7 +4109,9 @@ def _load_seeding_run(slug: str) -> None:
     except (OSError, ValueError, TypeError) as exc:
         st.error(f"Could not open that run: {exc}")
         return
-    st.session_state._seeding_result = (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved)
+    _park_seeding_result(
+        (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved), event_id=None
+    )
     st.session_state._seeding_overrides = dict(run.overrides)
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
@@ -4336,7 +4341,7 @@ def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool)
     if recovered is None:
         return
     roster, limit_groups = recovered
-    if len(roster.teams) <= _parked_roster_size():
+    if len(roster.teams) <= _parked_roster_size(event_id):
         return
 
     st.caption(
@@ -4355,8 +4360,27 @@ def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool)
         st.rerun()
 
 
-def _parked_roster_size() -> int:
-    """How many rows the seeding table is holding right now."""
+def _park_seeding_result(pair: Any, *, event_id: str | None) -> None:
+    """Park the seeding table's contents, and say which event they came from.
+
+    The pair and the event that produced it are written together because the
+    reload gate compares them: a pasted list belongs to no event, and a walk of
+    a different event answers for its own. Kept apart, the id drifts from the
+    roster and the gate reads one about the other.
+
+    The roster goes first. A stop landing between the two writes then leaves a
+    stale id against a fresh roster, which reads as "this event has nothing
+    parked" and offers a reload that costs nothing to accept — where the other
+    order would claim the new roster for the old event and withhold one.
+    """
+    st.session_state._seeding_result = pair
+    st.session_state._seeding_result_event_id = event_id if pair else None
+
+
+def _parked_roster_size(event_id: str) -> int:
+    """How many rows the seeding table holds *for this event*, and none for any other."""
+    if st.session_state.get("_seeding_result_event_id") != event_id:
+        return 0
     result = st.session_state.get("_seeding_result")
     return len(result[0].rows) if result else 0
 

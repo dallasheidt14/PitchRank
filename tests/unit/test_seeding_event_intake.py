@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import pathlib
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,15 @@ from typing import Any
 import pytest
 
 import tournament_intake
+from src.tournaments.event_roster_intake import to_seeding_rows
 from src.tournaments.gotsport_event_roster import (
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
 )
+from src.tournaments.roster_paste import ParsedRoster, RosterRow
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_run_store import SeedingRun
 
 EVENT_URL = "https://system.gotsport.com/org_event/events/52975"
 EVENT_LOCK_DIR = "gotsport__52975__unknown"
@@ -74,6 +79,10 @@ class _FakeSessionState(dict):
         dict.__setattr__(self, "_pending", None)
         dict.__setattr__(self, "_sticky", False)
 
+    def writes(self) -> list[str]:
+        """The keys written, in order, so an ordering contract can be asserted."""
+        return list(self.__dict__.get("_writes", []))
+
     def _yield(self) -> None:
         pending = self.__dict__.get("_pending")
         if pending is None:
@@ -108,6 +117,7 @@ class _FakeSessionState(dict):
 
     def __setitem__(self, key: str, value: Any) -> None:
         self._yield()
+        self.__dict__.setdefault("_writes", []).append(key)
         super().__setitem__(key, value)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -147,6 +157,19 @@ class _FakeSpinner:
         return False
 
 
+class _FakeProgress:
+    """``st.progress``, which the caller drives and then clears."""
+
+    def __init__(self, log: list[str]) -> None:
+        self._log = log
+
+    def progress(self, _value: float, text: str = "") -> None:
+        self._log.append(str(text))
+
+    def empty(self) -> None:
+        self._log.append("<cleared>")
+
+
 class _FakeColumn:
     """A column, which Streamlit also lets a caller write through directly."""
 
@@ -181,6 +204,7 @@ class _FakeSt:
         self.successes: list[str] = []
         self.markdowns: list[str] = []
         self.spinners: list[tuple[str, str]] = []
+        self.progress_texts: list[str] = []
         self.buttons: list[dict[str, Any]] = []
         self.metrics: list[tuple[str, Any]] = []
         self.downloads: list[str] = []
@@ -208,6 +232,11 @@ class _FakeSt:
 
     def markdown(self, message: str, **_kw: Any) -> None:
         self.markdowns.append(str(message))
+
+    def progress(self, _value: float = 0.0, text: str = "") -> _FakeProgress:
+        bar = _FakeProgress(self.progress_texts)
+        bar.progress(_value, text=text)
+        return bar
 
     def spinner(self, text: str = "") -> _FakeSpinner:
         return _FakeSpinner(self.spinners, str(text), self._spinner_raises)
@@ -1972,3 +2001,170 @@ def test_a_stop_the_walk_cannot_catch_leaves_its_own_flag_set(app, tmp_path):
     assert fake_st.session_state.get("_seeding_scrape_lock_key") == _WALK_LOCK_KEY, (
         "and the key it named is what the next render has to probe"
     )
+
+
+# -------- the reload gate must match the parked roster by event ------------
+
+
+def _park_pasted_rows(fake_st: _FakeSt, count: int) -> None:
+    """A pasted list, which belongs to no event at all."""
+    rows = tuple(
+        RosterRow(
+            source_index=index,
+            club_raw="Pasted FC",
+            team_name_raw=f"Pasted {index}",
+            state="TX",
+            section_age_group="u13",
+            section_gender="Male",
+            team_name_stripped=f"Pasted {index}",
+            has_star_marker=False,
+            has_c_marker=False,
+        )
+        for index in range(count)
+    )
+    resolved = tuple(ResolvedTeam(source_index=index, status="unresolved") for index in range(count))
+    fake_st.session_state._seeding_result = (ParsedRoster(rows=rows, warnings=()), resolved)
+
+
+def test_a_bigger_pasted_roster_does_not_suppress_a_paid_walk(app):
+    """The tab holding more rows is not the same thing as holding this walk.
+
+    A pasted list belongs to no event, so its row count says nothing about
+    whether the walk on disk has been seen. Counting rows alone leaves a paid
+    roster unreachable behind an unrelated table.
+    """
+    tournament_intake._write_event_roster_recovery(
+        _roster(*[_team(index) for index in range(12)]), limit_groups=None
+    )
+    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True}))
+    _park_pasted_rows(fake_st, 40)
+
+    _render_controls()
+
+    parsed, _resolved = fake_st.session_state._seeding_result
+    assert [row.team_name_raw for row in parsed.rows] == [f"Team {index}" for index in range(12)], (
+        "the paid walk stayed unreachable behind a larger unrelated roster"
+    )
+
+
+def test_another_events_roster_does_not_suppress_this_ones(app, tmp_path):
+    """Two events, one tab. The larger one must not answer for the smaller."""
+    tournament_intake._write_event_roster_recovery(
+        _roster(*[_team(index) for index in range(3)]), limit_groups=None
+    )
+    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True}))
+    other = _roster(*[_team(index) for index in range(9)], event_id="49371")
+    parsed_other, resolved_other = to_seeding_rows(other, {})
+    tournament_intake._park_seeding_result((parsed_other, resolved_other), event_id="49371")
+
+    _render_controls()
+
+    parsed, _resolved = fake_st.session_state._seeding_result
+    assert len(parsed.rows) == 3, "event 52975's own walk was suppressed by event 49371's"
+
+
+def test_the_offer_still_stops_once_this_events_walk_is_parked(app):
+    """The arm the gate exists for must survive the event scoping."""
+    roster = _roster(_team(0), _team(1))
+    tournament_intake._write_event_roster_recovery(roster, limit_groups=None)
+    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}))
+    parsed, resolved = to_seeding_rows(roster, {})
+    tournament_intake._park_seeding_result((parsed, resolved), event_id="52975")
+
+    _render_controls()
+
+    with pytest.raises(AssertionError):
+        fake_st.button_by_key("_seeding_event_reload_walk")
+
+
+def test_every_parked_roster_write_goes_through_the_helper():
+    """Derived, so a new writer that forgets the event id is caught here.
+
+    A parallel session key kept in sync by hand is the shape that drifts: the
+    gate then reads an event id belonging to a roster that has been replaced.
+    """
+    source = pathlib.Path(tournament_intake.__file__).read_text(encoding="utf-8")
+    assignments = [
+        line.strip()
+        for line in source.splitlines()
+        if "_seeding_result" in line and "=" in line.split("_seeding_result")[1][:3]
+    ]
+    stray = [
+        line
+        for line in assignments
+        if "st.session_state._seeding_result" in line
+        and "setdefault" not in line
+        and line != "st.session_state._seeding_result = pair"  # the helper's own write
+    ]
+
+    assert stray == [], (
+        "write the parked roster through _park_seeding_result so the event id "
+        f"cannot drift from it: {stray}"
+    )
+
+
+def test_a_reloaded_saved_run_does_not_claim_to_be_this_events_walk(app):
+    """A named run is a saved artifact, not this tab's walk of any event.
+
+    Driven through `_load_seeding_run` rather than parked directly, so the event
+    id that path actually writes is the thing under test.
+    """
+    tournament_intake._write_event_roster_recovery(_roster(_team(0), _team(1)), limit_groups=None)
+    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}))
+    parsed_saved, resolved_saved = to_seeding_rows(_roster(*[_team(i) for i in range(9)]), {})
+    app.setattr(
+        tournament_intake,
+        "load_seeding_run_file",
+        lambda _slug: SeedingRun(
+            name="stx-cup-2026",
+            rows=parsed_saved.rows,
+            resolved=resolved_saved,
+            overrides={},
+            warnings=parsed_saved.warnings,
+        ),
+    )
+
+    tournament_intake._load_seeding_run("stx-cup-2026")
+    assert fake_st.session_state.get("_seeding_result_event_id") is None
+    _render_controls()
+
+    assert fake_st.button_by_key("_seeding_event_reload_walk")["disabled"] is False, (
+        "a nine-row saved run answered for a two-team walk of this event"
+    )
+
+
+def test_the_paste_path_parks_a_roster_belonging_to_no_event(app):
+    """Otherwise a pasted list suppresses the reload of the event in the box."""
+    fake_st = _install(app, _FakeSt())
+    app.setattr(tournament_intake, "resolve_roster", lambda rows, **_kw: tuple(
+        ResolvedTeam(source_index=row.source_index, status="unresolved") for row in rows
+    ))
+
+    roster_text = "\n".join(
+        [
+            "Male U14",
+            "Club\tTeam\tState",
+            "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX",
+        ]
+    )
+    tournament_intake._run_seeding_resolve(roster_text, None)
+
+    parked, _resolved = fake_st.session_state._seeding_result
+    assert parked.rows, "the paste path parked nothing, so this proves nothing"
+    assert fake_st.session_state.get("_seeding_result_event_id") is None
+
+
+def test_the_parked_roster_is_written_before_the_event_it_names(app):
+    """A stop between the two writes must leave a stale id, never a stale roster.
+
+    The other order claims a fresh roster for the previous event and withholds a
+    reload; this order reads as "nothing parked for this event" and offers one
+    that costs nothing to accept.
+    """
+    fake_st = _install(app, _FakeSt())
+    parsed, resolved = to_seeding_rows(_roster(_team(0)), {})
+
+    tournament_intake._park_seeding_result((parsed, resolved), event_id="52975")
+
+    written = [key for key in fake_st.session_state.writes() if key.startswith("_seeding_result")]
+    assert written == ["_seeding_result", "_seeding_result_event_id"]
