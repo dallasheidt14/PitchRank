@@ -40,6 +40,7 @@ from src.scrapers.provider import (
     UnsupportedProviderError,
     get_provider_scraper,
 )
+from src.tournaments.backtest_event_intake import render_backtest_event_intake
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_roster_intake import (
     needs_name_lookup,
@@ -568,6 +569,16 @@ def _init_session_state() -> None:
     st.session_state.setdefault("_seeding_result_event_id", None)
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
+    # The Backtest view's own paid walk (Task 8) drives the same _WalkKeys-keyed
+    # machinery as Seeding, under _BACKTEST_KEYS instead. Seeded by property
+    # rather than by hand-typed string so this cannot drift from the names
+    # _WalkKeys actually derives. Without this, `st.session_state[_BACKTEST_KEYS.overrides]`
+    # and the write into it in `_render_seeding_override` would depend on a walk
+    # having already run first to create the entry as a side effect.
+    st.session_state.setdefault(_BACKTEST_KEYS.result, None)
+    st.session_state.setdefault(_BACKTEST_KEYS.result_event_id, None)
+    st.session_state.setdefault(_BACKTEST_KEYS.overrides, {})
+    st.session_state.setdefault(_BACKTEST_KEYS.sheet_html, None)
 
 
 def _render_rekey_banner() -> None:
@@ -3805,12 +3816,24 @@ def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
     disables this whole tab until the session is thrown away.
 
     The lock key lives in its own session entry rather than in the flag.
-    ``_scrape_in_progress`` is shared with the Backtest surface, which feeds it
-    straight to ``st.text_input(disabled=...)`` — a bool protobuf field that
-    raises ``TypeError`` on a string or ``None`` — so this walk keeps writing the
-    bool that surface expects. A walk of that surface's own leaves no key here
-    and is answered on its flag alone; a seeding walk killed mid-run leaves one,
-    and it is cleared the next time this tab renders rather than on the spot.
+    ``_scrape_in_progress`` is shared across every walk that reaches this
+    function — the legacy Backtest intake's own scrape (``_run_scrape``, which
+    never records a lock key at all) and each view's paid event walk, run
+    through this same ``_run_event_roster_scrape`` under its own ``keys``. All
+    of them feed the flag straight to ``st.text_input(disabled=...)`` — a bool
+    protobuf field that raises ``TypeError`` on a string or ``None`` — so every
+    caller keeps writing the bool the others expect.
+
+    A killed legacy Backtest scrape is always answered on the flag alone: it
+    never wrote a ``keys.lock_key`` under either view's prefix, so there is
+    nothing here to check. A killed paid event walk does leave one — but under
+    its own view's prefix, invisible to a call made with the *other* view's
+    ``keys``. So a Backtest walk killed mid-run greys out the Seeding view's
+    paid buttons, and a Seeding walk killed mid-run greys out Backtest's,
+    until the operator returns to the view that owns the walk — where that
+    view's own call finds its key, confirms the lock is free, and clears the
+    key and the shared flag together, on the spot rather than the next time
+    the *other* tab renders.
 
     Probing takes the lock for real, which is a sub-millisecond window in which a
     *second tab walking this same event* would be told the event is already being
@@ -4668,6 +4691,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 def _render_backtest_tab(supabase_client: Any) -> None:
     """Scrape-and-triage flow for a tournament that has already been played."""
     _render_intake_section(supabase_client)
+    render_backtest_event_intake(supabase_client)
     _render_registry_persist_results()
 
     key = st.session_state.event_key
