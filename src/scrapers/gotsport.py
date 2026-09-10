@@ -17,6 +17,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,6 +38,7 @@ from src.base import GameData
 from src.scrapers._age_normalization import normalize_age
 from src.scrapers._http import RateLimitedError
 from src.scrapers._zenrows import ENDPOINT as _ZENROWS_ENDPOINT
+from src.scrapers._zenrows import _redact
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
 from src.scrapers.gotsport_tier_parser import (
@@ -873,6 +875,15 @@ _LEADING_U_AGE_RE = re.compile(r"^[Uu](\d{1,2})", re.IGNORECASE)
 # to co-occur but gotsport has served the challenge body at the event URL
 # directly (no redirect) as well as via 302 to /verify_captchas/new.
 _CAPTCHA_URL_MARKER = re.compile(r"/verify_captchas(?:/|$|\?)", re.IGNORECASE)
+# A page carrying the event's own division or team links is a page that arrived,
+# whatever any URL or header says about it. ZenRows' renderer follows GotSport's
+# 302 to the challenge, the challenge completes its JavaScript proof-of-work and
+# navigates on to the real page, and `Zr-Final-Url` then reports the URL it
+# passed *through* — so the header alone marks every successful render as blocked.
+# Measured on event 51783 (2026-09-09): the rendered body carried 232 of these
+# links, the challenge body none. Matched against all 41 captured schedule pages
+# and the real challenge page. Mirrors `gotsport_event_roster._looks_like_a_challenge`.
+_EVENT_OWN_LINK = re.compile(r"[?&](?:group|team)=[0-9]{1,12}(?![0-9])")
 _CAPTCHA_BODY_MARKER = re.compile(r"Please verify to continue", re.IGNORECASE)
 # reCAPTCHA sitekey appears in several shapes on the challenge page:
 #   1. <div data-sitekey="KEY">                  — static form variant
@@ -963,11 +974,18 @@ def _extract_captcha_signals_from_parts(
     over `final_url` (which is the ZenRows API URL when routed).
 
     Checks (in order):
+    0. The body carries the event's own ``group=``/``team=`` links -> not a
+       challenge, whatever the URL says. See ``_EVENT_OWN_LINK``.
     1. Zr-Final-Url / final_url contains /verify_captchas
     2. Any redirect Location contains /verify_captchas
     3. Body contains "Please verify to continue" (server serves the challenge
        page directly with no redirect — observed on 40550/40610)
     """
+    if _EVENT_OWN_LINK.search(html or ""):
+        # The event's own links are on the page, so the page is here. A challenge
+        # carries none of them, which is what makes this safe to check first.
+        return None
+
     effective_final_url = zr_final_url or final_url
 
     if _CAPTCHA_URL_MARKER.search(effective_final_url):
@@ -1451,6 +1469,25 @@ _ZENROWS_RENDER_ATTEMPTS = 3
 _RENDER_TIMEOUT_DEFAULT = "240"
 
 
+def _redact_key(text: str, api_key: Optional[str]) -> str:
+    """Strip the ZenRows key from anything a caller may log, raise or persist.
+
+    Both forms, because `requests` percent-encodes a key containing `+`, `/` or
+    `=` into the prepared URL and a plain replace then misses it.
+    """
+    if not text or not api_key:
+        return text
+    for form in (api_key, quote_plus(api_key)):
+        text = _redact(text, form) or text
+    return text
+
+
+def _event_id_from_url(url: str) -> Optional[str]:
+    """The event id in an event or schedule URL, for the captcha artifact path."""
+    match = re.search(r"/events/(\d{1,12})(?!\d)", str(url or ""))
+    return match.group(1) if match else None
+
+
 def _render_wait_for(url: str) -> str:
     """The element that only exists once this page has finished rebuilding."""
     return _SCHEDULE_READY if "/schedules" in url else _EVENT_PAGE_READY
@@ -1535,6 +1572,11 @@ class GotsportScraper(ProviderScraper):
 
         # Session setup
         self.session = self._init_http_session()
+        # Rendered calls get their own transport. `_init_http_session` retries
+        # 500/502/503/504 to exhaustion and then raises RetryError, so those
+        # statuses never reach the app-level loop meant to bound them — while
+        # four renders have already been billed per attempt.
+        self.render_session = self._init_render_session()
 
         # Providers-table assertion (plan Step 3). ``.single()`` raises
         # on 0 rows; wrap to surface a typed error with an actionable
@@ -1619,6 +1661,39 @@ class GotsportScraper(ProviderScraper):
 
         return session
 
+    def _init_render_session(self) -> requests.Session:
+        """A transport for rendered calls that never retries on a status.
+
+        Verified against urllib3 2.5.0: an empty ``status_forcelist`` makes
+        ``is_retry`` answer False for 500/502/503/504, while ``connect=3`` keeps
+        genuine connection errors retryable. The shared session's mount does
+        retry those four to exhaustion and then raises ``RetryError`` — so they
+        never reach the app-level loop that is supposed to bound them, after
+        four renders have already been billed inside one ``get``.
+
+        Headers are copied from the shared session because its browser-realistic
+        bundle is load-bearing for GotSport's bot detection, not decoration.
+        """
+        session = requests.Session()
+        session.headers.update(self.session.headers)
+        session.verify = self.session.verify
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=Retry(
+                total=3,
+                connect=3,
+                read=False,
+                status=0,
+                status_forcelist=[],
+                backoff_factor=0.3,
+                allowed_methods=["GET", "HEAD"],
+            ),
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
+
     def _make_zenrows_request(self, url: str) -> requests.Response:
         """Route an event-page GET through ZenRows' proxy *and* its renderer.
 
@@ -1649,9 +1724,23 @@ class GotsportScraper(ProviderScraper):
 
         response = None
         for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
-            response = self.session.get(
-                _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
-            )
+            try:
+                response = self.render_session.get(
+                    _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
+                )
+            except requests.exceptions.RetryError:
+                # Mirrors GotSportScraper's handling of the same shape: without
+                # this the caller sees a raw urllib3 error this scraper never names.
+                raise RateLimitedError(
+                    provider="gotsport",
+                    url=_redact_key(url, self.zenrows_api_key),
+                    last_retry_after=None,
+                    reason="zenrows_transport_retry_exhausted",
+                ) from None
+            # The key travels in the query string, so it is in `response.url` and
+            # in any HTTPError built from it. `reports/` is not gitignored and
+            # this repo is public, so it must not leave this method.
+            response.url = _redact_key(str(response.url or ""), self.zenrows_api_key)
             if response.status_code not in _ZENROWS_SIDE_STATUSES:
                 return response
             if attempt + 1 < _ZENROWS_RENDER_ATTEMPTS:
@@ -1695,10 +1784,42 @@ class GotsportScraper(ProviderScraper):
         can surface the skip cleanly without marking the event scraped.
         """
         event_url = f"{self.EVENT_BASE}/{event_id}"
+        return self._fetch_event_html(event_url, event_id=event_id)
+
+    def _fetch_event_html(
+        self, url: str, *, event_id: Optional[str] = None, detect_challenge: bool = True
+    ) -> requests.Response:
+        """The one way this class fetches an event or schedule page.
+
+        Every such fetch goes through here, because an unrendered one does not
+        fail — it *succeeds* at fetching the wrong page. GotSport answers with a
+        302 to ``/verify_captchas/new``, ``requests`` follows it, and the
+        challenge body arrives with status 200: ``raise_for_status`` passes, the
+        parser finds no ``group=`` links, and the caller reports "no teams" for
+        an event that has hundreds. Measured against event 51783 on 2026-09-09 —
+        direct fetch 0 teams, rendered fetch 332 across 24 brackets, same parser.
+
+        Detection runs here rather than at one entry point for the same reason.
+        Ten fetch sites used to skip it, so a challenge on any of them was
+        indistinguishable from an empty event.
+
+        ``raise_for_status`` is deliberately NOT called: callers own that, which
+        keeps challenge detection ahead of any HTTP-error short-circuit.
+
+        ``detect_challenge=False`` is for the one caller that detects *better*
+        than this does. The tier orchestrator receives a ``FetchedSubpage``
+        carrying the final URL, the ``Zr-Final-Url`` header and the redirect
+        locations precisely so it can classify a challenge per group and name the
+        group in its own artifact. Raising here first would reclassify that as a
+        plain HTTP error and lose the group. It is not an opt-out of detection —
+        it is a handover to a more specific detector, and the derived guard in
+        ``tests/unit/test_gotsport_event_scrape_zenrows_coverage.py`` names the
+        only caller allowed to ask for it.
+        """
         if self.use_zenrows:
-            response = self._make_zenrows_request(event_url)
+            response = self._make_zenrows_request(url)
         else:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.timeout)
 
         # GotSport declares no charset, and requests then falls back to ISO-8859-1
         # for text/*, so accented and non-Latin event metadata decodes to mojibake.
@@ -1706,11 +1827,12 @@ class GotsportScraper(ProviderScraper):
         if "charset" not in str(response.headers.get("content-type", "")).lower():
             response.encoding = "utf-8"
 
-        captcha = _extract_captcha_signals(response, fallback_target_url=event_url)
+        captcha = _extract_captcha_signals(response, fallback_target_url=url) if detect_challenge else None
         if captcha is not None:
-            artifact_path = self._write_captcha_artifact(event_id, captcha, event_url)
+            resolved_id = event_id or _event_id_from_url(url) or "unknown"
+            artifact_path = self._write_captcha_artifact(resolved_id, captcha, url)
             raise EventCaptchaGatedError(
-                provider_event_id=event_id,
+                provider_event_id=resolved_id,
                 captcha_url=captcha["captcha_url"],
                 sitekey=captcha["sitekey"],
                 artifact_path=artifact_path,
@@ -1764,7 +1886,7 @@ class GotsportScraper(ProviderScraper):
 
         for attempt in range(self.max_retries):
             try:
-                response = self.session.get(event_url, timeout=self.timeout)
+                response = self._fetch_event_html(event_url)
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -1933,7 +2055,7 @@ class GotsportScraper(ProviderScraper):
 
         for attempt in range(self.max_retries):
             try:
-                response = self.session.get(event_url, timeout=self.timeout)
+                response = self._fetch_event_html(event_url)
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -2018,7 +2140,7 @@ class GotsportScraper(ProviderScraper):
         event_url = f"{self.EVENT_BASE}/{event_id}"
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -2038,7 +2160,7 @@ class GotsportScraper(ProviderScraper):
                         schedule_url = href
 
                     try:
-                        schedule_response = self.session.get(schedule_url, timeout=self.timeout)
+                        schedule_response = self._fetch_event_html(schedule_url)
                         schedule_response.raise_for_status()
                         schedule_soup = BeautifulSoup(schedule_response.text, "html.parser")
 
@@ -2085,7 +2207,7 @@ class GotsportScraper(ProviderScraper):
         dates_found = []
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -2172,7 +2294,7 @@ class GotsportScraper(ProviderScraper):
             # Sample a few schedule pages to find date range
             for schedule_url in list(schedule_urls)[:3]:  # Check first 3 schedule pages
                 try:
-                    schedule_response = self.session.get(schedule_url, timeout=self.timeout)
+                    schedule_response = self._fetch_event_html(schedule_url)
                     schedule_response.raise_for_status()
                     schedule_soup = BeautifulSoup(schedule_response.text, "html.parser")
 
@@ -2608,7 +2730,7 @@ class GotsportScraper(ProviderScraper):
         games: List[GameData] = []
 
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3069,7 +3191,7 @@ class GotsportScraper(ProviderScraper):
         """
         teams = []
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3098,7 +3220,7 @@ class GotsportScraper(ProviderScraper):
         groups: Dict[str, List[EventTeam]] = {}
 
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3342,7 +3464,7 @@ class GotsportScraper(ProviderScraper):
         logger.info(f"Extracting teams from schedule pages for event {event_id}: {event_url}")
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3491,10 +3613,10 @@ class GotsportScraper(ProviderScraper):
         # captcha detection must run BEFORE any HTTP-error short-circuit.
         def _subpage_fetcher(group_id: int) -> FetchedSubpage:
             url = f"{self.EVENT_BASE}/{event_id}/schedules?group={group_id}"
-            if self.use_zenrows:
-                resp = self._make_zenrows_request(url)
-            else:
-                resp = self.session.get(url, timeout=self.timeout)
+            # Detection is handed to the orchestrator, which classifies a
+            # challenge per group from the FetchedSubpage below and names the
+            # group in its own artifact.
+            resp = self._fetch_event_html(url, detect_challenge=False)
             if self.delay_min > 0 or self.delay_max > 0:
                 time.sleep(random.uniform(self.delay_min, self.delay_max))
             return FetchedSubpage(
