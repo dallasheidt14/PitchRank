@@ -1724,9 +1724,21 @@ class GotsportScraper(ProviderScraper):
 
         response = None
         for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
+            attempt_params = dict(zenrows_params)
+            if attempt == _ZENROWS_RENDER_ATTEMPTS - 1:
+                # An event with no brackets posted has no division links, so the
+                # readiness selector never appears and ZenRows answers 422 —
+                # measured on captured event 47021, a real landing page carrying
+                # no `group=` anywhere. No selector separates that page from the
+                # challenge, because the challenge is served inside the event's
+                # own chrome. So the final attempt waits for nothing and lets
+                # `_extract_captcha_signals` judge the body: a challenged event
+                # returns the challenge and is caught, a bracket-less one returns
+                # its real page and passes.
+                attempt_params.pop("wait_for", None)
             try:
                 response = self.render_session.get(
-                    _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
+                    _ZENROWS_ENDPOINT, params=attempt_params, timeout=self.render_timeout
                 )
             except requests.exceptions.RetryError:
                 # Mirrors GotSportScraper's handling of the same shape: without
@@ -2646,6 +2658,11 @@ class GotsportScraper(ProviderScraper):
                     )
                     if page_delay > 0:
                         time.sleep(page_delay)
+                except EventCaptchaGatedError:
+                    # The outer handler re-raises so the event is not marked
+                    # scraped; catching it here would return the pages that did
+                    # succeed and hide the rest.
+                    raise
                 except Exception as e:
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue
@@ -2688,6 +2705,8 @@ class GotsportScraper(ProviderScraper):
                         games.extend(team_games)
                         if page_delay > 0:
                             time.sleep(page_delay)
+                    except EventCaptchaGatedError:
+                        raise
                     except Exception as e:
                         logger.warning(f"Error parsing per-team schedule {team_url}: {e}")
                         continue

@@ -408,70 +408,6 @@ def test_a_challenge_page_that_links_back_to_the_event_is_still_a_challenge():
 # -------- a challenge must never be swallowed by a catch-all ---------------
 
 
-def _routed_methods_that_swallow_a_challenge() -> list[str]:
-    """Methods routing through the seam whose catch-all would eat the challenge.
-
-    Derived from the class body rather than listed, because the defect this
-    guards against is a *new* routed call site landing inside an existing
-    ``except Exception``. A hand-written list cannot fail for the site it omits,
-    and that is exactly how ten sites acquired the problem at once.
-    """
-    import pathlib
-    import re
-
-    src = pathlib.Path(GotsportScraper.__module__.replace(".", "/") + ".py")
-    if not src.exists():  # installed rather than in-tree
-        import inspect
-
-        src = pathlib.Path(inspect.getsourcefile(GotsportScraper))
-    lines = src.read_text(encoding="utf-8").splitlines()
-    start = next(i for i, l in enumerate(lines) if l.startswith("class GotsportScraper"))
-
-    bounds: dict[str, list[int]] = {}
-    cur = None
-    for i in range(start, len(lines)):
-        m = re.match(r"    def (\w+)\(", lines[i])
-        if m:
-            if cur:
-                bounds[cur][1] = i
-            cur = m.group(1)
-            bounds[cur] = [i, len(lines)]
-    if cur:
-        bounds[cur][1] = len(lines)
-
-    offenders = []
-    for name, (lo, hi) in bounds.items():
-        body = lines[lo:hi]
-        if not any("_fetch_event_html(" in l for l in body):
-            continue
-        if name == "_fetch_event_html":
-            continue
-        arms = [l.strip() for l in body if re.match(r"\s+except ", l)]
-        broad = any("except Exception" in a or a.startswith("except:") for a in arms)
-        reraises = any("EventCaptchaGatedError" in a for a in arms)
-        if broad and not reraises:
-            offenders.append(name)
-    return sorted(offenders)
-
-
-def test_no_routed_fetch_lets_a_catch_all_eat_the_challenge():
-    """A swallowed challenge is worse than a raised one: it looks like an empty event.
-
-    `scrape_games_from_schedule_pages` re-raises `EventCaptchaGatedError` so the
-    event is not marked scraped. Routing a fetch into a method whose catch-all
-    swallows it defeats that: earlier pages' games are returned, the event is
-    recorded as successfully scraped, and the missing fixtures are invisible.
-    Retrying it is no better — a challenge does not clear on a retry and each
-    attempt bills a render.
-    """
-    offenders = _routed_methods_that_swallow_a_challenge()
-
-    assert offenders == [], (
-        "these route through _fetch_event_html but would swallow the challenge; "
-        f"add `except EventCaptchaGatedError: raise` above the catch-all: {offenders}"
-    )
-
-
 def test_a_challenge_mid_walk_is_not_reported_as_an_empty_page(monkeypatch, tmp_path):
     """The concrete shape: a schedule page challenged after the landing page passed."""
     monkeypatch.chdir(tmp_path)
@@ -484,3 +420,152 @@ def test_a_challenge_mid_walk_is_not_reported_as_an_empty_page(monkeypatch, tmp_
         scraper._parse_games_from_schedule_page(
             SCHEDULE_URL, "51783", event_name="Test", since_date=None
         )
+
+
+# -------- the guard must follow the exception, not the call ----------------
+
+
+def _try_blocks_that_swallow_a_challenge() -> list[str]:
+    """Every ``try`` on the challenge path whose own arms would eat it.
+
+    Per ``try`` block, not per method. Two earlier versions of this guard were
+    too coarse and passed while the defect stood: the first followed only direct
+    callers of the seam, so it never looked at
+    ``scrape_games_from_schedule_pages``; the second looked at the method but
+    accepted a re-raise anywhere in it, and that method has one at the top which
+    belongs to a different ``try`` than either of its walks.
+
+    Reported as ``method:line`` of the offending ``except`` so the fix has an
+    address.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    source = inspect.getsource(GotsportScraper)
+    tree = ast.parse(textwrap.dedent(source))
+    classdef = tree.body[0]
+    methods = {n.name: n for n in classdef.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    def calls_in(node: ast.AST) -> set[str]:
+        found = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                f = sub.func
+                if isinstance(f, ast.Attribute):
+                    found.add(f.attr)
+                elif isinstance(f, ast.Name):
+                    found.add(f.id)
+        return found
+
+    # fixed point over "can raise EventCaptchaGatedError"
+    raisers = {"_fetch_event_html"}
+    changed = True
+    while changed:
+        changed = False
+        for name, node in methods.items():
+            if name in raisers:
+                continue
+            if calls_in(node) & raisers:
+                raisers.add(name)
+                changed = True
+
+    def arms_reraise(handlers: list[ast.ExceptHandler]) -> bool:
+        for h in handlers:
+            names = []
+            if isinstance(h.type, ast.Name):
+                names = [h.type.id]
+            elif isinstance(h.type, ast.Tuple):
+                names = [e.id for e in h.type.elts if isinstance(e, ast.Name)]
+            if "EventCaptchaGatedError" in names:
+                return True
+        return False
+
+    def arms_are_broad(handlers: list[ast.ExceptHandler]) -> bool:
+        for h in handlers:
+            if h.type is None:
+                return True
+            if isinstance(h.type, ast.Name) and h.type.id in ("Exception", "BaseException"):
+                return True
+            if isinstance(h.type, ast.Tuple) and any(
+                isinstance(e, ast.Name) and e.id in ("Exception", "BaseException") for e in h.type.elts
+            ):
+                return True
+        return False
+
+    offenders = []
+    # the class source starts at the `class` line; ast lineno is 1-based within it
+    base = inspect.getsourcelines(GotsportScraper)[1] - 1
+    for name, node in methods.items():
+        if name == "_fetch_event_html":
+            continue
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Try):
+                continue
+            # does this try's own body reach a raiser?
+            in_body = set()
+            for stmt in sub.body:
+                in_body |= calls_in(stmt)
+            if not (in_body & raisers):
+                continue
+            if arms_are_broad(sub.handlers) and not arms_reraise(sub.handlers):
+                offenders.append(f"{name}:{base + sub.handlers[0].lineno}")
+    return sorted(offenders)
+
+
+def test_no_method_on_the_challenge_path_lets_a_catch_all_eat_it():
+    """Derived by following the exception, not the call site.
+
+    A swallowed challenge reads as an empty page: earlier pages' games are
+    returned, the event is recorded as scraped, and the missing fixtures are
+    invisible. `scrape_games_from_schedule_pages` re-raises it at the top of the
+    method precisely so that cannot happen — which is defeated if either walk
+    catches it first.
+    """
+    offenders = _try_blocks_that_swallow_a_challenge()
+
+    assert offenders == [], (
+        "these try blocks can receive an EventCaptchaGatedError and would swallow "
+        "it; add `except EventCaptchaGatedError: raise` to each; "
+        f"reported as method:line of the offending except -> {offenders}"
+    )
+
+
+# -------- a landing page need not have divisions to be a landing page -------
+
+
+def test_the_last_attempt_waits_for_nothing_so_a_bracketless_event_can_arrive(monkeypatch):
+    """An event with no brackets posted has no division links to wait for.
+
+    Captured event 47021 is a real landing page carrying no ``group=`` anywhere.
+    No selector separates it from the challenge, because the challenge is served
+    inside the event's own chrome and satisfies every nav-based selector. So the
+    final attempt waits for nothing and lets detection judge the body instead.
+    """
+    scraper = _scraper(monkeypatch)
+    recorder = _Recorder(422, 422, 200)
+    scraper.render_session = recorder
+    monkeypatch.setattr("src.scrapers.gotsport.time.sleep", lambda _s: None)
+
+    scraper._make_zenrows_request(EVENT_URL)
+
+    waits = [call["params"].get("wait_for") for call in recorder.calls]
+    assert waits[:-1] == ['a[href*="group="]'] * (len(waits) - 1), (
+        "every attempt but the last must outlast the challenge by waiting"
+    )
+    assert waits[-1] is None, "the last attempt must not wait for a selector that may never come"
+
+
+def test_the_landing_selector_still_accepts_a_bracketed_event():
+    """The shape proven live on event 51783 must not be traded away."""
+    from src.scrapers.gotsport import _render_wait_for
+
+    selector = _render_wait_for("https://system.gotsport.com/org_event/events/51783")
+
+    assert 'group=' in selector, "the 232-division case is the one we have actually verified"
+
+
+def test_a_schedule_page_still_waits_for_its_table():
+    from src.scrapers.gotsport import _render_wait_for
+
+    assert _render_wait_for(SCHEDULE_URL) == "table"
