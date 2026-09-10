@@ -2015,6 +2015,11 @@ class GotsportScraper(ProviderScraper):
                     logger.error(f"SSL error after {self.max_retries} attempts: {e}")
                     raise
 
+            except EventCaptchaGatedError:
+                # A challenge neither clears on a retry nor reads as an empty page:
+                # every attempt bills a render, and a swallowed one lets the event be
+                # recorded as scraped with fixtures silently missing.
+                raise
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Error (attempt {attempt + 1}): {e}, retrying...")
@@ -2111,6 +2116,11 @@ class GotsportScraper(ProviderScraper):
                     logger.error(f"SSL error after {self.max_retries} attempts: {e}")
                     raise
 
+            except EventCaptchaGatedError:
+                # A challenge neither clears on a retry nor reads as an empty page:
+                # every attempt bills a render, and a swallowed one lets the event be
+                # recorded as scraped with fixtures silently missing.
+                raise
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Error (attempt {attempt + 1}): {e}, retrying...")
@@ -2183,11 +2193,21 @@ class GotsportScraper(ProviderScraper):
                                 team_ids.add(match.group(1))
 
                         time.sleep(0.5)  # Rate limiting between schedule pages
+                    except EventCaptchaGatedError:
+                        # A challenge neither clears on a retry nor reads as an empty page:
+                        # every attempt bills a render, and a swallowed one lets the event be
+                        # recorded as scraped with fixtures silently missing.
+                        raise
                     except Exception as e:
                         logger.debug(f"Error fetching schedule page {schedule_url}: {e}")
                         continue
 
             logger.info(f"Extracted {len(team_ids)} team IDs from schedule pages")
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting team IDs from schedules: {e}")
 
@@ -2331,6 +2351,11 @@ class GotsportScraper(ProviderScraper):
                                     continue
 
                     time.sleep(0.3)  # Rate limiting
+                except EventCaptchaGatedError:
+                    # A challenge neither clears on a retry nor reads as an empty page:
+                    # every attempt bills a render, and a swallowed one lets the event be
+                    # recorded as scraped with fixtures silently missing.
+                    raise
                 except Exception as e:
                     logger.debug(f"Error checking schedule page for dates: {e}")
                     continue
@@ -2341,6 +2366,11 @@ class GotsportScraper(ProviderScraper):
                 end_date = max(dates_found)
                 return (start_date, end_date)
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.debug(f"Error extracting event dates: {e}")
 
@@ -3105,6 +3135,11 @@ class GotsportScraper(ProviderScraper):
                         logger.debug(f"Error parsing game row: {e}")
                         continue
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
 
@@ -3208,6 +3243,11 @@ class GotsportScraper(ProviderScraper):
                         team_name = link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
                         teams.append(EventTeam(team_id=team_id, team_name=team_name, bracket_name=bracket_name))
                         seen_team_ids.add(team_id)
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams from schedule page {schedule_url}: {e}")
 
@@ -3408,6 +3448,11 @@ class GotsportScraper(ProviderScraper):
                     for team in team_list:
                         team.group_name = group_name
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams by group from schedule page {schedule_url}: {e}")
 
@@ -3503,6 +3548,11 @@ class GotsportScraper(ProviderScraper):
                             if self.delay_min > 0 or self.delay_max > 0:
                                 time.sleep(random.uniform(self.delay_min, self.delay_max))
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams by group from schedule pages: {e}")
 

@@ -403,3 +403,84 @@ def test_a_challenge_page_that_links_back_to_the_event_is_still_a_challenge():
     )
 
     assert signals is not None, "a form target is not a division link"
+
+
+# -------- a challenge must never be swallowed by a catch-all ---------------
+
+
+def _routed_methods_that_swallow_a_challenge() -> list[str]:
+    """Methods routing through the seam whose catch-all would eat the challenge.
+
+    Derived from the class body rather than listed, because the defect this
+    guards against is a *new* routed call site landing inside an existing
+    ``except Exception``. A hand-written list cannot fail for the site it omits,
+    and that is exactly how ten sites acquired the problem at once.
+    """
+    import pathlib
+    import re
+
+    src = pathlib.Path(GotsportScraper.__module__.replace(".", "/") + ".py")
+    if not src.exists():  # installed rather than in-tree
+        import inspect
+
+        src = pathlib.Path(inspect.getsourcefile(GotsportScraper))
+    lines = src.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("class GotsportScraper"))
+
+    bounds: dict[str, list[int]] = {}
+    cur = None
+    for i in range(start, len(lines)):
+        m = re.match(r"    def (\w+)\(", lines[i])
+        if m:
+            if cur:
+                bounds[cur][1] = i
+            cur = m.group(1)
+            bounds[cur] = [i, len(lines)]
+    if cur:
+        bounds[cur][1] = len(lines)
+
+    offenders = []
+    for name, (lo, hi) in bounds.items():
+        body = lines[lo:hi]
+        if not any("_fetch_event_html(" in l for l in body):
+            continue
+        if name == "_fetch_event_html":
+            continue
+        arms = [l.strip() for l in body if re.match(r"\s+except ", l)]
+        broad = any("except Exception" in a or a.startswith("except:") for a in arms)
+        reraises = any("EventCaptchaGatedError" in a for a in arms)
+        if broad and not reraises:
+            offenders.append(name)
+    return sorted(offenders)
+
+
+def test_no_routed_fetch_lets_a_catch_all_eat_the_challenge():
+    """A swallowed challenge is worse than a raised one: it looks like an empty event.
+
+    `scrape_games_from_schedule_pages` re-raises `EventCaptchaGatedError` so the
+    event is not marked scraped. Routing a fetch into a method whose catch-all
+    swallows it defeats that: earlier pages' games are returned, the event is
+    recorded as successfully scraped, and the missing fixtures are invisible.
+    Retrying it is no better — a challenge does not clear on a retry and each
+    attempt bills a render.
+    """
+    offenders = _routed_methods_that_swallow_a_challenge()
+
+    assert offenders == [], (
+        "these route through _fetch_event_html but would swallow the challenge; "
+        f"add `except EventCaptchaGatedError: raise` above the catch-all: {offenders}"
+    )
+
+
+def test_a_challenge_mid_walk_is_not_reported_as_an_empty_page(monkeypatch, tmp_path):
+    """The concrete shape: a schedule page challenged after the landing page passed."""
+    monkeypatch.chdir(tmp_path)
+    scraper = _scraper(monkeypatch)
+    challenge = b"<html><body>Please verify to continue</body></html>"
+    recorder = _PreparedRecorder(200, body=challenge)
+    scraper.render_session = recorder
+
+    with pytest.raises(EventCaptchaGatedError):
+        scraper._parse_games_from_schedule_page(
+            SCHEDULE_URL, "51783", event_name="Test", since_date=None
+        )
