@@ -78,8 +78,8 @@ def division_from_dict(payload: dict[str, Any]) -> ScrapedDivision:
 
 def _pool(payload: dict[str, Any]) -> Pool:
     return Pool(
-        pool_id=str(payload.get("pool_id") or ""),
-        label=str(payload.get("label") or ""),
+        pool_id=str(payload["pool_id"]),
+        label=str(payload["label"]),
         members=tuple(
             PoolMember(
                 registration_id=str(member["registration_id"]),
@@ -93,15 +93,15 @@ def _pool(payload: dict[str, Any]) -> Pool:
 
 def _fixture(payload: dict[str, Any]) -> Fixture:
     return Fixture(
-        match_number=str(payload.get("match_number") or ""),
-        bracket_label=str(payload.get("bracket_label") or ""),
+        match_number=str(payload["match_number"]),
+        bracket_label=str(payload["bracket_label"]),
         kind=str(payload["kind"]),
         home_registration_id=_optional_str(payload.get("home_registration_id")),
         away_registration_id=_optional_str(payload.get("away_registration_id")),
         home_score=_optional_int(payload.get("home_score")),
         away_score=_optional_int(payload.get("away_score")),
-        kickoff=str(payload.get("kickoff") or ""),
-        location=str(payload.get("location") or ""),
+        kickoff=str(payload["kickoff"]),
+        location=str(payload["location"]),
     )
 
 

@@ -60,10 +60,58 @@ def _structure() -> EventStructure:
     )
 
 
+def _structure_with_unplayed_fixture() -> EventStructure:
+    """A structure with an unplayed fixture (all nullable fields are None)."""
+    return EventStructure(
+        event_id="51783",
+        walked_at="2026-09-10T00:00:00+00:00",
+        is_complete=False,
+        divisions=(
+            ScrapedDivision(
+                group_id="501350",
+                division_label="U13 Boys Red",
+                pools=(
+                    Pool(
+                        pool_id="501350",
+                        label="Bracket A",
+                        members=(
+                            PoolMember(registration_id="1", team_name="One", standings_position=1),
+                        ),
+                    ),
+                ),
+                fixtures=(
+                    Fixture(
+                        match_number="57",
+                        bracket_label="",
+                        kind="unknown",
+                        home_registration_id=None,
+                        away_registration_id=None,
+                        home_score=None,
+                        away_score=None,
+                        kickoff="",
+                        location="",
+                    ),
+                ),
+                pools_readable=True,
+                fixtures_readable=True,
+                warnings=(),
+            ),
+        ),
+    )
+
+
 def test_write_then_read_round_trips_every_field(tmp_path):
     write_event_structure("gotsport__51783__2026", _structure(), base_dir=tmp_path)
 
     assert read_event_structure("gotsport__51783__2026", base_dir=tmp_path) == _structure()
+
+
+def test_unplayed_fixtures_round_trip_with_none_values(tmp_path):
+    """Verify that unplayed fixtures with all nullable fields as None round-trip correctly."""
+    structure = _structure_with_unplayed_fixture()
+    write_event_structure("gotsport__51783__2026", structure, base_dir=tmp_path)
+
+    assert read_event_structure("gotsport__51783__2026", base_dir=tmp_path) == structure
 
 
 def test_the_file_lands_beside_the_other_intake_artifacts(tmp_path):
