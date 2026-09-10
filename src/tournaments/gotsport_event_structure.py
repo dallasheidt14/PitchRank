@@ -20,10 +20,10 @@ from bs4 import BeautifulSoup
 
 __all__ = [
     "Fixture",
-    "fixture_table_found",
-    "parse_fixtures",
     "Pool",
     "PoolMember",
+    "fixture_table_found",
+    "parse_fixtures",
     "parse_pools",
     "standings_table_found",
 ]
