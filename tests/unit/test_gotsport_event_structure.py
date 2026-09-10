@@ -6,6 +6,8 @@ from pathlib import Path
 
 from src.tournaments.gotsport_event_structure import (
     Fixture,
+    Pool,
+    PoolMember,
     fixture_table_found,
     parse_fixtures,
     parse_pools,
@@ -49,6 +51,20 @@ def test_parse_pools_returns_nothing_when_there_is_no_standings_table():
 def test_standings_table_found_separates_an_empty_pool_from_unreadable_markup():
     assert standings_table_found(_html("event_42433__group_365847.html")) is True
     assert standings_table_found("<html><body><table></table></body></html>") is False
+
+
+def test_a_team_heading_alone_is_not_enough_to_read_a_table_as_standings():
+    """``Team`` without ``PTS`` is some other kind of table (a roster, a coach
+    list) — not a standings table. Requiring both is what keeps a table like
+    that from being misread as an empty pool."""
+    html = """
+    <table>
+      <tr><th>Team</th><th>Coach</th></tr>
+      <tr><td>Team A</td><td>Coach A</td></tr>
+    </table>
+    """
+    assert parse_pools(html) == ()
+    assert standings_table_found(html) is False
 
 
 def test_parse_fixtures_reads_every_row_on_the_page():
@@ -115,3 +131,137 @@ def test_parse_fixtures_returns_no_score_when_none_was_published():
 def test_fixture_table_found_separates_no_fixtures_from_unreadable_markup():
     assert fixture_table_found(_html("event_42433__group_365847.html")) is True
     assert fixture_table_found("<html><body><table></table></body></html>") is False
+
+
+import collections  # noqa: E402
+
+import pytest  # noqa: E402
+
+from src.tournaments.gotsport_event_structure import (  # noqa: E402
+    classify_fixtures,
+    parse_division_structure,
+)
+
+REAL_PAGES = sorted(
+    path
+    for path in FIXTURES.glob("event_*__group_*.html")
+    if "synthetic" not in path.name
+)
+
+
+def _structure(name: str):
+    return parse_division_structure(
+        group_id=name.split("__group_")[1].removesuffix(".html"),
+        division_label="Test Division",
+        html=_html(name),
+    )
+
+
+def _kinds(structure) -> dict[str, int]:
+    return collections.Counter(fixture.kind for fixture in structure.fixtures)
+
+
+def test_every_real_page_yields_readable_pools_and_fixtures():
+    assert len(REAL_PAGES) == 39
+    for path in REAL_PAGES:
+        structure = _structure(path.name)
+        assert structure.pools_readable, path.name
+        assert structure.fixtures_readable, path.name
+        assert structure.pools, path.name
+
+
+def test_no_real_page_leaves_a_fixture_unclassified():
+    for path in REAL_PAGES:
+        structure = _structure(path.name)
+        assert _kinds(structure)["unknown"] == 0, path.name
+
+
+def test_two_pools_of_four_with_a_full_knockout():
+    structure = _structure("event_42433__group_365847.html")
+
+    assert [len(pool.members) for pool in structure.pools] == [4, 4]
+    assert _kinds(structure) == {"pool": 12, "bracket": 4}
+    assert sorted(f.bracket_label for f in structure.fixtures if f.bracket_label) == [
+        "Consolation A",
+        "Consolation B",
+        "Final",
+        "Third Place",
+    ]
+
+
+def test_two_pools_that_only_ever_played_each_other():
+    """Nine games, none inside a pool. Game-count inference calls this pool play."""
+    structure = _structure("event_49371__group_485425.html")
+
+    assert [len(pool.members) for pool in structure.pools] == [3, 3]
+    assert _kinds(structure) == {"cross_pool": 9, "bracket": 1}
+
+
+def test_a_pool_of_six_that_played_nine_games_not_fifteen():
+    structure = _structure("event_44692__group_391315.html")
+
+    assert [len(pool.members) for pool in structure.pools] == [6]
+    assert _kinds(structure) == {"pool": 9, "bracket": 1}
+
+
+def test_a_pool_of_four_with_no_knockout_at_all():
+    structure = _structure("event_49371__group_485294.html")
+
+    assert [len(pool.members) for pool in structure.pools] == [4]
+    assert _kinds(structure) == {"pool": 6}
+
+
+def test_pools_are_never_reconstructed_when_the_standings_table_is_unreadable():
+    html = """
+    <table>
+      <tr><th>Match #</th><th>Home Team</th><th>Results</th><th>Away Team</th></tr>
+      <tr><td>1</td><td><a href="?team=1">A</a></td><td>1 - 0</td>
+          <td><a href="?team=2">B</a></td></tr>
+    </table>
+    """
+    structure = parse_division_structure(group_id="9", division_label="U13 Boys", html=html)
+
+    assert structure.pools == ()
+    assert structure.pools_readable is False
+    assert structure.fixtures_readable is True
+    assert structure.fixtures[0].kind == "unknown"
+    assert any("pools could not be read" in warning for warning in structure.warnings)
+
+
+@pytest.mark.parametrize(
+    "home,away,expected",
+    [("1", "2", "pool"), ("1", "3", "cross_pool"), ("1", "99", "unknown"), (None, "2", "unknown")],
+)
+def test_classify_fixtures_is_pure_lookup(home, away, expected):
+    pools = (
+        Pool(pool_id="a", label="Bracket A", members=(
+            PoolMember(registration_id="1", team_name="One", standings_position=1),
+            PoolMember(registration_id="2", team_name="Two", standings_position=2),
+        )),
+        Pool(pool_id="b", label="Bracket B", members=(
+            PoolMember(registration_id="3", team_name="Three", standings_position=1),
+        )),
+    )
+    fixture = Fixture(
+        match_number="1", bracket_label="", kind="unknown",
+        home_registration_id=home, away_registration_id=away,
+        home_score=None, away_score=None, kickoff="", location="",
+    )
+
+    assert classify_fixtures((fixture,), pools)[0].kind == expected
+
+
+def test_classify_fixtures_never_reclassifies_a_labelled_knockout_game():
+    pools = (
+        Pool(pool_id="a", label="Bracket A", members=(
+            PoolMember(registration_id="1", team_name="One", standings_position=1),
+            PoolMember(registration_id="2", team_name="Two", standings_position=2),
+        )),
+    )
+    fixture = Fixture(
+        match_number="9", bracket_label="Final", kind="bracket",
+        home_registration_id="1", away_registration_id="2",
+        home_score=None, away_score=None, kickoff="", location="",
+    )
+
+    assert classify_fixtures((fixture,), pools)[0].kind == "bracket"

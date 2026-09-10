@@ -14,7 +14,8 @@ grouped with whom.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 
 from bs4 import BeautifulSoup
 
@@ -22,7 +23,10 @@ __all__ = [
     "Fixture",
     "Pool",
     "PoolMember",
+    "ScrapedDivision",
+    "classify_fixtures",
     "fixture_table_found",
+    "parse_division_structure",
     "parse_fixtures",
     "parse_pools",
     "standings_table_found",
@@ -273,3 +277,87 @@ def fixture_table_found(html: str) -> bool:
             if _fixture_columns(headings) is not None:
                 return True
     return False
+
+
+@dataclass(frozen=True)
+class ScrapedDivision:
+    """One division's structure, exactly as its schedule page published it."""
+
+    group_id: str
+    division_label: str
+    pools: tuple[Pool, ...]
+    fixtures: tuple[Fixture, ...]
+    pools_readable: bool
+    fixtures_readable: bool
+    warnings: tuple[str, ...]
+
+
+def classify_fixtures(
+    fixtures: Sequence[Fixture], pools: Sequence[Pool]
+) -> tuple[Fixture, ...]:
+    """Tag each fixture ``pool`` / ``cross_pool`` / ``bracket`` / ``unknown``.
+
+    Lookup only. A labelled game keeps ``bracket`` — the organizer named it, and
+    no amount of pool membership overrides that. Everything else is decided by
+    whether both sides appear in the same standings table, so a division that
+    played nothing inside its own pools is described as it actually was rather
+    than forced into a pool-play shape.
+
+    A team listed in two pools resolves to the last one seen. That is a
+    malformed page rather than a real format, and preferring either pool would
+    be a guess.
+    """
+    pool_by_team: dict[str, int] = {}
+    for index, pool in enumerate(pools):
+        for member in pool.members:
+            pool_by_team[member.registration_id] = index
+
+    classified: list[Fixture] = []
+    for fixture in fixtures:
+        if fixture.bracket_label:
+            classified.append(replace(fixture, kind=KIND_BRACKET))
+            continue
+        home = pool_by_team.get(fixture.home_registration_id or "")
+        away = pool_by_team.get(fixture.away_registration_id or "")
+        if home is None or away is None:
+            kind = KIND_UNKNOWN
+        elif home == away:
+            kind = KIND_POOL
+        else:
+            kind = KIND_CROSS_POOL
+        classified.append(replace(fixture, kind=kind))
+    return tuple(classified)
+
+
+def parse_division_structure(
+    *, group_id: str, division_label: str, html: str
+) -> ScrapedDivision:
+    """The whole structure of one division, read from its schedule page."""
+    pools = parse_pools(html)
+    pools_readable = standings_table_found(html)
+    fixtures_readable = fixture_table_found(html)
+    named = division_label or f"group {group_id}"
+
+    warnings: list[str] = []
+    if not pools_readable:
+        warnings.append(
+            f"Division {named}: no standings table this module recognizes, so its "
+            "pools could not be read"
+        )
+    elif not pools:
+        warnings.append(f"Division {named} publishes no pools yet")
+    if not fixtures_readable:
+        warnings.append(
+            f"Division {named}: no fixture table this module recognizes, so its "
+            "games could not be read"
+        )
+
+    return ScrapedDivision(
+        group_id=group_id,
+        division_label=division_label,
+        pools=pools,
+        fixtures=classify_fixtures(parse_fixtures(html), pools),
+        pools_readable=pools_readable,
+        fixtures_readable=fixtures_readable,
+        warnings=tuple(warnings),
+    )
