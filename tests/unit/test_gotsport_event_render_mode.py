@@ -534,13 +534,15 @@ def test_no_method_on_the_challenge_path_lets_a_catch_all_eat_it():
 # -------- a landing page need not have divisions to be a landing page -------
 
 
-def test_the_last_attempt_waits_for_nothing_so_a_bracketless_event_can_arrive(monkeypatch):
-    """An event with no brackets posted has no division links to wait for.
+def test_every_attempt_waits_for_the_finished_page(monkeypatch):
+    """Waiting is what outlasts the challenge, so no attempt may skip it.
 
-    Captured event 47021 is a real landing page carrying no ``group=`` anywhere.
-    No selector separates it from the challenge, because the challenge is served
-    inside the event's own chrome and satisfies every nav-based selector. So the
-    final attempt waits for nothing and lets detection judge the body instead.
+    An earlier revision dropped the wait on the final attempt to let an event
+    with no brackets posted through. It fired after any two retryable failures,
+    not just that case, so two transient 500s on a bracketed event could return
+    the half-built page `wait_for` exists to prevent — no divisions, no challenge
+    marker, accepted as an empty event. An event with no brackets now fails
+    loudly instead, which is a limitation rather than a wrong answer.
     """
     scraper = _scraper(monkeypatch)
     recorder = _Recorder(422, 422, 200)
@@ -550,10 +552,29 @@ def test_the_last_attempt_waits_for_nothing_so_a_bracketless_event_can_arrive(mo
     scraper._make_zenrows_request(EVENT_URL)
 
     waits = [call["params"].get("wait_for") for call in recorder.calls]
-    assert waits[:-1] == ['a[href*="group="]'] * (len(waits) - 1), (
-        "every attempt but the last must outlast the challenge by waiting"
-    )
-    assert waits[-1] is None, "the last attempt must not wait for a selector that may never come"
+    assert waits == ['a[href*="group="]'] * 3, waits
+
+
+def test_a_connection_error_does_not_carry_the_key_out(monkeypatch):
+    """A ConnectionError is not a RetryError, and its message holds the URL.
+
+    `requests` puts the apikey in the prepared URL, so a DNS or refused-
+    connection failure would otherwise hand a live credential to whatever logs
+    it — including the tier orchestrator, which writes it under `reports/`.
+    """
+    scraper = _scraper(monkeypatch)
+
+    def _refused(*_a, **_kw):
+        raise requests.exceptions.ConnectionError(
+            "Max retries exceeded with url: /v1/?apikey=test-key&url=x"
+        )
+
+    scraper.render_session = type("S", (), {"get": staticmethod(_refused)})()
+
+    with pytest.raises(RateLimitedError) as caught:
+        scraper._make_zenrows_request(EVENT_URL)
+
+    assert "test-key" not in str(caught.value)
 
 
 def test_the_landing_selector_still_accepts_a_bracketed_event():

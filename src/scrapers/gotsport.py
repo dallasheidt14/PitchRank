@@ -1724,30 +1724,23 @@ class GotsportScraper(ProviderScraper):
 
         response = None
         for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
-            attempt_params = dict(zenrows_params)
-            if attempt == _ZENROWS_RENDER_ATTEMPTS - 1:
-                # An event with no brackets posted has no division links, so the
-                # readiness selector never appears and ZenRows answers 422 —
-                # measured on captured event 47021, a real landing page carrying
-                # no `group=` anywhere. No selector separates that page from the
-                # challenge, because the challenge is served inside the event's
-                # own chrome. So the final attempt waits for nothing and lets
-                # `_extract_captcha_signals` judge the body: a challenged event
-                # returns the challenge and is caught, a bracket-less one returns
-                # its real page and passes.
-                attempt_params.pop("wait_for", None)
             try:
                 response = self.render_session.get(
-                    _ZENROWS_ENDPOINT, params=attempt_params, timeout=self.render_timeout
+                    _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
                 )
-            except requests.exceptions.RetryError:
+            except requests.exceptions.RequestException as exc:
                 # Mirrors GotSportScraper's handling of the same shape: without
                 # this the caller sees a raw urllib3 error this scraper never names.
+                # Every RequestException carries the prepared URL, and the key
+                # rides in its query string: a ConnectionError from DNS or a
+                # refused connection is not a RetryError and would otherwise
+                # escape unredacted into a log or the tier-orchestrator artifact
+                # under `reports/`, which is not gitignored in a public repo.
                 raise RateLimitedError(
                     provider="gotsport",
                     url=_redact_key(url, self.zenrows_api_key),
                     last_retry_after=None,
-                    reason="zenrows_transport_retry_exhausted",
+                    reason=f"zenrows_{type(exc).__name__}",
                 ) from None
             # The key travels in the query string, so it is in `response.url` and
             # in any HTTPError built from it. `reports/` is not gitignored and
