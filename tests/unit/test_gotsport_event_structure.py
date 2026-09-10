@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import collections
 from pathlib import Path
+
+import pytest
 
 from src.tournaments.gotsport_event_structure import (
     Fixture,
     Pool,
     PoolMember,
+    classify_fixtures,
     fixture_table_found,
+    parse_division_structure,
     parse_fixtures,
     parse_pools,
     standings_table_found,
@@ -132,15 +137,6 @@ def test_fixture_table_found_separates_no_fixtures_from_unreadable_markup():
     assert fixture_table_found(_html("event_42433__group_365847.html")) is True
     assert fixture_table_found("<html><body><table></table></body></html>") is False
 
-
-import collections  # noqa: E402
-
-import pytest  # noqa: E402
-
-from src.tournaments.gotsport_event_structure import (  # noqa: E402
-    classify_fixtures,
-    parse_division_structure,
-)
 
 REAL_PAGES = sorted(
     path
