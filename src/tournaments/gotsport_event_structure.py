@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 
 __all__ = [
+    "Fixture",
+    "fixture_table_found",
+    "parse_fixtures",
     "Pool",
     "PoolMember",
     "parse_pools",
@@ -150,5 +153,123 @@ def standings_table_found(html: str) -> bool:
         for row in table.find_all("tr"):
             headings = [_squashed(cell.get_text(" ")) for cell in row.find_all(["td", "th"])]
             if _standings_column(headings) is not None:
+                return True
+    return False
+
+
+_MATCH_NUMBER = re.compile(r"^\s*(\d+)\s*(.*)$")
+_SCORE = re.compile(r"^\s*(\d+)\s*-\s*(\d+)\s*$")
+_FIXTURE_HEADINGS = ("match #", "home team", "away team")
+
+KIND_POOL = "pool"
+KIND_CROSS_POOL = "cross_pool"
+KIND_BRACKET = "bracket"
+KIND_UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class Fixture:
+    """One scheduled game, exactly as the division page published it."""
+
+    match_number: str
+    bracket_label: str
+    """``"Final"``, ``"Third Place"``, ``""``. Verbatim — never normalized, because
+    the label is evidence of what the organizer actually ran."""
+
+    kind: str
+    home_registration_id: str | None
+    away_registration_id: str | None
+    home_score: int | None
+    away_score: int | None
+    kickoff: str
+    """Page text, unparsed. A datetime is not needed to replay a structure."""
+
+    location: str
+
+
+def _fixture_columns(headings: list[str]) -> dict[str, int] | None:
+    """Column indexes for a fixture table's heading row, or ``None``."""
+    if not all(heading in headings for heading in _FIXTURE_HEADINGS):
+        return None
+    columns = {
+        "match_number": headings.index("match #"),
+        "home": headings.index("home team"),
+        "away": headings.index("away team"),
+    }
+    for name, heading in (("time", "time"), ("results", "results"), ("location", "location")):
+        if heading in headings:
+            columns[name] = headings.index(heading)
+    return columns
+
+
+def _cell(cells: list, columns: dict[str, int], name: str) -> str:
+    index = columns.get(name)
+    if index is None or index >= len(cells):
+        return ""
+    return _plain(cells[index].get_text(" "))
+
+
+def _team_id_at(cells: list, columns: dict[str, int], name: str) -> str | None:
+    index = columns.get(name)
+    if index is None or index >= len(cells):
+        return None
+    return _first_team_id(cells[index]) or None
+
+
+def _scores(text: str) -> tuple[int | None, int | None]:
+    match = _SCORE.match(text or "")
+    if not match:
+        return None, None
+    return int(match.group(1)), int(match.group(2))
+
+
+def parse_fixtures(html: str) -> tuple[Fixture, ...]:
+    """Every fixture row on the page, in page order.
+
+    ``kind`` is ``"bracket"`` for a labelled game and ``"unknown"`` otherwise;
+    only a pool map can tell a pool game from a cross-pool one, and this
+    function has none.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    fixtures: list[Fixture] = []
+    for table in soup.find_all("table"):
+        columns: dict[str, int] | None = None
+        for row in table.find_all("tr"):
+            cells = row.find_all(["td", "th"])
+            headings = [_squashed(cell.get_text(" ")) for cell in cells]
+            found = _fixture_columns(headings)
+            if found:
+                columns = found
+                continue
+            if columns is None:
+                continue
+            raw_number = _cell(cells, columns, "match_number")
+            match = _MATCH_NUMBER.match(raw_number)
+            if not match:
+                continue
+            home_score, away_score = _scores(_cell(cells, columns, "results"))
+            fixtures.append(
+                Fixture(
+                    match_number=match.group(1),
+                    bracket_label=match.group(2).strip(),
+                    kind=KIND_BRACKET if match.group(2).strip() else KIND_UNKNOWN,
+                    home_registration_id=_team_id_at(cells, columns, "home"),
+                    away_registration_id=_team_id_at(cells, columns, "away"),
+                    home_score=home_score,
+                    away_score=away_score,
+                    kickoff=_cell(cells, columns, "time"),
+                    location=_cell(cells, columns, "location"),
+                )
+            )
+    return tuple(fixtures)
+
+
+def fixture_table_found(html: str) -> bool:
+    """Did any table carry fixture headings this module reads games from?"""
+    soup = BeautifulSoup(html or "", "html.parser")
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            headings = [_squashed(cell.get_text(" ")) for cell in row.find_all(["td", "th"])]
+            if _fixture_columns(headings) is not None:
                 return True
     return False
