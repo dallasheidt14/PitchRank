@@ -17,6 +17,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
@@ -36,6 +37,8 @@ except ImportError:
 from src.base import GameData
 from src.scrapers._age_normalization import normalize_age
 from src.scrapers._http import RateLimitedError
+from src.scrapers._zenrows import ENDPOINT as _ZENROWS_ENDPOINT
+from src.scrapers._zenrows import _redact
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
 from src.scrapers.gotsport_tier_parser import (
@@ -872,6 +875,15 @@ _LEADING_U_AGE_RE = re.compile(r"^[Uu](\d{1,2})", re.IGNORECASE)
 # to co-occur but gotsport has served the challenge body at the event URL
 # directly (no redirect) as well as via 302 to /verify_captchas/new.
 _CAPTCHA_URL_MARKER = re.compile(r"/verify_captchas(?:/|$|\?)", re.IGNORECASE)
+# A page carrying the event's own division or team links is a page that arrived,
+# whatever any URL or header says about it. ZenRows' renderer follows GotSport's
+# 302 to the challenge, the challenge completes its JavaScript proof-of-work and
+# navigates on to the real page, and `Zr-Final-Url` then reports the URL it
+# passed *through* — so the header alone marks every successful render as blocked.
+# Measured on event 51783 (2026-09-09): the rendered body carried 232 of these
+# links, the challenge body none. Matched against all 41 captured schedule pages
+# and the real challenge page. Mirrors `gotsport_event_roster._looks_like_a_challenge`.
+_EVENT_OWN_LINK = re.compile(r"[?&](?:group|team)=[0-9]{1,12}(?![0-9])")
 _CAPTCHA_BODY_MARKER = re.compile(r"Please verify to continue", re.IGNORECASE)
 # reCAPTCHA sitekey appears in several shapes on the challenge page:
 #   1. <div data-sitekey="KEY">                  — static form variant
@@ -962,11 +974,18 @@ def _extract_captcha_signals_from_parts(
     over `final_url` (which is the ZenRows API URL when routed).
 
     Checks (in order):
+    0. The body carries the event's own ``group=``/``team=`` links -> not a
+       challenge, whatever the URL says. See ``_EVENT_OWN_LINK``.
     1. Zr-Final-Url / final_url contains /verify_captchas
     2. Any redirect Location contains /verify_captchas
     3. Body contains "Please verify to continue" (server serves the challenge
        page directly with no redirect — observed on 40550/40610)
     """
+    if _EVENT_OWN_LINK.search(html or ""):
+        # The event's own links are on the page, so the page is here. A challenge
+        # carries none of them, which is what makes this safe to check first.
+        return None
+
     effective_final_url = zr_final_url or final_url
 
     if _CAPTCHA_URL_MARKER.search(effective_final_url):
@@ -1427,6 +1446,53 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
     return brackets
 
 
+# GotSport answers an unrendered event-page request with a reCAPTCHA v2. Measured
+# 2026-09-09 against event 51783 an hour apart: `js_render=false` with no
+# `wait_for` returned the challenge, and rendering plus a selector returned 200
+# with all 58 divisions. The challenge completes a proof-of-work in JavaScript
+# and then rebuilds the page, so what gets through is running the script and
+# waiting for an element only the finished page has.
+_EVENT_PAGE_READY = 'a[href*="group="]'
+_SCHEDULE_READY = "table"
+
+# ZenRows' own failure statuses, which the same URL routinely survives — a 422
+# means the `wait_for` selector missed its render budget. A target's status is a
+# settled answer and is never retried, because every attempt is billed.
+_ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
+_ZENROWS_RENDER_ATTEMPTS = 3
+
+# Above the vendor's 180s `wait_for` ceiling, deliberately. `requests` counts its
+# timeout as silence between bytes, so a client budget at the ceiling aborts just
+# as the 422 arrives. Read from its own variable rather than GOTSPORT_TIMEOUT,
+# which several workflows pin to 12s for the unrendered API calls — a render on
+# that budget dies mid-flight and is indistinguishable from a live challenge.
+_RENDER_TIMEOUT_DEFAULT = "240"
+
+
+def _redact_key(text: str, api_key: Optional[str]) -> str:
+    """Strip the ZenRows key from anything a caller may log, raise or persist.
+
+    Both forms, because `requests` percent-encodes a key containing `+`, `/` or
+    `=` into the prepared URL and a plain replace then misses it.
+    """
+    if not text or not api_key:
+        return text
+    for form in (api_key, quote_plus(api_key)):
+        text = _redact(text, form) or text
+    return text
+
+
+def _event_id_from_url(url: str) -> Optional[str]:
+    """The event id in an event or schedule URL, for the captcha artifact path."""
+    match = re.search(r"/events/(\d{1,12})(?!\d)", str(url or ""))
+    return match.group(1) if match else None
+
+
+def _render_wait_for(url: str) -> str:
+    """The element that only exists once this page has finished rebuilding."""
+    return _SCHEDULE_READY if "/schedules" in url else _EVENT_PAGE_READY
+
+
 class GotsportScraper(ProviderScraper):
     """ProviderScraper implementation for gotsport.com event/tournament intake.
 
@@ -1490,18 +1556,27 @@ class GotsportScraper(ProviderScraper):
         self.delay_max = float(os.getenv("GOTSPORT_DELAY_MAX", "0.3"))
         self.max_retries = int(os.getenv("GOTSPORT_MAX_RETRIES", "2"))
         self.timeout = int(os.getenv("GOTSPORT_TIMEOUT", "15"))
+        # Event pages are rendered, and a render is measured in minutes rather
+        # than the seconds `timeout` allows. Kept separate so a workflow tuning
+        # the API timeout down cannot starve one.
+        self.render_timeout = int(os.getenv("GOTSPORT_RENDER_TIMEOUT", _RENDER_TIMEOUT_DEFAULT))
         self.retry_delay = float(os.getenv("GOTSPORT_RETRY_DELAY", "0.5"))
 
         # ZenRows configuration (optional). Mirrors src/scrapers/gotsport.py:56.
         # When ZENROWS_API_KEY is set, event-URL fetches route through ZenRows'
-        # residential proxy to sidestep gotsport's domain-level UA/IP detection.
-        # Does NOT solve gotsport's per-event reCAPTCHA challenges — those are
+        # residential proxy and its renderer, which together clear the reCAPTCHA
+        # gotsport serves on event pages. A challenge that still gets through is
         # detected and surfaced via EventCaptchaGatedError.
         self.zenrows_api_key = os.getenv("ZENROWS_API_KEY")
         self.use_zenrows = bool(self.zenrows_api_key)
 
         # Session setup
         self.session = self._init_http_session()
+        # Rendered calls get their own transport. `_init_http_session` retries
+        # 500/502/503/504 to exhaustion and then raises RetryError, so those
+        # statuses never reach the app-level loop meant to bound them — while
+        # four renders have already been billed per attempt.
+        self.render_session = self._init_render_session()
 
         # Providers-table assertion (plan Step 3). ``.single()`` raises
         # on 0 rows; wrap to surface a typed error with an actionable
@@ -1586,23 +1661,103 @@ class GotsportScraper(ProviderScraper):
 
         return session
 
-    def _make_zenrows_request(self, url: str) -> requests.Response:
-        """Route a GET through ZenRows' residential proxy.
+    def _init_render_session(self) -> requests.Session:
+        """A transport for rendered calls that never retries on a status.
 
-        Mirrors src/scrapers/gotsport.py:333-350. `js_render=false` +
-        `premium_proxy=true` is the cheapest mode that bypasses gotsport's
-        domain-level IP/UA reputation checks. CAPTCHA'd events still come
-        back as CAPTCHA pages — detection happens in _fetch_event_page.
+        Verified against urllib3 2.5.0: an empty ``status_forcelist`` makes
+        ``is_retry`` answer False for 500/502/503/504, while ``connect=3`` keeps
+        genuine connection errors retryable. The shared session's mount does
+        retry those four to exhaustion and then raises ``RetryError`` — so they
+        never reach the app-level loop that is supposed to bound them, after
+        four renders have already been billed inside one ``get``.
+
+        Headers are copied from the shared session because its browser-realistic
+        bundle is load-bearing for GotSport's bot detection, not decoration.
         """
-        zenrows_url = "https://api.zenrows.com/v1/"
+        session = requests.Session()
+        session.headers.update(self.session.headers)
+        session.verify = self.session.verify
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=Retry(
+                total=3,
+                connect=3,
+                read=False,
+                status=0,
+                status_forcelist=[],
+                backoff_factor=0.3,
+                allowed_methods=["GET", "HEAD"],
+            ),
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
+
+    def _make_zenrows_request(self, url: str) -> requests.Response:
+        """Route an event-page GET through ZenRows' proxy *and* its renderer.
+
+        Rendering is not a tier choice here. The cheaper unrendered mode this
+        used to send returns a reCAPTCHA v2 rather than the page, so it buys
+        nothing at any price: measured 2026-09-09 against event 51783, an hour
+        apart, unrendered got the challenge and rendered got 200 with all 58
+        divisions. Both the residential proxy and the renderer are needed, and
+        so is `wait_for` — the challenge rebuilds the DOM in JavaScript, and a
+        fetch that returns before that finishes carries none of the event's
+        links. Costs 25 credits against the 10 the unrendered proxy billed.
+
+        Retries only ZenRows' own failures, and only a bounded number of times,
+        because every attempt is billed. A target's status is a settled answer:
+        it is returned as-is for the caller to judge, which is what keeps
+        `_fetch_event_page`'s captcha detection ahead of any HTTP-error
+        short-circuit.
+        """
         zenrows_params = {
             "apikey": self.zenrows_api_key,
             "url": url,
-            "js_render": "false",
+            "js_render": "true",
             "premium_proxy": "true",
             "proxy_country": "us",
+            "original_status": "true",
+            "wait_for": _render_wait_for(url),
         }
-        return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+
+        response = None
+        for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
+            try:
+                response = self.render_session.get(
+                    _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
+                )
+            except requests.exceptions.RequestException as exc:
+                # Mirrors GotSportScraper's handling of the same shape: without
+                # this the caller sees a raw urllib3 error this scraper never names.
+                # Every RequestException carries the prepared URL, and the key
+                # rides in its query string: a ConnectionError from DNS or a
+                # refused connection is not a RetryError and would otherwise
+                # escape unredacted into a log or the tier-orchestrator artifact
+                # under `reports/`, which is not gitignored in a public repo.
+                raise RateLimitedError(
+                    provider="gotsport",
+                    url=_redact_key(url, self.zenrows_api_key),
+                    last_retry_after=None,
+                    reason=f"zenrows_{type(exc).__name__}",
+                ) from None
+            # The key travels in the query string, so it is in `response.url` and
+            # in any HTTPError built from it. `reports/` is not gitignored and
+            # this repo is public, so it must not leave this method.
+            response.url = _redact_key(str(response.url or ""), self.zenrows_api_key)
+            if response.status_code not in _ZENROWS_SIDE_STATUSES:
+                return response
+            if attempt + 1 < _ZENROWS_RENDER_ATTEMPTS:
+                logger.warning(
+                    "ZenRows answered %s for %s (attempt %s/%s); retrying",
+                    response.status_code,
+                    url,
+                    attempt + 1,
+                    _ZENROWS_RENDER_ATTEMPTS,
+                )
+                time.sleep(self.retry_delay * (attempt + 1))
+        return response
 
     def _fetch_json_via_zenrows(self, url: str, *, timeout: Optional[int] = None) -> requests.Response:
         """Route a JSON GET through ZenRows when configured, else direct session.
@@ -1634,10 +1789,42 @@ class GotsportScraper(ProviderScraper):
         can surface the skip cleanly without marking the event scraped.
         """
         event_url = f"{self.EVENT_BASE}/{event_id}"
+        return self._fetch_event_html(event_url, event_id=event_id)
+
+    def _fetch_event_html(
+        self, url: str, *, event_id: Optional[str] = None, detect_challenge: bool = True
+    ) -> requests.Response:
+        """The one way this class fetches an event or schedule page.
+
+        Every such fetch goes through here, because an unrendered one does not
+        fail — it *succeeds* at fetching the wrong page. GotSport answers with a
+        302 to ``/verify_captchas/new``, ``requests`` follows it, and the
+        challenge body arrives with status 200: ``raise_for_status`` passes, the
+        parser finds no ``group=`` links, and the caller reports "no teams" for
+        an event that has hundreds. Measured against event 51783 on 2026-09-09 —
+        direct fetch 0 teams, rendered fetch 332 across 24 brackets, same parser.
+
+        Detection runs here rather than at one entry point for the same reason.
+        Ten fetch sites used to skip it, so a challenge on any of them was
+        indistinguishable from an empty event.
+
+        ``raise_for_status`` is deliberately NOT called: callers own that, which
+        keeps challenge detection ahead of any HTTP-error short-circuit.
+
+        ``detect_challenge=False`` is for the one caller that detects *better*
+        than this does. The tier orchestrator receives a ``FetchedSubpage``
+        carrying the final URL, the ``Zr-Final-Url`` header and the redirect
+        locations precisely so it can classify a challenge per group and name the
+        group in its own artifact. Raising here first would reclassify that as a
+        plain HTTP error and lose the group. It is not an opt-out of detection —
+        it is a handover to a more specific detector, and the derived guard in
+        ``tests/unit/test_gotsport_event_scrape_zenrows_coverage.py`` names the
+        only caller allowed to ask for it.
+        """
         if self.use_zenrows:
-            response = self._make_zenrows_request(event_url)
+            response = self._make_zenrows_request(url)
         else:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self.session.get(url, timeout=self.timeout)
 
         # GotSport declares no charset, and requests then falls back to ISO-8859-1
         # for text/*, so accented and non-Latin event metadata decodes to mojibake.
@@ -1645,11 +1832,12 @@ class GotsportScraper(ProviderScraper):
         if "charset" not in str(response.headers.get("content-type", "")).lower():
             response.encoding = "utf-8"
 
-        captcha = _extract_captcha_signals(response, fallback_target_url=event_url)
+        captcha = _extract_captcha_signals(response, fallback_target_url=url) if detect_challenge else None
         if captcha is not None:
-            artifact_path = self._write_captcha_artifact(event_id, captcha, event_url)
+            resolved_id = event_id or _event_id_from_url(url) or "unknown"
+            artifact_path = self._write_captcha_artifact(resolved_id, captcha, url)
             raise EventCaptchaGatedError(
-                provider_event_id=event_id,
+                provider_event_id=resolved_id,
                 captcha_url=captcha["captcha_url"],
                 sitekey=captcha["sitekey"],
                 artifact_path=artifact_path,
@@ -1703,7 +1891,7 @@ class GotsportScraper(ProviderScraper):
 
         for attempt in range(self.max_retries):
             try:
-                response = self.session.get(event_url, timeout=self.timeout)
+                response = self._fetch_event_html(event_url)
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -1832,6 +2020,11 @@ class GotsportScraper(ProviderScraper):
                     logger.error(f"SSL error after {self.max_retries} attempts: {e}")
                     raise
 
+            except EventCaptchaGatedError:
+                # A challenge neither clears on a retry nor reads as an empty page:
+                # every attempt bills a render, and a swallowed one lets the event be
+                # recorded as scraped with fixtures silently missing.
+                raise
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Error (attempt {attempt + 1}): {e}, retrying...")
@@ -1872,7 +2065,7 @@ class GotsportScraper(ProviderScraper):
 
         for attempt in range(self.max_retries):
             try:
-                response = self.session.get(event_url, timeout=self.timeout)
+                response = self._fetch_event_html(event_url)
                 response.raise_for_status()
 
                 soup = BeautifulSoup(response.text, "html.parser")
@@ -1928,6 +2121,11 @@ class GotsportScraper(ProviderScraper):
                     logger.error(f"SSL error after {self.max_retries} attempts: {e}")
                     raise
 
+            except EventCaptchaGatedError:
+                # A challenge neither clears on a retry nor reads as an empty page:
+                # every attempt bills a render, and a swallowed one lets the event be
+                # recorded as scraped with fixtures silently missing.
+                raise
             except Exception as e:
                 if attempt < self.max_retries - 1:
                     logger.warning(f"Error (attempt {attempt + 1}): {e}, retrying...")
@@ -1957,7 +2155,7 @@ class GotsportScraper(ProviderScraper):
         event_url = f"{self.EVENT_BASE}/{event_id}"
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -1977,7 +2175,7 @@ class GotsportScraper(ProviderScraper):
                         schedule_url = href
 
                     try:
-                        schedule_response = self.session.get(schedule_url, timeout=self.timeout)
+                        schedule_response = self._fetch_event_html(schedule_url)
                         schedule_response.raise_for_status()
                         schedule_soup = BeautifulSoup(schedule_response.text, "html.parser")
 
@@ -2000,11 +2198,21 @@ class GotsportScraper(ProviderScraper):
                                 team_ids.add(match.group(1))
 
                         time.sleep(0.5)  # Rate limiting between schedule pages
+                    except EventCaptchaGatedError:
+                        # A challenge neither clears on a retry nor reads as an empty page:
+                        # every attempt bills a render, and a swallowed one lets the event be
+                        # recorded as scraped with fixtures silently missing.
+                        raise
                     except Exception as e:
                         logger.debug(f"Error fetching schedule page {schedule_url}: {e}")
                         continue
 
             logger.info(f"Extracted {len(team_ids)} team IDs from schedule pages")
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting team IDs from schedules: {e}")
 
@@ -2024,7 +2232,7 @@ class GotsportScraper(ProviderScraper):
         dates_found = []
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -2111,7 +2319,7 @@ class GotsportScraper(ProviderScraper):
             # Sample a few schedule pages to find date range
             for schedule_url in list(schedule_urls)[:3]:  # Check first 3 schedule pages
                 try:
-                    schedule_response = self.session.get(schedule_url, timeout=self.timeout)
+                    schedule_response = self._fetch_event_html(schedule_url)
                     schedule_response.raise_for_status()
                     schedule_soup = BeautifulSoup(schedule_response.text, "html.parser")
 
@@ -2148,6 +2356,11 @@ class GotsportScraper(ProviderScraper):
                                     continue
 
                     time.sleep(0.3)  # Rate limiting
+                except EventCaptchaGatedError:
+                    # A challenge neither clears on a retry nor reads as an empty page:
+                    # every attempt bills a render, and a swallowed one lets the event be
+                    # recorded as scraped with fixtures silently missing.
+                    raise
                 except Exception as e:
                     logger.debug(f"Error checking schedule page for dates: {e}")
                     continue
@@ -2158,6 +2371,11 @@ class GotsportScraper(ProviderScraper):
                 end_date = max(dates_found)
                 return (start_date, end_date)
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.debug(f"Error extracting event dates: {e}")
 
@@ -2433,6 +2651,11 @@ class GotsportScraper(ProviderScraper):
                     )
                     if page_delay > 0:
                         time.sleep(page_delay)
+                except EventCaptchaGatedError:
+                    # The outer handler re-raises so the event is not marked
+                    # scraped; catching it here would return the pages that did
+                    # succeed and hide the rest.
+                    raise
                 except Exception as e:
                     logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
                     continue
@@ -2475,6 +2698,8 @@ class GotsportScraper(ProviderScraper):
                         games.extend(team_games)
                         if page_delay > 0:
                             time.sleep(page_delay)
+                    except EventCaptchaGatedError:
+                        raise
                     except Exception as e:
                         logger.warning(f"Error parsing per-team schedule {team_url}: {e}")
                         continue
@@ -2547,7 +2772,7 @@ class GotsportScraper(ProviderScraper):
         games: List[GameData] = []
 
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -2922,6 +3147,11 @@ class GotsportScraper(ProviderScraper):
                         logger.debug(f"Error parsing game row: {e}")
                         continue
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error parsing schedule page {schedule_url}: {e}")
 
@@ -3008,7 +3238,7 @@ class GotsportScraper(ProviderScraper):
         """
         teams = []
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3025,6 +3255,11 @@ class GotsportScraper(ProviderScraper):
                         team_name = link.get_text(strip=True) or link.get("title", "") or f"Team {team_id}"
                         teams.append(EventTeam(team_id=team_id, team_name=team_name, bracket_name=bracket_name))
                         seen_team_ids.add(team_id)
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams from schedule page {schedule_url}: {e}")
 
@@ -3037,7 +3272,7 @@ class GotsportScraper(ProviderScraper):
         groups: Dict[str, List[EventTeam]] = {}
 
         try:
-            response = self.session.get(schedule_url, timeout=self.timeout)
+            response = self._fetch_event_html(schedule_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3225,6 +3460,11 @@ class GotsportScraper(ProviderScraper):
                     for team in team_list:
                         team.group_name = group_name
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams by group from schedule page {schedule_url}: {e}")
 
@@ -3281,7 +3521,7 @@ class GotsportScraper(ProviderScraper):
         logger.info(f"Extracting teams from schedule pages for event {event_id}: {event_url}")
 
         try:
-            response = self.session.get(event_url, timeout=self.timeout)
+            response = self._fetch_event_html(event_url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
 
@@ -3320,6 +3560,11 @@ class GotsportScraper(ProviderScraper):
                             if self.delay_min > 0 or self.delay_max > 0:
                                 time.sleep(random.uniform(self.delay_min, self.delay_max))
 
+        except EventCaptchaGatedError:
+            # A challenge neither clears on a retry nor reads as an empty page:
+            # every attempt bills a render, and a swallowed one lets the event be
+            # recorded as scraped with fixtures silently missing.
+            raise
         except Exception as e:
             logger.warning(f"Error extracting teams by group from schedule pages: {e}")
 
@@ -3430,10 +3675,10 @@ class GotsportScraper(ProviderScraper):
         # captcha detection must run BEFORE any HTTP-error short-circuit.
         def _subpage_fetcher(group_id: int) -> FetchedSubpage:
             url = f"{self.EVENT_BASE}/{event_id}/schedules?group={group_id}"
-            if self.use_zenrows:
-                resp = self._make_zenrows_request(url)
-            else:
-                resp = self.session.get(url, timeout=self.timeout)
+            # Detection is handed to the orchestrator, which classifies a
+            # challenge per group from the FetchedSubpage below and names the
+            # group in its own artifact.
+            resp = self._fetch_event_html(url, detect_challenge=False)
             if self.delay_min > 0 or self.delay_max > 0:
                 time.sleep(random.uniform(self.delay_min, self.delay_max))
             return FetchedSubpage(

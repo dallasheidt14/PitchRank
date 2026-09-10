@@ -71,12 +71,20 @@ def _make_scraper_with_html(html: str):
     response = MagicMock()
     response.text = html
     response.raise_for_status.return_value = None
+    # A real Response always carries a string url and headers; challenge detection
+    # reads both, and a MagicMock there fails the regex rather than the assertion.
+    response.url = "https://system.gotsport.com/org_event/events/123/schedules?group=1"
+    response.headers = {"content-type": "text/html; charset=utf-8"}
+    response.history = []
 
     session = MagicMock()
     session.get.return_value = response
 
     scraper.session = session
     scraper.timeout = 30
+    # `_parse_games_from_schedule_page` fetches through `_fetch_event_html`, which
+    # picks its transport from this flag.
+    scraper.use_zenrows = False
     scraper.skip_team_id_resolution = False
     scraper.provider_code = "gotsport"
     # Resolver always returns None to exercise the drop path
