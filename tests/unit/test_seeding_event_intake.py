@@ -680,7 +680,7 @@ def test_a_matching_probe_unlocks_the_full_event_and_prices_it(app):
 def test_the_probe_button_asks_for_two_divisions(app):
     _fake_st, runs = _render(app, url=EVENT_URL, probe=None, buttons={"_seeding_event_probe_run": True})
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": 2}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": 2, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_the_full_button_asks_for_the_whole_event(app):
@@ -691,7 +691,7 @@ def test_the_full_button_asks_for_the_whole_event(app):
         buttons={"_seeding_event_full_run": True},
     )
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": None}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_neither_button_runs_without_a_url(app):
@@ -732,7 +732,7 @@ def test_a_failed_lookup_offers_a_free_retry(app):
     app.setattr(
         tournament_intake,
         "_run_seeding_name_lookup",
-        lambda parsed, resolved, client: retries.append((parsed, resolved)),
+        lambda parsed, resolved, client, **_kw: retries.append((parsed, resolved)),
     )
 
     _render_controls()
@@ -912,7 +912,7 @@ def test_a_probe_of_the_same_url_still_buys_the_full_event(app):
 
     _render_controls()
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": None}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
     assert fake_st.errors == []
 
 
@@ -1227,7 +1227,7 @@ def test_a_probed_but_unwalked_event_is_still_for_sale(app):
     _render_controls()
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
-    assert runs == [{"limit_groups": None}]
+    assert runs == [{"limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_a_full_walk_of_every_division_marks_the_event_complete(app):
@@ -1271,7 +1271,7 @@ def test_the_name_pass_is_marked_pending_until_it_commits(app):
     app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0))))
     seen: list[bool] = []
 
-    def _recording_lookup(parsed, resolved, client):
+    def _recording_lookup(parsed, resolved, client, **_kw):
         seen.append(tournament_intake.st.session_state._seeding_resolution_failed)
 
     app.setattr(tournament_intake, "_run_seeding_name_lookup", _recording_lookup)
@@ -2222,3 +2222,31 @@ def test_a_malformed_division_refuses_the_whole_recovery(tmp_path, monkeypatch):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert tournament_intake._recovered_walk("51783") is None
+
+
+def test_walk_keys_never_collide_between_the_two_views():
+    from tournament_intake import _BACKTEST_KEYS, _SEEDING_KEYS, _WalkKeys
+
+    fields = ("result", "result_event_id", "overrides", "sheet_html", "probe",
+              "resolution_failed", "lock_key", "loaded_slug", "structure")
+    seeding = {getattr(_SEEDING_KEYS, field) for field in fields}
+    backtest = {getattr(_BACKTEST_KEYS, field) for field in fields}
+
+    assert len(seeding) == len(fields)
+    assert seeding.isdisjoint(backtest)
+    assert isinstance(_WalkKeys("_x").result, str)
+
+
+def test_the_seeding_view_keeps_the_session_key_names_it_already_used():
+    """These names are load-bearing: `_init_session_state` seeds them and the
+    Seeding tab reads them directly."""
+    from tournament_intake import _SEEDING_KEYS
+
+    assert _SEEDING_KEYS.result == "_seeding_result"
+    assert _SEEDING_KEYS.result_event_id == "_seeding_result_event_id"
+    assert _SEEDING_KEYS.overrides == "_seeding_overrides"
+    assert _SEEDING_KEYS.sheet_html == "_seeding_sheet_html"
+    assert _SEEDING_KEYS.probe == "_seeding_event_probe"
+    assert _SEEDING_KEYS.resolution_failed == "_seeding_resolution_failed"
+    assert _SEEDING_KEYS.lock_key == "_seeding_scrape_lock_key"
+    assert _SEEDING_KEYS.loaded_slug == "_seeding_loaded_slug"
