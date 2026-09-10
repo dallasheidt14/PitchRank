@@ -828,7 +828,7 @@ def test_scrape_event_roster_returns_each_kept_division_s_structure():
 
 
 def test_scrape_event_roster_reports_no_structure_for_a_division_it_skipped():
-    landing = '<a href="/org_event/events/1/schedules?group=501350">U8 Boys Red</a>'
+    landing = '<a href="/org_event/events/1/schedules?group=501350">any text</a>'
     division = _html_fixture("event_42433__group_365847.html")
 
     def fetch(url: str) -> str:
@@ -836,7 +836,7 @@ def test_scrape_event_roster_reports_no_structure_for_a_division_it_skipped():
             return division
         return landing
 
-    roster = scrape_event_roster("1", fetch=fetch, wanted_cohorts={"u13"})
+    roster = scrape_event_roster("1", fetch=fetch, wanted_cohorts={"u10"})
 
     assert roster.divisions == ()
     assert roster.teams == ()
@@ -849,7 +849,7 @@ def _html_fixture(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8", errors="replace")
 ```
 
-The first test's landing page names the division `U13 Boys Red`, which resolves to a cohort inside the default set. The second names `U8 Boys Red` and restricts `wanted_cohorts` to `u13`, so `_wanted_divisions` drops it.
+The cohort is read from the DIVISION page, never from the landing page's anchor text — `_read_divisions` calls `parse_division_label(group_html)`. That fixture's page states `U13 Boys Red`, so `resolve_cohort` returns `("u13", "Male")` and the landing anchor's wording is irrelevant to both tests. The second test restricts `wanted_cohorts` to `u10`, which makes `names_cohort_outside("U13 Boys Red", {"u10"})` true and `_wanted_divisions` drop the division. Verified against the real fixture before this plan was written.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1459,7 +1459,7 @@ _SEEDING_KEYS = _WalkKeys("_seeding")
 _BACKTEST_KEYS = _WalkKeys("_backtest")
 ```
 
-Then convert every literal session-state access in these functions to go through `keys`, adding `*, keys: _WalkKeys = _SEEDING_KEYS` to each signature: `_run_event_roster_scrape`, `_park_event_roster`, `_park_seeding_result`, `_parked_roster_size`, `_seeding_event_probe_for`, `_render_recovered_walk`, `_render_seeding_event_scrape`, `_run_seeding_name_lookup`.
+Then convert every literal session-state access in these functions to go through `keys`, adding `*, keys: _WalkKeys = _SEEDING_KEYS` to each signature: `_run_event_roster_scrape`, `_park_event_roster`, `_park_seeding_result`, `_parked_roster_size`, `_seeding_event_probe_for`, `_render_recovered_walk`, `_render_seeding_event_scrape`, `_run_seeding_name_lookup`, `_render_seeding_override`.
 
 Two rules while converting:
 
@@ -1472,7 +1472,16 @@ Two rules while converting:
 
    It goes with the counters rather than after the roster because both describe the same walk, and a stop landing between them must not leave one view's structure sitting against another walk's teams.
 
-3. `_scrape_still_running` reads `keys.lock_key` but keeps writing the shared bool `_scrape_in_progress` unchanged. Do not make that entry per-view; the Backtest surface's `st.text_input(disabled=...)` reads it and raises `TypeError` on a non-bool.
+3. `_render_seeding_override` is on that list for a reason that is easy to miss. It writes the operator's decision into a hardcoded `st.session_state._seeding_overrides` and then calls `_autosave_seeding_run()`. Called from the Backtest view unthreaded, every "Use this team" click would land in the *Seeding* view's overrides — invisible to the Backtest counters and corrupting the other view's state. Thread `keys`, write to `st.session_state[keys.overrides]`, and guard the autosave, which saves a *seeding* run and means nothing here:
+
+```python
+        if keys is _SEEDING_KEYS:
+            _autosave_seeding_run()
+```
+
+   Its widget keys (`_seed_fix_{index}`, `_seed_use_{index}`) must become prefix-derived too, or the same team's box collides across the two views.
+
+4. `_scrape_still_running` reads `keys.lock_key` but keeps writing the shared bool `_scrape_in_progress` unchanged. Do not make that entry per-view; the Backtest surface's `st.text_input(disabled=...)` reads it and raises `TypeError` on a non-bool.
 
 Widget keys (`_seeding_event_probe_run`, `_seeding_event_full_run`, `_seeding_event_reload_walk`, `_seeding_retry_lookup`, `seeding_event_url`) must also become prefix-derived, or the two views' buttons collide in Streamlit's widget registry. Derive them as `f"{keys.prefix}_event_probe_run"` and so on, and note that this renames the seeding widgets from `_seeding_event_probe_run` to the identical string — verify by test above that the prefix is `_seeding`, so the names do not actually change.
 
