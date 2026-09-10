@@ -16,6 +16,7 @@ writes its recovery file through.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 import pathlib
@@ -2078,6 +2079,69 @@ def test_the_offer_still_stops_once_this_events_walk_is_parked(app):
         fake_st.button_by_key("_seeding_event_reload_walk")
 
 
+_PARKED_ROSTER_ATTRS = ("result", "result_event_id")
+
+
+def _parked_roster_writer_names(source: str) -> set[str]:
+    """Every function whose body assigns a parked-roster key.
+
+    Parses ``source`` with ``ast`` rather than grepping a literal, so it keeps
+    seeing the write however it is currently spelled: the computed
+    ``st.session_state[keys.result]`` the refactor made canonical, a hand-typed
+    ``st.session_state["_seeding_result"]``, or the older
+    ``st.session_state._seeding_result`` attribute form. The literal strings a
+    stray write could use are read off ``_SEEDING_KEYS``/``_BACKTEST_KEYS``
+    rather than hardcoded, so a renamed prefix cannot silently blind this the
+    way the line-equality exemption it replaces did.
+    """
+    literal_names = {
+        getattr(keys, attr)
+        for keys in (tournament_intake._SEEDING_KEYS, tournament_intake._BACKTEST_KEYS)
+        for attr in _PARKED_ROSTER_ATTRS
+    }
+
+    def is_session_state(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "session_state"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "st"
+        )
+
+    def target_matches(target: ast.AST) -> bool:
+        if isinstance(target, ast.Subscript):
+            if not is_session_state(target.value):
+                return False
+            key = target.slice
+            if isinstance(key, ast.Attribute) and key.attr in _PARKED_ROSTER_ATTRS:
+                return True
+            return isinstance(key, ast.Constant) and key.value in literal_names
+        if isinstance(target, ast.Attribute):
+            return is_session_state(target.value) and target.attr in literal_names
+        return False
+
+    writers: set[str] = set()
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self._stack: list[str] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._stack.append(node.name)
+            self.generic_visit(node)
+            self._stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            if any(target_matches(target) for target in node.targets):
+                writers.add(self._stack[-1] if self._stack else "<module>")
+            self.generic_visit(node)
+
+    _Visitor().visit(ast.parse(source))
+    return writers
+
+
 def test_every_parked_roster_write_goes_through_the_helper():
     """Derived, so a new writer that forgets the event id is caught here.
 
@@ -2085,22 +2149,50 @@ def test_every_parked_roster_write_goes_through_the_helper():
     gate then reads an event id belonging to a roster that has been replaced.
     """
     source = pathlib.Path(tournament_intake.__file__).read_text(encoding="utf-8")
-    assignments = [
-        line.strip()
-        for line in source.splitlines()
-        if "_seeding_result" in line and "=" in line.split("_seeding_result")[1][:3]
-    ]
-    stray = [
-        line
-        for line in assignments
-        if "st.session_state._seeding_result" in line
-        and "setdefault" not in line
-        and line != "st.session_state._seeding_result = pair"  # the helper's own write
-    ]
 
-    assert stray == [], (
+    writers = _parked_roster_writer_names(source)
+
+    assert writers == {"_park_seeding_result"}, (
         "write the parked roster through _park_seeding_result so the event id "
-        f"cannot drift from it: {stray}"
+        f"cannot drift from it: {sorted(writers)}"
+    )
+
+
+def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
+    """The property this task exists to deliver: `keys` actually reaches every write.
+
+    Every other test in this file drives the Seeding default, where every
+    derived name equals the old literal — they would pass identically if
+    `keys` were ignored inside `_park_event_roster`'s body entirely. This
+    drives the other prefix and checks both directions: the backtest keys
+    land with the right content, and the seeding keys they must never touch
+    stay unset.
+    """
+    fake_st = _install(app, _FakeSt())
+    roster = _roster(_team(0))
+    expected_parsed, expected_resolved = to_seeding_rows(roster, {}, [])
+    expected_probe = {
+        "url": EVENT_URL,
+        "limit_groups": None,
+        "divisions_found": roster.divisions_found,
+        "divisions_walked": roster.divisions_walked,
+        "teams": len(roster.teams),
+        "linked": sum(1 for team in roster.teams if team.provider_team_id),
+        "complete": roster.is_complete,
+    }
+
+    tournament_intake._park_event_roster(
+        EVENT_URL, roster, None, None, keys=tournament_intake._BACKTEST_KEYS
+    )
+
+    assert fake_st.session_state["_backtest_result"] == (expected_parsed, expected_resolved)
+    assert fake_st.session_state["_backtest_event_probe"] == expected_probe
+    assert fake_st.session_state["_backtest_structure"] == roster.divisions
+    assert fake_st.session_state.get("_seeding_result") is None, (
+        "a backtest-keyed walk must not touch the seeding view's parked result"
+    )
+    assert fake_st.session_state.get("_seeding_event_probe") is None, (
+        "a backtest-keyed walk must not touch the seeding view's probe counters"
     )
 
 
