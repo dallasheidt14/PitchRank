@@ -32,6 +32,7 @@ from src.tournaments.gotsport_event_roster import (
     EventRosterTeam,
     WafChallengeError,
 )
+from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_run_store import SeedingRun
@@ -2168,3 +2169,56 @@ def test_the_parked_roster_is_written_before_the_event_it_names(app):
 
     written = [key for key in fake_st.session_state.writes() if key.startswith("_seeding_result")]
     assert written == ["_seeding_result", "_seeding_result_event_id"]
+
+
+def test_recovery_file_carries_the_walked_structure(tmp_path, monkeypatch):
+    import tournament_intake
+
+    monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    division = ScrapedDivision(
+        group_id="501350",
+        division_label="U13 Boys Red",
+        pools=(Pool(pool_id="501350", label="Bracket A", members=(
+            PoolMember(registration_id="1", team_name="One", standings_position=1),
+        )),),
+        fixtures=(Fixture(
+            match_number="56", bracket_label="Final", kind="bracket",
+            home_registration_id="1", away_registration_id="2",
+            home_score=3, away_score=4, kickoff="", location="",
+        ),),
+        pools_readable=True,
+        fixtures_readable=True,
+        warnings=(),
+    )
+    roster = EventRoster(
+        event_id="51783",
+        teams=(),
+        warnings=(),
+        divisions_found=1,
+        divisions_walked=1,
+        divisions=(division,),
+    )
+
+    tournament_intake._write_event_roster_recovery(roster)
+    recovered, _limit = tournament_intake._recovered_walk("51783")
+
+    assert recovered.divisions == (division,)
+
+
+def test_a_malformed_division_refuses_the_whole_recovery(tmp_path, monkeypatch):
+    import json
+
+    import tournament_intake
+
+    monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    roster = EventRoster(
+        event_id="51783", teams=(), warnings=(),
+        divisions_found=0, divisions_walked=0,
+    )
+    tournament_intake._write_event_roster_recovery(roster)
+    path = tournament_intake._event_recovery_path("51783")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["divisions"] = [{"group_id": "1"}]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert tournament_intake._recovered_walk("51783") is None

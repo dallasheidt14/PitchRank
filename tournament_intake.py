@@ -61,6 +61,7 @@ from src.tournaments.gotsport_event_roster import (
     redact_secret,
     scrape_event_roster,
 )
+from src.tournaments.gotsport_event_structure import ScrapedDivision
 from src.tournaments.reports import (
     ReportCardError,
     render_html,
@@ -157,6 +158,7 @@ from src.tournaments.storage import (
     run_dir as _run_dir,
 )
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
+from src.tournaments.storage.event_structure import division_from_dict
 from src.tournaments.triage import (
     _STRENGTH_MODES,
     SOURCE_EXPLICIT,
@@ -3805,6 +3807,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
                 "divisions_stable": roster.divisions_stable,
                 "teams_unreadable": roster.teams_unreadable,
                 "warnings": list(roster.warnings),
+                "divisions": [asdict(division) for division in roster.divisions],
                 "teams": [asdict(team) for team in roster.teams],
             },
         )
@@ -3868,6 +3871,8 @@ def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
         return None
     if not isinstance(payload.get("warnings", []), list):
         return None
+    if not isinstance(payload.get("divisions", []), list):
+        return None
     try:
         roster = EventRoster(
             event_id=event_id,
@@ -3878,8 +3883,9 @@ def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
             divisions_unreadable=int(payload.get("divisions_unreadable") or 0),
             divisions_stable=payload.get("divisions_stable") in (None, True),
             teams_unreadable=int(payload.get("teams_unreadable") or 0),
+            divisions=tuple(_recovered_division(item) for item in payload.get("divisions") or ()),
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, KeyError):
         return None
     if bool(payload.get("is_complete")) != roster.is_complete:
         logger.info("Refused %s: its own is_complete disagrees with its counters", event_id)
@@ -3894,6 +3900,18 @@ def _recovered_team(team: Any) -> EventRosterTeam:
     age_group = rebuilt.age_group if rebuilt.age_group in AGE_GROUPS else ""
     gender = rebuilt.gender if rebuilt.gender in ("Male", "Female") else ""
     return replace(rebuilt, age_group=age_group, gender=gender)
+
+
+def _recovered_division(payload: Any) -> ScrapedDivision:
+    """One division's structure from the recovery file.
+
+    Raises rather than coerces. ``_recovered_walk`` catches, and refusing the
+    whole payload is right: a walk that comes back missing its structure looks
+    finished, which stops the operator recovering the one that cost money.
+    """
+    if not isinstance(payload, dict):
+        raise TypeError("division payload is not a mapping")
+    return division_from_dict(payload)
 
 
 def _run_seeding_name_lookup(
