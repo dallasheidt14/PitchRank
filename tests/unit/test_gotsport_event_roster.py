@@ -44,6 +44,10 @@ from src.tournaments.gotsport_event_roster import (
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gotsport"
 
+
+def _html_fixture(name: str) -> str:
+    return (FIXTURES / name).read_text(encoding="utf-8", errors="replace")
+
 # Every division label in the captured corpus, with the cohort it must resolve to.
 # Snapshotted 2026-09-04 after each answer was checked individually; a rate or a
 # board-membership assertion cannot fail when a label starts resolving one group
@@ -2033,4 +2037,39 @@ class TestNamesNoGender:
     )
     def test_a_label_that_named_a_gender_closes_it(self, label):
         assert names_no_gender(label) is False
+
+
+def test_scrape_event_roster_returns_each_kept_division_s_structure():
+    landing = '<a href="/org_event/events/1/schedules?group=501350">U13 Boys Red</a>'
+    division = _html_fixture("event_42433__group_365847.html")
+
+    def fetch(url: str) -> str:
+        if "schedules?group=" in url:
+            return division
+        if "/teams/" in url or "team=" in url:
+            return "<html></html>"
+        return landing
+
+    roster = scrape_event_roster("1", fetch=fetch)
+
+    assert len(roster.divisions) == 1
+    structure = roster.divisions[0]
+    assert structure.group_id == "501350"
+    assert [len(pool.members) for pool in structure.pools] == [4, 4]
+    assert sum(1 for f in structure.fixtures if f.kind == "bracket") == 4
+
+
+def test_scrape_event_roster_reports_no_structure_for_a_division_it_skipped():
+    landing = '<a href="/org_event/events/1/schedules?group=501350">any text</a>'
+    division = _html_fixture("event_42433__group_365847.html")
+
+    def fetch(url: str) -> str:
+        if "schedules?group=" in url:
+            return division
+        return landing
+
+    roster = scrape_event_roster("1", fetch=fetch, wanted_cohorts={"u10"})
+
+    assert roster.divisions == ()
+    assert roster.teams == ()
 
