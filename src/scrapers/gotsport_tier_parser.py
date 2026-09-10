@@ -270,6 +270,11 @@ _COHORT_PREFIX_FORMS: tuple[re.Pattern, ...] = (
     ),
 )
 _FORMAT_TOKEN_RE = re.compile(r"\s*\(\d{1,2}[Vv]\d{1,2}\)\s*$", re.IGNORECASE)
+# Same token, written ahead of the cohort instead of after it, optionally behind
+# a team count: "11v11 U14B Gold", "5 Team 11v11 U13B Gold". Matches only the
+# spaced spelling seen on the wire; a glued "9v9U12B" is left for a label that
+# actually turns up rather than guessed at now.
+_LEADING_FORMAT_TOKEN_RE = re.compile(r"^\s*(?:\d{1,2}\s+Team\s+)?\d{1,2}[Vv]\d{1,2}\s+", re.IGNORECASE)
 _GROUP_ANCHOR_HREF_RE = re.compile(r"/schedules\?(?:[^&]*&)*group=(\d+)")
 _TEAM_ANCHOR_HREF_RE = re.compile(r"\bteam=(\d+)")  # mirrors gotsport.py:2575
 
@@ -290,18 +295,29 @@ def strip_cohort_prefix(text: str) -> tuple[str, str, TierParseOutcome]:
       text as residue. Drives the unknown-prefix gate metric.
 
     The format-token suffix (``(NvN)``) is stripped from residue when present.
+
+    A label may also lead with that token rather than trail it -- event 51783
+    names all 58 of its divisions "11v11 U14B Gold" or "5 Team 11v11 U13B Gold".
+    Every form anchors at position 0, so the original text is tried first and the
+    leading token is only stripped as a fallback, leaving matched labels alone.
     """
-    for pattern in _COHORT_PREFIX_FORMS:
-        m = pattern.match(text)
-        if not m:
-            continue
-        prefix_span = m.group(0)
-        rest = text[m.end() :]
-        rest = _FORMAT_TOKEN_RE.sub("", rest)
-        rest = rest.strip()
-        if not rest:
-            return (prefix_span, "", OUTCOME_EMPTY_RESIDUE)
-        return (prefix_span, rest, OUTCOME_MATCHED)
+    candidates = [text]
+    without_leading_format = _LEADING_FORMAT_TOKEN_RE.sub("", text, count=1)
+    if without_leading_format != text:
+        candidates.append(without_leading_format)
+
+    for candidate in candidates:
+        for pattern in _COHORT_PREFIX_FORMS:
+            m = pattern.match(candidate)
+            if not m:
+                continue
+            prefix_span = m.group(0)
+            rest = candidate[m.end() :]
+            rest = _FORMAT_TOKEN_RE.sub("", rest)
+            rest = rest.strip()
+            if not rest:
+                return (prefix_span, "", OUTCOME_EMPTY_RESIDUE)
+            return (prefix_span, rest, OUTCOME_MATCHED)
     logger.warning("unknown_cohort_prefix: text=%r", text)
     return ("", text, OUTCOME_UNKNOWN_PREFIX)
 
