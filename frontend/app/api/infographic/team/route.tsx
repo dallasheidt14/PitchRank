@@ -1,10 +1,17 @@
 import { ImageResponse } from 'next/og';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { isValidUuid } from '@/lib/validation';
 import { loadBrandFonts, wordmarkUrl, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS } from '../_shared/theme';
-import { buildTeamCard, type TeamCard, type TeamCardRanking, type TeamCardRow } from './card';
+import {
+  buildTeamCard,
+  tallyRecord,
+  type TeamCard,
+  type TeamCardRanking,
+  type TeamGame,
+  type TeamCardRow,
+} from './card';
 
 export const runtime = 'edge';
 
@@ -35,19 +42,47 @@ async function getTeamCard(id: string): Promise<TeamCard | null> {
   if (!teamResult.data) return null;
 
   const stateRank = (stateRankResult.data as { state_rank: number } | null)?.state_rank ?? null;
-  return buildTeamCard(
-    teamResult.data as TeamCardRow,
-    (rankingResult.data as TeamCardRanking | null) ?? null,
-    stateRank
+  const ranking = (rankingResult.data as TeamCardRanking | null) ?? (await recordFromGames(supabase, id));
+  return buildTeamCard(teamResult.data as TeamCardRow, ranking, stateRank);
+}
+
+/**
+ * The W-L-D of a team the ranking pipeline has no row for.
+ *
+ * The team page renders for any team with a non-excluded game, while rankings_full holds only
+ * teams that completed the pipeline, so a quarter of playable teams reach this. Mirrors what
+ * lib/api.getTeam computes for the page itself, merged team ids included, so the card and the
+ * page it previews cannot disagree. One team's fixtures sit far below the PostgREST row cap.
+ */
+async function recordFromGames(supabase: SupabaseClient, id: string): Promise<TeamCardRanking> {
+  const { data: mergeRows } = await supabase
+    .from('team_merge_map')
+    .select('deprecated_team_id')
+    .eq('canonical_team_id', id);
+
+  const merged = ((mergeRows ?? []) as { deprecated_team_id: string | null }[]).flatMap(
+    (row) => row.deprecated_team_id ?? []
   );
+  const teamIds = [id, ...merged];
+
+  const { data: games } = await supabase
+    .from('games')
+    .select('home_team_master_id, home_score, away_score')
+    .or(teamIds.map((teamId) => `home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`).join(','))
+    .eq('is_excluded', false)
+    .not('home_score', 'is', null)
+    .not('away_score', 'is', null);
+
+  return tallyRecord((games ?? []) as TeamGame[], teamIds);
 }
 
 export async function GET(request: Request) {
-  // CPU-heavy public image rendering - throttle to limit denial-of-wallet. The cap is
-  // looser than the other infographics because those are a handful of fixed URLs while
-  // this one is per-team: an unfurler walking several teams from one IP must not be
-  // throttled into a bare link preview.
-  if (!checkRateLimit(`infographic:${getClientIp(request)}`, 60, 60_000)) {
+  // CPU-heavy public image rendering - throttle to limit denial-of-wallet. This route is a
+  // far wider target than the other infographics: they have a handful of fixed URLs, while
+  // every team is a valid address here, and the CDN cache only absorbs repeats of the same
+  // one. A real unfurler fetches a couple of teams a minute, so this bounds a scripted walk
+  // without ever throttling a share.
+  if (!checkRateLimit(`infographic:${getClientIp(request)}`, 20, 60_000)) {
     return new Response('Too many requests', { status: 429 });
   }
 

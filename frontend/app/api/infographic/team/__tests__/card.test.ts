@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { buildTeamCard, fitNameSize, type TeamCardRanking, type TeamCardRow } from '../card';
+import {
+  buildTeamCard,
+  fitNameSize,
+  tallyRecord,
+  type TeamCardRanking,
+  type TeamCardRow,
+  type TeamGame,
+} from '../card';
+
+const TEAM = 'aaaaaaaa-0000-4000-8000-000000000001';
+const MERGED = 'aaaaaaaa-0000-4000-8000-000000000002';
+const OTHER = 'bbbbbbbb-0000-4000-8000-000000000009';
+
+// One game per outcome, and each outcome from a different side of the fixture, so inverting
+// the home/away branch cannot leave the tally unchanged.
+const GAMES: TeamGame[] = [
+  { home_team_master_id: TEAM, home_score: 3, away_score: 1 },
+  { home_team_master_id: OTHER, home_score: 0, away_score: 2 },
+  { home_team_master_id: TEAM, home_score: 1, away_score: 2 },
+  { home_team_master_id: OTHER, home_score: 1, away_score: 1 },
+];
 
 // A real registered name, and the one that clipped on the right and pushed the stat rail
 // off the bottom of the card before the name was sized to fit.
@@ -73,10 +93,10 @@ describe('buildTeamCard', () => {
     expect(card.ranked).toBe(false);
   });
 
-  it('builds a card for a team with no ranking row at all', () => {
-    const card = buildTeamCard(makeRow(), null, null);
+  it('shows the real record for a team the ranking pipeline has no row for', () => {
+    const card = buildTeamCard(makeRow(), tallyRecord(GAMES, [TEAM]), null);
 
-    expect(card.hero).toBe('0-0-0');
+    expect(card.hero).toBe('2-1-1');
     expect(card.heroLabel).toBe('RECORD');
     expect(card.powerScore).toBe('--');
     expect(card.ranked).toBe(false);
@@ -135,6 +155,48 @@ describe('buildTeamCard', () => {
     const card = buildTeamCard(makeRow({ state_code: 'ZZ' }), makeRanking(), 3);
 
     expect(card.heroLabel).toBe('IN ZZ');
+  });
+});
+
+describe('tallyRecord', () => {
+  it('counts wins, losses and draws from both sides of the fixture', () => {
+    expect(tallyRecord(GAMES, [TEAM])).toMatchObject({ total_wins: 2, total_losses: 1, total_draws: 1 });
+  });
+
+  it('counts a win the team took at home', () => {
+    const games = [{ home_team_master_id: TEAM, home_score: 3, away_score: 1 }];
+
+    expect(tallyRecord(games, [TEAM])).toMatchObject({ total_wins: 1, total_losses: 0, total_draws: 0 });
+  });
+
+  it('counts a win the team took away, reading the away score', () => {
+    const games = [{ home_team_master_id: OTHER, home_score: 1, away_score: 3 }];
+
+    expect(tallyRecord(games, [TEAM])).toMatchObject({ total_wins: 1, total_losses: 0, total_draws: 0 });
+  });
+
+  it('counts a loss the team took away', () => {
+    const games = [{ home_team_master_id: OTHER, home_score: 3, away_score: 1 }];
+
+    expect(tallyRecord(games, [TEAM])).toMatchObject({ total_wins: 0, total_losses: 1, total_draws: 0 });
+  });
+
+  it('counts games the team played under an id a merge retired', () => {
+    const games = [{ home_team_master_id: MERGED, home_score: 4, away_score: 0 }];
+
+    expect(tallyRecord(games, [TEAM, MERGED])).toMatchObject({ total_wins: 1, total_losses: 0 });
+    expect(tallyRecord(games, [TEAM])).toMatchObject({ total_wins: 0, total_losses: 1 });
+  });
+
+  it('leaves rank and PowerScore empty, since the pipeline produced neither', () => {
+    const record = tallyRecord(GAMES, [TEAM]);
+
+    expect(record.rank_in_cohort_final).toBeNull();
+    expect(record.power_score_final).toBeNull();
+  });
+
+  it('returns a goalless record for a team with no completed games', () => {
+    expect(tallyRecord([], [TEAM])).toMatchObject({ total_wins: 0, total_losses: 0, total_draws: 0 });
   });
 });
 

@@ -57,6 +57,42 @@ export interface TeamCard {
   ranked: boolean;
 }
 
+export interface TeamGame {
+  home_team_master_id: string;
+  home_score: number;
+  away_score: number;
+}
+
+/**
+ * W-L-D from a team's completed games, for a team the ranking pipeline has no row for.
+ *
+ * `teamIds` carries the team's merged-away ids alongside its own, so the tally matches the
+ * team page rather than dropping the games a merge moved.
+ */
+export function tallyRecord(games: TeamGame[], teamIds: string[]): TeamCardRanking {
+  const played = new Set(teamIds);
+  let wins = 0;
+  let losses = 0;
+  let draws = 0;
+
+  for (const game of games) {
+    const isHome = played.has(game.home_team_master_id);
+    const teamScore = isHome ? game.home_score : game.away_score;
+    const opponentScore = isHome ? game.away_score : game.home_score;
+    if (teamScore > opponentScore) wins++;
+    else if (teamScore < opponentScore) losses++;
+    else draws++;
+  }
+
+  return {
+    rank_in_cohort_final: null,
+    power_score_final: null,
+    total_wins: wins,
+    total_losses: losses,
+    total_draws: draws,
+  };
+}
+
 function stateName(code: string | null): string | null {
   if (!code) return null;
   return US_STATES.find((s) => s.code === code.toLowerCase())?.name ?? code.toUpperCase();
@@ -77,11 +113,15 @@ function cohortLabel(ageGroup: string | null, gender: string | null): string | n
  * look good on; the record is the last resort so an unranked team still gets a real card.
  * Returning a card for every team is the point — a 404 here drops the link preview back to a
  * bare URL, which is the failure this route exists to fix.
+ *
+ * `ranking` is required rather than nullable. A quarter of the teams that have played have no
+ * rankings_full row, their team page still renders, and defaulting the totals to zero would
+ * publish 0-0-0 for a team that has won games. The caller derives their record from games.
  */
-export function buildTeamCard(row: TeamCardRow, ranking: TeamCardRanking | null, stateRank: number | null): TeamCard {
+export function buildTeamCard(row: TeamCardRow, ranking: TeamCardRanking, stateRank: number | null): TeamCard {
   const state = stateName(row.state_code);
-  const record = formatRecord(ranking?.total_wins ?? 0, ranking?.total_losses ?? 0, ranking?.total_draws ?? 0);
-  const nationalRank = ranking?.rank_in_cohort_final ?? null;
+  const record = formatRecord(ranking.total_wins ?? 0, ranking.total_losses ?? 0, ranking.total_draws ?? 0);
+  const nationalRank = ranking.rank_in_cohort_final ?? null;
 
   let hero: string;
   let heroLabel: string;
