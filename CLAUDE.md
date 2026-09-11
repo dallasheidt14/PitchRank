@@ -567,6 +567,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
+| `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` only — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
@@ -621,11 +622,13 @@ by the `assigning-team-states` skill, and reaching a schedule through `fill-team
 (fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
 comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
 
-**Two provider imports still stamp a state on team creation, on a schedule**, which is a
+**Three provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
-Affinity matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`), and
+Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`),
+`or-scraper.yml` runs the Affinity OR matcher, which hardcodes `"OR"`
+(`src/models/affinity_or_matcher.py:345`), and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes its
-`default_state_code` (`src/models/playmetrics_matcher.py:237`). Neither sets `state_source`.
+`default_state_code` (`src/models/playmetrics_matcher.py:237`). None sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
 
@@ -651,12 +654,13 @@ permanently. The game importers count: they create unmatched teams through the
 provider matchers using an age `EnhancedETLPipeline` derives at import time, so
 the derivation is invisible at the call site.
 
-**To re-arm for the next rollover**, set it to `'true'` in all nine:
+**To re-arm for the next rollover**, set it to `'true'` in all ten:
 `data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
 `auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
-`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`. Do it before Aug 1;
+`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`. Do it
+before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 
 Scrapers keep running while frozen; only the database write is skipped, and the

@@ -964,3 +964,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_write_event_roster_recovery` and `_recovery_holds_a_complete_walk` in `tournament_intake.py`; `EventRoster.is_complete` in `src/tournaments/gotsport_event_roster.py`
 - **Why**: The overwrite guard asks only whether the file already holds a *complete* walk, and `is_complete` is satisfied by any walk that read every division it found — including a one-division event. So a small complete roster replaces a large partial one, which is backwards: the partial walk of 57 divisions is the expensive artifact. This is not theoretical. On 2026-09-09 a process sharing this checkout wrote a synthetic 1-division roster over `reports/seeding/gotsport_52975/last_walk.json`, and 9 of the real walk's 11 team entries were unrecoverable; the surviving file carries a `_restored_note` recording it. Comparing team counts, or refusing to replace a walk of a different `divisions_found`, would both have held. Related: the same file is the one `_recovered_walk` now reads back, so a wrong winner here is offered to the operator as the walk they paid for.
 - **Noted**: 2026-09-09
+
+### The canonical club map merges distinct clubs, and `are_same_club` never looks past it
+
+- **ID**: IMP-211
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `are_same_club` and `similarity_score` in `src/utils/club_normalizer.py`; the canonical map they read via `normalize_to_club`
+- **Why**: `are_same_club` returns on canonical id alone when both names resolve, so raw similarity is never consulted — and the map over-collapses. Measured 2026-09-11 over the 106 distinct `state_code = 'OR'` club names: `portland_timbers` swallows eight separate clubs (Portland Timbers, Eastside Timbers, Eugene Timbers FC, Rogue Valley Timbers, FC Portland Academy, ADF Portland and two more), `surf` merges Cascade Surf with Oregon Surf, and `vancouver_whitecaps` merges Vancouver West SC with Vancouver Lightning. `are_same_club('FC Portland', 'Rogue Valley Timbers')` is therefore `True` at threshold 0.9 while the two names score 0.21. The fallback is no safer: `similarity_score` is `token_set_ratio`, which scores containment, so `('FC Portland', 'Portland City United SC')` is a perfect 1.0. Both defects were caught matching distinct Oregon squads at confidence 1.0 in an `affinity_or` dry run. `affinity_or` works around them locally in `_is_same_club`; `affinity_wa` and every other caller still take the shared path, and WA has been importing against it on a weekly cron.
+- **Noted**: 2026-09-11
+
+### A dry run reports `Teams created: 0` no matter how many teams it would create
+
+- **ID**: IMP-212
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the `teams_created` metric fold in `EnhancedETLPipeline.import_games` (`src/etl/enhanced_pipeline.py`), against the `"created": True` flag the provider matchers return from `_match_team`
+- **Why**: Verified 2026-09-11 on `affinity_or`: the matcher returns `{"created": True, ...}` and the teams table is genuinely untouched, but the dry-run summary prints `Teams matched: 226 / Teams created: 0` while a direct pass over the same 57 distinct names creates 41 of them. So the one number an operator would read to size an autocreate before letting it write is always zero, for every provider. CLAUDE.md already warns that a new provider's dry run has to be verified against the database rather than its summary; this is the specific reason why.
+- **Noted**: 2026-09-11

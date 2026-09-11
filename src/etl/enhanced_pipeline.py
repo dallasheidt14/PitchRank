@@ -261,6 +261,16 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "affinity_or":
+            from src.models.affinity_or_matcher import AffinityORGameMatcher
+
+            logger.info("Using AffinityORGameMatcher (OR-specific normalization + auto-create)")
+            self.matcher = AffinityORGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 
