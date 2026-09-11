@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from src.tournaments.backtest_result_summary import tournament_result_summary
 from src.tournaments.event_roster_intake import to_seeding_rows
 from src.tournaments.gotsport_event_roster import (
     EventRoster,
@@ -97,6 +98,7 @@ def tournament_totals(roster: EventRoster) -> dict[str, Any]:
         "pools": sum(len(division.pools) for division in roster.divisions),
         "fixtures": sum(len(division.fixtures) for division in roster.divisions),
         "unidentified_teams": len({entrant_key(team) for team in roster.teams if not team.registration_id}),
+        "results": tournament_result_summary(roster),
     }
 
 

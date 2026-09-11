@@ -154,6 +154,7 @@ _READ_ONLY_MODULES = (
     "src/tournaments/backtest_intake_state.py",
     "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
+    "src/tournaments/backtest_result_summary.py",
     "src/tournaments/gotsport_event_structure.py",
     "src/tournaments/storage/_io.py",
     "src/tournaments/storage/_file_lock.py",

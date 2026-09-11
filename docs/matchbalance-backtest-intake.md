@@ -6,6 +6,7 @@ Backtest captures a completed GotSport event for later analysis. The Seeding tab
 
 1. Open **Backtest** and enter the completed event URL. The existing probe and full-walk controls show their scrape cost estimates.
 2. Review the tournament name, dates when published, total teams, and teams by tournament cohort and gender. Counts follow the **entered division**: a U11 squad entered in U12 counts in U12. Current PitchRank age never changes these totals. Partial captures are identified as partial.
+   The **Actual tournament results** summary shows games counted, total and average goal margin, and blowout count and rate. Expand the cohort and division breakdowns to inspect where those results occurred.
 3. Inspect every discovered division, including unreadable or unvisited divisions. Expand a division to inspect published pools, team membership, final standings, fixtures, participant or advancement-slot labels, results, and source links. Final standings are never treated as original seeds. Regulation and shootout scores remain separate.
 4. Inspect all team matches or filter to those needing review. Published GotSport team IDs can resolve automatically. Historical name matches are suggestions until confirmed. Any existing match can be changed or cleared; automatic matching cannot undo a saved operator decision.
 5. Record published format, advancement, and tiebreaker notes with a source URL. Mark each division checked after verifying its source. A changed structure invalidates that division's saved check.
@@ -16,6 +17,16 @@ Backtest captures a completed GotSport event for later analysis. The Seeding tab
 The total counts distinct event registration IDs, plus separately identified source entries whose registration IDs are missing. An event registration appearing in two cohorts counts once in the overall total and once in each cohort. The interface explains when cohort subtotals exceed the unique total.
 
 Missing-ID teams remain visible and require identity review for possible duplicates. Unknown cohort or gender stays unknown. A readable page is evidence of capture, not proof that unpublished advancement rules were reconstructed. The intake preserves published rules links and operator notes; it does not infer the tournament's original seeds or invent a bracket graph.
+
+### Actual result totals
+
+Goal margin is `abs(home_score - away_score)` using the published scores excluding shootouts. A 5–1 game contributes 4; a draw contributes 0 even if a shootout decides the winner. The total adds one margin per counted game. The average divides that total by the number of counted games, so larger divisions contribute proportionally. A **blowout is a margin of 4 or more goals**; its rate is the blowout count divided by the counted games. Rates and averages are unavailable when no games can be counted.
+
+Both scores must be nonnegative integers. Explicit unplayed, cancelled, postponed, forfeited, unrecognized, and missing-score results are excluded. Valid score pairs from legacy captures whose result status was not retained remain usable, with a visible legacy-status count. The source does not separately identify extra-time goals.
+
+Provider match IDs identify repeated listings across the event; printed match numbers are scoped to their division. Conflicting results or division assignments are excluded rather than choosing a version. Fixtures with neither a provider match ID nor a printed number are excluded because duplicate listings cannot be ruled out. Coverage, duplicates, exclusions, and partial captures are displayed alongside the totals. A conflicting cross-division fixture appears as excluded in each affected breakdown, so those exclusion counts can overlap.
+
+Results use the tournament's entered cohort and gender. They are calculated directly from the saved fixture evidence and included under `tournament_totals.results` in the downloaded JSON. Loading a saved capture with scores makes these numbers available without another scrape; captures with missing fixtures or scores still need that evidence collected. This adds the actual-results baseline only; alternative seeding and projected improvements remain future work.
 
 ## Local artifacts
 
@@ -39,4 +50,4 @@ The CLI's `--completed-event` option selects the same complete-event capture and
 
 Offline parser, storage, matching, capture, and Streamlit interaction tests cover play-ups, unranked divisions, missing IDs, unresolved matches, manual replacement/clear, historical-name review, source structure round trips, interrupted publication, concurrent link updates, and partial-capture preservation. A newly scraped production event has not been used as end-to-end acceptance evidence for this change.
 
-Validated 2026-09-11: the repository's full Python gate passed with **4,649 passed and 12 skipped** (`tests/test_enhanced_pipeline.py` excluded as in CI). The fixture-preservation suite also passed all 36 cases, including two additional regressions completed after full-suite collection. Backend and changed-test Ruff checks passed. Windows validation used Git Bash on the test process's PATH and an isolated temporary directory outside the repository.
+Validated 2026-09-11: the full Python run passed **4,689 tests with 12 skipped** (`tests/test_enhanced_pipeline.py` excluded as in CI) and identified the new calculation module missing from the read-only audit registry. After registering the inspected module, all **120 affected Backtest tests passed**, including both new audit cases, result calculations, UI/export, and storage. Backend and changed-test Ruff checks passed. Windows validation used Git Bash on the test process's PATH and isolated temporary directories outside the repository.

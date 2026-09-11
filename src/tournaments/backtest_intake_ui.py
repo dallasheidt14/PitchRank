@@ -302,6 +302,70 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[DivisionReview, ...]:
     return tuple(reviews)
 
 
+def _render_results(results: dict[str, Any]) -> None:
+    st.markdown("#### Actual tournament results")
+    values = (
+        ("Games counted", results["scored_games"]),
+        ("Average goal margin", f"{results['average_goal_margin']:.2f}"
+         if results["average_goal_margin"] is not None else "—"),
+        ("Total goal margin", results["total_goal_margin"]),
+        ("Blowout games (4+ goals)", results["blowout_games"]),
+        ("Blowout rate", f"{results['blowout_percentage']:.1f}%"
+         if results["blowout_percentage"] is not None else "—"),
+    )
+    for column, (label, value) in zip(st.columns(5), values):
+        column.metric(label, value)
+    st.caption("Goal margin is the absolute score difference: 5–1 contributes 4, and a draw contributes 0. "
+               "Shootout goals are excluded. A blowout has a margin of 4 or more goals. "
+               "The average and blowout rate use only the games counted.")
+    st.caption(f"Captured: {results['fixture_rows']} fixture listings, {results['unique_fixtures']} identified games. "
+               f"{results['excluded_games']} entries excluded from result totals. "
+               f"{results['duplicate_rows']} repeated fixture listings combined.")
+    if results["is_partial"]:
+        st.warning("Partial capture: these results cover only the fixtures captured so far.")
+    if results["scored_games"] == 0:
+        st.info("No eligible scored games are available in this capture. "
+                "An average margin and blowout rate cannot be calculated yet.")
+    if results["conflicting_games"]:
+        st.warning(f"{results['conflicting_games']} fixtures have conflicting results or division assignments. "
+                   "They are excluded until their source evidence is resolved.")
+    if results["fixtures_without_identity"]:
+        st.warning(f"{results['fixtures_without_identity']} fixture rows have no match ID or match number. "
+                   "They are excluded because duplicate listings cannot be ruled out.")
+    if results["legacy_scored_games"]:
+        st.caption(f"Includes {results['legacy_scored_games']} scored games from older captures "
+                   "whose original result status was not retained.")
+
+    def table_rows(rows, *, division=False):
+        return [
+            {
+                **({"Division": row["division_label"], "Group ID": row["group_id"]} if division else {}),
+                "Tournament cohort": row["age_group"].upper() or "Not stated",
+                "Gender": {"Male": "Boys", "Female": "Girls"}.get(row["gender"], row["gender"] or "Not stated"),
+                "Games counted": row["scored_games"],
+                "Total goal margin": row["total_goal_margin"],
+                "Average goal margin": row["average_goal_margin"],
+                "Blowout games (4+ goals)": row["blowout_games"],
+                "Blowout rate (%)": row["blowout_percentage"],
+                "Excluded fixtures": row["excluded_games"],
+            }
+            for row in rows
+        ]
+
+    with st.expander("Results by cohort and division"):
+        st.caption("Breakdowns follow tournament divisions. Event averages weight every counted game equally. "
+                   "A fixture with conflicting division assignments appears as excluded in each affected group.")
+        st.dataframe(pd.DataFrame(table_rows(results["by_cohort"])), hide_index=True, width="stretch")
+        st.dataframe(pd.DataFrame(table_rows(results["by_division"], division=True)),
+                     hide_index=True, width="stretch")
+        if results["exclusion_reasons"]:
+            st.markdown("**Fixtures excluded from result totals**")
+            st.dataframe(pd.DataFrame([
+                {"Reason": reason.replace("_", " ").capitalize(), "Fixtures": count}
+                for reason, count in results["exclusion_reasons"].items()
+            ]), hide_index=True, width="stretch")
+
+
 def render_intake(supabase_client: Any) -> None:
     from tournament_intake import _BACKTEST_KEYS, _as_plain_text, _render_seeding_event_scrape, reports_dir
 
@@ -336,6 +400,7 @@ def render_intake(supabase_client: Any) -> None:
         st.warning(f"{totals['unidentified_teams']} source team entries have no registration ID. "
                    "They are included in the totals and need identity review for possible duplicates.")
 
+    _render_results(totals["results"])
     quality = summarize_structure_quality(snapshot.roster.divisions)
     if not getattr(snapshot.roster, "completed_event", False):
         st.warning("This saved walk predates full-event Backtest capture. Its coverage has not been verified.")
