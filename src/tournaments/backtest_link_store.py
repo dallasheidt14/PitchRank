@@ -32,6 +32,10 @@ from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.storage._io import write_json
 from src.tournaments.storage.event_key import intake_dir
+from src.tournaments.storage.schema_version import (
+    assert_supported_version,
+    stamp_schema_version,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +99,13 @@ def save_links(
     path = event_links_path(event_key, base_dir=base_dir)
     write_json(
         path,
-        {
-            "event_id": links.event_id,
-            "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-            "links": [asdict(link) for link in links.links],
-        },
+        stamp_schema_version(
+            {
+                "event_id": links.event_id,
+                "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                "links": [asdict(link) for link in links.links],
+            }
+        ),
     )
     return path
 
@@ -203,6 +209,14 @@ def load_links(event_key: str, *, base_dir: Path | str = "reports") -> EventLink
     path = event_links_path(event_key, base_dir=base_dir)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        # `SchemaVersionError` is a `RuntimeError`, so the handler below does
+        # not catch it and a future-format file stops the sync rather than
+        # reading as no links at all — that emptiness would be written straight
+        # back over decisions this build cannot see. Widening that tuple to
+        # `Exception` would silently reintroduce exactly that, which is what
+        # `test_a_file_from_a_future_version_is_refused_rather_than_read_as_empty`
+        # is there to catch.
+        assert_supported_version(payload, source=str(path))
         return EventLinks(
             event_id=str(payload["event_id"]),
             links=tuple(

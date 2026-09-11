@@ -20,6 +20,7 @@ function the Backtest render path actually calls.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -37,6 +38,8 @@ from src.tournaments.gotsport_event_structure import (
     KIND_UNKNOWN,
     ScrapedDivision,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["render_backtest_event_intake", "summarize_structure"]
 
@@ -152,7 +155,18 @@ def _sync_links(
     for source_index, link in to_add.items():
         overrides[source_index] = link
     if _link_signature(merged) != _link_signature(saved):
-        save_links(key, merged)
+        try:
+            save_links(key, merged)
+        except OSError as exc:
+            # Best-effort, the same contract `_write_event_roster_recovery`
+            # keeps for its own artifact: this exists to protect a walk that
+            # cost money, so failing to write it must not cost the walk. The
+            # links stay in session state and the next render retries.
+            logger.warning("Could not save this event's links: %s", exc)
+            st.warning(
+                "Could not save your team links just now, so they are held in this "
+                "session only — check the reports folder is writable before closing the tab."
+            )
     return len(to_add)
 
 

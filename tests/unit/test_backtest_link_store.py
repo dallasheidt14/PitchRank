@@ -20,6 +20,7 @@ from src.tournaments.backtest_link_store import (
     save_links,
 )
 from src.tournaments.roster_paste import RosterRow
+from src.tournaments.storage.schema_version import SchemaVersionError
 from src.tournaments.roster_resolver import ResolvedTeam
 
 EVENT_KEY = "gotsport__51783__unknown"
@@ -285,6 +286,26 @@ def test_a_resolver_that_answers_nothing_leaves_the_saved_id_alone():
     restored = restore_overrides(rows, _links(), {0: "4383677"}, resolve_team_id=lambda _t: None)
 
     assert restored[0]["team_id_master"] == "bbbb-2222"
+
+
+def test_the_payload_is_stamped_with_a_schema_version(tmp_path):
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+    payload = json.loads(event_links_path(EVENT_KEY, base_dir=tmp_path).read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == 1
+
+
+def test_a_file_from_a_future_version_is_refused_rather_than_read_as_empty(tmp_path):
+    """Reading it as empty would be worse than failing: the next render would
+    persist that emptiness over decisions this build cannot understand."""
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["schema_version"] = 99
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(SchemaVersionError):
+        load_links(EVENT_KEY, base_dir=tmp_path)
 
 
 def test_a_failed_replacement_leaves_the_previous_links_intact(tmp_path, monkeypatch):
