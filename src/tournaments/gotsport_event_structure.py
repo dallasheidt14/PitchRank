@@ -242,6 +242,14 @@ def parse_fixtures(html: str) -> tuple[Fixture, ...]:
     ``kind`` is ``"bracket"`` for a labelled game and ``"unknown"`` otherwise;
     only a pool map can tell a pool game from a cross-pool one, and this
     function has none.
+
+    A row whose Match # cell has no leading digit is still a real game, not
+    table furniture, when either side carries a team id -- GotSport
+    sometimes publishes a fixture with a blank Match # cell, or with a
+    knockout label and no number at all. That row is kept with
+    ``match_number=""`` and the cell's own text (blank, or a label like
+    ``"Final"``) as ``bracket_label``. A row with neither team id is spacer
+    or sub-heading furniture and is still skipped, per spec Sec.8.
     """
     soup = BeautifulSoup(html or "", "html.parser")
     fixtures: list[Fixture] = []
@@ -257,17 +265,25 @@ def parse_fixtures(html: str) -> tuple[Fixture, ...]:
             if columns is None:
                 continue
             raw_number = _cell(cells, columns, "match_number")
+            home_registration_id = _team_id_at(cells, columns, "home")
+            away_registration_id = _team_id_at(cells, columns, "away")
             match = _MATCH_NUMBER.match(raw_number)
-            if not match:
+            if match:
+                match_number = match.group(1)
+                bracket_label = match.group(2).strip()
+            elif home_registration_id is not None or away_registration_id is not None:
+                match_number = ""
+                bracket_label = raw_number.strip()
+            else:
                 continue
             home_score, away_score = _scores(_cell(cells, columns, "results"))
             fixtures.append(
                 Fixture(
-                    match_number=match.group(1),
-                    bracket_label=match.group(2).strip(),
-                    kind=KIND_BRACKET if match.group(2).strip() else KIND_UNKNOWN,
-                    home_registration_id=_team_id_at(cells, columns, "home"),
-                    away_registration_id=_team_id_at(cells, columns, "away"),
+                    match_number=match_number,
+                    bracket_label=bracket_label,
+                    kind=KIND_BRACKET if bracket_label else KIND_UNKNOWN,
+                    home_registration_id=home_registration_id,
+                    away_registration_id=away_registration_id,
                     home_score=home_score,
                     away_score=away_score,
                     kickoff=_cell(cells, columns, "time"),
@@ -345,6 +361,7 @@ def parse_division_structure(
     pools = parse_pools(html)
     pools_readable = standings_table_found(html)
     fixtures_readable = fixture_table_found(html)
+    parsed_fixtures = parse_fixtures(html)
     named = division_label or f"group {group_id}"
 
     warnings: list[str] = []
@@ -360,12 +377,18 @@ def parse_division_structure(
             f"Division {named}: no fixture table this module recognizes, so its "
             "games could not be read"
         )
+    missing_match_number = sum(1 for f in parsed_fixtures if f.match_number == "")
+    if missing_match_number:
+        warnings.append(
+            f"Division {named}: {missing_match_number} fixture(s) had no match "
+            "number and were kept without one"
+        )
 
     return ScrapedDivision(
         group_id=group_id,
         division_label=division_label,
         pools=pools,
-        fixtures=classify_fixtures(parse_fixtures(html), pools),
+        fixtures=classify_fixtures(parsed_fixtures, pools),
         pools_readable=pools_readable,
         fixtures_readable=fixtures_readable,
         warnings=tuple(warnings),

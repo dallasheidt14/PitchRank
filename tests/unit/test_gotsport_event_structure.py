@@ -153,6 +153,60 @@ def test_parse_fixtures_returns_no_score_when_none_was_published():
     )
 
 
+def test_parse_fixtures_keeps_a_real_game_with_a_blank_match_number():
+    """A blank Match # cell with both team ids present is a real, published
+    game -- not table furniture -- and must not be dropped silently."""
+    html = """
+    <table>
+      <tr><th>Match #</th><th>Time</th><th>Home Team</th><th>Results</th>
+          <th>Away Team</th><th>Location</th></tr>
+      <tr><td></td><td>Feb 14, 2026 9:00AM</td>
+          <td><a href="/x?team=111">Home FC</a></td><td>2 - 1</td>
+          <td><a href="/x?team=222">Away FC</a></td><td>Field 2</td></tr>
+    </table>
+    """
+    fixtures = parse_fixtures(html)
+
+    assert len(fixtures) == 1
+    assert fixtures[0].match_number == ""
+    assert fixtures[0].bracket_label == ""
+    assert fixtures[0].kind == "unknown"
+    assert fixtures[0].home_registration_id == "111"
+    assert fixtures[0].away_registration_id == "222"
+
+
+def test_parse_fixtures_keeps_a_labelled_game_with_no_match_number():
+    """A Match # cell that reads a label rather than a digit (e.g. a
+    knockout round named with no number) is still a labelled bracket game."""
+    html = """
+    <table>
+      <tr><th>Match #</th><th>Home Team</th><th>Results</th><th>Away Team</th></tr>
+      <tr><td>Final</td><td><a href="?team=1">A</a></td><td>1 - 0</td>
+          <td><a href="?team=2">B</a></td></tr>
+    </table>
+    """
+    fixtures = parse_fixtures(html)
+
+    assert len(fixtures) == 1
+    assert fixtures[0].match_number == ""
+    assert fixtures[0].bracket_label == "Final"
+    assert fixtures[0].kind == "bracket"
+
+
+def test_parse_fixtures_still_skips_a_furniture_row_with_no_team_ids():
+    """A row with neither a numeric match number nor any team id is table
+    furniture (a spacer / sub-heading row), not a game, and stays skipped."""
+    html = """
+    <table>
+      <tr><th>Match #</th><th>Home Team</th><th>Results</th><th>Away Team</th></tr>
+      <tr><td colspan="4">Group B</td></tr>
+    </table>
+    """
+    fixtures = parse_fixtures(html)
+
+    assert fixtures == ()
+
+
 def test_fixture_table_found_separates_no_fixtures_from_unreadable_markup():
     assert fixture_table_found(_html("event_42433__group_365847.html")) is True
     assert fixture_table_found("<html><body><table></table></body></html>") is False
@@ -246,6 +300,21 @@ def test_pools_are_never_reconstructed_when_the_standings_table_is_unreadable():
     assert structure.fixtures_readable is True
     assert structure.fixtures[0].kind == "unknown"
     assert any("pools could not be read" in warning for warning in structure.warnings)
+
+
+def test_division_warns_how_many_fixtures_came_through_without_a_match_number():
+    html = """
+    <table>
+      <tr><th>Match #</th><th>Home Team</th><th>Results</th><th>Away Team</th></tr>
+      <tr><td></td><td><a href="?team=1">A</a></td><td>1 - 0</td>
+          <td><a href="?team=2">B</a></td></tr>
+      <tr><td>Final</td><td><a href="?team=1">A</a></td><td>2 - 1</td>
+          <td><a href="?team=3">C</a></td></tr>
+    </table>
+    """
+    structure = parse_division_structure(group_id="9", division_label="U13 Boys", html=html)
+
+    assert any("2 fixture" in warning for warning in structure.warnings)
 
 
 @pytest.mark.parametrize(
