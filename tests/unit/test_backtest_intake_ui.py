@@ -11,8 +11,14 @@ from streamlit.runtime import Runtime
 from streamlit.testing.v1 import AppTest
 
 from src.tournaments.backtest_intake_state import DivisionReview, read_snapshot, structure_hash, write_snapshot
-from src.tournaments.backtest_intake_ui import match_table
-from src.tournaments.backtest_link_store import EventLinks, TeamLink, load_links, update_links
+from src.tournaments.backtest_intake_ui import match_table, search_master_teams
+from src.tournaments.backtest_link_store import (
+    CollisionAcknowledgement,
+    EventLinks,
+    TeamLink,
+    load_links,
+    update_links,
+)
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
 from tests.unit.test_backtest_intake_state import sample_snapshot
 
@@ -131,6 +137,62 @@ def test_registration_in_two_divisions_is_visible_in_both_with_its_single_saved_
     assert all(row["PitchRank ID"] == "canonical-a" for row in alpha)
 
 
+def test_distinct_registrations_sharing_a_canonical_team_require_explicit_acknowledgement():
+    snapshot = sample_snapshot()
+    links = EventLinks(event_id="51783", links=(
+        TeamLink("100", "Alpha", "canonical-a", "gotsport_id", "now"),
+        TeamLink("101", "Bravo", "canonical-a", "gotsport_id", "now"),
+    ))
+    details = {"canonical-a": {"team_name": "Canonical A"}}
+
+    rows = match_table(snapshot, links, details)
+    assert [row["Status"] for row in rows[:2]] == ["Needs review", "Needs review"]
+    assert all("also linked" in row["Match issue"] for row in rows[:2])
+
+    acknowledgement = CollisionAcknowledgement(
+        "canonical-a", ("100", "101"), "Same squad entered twice", "now"
+    )
+    confirmed = replace(links, collision_acknowledgements=(acknowledgement,))
+    assert [row["Status"] for row in match_table(snapshot, confirmed, details)[:2]] == ["Matched", "Matched"]
+
+
+def test_not_found_is_reviewed_but_remains_a_matching_gap():
+    snapshot = sample_snapshot()
+    links = EventLinks(event_id="51783", not_found_registration_ids=("101",))
+    rows = match_table(snapshot, links, {})
+    assert rows[1]["Status"] == "Not found"
+    assert rows[1]["PitchRank ID"] == ""
+
+
+def test_historical_team_search_is_paginated_and_does_not_filter_current_age():
+    calls = []
+
+    class SearchQuery:
+        def select(self, columns):
+            calls.append(("select", columns))
+            return self
+
+        def eq(self, column, value):
+            calls.append(("eq", column, value))
+            return self
+
+        def ilike(self, column, value):
+            calls.append(("ilike", column, value))
+            return self
+
+        def range(self, start, end):
+            calls.append(("range", start, end))
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[{"team_id_master": "one", "team_name": "Alpha"}])
+
+    client = SimpleNamespace(table=lambda table: SearchQuery())
+    assert search_master_teams(client, name="Alpha", club="City", page=2)[0]["team_id_master"] == "one"
+    assert ("range", 40, 59) in calls
+    assert not any(call[0] == "eq" and call[1] == "age_group" for call in calls)
+
+
 class ReadOnlyTeams:
     """Only a executed SELECT is supported; a database write fails the test."""
 
@@ -193,18 +255,25 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     test, _ = rendered_intake
 
     assert any("Spring Invitational" in item.value for item in test.markdown)
-    assert {item.label: item.value for item in test.metric} == {
+    metrics = {item.label: item.value for item in test.metric}
+    assert {label: metrics[label] for label in (
+        "Total teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
+        "Total goal margin", "Blowout games (4+ goals)", "Blowout rate",
+    )} == {
         "Total teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
+    assert metrics["Capture verification"] == "Verified"
+    assert metrics["Team matching"] == "1 / 3"
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
+    test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     tables = [item.value for item in test.dataframe]
     matches = next(frame for frame in tables if "PitchRank ID" in frame.columns)
     assert matches["Event team"].tolist() == ["Alpha", "Bravo", "Charlie"]
     assert matches["Status"].tolist() == ["Matched", "Needs review", "Needs review"]
     labels = {button.label for button in test.button}
-    assert "Save Backtest intake" in labels
-    assert "Clear this match" in labels
+    assert "Save progress" in labels
     assert not any("Run backtest" in label or "Seeding" in label for label in labels)
     assert test.session_state["_seeding_result"] == "seeding-must-survive"
 
@@ -313,6 +382,8 @@ def test_partial_results_explain_conflicts_and_missing_scores_instead_of_zero_av
 
 def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(rendered_intake):
     test, tmp_path = rendered_intake
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
+    test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     test.button(key="bt_clear_capture-one_0").click().run()
     assert not test.exception, [error.message for error in test.exception]
     links = load_links("gotsport__51783__unknown", base_dir=tmp_path)
@@ -332,6 +403,7 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
 
 def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
     test, tmp_path = rendered_intake
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
     test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
     test.checkbox(key="bt_division_capture-one_10_checked").check()
     test.button(key="bt_save_capture-one").click().run()
@@ -354,6 +426,8 @@ def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_int
     test.session_state[app._BACKTEST_KEYS.snapshot] = refreshed
 
     test.run()
+    test.radio(key="bt_section_fresh-capture").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_fresh-capture").set_value("All divisions").run()
 
     assert not test.exception, [error.message for error in test.exception]
     assert test.text_area(key="bt_division_fresh-capture_10_notes").value == "Two advance"
@@ -365,6 +439,7 @@ def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_int
 
 def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
     test, tmp_path = rendered_intake
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
     snapshot = sample_snapshot()
     review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]),
                             "Saved in another session", checked=True)
@@ -375,6 +450,7 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
     test.button(key="bt_save_capture-one").click().run()
 
     assert not test.exception, [error.message for error in test.exception]
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
     assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
     assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
@@ -391,6 +467,7 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
 
 def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
     test, tmp_path = rendered_intake
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
     snapshot = sample_snapshot()
     review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
     path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
@@ -405,6 +482,8 @@ def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered
     assert test.text_area(key="bt_division_capture-one_10_notes").value == "My competing notes"
     test.button(key="_backtest_open_saved").click().run()
     assert not test.exception, [error.message for error in test.exception]
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
 
 
@@ -421,6 +500,8 @@ def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(r
     monkeypatch.setattr(ui, "resolve_manual_reference",
                         lambda *args, **kwargs: ManualResolution("ok", "operator-new", detail, False))
 
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
+    test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     test.text_input(key="bt_reference_capture-one_0").set_value("operator-new").run()
     assert not test.exception, [error.message for error in test.exception]
     test.button(key="bt_use_capture-one_0").click().run()
@@ -533,8 +614,8 @@ def test_reordered_source_only_names_do_not_inherit_confirmed_matches_until_reco
         TeamLink("pool:10:A:1", "Bravo", "canonical-b", "operator", "confirmed-now"),
     ))
     confirmed_rows = match_table(snapshot, confirmed, details)
-    assert confirmed_rows[0]["Status"] == "Matched"
-    assert confirmed_rows[0]["Match issue"] == ""
+    assert confirmed_rows[0]["Status"] == "Needs review"
+    assert "also linked" in confirmed_rows[0]["Match issue"]
     assert confirmed_rows[1]["Status"] == "Needs review"
 
 
@@ -565,6 +646,7 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     else:
         monkeypatch.setattr(ReadOnlyTeams.Query, "execute", unavailable)
     test.run()
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
 
     assert not test.exception, [error.message for error in test.exception]
     assert any("Team matching is unavailable" in warning.value for warning in test.warning)

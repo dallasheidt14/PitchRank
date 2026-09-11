@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import sys
+import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
@@ -3718,16 +3719,57 @@ def _run_event_roster_scrape(
             st.session_state[keys.lock_key] = lock_key
             st.session_state._scrape_in_progress = True
             try:
-                with st.spinner("Walking the event..."):
-                    roster = scrape_event_roster(
+                def capture(on_phase=None, on_stage=None) -> int:
+                    captured = scrape_event_roster(
                         event_id,
                         fetch=make_zenrows_fetcher(api_key),
                         limit_groups=limit_groups,
                         max_workers=_SEEDING_EVENT_WORKERS,
                         wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
+                        on_phase=on_phase,
                         **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
                     )
-                    parked = _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
+                    return _park_event_roster(
+                        url, captured, limit_groups, supabase_client, keys=keys, on_stage=on_stage
+                    )
+
+                if keys != _BACKTEST_KEYS:
+                    with st.spinner("Walking the event..."):
+                        parked = capture()
+                else:
+                    status_box = st.status("Starting event capture", expanded=True)
+                    progress = st.progress(0.0, text="Discovering divisions...")
+                    started = time.monotonic()
+                    last_completed = started
+                    last_done_by_phase: dict[str, int] = {}
+
+                    def on_phase(phase: str, done: int, total: int) -> None:
+                        nonlocal last_completed
+                        now = time.monotonic()
+                        previous_done = last_done_by_phase.get(phase, 0)
+                        if done > previous_done:
+                            last_completed = now
+                            last_done_by_phase[phase] = done
+                        elapsed = int(now - started)
+                        idle = int(now - last_completed)
+                        progress.progress(
+                            done / max(total, 1),
+                            text=f"{phase}: {done} of {total} · {elapsed}s elapsed · "
+                            f"{idle}s since last completion",
+                        )
+
+                    def on_stage(stage: str) -> None:
+                        status_box.update(label=stage, state="running", expanded=True)
+
+                    try:
+                        parked = capture(on_phase, on_stage)
+                        progress.progress(1.0, text="Capture saved and matching complete")
+                        status_box.update(label="Event capture complete", state="complete", expanded=False)
+                    except Exception:
+                        status_box.update(label="Event capture stopped", state="error", expanded=True)
+                        raise
+                    finally:
+                        progress.empty()
             finally:
                 st.session_state._scrape_in_progress = False
                 st.session_state[keys.lock_key] = None
@@ -3763,6 +3805,7 @@ def _park_event_roster(
     supabase_client: Any,
     *,
     keys: _WalkKeys = _SEEDING_KEYS,
+    on_stage: Callable[[str], None] | None = None,
 ) -> int:
     """Keep the walk's result, and return how many rows it holds.
 
@@ -3780,10 +3823,14 @@ def _park_event_roster(
     run and keeping it stays the operator's step.
     """
     if keys == _BACKTEST_KEYS:
+        if on_stage:
+            on_stage("Saving recoverable capture")
         _write_backtest_recovery(roster, limit_groups)
     else:
         _write_event_roster_recovery(roster, limit_groups)
 
+    if on_stage:
+        on_stage("Matching database teams (read-only)")
     master_ids, resolve_warnings = resolve_master_ids(
         roster.teams,
         enabled=True,
@@ -4680,19 +4727,24 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     already_walked = bool(probe.get("complete"))
 
     left, right = st.columns([2, 2])
-    with left:
+    primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
+    with primary:
+        full_clicked = st.button(
+            "Scrape the whole event",
+            key=f"{keys.prefix}_event_full_run",
+            type="primary" if keys == _BACKTEST_KEYS else "secondary",
+            disabled=(not url or in_progress or already_walked
+                      or (keys != _BACKTEST_KEYS and not priced)),
+        )
+    with secondary:
         probe_clicked = st.button(
-            "Check {} divisions (~{}-{})".format(
+            "Optional: check {} divisions (~{}-{})".format(
+                _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
+            ) if keys == _BACKTEST_KEYS else "Check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
             disabled=not url or in_progress or already_walked,
-        )
-    with right:
-        full_clicked = st.button(
-            "Scrape the whole event",
-            key=f"{keys.prefix}_event_full_run",
-            disabled=not url or in_progress or not priced or already_walked,
         )
 
     if probe:
@@ -4716,7 +4768,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         _run_event_roster_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
-    elif full_clicked and priced and not already_walked:
+    elif full_clicked and (priced or keys == _BACKTEST_KEYS) and not already_walked:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
     elif probe_clicked or full_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
