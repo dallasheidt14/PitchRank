@@ -41,6 +41,7 @@ from src.scrapers.provider import (
     get_provider_scraper,
 )
 from src.tournaments.backtest_event_intake import render_backtest_event_intake
+from src.tournaments.backtest_link_store import rows_fingerprint
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_roster_intake import (
     needs_name_lookup,
@@ -3533,6 +3534,16 @@ class _WalkKeys:
         parks it too and simply does not read it."""
         return f"{self.prefix}_structure"
 
+    @property
+    def registrations(self) -> str:
+        """``source_index`` to the provider's per-event team id.
+
+        A roster position is only meaningful within one walk — a division that
+        fails to load shifts every later one — so a link that must outlive a
+        walk is keyed by the registration id this map supplies.
+        """
+        return f"{self.prefix}_registrations"
+
 
 _SEEDING_KEYS = _WalkKeys("_seeding")
 _BACKTEST_KEYS = _WalkKeys("_backtest")
@@ -3783,6 +3794,14 @@ def _park_event_roster(
     # walk, so a stop landing between them must not leave one view's structure
     # sitting against another walk's teams.
     st.session_state[keys.structure] = roster.divisions
+    # Fingerprinted, not just mapped: a stop between this write and the parked
+    # result leaves the two describing different walks, and every walk numbers
+    # its teams 0..n-1, so only the rows themselves can tell one from another.
+    st.session_state[keys.registrations] = {
+        "event_id": roster.event_id,
+        "fingerprint": rows_fingerprint(parsed.rows),
+        "by_index": {team.source_index: team.registration_id for team in roster.teams},
+    }
     # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
     st.session_state[keys.overrides] = {}
