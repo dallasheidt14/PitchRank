@@ -85,6 +85,29 @@ def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):
     assert effective.teams[0].published_age_group == "u12/u13"
 
 
+def test_concurrent_cohort_decisions_for_different_divisions_are_merged(tmp_path):
+    key = "gotsport__51783__2025"
+    baseline = sample_snapshot()
+    first = CohortDecision("10", "u12", "Male", "First source", "https://example.test/10")
+    second = CohortDecision("20", "u13", "Female", "Second source", "https://example.test/20")
+    write_snapshot(key, baseline, base_dir=tmp_path)
+
+    write_snapshot(
+        key,
+        replace(baseline, cohort_decisions=(first,)),
+        base_dir=tmp_path,
+        cohort_baseline=(),
+    )
+    write_snapshot(
+        key,
+        replace(baseline, cohort_decisions=(second,)),
+        base_dir=tmp_path,
+        cohort_baseline=(),
+    )
+
+    assert set(read_snapshot(key, base_dir=tmp_path).cohort_decisions) == {first, second}
+
+
 def test_tournament_totals_use_entered_age_and_gender_with_multidivision_registrations_and_unknowns():
     snapshot = sample_snapshot()
     roster = snapshot.roster

@@ -324,6 +324,44 @@ def _merge_reviews(
     return tuple(merged)
 
 
+def _merge_cohort_decisions(
+    previous: BacktestSnapshot,
+    incoming: BacktestSnapshot,
+    baseline: tuple[CohortDecision, ...] | None,
+) -> tuple[CohortDecision, ...]:
+    """Merge sourced cohort edits without letting stale omission erase work."""
+    valid_groups = {division.group_id for division in incoming.roster.divisions}
+    current = {item.group_id: item for item in previous.cohort_decisions if item.group_id in valid_groups}
+    proposed = {item.group_id: item for item in incoming.cohort_decisions if item.group_id in valid_groups}
+    before = {item.group_id: item for item in (baseline or ()) if item.group_id in valid_groups}
+    merged = []
+    for group in valid_groups:
+        latest = current.get(group)
+        desired = proposed.get(group)
+        if desired is None:
+            if latest is not None:
+                merged.append(latest)
+            continue
+        if baseline is None:
+            if latest is None or latest == desired:
+                merged.append(desired)
+            else:
+                merged.append(latest)
+            continue
+        original = before.get(group)
+        if desired == original:
+            if latest is not None:
+                merged.append(latest)
+        elif latest is None or latest == original or latest == desired:
+            merged.append(desired)
+        else:
+            raise ReviewConflict(
+                f"Division {group}: cohort decision changed in another session. "
+                "Open the saved intake before applying this edit."
+            )
+    return tuple(sorted(merged, key=lambda item: item.group_id))
+
+
 def _fixture_source_identity(fixture: Any) -> tuple[str, str, str] | None:
     """A provider match link identifies a game; a division URL alone does not."""
     from urllib.parse import parse_qs, urlsplit
@@ -503,6 +541,7 @@ def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
 def write_snapshot(
     event_key: str, snapshot: BacktestSnapshot, *, base_dir: Path | str = "reports", dry_run: bool = False,
     review_baseline: tuple[DivisionReview, ...] | None = None,
+    cohort_baseline: tuple[CohortDecision, ...] | None = None,
 ) -> Path:
     """Save atomically and merge review edits against the caller's loaded baseline.
 
@@ -519,7 +558,11 @@ def write_snapshot(
         if path.exists():
             previous = read_snapshot(event_key, base_dir=base_dir)
             assert_capture_preserved(previous.roster, snapshot.roster)
-            snapshot = replace(snapshot, reviews=_merge_reviews(previous, snapshot, review_baseline))
+            snapshot = replace(
+                snapshot,
+                reviews=_merge_reviews(previous, snapshot, review_baseline),
+                cohort_decisions=_merge_cohort_decisions(previous, snapshot, cohort_baseline),
+            )
         else:
             snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, snapshot.reviews))
         write_json(path, snapshot.to_dict())

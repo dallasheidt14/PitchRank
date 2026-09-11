@@ -2,7 +2,7 @@
 
 import json
 import sys
-from dataclasses import replace
+from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 import pytest
@@ -10,8 +10,19 @@ import streamlit as st
 from streamlit.runtime import Runtime
 from streamlit.testing.v1 import AppTest
 
-from src.tournaments.backtest_intake_state import DivisionReview, read_snapshot, structure_hash, write_snapshot
-from src.tournaments.backtest_intake_ui import match_table, search_master_teams
+from src.tournaments.backtest_intake_state import (
+    CaptureVerification,
+    CohortDecision,
+    DivisionReview,
+    read_snapshot,
+    structure_hash,
+    write_snapshot,
+)
+from src.tournaments.backtest_intake_ui import (
+    _preserve_review_state_after_capture,
+    match_table,
+    search_master_teams,
+)
 from src.tournaments.backtest_link_store import (
     CollisionAcknowledgement,
     EventLinks,
@@ -162,6 +173,36 @@ def test_not_found_is_reviewed_but_remains_a_matching_gap():
     rows = match_table(snapshot, links, {})
     assert rows[1]["Status"] == "Not found"
     assert rows[1]["PitchRank ID"] == ""
+
+
+def test_an_invalid_cohort_draft_keeps_the_last_saved_correction(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    decision = CohortDecision("10", "u12", "Male", "Published source", "https://example.test")
+    snapshot = replace(sample_snapshot(), cohort_decisions=(decision,))
+    invalid = {**asdict(decision), "source_url": ""}
+    monkeypatch.setattr(
+        ui,
+        "st",
+        SimpleNamespace(session_state={f"bt_cohort_drafts_{snapshot.generation}": {"10": invalid}}),
+    )
+
+    assert ui._current_cohort_decisions(snapshot) == (decision,)
+
+
+def test_targeted_capture_carries_reviews_and_cohort_decisions():
+    original = sample_snapshot()
+    review = DivisionReview("10", structure_hash(original.roster.divisions[0]), "Checked", True)
+    decision = CohortDecision("10", "u12", "Male", "Published source", "https://example.test")
+    original = replace(original, reviews=(review,), cohort_decisions=(decision,))
+    current = replace(sample_snapshot(generation="targeted"), reviews=(), cohort_decisions=())
+    verification = CaptureVerification(("10", "20"), (2, 2), "now", True)
+
+    carried = _preserve_review_state_after_capture(current, original, current.roster, verification)
+
+    assert carried.reviews == (review,)
+    assert carried.cohort_decisions == (decision,)
+    assert carried.verification == verification
 
 
 def test_historical_team_search_is_paginated_and_does_not_filter_current_age():

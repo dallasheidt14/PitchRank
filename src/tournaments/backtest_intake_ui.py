@@ -245,7 +245,7 @@ def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSn
     loaded_key = f"bt_reviews_loaded_{snapshot.generation}"
     if st.session_state.get(loaded_key):
         return snapshot
-    if not snapshot.reviews:
+    if not snapshot.reviews or not snapshot.cohort_decisions:
         key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
         try:
             saved = read_snapshot(key, base_dir=base_dir)
@@ -254,7 +254,18 @@ def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSn
         except Exception as exc:
             st.warning(f"Saved division reviews could not be loaded: {exc}")
         else:
-            snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, saved.reviews))
+            valid_groups = {division.group_id for division in snapshot.roster.divisions}
+            snapshot = replace(
+                snapshot,
+                reviews=(snapshot.reviews or reviews_for_capture(snapshot.roster, saved.reviews)),
+                cohort_decisions=(
+                    snapshot.cohort_decisions
+                    or tuple(
+                        decision for decision in saved.cohort_decisions
+                        if decision.group_id in valid_groups
+                    )
+                ),
+            )
             st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
     # Even absence is a baseline. Reading again on every rerender could turn
     # another session's new notes into the baseline for our already-open form.
@@ -262,7 +273,13 @@ def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSn
     return snapshot
 
 
-def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: Any, base_dir) -> None:
+def _render_match_editor(
+    snapshot: BacktestSnapshot,
+    rows: list[dict],
+    links: EventLinks,
+    client: Any,
+    base_dir,
+) -> None:
     from tournament_intake import _as_plain_text, _seeding_provider_id_lookup
 
     if not rows:
@@ -311,7 +328,16 @@ def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: A
     outcome = next(item for item in snapshot.resolved if item.source_index == selected)
     event_key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
     registration = display["Match key"]
-    links = load_links(event_key, base_dir=base_dir)
+    saved_links = load_links(event_key, base_dir=base_dir)
+    expected_key = f"bt_link_expected_{generation}_{registration}"
+    if expected_key not in st.session_state:
+        st.session_state[expected_key] = link_decision_state(saved_links, registration)
+    expected_state = st.session_state[expected_key]
+
+    def rerun_after_link_change() -> None:
+        st.session_state.pop(expected_key, None)
+        st.rerun()
+
     st.caption(_as_plain_text(f"Entered in: {display['Division']} · Registration {registration}"))
     if display["Match issue"]:
         st.warning(_as_plain_text(display["Match issue"]))
@@ -344,21 +370,21 @@ def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: A
             try:
                 update_links(event_key, event_id=snapshot.roster.event_id,
                              removed_registration_ids=(registration,),
-                             expected_links={registration: link_decision_state(links, registration)},
+                             expected_links={registration: expected_state},
                              base_dir=base_dir)
             except Exception as exc:
                 st.error(f"The match was not cleared: {exc}")
             else:
-                st.rerun()
+                rerun_after_link_change()
 
     if display["Status"] == "Not found":
         st.info("Reviewed and marked as not found in PitchRank. The entrant and its results are preserved.")
         if st.button("Reopen review", key=f"bt_reopen_{generation}_{selected}"):
             update_links(event_key, event_id=snapshot.roster.event_id,
                          reopened_registration_ids=(registration,),
-                         expected_links={registration: link_decision_state(links, registration)},
+                         expected_links={registration: expected_state},
                          base_dir=base_dir)
-            st.rerun()
+            rerun_after_link_change()
 
     if outcome.candidates:
         st.caption("Suggested candidates — confirm the squad before choosing one.")
@@ -396,9 +422,9 @@ def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: A
             update_links(
                 event_key, event_id=snapshot.roster.event_id,
                 changed_links=(TeamLink(registration, row.team_name_raw, chosen_id, "operator", utc_now_iso()),),
-                expected_links={registration: link_decision_state(links, registration)}, base_dir=base_dir,
+                expected_links={registration: expected_state}, base_dir=base_dir,
             )
-            st.rerun()
+            rerun_after_link_change()
         previous, page_label, following = st.columns([1, 2, 1])
         page = st.session_state.get(page_key, 0)
         page_label.caption(f"Search page {page + 1}")
@@ -431,9 +457,9 @@ def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: A
             update_links(
                 event_key, event_id=snapshot.roster.event_id,
                 not_found_registration_ids=(registration,),
-                expected_links={registration: link_decision_state(links, registration)}, base_dir=base_dir,
+                expected_links={registration: expected_state}, base_dir=base_dir,
             )
-            st.rerun()
+            rerun_after_link_change()
         return
     try:
         candidate = resolve_manual_reference(
@@ -454,12 +480,12 @@ def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: A
         try:
             update_links(
                 event_key, event_id=snapshot.roster.event_id, changed_links=(link,),
-                expected_links={registration: link_decision_state(links, registration)}, base_dir=base_dir,
+                expected_links={registration: expected_state}, base_dir=base_dir,
             )
         except Exception as exc:
             st.error(f"The match was not saved: {exc}")
         else:
-            st.rerun()
+            rerun_after_link_change()
 
 
 def _review_drafts(snapshot: BacktestSnapshot) -> dict[str, dict[str, Any]]:
@@ -511,13 +537,21 @@ def _current_reviews(snapshot: BacktestSnapshot) -> tuple[DivisionReview, ...]:
 
 def _current_cohort_decisions(snapshot: BacktestSnapshot) -> tuple[CohortDecision, ...]:
     decisions = []
+    saved = {item.group_id: item for item in snapshot.cohort_decisions}
     for group_id, item in _cohort_drafts(snapshot).items():
         age = str(item.get("age_group", "")).strip().lower()
         gender = str(item.get("gender", "")).strip()
         note = str(item.get("note", "")).strip()
         source_url = str(item.get("source_url", "")).strip()
-        if age and gender and note and source_url:
+        if (
+            re.fullmatch(r"u[0-9]{1,2}(?:/u[0-9]{1,2})*", age)
+            and gender in {"Male", "Female"}
+            and note
+            and source_url
+        ):
             decisions.append(CohortDecision(group_id, age, gender, note, source_url))
+        elif group_id in saved:
+            decisions.append(saved[group_id])
     return tuple(decisions)
 
 
@@ -695,6 +729,21 @@ def _render_results(results: dict[str, Any]) -> None:
             ]), hide_index=True, width="stretch")
 
 
+def _preserve_review_state_after_capture(
+    current: BacktestSnapshot,
+    previous: BacktestSnapshot,
+    refreshed_roster: Any,
+    verification: CaptureVerification,
+) -> BacktestSnapshot:
+    """Carry saved operator work into a targeted recovery's new generation."""
+    return replace(
+        current,
+        reviews=reviews_for_capture(refreshed_roster, previous.reviews),
+        cohort_decisions=previous.cohort_decisions,
+        verification=verification,
+    )
+
+
 def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, base_dir) -> None:
     from src.tournaments.gotsport_event_roster import (
         EVENT_BASE,
@@ -760,6 +809,11 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
         )
         if targets and st.button(f"Capture {len(targets)} missing or unreadable divisions", disabled=not api_key):
             progress = st.progress(0.0, text="Preparing targeted capture...")
+            operator_state = replace(
+                snapshot,
+                reviews=_current_reviews(snapshot),
+                cohort_decisions=_current_cohort_decisions(snapshot),
+            )
 
             def phase(name: str, done: int, total: int) -> None:
                 progress.progress(done / max(total, 1), text=f"{name}: {done} of {total}")
@@ -780,7 +834,9 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
                     supabase_client, keys=_BACKTEST_KEYS,
                 )
                 current = st.session_state[_BACKTEST_KEYS.snapshot]
-                st.session_state[_BACKTEST_KEYS.snapshot] = replace(current, verification=verification)
+                st.session_state[_BACKTEST_KEYS.snapshot] = _preserve_review_state_after_capture(
+                    current, operator_state, refreshed, verification
+                )
             except Exception as exc:
                 st.error(f"Missing divisions were not captured: {exc}")
             else:
@@ -866,7 +922,7 @@ def render_intake(supabase_client: Any) -> None:
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")
         st.caption(f"{matched} of {totals['total_teams']} teams matched")
-        _render_match_editor(display_snapshot, rows, supabase_client, base_dir)
+        _render_match_editor(display_snapshot, rows, links, supabase_client, base_dir)
     elif section == "Structure":
         reviews, decisions = _render_structure(snapshot)
     else:
@@ -877,7 +933,13 @@ def render_intake(supabase_client: Any) -> None:
     if st.button("Save progress", type="primary", key=f"bt_save_{snapshot.generation}"):
         saved = replace(snapshot, reviews=reviews, cohort_decisions=decisions)
         try:
-            write_snapshot(event_key, saved, base_dir=base_dir, review_baseline=snapshot.reviews)
+            write_snapshot(
+                event_key,
+                saved,
+                base_dir=base_dir,
+                review_baseline=snapshot.reviews,
+                cohort_baseline=snapshot.cohort_decisions,
+            )
             saved = read_snapshot(event_key, base_dir=base_dir)
         except Exception as exc:
             st.error(f"The intake was not saved: {exc}")
