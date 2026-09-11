@@ -2,22 +2,12 @@
 
 from __future__ import annotations
 
-from src.tournaments.backtest_event_intake import (
-    _would_replace_a_complete_structure,
-    summarize_structure,
-)
+from src.tournaments.backtest_event_intake import summarize_structure
 from src.tournaments.gotsport_event_structure import (
     Fixture,
     Pool,
     PoolMember,
     ScrapedDivision,
-)
-from src.tournaments.storage.event_key import event_key
-from src.tournaments.storage.event_structure import (
-    EventStructure,
-    event_structure_path,
-    read_event_structure,
-    write_event_structure,
 )
 
 
@@ -85,39 +75,3 @@ def test_summarize_surfaces_unclassified_games():
 
     assert row["unclassified_games"] == 1
     assert row["readable"] is True, "an unclassified game is not the same failure as an unreadable page"
-
-
-def test_a_partial_save_never_overwrites_a_complete_structure(tmp_path):
-    """The guard `_write_event_roster_recovery` already applies to its own
-    paid artifact, mirrored here: a probe costing pennies must not silently
-    replace a walk that cost dollars."""
-    key = event_key("gotsport", "52975", None)
-    complete = EventStructure(
-        event_id="52975",
-        walked_at="2026-01-01T00:00:00+00:00",
-        is_complete=True,
-        divisions=(_division(),),
-    )
-    write_event_structure(key, complete, base_dir=tmp_path)
-    path = event_structure_path(key, base_dir=tmp_path)
-
-    assert _would_replace_a_complete_structure(path, is_complete=False) is True
-
-    # Exactly what the render function's save button does: skip the write
-    # entirely when the guard says refuse, rather than call
-    # write_event_structure and hope it declines on its own.
-    if not _would_replace_a_complete_structure(path, is_complete=False):
-        write_event_structure(
-            key,
-            EventStructure(
-                event_id="52975",
-                walked_at="2026-02-02T00:00:00+00:00",
-                is_complete=False,
-                divisions=(),
-            ),
-            base_dir=tmp_path,
-        )
-
-    survived = read_event_structure(key, base_dir=tmp_path)
-    assert survived.is_complete is True
-    assert survived.walked_at == "2026-01-01T00:00:00+00:00"

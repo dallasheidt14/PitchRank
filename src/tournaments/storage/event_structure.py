@@ -19,12 +19,13 @@ from src.tournaments.gotsport_event_structure import (
     PoolMember,
     ScrapedDivision,
 )
-from src.tournaments.storage._io import read_versioned_json, write_json
+from src.tournaments.storage._io import read_json, read_versioned_json, write_json
 from src.tournaments.storage.event_key import intake_dir
 from src.tournaments.storage.schema_version import stamp_schema_version
 
 __all__ = [
     "EventStructure",
+    "StructureOverwriteRefused",
     "division_from_dict",
     "event_structure_path",
     "read_event_structure",
@@ -32,6 +33,11 @@ __all__ = [
 ]
 
 _FILENAME = "event_structure.json"
+
+
+class StructureOverwriteRefused(RuntimeError):
+    """Raised when ``write_event_structure`` would replace an already-complete
+    structure with a partial one."""
 
 
 @dataclass(frozen=True)
@@ -120,10 +126,46 @@ def event_structure_path(event_key: str, *, base_dir: Path | str = "reports") ->
 def write_event_structure(
     event_key: str, structure: EventStructure, *, base_dir: Path | str = "reports"
 ) -> None:
-    write_json(
-        event_structure_path(event_key, base_dir=base_dir),
-        stamp_schema_version(structure.to_dict()),
-    )
+    """Persist ``structure``, refusing to replace a complete walk with a partial one.
+
+    A probe reading two divisions costs pennies; a full walk of the same event
+    can cost dollars. This is the single writer for the artifact, so the guard
+    lives here rather than in any one caller — a CLI backfill, a
+    recovery-restore flow, a second UI surface, or a test calling this
+    function directly all get it automatically, the same way
+    ``_write_event_roster_recovery`` protects its own paid artifact for every
+    caller of *that* writer. Only a partial ``structure``
+    (``is_complete=False``) landing on a path that already holds a complete
+    one is refused; a complete structure may always replace whatever came
+    before it, partial or complete.
+
+    Raises ``StructureOverwriteRefused`` rather than silently declining: a
+    writer that no-ops while its caller reports success is a worse bug than
+    the one this closes. A caller that wants a friendly message instead of a
+    traceback (the Backtest UI's save button) catches it and shows one.
+    """
+    path = event_structure_path(event_key, base_dir=base_dir)
+    if not structure.is_complete and _holds_a_complete_structure(path):
+        raise StructureOverwriteRefused(
+            f"{path} already holds a complete structure; refusing to replace it with a partial one"
+        )
+    write_json(path, stamp_schema_version(structure.to_dict()))
+
+
+def _holds_a_complete_structure(path: Path) -> bool:
+    """Does ``path`` already hold a structure walked to completion?
+
+    Read as raw JSON rather than through ``read_event_structure`` so a schema
+    mismatch cannot itself raise here — an unreadable or missing file holds
+    nothing to protect. Mirrors
+    ``tournament_intake._recovery_holds_a_complete_walk``, the same guard the
+    sibling recovery-file writer applies to its own paid artifact.
+    """
+    try:
+        existing = read_json(path)
+    except (OSError, ValueError):
+        return False
+    return isinstance(existing, dict) and existing.get("is_complete") is True
 
 
 def read_event_structure(

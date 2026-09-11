@@ -13,7 +13,6 @@ requirement of this surface, not an accident of the current implementation —
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 from src.tournaments.gotsport_event_structure import (
@@ -23,7 +22,6 @@ from src.tournaments.gotsport_event_structure import (
     KIND_UNKNOWN,
     ScrapedDivision,
 )
-from src.tournaments.storage._io import read_json
 
 __all__ = ["render_backtest_event_intake", "summarize_structure"]
 
@@ -78,29 +76,6 @@ def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, 
     return rows
 
 
-def _would_replace_a_complete_structure(path: Path, *, is_complete: bool) -> bool:
-    """Would saving here throw away an already-complete walk for a partial one?
-
-    Mirrors ``tournament_intake._recovery_holds_a_complete_walk``, the guard the
-    sibling recovery-file writer applies to the same paid artifact: a probe
-    costing pennies must never silently replace a full walk that cost dollars.
-    A save that is itself complete is never refused — a complete walk may
-    always replace whatever came before it, partial or complete. Only a
-    partial save landing on a structure already recorded complete loses.
-
-    Read as raw JSON rather than through ``read_event_structure`` so a schema
-    mismatch cannot itself raise here — an unreadable or missing file holds
-    nothing to protect, same as the sibling guard treats it.
-    """
-    if is_complete:
-        return False
-    try:
-        existing = read_json(path)
-    except (OSError, ValueError):
-        return False
-    return isinstance(existing, dict) and existing.get("is_complete") is True
-
-
 def render_backtest_event_intake(supabase_client: Any) -> None:
     """Walk a played event and show the structure it was actually run under.
 
@@ -120,7 +95,7 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     from src.tournaments.storage.event_key import event_key
     from src.tournaments.storage.event_structure import (
         EventStructure,
-        event_structure_path,
+        StructureOverwriteRefused,
         write_event_structure,
     )
     from tournament_intake import (
@@ -176,22 +151,26 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     if not event_id or not divisions:
         return
     if st.button("Save this event's structure", key="_backtest_save_structure"):
-        is_complete = bool(probe.get("complete"))
         structure_key = event_key("gotsport", event_id, None)
-        if _would_replace_a_complete_structure(event_structure_path(structure_key), is_complete=is_complete):
+        try:
+            write_event_structure(
+                structure_key,
+                EventStructure(
+                    event_id=event_id,
+                    walked_at=utc_now_iso(),
+                    is_complete=bool(probe.get("complete")),
+                    divisions=tuple(divisions),
+                ),
+            )
+        except StructureOverwriteRefused:
+            # write_event_structure itself refuses this — the guard is a
+            # property of the writer, not of this one caller's good manners.
+            # This is the friendly path: a plain message instead of a
+            # traceback, and the complete structure on disk is left alone.
             st.error(
                 "A complete walk of this event is already saved. This walk is only "
                 "partial and would replace it with less — scrape the whole event "
                 "before saving, or the complete structure already on disk is lost."
             )
         else:
-            write_event_structure(
-                structure_key,
-                EventStructure(
-                    event_id=event_id,
-                    walked_at=utc_now_iso(),
-                    is_complete=is_complete,
-                    divisions=tuple(divisions),
-                ),
-            )
             st.success("Saved.")

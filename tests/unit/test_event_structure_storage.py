@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -14,6 +15,7 @@ from src.tournaments.gotsport_event_structure import (
 )
 from src.tournaments.storage.event_structure import (
     EventStructure,
+    StructureOverwriteRefused,
     event_structure_path,
     read_event_structure,
     write_event_structure,
@@ -145,3 +147,16 @@ def test_a_future_schema_is_refused_rather_than_half_read(tmp_path):
 def test_reading_an_absent_structure_raises_file_not_found(tmp_path):
     with pytest.raises(FileNotFoundError):
         read_event_structure("gotsport__51783__2026", base_dir=tmp_path)
+
+
+def test_a_partial_write_refuses_to_replace_a_complete_structure(tmp_path):
+    """The writer's own guard, not one caller's good manners: a probe reading
+    two divisions costs pennies, and must never silently replace a full walk
+    that cost dollars — no matter who calls write_event_structure next."""
+    write_event_structure("gotsport__51783__2026", _structure(), base_dir=tmp_path)
+
+    partial = replace(_structure(), is_complete=False, walked_at="2026-09-11T00:00:00+00:00")
+    with pytest.raises(StructureOverwriteRefused):
+        write_event_structure("gotsport__51783__2026", partial, base_dir=tmp_path)
+
+    assert read_event_structure("gotsport__51783__2026", base_dir=tmp_path) == _structure()
