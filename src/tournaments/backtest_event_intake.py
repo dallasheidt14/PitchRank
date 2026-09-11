@@ -6,8 +6,16 @@ decides what the operator sees is pure and lives in ``summarize_structure``; the
 render function only draws it.
 
 Reads the PitchRank database to match teams and writes nothing to it. That is a
-requirement of this surface, not an accident of the current implementation —
-``tests/unit/test_backtest_event_intake.py`` fails if a write appears.
+requirement of this surface, not an accident of the current implementation.
+``tests/unit/test_backtest_event_intake.py`` statically scans every
+``src/tournaments`` module this file reaches (a hand list, kept honest by a
+test that re-derives it) for a database-writing import or call, and fails if
+one appears. It does not reach past ``tournament_intake.py``: this function
+calls ``_render_seeding_event_scrape`` and friends from there, and that file
+is a multi-feature hub with genuinely-writing code for tabs this one never
+renders, so the scan cannot cross into it without flagging those too. That
+leg is instead verified by hand (Task 9 report, 2026-09-10) by tracing every
+function the Backtest render path actually calls.
 """
 
 from __future__ import annotations

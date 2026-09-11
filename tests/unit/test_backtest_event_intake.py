@@ -95,28 +95,34 @@ def test_summarize_surfaces_unclassified_games():
 _WRITE_METHODS = ("insert", "upsert", "update", "delete", "rpc")
 _FORBIDDEN_IMPORTS = ("alias_writer", "seeding_enqueue")
 
-# Two groups, not one hand-picked list. The first six entries below are every
-# module reachable from ``backtest_event_intake.py``'s own import statements
-# while staying inside ``src/tournaments`` — ``test_read_only_modules_covers_
-# every_module_backtest_intake_itself_imports`` below re-derives that set and
-# fails if this tuple ever falls behind it.
-#
-# ``gotsport_event_roster.py``, ``event_roster_intake.py`` and
-# ``roster_resolver.py`` are reached a different way: ``render_backtest_event_
-# intake`` imports ``_render_seeding_event_scrape``, ``_render_seeding_override``,
-# ``_render_seeding_progress_metrics`` and ``_render_seeding_warnings`` from
-# ``tournament_intake.py``, and those functions (and what they call —
-# ``_run_event_roster_scrape`` / ``_park_event_roster`` / ``_run_seeding_name_
-# lookup`` / ``_render_seeding_override``) are what actually reach these three.
-# ``tournament_intake.py`` is a multi-feature Streamlit hub outside
+# Two roots, not a flat hand-picked list. ``backtest_event_intake.py`` is the
+# module itself. ``event_roster_intake.py`` is reached a different way:
+# ``render_backtest_event_intake`` imports ``_render_seeding_event_scrape``,
+# ``_render_seeding_override``, ``_render_seeding_progress_metrics`` and
+# ``_render_seeding_warnings`` from ``tournament_intake.py``, and those
+# functions (and what they call — ``_run_event_roster_scrape`` /
+# ``_park_event_roster`` / ``_run_seeding_name_lookup``) are what actually
+# reach it. ``tournament_intake.py`` is a multi-feature Streamlit hub outside
 # ``src/tournaments`` that also imports genuinely-writing modules
-# (``seeding_enqueue``, for the Seeding tab's own enqueue button) for tabs this
-# flow never renders, so walking its full import list automatically would flag
-# those too and make the derived set useless. This leg was instead verified by
-# hand, tracing every function the Backtest render path actually calls (Task 9
-# report, 2026-09-10) — confirmed none of the three imports a writer or calls a
-# write method, and none of them is reached from anywhere except that traced
-# path.
+# (``seeding_enqueue``, for the Seeding tab's own enqueue button) for tabs
+# this flow never renders, so walking its full import list automatically
+# would flag those too and make the derived set useless. That one hop is
+# instead verified by hand, tracing every function the Backtest render path
+# actually calls (Task 9 report, 2026-09-10) — confirmed ``event_roster_
+# intake.py`` is genuinely reached from there.
+#
+# Everything else below that root is mechanically derived: every module
+# reachable from either root's own import statements (module-level or nested
+# in a function body), while staying inside ``src/tournaments``.
+# ``test_read_only_modules_matches_the_import_closure_of_its_two_roots``
+# below re-derives that closure from both roots and fails in either
+# direction if this tuple drifts from it — including for a deleted root
+# itself, since ``_ROOTS`` is independent of this tuple.
+_ROOTS = (
+    "src/tournaments/backtest_event_intake.py",
+    "src/tournaments/event_roster_intake.py",
+)
+
 _READ_ONLY_MODULES = (
     "src/tournaments/backtest_event_intake.py",
     "src/tournaments/gotsport_event_structure.py",
@@ -127,6 +133,8 @@ _READ_ONLY_MODULES = (
     "src/tournaments/gotsport_event_roster.py",
     "src/tournaments/event_roster_intake.py",
     "src/tournaments/roster_resolver.py",
+    "src/tournaments/roster_paste.py",
+    "src/tournaments/seeding_optimizer.py",
 )
 
 
@@ -214,9 +222,28 @@ def test_the_double_itself_fails_on_a_write():
     assert client.table("teams").select("*").execute().data == []
 
 
-def test_matching_a_walked_roster_executes_no_write():
+def test_matching_a_walked_roster_executes_no_write(monkeypatch):
+    """Exercise the real collaborators, so the double is actually reached.
+
+    The first version of this test used a resolver stub missing
+    ``load_merge_map`` and a ``lookup_factory`` lambda that ignored its
+    client argument entirely. ``resolve_master_ids`` raised inside its own
+    ``try`` the moment it called ``merge_resolver.load_merge_map()``, its
+    ``except Exception`` swallowed that, and ``client.executed`` stayed
+    ``[]`` — so ``all(... for op in [])`` passed vacuously. The test would
+    have passed unchanged if ``resolve_master_ids`` wrote on every call.
+
+    Giving the stub what it needs to run past that line, and leaving
+    ``lookup_factory`` at its real default (``make_provider_id_lookup``)
+    instead of a lambda that never touches the client, makes the call reach
+    ``execute()`` for real. Asserting the exact log — not just "no write is
+    in it" — makes an empty log a failure instead of a pass.
+    """
     from src.tournaments.event_roster_intake import resolve_master_ids
     from src.tournaments.gotsport_event_roster import EventRosterTeam
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.test")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "test-key")
 
     client = _RefusesWrites()
     teams = (
@@ -232,15 +259,24 @@ def test_matching_a_walked_roster_executes_no_write():
         ),
     )
 
+    class _StubResolver:
+        version = "ok"
+
+        def load_merge_map(self):
+            return None
+
     resolve_master_ids(
         teams,
         enabled=True,
         client_factory=lambda *_: client,
-        resolver_factory=lambda _client: type("R", (), {"resolve": staticmethod(lambda x: x)})(),
-        lookup_factory=lambda _client, _resolver: (lambda ids: {}),
+        resolver_factory=lambda _client: _StubResolver(),
     )
 
-    assert all(not op.startswith("rpc:") and op not in _WRITE_METHODS for op in client.executed)
+    # One provider id, and the real make_provider_id_lookup always starts
+    # with a `providers` table select before it can look up anything else —
+    # it never finds a row against this double, so that is the only call.
+    # An empty log here would mean the call never reached the double at all.
+    assert client.executed == ["select"]
 
 
 def _module_path_for(dotted: str) -> Path | None:
@@ -294,23 +330,43 @@ def _tournaments_import_closure(entry: Path) -> set[Path]:
     return seen
 
 
-def test_read_only_modules_covers_every_module_backtest_intake_itself_imports():
-    """A hand-copied list cannot fail for a file it omits.
+def test_read_only_modules_matches_the_import_closure_of_its_two_roots():
+    """A hand-copied list cannot fail for a file it omits — or notice one it
+    no longer needs.
 
-    This re-derives the part of ``_READ_ONLY_MODULES`` that is mechanically
-    safe to derive — every ``src/tournaments`` module reachable from
-    ``backtest_event_intake.py``'s own imports — and fails the moment that file
-    gains an import (at any nesting depth) that the tuple above does not know
-    about. It does not, and cannot safely, chase the three modules reached only
-    through ``tournament_intake.py``; those stay a hand-verified addition (see
-    the comment above ``_READ_ONLY_MODULES``).
+    Seeds the closure from both entries in ``_ROOTS`` rather than one:
+    seeding from ``backtest_event_intake.py`` alone never walks into anything
+    ``event_roster_intake.py`` imports, which is how ``roster_paste.py`` and
+    ``seeding_optimizer.py`` went unscanned even after the first version of
+    this test shipped (found by review, not by this test — that gap is the
+    reason it now seeds from both roots).
+
+    Checks both directions. "Missing" catches a module either root's own
+    imports reach that the tuple doesn't list — including a *root* quietly
+    dropped from ``_READ_ONLY_MODULES``, since ``_ROOTS`` is a separate
+    constant the closure always re-seeds from regardless of what the tuple
+    says. "Stale" catches the opposite: a listed module that neither root's
+    closure reaches any more — a single "missing" check alone could never
+    catch this for ``roster_resolver.py`` or ``gotsport_event_roster.py``,
+    since a hand-edit could leave a stale name in the tuple and nothing
+    would notice it had drifted loose from the real graph.
     """
-    entry = PROJECT_ROOT / "src/tournaments/backtest_event_intake.py"
-    closure = _tournaments_import_closure(entry)
+    reachable: set[Path] = set()
+    for relative in _ROOTS:
+        reachable |= _tournaments_import_closure(PROJECT_ROOT / relative)
+    reachable_relative = {str(path.relative_to(PROJECT_ROOT)).replace("\\", "/") for path in reachable}
 
     known = set(_READ_ONLY_MODULES)
-    missing = {str(path.relative_to(PROJECT_ROOT)).replace("\\", "/") for path in closure} - known
+
+    missing = reachable_relative - known
     assert not missing, (
-        f"backtest_event_intake.py now reaches {sorted(missing)}, which is not in "
-        "_READ_ONLY_MODULES — add it, then verify by hand whether it can write."
+        f"{_ROOTS} now reach {sorted(missing)}, which is not in _READ_ONLY_MODULES — "
+        "add it, then verify by hand whether it can write."
+    )
+
+    stale = known - reachable_relative
+    assert not stale, (
+        f"_READ_ONLY_MODULES lists {sorted(stale)}, which neither root in _ROOTS "
+        "reaches any more — confirm it is still genuinely on this path (or belongs "
+        "in _ROOTS itself), then fix the tuple."
     )
