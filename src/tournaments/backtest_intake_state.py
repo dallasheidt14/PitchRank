@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -44,6 +45,27 @@ class DivisionReview:
     notes: str = ""
     source_url: str = ""
     checked: bool = False
+
+
+@dataclass(frozen=True)
+class CohortDecision:
+    """A sourced operator interpretation of one published division cohort."""
+
+    group_id: str
+    age_group: str
+    gender: str
+    note: str
+    source_url: str
+
+
+@dataclass(frozen=True)
+class CaptureVerification:
+    """The most recent landing-only check of a saved capture's division list."""
+
+    group_ids: tuple[str, ...]
+    observed_counts: tuple[int, ...]
+    verified_at: str
+    stable: bool
 
 
 def structure_hash(division: Any) -> str:
@@ -110,6 +132,8 @@ class BacktestSnapshot:
     captured_at: str
     limit_groups: int | None = None
     reviews: tuple[DivisionReview, ...] = ()
+    cohort_decisions: tuple[CohortDecision, ...] = ()
+    verification: CaptureVerification | None = None
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -118,6 +142,29 @@ class BacktestSnapshot:
             raise ValueError("Every captured entrant must have exactly one matching outcome")
         if not self.generation or not self.captured_at:
             raise ValueError("An intake needs its capture identity and timestamp")
+        group_ids = {division.group_id for division in self.roster.divisions}
+        decided = set()
+        for decision in self.cohort_decisions:
+            if decision.group_id in decided or decision.group_id not in group_ids:
+                raise ValueError("Cohort decisions must identify one captured division")
+            decided.add(decision.group_id)
+            if not re.fullmatch(r"u[0-9]{1,2}(?:/u[0-9]{1,2})*", decision.age_group):
+                raise ValueError("Cohort decisions need a lowercase U-age or combined U-age")
+            if decision.gender not in {"Male", "Female"}:
+                raise ValueError("Cohort decisions need a gender")
+            if not decision.note.strip() or not decision.source_url.strip():
+                raise ValueError("Cohort decisions need a note and source URL")
+        if self.verification is not None:
+            verification = self.verification
+            if (
+                type(verification.stable) is not bool
+                or not isinstance(verification.verified_at, str)
+                or not verification.verified_at.strip()
+                or len(set(verification.group_ids)) != len(verification.group_ids)
+                or any(not isinstance(group, str) or not group.strip() for group in verification.group_ids)
+                or any(type(count) is not int or count < 0 for count in verification.observed_counts)
+            ):
+                raise ValueError("Invalid capture verification metadata")
 
     @property
     def parsed(self):
@@ -140,6 +187,8 @@ class BacktestSnapshot:
             "roster": event_roster_to_dict(self.roster),
             "resolved": [asdict(item) for item in self.resolved],
             "division_reviews": [asdict(review) for review in self.reviews],
+            "cohort_decisions": [asdict(decision) for decision in self.cohort_decisions],
+            "capture_verification": asdict(self.verification) if self.verification else None,
         })
 
     @classmethod
@@ -157,7 +206,44 @@ class BacktestSnapshot:
             captured_at=payload["captured_at"],
             limit_groups=limit,
             reviews=tuple(DivisionReview(**item) for item in payload.get("division_reviews", ())),
+            cohort_decisions=tuple(CohortDecision(**item) for item in payload.get("cohort_decisions", ())),
+            verification=(
+                CaptureVerification(
+                    group_ids=tuple(payload["capture_verification"].get("group_ids", ())),
+                    observed_counts=tuple(payload["capture_verification"].get("observed_counts", ())),
+                    verified_at=payload["capture_verification"]["verified_at"],
+                    stable=payload["capture_verification"]["stable"],
+                )
+                if payload.get("capture_verification") else None
+            ),
         )
+
+
+def effective_roster(snapshot: BacktestSnapshot) -> EventRoster:
+    """Apply review-time cohort interpretations without changing source evidence."""
+    decisions = {decision.group_id: decision for decision in snapshot.cohort_decisions}
+    if not decisions:
+        return snapshot.roster
+    divisions = tuple(
+        replace(
+            division,
+            age_group=decisions[division.group_id].age_group,
+            published_age_group=decisions[division.group_id].age_group,
+            gender=decisions[division.group_id].gender,
+        )
+        if division.group_id in decisions else division
+        for division in snapshot.roster.divisions
+    )
+    teams = tuple(
+        replace(
+            team,
+            published_age_group=decisions[team.group_id].age_group,
+            gender=decisions[team.group_id].gender,
+        )
+        if team.group_id in decisions else team
+        for team in snapshot.roster.teams
+    )
+    return replace(snapshot.roster, divisions=divisions, teams=teams)
 
 
 def snapshot_path(event_key: str, *, base_dir: Path | str = "reports") -> Path:

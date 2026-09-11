@@ -27,6 +27,10 @@ from src.tournaments.gotsport_event_roster import (
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
+    _effective_published_u_age,
+    _published_cohort_conflict,
+    _published_u_age,
+    capture_event_divisions,
     event_id_from,
     event_roster_from_dict,
     event_roster_to_dict,
@@ -42,6 +46,7 @@ from src.tournaments.gotsport_event_roster import (
     resolve_cohort,
     scrape_event_roster,
     team_table_found,
+    verify_event_divisions,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gotsport"
@@ -2402,6 +2407,73 @@ def test_completed_same_named_idless_standings_rows_keep_distinct_pool_identitie
 def test_seeding_does_not_gain_completed_event_fixture_only_entries():
     roster = scrape_event_roster("52975", fetch=_fetch_for(_fixture_only_pages(["Away FC"])))
     assert [team.team_name for team in roster.teams] == ["Home FC"]
+
+
+@pytest.mark.parametrize(
+    ("label", "expected"),
+    [
+        ("Male U13 - 5 Team 11v11 U13B Gold", "u13"),
+        ("Female U9 - 7 Team 7v7 U9G Silver", "u9"),
+        ("Female U11 - 5 Team 9v9 U10/U11G", "u10/u11"),
+        ("Male U18 - Silver U17-U18", "u17/u18"),
+    ],
+)
+def test_published_cohort_ignores_field_size_and_preserves_combined_brackets(label, expected):
+    assert _published_u_age(label) == expected
+
+
+def test_published_cohort_distinguishes_combined_brackets_from_source_disagreement():
+    assert not _published_cohort_conflict("Female U11 - 5 Team 9v9 U10/U11G")
+    assert not _published_cohort_conflict("Male U18 - Silver U17-U18")
+    assert _published_cohort_conflict("Male U13 - 11v11 U12B Gold")
+    assert _effective_published_u_age("Male U13 - 11v11 U12B Gold") == "u12"
+
+
+def test_division_verification_settles_only_after_the_full_union_repeats():
+    answers = iter((["1"], ["1", "2", "3"], ["1", "2", "3"]))
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return _landing_html(list(next(answers)))
+
+    groups, counts, stable = verify_event_divisions("52975", fetch=fetch, max_reads=4)
+
+    assert groups == ("1", "2", "3")
+    assert counts == (1, 3, 3)
+    assert stable is True
+    assert calls == [f"{EVENT_BASE}/52975"] * 3
+
+
+def test_division_verification_never_shrinks_an_existing_capture():
+    answers = iter((["1"], ["1"], ["1"], ["1"]))
+    groups, counts, stable = verify_event_divisions(
+        "52975", fetch=lambda _url: _landing_html(list(next(answers))),
+        existing_group_ids=("1", "2"), max_reads=4,
+    )
+    assert groups == ("1", "2")
+    assert counts == (1, 1, 1, 1)
+    assert stable is False
+
+
+def test_targeted_capture_reuses_known_team_pages_and_preserves_other_divisions():
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages()), completed_event=True)
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if "group=1" in url:
+            return _completed_pages()["schedules?group=1"]
+        raise AssertionError(f"unexpected paid request: {url}")
+
+    refreshed = capture_event_divisions(
+        roster, ("1",), fetch=fetch, all_group_ids=("1",), divisions_stable=True, max_workers=4
+    )
+
+    assert refreshed.event_id == roster.event_id
+    assert refreshed.teams == roster.teams
+    assert refreshed.divisions == roster.divisions
+    assert not any("team=" in url for url in calls)
 
 
 @pytest.mark.parametrize(
