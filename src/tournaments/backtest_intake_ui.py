@@ -13,6 +13,7 @@ from src.tournaments.backtest_intake_state import (
     DivisionReview,
     entrant_key,
     read_snapshot,
+    reviews_for_capture,
     structure_hash,
     tournament_totals,
     write_snapshot,
@@ -156,7 +157,34 @@ def _load_saved(base_dir) -> None:
                 return
             # This is the only object the Backtest results and save path read.
             st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
+            # Fresh widget identities discard a stale session's rejected edits.
+            epoch_key = f"bt_review_epoch_{snapshot.generation}"
+            st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
             st.rerun()
+
+
+def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSnapshot:
+    """Load prior operator work once per new capture, before rendering editors."""
+    from tournament_intake import _BACKTEST_KEYS
+
+    loaded_key = f"bt_reviews_loaded_{snapshot.generation}"
+    if st.session_state.get(loaded_key):
+        return snapshot
+    if not snapshot.reviews:
+        key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
+        try:
+            saved = read_snapshot(key, base_dir=base_dir)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            st.warning(f"Saved division reviews could not be loaded: {exc}")
+        else:
+            snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, saved.reviews))
+            st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
+    # Even absence is a baseline. Reading again on every rerender could turn
+    # another session's new notes into the baseline for our already-open form.
+    st.session_state[loaded_key] = True
+    return snapshot
 
 
 def _render_match_editor(snapshot: BacktestSnapshot, rows: list[dict], client: Any, base_dir) -> None:
@@ -237,15 +265,18 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[DivisionReview, ...]:
 
     st.markdown("#### Tournament structure")
     st.dataframe(pd.DataFrame(summarize_structure(snapshot.roster.divisions)), hide_index=True, width="stretch")
-    previous = {review.group_id: review for review in snapshot.reviews}
+    previous = {review.group_id: review for review in reviews_for_capture(snapshot.roster, snapshot.reviews)}
     reviews = []
     for division in snapshot.roster.divisions:
         label = division.division_label or f"Division {division.group_id}"
         digest = structure_hash(division)
         saved = previous.get(division.group_id)
-        if saved is None or saved.structure_hash != digest:
+        if saved is None:
             saved = DivisionReview(division.group_id, digest)
         widget = f"bt_division_{snapshot.generation}_{division.group_id}"
+        epoch = st.session_state.get(f"bt_review_epoch_{snapshot.generation}", 0)
+        if epoch:
+            widget += f"_{epoch}"
         with st.expander(label, expanded=False):
             if division.source_url:
                 st.link_button("Open published division", division.source_url)
@@ -282,6 +313,9 @@ def render_intake(supabase_client: Any) -> None:
     snapshot = st.session_state.get(_BACKTEST_KEYS.snapshot)
     if snapshot is None:
         return
+    snapshot = _restore_review_baseline(snapshot, base_dir)
+    if st.session_state.pop(f"bt_saved_{snapshot.generation}", False):
+        st.success("Saved the tournament name, teams, structure, matching outcomes and division reviews.")
     totals = tournament_totals(snapshot.roster)
     st.markdown("### " + _as_plain_text(totals["event_name"]))
     start = getattr(snapshot.roster, "event_start_date", None)
@@ -334,12 +368,16 @@ def render_intake(supabase_client: Any) -> None:
     if st.button("Save Backtest intake", type="primary", key=f"bt_save_{snapshot.generation}"):
         saved = replace(snapshot, reviews=reviews)
         try:
-            write_snapshot(event_key, saved, base_dir=base_dir)
+            write_snapshot(event_key, saved, base_dir=base_dir, review_baseline=snapshot.reviews)
+            saved = read_snapshot(event_key, base_dir=base_dir)
         except Exception as exc:
             st.error(f"The intake was not saved: {exc}")
         else:
             st.session_state[_BACKTEST_KEYS.snapshot] = saved
-            st.success("Saved the tournament name, teams, structure, matching outcomes and division reviews.")
+            epoch_key = f"bt_review_epoch_{saved.generation}"
+            st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
+            st.session_state[f"bt_saved_{saved.generation}"] = True
+            st.rerun()
     export = {**replace(snapshot, reviews=reviews).to_dict(),
               "tournament_totals": totals, "team_matches": rows, "links": asdict(links),
               "matching_conflicts": conflicts}

@@ -32,6 +32,10 @@ class IntakeOverwriteRefused(ValueError):
     """Saving would discard a more complete capture of this event."""
 
 
+class ReviewConflict(ValueError):
+    """Another session changed the same review field since it was loaded."""
+
+
 @dataclass(frozen=True)
 class DivisionReview:
     group_id: str
@@ -165,18 +169,227 @@ def read_snapshot(event_key: str, *, base_dir: Path | str = "reports") -> Backte
     return snapshot
 
 
+def reviews_for_capture(roster: EventRoster, reviews: tuple[DivisionReview, ...]) -> tuple[DivisionReview, ...]:
+    """Retain operator notes across a new capture, invalidating changed checks."""
+    divisions = {division.group_id: division for division in roster.divisions}
+    aligned = []
+    seen = set()
+    for review in reviews:
+        if review.group_id in seen:
+            raise ValueError(f"Duplicate review for division {review.group_id}")
+        seen.add(review.group_id)
+        if review.group_id not in divisions:
+            continue
+        digest = structure_hash(divisions[review.group_id])
+        aligned.append(review if review.structure_hash == digest else replace(
+            review, structure_hash=digest, checked=False
+        ))
+    return tuple(aligned)
+
+
+def _merge_reviews(
+    previous: BacktestSnapshot,
+    incoming: BacktestSnapshot,
+    baseline: tuple[DivisionReview, ...] | None,
+) -> tuple[DivisionReview, ...]:
+    """Merge only intentional edits; omission never deletes prior operator work."""
+    current = {review.group_id: review for review in reviews_for_capture(incoming.roster, previous.reviews)}
+    proposed = {review.group_id: review for review in reviews_for_capture(incoming.roster, incoming.reviews)}
+    before = {review.group_id: review for review in reviews_for_capture(incoming.roster, baseline or ())}
+    merged = []
+    for division in incoming.roster.divisions:
+        group = division.group_id
+        if group not in current and group not in proposed:
+            continue
+        empty = DivisionReview(group, structure_hash(division))
+        latest = current.get(group, empty)
+        desired = proposed.get(group)
+        if desired is None:
+            merged.append(latest)
+            continue
+        if baseline is None:
+            # A caller without the version it edited cannot distinguish an
+            # intentional clear from a fresh or stale capture's empty defaults.
+            if group not in current or desired == latest:
+                merged.append(desired)
+            elif desired == empty:
+                merged.append(latest)
+            else:
+                raise ReviewConflict(f"Division {group}: load saved reviews before changing them")
+            continue
+        original = before.get(group, empty)
+        values = {}
+        for field in ("notes", "source_url", "checked"):
+            wanted = getattr(desired, field)
+            prior = getattr(original, field)
+            saved = getattr(latest, field)
+            if wanted == prior:
+                values[field] = saved
+            elif saved == prior or saved == wanted:
+                values[field] = wanted
+            else:
+                raise ReviewConflict(
+                    f"Division {group}: {field.replace('_', ' ')} changed in another session. "
+                    "Open the saved intake before applying this edit."
+                )
+        merged.append(DivisionReview(group, empty.structure_hash, **values))
+    return tuple(merged)
+
+
+def _fixture_source_identity(fixture: Any) -> tuple[str, str, str] | None:
+    """A provider match link identifies a game; a division URL alone does not."""
+    from urllib.parse import parse_qs, urlsplit
+
+    parsed = urlsplit(fixture.source_url)
+    match_ids = parse_qs(parsed.query).get("match", ())
+    if len(match_ids) != 1 or not match_ids[0].isascii() or not match_ids[0].isdigit():
+        return None
+    return parsed.netloc.casefold(), parsed.path, match_ids[0]
+
+
+def _fixture_evidence_level(field: str, value: Any) -> int:
+    # Scores of zero are evidence. Truthiness would silently waive their loss.
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return 0
+    if field == "kind":
+        return 0 if value == "unknown" else 2
+    if field == "result_status":
+        if value in {"not_captured", "unknown"}:
+            return 0
+        return 1 if value in {"unrecognized", "unplayed"} else 2
+    if field == "result_text" and value.strip().casefold() in {"-", "vs", "vs."}:
+        return 1
+    return 2
+
+
+def _fixture_source_refined(previous: str, fresh: str) -> bool:
+    """Adding a match id to the same division URL adds source precision."""
+    from urllib.parse import parse_qs, urlsplit
+
+    old, new = urlsplit(previous), urlsplit(fresh)
+    old_query, new_query = parse_qs(old.query), parse_qs(new.query)
+    if "match" in old_query or "match" not in new_query:
+        return False
+    new_query.pop("match")
+    return (old.scheme, old.netloc, old.path, old_query) == (new.scheme, new.netloc, new.path, new_query)
+
+
+def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool) -> bool:
+    """Known evidence cannot become absent or uninterpretable.
+
+    A uniquely identified game may carry corrected nonempty source values.
+    Without that identity, existing values must agree: arbitrary row order or
+    a repeated match number cannot establish which game a correction belongs
+    to. Unknown fields can gain evidence in either case.
+    """
+    old_values, new_values = asdict(previous), asdict(fresh)
+    source_id = _fixture_source_identity(previous)
+    if source_id and source_id != _fixture_source_identity(fresh):
+        return False
+    deciding_scores = (
+        (fresh.home_shootout_score, fresh.away_shootout_score)
+        if fresh.home_shootout_score is not None or fresh.away_shootout_score is not None
+        else (fresh.home_score, fresh.away_score)
+    )
+    corrected_draw = (
+        corrections and fresh.result_status == "played" and not fresh.winner_side
+        and fresh.winner_registration_id is None and deciding_scores[0] is not None
+        and deciding_scores[0] == deciding_scores[1]
+    )
+    for field, old_value in old_values.items():
+        new_value = new_values.get(field)
+        old_level = _fixture_evidence_level(field, old_value)
+        new_level = _fixture_evidence_level(field, new_value)
+        if corrected_draw and field in {"winner_side", "winner_registration_id"}:
+            continue  # A corrected draw has no winning side to preserve.
+        if new_level < old_level:
+            return False
+        if old_level and old_value != new_value and not corrections:
+            if new_level > old_level:
+                continue
+            if field == "source_url" and _fixture_source_refined(old_value, new_value):
+                continue
+            return False
+    return True
+
+
+def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
+    """Pair rows one-to-one, independent of order and duplicate match numbers.
+
+    Provider match links or unique published numbers permit source corrections.
+    Unnumbered/duplicate rows need compatible evidence. An augmenting-path
+    match prevents either greedily rejecting enrichment or reusing one richer
+    fresh row to stand in for multiple old rows.
+    """
+    old_source = [_fixture_source_identity(fixture) for fixture in previous]
+    new_source = [_fixture_source_identity(fixture) for fixture in fresh]
+    old_source_counts, new_source_counts = Counter(old_source), Counter(new_source)
+    old_numbers = Counter(f.match_number for f in previous)
+    new_numbers = Counter(f.match_number for f in fresh)
+    candidates: list[list[int]] = []
+    for old_index, old_fixture in enumerate(previous):
+        compatible = []
+        for new_index, new_fixture in enumerate(fresh):
+            old_id, new_id = old_source[old_index], new_source[new_index]
+            same_source = bool(old_id and old_id == new_id)
+            same_number = bool(old_fixture.match_number and old_fixture.match_number == new_fixture.match_number)
+            if old_id and old_id != new_id:
+                continue
+            if old_fixture.match_number and not same_number and not same_source:
+                continue
+            corrections = (
+                (same_source and old_source_counts[old_id] == new_source_counts[new_id] == 1)
+                or (same_number and old_numbers[old_fixture.match_number] == new_numbers[new_fixture.match_number] == 1)
+            )
+            if _fixture_evidence_preserved(old_fixture, new_fixture, corrections=corrections):
+                compatible.append(new_index)
+        candidates.append(compatible)
+
+    matched_new: dict[int, int] = {}
+    matched_old: dict[int, int] = {}
+    for start in range(len(previous)):
+        queue = [start]
+        visited_old = {start}
+        reached_by: dict[int, int] = {}
+        free = None
+        for old_index in queue:
+            for new_index in candidates[old_index]:
+                if new_index in reached_by:
+                    continue
+                reached_by[new_index] = old_index
+                if new_index not in matched_new:
+                    free = new_index
+                    break
+                owner = matched_new[new_index]
+                if owner not in visited_old:
+                    visited_old.add(owner)
+                    queue.append(owner)
+            if free is not None:
+                break
+        if free is None:
+            return False
+        while free is not None:
+            owner = reached_by[free]
+            displaced = matched_old.get(owner)
+            matched_new[free] = owner
+            matched_old[owner] = free
+            free = displaced
+    return True
+
+
 def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
-    """Refuse a replacement that loses already captured event evidence."""
+    """Refuse omitted evidence; allow identified games' nonempty corrections.
+
+    This is an omission guard, not an assertion that a provider can never
+    correct a published result. Removing previously known facts requires
+    retaining/reviewing the richer capture rather than silently replacing it.
+    """
     if previous.event_id != fresh.event_id:
         raise IntakeOverwriteRefused("The saved capture belongs to another event")
     old_teams = {(team.group_id, entrant_key(team)) for team in previous.teams}
     new_teams = {(team.group_id, entrant_key(team)) for team in fresh.teams}
     old_divisions = {division.group_id: division for division in previous.divisions}
     new_divisions = {division.group_id: division for division in fresh.divisions}
-    old_fixtures = Counter((d.group_id, f.match_number or f"row:{index}")
-                           for d in previous.divisions for index, f in enumerate(d.fixtures))
-    new_fixtures = Counter((d.group_id, f.match_number or f"row:{index}")
-                           for d in fresh.divisions for index, f in enumerate(d.fixtures))
 
     def pool_members(division):
         return Counter(
@@ -190,18 +403,24 @@ def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
         or (division.fixtures_readable and not new_divisions[group].fixtures_readable)
         or len(division.pools) > len(new_divisions[group].pools)
         or bool(pool_members(division) - pool_members(new_divisions[group]))
+        or not _fixtures_preserved(division.fixtures, new_divisions[group].fixtures)
         for group, division in old_divisions.items() if group in new_divisions
     )
     if ((previous.is_complete and not fresh.is_complete) or not old_teams <= new_teams
-            or bool(old_fixtures - new_fixtures) or not old_divisions.keys() <= new_divisions.keys()
+            or not old_divisions.keys() <= new_divisions.keys()
             or downgraded):
         raise IntakeOverwriteRefused("A larger capture is saved; load it before saving this event")
 
 
 def write_snapshot(
-    event_key: str, snapshot: BacktestSnapshot, *, base_dir: Path | str = "reports", dry_run: bool = False
+    event_key: str, snapshot: BacktestSnapshot, *, base_dir: Path | str = "reports", dry_run: bool = False,
+    review_baseline: tuple[DivisionReview, ...] | None = None,
 ) -> Path:
-    """Save the entire capture atomically; a probe cannot replace a larger walk."""
+    """Save atomically and merge review edits against the caller's loaded baseline.
+
+    Without a baseline, existing nonempty reviews cannot be changed. This lets
+    fresh captures keep saved review work without treating their defaults as edits.
+    """
     if parse_event_key(event_key)[:2] != ("gotsport", snapshot.roster.event_id):
         raise ValueError("Refusing to save this capture under another event")
     path = snapshot_path(event_key, base_dir=base_dir)
@@ -212,5 +431,8 @@ def write_snapshot(
         if path.exists():
             previous = read_snapshot(event_key, base_dir=base_dir)
             assert_capture_preserved(previous.roster, snapshot.roster)
+            snapshot = replace(snapshot, reviews=_merge_reviews(previous, snapshot, review_baseline))
+        else:
+            snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, snapshot.reviews))
         write_json(path, snapshot.to_dict())
     return path

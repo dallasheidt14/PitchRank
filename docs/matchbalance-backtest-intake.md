@@ -27,6 +27,10 @@ Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/int
 
 An existing event directory is reused. Locks and atomic writes protect local updates. Recovery and saved captures reject replacements that discard captured entrants, divisions, pool members, fixtures, or table readability. Event IDs and capture generations prevent an interrupted scrape or late matching result from mixing two events.
 
+Fixture protection checks the captured content as well as row identity: populated results, participant IDs, labels, dates, and source details cannot silently become missing on a repeat walk. Unknown fields may gain evidence, and an identified game may carry corrected nonempty source values.
+
+Repeat scrapes retain division notes and rules links. Checks remain valid only for the same structure. Review saves merge the fields an operator actually edited against the saved version under the event lock; conflicting edits require reopening the saved intake. Intentional clearing and unchecking remain available.
+
 Generated Backtest capture files and locks are ignored by Git and remain in these local event folders. Application code stays in `src/tournaments/`, tests in `tests/unit/`, workflow documentation in `docs/`, and development review notes in `.turbo/reports/`.
 
 The CLI's `--completed-event` option selects the same complete-event capture and recovery path. Its existing `--force` option explicitly permits replacing the selected output. Default CLI and Seeding behavior stay unchanged.
@@ -35,4 +39,4 @@ The CLI's `--completed-event` option selects the same complete-event capture and
 
 Offline parser, storage, matching, capture, and Streamlit interaction tests cover play-ups, unranked divisions, missing IDs, unresolved matches, manual replacement/clear, historical-name review, source structure round trips, interrupted publication, concurrent link updates, and partial-capture preservation. A newly scraped production event has not been used as end-to-end acceptance evidence for this change.
 
-Validated 2026-09-11: the repository's full Python gate passed with **4,585 passed and 12 skipped** (`tests/test_enhanced_pipeline.py` excluded as in CI). Backend and changed-test Ruff checks passed. Windows validation used Git Bash on the test process's PATH and an isolated temporary directory outside the repository.
+Validated 2026-09-11: the repository's full Python gate passed with **4,649 passed and 12 skipped** (`tests/test_enhanced_pipeline.py` excluded as in CI). The fixture-preservation suite also passed all 36 cases, including two additional regressions completed after full-suite collection. Backend and changed-test Ruff checks passed. Windows validation used Git Bash on the test process's PATH and an isolated temporary directory outside the repository.

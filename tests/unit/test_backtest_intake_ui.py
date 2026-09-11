@@ -10,7 +10,7 @@ import streamlit as st
 from streamlit.runtime import Runtime
 from streamlit.testing.v1 import AppTest
 
-from src.tournaments.backtest_intake_state import read_snapshot
+from src.tournaments.backtest_intake_state import DivisionReview, read_snapshot, structure_hash, write_snapshot
 from src.tournaments.backtest_intake_ui import match_table
 from src.tournaments.backtest_link_store import EventLinks, TeamLink, load_links, update_links
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
@@ -237,6 +237,71 @@ def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intak
     review = next(item for item in loaded.reviews if item.group_id == "10")
     assert review.checked is True
     assert review.notes == "Top two advance; head-to-head first"
+
+
+def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_intake):
+    import tournament_intake as app
+
+    test, tmp_path = rendered_intake
+    snapshot = sample_snapshot()
+    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Two advance", checked=True)
+    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
+    refreshed = replace(snapshot, generation="fresh-capture")
+    test.session_state[app._BACKTEST_KEYS.snapshot] = refreshed
+
+    test.run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    assert test.text_area(key="bt_division_fresh-capture_10_notes").value == "Two advance"
+    assert test.checkbox(key="bt_division_fresh-capture_10_checked").value is True
+    test.button(key="bt_save_fresh-capture").click().run()
+    assert not test.exception, [error.message for error in test.exception]
+    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
+
+
+def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
+    test, tmp_path = rendered_intake
+    snapshot = sample_snapshot()
+    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]),
+                            "Saved in another session", checked=True)
+    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
+
+    # This form was opened before the other session saved. Its unchanged blanks
+    # must not be mistaken for a request to erase that newer work.
+    test.button(key="bt_save_capture-one").click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
+    assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
+    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
+
+    # After seeing the actual merged result, an intentional clear remains valid.
+    test.text_area(key="bt_division_capture-one_10_1_notes").set_value("")
+    test.checkbox(key="bt_division_capture-one_10_1_checked").uncheck()
+    test.button(key="bt_save_capture-one").click().run()
+    assert not test.exception, [error.message for error in test.exception]
+    saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0]
+    assert saved.notes == ""
+    assert saved.checked is False
+
+
+def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
+    test, tmp_path = rendered_intake
+    snapshot = sample_snapshot()
+    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
+    path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
+    before = path.read_bytes()
+    test.text_area(key="bt_division_capture-one_10_notes").set_value("My competing notes")
+
+    test.button(key="bt_save_capture-one").click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    assert any("changed in another session" in error.value for error in test.error)
+    assert path.read_bytes() == before
+    assert test.text_area(key="bt_division_capture-one_10_notes").value == "My competing notes"
+    test.button(key="_backtest_open_saved").click().run()
+    assert not test.exception, [error.message for error in test.exception]
+    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):
