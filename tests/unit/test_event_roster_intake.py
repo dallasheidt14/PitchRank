@@ -610,3 +610,86 @@ def test_the_free_pass_paces_its_calls_to_the_public_search():
         module.time.sleep = original
 
     assert slept == [0.25, 0.25, 0.25], "each searched row must be paced"
+
+
+def test_historical_event_provider_id_still_matches_without_a_name_search():
+    parsed, resolved = _pair(provider_team_id="521426", age_group="")
+    result = resolve_unlinked(
+        parsed, resolved, indices=(0,), historical_context=True,
+        gotsport_search=_never_called,
+        lookup_provider_id=lambda pid: "event-team" if pid == "521426" else None,
+        lookup_exact_name=_never_called,
+    )
+    assert result[0].status == "gotsport_id"
+    assert result[0].team_id_master == "event-team"
+
+
+def test_historical_name_match_is_review_even_with_one_candidate_and_stale_u_age():
+    parsed, resolved = _pair(age_group="u12")
+    searched = []
+    result = resolve_unlinked(
+        parsed, resolved, indices=(0,), historical_context=True,
+        gotsport_search=_never_called, lookup_provider_id=_never_called,
+        lookup_exact_name=lambda name, age, gender: searched.append((name, age, gender)) or ["current-candidate"],
+    )
+    assert searched == [("Team 0", "", "Male")]
+    assert result[0].status == "review"
+    assert result[0].team_id_master is None
+    assert result[0].candidates == ({"team_id_master": "current-candidate"},)
+
+
+def test_historical_missing_cohort_can_still_offer_named_candidates_for_manual_review():
+    parsed, resolved = _pair(provider_team_id="unmapped-provider-id", age_group="", gender="")
+    result = resolve_unlinked(
+        parsed, resolved, indices=(0,), historical_context=True,
+        gotsport_search=_never_called, lookup_provider_id=lambda _: None,
+        lookup_exact_name=lambda *_: ["older-team", "younger-team", "older-team"],
+    )
+    assert result[0].status == "review"
+    assert result[0].provider_team_id == "unmapped-provider-id"
+    assert result[0].candidates == ({"team_id_master": "older-team"}, {"team_id_master": "younger-team"})
+
+
+def test_historical_name_lookup_reads_all_ages_and_refuses_sql_wildcard_hits():
+    from types import SimpleNamespace
+
+    from src.tournaments.event_roster_intake import make_historical_name_lookup
+
+    executed = []
+
+    class Query:
+        def __init__(self):
+            self.filters = []
+
+        def select(self, *_):
+            return self
+
+        def ilike(self, column, value):
+            self.filters.append(("ilike", column, value))
+            return self
+
+        def eq(self, column, value):
+            self.filters.append(("eq", column, value))
+            return self
+
+        def order(self, *_):
+            return self
+
+        def range(self, first, last):
+            self.filters.append(("range", first, last))
+            return self
+
+        def execute(self):
+            executed.append(self.filters)
+            return SimpleNamespace(data=[
+                {"team_id_master": "u12-team", "team_name": "FC_One"},
+                {"team_id_master": "u13-team", "team_name": "FC_One"},
+                {"team_id_master": "wildcard-hit", "team_name": "FC One"},
+            ])
+
+    client = SimpleNamespace(table=lambda name: Query() if name == "teams" else _never_called())
+    assert make_historical_name_lookup(client)("FC_One", "u12", "Male") == ["u12-team", "u13-team"]
+    assert executed == [[
+        ("ilike", "team_name", "FC_One"), ("eq", "is_deprecated", False),
+        ("range", 0, 999), ("eq", "gender", "Male"),
+    ]]

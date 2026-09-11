@@ -27,14 +27,16 @@ empty when the label does not say plainly enough to assert one.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import random
 import re
 import time
 import unicodedata
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields, replace
+from datetime import date
 from threading import Lock
 from urllib.parse import quote_plus
 
@@ -57,6 +59,8 @@ __all__ = [
     "EventRosterTeam",
     "WafChallengeError",
     "event_id_from",
+    "event_roster_from_dict",
+    "event_roster_to_dict",
     "make_zenrows_fetcher",
     "names_cohort_outside",
     "names_no_gender",
@@ -155,6 +159,11 @@ class EventRosterTeam:
     team_name: str
     registration_id: str
     provider_team_id: str | None = None
+    published_age_group: str = ""
+    """Tournament cohort; ``age_group`` separately scopes current identity lookup."""
+    published_cohort_label: str = ""
+    source_entry_key: str = ""
+    """Local occurrence key when a published standings row carries no provider ID."""
 
 
 @dataclass(frozen=True)
@@ -169,8 +178,15 @@ class EventRoster:
     divisions_stable: bool = True
     teams_unreadable: int = 0
     divisions: tuple[ScrapedDivision, ...] = ()
-    """Per-division structure, for the divisions this walk kept. Additive: every
-    counter and ``is_complete`` ignore it."""
+    """Per-division structure. Seeding's existing completeness ignores it;
+    completed-event intake additionally requires every division to be readable."""
+
+    completed_event: bool = False
+    event_name: str = ""
+    event_start_date: str | None = None
+    event_end_date: str | None = None
+    event_season_year: int | None = None
+    event_dates_source: str = ""
 
     @property
     def is_complete(self) -> bool:
@@ -192,13 +208,95 @@ class EventRoster:
         module could not *recognize* counts, because that is the one meaning
         teams were lost rather than absent.
         """
-        return (
+        complete = (
             self.divisions_found > 0
             and self.divisions_stable
             and self.divisions_found == self.divisions_walked
             and self.divisions_unreadable == 0
             and self.teams_unreadable == 0
         )
+        if self.completed_event:
+            # A completed-event intake promises the published structure as well
+            # as its roster. A visited page with unreadable pools is not a full
+            # capture, and neither is a placeholder for an unvisited division.
+            complete = complete and self.divisions_skipped == 0 and len(self.divisions) == self.divisions_found
+            complete = complete and all(d.pools_readable and d.fixtures_readable for d in self.divisions)
+        return complete
+
+
+def event_roster_to_dict(roster: EventRoster) -> dict:
+    """Canonical JSON shape shared by recovery, intake snapshots and the CLI."""
+    return {**asdict(roster), "schema_version": 1, "is_complete": roster.is_complete}
+
+
+def event_roster_from_dict(payload: Mapping) -> EventRoster:
+    """Read current and older roster files without silently discarding fields.
+
+    Unknown metadata is ignored because the CLI and recovery envelope also hold
+    timestamps and resolved IDs. Typed roster fields are checked, and a stored
+    completeness claim must agree with the reconstructed data.
+    """
+    from src.tournaments.storage.event_structure import division_from_dict
+    from src.tournaments.storage.schema_version import assert_supported_version
+
+    if not isinstance(payload, Mapping):
+        raise TypeError("event roster must be an object")
+    assert_supported_version(payload, source="event roster")
+    for name in ("teams", "warnings", "divisions"):
+        if not isinstance(payload.get(name, []), (list, tuple)):
+            raise TypeError(f"{name} must be a list")
+    values = {field.name: payload[field.name] for field in fields(EventRoster) if field.name in payload}
+    for name in ("event_id", "event_name", "event_dates_source"):
+        if name in values and not isinstance(values[name], str):
+            raise TypeError(f"{name} must be text")
+    for name in (
+        "divisions_found", "divisions_walked", "divisions_unreadable", "divisions_skipped", "teams_unreadable"
+    ):
+        if name in values and (type(values[name]) is not int or values[name] < 0):
+            raise ValueError(f"{name} must be a nonnegative integer")
+    for name in ("completed_event", "divisions_stable"):
+        if name in values and type(values[name]) is not bool:
+            raise TypeError(f"{name} must be a boolean")
+    for name in ("event_start_date", "event_end_date"):
+        if values.get(name) is not None:
+            date.fromisoformat(values[name])
+    if values.get("event_season_year") is not None and type(values["event_season_year"]) is not int:
+        raise TypeError("event_season_year must be an integer or null")
+    if any(not isinstance(warning, str) for warning in payload.get("warnings", ())):
+        raise TypeError("warnings must contain text")
+    team_fields = {field.name for field in fields(EventRosterTeam)}
+    teams = []
+    for item in payload.get("teams", ()):
+        if not isinstance(item, Mapping):
+            raise TypeError("team must be an object")
+        team = EventRosterTeam(**{name: value for name, value in item.items() if name in team_fields})
+        if type(team.source_index) is not int or team.source_index < 0:
+            raise ValueError("source_index must be a nonnegative integer")
+        for field in fields(EventRosterTeam):
+            value = getattr(team, field.name)
+            if field.name == "source_index" or (field.name == "provider_team_id" and value is None):
+                continue
+            if not isinstance(value, str):
+                raise TypeError(f"team {field.name} must be text")
+        teams.append(replace(
+            team,
+            age_group=team.age_group if team.age_group in AGE_GROUPS else "",
+            gender=team.gender if team.gender in ("Male", "Female") else "",
+        ))
+    if len({team.source_index for team in teams}) != len(teams):
+        raise ValueError("duplicate roster source_index")
+    values = {
+        **values,
+        "teams": tuple(teams),
+        "warnings": tuple(payload.get("warnings", ())),
+        "divisions": tuple(division_from_dict(item) for item in payload.get("divisions", ())),
+    }
+    roster = EventRoster(**values)
+    if "is_complete" in payload and (
+        type(payload["is_complete"]) is not bool or payload["is_complete"] != roster.is_complete
+    ):
+        raise ValueError("is_complete disagrees with the saved roster")
+    return roster
 
 
 def resolve_cohort(label: str) -> tuple[str, str]:
@@ -761,6 +859,224 @@ def redact_secret(value: object, secret: str) -> str:
     return text
 
 
+_MONTHS = {name: index for index, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1
+)}
+_NAMED_DATE = re.compile(r"\b([A-Za-z]+)\.?\s+([0-9]{1,2})(?:st|nd|rd|th)?[,]?\s+([0-9]{4})\b", re.IGNORECASE)
+_EVENT_DATE_RANGE = re.compile(
+    r"^(?:(?:when|dates|event dates)\s*:\s*)?"
+    r"([A-Za-z]+)\.?\s+([0-9]{1,2})(?:st|nd|rd|th)?\s*[-–]\s*"
+    r"(?:([A-Za-z]+)\.?\s+)?([0-9]{1,2})(?:st|nd|rd|th)?[,]?\s+([0-9]{4})[.]?$",
+    re.IGNORECASE,
+)
+
+
+def _iso_named_date(text: str) -> str | None:
+    match = _NAMED_DATE.search(text)
+    if not match:
+        iso = re.search(r"\b[0-9]{4}-[0-9]{2}-[0-9]{2}\b", text)
+        american = re.search(r"\b([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})\b", text)
+        try:
+            if iso:
+                return date.fromisoformat(iso[0]).isoformat()
+            if american:
+                return date(int(american[3]), int(american[1]), int(american[2])).isoformat()
+        except ValueError:
+            pass
+        return None
+    month = _MONTHS.get(match[1][:3].lower())
+    try:
+        return date(int(match[3]), month, int(match[2])).isoformat() if month else None
+    except ValueError:
+        return None
+
+
+def _soccer_season(day: date) -> int:
+    return day.year if day.month >= 8 else day.year - 1
+
+
+def _completed_event_metadata(pages: list[str], divisions: list, fully_visited: bool, warnings: list[str]) -> dict:
+    """Read event metadata from fetched pages; a partial schedule is not its date range."""
+    names: set[str] = set()
+    announced_dates: set[tuple[str, str]] = set()
+    for page in pages:
+        soup = BeautifulSoup(page, "html.parser")
+        for heading in soup.select(".navbar-brand"):
+            name = printable_text(heading.get_text(" ", strip=True))
+            if name and name.casefold() != "gotsport":
+                names.add(name)
+        for paragraph in soup.select("p"):
+            match = _EVENT_DATE_RANGE.fullmatch(" ".join(paragraph.get_text(" ").split()))
+            if not match:
+                continue
+            start_month = _MONTHS.get(match[1][:3].lower())
+            end_month = _MONTHS.get((match[3] or match[1])[:3].lower())
+            if not start_month or not end_month:
+                continue
+            try:
+                start = date(int(match[5]), start_month, int(match[2]))
+                end = date(int(match[5]), end_month, int(match[4]))
+            except ValueError:
+                continue
+            if start <= end:
+                announced_dates.add((start.isoformat(), end.isoformat()))
+    start_date = end_date = None
+    source = ""
+    if len(announced_dates) == 1:
+        start_date, end_date = next(iter(announced_dates))
+        source = "published_event_page"
+    elif len(announced_dates) > 1:
+        warnings.append("Published event date ranges disagree; event dates and season were left unset")
+    elif fully_visited and divisions and all(division.structure.fixtures_readable for division in divisions):
+        fixtures = [fixture for division in divisions for fixture in division.structure.fixtures]
+        dates = [_iso_named_date(getattr(fixture, "date_label", "") or fixture.kickoff) for fixture in fixtures]
+        if dates and all(dates):
+            start_date, end_date = min(dates), max(dates)
+            source = "complete_schedule"
+    season = None
+    if start_date and end_date:
+        seasons = {_soccer_season(date.fromisoformat(day)) for day in (start_date, end_date)}
+        if len(seasons) == 1:
+            season = seasons.pop()
+    return {
+        "event_name": next(iter(names)) if len(names) == 1 else "",
+        "event_start_date": start_date,
+        "event_end_date": end_date,
+        "event_season_year": season,
+        "event_dates_source": source,
+    }
+
+
+def _published_u_age(label: str) -> str:
+    """Literal published U-age, including ages outside our ranking boards."""
+    ages = set()
+    for match in _AGE_RUN.finditer(_ascii_dashes(label)):
+        if match.group("tail_u") or "u" in match.group("body").lower():
+            ages = ages | {int(number) for number in _RUN_NUMBER.findall(match.group("body"))}
+    return f"u{next(iter(ages))}" if len(ages) == 1 and 0 < next(iter(ages)) < 100 else ""
+
+
+def _published_age(division, season: int | None) -> str:
+    if division.published_age_group:
+        return division.published_age_group
+    # A mixed U-age is not an invitation to derive one from an incidental year.
+    matches = list(_AGE_RUN.finditer(_ascii_dashes(division.label)))
+    if any(match.group("tail_u") or "u" in match.group("body").lower() for match in matches):
+        return ""
+    if season is None:
+        return ""
+    years = set()
+    for match in matches:
+        numbers = [int(number) for number in _RUN_NUMBER.findall(match.group("body"))]
+        if len(numbers) != 1:
+            return ""
+        number = numbers[0]
+        if number >= _EARLIEST_BIRTH_YEAR:
+            years.add(number)
+        elif match.group("lead") or match.group("tail"):
+            years.add(_COMPACT_YEAR_CENTURY + number)
+    if len(years) != 1:
+        return ""
+    age = season - years.pop() + 1
+    return f"u{age}" if 0 < age < 100 else ""
+
+
+def _historical_lookup_age(label: str, event_season: int | None) -> str:
+    """Do not reuse an earlier season's U-age against the current registry.
+
+    Birth-year labels retain their existing current-board conversion. Literal
+    U-ages are only usable when the event demonstrably belongs to this season;
+    the 2026 eligibility change makes shifting an earlier U-age a guess.
+    Name matches are still operator review in completed-event mode.
+    """
+    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
+    if _cohorts_of(runs, "u_age") and event_season != _soccer_season(date.today()):
+        return ""
+    return resolve_cohort(label)[0]
+
+
+def _with_historical_cohort(division, event_season: int | None):
+    published_age = _published_age(division, event_season)
+    return replace(
+        division,
+        age_group=_historical_lookup_age(division.label, event_season),
+        published_age_group=published_age,
+        structure=replace(
+            division.structure,
+            age_group=published_age,
+            published_age_group=published_age,
+            published_cohort_label=division.published_cohort_label,
+        ),
+    )
+
+
+_ADVANCEMENT_SLOT = re.compile(
+    r"^(?:tbd|tba|bye|to be determined|winner|loser|"
+    r"(?:winner|loser)(?:\s+of)?\s+(?:[a-z]|\#?[0-9]+|"
+    r"(?:match|game|semi[ -]?finals?|quarter[ -]?finals?|sf|qf|pool|group|bracket)\s*.*)|"
+    r"(?:[1-9][0-9]?(?:st|nd|rd|th)?|first|second|third|fourth)\s*(?:place\s*)?"
+    r"(?:(?:in|of)\s*)?(?:(?:pool|group|bracket)\s*)?[a-z]|[a-z][1-9])$",
+    re.IGNORECASE,
+)
+
+
+def _source_only_participants(division) -> tuple[list[tuple[str, str]], tuple[str, ...]]:
+    """Keep named participants without IDs; advancement slots remain fixture evidence.
+
+    Every ID-less standings row keeps its own pool/position identity. Only
+    repeated fixture appearances use unambiguous exact published labels; this
+    does not invent a provider registration or a database ID.
+    """
+    labels: dict[str, set[str]] = {}
+    for registration_id, name in division.teams:
+        labels.setdefault(printable_text(name).strip(), set()).add(f"registration:{registration_id}")
+    entries: list[tuple[str, str]] = []
+
+    def add(name: str, key: str, *, dedupe_label: bool = True) -> None:
+        label = printable_text(name).strip()
+        if not label or (dedupe_label and len(labels.get(label, ())) == 1):
+            return
+        entries.append((label, key))
+        labels.setdefault(label, set()).add(key)
+
+    for pool_index, pool in enumerate(division.structure.pools):
+        for member in pool.members:
+            if not member.registration_id:
+                key = f"pool:{division.group_id}:{pool.pool_id or pool_index}:{member.standings_position}"
+                add(member.team_name, key, dedupe_label=False)
+    slots: set[str] = set()
+    for fixture_index, fixture in enumerate(division.structure.fixtures):
+        for side in ("home", "away"):
+            if getattr(fixture, f"{side}_registration_id"):
+                continue
+            label = printable_text(getattr(fixture, f"{side}_label", "")).strip()
+            if not label:
+                continue
+            if _ADVANCEMENT_SLOT.fullmatch(label):
+                slots.add(label)
+                continue
+            digest = hashlib.sha256(label.encode("utf-8")).hexdigest()[:16]
+            # For a name with no competing identity, this key survives fixture
+            # reordering. Ambiguous repeated labels stay distinct occurrences.
+            key = f"fixture:{division.group_id}:name:{digest}"
+            if len(labels.get(label, ())) > 1:
+                key += f":{fixture.match_number or fixture_index}:{side}"
+            add(label, key)
+    notes = ()
+    if slots:
+        notes = (
+            f"Division {division.label}: advancement or undecided slots remain fixture evidence, "
+            f"not team entries: {', '.join(sorted(slots))}",
+        )
+    ambiguous = sorted(label for label, keys in labels.items() if len(keys) > 1)
+    if ambiguous:
+        notes += (
+            f"Division {division.label}: ambiguous repeated team labels retain separate source entries "
+            f"for review: {', '.join(ambiguous)}",
+        )
+    return entries, notes
+
+
 def scrape_event_roster(
     event_id: str,
     *,
@@ -771,6 +1087,7 @@ def scrape_event_roster(
     max_workers: int = 1,
     wanted_cohorts: Collection[str] | None = None,
     on_progress: Callable[[int, int], None] | None = None,
+    completed_event: bool = False,
 ) -> EventRoster:
     """Walk one event and return every team it publishes.
 
@@ -800,11 +1117,20 @@ def scrape_event_roster(
     label is the thing being read. A label naming no single cohort is always
     kept: an unreadable label is not evidence a division is unwanted, and
     guessing costs teams.
+
+    ``completed_event=True`` keeps all discovered divisions and all published
+    teams, including unranked ages and source-only standings rows. Failed or
+    unvisited divisions remain explicit placeholders. It also separates the
+    tournament's published cohort from a team's current identity lookup age.
     """
+    # completed_event is deliberately opt-in: the upcoming-event Seeding
+    # project retains its existing filtering and current-cohort behavior.
     warnings: list[str] = []
     throttled = _throttled(fetch, delay_min, delay_max)
 
-    group_ids, stable = _read_group_ids(throttled, event_id, warnings)
+    landing_pages: list[str] = []
+    group_ids, stable = _read_group_ids(throttled, event_id, warnings, landing_pages=landing_pages)
+    discovered_ids = group_ids
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
@@ -813,7 +1139,7 @@ def scrape_event_roster(
         group_ids = group_ids[:limit_groups]
 
     divisions, unreadable_divisions = _read_divisions(
-        throttled, event_id, group_ids, max_workers, warnings
+        throttled, event_id, group_ids, max_workers, warnings, completed_event=completed_event
     )
     # Counted before the filter: a division we read and then chose not to pay
     # further for was still walked, and `is_complete` compares this against the
@@ -821,7 +1147,7 @@ def scrape_event_roster(
     # as partial, which retires the full-walk control and disarms the guard that
     # stops a probe overwriting a complete roster.
     divisions_walked = len(divisions)
-    divisions, skipped = _wanted_divisions(divisions, wanted_cohorts, warnings)
+    divisions, skipped = _wanted_divisions(divisions, None if completed_event else wanted_cohorts, warnings)
     # A division we chose not to walk cannot have lost us teams, so its
     # unreadable table is not a gap in this roster. Counting it would make
     # `is_complete` false for a walk that got everything it asked for, and the
@@ -831,6 +1157,30 @@ def scrape_event_roster(
     unreadable_divisions = [
         group_id for group_id in unreadable_divisions if group_id not in skipped_ids
     ]
+    metadata = {}
+    if completed_event:
+        metadata = _completed_event_metadata(landing_pages, divisions, divisions_walked == divisions_found, warnings)
+        divisions = [
+            _with_historical_cohort(division, metadata.get("event_season_year"))
+            for division in divisions
+        ]
+        reached = {division.group_id: division for division in divisions}
+        for group_id in discovered_ids:
+            if group_id not in reached:
+                note = (
+                    f"Division group {group_id}: not visited in this partial walk"
+                    if group_id not in group_ids
+                    else f"Division group {group_id}: page could not be fetched"
+                )
+                reached[group_id] = _Division(
+                    group_id, f"group {group_id}", "", "", (),
+                    ScrapedDivision(
+                        group_id=group_id, division_label=f"group {group_id}",
+                        pools=(), fixtures=(), pools_readable=False, fixtures_readable=False,
+                        warnings=(note,), source_url=f"{EVENT_BASE}/{event_id}/schedules?group={group_id}",
+                    ),
+                )
+        divisions = [reached[group_id] for group_id in discovered_ids]
     for division in divisions:
         if not division.age_group:
             named = division.label or f"group {division.group_id}"
@@ -844,7 +1194,22 @@ def scrape_event_roster(
     # and read by an operator as "the walk failed". They would also arrive
     # before the per-team fetch failures below and win the cap, inverting the
     # ordering `_warnings` exists to guarantee.
+    source_only = {}
+    if completed_event:
+        source_only = {division.group_id: _source_only_participants(division) for division in divisions}
+        divisions = [
+            replace(division, structure=replace(
+                division.structure, warnings=division.structure.warnings + source_only[division.group_id][1]
+            ))
+            for division in divisions
+        ]
     pending = [(division, entry) for division in divisions for entry in division.teams]
+    source_only_keys: dict[str, list[str]] = {}
+    if completed_event:
+        for division in divisions:
+            entries, _ = source_only[division.group_id]
+            pending.extend((division, ("", name)) for name, _ in entries)
+            source_only_keys[division.group_id] = [key for _, key in entries]
     outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, on_progress)
 
     teams: list[EventRosterTeam] = []
@@ -855,6 +1220,12 @@ def scrape_event_roster(
         if failure:
             warnings.append(failure)
             unreadable += 1
+        source_entry_key = ""
+        if completed_event:
+            source_entry_key = (
+                f"registration:{registration_id}" if registration_id
+                else source_only_keys[division.group_id].pop(0)
+            )
         teams.append(
             EventRosterTeam(
                 source_index=len(teams),
@@ -865,6 +1236,9 @@ def scrape_event_roster(
                 team_name=team_name,
                 registration_id=registration_id,
                 provider_team_id=provider_team_id,
+                published_age_group=division.published_age_group,
+                published_cohort_label=division.published_cohort_label,
+                source_entry_key=source_entry_key,
             )
         )
 
@@ -879,6 +1253,8 @@ def scrape_event_roster(
         divisions_stable=stable,
         teams_unreadable=unreadable,
         divisions=tuple(division.structure for division in divisions),
+        completed_event=completed_event,
+        **metadata,
     )
 
 
@@ -890,10 +1266,12 @@ class _Division:
     gender: str
     teams: tuple[tuple[str, str], ...]
     structure: ScrapedDivision
+    published_age_group: str = ""
+    published_cohort_label: str = ""
 
 
 def _read_group_ids(
-    fetch: HtmlFetcher, event_id: str, warnings: list[str]
+    fetch: HtmlFetcher, event_id: str, warnings: list[str], *, landing_pages: list[str] | None = None
 ) -> tuple[tuple[str, ...], bool]:
     """Read the event's division list, and say whether the page agreed with itself.
 
@@ -913,7 +1291,10 @@ def _read_group_ids(
     reads: list[frozenset[str]] = []
     ordered: list[str] = []
     for _ in range(_LANDING_READS):
-        found = parse_group_ids(fetch(f"{EVENT_BASE}/{event_id}"))
+        html = fetch(f"{EVENT_BASE}/{event_id}")
+        if landing_pages is not None:
+            landing_pages.append(html)
+        found = parse_group_ids(html)
         reads.append(frozenset(found))
         for group_id in found:
             if group_id not in seen:
@@ -940,6 +1321,8 @@ def _read_divisions(
     group_ids: tuple[str, ...],
     max_workers: int,
     warnings: list[str],
+    *,
+    completed_event: bool = False,
 ) -> tuple[list[_Division], list[str]]:
     """Read every division's page, keeping its teams even when the label is unreadable."""
 
@@ -963,6 +1346,8 @@ def _read_divisions(
 
         label = parse_division_label(group_html)
         age_group, gender = resolve_cohort(label)
+        published_label = _header_division(BeautifulSoup(group_html, "html.parser")) if completed_event else ""
+        published_age = _published_u_age(published_label or label) if completed_event else ""
         if names_no_gender(label):
             gender = parse_header_gender(group_html)
         named = label or f"group {group_id}"
@@ -982,8 +1367,19 @@ def _read_divisions(
                 age_group=age_group,
                 gender=gender,
                 teams=teams,
+                published_age_group=published_age,
+                published_cohort_label=published_label or label if completed_event else "",
                 structure=parse_division_structure(
-                    group_id=group_id, division_label=label, html=group_html
+                    group_id=group_id,
+                    division_label=label,
+                    html=group_html,
+                    age_group=age_group,
+                    gender=gender,
+                    **({
+                        "source_url": f"{EVENT_BASE}/{event_id}/schedules?group={group_id}",
+                        "published_age_group": published_age,
+                        "published_cohort_label": published_label or label,
+                    } if completed_event else {}),
                 ),
             )
         )
@@ -1041,7 +1437,8 @@ def _provider_ids_for(
     """
     names: dict[str, str] = {}
     for _, (registration_id, team_name) in pending:
-        names.setdefault(registration_id, team_name)
+        if registration_id:
+            names.setdefault(registration_id, team_name)
 
     progress = Lock()
     completed = 0
@@ -1062,7 +1459,7 @@ def _provider_ids_for(
                     _report_progress(on_progress, completed, len(names))
 
     by_id = dict(zip(names, _in_pool(provider_id_for, list(names), max_workers)))
-    return [by_id[registration_id] for _, (registration_id, _) in pending]
+    return [by_id.get(registration_id, (None, None)) for _, (registration_id, _) in pending]
 
 
 def _report_progress(on_progress: Callable[[int, int], None], done: int, total: int) -> None:

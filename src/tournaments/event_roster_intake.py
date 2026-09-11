@@ -43,6 +43,7 @@ from supabase import create_client
 
 __all__ = [
     "needs_name_lookup",
+    "make_historical_name_lookup",
     "resolve_master_ids",
     "resolve_unlinked",
     "to_seeding_rows",
@@ -155,6 +156,7 @@ def resolve_unlinked(
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
     delay_seconds: float = 0.0,
+    historical_context: bool = False,
 ) -> tuple[ResolvedTeam, ...]:
     """Give the teams the walk could not link a second, free pass.
 
@@ -171,6 +173,12 @@ def resolve_unlinked(
 
     Nothing here scores names fuzzily — an unlinked team is recovered by an exact
     name or not at all.
+
+    ``historical_context=True`` uses only an event-published ID for automatic
+    matching. Its name lookup must be ``make_historical_name_lookup`` (or an
+    equivalent read-only collaborator): it searches across today's age groups
+    and offers every result for operator review, without a current rankings
+    search that could substitute next season's same-name squad.
     """
     rows_by_index = {row.source_index: row for row in parsed.rows}
     outcomes = {item.source_index: item for item in resolved}
@@ -179,6 +187,25 @@ def resolve_unlinked(
         row = rows_by_index.get(index)
         item = outcomes.get(index)
         if row is None or item is None:
+            continue
+
+        if historical_context:
+            # Only the ID actually published by this event proves identity.
+            # Today's age-filtered rankings search can name next season's squad;
+            # historical name candidates are always a human decision.
+            team_id = lookup_provider_id(item.provider_team_id) if item.provider_team_id else None
+            if team_id:
+                outcomes[index] = ResolvedTeam(
+                    source_index=index, status="gotsport_id", team_id_master=team_id,
+                    provider_team_id=item.provider_team_id,
+                )
+                continue
+            candidates = lookup_exact_name(row.team_name_stripped, "", row.section_gender)
+            if candidates:
+                outcomes[index] = ResolvedTeam(
+                    source_index=index, status="review", provider_team_id=item.provider_team_id,
+                    candidates=tuple({"team_id_master": candidate} for candidate in dict.fromkeys(candidates)),
+                )
             continue
 
         if item.provider_team_id:
@@ -202,6 +229,44 @@ def resolve_unlinked(
                 time.sleep(delay_seconds)
 
     return tuple(outcomes[item.source_index] for item in resolved)
+
+
+def make_historical_name_lookup(supabase_client, merge_resolver=None) -> ExactNameLookup:
+    """Find review candidates by exact name without treating a past U-age as current.
+
+    The age argument is intentionally unused. Multiple current cohorts may carry
+    the same display name; every candidate remains review-only in the historical
+    resolver. Final string equality also refuses SQL wildcard matches in a name.
+    """
+    def lookup(team_name: str, _age_group: str, gender: str) -> list[str]:
+        if not team_name.strip():
+            return []
+        candidates: set[str] = set()
+        offset = 0
+        while True:
+            query = (
+                supabase_client.table("teams")
+                .select("team_id_master,team_name")
+                .ilike("team_name", team_name)
+                .eq("is_deprecated", False)
+                .order("team_id_master")
+                .range(offset, offset + 999)
+            )
+            if gender in ("Male", "Female"):
+                query = query.eq("gender", gender)
+            rows = query.execute().data or []
+            for row in rows:
+                if str(row.get("team_name") or "").casefold() != team_name.casefold():
+                    continue
+                team_id = row.get("team_id_master")
+                if team_id:
+                    candidates.add((merge_resolver.resolve(team_id) or team_id) if merge_resolver else team_id)
+            if len(rows) < 1000:
+                break
+            offset += 1000
+        return sorted(candidates)
+
+    return lookup
 
 
 def _relink_known_id(

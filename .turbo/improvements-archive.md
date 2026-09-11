@@ -1327,3 +1327,25 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-05
 - **Refs**: `fix/seeding-scrape-gender-and-lost-roster`
 - **Update (2026-09-09)**: Yes, for the gender alone. Re-measured over the same corpus: the two sources never disagree about gender, while they disagree about age on 3 pages — so the season-stamped U-age is an argument against reading the header for the age and not against reading it at all. `_read_divisions` now takes the gender from the header when the label named none, and still takes the age from the label. The case this entry did not raise turned out to matter more: `resolve_cohort` answers `""` both for a label that named no gender and for one that named *both*, so `names_no_gender` separates them and a `Boys/Girls U10` division is left blank rather than filed as Male.
+
+### Two Backtest tabs on one event can lose each other's team links
+
+- **ID**: IMP-209
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_sync_links` in `src/tournaments/backtest_event_intake.py`; `plan_sync` and `save_links` in `src/tournaments/backtest_link_store.py`
+- **Why**: The sync is a load-merge-save with nothing serializing it — verified 2026-09-11, neither module mentions a lock. Two sessions rendering different partial walks of the same event both read the same snapshot, merge only their own links, and the later save drops the first session's manual fixes. Atomic replacement via `_io.write_json` protects the file's integrity, not against a lost update, and the scrape lock is released long before these renders. The links are an operator's hand lookups, which is the work the store exists to keep. Deferred from PR #1130 (found by Codex) because the fix is a per-event lock and adding machinery at the end of a review loop is how the preceding four rounds happened; `_acquire_scrape_lock` in `tournament_intake.py` and `acquire_scenario_lock` in `src/tournaments/storage/scenario.py` are both available to model it on.
+- **Noted**: 2026-09-11
+- **Refs**: `codex/matchbalance-intake-infrastructure` (2026-09-11); locked per-event merge updates and editable all-team Backtest review, with concurrent-save and Streamlit regression tests.
+
+### Saved backtest links are auto-applied as overrides, which they do not fit
+
+- **ID**: IMP-210
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_sync_links` in `src/tournaments/backtest_event_intake.py`; `plan_sync`, `restore_overrides` and `merge_links` in `src/tournaments/backtest_link_store.py`
+- **Why**: Restoring a saved link writes it into `st.session_state[keys.overrides]`, and an override is a mechanism built for a decision the operator just made: it beats the resolver, and `_render_seeding_progress_metrics` drops overridden rows from `outstanding`, which is what renders the "Use this team" control. A revived link is therefore uneditable — verified 2026-09-11 by reading both functions — and re-walking restores it again, so a wrong saved link cannot be corrected through the UI at all. Two further edges come from the same mismatch: with the merge map down, `restore=False` lets an automatic match replace a saved manual link through `merge_links`, and a restored id can be stale where an override can never be re-resolved. Both raised by Codex on PR #1130 and deferred there. The fix that closes all of them is to stop auto-applying: surface a saved link as information beside the row with a one-click re-apply, so nothing revived is silently authoritative. Saving is unaffected and is well covered; this entry is about the restoring half only.
+- **Noted**: 2026-09-11
+- **Refs**: `codex/matchbalance-intake-infrastructure` (2026-09-11); locked per-event merge updates and editable all-team Backtest review, with concurrent-save and Streamlit regression tests.

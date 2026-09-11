@@ -47,6 +47,19 @@ def _division(**overrides) -> ScrapedDivision:
     return ScrapedDivision(**base)
 
 
+def test_summarize_names_the_cohort_a_division_belongs_to():
+    row = summarize_structure([_division(age_group="u12", gender="Male")])[0]
+
+    assert row["cohort"] == "Boys U12"
+
+
+def test_summarize_says_plainly_when_a_division_names_no_cohort():
+    """Blank would read as a rendering fault; this is the event not saying."""
+    row = summarize_structure([_division()])[0]
+
+    assert row["cohort"] == "not stated"
+
+
 def test_summarize_counts_pools_and_every_kind_of_game():
     row = summarize_structure([_division()])[0]
 
@@ -138,9 +151,13 @@ _ROOTS = (
 
 _READ_ONLY_MODULES = (
     "src/tournaments/backtest_event_intake.py",
+    "src/tournaments/backtest_intake_state.py",
+    "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
+    "src/tournaments/backtest_result_summary.py",
     "src/tournaments/gotsport_event_structure.py",
     "src/tournaments/storage/_io.py",
+    "src/tournaments/storage/_file_lock.py",
     "src/tournaments/storage/event_key.py",
     "src/tournaments/storage/event_structure.py",
     "src/tournaments/storage/schema_version.py",

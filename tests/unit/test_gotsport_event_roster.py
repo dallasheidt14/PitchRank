@@ -28,6 +28,8 @@ from src.tournaments.gotsport_event_roster import (
     EventRosterTeam,
     WafChallengeError,
     event_id_from,
+    event_roster_from_dict,
+    event_roster_to_dict,
     make_zenrows_fetcher,
     names_cohort_outside,
     names_no_gender,
@@ -2102,4 +2104,313 @@ def test_scrape_event_roster_reports_no_structure_for_a_division_it_skipped():
 
     assert roster.divisions == ()
     assert roster.teams == ()
+
+
+def _completed_pages(*, label="U12 Boys Gold", groups=("1",), date_text="March 28, 2026"):
+    """Played schedule with independent standings and a dated fixture."""
+    landing = '<span class="navbar-brand">Spring Cup</span>' + _landing_html(list(groups))
+    division = (
+        f'<div class="lead">Male {label}</div>'
+        '<div><div class="panel-heading">Bracket A</div><div class="panel-collapse" id="collapse-10">'
+        '<table><tr><th>Team</th><th>PTS</th></tr>'
+        '<tr><td><a href="?team=11">First FC</a></td><td>3</td></tr>'
+        '<tr><td><a href="?team=12">Second FC</a></td><td>0</td></tr></table></div></div>'
+        '<table><tr><th>Match #</th><th>Date</th><th>Time</th><th>Home Team</th><th>Results</th>'
+        '<th>Away Team</th><th>Division</th><th>Location</th></tr>'
+        f'<tr><td>1</td><td>{date_text}</td><td>9:00 AM</td><td><a href="?team=11">First FC</a></td>'
+        f'<td>2 - 1</td><td><a href="?team=12">Second FC</a></td><td>{label}</td><td>Field 1</td></tr></table>'
+    )
+    return {
+        "/org_event/events/52975": landing,
+        **{f"schedules?group={group}": division for group in groups},
+        "schedules?team=11": _team_html("101"),
+        "schedules?team=12": _team_html(None),
+    }
+
+
+def test_completed_event_retains_unranked_divisions_and_seeding_filter_is_unchanged():
+    pages = _completed_pages(label="U7 Boys Gold")
+    completed = scrape_event_roster(
+        "52975", fetch=_fetch_for(pages), wanted_cohorts={"u13"}, completed_event=True
+    )
+    seeding = scrape_event_roster("52975", fetch=_fetch_for(pages), wanted_cohorts={"u13"})
+
+    assert len(completed.teams) == 2
+    assert completed.divisions_skipped == 0
+    assert completed.divisions[0].age_group == "u7"
+    assert completed.teams[0].published_age_group == "u7"
+    assert completed.teams[0].age_group == ""
+    assert seeding.teams == ()
+    assert seeding.divisions_skipped == 1
+
+
+def test_completed_probe_lists_unvisited_divisions_without_fetching_them():
+    fetch = _fetch_for(_completed_pages(groups=("1", "2", "3")))
+    roster = scrape_event_roster("52975", fetch=fetch, limit_groups=1, completed_event=True)
+
+    assert [division.group_id for division in roster.divisions] == ["1", "2", "3"]
+    assert roster.divisions_found == 3
+    assert roster.divisions_walked == 1
+    assert roster.is_complete is False
+    assert roster.event_start_date is None, "one division does not prove the whole event's date range"
+    assert "not visited" in roster.divisions[1].warnings[0]
+    assert not any("group=2" in url or "group=3" in url for url in fetch.calls)
+
+
+def test_completed_walk_lists_fetch_failures_as_unreadable_divisions():
+    fetch = _fetch_for(_completed_pages(groups=("1", "2")), failing=frozenset({"group=2"}))
+    roster = scrape_event_roster("52975", fetch=fetch, completed_event=True)
+
+    assert [division.group_id for division in roster.divisions] == ["1", "2"]
+    assert roster.divisions[1].fixtures_readable is False
+    assert "could not be fetched" in roster.divisions[1].warnings[0]
+    assert roster.divisions[1].source_url.endswith("schedules?group=2")
+    assert roster.is_complete is False
+
+
+def test_completed_metadata_and_tournament_cohort_are_separate_from_current_identity_age():
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages()), completed_event=True)
+
+    assert roster.event_name == "Spring Cup"
+    assert (roster.event_start_date, roster.event_end_date) == ("2026-03-28", "2026-03-28")
+    assert roster.event_season_year == 2025
+    assert roster.event_dates_source == "complete_schedule"
+    assert roster.is_complete is True
+    assert roster.divisions[0].age_group == "u12"
+    assert roster.teams[0].published_age_group == "u12"
+    assert roster.teams[0].age_group == "", "last season's U12 is not today's U12"
+    assert roster.divisions[0].source_url.endswith("schedules?group=1")
+
+
+def test_completed_birth_year_uses_the_event_date_for_published_age():
+    pages = _completed_pages(label="B2014 Gold")
+    roster = scrape_event_roster("52975", fetch=_fetch_for(pages), completed_event=True)
+
+    assert roster.divisions[0].published_age_group == "u12"
+    assert roster.divisions[0].age_group == "u12"
+    assert roster.teams[0].published_age_group == "u12"
+    assert roster.teams[0].age_group == "u13"
+
+
+def test_completed_birth_year_without_a_date_does_not_invent_the_tournament_age():
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_completed_pages(label="B2014 Gold", date_text="")), completed_event=True
+    )
+    assert roster.event_season_year is None
+    assert roster.divisions[0].published_age_group == ""
+    assert roster.teams[0].published_age_group == ""
+
+
+def test_completed_standings_team_without_registration_is_kept_without_an_id_request():
+    pages = _completed_pages()
+    pages["schedules?group=1"] = pages["schedules?group=1"].replace(
+        '<tr><td><a href="?team=12">Second FC</a></td><td>0</td></tr>',
+        '<tr><td>Source-only FC</td><td>0</td></tr>',
+    )
+    fetch = _fetch_for(pages)
+    roster = scrape_event_roster("52975", fetch=fetch, completed_event=True)
+
+    source_only = [team for team in roster.teams if not team.registration_id]
+    assert len(source_only) == 1
+    assert source_only[0].team_name == "Source-only FC"
+    assert source_only[0].source_entry_key == "pool:1:10:2"
+    assert source_only[0].provider_team_id is None
+    assert not any(url.endswith("team=") for url in fetch.calls)
+
+
+@pytest.mark.parametrize("date_text", ["09/04/2026", "2026-09-04"])
+def test_completed_numeric_fixture_dates_supply_the_event_season(date_text):
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_completed_pages(date_text=date_text)), completed_event=True
+    )
+    assert roster.event_start_date == "2026-09-04"
+    assert roster.event_season_year == 2026
+
+
+def test_complete_duplicate_registration_entries_buy_each_detail_page_once():
+    fetch = _fetch_for(_completed_pages(groups=("1", "2")))
+    roster = scrape_event_roster("52975", fetch=fetch, completed_event=True)
+
+    assert len(roster.teams) == 4
+    assert len({team.registration_id for team in roster.teams}) == 2
+    assert sum("team=11" in url for url in fetch.calls) == 1
+    assert sum("team=12" in url for url in fetch.calls) == 1
+
+
+def test_completed_real_landing_metadata_reads_name_and_announced_dates():
+    from src.tournaments.gotsport_event_roster import _completed_event_metadata
+
+    metadata = _completed_event_metadata([_html_fixture("event_50469.html")], [], False, [])
+    assert metadata["event_name"] == "2026 USA Showcase - Boys"
+    assert (metadata["event_start_date"], metadata["event_end_date"]) == ("2026-02-27", "2026-03-01")
+    assert metadata["event_dates_source"] == "published_event_page"
+
+
+def test_canonical_roster_json_round_trip_keeps_all_structure_and_historical_fields():
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages()), completed_event=True)
+    payload = json.loads(json.dumps(event_roster_to_dict(roster)))
+    assert event_roster_from_dict(payload) == roster
+
+
+def test_canonical_roster_reader_accepts_older_seeding_payload_without_new_fields():
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_one_division_event()))
+    payload = event_roster_to_dict(roster)
+    for name in (
+        "completed_event", "event_name", "event_start_date", "event_end_date", "event_season_year", "event_dates_source"
+    ):
+        payload.pop(name)
+    for team in payload["teams"]:
+        team.pop("published_age_group")
+        team.pop("published_cohort_label")
+        team.pop("source_entry_key")
+    assert event_roster_from_dict(payload) == roster
+
+
+def test_completed_cli_uses_the_canonical_roster_shape(monkeypatch):
+    import importlib
+
+    import scripts.scrape_event_roster as script
+
+    event_keys = importlib.import_module("src.tournaments.storage.event_key")
+
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages()), completed_event=True)
+    walks = []
+    saved = []
+    paths = []
+    monkeypatch.setenv("ZENROWS_API_KEY", "test-key-not-a-real-credential")
+    monkeypatch.setattr(script.sys, "argv", [
+        "scrape_event_roster", "--event-id", "52975", "--completed-event", "--limit-groups", "2"
+    ])
+    monkeypatch.setattr(event_keys, "existing_event_key", lambda *_args: "gotsport__52975__2026")
+    monkeypatch.setattr(script, "make_zenrows_fetcher", lambda _: _never_fetch)
+    monkeypatch.setattr(script, "scrape_event_roster", lambda *args, **kwargs: walks.append(kwargs) or roster)
+    monkeypatch.setattr(script, "resolve_master_ids", lambda *args, **kwargs: ({"101": "master-one"}, []))
+    monkeypatch.setattr(
+        script, "_write_roster", lambda path, payload, **kwargs: (paths.append(path), saved.append(payload))
+    )
+
+    assert script.main() == 0
+    assert walks[0]["completed_event"] is True
+    assert saved[0]["divisions"][0]["fixtures"][0]["result_text"] == "2 - 1"
+    assert saved[0]["teams"][0]["team_id_master"] == "master-one"
+    assert paths == [Path("reports/gotsport__52975__2026/intake/last_walk.json")]
+    assert saved[0]["limit_groups"] == 2
+    assert saved[0]["walked_at"] == saved[0]["scraped_at"]
+    assert event_roster_from_dict(saved[0]) == roster
+
+
+def test_default_seeding_cli_keeps_its_original_output_path():
+    from scripts.scrape_event_roster import _default_output_path
+
+    assert _default_output_path("52975", completed_event=False) == Path("reports/seeding/gotsport_52975/roster.json")
+
+
+def test_completed_cli_summary_counts_unique_teams_by_entered_cohort(monkeypatch):
+    from dataclasses import replace
+
+    import scripts.scrape_event_roster as script
+
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_completed_pages(groups=("1", "2"))), completed_event=True
+    )
+    roster = replace(roster, teams=tuple(replace(team, age_group="u11") for team in roster.teams))
+    stream = io.StringIO()
+    monkeypatch.setattr(script, "console", Console(file=stream, force_terminal=False, width=120))
+    script._completed_summary(roster)
+    text = stream.getvalue()
+    assert "Spring Cup" in text
+    assert "2 unique teams, 4 division entries" in text
+    assert "U12" in text and "Boys" in text
+    assert "U11" not in text, "canonical age cannot determine the tournament-entered total"
+
+
+def _never_fetch(*_args, **_kwargs):
+    raise AssertionError("offline test must never fetch a provider page")
+
+
+def _fixture_only_pages(away_labels):
+    pages = _completed_pages()
+    fixtures = "".join(
+        f'<tr><td>{number}</td><td><a href="?team=11">Home FC</a></td>'
+        f'<td>2 - 1</td><td>{away}</td><td>U12 Boys</td></tr>'
+        for number, away in enumerate(away_labels, 1)
+    )
+    pages["schedules?group=1"] = (
+        '<h5>Male U12 - U12 Boys</h5>'
+        '<table><tr><th>Match #</th><th>Home Team</th><th>Results</th><th>Away Team</th><th>Division</th></tr>'
+        f'{fixtures}</table>'
+    )
+    return pages
+
+
+def test_completed_fixture_only_named_team_enters_roster_matching_and_totals():
+    from src.tournaments.backtest_intake_state import tournament_totals
+
+    fetch = _fetch_for(_fixture_only_pages(["Away FC", "Away FC"]))
+    roster = scrape_event_roster("52975", fetch=fetch, completed_event=True)
+    assert [team.team_name for team in roster.teams] == ["Home FC", "Away FC"]
+    assert roster.teams[1].registration_id == ""
+    assert roster.teams[1].source_entry_key.startswith("fixture:1:name:")
+    assert roster.teams[1].provider_team_id is None
+    assert tournament_totals(roster)["total_teams"] == 2
+    assert sum("team=" in url for url in fetch.calls) == 1
+
+
+@pytest.mark.parametrize("slot", ["Winner Semi-Final A", "Loser B", "1st A", "1st Place Bracket A", "TBD", "A1"])
+def test_completed_fixture_advancement_slots_remain_evidence_not_teams(slot):
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_fixture_only_pages([slot])), completed_event=True)
+    assert [team.team_name for team in roster.teams] == ["Home FC"]
+    assert roster.divisions[0].fixtures[0].away_label == slot
+    assert any("advancement or undecided slots" in warning for warning in roster.divisions[0].warnings)
+
+
+def test_completed_plain_fixture_label_reuses_an_unambiguous_linked_participant():
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_fixture_only_pages(["Home FC"])), completed_event=True
+    )
+    assert [team.team_name for team in roster.teams] == ["Home FC"]
+
+
+def test_completed_source_only_pool_and_fixture_name_count_once():
+    pages = _completed_pages()
+    pages["schedules?group=1"] = pages["schedules?group=1"].replace(
+        '<a href="?team=12">Second FC</a>', "Away FC"
+    )
+    roster = scrape_event_roster("52975", fetch=_fetch_for(pages), completed_event=True)
+    assert [team.team_name for team in roster.teams] == ["First FC", "Away FC"]
+
+
+def test_completed_same_named_idless_standings_rows_keep_distinct_pool_identities():
+    from src.tournaments.backtest_intake_state import tournament_totals
+
+    pages = _completed_pages()
+    pages["schedules?group=1"] = '<div class="lead">Male U12 - U12 Boys</div>' + "".join(
+        f'<div><div class="panel-heading">Bracket {pool}</div>'
+        f'<div class="panel-collapse" id="collapse-{pool}"><table>'
+        '<tr><th>Team</th><th>PTS</th></tr><tr><td>Same Name FC</td><td>0</td></tr>'
+        '</table></div></div>'
+        for pool in (10, 20)
+    )
+    roster = scrape_event_roster("52975", fetch=_fetch_for(pages), completed_event=True)
+    assert [team.team_name for team in roster.teams] == ["Same Name FC", "Same Name FC"]
+    assert [team.registration_id for team in roster.teams] == ["", ""]
+    assert {team.source_entry_key for team in roster.teams} == {"pool:1:10:1", "pool:1:20:1"}
+    assert tournament_totals(roster)["total_teams"] == 2
+    assert any("ambiguous repeated team labels" in warning for warning in roster.divisions[0].warnings)
+
+
+def test_seeding_does_not_gain_completed_event_fixture_only_entries():
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_fixture_only_pages(["Away FC"])))
+    assert [team.team_name for team in roster.teams] == ["Home FC"]
+
+
+@pytest.mark.parametrize(
+    "field,value", [("divisions_stable", "false"), ("warnings", "not a list"), ("is_complete", False)]
+)
+def test_canonical_roster_reader_refuses_malformed_or_false_completeness(field, value):
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages()), completed_event=True)
+    payload = event_roster_to_dict(roster)
+    payload[field] = value
+    with pytest.raises((TypeError, ValueError)):
+        event_roster_from_dict(payload)
 

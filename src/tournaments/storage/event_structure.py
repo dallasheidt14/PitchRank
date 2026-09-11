@@ -17,6 +17,7 @@ from src.tournaments.gotsport_event_structure import (
     Fixture,
     Pool,
     PoolMember,
+    PublishedLink,
     ScrapedDivision,
 )
 from src.tournaments.storage._io import read_json, read_versioned_json, write_json
@@ -74,11 +75,23 @@ def division_from_dict(payload: dict[str, Any]) -> ScrapedDivision:
     return ScrapedDivision(
         group_id=str(payload["group_id"]),
         division_label=str(payload["division_label"]),
+        # `.get` rather than direct access, unlike the required fields beside
+        # them: these arrived after the first files were written, and an older
+        # structure that predates them is still faithfully readable without.
+        age_group=str(payload.get("age_group") or ""),
+        gender=str(payload.get("gender") or ""),
         pools=tuple(_pool(item) for item in payload.get("pools") or ()),
         fixtures=tuple(_fixture(item) for item in payload.get("fixtures") or ()),
         pools_readable=bool(payload["pools_readable"]),
         fixtures_readable=bool(payload["fixtures_readable"]),
         warnings=tuple(str(warning) for warning in payload.get("warnings") or ()),
+        source_url=str(payload.get("source_url") or ""),
+        rules_links=tuple(
+            PublishedLink(label=str(link["label"]), url=str(link["url"]))
+            for link in payload.get("rules_links") or ()
+        ),
+        published_age_group=str(payload.get("published_age_group") or ""),
+        published_cohort_label=str(payload.get("published_cohort_label") or ""),
     )
 
 
@@ -108,6 +121,16 @@ def _fixture(payload: dict[str, Any]) -> Fixture:
         away_score=_optional_int(payload.get("away_score")),
         kickoff=str(payload["kickoff"]),
         location=str(payload["location"]),
+        home_label=str(payload.get("home_label") or ""),
+        away_label=str(payload.get("away_label") or ""),
+        result_text=str(payload.get("result_text") or ""),
+        home_shootout_score=_optional_int(payload.get("home_shootout_score")),
+        away_shootout_score=_optional_int(payload.get("away_shootout_score")),
+        winner_side=str(payload.get("winner_side") or ""),
+        winner_registration_id=_optional_str(payload.get("winner_registration_id")),
+        result_status=str(payload.get("result_status") or "not_captured"),
+        date_label=str(payload.get("date_label") or ""),
+        source_url=str(payload.get("source_url") or ""),
     )
 
 
