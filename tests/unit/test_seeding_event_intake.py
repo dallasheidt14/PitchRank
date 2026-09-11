@@ -2188,6 +2188,9 @@ def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
     assert fake_st.session_state["_backtest_result"] == (expected_parsed, expected_resolved)
     assert fake_st.session_state["_backtest_event_probe"] == expected_probe
     assert fake_st.session_state["_backtest_structure"] == roster.divisions
+    assert fake_st.session_state["_backtest_registrations"] == {
+        team.source_index: team.registration_id for team in roster.teams
+    }, "a link that must outlive the walk is keyed by registration id, so the walk parks the map"
     assert fake_st.session_state.get("_seeding_result") is None, (
         "a backtest-keyed walk must not touch the seeding view's parked result"
     )
@@ -2320,7 +2323,8 @@ def test_walk_keys_never_collide_between_the_two_views():
     from tournament_intake import _BACKTEST_KEYS, _SEEDING_KEYS, _WalkKeys
 
     fields = ("result", "result_event_id", "overrides", "sheet_html", "probe",
-              "resolution_failed", "lock_key", "loaded_slug", "structure")
+              "resolution_failed", "lock_key", "loaded_slug", "structure",
+              "registrations")
     seeding = {getattr(_SEEDING_KEYS, field) for field in fields}
     backtest = {getattr(_BACKTEST_KEYS, field) for field in fields}
 

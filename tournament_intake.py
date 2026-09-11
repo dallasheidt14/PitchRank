@@ -3533,6 +3533,16 @@ class _WalkKeys:
         parks it too and simply does not read it."""
         return f"{self.prefix}_structure"
 
+    @property
+    def registrations(self) -> str:
+        """``source_index`` to the provider's per-event team id.
+
+        A roster position is only meaningful within one walk — a division that
+        fails to load shifts every later one — so a link that must outlive a
+        walk is keyed by the registration id this map supplies.
+        """
+        return f"{self.prefix}_registrations"
+
 
 _SEEDING_KEYS = _WalkKeys("_seeding")
 _BACKTEST_KEYS = _WalkKeys("_backtest")
@@ -3783,6 +3793,9 @@ def _park_event_roster(
     # walk, so a stop landing between them must not leave one view's structure
     # sitting against another walk's teams.
     st.session_state[keys.structure] = roster.divisions
+    st.session_state[keys.registrations] = {
+        team.source_index: team.registration_id for team in roster.teams
+    }
     # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
     st.session_state[keys.overrides] = {}

@@ -23,6 +23,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from src.tournaments.backtest_link_store import (
+    build_links,
+    load_links,
+    restore_overrides,
+    save_links,
+)
 from src.tournaments.gotsport_event_structure import (
     KIND_BRACKET,
     KIND_CROSS_POOL,
@@ -82,6 +88,62 @@ def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, 
             }
         )
     return rows
+
+
+_LINKS_CARRIED_FOR = "_backtest_links_carried_for"
+_LINKS_ON_DISK = "_backtest_links_on_disk"
+
+
+def _link_signature(links: Any) -> frozenset[tuple[str, str, str]]:
+    """What makes one set of links different from another.
+
+    ``linked_at`` is excluded deliberately: it is stamped afresh on every build,
+    so comparing whole records would call every rerun a change and rewrite the
+    file on each one.
+    """
+    return frozenset(
+        (link.registration_id, link.team_id_master, link.matched_by) for link in links.links
+    )
+
+
+def _carry_saved_links(parsed: Any, registrations: Any, event_id: str) -> int:
+    """Re-attach this event's saved manual fixes, and say how many came back.
+
+    Once per event: a walk resets the overrides, and re-seeding them on every
+    rerun would undo an operator who is midway through changing one.
+    """
+    import streamlit as st
+
+    from src.tournaments.storage.event_key import existing_event_key
+    from tournament_intake import _BACKTEST_KEYS
+
+    if st.session_state.get(_LINKS_CARRIED_FOR) == event_id:
+        return 0
+    st.session_state[_LINKS_CARRIED_FOR] = event_id
+
+    saved = load_links(existing_event_key("gotsport", event_id))
+    st.session_state[_LINKS_ON_DISK] = _link_signature(saved)
+    carried = restore_overrides(parsed.rows, saved, registrations)
+    overrides = st.session_state[_BACKTEST_KEYS.overrides]
+    for source_index, link in carried.items():
+        overrides[source_index] = link
+    return len(carried)
+
+
+def _keep_links(
+    parsed: Any, resolved: Any, overrides: Any, registrations: Any, event_id: str
+) -> None:
+    """Write this walk's links whenever they have actually changed."""
+    import streamlit as st
+
+    from src.tournaments.storage.event_key import existing_event_key
+
+    links = build_links(event_id, parsed.rows, resolved, overrides, registrations)
+    signature = _link_signature(links)
+    if signature == st.session_state.get(_LINKS_ON_DISK):
+        return
+    save_links(existing_event_key("gotsport", event_id), links)
+    st.session_state[_LINKS_ON_DISK] = signature
 
 
 def render_backtest_event_intake(supabase_client: Any) -> None:
@@ -151,6 +213,12 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
                 # "U13 Boys Red: Division U13 Boys Red: no standings table…".
                 st.caption(_as_plain_text(row["note"]))
 
+    event_id = st.session_state.get(_BACKTEST_KEYS.result_event_id)
+    registrations = st.session_state.get(_BACKTEST_KEYS.registrations) or {}
+    carried = _carry_saved_links(parsed, registrations, event_id) if event_id else 0
+    if carried:
+        st.caption(f"Brought back {carried} link(s) you fixed by hand on an earlier walk.")
+
     overrides = st.session_state[_BACKTEST_KEYS.overrides]
     st.markdown("#### Teams matched to your database")
     by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
@@ -158,7 +226,9 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     for row in outstanding:
         _render_seeding_override(row, by_index[row.source_index], supabase_client, keys=_BACKTEST_KEYS)
 
-    event_id = st.session_state.get(_BACKTEST_KEYS.result_event_id)
+    if event_id:
+        _keep_links(parsed, resolved, overrides, registrations, event_id)
+
     probe = st.session_state.get(_BACKTEST_KEYS.probe) or {}
     if not event_id or not divisions:
         return
