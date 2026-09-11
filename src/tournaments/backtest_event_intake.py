@@ -13,14 +13,17 @@ requirement of this surface, not an accident of the current implementation —
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from src.tournaments.gotsport_event_structure import (
     KIND_BRACKET,
     KIND_CROSS_POOL,
     KIND_POOL,
+    KIND_UNKNOWN,
     ScrapedDivision,
 )
+from src.tournaments.storage._io import read_json
 
 __all__ = ["render_backtest_event_intake", "summarize_structure"]
 
@@ -60,12 +63,42 @@ def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, 
                 "pool_games": kinds.count(KIND_POOL),
                 "cross_pool_games": kinds.count(KIND_CROSS_POOL),
                 "knockout_games": kinds.count(KIND_BRACKET),
+                # classify_fixtures assigns this when either side of an unlabelled
+                # game is missing from every pool's standings table — a division
+                # can be fully readable and still have one of these, and a count
+                # that only ever adds pool + cross_pool + knockout would under-
+                # report how many games this division actually played without
+                # ever saying so.
+                "unclassified_games": kinds.count(KIND_UNKNOWN),
                 "knockout": ", ".join(labels),
                 "readable": readable,
                 "note": note,
             }
         )
     return rows
+
+
+def _would_replace_a_complete_structure(path: Path, *, is_complete: bool) -> bool:
+    """Would saving here throw away an already-complete walk for a partial one?
+
+    Mirrors ``tournament_intake._recovery_holds_a_complete_walk``, the guard the
+    sibling recovery-file writer applies to the same paid artifact: a probe
+    costing pennies must never silently replace a full walk that cost dollars.
+    A save that is itself complete is never refused — a complete walk may
+    always replace whatever came before it, partial or complete. Only a
+    partial save landing on a structure already recorded complete loses.
+
+    Read as raw JSON rather than through ``read_event_structure`` so a schema
+    mismatch cannot itself raise here — an unreadable or missing file holds
+    nothing to protect, same as the sibling guard treats it.
+    """
+    if is_complete:
+        return False
+    try:
+        existing = read_json(path)
+    except (OSError, ValueError):
+        return False
+    return isinstance(existing, dict) and existing.get("is_complete") is True
 
 
 def render_backtest_event_intake(supabase_client: Any) -> None:
@@ -85,13 +118,18 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
 
     from src.tournaments.storage._io import utc_now_iso
     from src.tournaments.storage.event_key import event_key
-    from src.tournaments.storage.event_structure import EventStructure, write_event_structure
+    from src.tournaments.storage.event_structure import (
+        EventStructure,
+        event_structure_path,
+        write_event_structure,
+    )
     from tournament_intake import (
         _BACKTEST_KEYS,
-        _SEEDING_NEEDS_DECISION,
         _as_plain_text,
         _render_seeding_event_scrape,
         _render_seeding_override,
+        _render_seeding_progress_metrics,
+        _render_seeding_warnings,
     )
 
     st.markdown("### Scrape a played event")
@@ -106,6 +144,11 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     if not result:
         return
     parsed, resolved = result
+    # The only signal that credentials or the merge map failed inside
+    # resolve_master_ids, plus the age/gender-missing counts — without this an
+    # operator whose merge resolver is broken sees every team "Still open" with
+    # no explanation why.
+    _render_seeding_warnings(parsed)
 
     divisions = st.session_state.get(_BACKTEST_KEYS.structure) or ()
     if divisions:
@@ -122,20 +165,8 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
                 st.caption(_as_plain_text(f"{row['division']}: {row['note']}"))
 
     overrides = st.session_state[_BACKTEST_KEYS.overrides]
-    by_index = {item.source_index: item for item in resolved}
-    outstanding = [
-        row
-        for row in parsed.rows
-        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION
-        and row.source_index not in overrides
-    ]
-
     st.markdown("#### Teams matched to your database")
-    columns = st.columns(4)
-    columns[0].metric("Teams", len(parsed.rows))
-    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
-    columns[2].metric("You fixed", len(overrides))
-    columns[3].metric("Still open", len(outstanding))
+    by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
 
     for row in outstanding:
         _render_seeding_override(row, by_index[row.source_index], supabase_client, keys=_BACKTEST_KEYS)
@@ -145,13 +176,22 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     if not event_id or not divisions:
         return
     if st.button("Save this event's structure", key="_backtest_save_structure"):
-        write_event_structure(
-            event_key("gotsport", event_id, None),
-            EventStructure(
-                event_id=event_id,
-                walked_at=utc_now_iso(),
-                is_complete=bool(probe.get("complete")),
-                divisions=tuple(divisions),
-            ),
-        )
-        st.success("Saved.")
+        is_complete = bool(probe.get("complete"))
+        structure_key = event_key("gotsport", event_id, None)
+        if _would_replace_a_complete_structure(event_structure_path(structure_key), is_complete=is_complete):
+            st.error(
+                "A complete walk of this event is already saved. This walk is only "
+                "partial and would replace it with less — scrape the whole event "
+                "before saving, or the complete structure already on disk is lost."
+            )
+        else:
+            write_event_structure(
+                structure_key,
+                EventStructure(
+                    event_id=event_id,
+                    walked_at=utc_now_iso(),
+                    is_complete=is_complete,
+                    divisions=tuple(divisions),
+                ),
+            )
+            st.success("Saved.")

@@ -4586,6 +4586,34 @@ def _render_seeding_warnings(parsed: ParsedRoster) -> None:
         st.warning(_as_plain_text(warning))
 
 
+def _render_seeding_progress_metrics(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]],
+) -> tuple[dict[int, ResolvedTeam], list[Any]]:
+    """The four-metric row both views show, and who still needs a decision.
+
+    Single source for what counts as outstanding: ``_WalkKeys``'s own docstring
+    warns that two copies of the same protection drift, and a second copy of
+    this comprehension is exactly the shape that would silently disagree with
+    ``_SEEDING_NEEDS_DECISION`` about which teams get an override box.
+    """
+    by_index = {item.source_index: item for item in resolved}
+    outstanding = [
+        row
+        for row in parsed.rows
+        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+    ]
+
+    columns = st.columns(4)
+    columns[0].metric("Teams", len(parsed.rows))
+    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
+    columns[2].metric("You fixed", len(overrides))
+    columns[3].metric("Still open", len(outstanding))
+
+    return by_index, outstanding
+
+
 def _render_seeding_save() -> None:
     """Offer to keep the run, once it has a name to be kept under.
 
@@ -4636,18 +4664,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 
     parsed, resolved = result
     overrides = st.session_state._seeding_overrides
-    by_index = {item.source_index: item for item in resolved}
-    outstanding = [
-        row
-        for row in parsed.rows
-        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
-    ]
-
-    columns = st.columns(4)
-    columns[0].metric("Teams", len(parsed.rows))
-    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
-    columns[2].metric("You fixed", len(overrides))
-    columns[3].metric("Still open", len(outstanding))
+    by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
 
     counts = summarize(resolved)
     st.caption(
