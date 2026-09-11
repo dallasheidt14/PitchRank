@@ -16,6 +16,7 @@ writes its recovery file through.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 import pathlib
@@ -32,6 +33,7 @@ from src.tournaments.gotsport_event_roster import (
     EventRosterTeam,
     WafChallengeError,
 )
+from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_run_store import SeedingRun
@@ -679,7 +681,7 @@ def test_a_matching_probe_unlocks_the_full_event_and_prices_it(app):
 def test_the_probe_button_asks_for_two_divisions(app):
     _fake_st, runs = _render(app, url=EVENT_URL, probe=None, buttons={"_seeding_event_probe_run": True})
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": 2}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": 2, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_the_full_button_asks_for_the_whole_event(app):
@@ -690,7 +692,7 @@ def test_the_full_button_asks_for_the_whole_event(app):
         buttons={"_seeding_event_full_run": True},
     )
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": None}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_neither_button_runs_without_a_url(app):
@@ -731,7 +733,7 @@ def test_a_failed_lookup_offers_a_free_retry(app):
     app.setattr(
         tournament_intake,
         "_run_seeding_name_lookup",
-        lambda parsed, resolved, client: retries.append((parsed, resolved)),
+        lambda parsed, resolved, client, **_kw: retries.append((parsed, resolved)),
     )
 
     _render_controls()
@@ -911,7 +913,7 @@ def test_a_probe_of_the_same_url_still_buys_the_full_event(app):
 
     _render_controls()
 
-    assert runs == [{"url": EVENT_URL, "limit_groups": None}]
+    assert runs == [{"url": EVENT_URL, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
     assert fake_st.errors == []
 
 
@@ -1226,7 +1228,7 @@ def test_a_probed_but_unwalked_event_is_still_for_sale(app):
     _render_controls()
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
-    assert runs == [{"limit_groups": None}]
+    assert runs == [{"limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
 
 
 def test_a_full_walk_of_every_division_marks_the_event_complete(app):
@@ -1270,7 +1272,7 @@ def test_the_name_pass_is_marked_pending_until_it_commits(app):
     app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0))))
     seen: list[bool] = []
 
-    def _recording_lookup(parsed, resolved, client):
+    def _recording_lookup(parsed, resolved, client, **_kw):
         seen.append(tournament_intake.st.session_state._seeding_resolution_failed)
 
     app.setattr(tournament_intake, "_run_seeding_name_lookup", _recording_lookup)
@@ -2077,6 +2079,69 @@ def test_the_offer_still_stops_once_this_events_walk_is_parked(app):
         fake_st.button_by_key("_seeding_event_reload_walk")
 
 
+_PARKED_ROSTER_ATTRS = ("result", "result_event_id")
+
+
+def _parked_roster_writer_names(source: str) -> set[str]:
+    """Every function whose body assigns a parked-roster key.
+
+    Parses ``source`` with ``ast`` rather than grepping a literal, so it keeps
+    seeing the write however it is currently spelled: the computed
+    ``st.session_state[keys.result]`` the refactor made canonical, a hand-typed
+    ``st.session_state["_seeding_result"]``, or the older
+    ``st.session_state._seeding_result`` attribute form. The literal strings a
+    stray write could use are read off ``_SEEDING_KEYS``/``_BACKTEST_KEYS``
+    rather than hardcoded, so a renamed prefix cannot silently blind this the
+    way the line-equality exemption it replaces did.
+    """
+    literal_names = {
+        getattr(keys, attr)
+        for keys in (tournament_intake._SEEDING_KEYS, tournament_intake._BACKTEST_KEYS)
+        for attr in _PARKED_ROSTER_ATTRS
+    }
+
+    def is_session_state(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "session_state"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "st"
+        )
+
+    def target_matches(target: ast.AST) -> bool:
+        if isinstance(target, ast.Subscript):
+            if not is_session_state(target.value):
+                return False
+            key = target.slice
+            if isinstance(key, ast.Attribute) and key.attr in _PARKED_ROSTER_ATTRS:
+                return True
+            return isinstance(key, ast.Constant) and key.value in literal_names
+        if isinstance(target, ast.Attribute):
+            return is_session_state(target.value) and target.attr in literal_names
+        return False
+
+    writers: set[str] = set()
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self._stack: list[str] = []
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._stack.append(node.name)
+            self.generic_visit(node)
+            self._stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            if any(target_matches(target) for target in node.targets):
+                writers.add(self._stack[-1] if self._stack else "<module>")
+            self.generic_visit(node)
+
+    _Visitor().visit(ast.parse(source))
+    return writers
+
+
 def test_every_parked_roster_write_goes_through_the_helper():
     """Derived, so a new writer that forgets the event id is caught here.
 
@@ -2084,22 +2149,50 @@ def test_every_parked_roster_write_goes_through_the_helper():
     gate then reads an event id belonging to a roster that has been replaced.
     """
     source = pathlib.Path(tournament_intake.__file__).read_text(encoding="utf-8")
-    assignments = [
-        line.strip()
-        for line in source.splitlines()
-        if "_seeding_result" in line and "=" in line.split("_seeding_result")[1][:3]
-    ]
-    stray = [
-        line
-        for line in assignments
-        if "st.session_state._seeding_result" in line
-        and "setdefault" not in line
-        and line != "st.session_state._seeding_result = pair"  # the helper's own write
-    ]
 
-    assert stray == [], (
+    writers = _parked_roster_writer_names(source)
+
+    assert writers == {"_park_seeding_result"}, (
         "write the parked roster through _park_seeding_result so the event id "
-        f"cannot drift from it: {stray}"
+        f"cannot drift from it: {sorted(writers)}"
+    )
+
+
+def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
+    """The property this task exists to deliver: `keys` actually reaches every write.
+
+    Every other test in this file drives the Seeding default, where every
+    derived name equals the old literal — they would pass identically if
+    `keys` were ignored inside `_park_event_roster`'s body entirely. This
+    drives the other prefix and checks both directions: the backtest keys
+    land with the right content, and the seeding keys they must never touch
+    stay unset.
+    """
+    fake_st = _install(app, _FakeSt())
+    roster = _roster(_team(0))
+    expected_parsed, expected_resolved = to_seeding_rows(roster, {}, [])
+    expected_probe = {
+        "url": EVENT_URL,
+        "limit_groups": None,
+        "divisions_found": roster.divisions_found,
+        "divisions_walked": roster.divisions_walked,
+        "teams": len(roster.teams),
+        "linked": sum(1 for team in roster.teams if team.provider_team_id),
+        "complete": roster.is_complete,
+    }
+
+    tournament_intake._park_event_roster(
+        EVENT_URL, roster, None, None, keys=tournament_intake._BACKTEST_KEYS
+    )
+
+    assert fake_st.session_state["_backtest_result"] == (expected_parsed, expected_resolved)
+    assert fake_st.session_state["_backtest_event_probe"] == expected_probe
+    assert fake_st.session_state["_backtest_structure"] == roster.divisions
+    assert fake_st.session_state.get("_seeding_result") is None, (
+        "a backtest-keyed walk must not touch the seeding view's parked result"
+    )
+    assert fake_st.session_state.get("_seeding_event_probe") is None, (
+        "a backtest-keyed walk must not touch the seeding view's probe counters"
     )
 
 
@@ -2168,3 +2261,84 @@ def test_the_parked_roster_is_written_before_the_event_it_names(app):
 
     written = [key for key in fake_st.session_state.writes() if key.startswith("_seeding_result")]
     assert written == ["_seeding_result", "_seeding_result_event_id"]
+
+
+def test_recovery_file_carries_the_walked_structure(tmp_path, monkeypatch):
+    import tournament_intake
+
+    monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    division = ScrapedDivision(
+        group_id="501350",
+        division_label="U13 Boys Red",
+        pools=(Pool(pool_id="501350", label="Bracket A", members=(
+            PoolMember(registration_id="1", team_name="One", standings_position=1),
+        )),),
+        fixtures=(Fixture(
+            match_number="56", bracket_label="Final", kind="bracket",
+            home_registration_id="1", away_registration_id="2",
+            home_score=3, away_score=4, kickoff="", location="",
+        ),),
+        pools_readable=True,
+        fixtures_readable=True,
+        warnings=(),
+    )
+    roster = EventRoster(
+        event_id="51783",
+        teams=(),
+        warnings=(),
+        divisions_found=1,
+        divisions_walked=1,
+        divisions=(division,),
+    )
+
+    tournament_intake._write_event_roster_recovery(roster)
+    recovered, _limit = tournament_intake._recovered_walk("51783")
+
+    assert recovered.divisions == (division,)
+
+
+def test_a_malformed_division_refuses_the_whole_recovery(tmp_path, monkeypatch):
+    import json
+
+    import tournament_intake
+
+    monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    roster = EventRoster(
+        event_id="51783", teams=(), warnings=(),
+        divisions_found=0, divisions_walked=0,
+    )
+    tournament_intake._write_event_roster_recovery(roster)
+    path = tournament_intake._event_recovery_path("51783")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["divisions"] = [{"group_id": "1"}]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert tournament_intake._recovered_walk("51783") is None
+
+
+def test_walk_keys_never_collide_between_the_two_views():
+    from tournament_intake import _BACKTEST_KEYS, _SEEDING_KEYS, _WalkKeys
+
+    fields = ("result", "result_event_id", "overrides", "sheet_html", "probe",
+              "resolution_failed", "lock_key", "loaded_slug", "structure")
+    seeding = {getattr(_SEEDING_KEYS, field) for field in fields}
+    backtest = {getattr(_BACKTEST_KEYS, field) for field in fields}
+
+    assert len(seeding) == len(fields)
+    assert seeding.isdisjoint(backtest)
+    assert isinstance(_WalkKeys("_x").result, str)
+
+
+def test_the_seeding_view_keeps_the_session_key_names_it_already_used():
+    """These names are load-bearing: `_init_session_state` seeds them and the
+    Seeding tab reads them directly."""
+    from tournament_intake import _SEEDING_KEYS
+
+    assert _SEEDING_KEYS.result == "_seeding_result"
+    assert _SEEDING_KEYS.result_event_id == "_seeding_result_event_id"
+    assert _SEEDING_KEYS.overrides == "_seeding_overrides"
+    assert _SEEDING_KEYS.sheet_html == "_seeding_sheet_html"
+    assert _SEEDING_KEYS.probe == "_seeding_event_probe"
+    assert _SEEDING_KEYS.resolution_failed == "_seeding_resolution_failed"
+    assert _SEEDING_KEYS.lock_key == "_seeding_scrape_lock_key"
+    assert _SEEDING_KEYS.loaded_slug == "_seeding_loaded_slug"

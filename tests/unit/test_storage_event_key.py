@@ -15,6 +15,7 @@ import pytest
 from src.tournaments.storage.event_key import (
     derive_season_year,
     event_key,
+    existing_event_key,
     parse_event_key,
     rekey_unknown_directories,
     run_dir,
@@ -324,3 +325,58 @@ def test_event_dir_rejects_pre_formed_traversal_key():
         event_dir("..")
     with pytest.raises(ValueError, match="event_key"):
         event_dir("a/b")
+
+
+# -------- existing_event_key -----------------------------------------
+
+
+def test_existing_event_key_reuses_a_season_stamped_directory(tmp_path):
+    """The rekey migration renames ``__unknown/`` out from under a writer that
+    composes the key itself. A new artifact must land in the directory that
+    exists, beside the intake artifacts it claims to sit with."""
+    (tmp_path / "gotsport__51783__2026" / "intake").mkdir(parents=True)
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__2026"
+
+
+def test_existing_event_key_falls_back_to_unknown_for_a_fresh_event(tmp_path):
+    (tmp_path / "gotsport__44692__2025" / "intake").mkdir(parents=True)
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__unknown"
+
+
+def test_existing_event_key_falls_back_when_the_reports_root_does_not_exist(tmp_path):
+    assert (
+        existing_event_key("gotsport", "51783", base_dir=tmp_path / "nope")
+        == "gotsport__51783__unknown"
+    )
+
+
+def test_existing_event_key_reuses_an_unmigrated_unknown_directory(tmp_path):
+    (tmp_path / "gotsport__51783__unknown" / "intake").mkdir(parents=True)
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__unknown"
+
+
+def test_existing_event_key_prefers_the_stamped_directory_over_a_leftover_unknown(tmp_path):
+    """A partial migration can leave both. The season-stamped one is where the
+    metadata and the rest of the intake tier live."""
+    (tmp_path / "gotsport__51783__unknown" / "intake").mkdir(parents=True)
+    (tmp_path / "gotsport__51783__2026" / "intake").mkdir(parents=True)
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__2026"
+
+
+def test_existing_event_key_ignores_files_and_unparseable_directory_names(tmp_path):
+    (tmp_path / "seeding").mkdir()
+    (tmp_path / "system_scorecard.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "gotsport__51783__2026").write_text("not a directory", encoding="utf-8")
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__unknown"
+
+
+def test_existing_event_key_does_not_confuse_another_provider_or_event(tmp_path):
+    (tmp_path / "tgs__51783__2026").mkdir()
+    (tmp_path / "gotsport__517830__2026").mkdir()
+
+    assert existing_event_key("gotsport", "51783", base_dir=tmp_path) == "gotsport__51783__unknown"

@@ -17,7 +17,7 @@ import re
 import sys
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,7 @@ from src.scrapers.provider import (
     UnsupportedProviderError,
     get_provider_scraper,
 )
+from src.tournaments.backtest_event_intake import render_backtest_event_intake
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_roster_intake import (
     needs_name_lookup,
@@ -61,6 +62,7 @@ from src.tournaments.gotsport_event_roster import (
     redact_secret,
     scrape_event_roster,
 )
+from src.tournaments.gotsport_event_structure import ScrapedDivision
 from src.tournaments.reports import (
     ReportCardError,
     render_html,
@@ -157,6 +159,7 @@ from src.tournaments.storage import (
     run_dir as _run_dir,
 )
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
+from src.tournaments.storage.event_structure import division_from_dict
 from src.tournaments.triage import (
     _STRENGTH_MODES,
     SOURCE_EXPLICIT,
@@ -566,6 +569,16 @@ def _init_session_state() -> None:
     st.session_state.setdefault("_seeding_result_event_id", None)
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
+    # The Backtest view's own paid walk (Task 8) drives the same _WalkKeys-keyed
+    # machinery as Seeding, under _BACKTEST_KEYS instead. Seeded by property
+    # rather than by hand-typed string so this cannot drift from the names
+    # _WalkKeys actually derives. Without this, `st.session_state[_BACKTEST_KEYS.overrides]`
+    # and the write into it in `_render_seeding_override` would depend on a walk
+    # having already run first to create the entry as a side effect.
+    st.session_state.setdefault(_BACKTEST_KEYS.result, None)
+    st.session_state.setdefault(_BACKTEST_KEYS.result_event_id, None)
+    st.session_state.setdefault(_BACKTEST_KEYS.overrides, {})
+    st.session_state.setdefault(_BACKTEST_KEYS.sheet_html, None)
 
 
 def _render_rekey_banner() -> None:
@@ -3468,6 +3481,62 @@ def _render_cohort_containers(
 
 _VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
 
+
+@dataclass(frozen=True)
+class _WalkKeys:
+    """Session-state key names for one view's paid event walk.
+
+    Both views run the same walk with the same protections — a cross-tab lock, a
+    recovery file written before anything interruptible, a probe that must price
+    the event before the full-walk button unlocks. Only the session entries
+    differ, so they are the parameter and the logic stays single. Two copies of
+    those protections would drift, and the one that drifts costs a paid walk.
+    """
+
+    prefix: str
+
+    @property
+    def result(self) -> str:
+        return f"{self.prefix}_result"
+
+    @property
+    def result_event_id(self) -> str:
+        return f"{self.prefix}_result_event_id"
+
+    @property
+    def overrides(self) -> str:
+        return f"{self.prefix}_overrides"
+
+    @property
+    def sheet_html(self) -> str:
+        return f"{self.prefix}_sheet_html"
+
+    @property
+    def probe(self) -> str:
+        return f"{self.prefix}_event_probe"
+
+    @property
+    def resolution_failed(self) -> str:
+        return f"{self.prefix}_resolution_failed"
+
+    @property
+    def lock_key(self) -> str:
+        return f"{self.prefix}_scrape_lock_key"
+
+    @property
+    def loaded_slug(self) -> str:
+        return f"{self.prefix}_loaded_slug"
+
+    @property
+    def structure(self) -> str:
+        """The walked divisions' structure. New in this change; the Seeding view
+        parks it too and simply does not read it."""
+        return f"{self.prefix}_structure"
+
+
+_SEEDING_KEYS = _WalkKeys("_seeding")
+_BACKTEST_KEYS = _WalkKeys("_backtest")
+
 _SEEDING_LOOKUP_DELAY_SECONDS = 0.4
 
 _SEEDING_STATUS_LABEL = {
@@ -3587,7 +3656,13 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     _park_seeding_result((parsed, resolved), event_id=None)
 
 
-def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: int | None) -> None:
+def _run_event_roster_scrape(
+    url: str,
+    supabase_client: Any,
+    *,
+    limit_groups: int | None,
+    keys: _WalkKeys = _SEEDING_KEYS,
+) -> None:
     """Walk a GotSport event and park its teams as this tab's result.
 
     The walk is the only part that costs money, so everything after it is
@@ -3619,7 +3694,7 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
     lock_key = event_key("gotsport", event_id, None)
     try:
         with _acquire_scrape_lock(lock_key):
-            st.session_state._seeding_scrape_lock_key = lock_key
+            st.session_state[keys.lock_key] = lock_key
             st.session_state._scrape_in_progress = True
             try:
                 with st.spinner("Walking the event..."):
@@ -3630,10 +3705,10 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
                         max_workers=_SEEDING_EVENT_WORKERS,
                         wanted_cohorts=_RANKED_COHORTS,
                     )
-                    parked = _park_event_roster(url, roster, limit_groups, supabase_client)
+                    parked = _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
             finally:
                 st.session_state._scrape_in_progress = False
-                st.session_state._seeding_scrape_lock_key = None
+                st.session_state[keys.lock_key] = None
     except _ScrapeLockContended:
         st.error("This event is already being scraped in another tab — wait for it to finish and reload.")
         return
@@ -3651,8 +3726,8 @@ def _run_event_roster_scrape(url: str, supabase_client: Any, *, limit_groups: in
         st.warning(f"Event {event_id} published no teams in the divisions that were walked.")
         st.rerun()
 
-    parsed, resolved = st.session_state._seeding_result
-    _run_seeding_name_lookup(parsed, resolved, supabase_client)
+    parsed, resolved = st.session_state[keys.result]
+    _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
     # The gate, the price and the retry button were all drawn from session state
     # before this ran, so without a rerun they describe the previous walk — and a
     # full-event button still greyed out invites a second paid probe.
@@ -3664,6 +3739,8 @@ def _park_event_roster(
     roster: EventRoster,
     limit_groups: int | None,
     supabase_client: Any,
+    *,
+    keys: _WalkKeys = _SEEDING_KEYS,
 ) -> int:
     """Keep the walk's result, and return how many rows it holds.
 
@@ -3691,7 +3768,7 @@ def _park_event_roster(
     )
     parsed, resolved = to_seeding_rows(roster, master_ids, resolve_warnings)
 
-    st.session_state._seeding_event_probe = {
+    st.session_state[keys.probe] = {
         "url": url,
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
@@ -3702,28 +3779,32 @@ def _park_event_roster(
         # still has more to fetch, so having teams is not the same as being done.
         "complete": roster.is_complete,
     }
-    # Not `_seeding_loaded_slug`: that is what stops the resume selector from
+    # Parked alongside the counters, before the roster: both describe the same
+    # walk, so a stop landing between them must not leave one view's structure
+    # sitting against another walk's teams.
+    st.session_state[keys.structure] = roster.divisions
+    # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
-    st.session_state._seeding_overrides = {}
-    st.session_state._seeding_sheet_html = None
+    st.session_state[keys.overrides] = {}
+    st.session_state[keys.sheet_html] = None
 
     if not roster.teams:
         # The probe above now describes this event while the table would still
         # hold the last one's teams, and an operator could save or queue those
         # under this event's name.
-        _park_seeding_result(None, event_id=None)
-        st.session_state._seeding_resolution_failed = False
+        _park_seeding_result(None, event_id=None, keys=keys)
+        st.session_state[keys.resolution_failed] = False
         return 0
 
-    _park_seeding_result((parsed, resolved), event_id=roster.event_id)
+    _park_seeding_result((parsed, resolved), event_id=roster.event_id, keys=keys)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
-    st.session_state._seeding_resolution_failed = True
+    st.session_state[keys.resolution_failed] = True
     return len(parsed.rows)
 
 
-def _scrape_still_running() -> bool:
+def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
     """Is the walk that set the in-progress flag still holding its lock?
 
     Streamlit's default ``fastReruns`` stops the running script the moment the
@@ -3735,12 +3816,24 @@ def _scrape_still_running() -> bool:
     disables this whole tab until the session is thrown away.
 
     The lock key lives in its own session entry rather than in the flag.
-    ``_scrape_in_progress`` is shared with the Backtest surface, which feeds it
-    straight to ``st.text_input(disabled=...)`` — a bool protobuf field that
-    raises ``TypeError`` on a string or ``None`` — so this walk keeps writing the
-    bool that surface expects. A walk of that surface's own leaves no key here
-    and is answered on its flag alone; a seeding walk killed mid-run leaves one,
-    and it is cleared the next time this tab renders rather than on the spot.
+    ``_scrape_in_progress`` is shared across every walk that reaches this
+    function — the legacy Backtest intake's own scrape (``_run_scrape``, which
+    never records a lock key at all) and each view's paid event walk, run
+    through this same ``_run_event_roster_scrape`` under its own ``keys``. All
+    of them feed the flag straight to ``st.text_input(disabled=...)`` — a bool
+    protobuf field that raises ``TypeError`` on a string or ``None`` — so every
+    caller keeps writing the bool the others expect.
+
+    A killed legacy Backtest scrape is always answered on the flag alone: it
+    never wrote a ``keys.lock_key`` under either view's prefix, so there is
+    nothing here to check. A killed paid event walk does leave one — but under
+    its own view's prefix, invisible to a call made with the *other* view's
+    ``keys``. So a Backtest walk killed mid-run greys out the Seeding view's
+    paid buttons, and a Seeding walk killed mid-run greys out Backtest's,
+    until the operator returns to the view that owns the walk — where that
+    view's own call finds its key, confirms the lock is free, and clears the
+    key and the shared flag together, on the spot rather than the next time
+    the *other* tab renders.
 
     Probing takes the lock for real, which is a sub-millisecond window in which a
     *second tab walking this same event* would be told the event is already being
@@ -3749,7 +3842,7 @@ def _scrape_still_running() -> bool:
     """
     if not st.session_state.get("_scrape_in_progress"):
         return False
-    key = st.session_state.get("_seeding_scrape_lock_key")
+    key = st.session_state.get(keys.lock_key)
     if not isinstance(key, str):
         return True
     try:
@@ -3757,7 +3850,7 @@ def _scrape_still_running() -> bool:
             pass
     except _ScrapeLockContended:
         return True
-    st.session_state._seeding_scrape_lock_key = None
+    st.session_state[keys.lock_key] = None
     st.session_state._scrape_in_progress = False
     return False
 
@@ -3805,6 +3898,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
                 "divisions_stable": roster.divisions_stable,
                 "teams_unreadable": roster.teams_unreadable,
                 "warnings": list(roster.warnings),
+                "divisions": [asdict(division) for division in roster.divisions],
                 "teams": [asdict(team) for team in roster.teams],
             },
         )
@@ -3868,6 +3962,8 @@ def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
         return None
     if not isinstance(payload.get("warnings", []), list):
         return None
+    if not isinstance(payload.get("divisions", []), list):
+        return None
     try:
         roster = EventRoster(
             event_id=event_id,
@@ -3878,8 +3974,9 @@ def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
             divisions_unreadable=int(payload.get("divisions_unreadable") or 0),
             divisions_stable=payload.get("divisions_stable") in (None, True),
             teams_unreadable=int(payload.get("teams_unreadable") or 0),
+            divisions=tuple(_recovered_division(item) for item in payload.get("divisions") or ()),
         )
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, KeyError):
         return None
     if bool(payload.get("is_complete")) != roster.is_complete:
         logger.info("Refused %s: its own is_complete disagrees with its counters", event_id)
@@ -3896,10 +3993,24 @@ def _recovered_team(team: Any) -> EventRosterTeam:
     return replace(rebuilt, age_group=age_group, gender=gender)
 
 
+def _recovered_division(payload: Any) -> ScrapedDivision:
+    """One division's structure from the recovery file.
+
+    Raises rather than coerces. ``_recovered_walk`` catches, and refusing the
+    whole payload is right: a walk that comes back missing its structure looks
+    finished, which stops the operator recovering the one that cost money.
+    """
+    if not isinstance(payload, dict):
+        raise TypeError("division payload is not a mapping")
+    return division_from_dict(payload)
+
+
 def _run_seeding_name_lookup(
     parsed: ParsedRoster,
     resolved: Sequence[ResolvedTeam],
     supabase_client: Any,
+    *,
+    keys: _WalkKeys = _SEEDING_KEYS,
 ) -> None:
     """Give the unlinked teams their free name pass, updating the parked result.
 
@@ -3910,7 +4021,7 @@ def _run_seeding_name_lookup(
     """
     indices = needs_name_lookup(parsed, resolved)
     if not indices:
-        st.session_state._seeding_resolution_failed = False
+        st.session_state[keys.resolution_failed] = False
         return
 
     session = requests.Session()
@@ -3928,16 +4039,16 @@ def _run_seeding_name_lookup(
                 delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
             )
     except Exception as exc:  # noqa: BLE001 — the paid roster must outlive any lookup failure
-        st.session_state._seeding_resolution_failed = True
+        st.session_state[keys.resolution_failed] = True
         logger.warning("Seeding name lookup failed: %s", redact_secret(exc, SUPABASE_SERVICE_ROLE_KEY or ""))
         return
     finally:
         session.close()
 
     _park_seeding_result(
-        (parsed, spliced), event_id=st.session_state.get("_seeding_result_event_id")
+        (parsed, spliced), event_id=st.session_state.get(keys.result_event_id), keys=keys
     )
-    st.session_state._seeding_resolution_failed = False
+    st.session_state[keys.resolution_failed] = False
 
 
 # Streamlit renders every message as Markdown, and provider-authored text is
@@ -4011,7 +4122,9 @@ def _seeding_result_frame(
     return pd.DataFrame(records)
 
 
-def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any) -> None:
+def _render_seeding_override(
+    row: Any, item: ResolvedTeam, supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS
+) -> None:
     """One paste box for a team the resolver could not settle.
 
     Accepts a rankings.gotsport.com link, a bare GotSport id, or one of our own
@@ -4028,7 +4141,7 @@ def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any)
 
         pasted = st.text_input(
             "GotSport link, GotSport id, or team_id_master",
-            key=f"_seed_fix_{row.source_index}",
+            key=f"{keys.prefix}_seed_fix_{row.source_index}",
             placeholder="https://rankings.gotsport.com/teams/534748",
         )
         if not pasted:
@@ -4061,12 +4174,17 @@ def _render_seeding_override(row: Any, item: ResolvedTeam, supabase_client: Any)
                 "Check it is the one you meant."
             )
 
-        if st.button("Use this team", key=f"_seed_use_{row.source_index}"):
-            st.session_state._seeding_overrides[row.source_index] = {
+        if st.button("Use this team", key=f"{keys.prefix}_seed_use_{row.source_index}"):
+            st.session_state[keys.overrides][row.source_index] = {
                 "team_id_master": outcome.team_id_master,
                 "team_name": details.get("team_name", ""),
             }
-            _autosave_seeding_run()
+            # `_autosave_seeding_run` saves a *seeding* run specifically — it reads
+            # and writes the hardcoded `_seeding_*` names directly, so calling it
+            # for a Backtest-view override would autosave nothing real and mean
+            # nothing here.
+            if keys is _SEEDING_KEYS:
+                _autosave_seeding_run()
             st.rerun()
 
 
@@ -4264,9 +4382,9 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
                 st.caption(_as_plain_text(failure))
 
 
-def _seeding_event_probe_for(url: str) -> dict[str, Any] | None:
+def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:
     """The last walk's counts, but only while they describe this same URL."""
-    probe = st.session_state.get("_seeding_event_probe") or {}
+    probe = st.session_state.get(keys.probe) or {}
     return probe if probe.get("url") == url and url else None
 
 
@@ -4320,12 +4438,14 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     )
 
 
-def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool) -> None:
+def _render_recovered_walk(
+    url: str, supabase_client: Any, *, in_progress: bool, keys: _WalkKeys = _SEEDING_KEYS
+) -> None:
     """Offer back a walk that was paid for and then lost before it was shown.
 
     Measured against the roster the tab actually holds, not against the probe
     counters beside it. ``_park_event_roster`` writes those counters — already
-    describing the full walk — with two session-state writes in between before it
+    describing the full walk — with three session-state writes in between before it
     reaches the roster, and a stop landing in that gap is exactly the case this exists for:
     the counters would match, the offer would be withheld, and the operator
     would be left with a paid roster on disk, no table and no button.
@@ -4341,7 +4461,7 @@ def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool)
     if recovered is None:
         return
     roster, limit_groups = recovered
-    if len(roster.teams) <= _parked_roster_size(event_id):
+    if len(roster.teams) <= _parked_roster_size(event_id, keys=keys):
         return
 
     st.caption(
@@ -4350,17 +4470,17 @@ def _render_recovered_walk(url: str, supabase_client: Any, *, in_progress: bool)
     )
     reload_clicked = st.button(
         "Load the walk already paid for",
-        key="_seeding_event_reload_walk",
+        key=f"{keys.prefix}_event_reload_walk",
         disabled=in_progress,
     )
     if reload_clicked and not in_progress:
-        _park_event_roster(url, roster, limit_groups, supabase_client)
-        parsed, resolved = st.session_state._seeding_result
-        _run_seeding_name_lookup(parsed, resolved, supabase_client)
+        _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
+        parsed, resolved = st.session_state[keys.result]
+        _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
         st.rerun()
 
 
-def _park_seeding_result(pair: Any, *, event_id: str | None) -> None:
+def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _SEEDING_KEYS) -> None:
     """Park the seeding table's contents, and say which event they came from.
 
     The pair and the event that produced it are written together because the
@@ -4373,19 +4493,19 @@ def _park_seeding_result(pair: Any, *, event_id: str | None) -> None:
     parked" and offers a reload that costs nothing to accept — where the other
     order would claim the new roster for the old event and withhold one.
     """
-    st.session_state._seeding_result = pair
-    st.session_state._seeding_result_event_id = event_id if pair else None
+    st.session_state[keys.result] = pair
+    st.session_state[keys.result_event_id] = event_id if pair else None
 
 
-def _parked_roster_size(event_id: str) -> int:
+def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> int:
     """How many rows the seeding table holds *for this event*, and none for any other."""
-    if st.session_state.get("_seeding_result_event_id") != event_id:
+    if st.session_state.get(keys.result_event_id) != event_id:
         return 0
-    result = st.session_state.get("_seeding_result")
+    result = st.session_state.get(keys.result)
     return len(result[0].rows) if result else 0
 
 
-def _render_seeding_event_scrape(supabase_client: Any) -> None:
+def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
     Two buttons rather than one, because the walk is billed a page at a time and
@@ -4402,14 +4522,14 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
-    in_progress = _scrape_still_running()
+    in_progress = _scrape_still_running(keys=keys)
     url = st.text_input(
         "GotSport event URL",
-        key="seeding_event_url",
+        key=f"{keys.prefix.lstrip('_')}_event_url",
         placeholder="https://system.gotsport.com/org_event/events/52975",
         disabled=in_progress,
     )
-    probe = _seeding_event_probe_for(url) or {}
+    probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
     already_walked = bool(probe.get("complete"))
 
@@ -4419,34 +4539,39 @@ def _render_seeding_event_scrape(supabase_client: Any) -> None:
             "Check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
-            key="_seeding_event_probe_run",
+            key=f"{keys.prefix}_event_probe_run",
             disabled=not url or in_progress or already_walked,
         )
     with right:
         full_clicked = st.button(
             "Scrape the whole event",
-            key="_seeding_event_full_run",
+            key=f"{keys.prefix}_event_full_run",
             disabled=not url or in_progress or not priced or already_walked,
         )
 
     if probe:
         st.caption(_seeding_probe_caption(probe))
-        st.caption("Name this run above and press Save to keep it.")
+        if keys is _SEEDING_KEYS:
+            # The Backtest view has no name box and no Save-run button, so this
+            # would point at controls that are not on the page.
+            st.caption("Name this run above and press Save to keep it.")
 
-    _render_recovered_walk(url, supabase_client, in_progress=in_progress)
+    _render_recovered_walk(url, supabase_client, in_progress=in_progress, keys=keys)
 
-    if st.session_state.get("_seeding_resolution_failed"):
+    if st.session_state.get(keys.resolution_failed):
         st.warning("Name matching did not finish, so some teams may still be linkable.")
-        if st.button("Retry name matching", key="_seeding_retry_lookup"):
-            result = st.session_state.get("_seeding_result")
+        if st.button("Retry name matching", key=f"{keys.prefix}_retry_lookup"):
+            result = st.session_state.get(keys.result)
             if result:
-                _run_seeding_name_lookup(result[0], result[1], supabase_client)
+                _run_seeding_name_lookup(result[0], result[1], supabase_client, keys=keys)
                 st.rerun()
 
     if probe_clicked and not already_walked:
-        _run_event_roster_scrape(url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS)
+        _run_event_roster_scrape(
+            url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
+        )
     elif full_clicked and priced and not already_walked:
-        _run_event_roster_scrape(url, supabase_client, limit_groups=None)
+        _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
     elif probe_clicked or full_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
         # trigger of any button that was enabled when it was clicked. That covers
@@ -4462,6 +4587,34 @@ def _render_seeding_warnings(parsed: ParsedRoster) -> None:
     """Show what the intake could not do, without letting it author the page."""
     for warning in parsed.warnings:
         st.warning(_as_plain_text(warning))
+
+
+def _render_seeding_progress_metrics(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]],
+) -> tuple[dict[int, ResolvedTeam], list[Any]]:
+    """The four-metric row both views show, and who still needs a decision.
+
+    Single source for what counts as outstanding: ``_WalkKeys``'s own docstring
+    warns that two copies of the same protection drift, and a second copy of
+    this comprehension is exactly the shape that would silently disagree with
+    ``_SEEDING_NEEDS_DECISION`` about which teams get an override box.
+    """
+    by_index = {item.source_index: item for item in resolved}
+    outstanding = [
+        row
+        for row in parsed.rows
+        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+    ]
+
+    columns = st.columns(4)
+    columns[0].metric("Teams", len(parsed.rows))
+    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
+    columns[2].metric("You fixed", len(overrides))
+    columns[3].metric("Still open", len(outstanding))
+
+    return by_index, outstanding
 
 
 def _render_seeding_save() -> None:
@@ -4514,18 +4667,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 
     parsed, resolved = result
     overrides = st.session_state._seeding_overrides
-    by_index = {item.source_index: item for item in resolved}
-    outstanding = [
-        row
-        for row in parsed.rows
-        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
-    ]
-
-    columns = st.columns(4)
-    columns[0].metric("Teams", len(parsed.rows))
-    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
-    columns[2].metric("You fixed", len(overrides))
-    columns[3].metric("Still open", len(outstanding))
+    by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
 
     counts = summarize(resolved)
     st.caption(
@@ -4569,6 +4711,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 def _render_backtest_tab(supabase_client: Any) -> None:
     """Scrape-and-triage flow for a tournament that has already been played."""
     _render_intake_section(supabase_client)
+    render_backtest_event_intake(supabase_client)
     _render_registry_persist_results()
 
     key = st.session_state.event_key

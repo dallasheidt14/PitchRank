@@ -43,6 +43,7 @@ from bs4 import BeautifulSoup
 
 from config.settings import AGE_GROUPS
 from src.scrapers._age_normalization import normalize_age
+from src.tournaments.gotsport_event_structure import ScrapedDivision, parse_division_structure
 from src.utils.team_utils import calculate_age_group_from_birth_year
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,9 @@ class EventRoster:
     divisions_skipped: int = 0
     divisions_stable: bool = True
     teams_unreadable: int = 0
+    divisions: tuple[ScrapedDivision, ...] = ()
+    """Per-division structure, for the divisions this walk kept. Additive: every
+    counter and ``is_complete`` ignore it."""
 
     @property
     def is_complete(self) -> bool:
@@ -831,6 +835,15 @@ def scrape_event_roster(
         if not division.age_group:
             named = division.label or f"group {division.group_id}"
             warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
+    # Structure warnings deliberately stay out of `warnings`. They travel on
+    # each division's own `structure.warnings`, and the Backtest view reads them
+    # from there. The Seeding tab renders `roster.warnings` as one yellow box
+    # per entry under a cap of ten: a not-yet-played event has no standings and
+    # no fixture table, so every division would contribute two boxes saying its
+    # pools and games could not be read — true, expected, irrelevant to seeding,
+    # and read by an operator as "the walk failed". They would also arrive
+    # before the per-team fetch failures below and win the cap, inverting the
+    # ordering `_warnings` exists to guarantee.
     pending = [(division, entry) for division in divisions for entry in division.teams]
     outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, on_progress)
 
@@ -865,6 +878,7 @@ def scrape_event_roster(
         divisions_skipped=len(skipped),
         divisions_stable=stable,
         teams_unreadable=unreadable,
+        divisions=tuple(division.structure for division in divisions),
     )
 
 
@@ -875,6 +889,7 @@ class _Division:
     age_group: str
     gender: str
     teams: tuple[tuple[str, str], ...]
+    structure: ScrapedDivision
 
 
 def _read_group_ids(
@@ -967,6 +982,9 @@ def _read_divisions(
                 age_group=age_group,
                 gender=gender,
                 teams=teams,
+                structure=parse_division_structure(
+                    group_id=group_id, division_label=label, html=group_html
+                ),
             )
         )
     return divisions, unreadable
