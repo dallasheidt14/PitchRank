@@ -835,8 +835,15 @@ def scrape_event_roster(
         if not division.age_group:
             named = division.label or f"group {division.group_id}"
             warnings.append(f"Division {named} names no single board; teams kept, cohort unset")
-    for division in divisions:
-        warnings.extend(division.structure.warnings)
+    # Structure warnings deliberately stay out of `warnings`. They travel on
+    # each division's own `structure.warnings`, and the Backtest view reads them
+    # from there. The Seeding tab renders `roster.warnings` as one yellow box
+    # per entry under a cap of ten: a not-yet-played event has no standings and
+    # no fixture table, so every division would contribute two boxes saying its
+    # pools and games could not be read — true, expected, irrelevant to seeding,
+    # and read by an operator as "the walk failed". They would also arrive
+    # before the per-team fetch failures below and win the cap, inverting the
+    # ordering `_warnings` exists to guarantee.
     pending = [(division, entry) for division in divisions for entry in division.teams]
     outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, on_progress)
 

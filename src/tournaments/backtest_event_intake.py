@@ -100,7 +100,7 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     import streamlit as st
 
     from src.tournaments.storage._io import utc_now_iso
-    from src.tournaments.storage.event_key import event_key
+    from src.tournaments.storage.event_key import existing_event_key
     from src.tournaments.storage.event_structure import (
         EventStructure,
         StructureOverwriteRefused,
@@ -145,7 +145,11 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
                 "above rather than dropped, and their pools are not guessed from the games."
             )
             for row in unreadable:
-                st.caption(_as_plain_text(f"{row['division']}: {row['note']}"))
+                # The note already leads with the division name — both the
+                # warnings `parse_division_structure` writes and the fallback
+                # `summarize_structure` supplies — so prefixing it again reads
+                # "U13 Boys Red: Division U13 Boys Red: no standings table…".
+                st.caption(_as_plain_text(row["note"]))
 
     overrides = st.session_state[_BACKTEST_KEYS.overrides]
     st.markdown("#### Teams matched to your database")
@@ -159,7 +163,15 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
     if not event_id or not divisions:
         return
     if st.button("Save this event's structure", key="_backtest_save_structure"):
-        structure_key = event_key("gotsport", event_id, None)
+        # The event's artifacts may already live under a season-stamped key:
+        # `rekey_unknown_directories` renames `…__unknown/` the moment metadata
+        # makes the season derivable, and `tournament_intake` runs it once per
+        # session. Composing the `__unknown` form unconditionally would file
+        # this next to nothing — a fresh directory with no `event_metadata.json`,
+        # reported as "pending metadata" by the startup banner forever, invisible
+        # to any reader looking beside `raw_scrape.jsonl`, and outside the reach
+        # of the overwrite guard once the real directory is stamped.
+        structure_key = existing_event_key("gotsport", event_id)
         try:
             write_event_structure(
                 structure_key,

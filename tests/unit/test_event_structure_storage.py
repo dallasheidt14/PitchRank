@@ -160,3 +160,22 @@ def test_a_partial_write_refuses_to_replace_a_complete_structure(tmp_path):
         write_event_structure("gotsport__51783__2026", partial, base_dir=tmp_path)
 
     assert read_event_structure("gotsport__51783__2026", base_dir=tmp_path) == _structure()
+
+
+def test_a_complete_walk_may_replace_a_complete_one(tmp_path):
+    """The other half of the guard, which no other test exercises.
+
+    Only `is_complete=False` landing on a complete file is refused. Without
+    this, dropping the `not structure.is_complete and` conjunct leaves the
+    suite green while the writer permanently refuses every re-walk — the
+    operator who paid to walk an event again, because its structure came back
+    wrong, could never save the corrected one.
+    """
+    write_event_structure("gotsport__51783__2026", _structure(), base_dir=tmp_path)
+
+    rewalked = replace(_structure(), walked_at="2026-09-11T00:00:00+00:00")
+    write_event_structure("gotsport__51783__2026", rewalked, base_dir=tmp_path)
+
+    on_disk = read_event_structure("gotsport__51783__2026", base_dir=tmp_path)
+    assert on_disk.walked_at == "2026-09-11T00:00:00+00:00"
+    assert on_disk == rewalked

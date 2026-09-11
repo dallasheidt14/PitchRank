@@ -2059,6 +2059,36 @@ def test_scrape_event_roster_returns_each_kept_division_s_structure():
     assert sum(1 for f in structure.fixtures if f.kind == "bracket") == 4
 
 
+def test_structure_warnings_stay_off_the_shared_roster_warnings():
+    """A seeding-shaped page has no standings table and no fixture table, so
+    every division contributes two structure warnings. The Seeding tab renders
+    ``roster.warnings`` as one yellow box each under a cap of ten, so leaking
+    them there tells the operator the walk failed and starves the cap of the
+    per-team failures that name a broken collaborator.
+    """
+    landing = '<a href="/org_event/events/1/schedules?group=501350">U13 Boys Red</a>'
+    # A bare "Team" column: teams are readable, pools and fixtures are not.
+    division = (
+        "<html><body><table>"
+        "<tr><th>Team</th></tr>"
+        '<tr><td><a href="/teams/?team=900">Rush 13B</a></td></tr>'
+        "</table></body></html>"
+    )
+
+    def fetch(url: str) -> str:
+        if "schedules?group=" in url:
+            return division
+        if "/teams/" in url or "team=" in url:
+            return "<html></html>"
+        return landing
+
+    roster = scrape_event_roster("1", fetch=fetch)
+
+    structure_warnings = roster.divisions[0].warnings
+    assert len(structure_warnings) == 2, structure_warnings
+    assert not any(warning in roster.warnings for warning in structure_warnings)
+
+
 def test_scrape_event_roster_reports_no_structure_for_a_division_it_skipped():
     landing = '<a href="/org_event/events/1/schedules?group=501350">any text</a>'
     division = _html_fixture("event_42433__group_365847.html")

@@ -113,21 +113,28 @@ def _pool_id(table) -> str:
 
 
 def parse_pools(html: str) -> tuple[Pool, ...]:
-    """Every standings table on the page, in page order, with its members."""
+    """Every standings table on the page, in page order, with its members.
+
+    Scans every row for the heading row rather than reading ``rows[0]`` alone,
+    mirroring ``parse_fixtures`` and both ``*_table_found`` detectors. A title or
+    spacer row above the headings is otherwise enough to skip the whole table
+    while ``standings_table_found`` — which does scan — still reports ``True``,
+    and the division then claims ``pools_readable=True`` with no pools: a
+    confident "publishes no pools yet" about pools that were actually lost.
+    """
     soup = BeautifulSoup(html or "", "html.parser")
     pools: list[Pool] = []
     for table in soup.find_all("table"):
-        rows = table.find_all("tr")
-        if not rows:
-            continue
-        headings = [_squashed(cell.get_text(" ")) for cell in rows[0].find_all(["td", "th"])]
-        column = _standings_column(headings)
-        if column is None:
-            continue
+        column: int | None = None
         members: list[PoolMember] = []
-        for row in rows[1:]:
+        for row in table.find_all("tr"):
             cells = row.find_all(["td", "th"])
-            if column >= len(cells):
+            headings = [_squashed(cell.get_text(" ")) for cell in cells]
+            found = _standings_column(headings)
+            if found is not None:
+                column = found
+                continue
+            if column is None or column >= len(cells):
                 continue
             registration_id = _first_team_id(cells[column])
             team_name = _plain(cells[column].get_text(" "))
@@ -140,6 +147,8 @@ def parse_pools(html: str) -> tuple[Pool, ...]:
                     standings_position=len(members) + 1,
                 )
             )
+        if column is None:
+            continue
         pools.append(
             Pool(pool_id=_pool_id(table), label=_pool_label(table), members=tuple(members))
         )

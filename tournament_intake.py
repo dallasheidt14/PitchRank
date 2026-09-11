@@ -4551,7 +4551,10 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
 
     if probe:
         st.caption(_seeding_probe_caption(probe))
-        st.caption("Name this run above and press Save to keep it.")
+        if keys is _SEEDING_KEYS:
+            # The Backtest view has no name box and no Save-run button, so this
+            # would point at controls that are not on the page.
+            st.caption("Name this run above and press Save to keep it.")
 
     _render_recovered_walk(url, supabase_client, in_progress=in_progress, keys=keys)
 

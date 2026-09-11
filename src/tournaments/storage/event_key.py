@@ -34,6 +34,7 @@ __all__ = [
     "derive_season_year",
     "event_dir",
     "event_key",
+    "existing_event_key",
     "intake_dir",
     "parse_event_key",
     "rekey_unknown_directories",
@@ -143,6 +144,53 @@ def parse_event_key(key: str) -> tuple[str, str, int | None]:
     if season_year < _MIN_SEASON_YEAR:
         raise ValueError(f"event_key season_year must be >= {_MIN_SEASON_YEAR}, got {season_year}")
     return provider_code, provider_event_id, season_year
+
+
+def existing_event_key(
+    provider_code: str,
+    provider_event_id: str,
+    *,
+    base_dir: Path | str = "reports",
+) -> str:
+    """The key of the directory this event's artifacts already live in.
+
+    An event's key is not stable over its lifetime. It starts as the
+    ``__unknown`` form and ``rekey_unknown_directories`` — which
+    ``tournament_intake`` runs once per session — ``os.replace``s the directory
+    to the season-stamped name as soon as ``event_metadata.json`` makes the
+    season derivable. So a writer that composes ``event_key(provider, id, None)``
+    unconditionally files beside nothing: it creates a fresh ``__unknown``
+    directory holding one artifact and no metadata, which the startup banner
+    then reports as "pending metadata" forever, and which every reader looking
+    in the season-stamped directory fails to find.
+
+    Resolve the directory that exists instead, whatever its season stamp, and
+    fall back to the ``__unknown`` form only when this event has no directory at
+    all. A season-stamped directory wins over an ``__unknown`` one left behind
+    by a partial migration; several season-stamped ones (which the rekey
+    migration cannot produce, since it refuses an existing destination) resolve
+    to the latest season, deterministically rather than by iteration order.
+    """
+    _validate_segment(provider_code, label="provider_code")
+    _validate_segment(provider_event_id, label="provider_event_id")
+    fallback = event_key(provider_code, provider_event_id, None)
+
+    root = reports_dir(base_dir)
+    if not root.is_dir():
+        return fallback
+
+    seasons: list[int] = []
+    for entry in root.iterdir():
+        if not entry.is_dir():
+            continue
+        try:
+            found_provider, found_event_id, season = parse_event_key(entry.name)
+        except ValueError:
+            continue
+        if found_provider == provider_code and found_event_id == provider_event_id and season is not None:
+            seasons.append(season)
+
+    return event_key(provider_code, provider_event_id, max(seasons)) if seasons else fallback
 
 
 def reports_dir(base_dir: Path | str = "reports") -> Path:

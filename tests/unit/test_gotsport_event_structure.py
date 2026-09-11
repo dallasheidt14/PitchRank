@@ -53,6 +53,26 @@ def test_parse_pools_returns_nothing_when_there_is_no_standings_table():
     assert parse_pools("<html><body><p>no tables here</p></body></html>") == ()
 
 
+def test_parse_pools_finds_a_heading_row_a_title_row_pushed_down():
+    """``standings_table_found`` scans every row, so reading only ``rows[0]``
+    here would report ``pools_readable=True`` with no pools — "publishes no
+    pools yet" said confidently about pools that were actually lost."""
+    html = """
+    <table>
+      <tr><td colspan="3">Bracket A Standings</td></tr>
+      <tr><th>Team</th><th>PTS</th></tr>
+      <tr><td><a href="/x?team=111">Home FC</a></td><td>9</td></tr>
+      <tr><td><a href="/x?team=222">Away FC</a></td><td>6</td></tr>
+    </table>
+    """
+    pools = parse_pools(html)
+
+    assert standings_table_found(html) is True
+    assert len(pools) == 1
+    assert [member.registration_id for member in pools[0].members] == ["111", "222"]
+    assert [member.standings_position for member in pools[0].members] == [1, 2]
+
+
 def test_standings_table_found_separates_an_empty_pool_from_unreadable_markup():
     assert standings_table_found(_html("event_42433__group_365847.html")) is True
     assert standings_table_found("<html><body><table></table></body></html>") is False
@@ -164,6 +184,10 @@ def test_every_real_page_yields_readable_pools_and_fixtures():
         assert structure.pools_readable, path.name
         assert structure.fixtures_readable, path.name
         assert structure.pools, path.name
+        # Without this, a regression in the fixture row loop yields zero
+        # fixtures on all 39 pages and both golden tests stay green —
+        # `_kinds()["unknown"] == 0` is true of an empty tuple.
+        assert structure.fixtures, path.name
 
 
 def test_no_real_page_leaves_a_fixture_unclassified():

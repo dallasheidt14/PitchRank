@@ -67,6 +67,19 @@ def test_summarize_reports_an_unreadable_division_as_unreadable_not_absent():
     assert row["note"] != ""
 
 
+def test_a_division_whose_fixtures_could_not_be_read_is_not_readable():
+    """The other half of `readable`, which every other fixture here leaves True.
+
+    Without this, narrowing `readable` to `division.pools_readable` alone keeps
+    the suite green while a division whose fixture table could not be read drops
+    out of the "could not be read in full" warning entirely — the operator is
+    told its games were captured when they were not.
+    """
+    row = summarize_structure([_division(fixtures_readable=False, pools_readable=True)])[0]
+
+    assert row["readable"] is False
+
+
 def test_summarize_never_drops_a_division():
     rows = summarize_structure([_division(), _division(pools_readable=False, pools=())])
 
@@ -214,6 +227,14 @@ def test_no_module_on_this_path_calls_a_write_method(relative):
 def test_the_double_itself_fails_on_a_write():
     """Without this the two tests above could pass against a permissive double."""
     client = _RefusesWrites()
+
+    # Pin where the double records. A builder that is constructed and dropped
+    # has issued no PostgREST request, so a double that logged at `table()` or
+    # `rpc()` would report a write for a caller that never executed one — and
+    # `test_matching_a_walked_roster_executes_no_write` asserts on that log.
+    client.table("teams").insert({"a": 1})
+    client.rpc("enqueue_scrape_request", {})
+    assert client.executed == []
 
     with pytest.raises(AssertionError):
         client.table("teams").insert({"a": 1}).execute()

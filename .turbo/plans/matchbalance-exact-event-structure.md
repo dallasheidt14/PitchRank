@@ -897,18 +897,29 @@ In `_read_divisions`, build it from the HTML already in hand and pass it in:
         )
 ```
 
-In `scrape_event_roster`, after `_wanted_divisions` has filtered and before the return, collect the structure warnings and pass the structures through:
-
-```python
-    for division in divisions:
-        warnings.extend(division.structure.warnings)
-```
-
-Place that loop immediately after the existing `if not division.age_group:` loop, then add to the `EventRoster(...)` construction:
+In `scrape_event_roster`, after `_wanted_divisions` has filtered and before the return, pass the structures through by adding to the `EventRoster(...)` construction:
 
 ```python
         divisions=tuple(division.structure for division in divisions),
 ```
+
+**Do not copy the structure warnings into `roster.warnings`.** An earlier draft of
+this step instructed `warnings.extend(division.structure.warnings)`, which
+contradicts the Global Constraint above ("`teams`, `warnings`, all counters and
+`is_complete` are untouched") and spec §5, and regresses the live Seeding tab:
+`roster.warnings` reaches `ParsedRoster.warnings` through
+`event_roster_intake._warnings`, which the Seeding tab renders as one
+`st.warning()` box per entry under `_WARNING_CAP = 10`. A not-yet-played event —
+the only kind the Seeding tab is for — has no standings table and no fixture
+table, so every division contributes two warnings; a 12-division walk produced
+24 of them and 11 yellow boxes. They also land ahead of the per-team fetch
+failures appended later in the function and win the cap, inverting the ordering
+`_warnings` documents as its purpose.
+
+A structure warning belongs to the view that consumes the structure. It travels
+on `division.structure.warnings`, and Task 8's `summarize_structure` reads
+`division.warnings` straight into its `note` column and its unreadable-division
+captions, so the Backtest view still delivers every one of these messages.
 
 - [ ] **Step 4: Run the walker's whole suite**
 
