@@ -16,6 +16,7 @@ from src.tournaments.backtest_link_store import (
     load_links,
     plan_sync,
     restore_overrides,
+    rows_fingerprint,
     save_links,
 )
 from src.tournaments.roster_paste import RosterRow
@@ -214,20 +215,67 @@ def test_an_override_the_operator_is_already_changing_is_left_alone():
     assert next(link for link in merged.links if link.registration_id == "4383677").team_id_master == "just-picked"
 
 
-def test_a_registration_map_from_a_different_walk_is_refused():
-    """`_park_event_roster` writes the map and the parked result as separate
-    session-state writes, and Streamlit can stop the script between any two of
-    them — leaving this walk's map against the previous walk's rows. Pairing
-    those by position would save a team's link under another team's id."""
+def _parked(rows, by_index):
+    return {"fingerprint": rows_fingerprint(rows), "by_index": by_index}
+
+
+def test_a_registration_map_from_the_same_walk_is_accepted():
     rows = (_row(0, "Aztecas"), _row(1, "City White"))
-    resolved = (
-        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="aaaa-1111"),
-        ResolvedTeam(source_index=1, status="gotsport_id", team_id_master="bbbb-2222"),
+
+    assert generations_agree(rows, _parked(rows, {0: "4411807", 1: "4383677"}))
+
+
+def test_a_map_from_a_walk_that_found_a_different_set_of_teams_is_refused():
+    """`source_index` is assigned as `len(teams)`, so every walk's indexes are
+    0..n-1 and two walks of the same size share an index set no matter how
+    different their teams are. Only the rows themselves separate them."""
+    walked = (_row(0, "Aztecas"), _row(1, "City White"))
+    other = (_row(0, "Someone Else"), _row(1, "A Third Club"))
+
+    assert not generations_agree(other, _parked(walked, {0: "4411807", 1: "4383677"}))
+
+
+def test_a_map_from_a_walk_that_reordered_the_same_teams_is_refused():
+    walked = (_row(0, "Aztecas"), _row(1, "City White"))
+    reordered = (_row(0, "City White"), _row(1, "Aztecas"))
+
+    assert not generations_agree(reordered, _parked(walked, {0: "4411807", 1: "4383677"}))
+
+
+def test_a_map_of_a_different_size_is_refused():
+    walked = (_row(0, "Aztecas"), _row(1, "City White"))
+
+    assert not generations_agree((_row(0, "Aztecas"),), _parked(walked, {0: "4411807", 1: "4383677"}))
+
+
+def test_a_malformed_parked_map_is_refused_rather_than_trusted():
+    rows = (_row(0, "Aztecas"),)
+
+    assert not generations_agree(rows, {})
+    assert not generations_agree(rows, {"by_index": {0: "4411807"}})
+    assert not generations_agree(rows, {"fingerprint": "nope", "by_index": {0: "4411807"}})
+
+
+def test_a_restored_link_is_resolved_through_the_merge_map():
+    """A team merged between sessions leaves the saved id deprecated, and an
+    override both wins over the resolver and hides the row from the outstanding
+    list — so an unresolved id would be re-saved with nothing to notice it."""
+    rows = (_row(0, "San Antonio City SC 12/13 WHITE"),)
+
+    restored = restore_overrides(
+        rows, _links(), {0: "4383677"},
+        resolve_team_id=lambda team_id: "canonical-9999" if team_id == "bbbb-2222" else team_id,
     )
 
-    assert not generations_agree(rows, {0: "4411807"})
-    assert generations_agree(rows, {0: "4411807", 1: "4383677"})
-    assert build_links("51783", rows, resolved, {}, {0: "4411807", 1: "4383677"}).links
+    assert restored[0]["team_id_master"] == "canonical-9999"
+
+
+def test_a_resolver_that_answers_nothing_leaves_the_saved_id_alone():
+    rows = (_row(0, "San Antonio City SC 12/13 WHITE"),)
+
+    restored = restore_overrides(rows, _links(), {0: "4383677"}, resolve_team_id=lambda _t: None)
+
+    assert restored[0]["team_id_master"] == "bbbb-2222"
 
 
 def test_a_failed_replacement_leaves_the_previous_links_intact(tmp_path, monkeypatch):

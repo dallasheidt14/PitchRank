@@ -27,6 +27,7 @@ from src.tournaments.backtest_link_store import (
     generations_agree,
     load_links,
     plan_sync,
+    registration_map,
     save_links,
 )
 from src.tournaments.gotsport_event_structure import (
@@ -104,7 +105,9 @@ def _link_signature(links: Any) -> frozenset[tuple[str, str, str]]:
     )
 
 
-def _sync_links(parsed: Any, resolved: Any, registrations: Any, event_id: str) -> int:
+def _sync_links(
+    parsed: Any, resolved: Any, registrations: Any, event_id: str, supabase_client: Any
+) -> int:
     """Reconcile this render against the event's links file.
 
     Restores the operator fixes this walk is missing, persists the merged set,
@@ -115,7 +118,7 @@ def _sync_links(parsed: Any, resolved: Any, registrations: Any, event_id: str) -
     import streamlit as st
 
     from src.tournaments.storage.event_key import existing_event_key
-    from tournament_intake import _BACKTEST_KEYS
+    from tournament_intake import _BACKTEST_KEYS, _seeding_merge_resolver
 
     if not generations_agree(parsed.rows, registrations):
         # The walk parks the registration map and the result in separate
@@ -127,7 +130,19 @@ def _sync_links(parsed: Any, resolved: Any, registrations: Any, event_id: str) -
     key = existing_event_key("gotsport", event_id)
     saved = load_links(key)
     overrides = st.session_state[_BACKTEST_KEYS.overrides]
-    to_add, merged = plan_sync(saved, parsed.rows, resolved, overrides, registrations, event_id)
+    # A team merged since the fix was saved leaves a deprecated id, and an
+    # override both beats the resolver and hides its row from the outstanding
+    # list — so without this the dead id is re-saved with nothing to notice.
+    resolver = _seeding_merge_resolver(supabase_client)
+    to_add, merged = plan_sync(
+        saved,
+        parsed.rows,
+        resolved,
+        overrides,
+        registration_map(registrations),
+        event_id,
+        resolve_team_id=resolver.resolve,
+    )
     for source_index, link in to_add.items():
         overrides[source_index] = link
     if _link_signature(merged) != _link_signature(saved):
@@ -204,7 +219,7 @@ def render_backtest_event_intake(supabase_client: Any) -> None:
 
     event_id = st.session_state.get(_BACKTEST_KEYS.result_event_id)
     registrations = st.session_state.get(_BACKTEST_KEYS.registrations) or {}
-    carried = _sync_links(parsed, resolved, registrations, event_id) if event_id else 0
+    carried = _sync_links(parsed, resolved, registrations, event_id, supabase_client) if event_id else 0
     if carried:
         st.caption(f"Brought back {carried} link(s) you fixed by hand on an earlier walk.")
 

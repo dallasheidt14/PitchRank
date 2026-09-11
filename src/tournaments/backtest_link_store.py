@@ -19,12 +19,14 @@ two walks an hour apart disagreed by a division.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
@@ -40,6 +42,8 @@ __all__ = [
     "build_links",
     "event_links_path",
     "generations_agree",
+    "registration_map",
+    "rows_fingerprint",
     "load_links",
     "restore_overrides",
     "save_links",
@@ -114,10 +118,20 @@ def merge_links(saved: EventLinks, fresh: EventLinks) -> EventLinks:
     return EventLinks(event_id=fresh.event_id or saved.event_id, links=fresh.links + carried)
 
 
-def generations_agree(
-    rows: Sequence[RosterRow], registration_ids: Mapping[int, str]
-) -> bool:
-    """Do these rows and this registration map come from the same walk?
+def rows_fingerprint(rows: Sequence[RosterRow]) -> str:
+    """Identify one walk's roster by its content, not its length."""
+    joined = "\x1f".join(f"{row.source_index}:{row.team_name_raw}" for row in rows)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def registration_map(parked: Mapping[str, Any]) -> dict[int, str]:
+    """The ``source_index`` to registration-id map inside a parked entry."""
+    by_index = parked.get("by_index") if isinstance(parked, Mapping) else None
+    return dict(by_index) if isinstance(by_index, Mapping) else {}
+
+
+def generations_agree(rows: Sequence[RosterRow], parked: Mapping[str, Any]) -> bool:
+    """Do these rows and this parked registration map come from the same walk?
 
     ``_park_event_roster`` writes the map and the parked result as separate
     session-state writes, and Streamlit raises a queued rerun from
@@ -127,13 +141,17 @@ def generations_agree(
     registration id and then save it, which is the silent corruption this whole
     store exists to prevent.
 
-    The source-index sets are what separate them: two walks of one event
-    disagree whenever either found a different set of teams, which is exactly
-    when the positions have moved. Two that agree on every index found the same
-    teams in the same places, so pairing them is safe whichever walk each came
-    from.
+    Compared by a fingerprint of the rows rather than by their indexes.
+    ``source_index`` is assigned as ``len(teams)``, so every walk numbers
+    0..n-1 and any two walks of equal size share an index set however different
+    their teams are — an index check would wave exactly the dangerous pair
+    through.
     """
-    return set(registration_ids) == {row.source_index for row in rows}
+    if not isinstance(parked, Mapping):
+        return False
+    if not registration_map(parked):
+        return False
+    return parked.get("fingerprint") == rows_fingerprint(rows)
 
 
 def plan_sync(
@@ -143,6 +161,8 @@ def plan_sync(
     overrides: Mapping[int, Mapping[str, str]],
     registration_ids: Mapping[int, str],
     event_id: str,
+    *,
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> tuple[dict[int, dict[str, str]], EventLinks]:
     """Reconcile one render against the file: what to restore, and what to store.
 
@@ -156,7 +176,9 @@ def plan_sync(
     """
     to_add = {
         source_index: link
-        for source_index, link in restore_overrides(rows, saved, registration_ids).items()
+        for source_index, link in restore_overrides(
+            rows, saved, registration_ids, resolve_team_id=resolve_team_id
+        ).items()
         if source_index not in overrides
     }
     applied = {**dict(overrides), **to_add}
@@ -239,6 +261,8 @@ def restore_overrides(
     rows: Sequence[RosterRow],
     links: EventLinks,
     registration_ids: Mapping[int, str],
+    *,
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> dict[int, dict[str, str]]:
     """Re-attach the operator's saved fixes to this walk's rows.
 
@@ -254,9 +278,13 @@ def restore_overrides(
     restored: dict[int, dict[str, str]] = {}
     for row in rows:
         link = saved.get(registration_ids.get(row.source_index) or "")
-        if link:
-            restored[row.source_index] = {
-                "team_id_master": link.team_id_master,
-                "team_name": link.event_team_name,
-            }
+        if not link:
+            continue
+        team_id = link.team_id_master
+        if resolve_team_id:
+            team_id = resolve_team_id(team_id) or team_id
+        restored[row.source_index] = {
+            "team_id_master": team_id,
+            "team_name": link.event_team_name,
+        }
     return restored

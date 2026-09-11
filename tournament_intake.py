@@ -41,6 +41,7 @@ from src.scrapers.provider import (
     get_provider_scraper,
 )
 from src.tournaments.backtest_event_intake import render_backtest_event_intake
+from src.tournaments.backtest_link_store import rows_fingerprint
 from src.tournaments.division_render import render_division_container
 from src.tournaments.event_roster_intake import (
     needs_name_lookup,
@@ -3793,8 +3794,12 @@ def _park_event_roster(
     # walk, so a stop landing between them must not leave one view's structure
     # sitting against another walk's teams.
     st.session_state[keys.structure] = roster.divisions
+    # Fingerprinted, not just mapped: a stop between this write and the parked
+    # result leaves the two describing different walks, and every walk numbers
+    # its teams 0..n-1, so only the rows themselves can tell one from another.
     st.session_state[keys.registrations] = {
-        team.source_index: team.registration_id for team in roster.teams
+        "fingerprint": rows_fingerprint(parsed.rows),
+        "by_index": {team.source_index: team.registration_id for team in roster.teams},
     }
     # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
