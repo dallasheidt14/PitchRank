@@ -266,6 +266,40 @@ def test_a_walk_of_another_event_with_the_same_teams_is_refused():
     assert not generations_agree(rows, other_event, "51783")
 
 
+def test_a_session_fix_is_still_persisted_when_restoring_is_skipped():
+    """A merge map that will not load makes reviving a saved id unsafe, but the
+    operator's own click this session is not in doubt and must not be lost.
+
+    Row 0 carries a saved operator link and no override, so it is the one
+    restoring would revive; row 1 is the click just made.
+    """
+    rows = (_row(0, "San Antonio City SC 12/13 WHITE"), _row(1, "Aztecas"))
+    resolved = (
+        ResolvedTeam(source_index=0, status="unresolved"),
+        ResolvedTeam(source_index=1, status="unresolved"),
+    )
+    just_clicked = {1: {"team_id_master": "operator-pick", "team_name": "Aztecas"}}
+    registrations = {0: "4383677", 1: "4411807"}
+
+    to_add, merged = plan_sync(
+        _links(), rows, resolved, just_clicked, registrations, "51783", restore=False
+    )
+
+    assert to_add == {}, "a saved id must not be revived through a merge map that failed"
+    by_id = {link.registration_id: link for link in merged.links}
+    assert by_id["4411807"].team_id_master == "operator-pick", "this session's click is kept"
+    assert by_id["4383677"].team_id_master == "bbbb-2222", "the saved link is carried, not dropped"
+
+
+def test_restoring_does_revive_a_saved_fix_when_the_map_is_healthy():
+    rows = (_row(0, "San Antonio City SC 12/13 WHITE"),)
+    resolved = (ResolvedTeam(source_index=0, status="unresolved"),)
+
+    to_add, _ = plan_sync(_links(), rows, resolved, {}, {0: "4383677"}, "51783", restore=True)
+
+    assert to_add == {0: {"team_id_master": "bbbb-2222", "team_name": "San Antonio City SC 12/13 WHITE"}}
+
+
 def test_a_restored_link_is_resolved_through_the_merge_map():
     """A team merged between sessions leaves the saved id deprecated, and an
     override both wins over the resolver and hides the row from the outstanding

@@ -175,6 +175,7 @@ def plan_sync(
     event_id: str,
     *,
     resolve_team_id: Callable[[str], str | None] | None = None,
+    restore: bool = True,
 ) -> tuple[dict[int, dict[str, str]], EventLinks]:
     """Reconcile one render against the file: what to restore, and what to store.
 
@@ -185,14 +186,21 @@ def plan_sync(
     "have I restored yet" marker is needed. A marker is what made a second walk
     of the same event come back without its fixes: the walk clears the
     overrides, but the marker still said the event had been restored.
+
+    ``restore=False`` skips only the restoring half. A caller whose merge map
+    failed to load cannot safely revive a saved id — it may have been merged
+    away since — but the operator's own fixes from this session are still worth
+    persisting, and suppressing both would lose a click they already made.
     """
-    to_add = {
-        source_index: link
-        for source_index, link in restore_overrides(
-            rows, saved, registration_ids, resolve_team_id=resolve_team_id
-        ).items()
-        if source_index not in overrides
-    }
+    to_add: dict[int, dict[str, str]] = {}
+    if restore:
+        to_add = {
+            source_index: link
+            for source_index, link in restore_overrides(
+                rows, saved, registration_ids, resolve_team_id=resolve_team_id
+            ).items()
+            if source_index not in overrides
+        }
     applied = {**dict(overrides), **to_add}
     fresh = build_links(event_id, rows, resolved, applied, registration_ids)
     return to_add, merge_links(saved, fresh)

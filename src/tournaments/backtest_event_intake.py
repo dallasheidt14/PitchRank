@@ -111,12 +111,20 @@ def _link_signature(links: Any) -> frozenset[tuple[str, str, str]]:
 def _sync_links(
     parsed: Any, resolved: Any, registrations: Any, event_id: str, supabase_client: Any
 ) -> int:
-    """Reconcile this render against the event's links file.
+    """Reconcile this render against the event's links file, or give up quietly.
 
-    Restores the operator fixes this walk is missing, persists the merged set,
-    and reports how many came back. ``plan_sync`` holds the reasoning and is
-    tested on its own; this is the thin half that touches session state and
-    disk.
+    Every failure here is contained, because the links are the cheap half of
+    this screen and the walk is the expensive one. An unwritable reports
+    directory, a file from a newer build, a corrupt payload, a merge map that
+    will not load — each would otherwise stop the Backtest render and make a
+    walk that cost money unusable until the cause was repaired. The same
+    contract ``_write_event_roster_recovery`` keeps for its own artifact:
+    protecting a paid thing must never cost the paid thing.
+
+    Handled as one boundary rather than one clause per failure. The modes are
+    not enumerable in advance — four were found one at a time, each fix
+    revealing the next — and the operator's remedy is identical for all of
+    them: the links stay in this session, and the next render tries again.
     """
     import streamlit as st
 
@@ -125,49 +133,42 @@ def _sync_links(
 
     if not generations_agree(parsed.rows, registrations, event_id):
         # The walk parks the registration map and the result in separate
-        # session-state writes, either of which Streamlit can stop between. Doing
-        # nothing costs one render; pairing two walks would save a team's link
-        # under another team's id, and nothing afterwards could tell.
+        # session-state writes, either of which Streamlit can stop between.
+        # Pairing two walks would save a team's link under another team's id.
         return 0
 
-    key = existing_event_key("gotsport", event_id)
-    saved = load_links(key)
-    overrides = st.session_state[_BACKTEST_KEYS.overrides]
-    # A team merged since the fix was saved leaves a deprecated id, and an
-    # override both beats the resolver and hides its row from the outstanding
-    # list — so without this the dead id is re-saved with nothing to notice.
-    resolver = _seeding_merge_resolver(supabase_client)
-    if not _merge_map_loaded(resolver):
-        # Restoring now would write the saved id unresolved, and a restored
-        # override is then skipped on every later sync — so a merge map that
-        # recovers a moment later could never correct it, and the row stays
-        # hidden from the outstanding list. One idle render costs nothing.
-        return 0
-    to_add, merged = plan_sync(
-        saved,
-        parsed.rows,
-        resolved,
-        overrides,
-        registration_map(registrations),
-        event_id,
-        resolve_team_id=resolver.resolve,
-    )
-    for source_index, link in to_add.items():
-        overrides[source_index] = link
-    if _link_signature(merged) != _link_signature(saved):
-        try:
+    try:
+        resolver = _seeding_merge_resolver(supabase_client)
+        # A resolver whose map did not load hands back deprecated ids unchanged,
+        # and a restored override is skipped on every later sync — so reviving a
+        # saved id now could never be corrected. The operator's own fixes from
+        # this session are still persisted; only the restoring half is skipped.
+        healthy = _merge_map_loaded(resolver)
+        key = existing_event_key("gotsport", event_id)
+        saved = load_links(key)
+        overrides = st.session_state[_BACKTEST_KEYS.overrides]
+        to_add, merged = plan_sync(
+            saved,
+            parsed.rows,
+            resolved,
+            overrides,
+            registration_map(registrations),
+            event_id,
+            resolve_team_id=resolver.resolve,
+            restore=healthy,
+        )
+        for source_index, link in to_add.items():
+            overrides[source_index] = link
+        if _link_signature(merged) != _link_signature(saved):
             save_links(key, merged)
-        except OSError as exc:
-            # Best-effort, the same contract `_write_event_roster_recovery`
-            # keeps for its own artifact: this exists to protect a walk that
-            # cost money, so failing to write it must not cost the walk. The
-            # links stay in session state and the next render retries.
-            logger.warning("Could not save this event's links: %s", exc)
-            st.warning(
-                "Could not save your team links just now, so they are held in this "
-                "session only — check the reports folder is writable before closing the tab."
-            )
-    return len(to_add)
+        return len(to_add)
+    except Exception as exc:  # noqa: BLE001 — the paid walk outlives its links
+        logger.warning("Could not sync this event's links: %s", exc)
+        st.warning(
+            "Your team links could not be saved or reloaded just now, so they are held "
+            "in this session only. The walk itself is unaffected."
+        )
+        return 0
 
 
 def render_backtest_event_intake(supabase_client: Any) -> None:
