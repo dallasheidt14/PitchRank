@@ -47,6 +47,19 @@ def _division(**overrides) -> ScrapedDivision:
     return ScrapedDivision(**base)
 
 
+def test_summarize_names_the_cohort_a_division_belongs_to():
+    row = summarize_structure([_division(age_group="u12", gender="Male")])[0]
+
+    assert row["cohort"] == "Boys U12"
+
+
+def test_summarize_says_plainly_when_a_division_names_no_cohort():
+    """Blank would read as a rendering fault; this is the event not saying."""
+    row = summarize_structure([_division()])[0]
+
+    assert row["cohort"] == "not stated"
+
+
 def test_summarize_counts_pools_and_every_kind_of_game():
     row = summarize_structure([_division()])[0]
 

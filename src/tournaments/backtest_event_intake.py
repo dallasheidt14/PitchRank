@@ -44,6 +44,20 @@ logger = logging.getLogger(__name__)
 __all__ = ["render_backtest_event_intake", "summarize_structure"]
 
 
+def _cohort_label(division: ScrapedDivision) -> str:
+    """Which board a division belongs to, or that the event did not say.
+
+    A label like ``Gold`` names no age at all, so the walk resolves nothing for
+    it. Printing that as a blank cell reads as a rendering fault; saying it
+    plainly is the honest answer and tells the operator the event is the thing
+    that is silent.
+    """
+    if not division.age_group and not division.gender:
+        return "not stated"
+    gender = {"Male": "Boys", "Female": "Girls"}.get(division.gender, division.gender)
+    return " ".join(part for part in (gender, division.age_group.upper()) if part)
+
+
 def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, Any]]:
     """One display row per division. Never drops one, never invents one.
 
@@ -74,6 +88,7 @@ def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, 
         rows.append(
             {
                 "division": division.division_label or f"group {division.group_id}",
+                "cohort": _cohort_label(division),
                 "group_id": division.group_id,
                 "pools": pools,
                 "pool_games": kinds.count(KIND_POOL),

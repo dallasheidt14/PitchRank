@@ -354,3 +354,22 @@ def test_classify_fixtures_never_reclassifies_a_labelled_knockout_game():
     )
 
     assert classify_fixtures((fixture,), pools)[0].kind == "bracket"
+
+
+def test_a_division_carries_the_cohort_the_walk_resolved_for_it():
+    """The walker resolves a cohort per division — it is what lets it skip an
+    age nobody ranks — but the structure recorded none, so neither the screen
+    nor the saved file could say which age group a division was."""
+    division = parse_division_structure(
+        group_id="1", division_label="9v9 U12B Gold", html="", age_group="u12", gender="Male"
+    )
+
+    assert (division.age_group, division.gender) == ("u12", "Male")
+
+
+def test_a_division_whose_label_names_no_cohort_carries_none():
+    """`Gold` names no board. Empty is the honest answer, and the display says
+    so rather than leaving the operator to guess."""
+    division = parse_division_structure(group_id="1", division_label="Gold", html="")
+
+    assert (division.age_group, division.gender) == ("", "")

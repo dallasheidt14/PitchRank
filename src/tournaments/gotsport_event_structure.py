@@ -315,6 +315,14 @@ class ScrapedDivision:
     pools_readable: bool
     fixtures_readable: bool
     warnings: tuple[str, ...]
+    age_group: str = ""
+    """Lowercase ``u12``, or empty when the label names no single board. Empty
+    is a real answer — the event did not say — and the display prints it as
+    such rather than leaving a blank that reads as a fault.
+
+    Defaulted, and last, so every construction that predates it still works."""
+
+    gender: str = ""
 
 
 def classify_fixtures(
@@ -355,7 +363,12 @@ def classify_fixtures(
 
 
 def parse_division_structure(
-    *, group_id: str, division_label: str, html: str
+    *,
+    group_id: str,
+    division_label: str,
+    html: str,
+    age_group: str = "",
+    gender: str = "",
 ) -> ScrapedDivision:
     """The whole structure of one division, read from its schedule page."""
     pools = parse_pools(html)
@@ -387,6 +400,8 @@ def parse_division_structure(
     return ScrapedDivision(
         group_id=group_id,
         division_label=division_label,
+        age_group=age_group,
+        gender=gender,
         pools=pools,
         fixtures=classify_fixtures(parsed_fixtures, pools),
         pools_readable=pools_readable,

@@ -983,7 +983,11 @@ def _read_divisions(
                 gender=gender,
                 teams=teams,
                 structure=parse_division_structure(
-                    group_id=group_id, division_label=label, html=group_html
+                    group_id=group_id,
+                    division_label=label,
+                    html=group_html,
+                    age_group=age_group,
+                    gender=gender,
                 ),
             )
         )

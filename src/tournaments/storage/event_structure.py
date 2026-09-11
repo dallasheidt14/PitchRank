@@ -74,6 +74,11 @@ def division_from_dict(payload: dict[str, Any]) -> ScrapedDivision:
     return ScrapedDivision(
         group_id=str(payload["group_id"]),
         division_label=str(payload["division_label"]),
+        # `.get` rather than direct access, unlike the required fields beside
+        # them: these arrived after the first files were written, and an older
+        # structure that predates them is still faithfully readable without.
+        age_group=str(payload.get("age_group") or ""),
+        gender=str(payload.get("gender") or ""),
         pools=tuple(_pool(item) for item in payload.get("pools") or ()),
         fixtures=tuple(_fixture(item) for item in payload.get("fixtures") or ()),
         pools_readable=bool(payload["pools_readable"]),

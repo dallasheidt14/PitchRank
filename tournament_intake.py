@@ -180,17 +180,22 @@ from supabase import create_client
 
 logger = logging.getLogger(__name__)
 
-# Page configuration
-st.set_page_config(
-    page_title="MatchBalance · Backtest Intake",
-    page_icon="⚽",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# Title and version
-st.title("⚽ MatchBalance · Backtest Intake")
-st.caption(f"Version {VERSION} | Powered by {PROJECT_NAME}")
+# Page chrome, drawn only when this file is the app Streamlit is running.
+#
+# Streamlit executes it as ``__main__``, so a sibling that does
+# ``from tournament_intake import ...`` — ``backtest_event_intake`` does, to
+# reach the shared walk machinery — loads this file a second time under its own
+# name. Unguarded, that second execution re-runs these three calls and the page
+# renders its title and caption again halfway down, below the Intake section.
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="MatchBalance · Backtest Intake",
+        page_icon="⚽",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    st.title("⚽ MatchBalance · Backtest Intake")
+    st.caption(f"Version {VERSION} | Powered by {PROJECT_NAME}")
 
 
 # Disabled-mode contract — pinned by tests against silent re-enablement.
@@ -4150,10 +4155,20 @@ def _render_seeding_override(
     ``team_id_master`` UUIDs. A team name is not accepted: name matching is what
     this box exists to bypass.
     """
-    heading = f"{row.club_raw} · {row.team_name_raw}"
+    # Joined on what is actually there. A walked event gives a team name and no
+    # separate club, and a pasted roster can leave the cohort unresolved — so
+    # the fixed form left a stray separator and, worse, opened the bold with a
+    # space, which Markdown does not close: the operator saw a literal
+    # `** · Dallas Texans 2019/20B** · Boys`.
+    heading = " · ".join(part for part in (row.club_raw, row.team_name_raw) if part)
+    cohort_label = " ".join(
+        part
+        for part in (_display_gender(row.section_gender), row.section_age_group.upper())
+        if part
+    )
     with st.container(border=True):
-        cohort_label = f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}"
-        st.markdown(f"**{_as_plain_text(heading)}** · {cohort_label}")
+        line = f"**{_as_plain_text(heading)}**" if heading else "_unnamed team_"
+        st.markdown(f"{line} · {cohort_label}" if cohort_label else line)
         if item.candidates:
             found = "; ".join(_seeding_candidate_label(c) for c in item.candidates)
             st.caption("Searched and found: " + _as_plain_text(found))
@@ -4532,12 +4547,17 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     against a couple of divisions, and only a probe that actually read one
     unlocks the second.
     """
-    st.markdown("#### Or scrape a GotSport event")
-    st.caption(
-        "Reads each division's teams and follows every team page for its GotSport id, "
-        "which links a team outright rather than by name. Check a couple of divisions first — "
-        "every page is paid for."
-    )
+    if keys is _SEEDING_KEYS:
+        # "Or" because on the Seeding tab this walk is the alternative to
+        # pasting the director's list. The Backtest tab has nothing for it to
+        # be an alternative to, and its caller has already titled the section —
+        # a second heading there just says the same thing twice.
+        st.markdown("#### Or scrape a GotSport event")
+        st.caption(
+            "Reads each division's teams and follows every team page for its GotSport id, "
+            "which links a team outright rather than by name. Check a couple of divisions first — "
+            "every page is paid for."
+        )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
@@ -4728,14 +4748,32 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:
-    """Scrape-and-triage flow for a tournament that has already been played."""
-    _render_intake_section(supabase_client)
+    """Scrape-and-triage flow for a tournament that has already been played.
+
+    Two intakes live here while the triage list, division editor and Run
+    backtest below still read the older one's ``raw_scrape.jsonl``. The newer
+    one leads because it is the one to use; the older is folded away, because
+    two unexplained URL boxes on one tab is a coin toss — and the wrong side of
+    that toss writes to the team database, which this flow exists to avoid.
+    """
     render_backtest_event_intake(supabase_client)
+    with st.expander("Legacy intake — writes to the team database", expanded=False):
+        st.caption(
+            "The older scrape. Everything below this section — the team triage list, the "
+            "division editor and Run backtest — still reads what it writes, so it stays "
+            "until they are moved across. Unlike the scrape above, it writes rows to "
+            "`team_alias_map` and the team match review queue every time it runs."
+        )
+        _render_intake_section(supabase_client)
     _render_registry_persist_results()
 
     key = st.session_state.event_key
     if not key:
-        st.info("Scrape a new event or pick one from the resume dropdown.")
+        st.info(
+            "The triage list, division editor and Run backtest appear once an event is "
+            "loaded through the legacy intake above. The scrape at the top of this tab "
+            "does not feed them yet."
+        )
         return
 
     try:
