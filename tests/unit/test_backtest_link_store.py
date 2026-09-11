@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from threading import Event
 
 import pytest
 
 from src.tournaments.backtest_link_store import (
     EventLinks,
+    EventLinksError,
     TeamLink,
     build_links,
     event_links_path,
@@ -18,10 +22,11 @@ from src.tournaments.backtest_link_store import (
     restore_overrides,
     rows_fingerprint,
     save_links,
+    update_links,
 )
 from src.tournaments.roster_paste import RosterRow
-from src.tournaments.storage.schema_version import SchemaVersionError
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.storage.schema_version import SchemaVersionError
 
 EVENT_KEY = "gotsport__51783__unknown"
 
@@ -362,7 +367,9 @@ def test_a_failed_replacement_leaves_the_previous_links_intact(tmp_path, monkeyp
 
     monkeypatch.setattr(os, "replace", explode)
     with pytest.raises(OSError):
-        save_links(EVENT_KEY, EventLinks(event_id="51783", links=()), base_dir=tmp_path)
+        update_links(
+            EVENT_KEY, event_id="51783", removed_registration_ids=("4411807",), base_dir=tmp_path
+        )
 
     monkeypatch.undo()
     assert load_links(EVENT_KEY, base_dir=tmp_path).links == _links().links
@@ -372,3 +379,187 @@ def test_a_saved_link_for_a_team_this_walk_did_not_find_is_ignored():
     rows = (_row(0, "Barcelona SC 13B Aztecas"),)
 
     assert restore_overrides(rows, _links(), {0: "4411807", 1: "4383677"}) == {}
+
+
+def test_partial_saves_preserve_other_sessions_links(tmp_path):
+    first, second = _links().links
+    save_links(EVENT_KEY, EventLinks(event_id="51783", links=(first,)), base_dir=tmp_path)
+    save_links(EVENT_KEY, EventLinks(event_id="51783", links=(second,)), base_dir=tmp_path)
+
+    assert load_links(EVENT_KEY, base_dir=tmp_path).links == (first, second)
+
+
+def test_automatic_rematching_cannot_replace_a_saved_operator_choice(tmp_path):
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+    automatic = replace(_links().links[1], team_id_master="automatic-pick", matched_by="exact_name")
+
+    saved = update_links(EVENT_KEY, event_id="51783", changed_links=(automatic,), base_dir=tmp_path)
+
+    assert saved.links[1].team_id_master == "bbbb-2222"
+    assert saved.links[1].matched_by == "operator"
+
+
+def test_plan_sync_without_restoring_preserves_operator_choice_against_auto_match():
+    rows = (_row(0, "City White"),)
+    resolved = (ResolvedTeam(source_index=0, status="exact_name", team_id_master="automatic-pick"),)
+
+    restored, merged = plan_sync(_links(), rows, resolved, {}, {0: "4383677"}, "51783", restore=False)
+
+    assert restored == {}
+    assert next(link for link in merged.links if link.registration_id == "4383677").team_id_master == "bbbb-2222"
+
+
+def test_clear_survives_reload_automatic_rematching_and_stale_snapshot_save(tmp_path):
+    stale_session = _links()
+    save_links(EVENT_KEY, stale_session, base_dir=tmp_path)
+    cleared = update_links(
+        EVENT_KEY, event_id="51783", removed_registration_ids=("4383677",), base_dir=tmp_path
+    )
+    assert cleared.removed_registration_ids == ("4383677",)
+    assert [link.registration_id for link in cleared.links] == ["4411807"]
+    automatic = replace(stale_session.links[1], matched_by="exact_name", team_id_master="automatic-pick")
+    update_links(EVENT_KEY, event_id="51783", changed_links=(automatic,), base_dir=tmp_path)
+    save_links(EVENT_KEY, stale_session, base_dir=tmp_path)
+
+    reloaded = load_links(EVENT_KEY, base_dir=tmp_path)
+    assert reloaded.links == (stale_session.links[0],)
+    assert reloaded.removed_registration_ids == ("4383677",)
+    assert restore_overrides((_row(0, "City White"),), reloaded, {0: "4383677"}) == {}
+
+
+def test_explicit_operator_edit_can_relink_a_cleared_registration(tmp_path):
+    update_links(EVENT_KEY, event_id="51783", removed_registration_ids=("4383677",), base_dir=tmp_path)
+    new_choice = replace(_links().links[1], team_id_master="new-choice")
+
+    updated = update_links(EVENT_KEY, event_id="51783", changed_links=(new_choice,), base_dir=tmp_path)
+
+    assert updated.links == (new_choice,)
+    assert updated.removed_registration_ids == ()
+    assert load_links(EVENT_KEY, base_dir=tmp_path) == updated
+
+
+def test_repeated_automatic_sync_does_not_rewrite_or_refresh_decision_time(tmp_path, monkeypatch):
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+    before = load_links(EVENT_KEY, base_dir=tmp_path)
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    before_bytes = path.read_bytes()
+    rerender = replace(before.links[0], linked_at="2026-09-12T00:00:00+00:00")
+
+    def unexpected_write(*args, **kwargs):
+        pytest.fail("An unchanged decision must not rewrite event_links.json")
+
+    monkeypatch.setattr("src.tournaments.backtest_link_store.write_json", unexpected_write)
+    after = update_links(EVENT_KEY, event_id="51783", changed_links=(rerender,), base_dir=tmp_path)
+
+    assert after == before
+    assert path.read_bytes() == before_bytes
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "{broken",
+        "[]",
+        '{"event_id":"51783","links":[{"registration_id":"1"}]}',
+        '{"event_id":"51783","links":[],"removed_registration_ids":"4411807"}',
+        '{"event_id":"51783","links":[],"removed_registration_ids":[null]}',
+    ],
+)
+def test_malformed_saved_payload_is_never_overwritten(tmp_path, raw):
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(raw, encoding="utf-8")
+    assert load_links(EVENT_KEY, base_dir=tmp_path).links == ()
+
+    with pytest.raises(EventLinksError, match="Refusing to overwrite"):
+        update_links(EVENT_KEY, event_id="51783", changed_links=_links().links, base_dir=tmp_path)
+    with pytest.raises(EventLinksError, match="Refusing to overwrite"):
+        save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+
+    assert path.read_text(encoding="utf-8") == raw
+
+
+def test_future_saved_payload_is_never_overwritten(tmp_path):
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    path.parent.mkdir(parents=True)
+    raw = '{"schema_version":99,"event_id":"51783","links":[]}'
+    path.write_text(raw, encoding="utf-8")
+
+    with pytest.raises(SchemaVersionError):
+        update_links(EVENT_KEY, event_id="51783", changed_links=_links().links, base_dir=tmp_path)
+    with pytest.raises(SchemaVersionError):
+        save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+
+    assert path.read_text(encoding="utf-8") == raw
+
+
+def test_another_events_saved_decisions_are_refused_on_read_and_write(tmp_path):
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    path.parent.mkdir(parents=True)
+    raw = '{"event_id":"99999","links":[]}'
+    path.write_text(raw, encoding="utf-8")
+
+    with pytest.raises(EventLinksError, match="does not match"):
+        load_links(EVENT_KEY, base_dir=tmp_path)
+    with pytest.raises(EventLinksError, match="does not match"):
+        update_links(EVENT_KEY, event_id="51783", changed_links=_links().links, base_dir=tmp_path)
+
+    assert path.read_text(encoding="utf-8") == raw
+
+
+def test_wrong_incoming_event_id_is_refused_without_creating_files(tmp_path):
+    with pytest.raises(EventLinksError, match="does not match"):
+        update_links(EVENT_KEY, event_id="99999", changed_links=_links().links, base_dir=tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_dry_run_previews_changes_without_creating_files(tmp_path):
+    preview = update_links(
+        EVENT_KEY, event_id="51783", changed_links=_links().links, base_dir=tmp_path, dry_run=True
+    )
+
+    assert preview.links == _links().links
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_two_sessions_load_and_merge_under_the_same_event_lock(tmp_path, monkeypatch):
+    from src.tournaments import backtest_link_store as store
+
+    first_writing, release_first, second_loaded, second_started = Event(), Event(), Event(), Event()
+    original_load, original_write = store._load_links_strict, store.write_json
+    loads = []
+
+    def observed_load(*args, **kwargs):
+        loads.append(True)
+        if len(loads) > 1:
+            second_loaded.set()
+        return original_load(*args, **kwargs)
+
+    def held_first_write(*args, **kwargs):
+        if not first_writing.is_set():
+            first_writing.set()
+            assert release_first.wait(3), "test did not release the first writer"
+        return original_write(*args, **kwargs)
+
+    def update_second():
+        second_started.set()
+        return update_links(EVENT_KEY, event_id="51783", changed_links=(_links().links[1],), base_dir=tmp_path)
+
+    monkeypatch.setattr(store, "_load_links_strict", observed_load)
+    monkeypatch.setattr(store, "write_json", held_first_write)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(
+            update_links, EVENT_KEY, event_id="51783", changed_links=(_links().links[0],), base_dir=tmp_path
+        )
+        try:
+            assert first_writing.wait(3)
+            second = pool.submit(update_second)
+            assert second_started.wait(3)
+            assert not second_loaded.wait(0.15), "second writer read before the first writer committed"
+        finally:
+            release_first.set()
+        first.result(timeout=3)
+        second.result(timeout=3)
+
+    assert original_load(event_links_path(EVENT_KEY, base_dir=tmp_path), expected_id="51783").links == _links().links

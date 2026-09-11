@@ -11,11 +11,13 @@ from src.tournaments.gotsport_event_structure import (
     Fixture,
     Pool,
     PoolMember,
+    PublishedLink,
     ScrapedDivision,
 )
 from src.tournaments.storage.event_structure import (
     EventStructure,
     StructureOverwriteRefused,
+    division_from_dict,
     event_structure_path,
     read_event_structure,
     write_event_structure,
@@ -179,3 +181,57 @@ def test_a_complete_walk_may_replace_a_complete_one(tmp_path):
     on_disk = read_event_structure("gotsport__51783__2026", base_dir=tmp_path)
     assert on_disk.walked_at == "2026-09-11T00:00:00+00:00"
     assert on_disk == rewalked
+
+
+def test_enriched_fixture_and_source_evidence_round_trip(tmp_path):
+    original = _structure()
+    fixture = replace(
+        original.divisions[0].fixtures[0],
+        home_score=3, away_score=3,
+        home_label="Home FC", away_label="Away FC",
+        result_text="3 - 3 PKS: 4 - 3",
+        home_shootout_score=4, away_shootout_score=3,
+        winner_side="home", winner_registration_id="1", result_status="played",
+        date_label="February 16, 2026",
+        source_url="https://system.gotsport.com/org_event/events/51783/schedules?match=123",
+    )
+    division = replace(
+        original.divisions[0], fixtures=(fixture,),
+        source_url="https://system.gotsport.com/org_event/events/51783/schedules?group=501350",
+        rules_links=(PublishedLink("Tournament Rules", "https://organizer.example/rules.pdf"),),
+        published_age_group="u13", published_cohort_label="Male U13 - U13 Boys Gold",
+    )
+    enriched = replace(original, divisions=(division,))
+    write_event_structure("gotsport__51783__2026", enriched, base_dir=tmp_path)
+    saved = read_event_structure("gotsport__51783__2026", base_dir=tmp_path)
+
+    assert saved == enriched
+    assert saved.divisions[0].fixtures[0].result_text == "3 - 3 PKS: 4 - 3"
+    assert saved.divisions[0].fixtures[0].winner_registration_id == "1"
+    assert saved.divisions[0].rules_links[0].url == "https://organizer.example/rules.pdf"
+    assert saved.divisions[0].published_age_group == "u13"
+
+
+def test_legacy_structure_is_readable_without_inventing_missing_source_evidence():
+    legacy = {
+        "group_id": "1", "division_label": "Gold", "pools": [],
+        "pools_readable": True, "fixtures_readable": True, "warnings": [],
+        "fixtures": [{
+            "match_number": "9", "bracket_label": "Final", "kind": "bracket",
+            "home_registration_id": "1", "away_registration_id": "2",
+            "home_score": None, "away_score": None, "kickoff": "9:00 AM", "location": "Field 1",
+        }],
+    }
+    division = division_from_dict(legacy)
+
+    assert division.source_url == ""
+    assert division.rules_links == ()
+    assert division.published_age_group == ""
+    fixture, = division.fixtures
+    assert fixture.result_text == ""
+    assert fixture.result_status == "not_captured"
+    assert fixture.home_shootout_score is None
+    assert fixture.winner_side == ""
+    assert fixture.winner_registration_id is None
+    assert fixture.home_label == ""
+    assert fixture.date_label == ""

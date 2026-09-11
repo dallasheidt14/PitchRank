@@ -151,9 +151,12 @@ _ROOTS = (
 
 _READ_ONLY_MODULES = (
     "src/tournaments/backtest_event_intake.py",
+    "src/tournaments/backtest_intake_state.py",
+    "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
     "src/tournaments/gotsport_event_structure.py",
     "src/tournaments/storage/_io.py",
+    "src/tournaments/storage/_file_lock.py",
     "src/tournaments/storage/event_key.py",
     "src/tournaments/storage/event_structure.py",
     "src/tournaments/storage/schema_version.py",

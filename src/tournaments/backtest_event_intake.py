@@ -1,9 +1,8 @@
 """The Backtest tab's event intake: walk a played event, show what it really was.
 
-Kept out of ``tournament_intake.py`` so the app file does not grow another few
-hundred lines, following ``division_render`` and ``reports.ui``. Everything that
-decides what the operator sees is pure and lives in ``summarize_structure``; the
-render function only draws it.
+``summarize_structure`` is the pure division summary. ``backtest_intake_ui``
+renders the completed-event workflow and ``backtest_intake_state`` owns its
+coherent, reloadable capture. The Seeding surface remains a separate workflow.
 
 Reads the PitchRank database to match teams and writes nothing to it. That is a
 requirement of this surface, not an accident of the current implementation.
@@ -14,23 +13,14 @@ one appears. It does not reach past ``tournament_intake.py``: this function
 calls ``_render_seeding_event_scrape`` and friends from there, and that file
 is a multi-feature hub with genuinely-writing code for tabs this one never
 renders, so the scan cannot cross into it without flagging those too. That
-leg is instead verified by hand (Task 9 report, 2026-09-10) by tracing every
-function the Backtest render path actually calls.
+leg is covered by the shared walk tests and Backtest Streamlit interaction tests.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Sequence
 from typing import Any
 
-from src.tournaments.backtest_link_store import (
-    generations_agree,
-    load_links,
-    plan_sync,
-    registration_map,
-    save_links,
-)
 from src.tournaments.gotsport_event_structure import (
     KIND_BRACKET,
     KIND_CROSS_POOL,
@@ -38,8 +28,6 @@ from src.tournaments.gotsport_event_structure import (
     KIND_UNKNOWN,
     ScrapedDivision,
 )
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["render_backtest_event_intake", "summarize_structure"]
 
@@ -108,196 +96,8 @@ def summarize_structure(divisions: Sequence[ScrapedDivision]) -> list[dict[str, 
         )
     return rows
 
-
-
-
-def _link_signature(links: Any) -> frozenset[tuple[str, str, str]]:
-    """What makes one set of links different from another.
-
-    ``linked_at`` is excluded deliberately: it is stamped afresh on every build,
-    so comparing whole records would call every rerun a change and rewrite the
-    file on each one.
-    """
-    return frozenset(
-        (link.registration_id, link.team_id_master, link.matched_by) for link in links.links
-    )
-
-
-def _sync_links(
-    parsed: Any, resolved: Any, registrations: Any, event_id: str, supabase_client: Any
-) -> int:
-    """Reconcile this render against the event's links file, or give up quietly.
-
-    Every failure here is contained, because the links are the cheap half of
-    this screen and the walk is the expensive one. An unwritable reports
-    directory, a file from a newer build, a corrupt payload, a merge map that
-    will not load — each would otherwise stop the Backtest render and make a
-    walk that cost money unusable until the cause was repaired. The same
-    contract ``_write_event_roster_recovery`` keeps for its own artifact:
-    protecting a paid thing must never cost the paid thing.
-
-    Handled as one boundary rather than one clause per failure. The modes are
-    not enumerable in advance — four were found one at a time, each fix
-    revealing the next — and the operator's remedy is identical for all of
-    them: the links stay in this session, and the next render tries again.
-    """
-    import streamlit as st
-
-    from src.tournaments.storage.event_key import existing_event_key
-    from tournament_intake import _BACKTEST_KEYS, _merge_map_loaded, _seeding_merge_resolver
-
-    if not generations_agree(parsed.rows, registrations, event_id):
-        # The walk parks the registration map and the result in separate
-        # session-state writes, either of which Streamlit can stop between.
-        # Pairing two walks would save a team's link under another team's id.
-        return 0
-
-    try:
-        resolver = _seeding_merge_resolver(supabase_client)
-        # A resolver whose map did not load hands back deprecated ids unchanged,
-        # and a restored override is skipped on every later sync — so reviving a
-        # saved id now could never be corrected. The operator's own fixes from
-        # this session are still persisted; only the restoring half is skipped.
-        healthy = _merge_map_loaded(resolver)
-        key = existing_event_key("gotsport", event_id)
-        saved = load_links(key)
-        overrides = st.session_state[_BACKTEST_KEYS.overrides]
-        to_add, merged = plan_sync(
-            saved,
-            parsed.rows,
-            resolved,
-            overrides,
-            registration_map(registrations),
-            event_id,
-            resolve_team_id=resolver.resolve,
-            restore=healthy,
-        )
-        for source_index, link in to_add.items():
-            overrides[source_index] = link
-        if _link_signature(merged) != _link_signature(saved):
-            save_links(key, merged)
-        return len(to_add)
-    except Exception as exc:  # noqa: BLE001 — the paid walk outlives its links
-        logger.warning("Could not sync this event's links: %s", exc)
-        st.warning(
-            "Your team links could not be saved or reloaded just now, so they are held "
-            "in this session only. The walk itself is unaffected."
-        )
-        return 0
-
-
 def render_backtest_event_intake(supabase_client: Any) -> None:
-    """Walk a played event and show the structure it was actually run under.
+    """Completed-event intake, independent from the upcoming-event Seeding UI."""
+    from src.tournaments.backtest_intake_ui import render_intake
 
-    Imports from ``tournament_intake`` inside the function: the app module
-    imports this one, so a module-scope import would be circular.
-
-    ``divisions`` (this event's structure) and ``parsed``/``resolved`` (its
-    teams) both come off the same walk but are unrelated collections here — a
-    division whose team table went unrecognised contributes a structure row
-    with no corresponding team rows, so neither block below assumes the two
-    line up index-for-index.
-    """
-    import pandas as pd
-    import streamlit as st
-
-    from src.tournaments.storage._io import utc_now_iso
-    from src.tournaments.storage.event_key import existing_event_key
-    from src.tournaments.storage.event_structure import (
-        EventStructure,
-        StructureOverwriteRefused,
-        write_event_structure,
-    )
-    from tournament_intake import (
-        _BACKTEST_KEYS,
-        _as_plain_text,
-        _render_seeding_event_scrape,
-        _render_seeding_override,
-        _render_seeding_progress_metrics,
-        _render_seeding_warnings,
-    )
-
-    st.markdown("### Scrape a played event")
-    st.caption(
-        "Reads every division's pools and games, including the semis, final and "
-        "consolation games, exactly as the event published them. Every page is paid "
-        "for, so check a couple of divisions first."
-    )
-    _render_seeding_event_scrape(supabase_client, keys=_BACKTEST_KEYS)
-
-    result = st.session_state.get(_BACKTEST_KEYS.result)
-    if not result:
-        return
-    parsed, resolved = result
-    # The only signal that credentials or the merge map failed inside
-    # resolve_master_ids, plus the age/gender-missing counts — without this an
-    # operator whose merge resolver is broken sees every team "Still open" with
-    # no explanation why.
-    _render_seeding_warnings(parsed)
-
-    divisions = st.session_state.get(_BACKTEST_KEYS.structure) or ()
-    if divisions:
-        rows = summarize_structure(divisions)
-        st.markdown("#### Structure this event was run under")
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-        unreadable = [row for row in rows if not row["readable"]]
-        if unreadable:
-            st.warning(
-                f"{len(unreadable)} division(s) could not be read in full. They are listed "
-                "above rather than dropped, and their pools are not guessed from the games."
-            )
-            for row in unreadable:
-                # The note already leads with the division name — both the
-                # warnings `parse_division_structure` writes and the fallback
-                # `summarize_structure` supplies — so prefixing it again reads
-                # "U13 Boys Red: Division U13 Boys Red: no standings table…".
-                st.caption(_as_plain_text(row["note"]))
-
-    event_id = st.session_state.get(_BACKTEST_KEYS.result_event_id)
-    registrations = st.session_state.get(_BACKTEST_KEYS.registrations) or {}
-    carried = _sync_links(parsed, resolved, registrations, event_id, supabase_client) if event_id else 0
-    if carried:
-        st.caption(f"Brought back {carried} link(s) you fixed by hand on an earlier walk.")
-
-    overrides = st.session_state[_BACKTEST_KEYS.overrides]
-    st.markdown("#### Teams matched to your database")
-    by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
-
-    for row in outstanding:
-        _render_seeding_override(row, by_index[row.source_index], supabase_client, keys=_BACKTEST_KEYS)
-
-    probe = st.session_state.get(_BACKTEST_KEYS.probe) or {}
-    if not event_id or not divisions:
-        return
-    if st.button("Save this event's structure", key="_backtest_save_structure"):
-        # The event's artifacts may already live under a season-stamped key:
-        # `rekey_unknown_directories` renames `…__unknown/` the moment metadata
-        # makes the season derivable, and `tournament_intake` runs it once per
-        # session. Composing the `__unknown` form unconditionally would file
-        # this next to nothing — a fresh directory with no `event_metadata.json`,
-        # reported as "pending metadata" by the startup banner forever, invisible
-        # to any reader looking beside `raw_scrape.jsonl`, and outside the reach
-        # of the overwrite guard once the real directory is stamped.
-        structure_key = existing_event_key("gotsport", event_id)
-        try:
-            write_event_structure(
-                structure_key,
-                EventStructure(
-                    event_id=event_id,
-                    walked_at=utc_now_iso(),
-                    is_complete=bool(probe.get("complete")),
-                    divisions=tuple(divisions),
-                ),
-            )
-        except StructureOverwriteRefused:
-            # write_event_structure itself refuses this — the guard is a
-            # property of the writer, not of this one caller's good manners.
-            # This is the friendly path: a plain message instead of a
-            # traceback, and the complete structure on disk is left alone.
-            st.error(
-                "A complete walk of this event is already saved. This walk is only "
-                "partial and would replace it with less — scrape the whole event "
-                "before saving, or the complete structure already on disk is lost."
-            )
-        else:
-            st.success("Saved.")
+    render_intake(supabase_client)

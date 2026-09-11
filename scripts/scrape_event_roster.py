@@ -18,7 +18,7 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +34,8 @@ from src.tournaments.gotsport_event_roster import (
     EVENT_ID,
     EVENT_ID_IN_URL,
     WafChallengeError,
+    event_roster_from_dict,
+    event_roster_to_dict,
     make_zenrows_fetcher,
     printable_text,
     scrape_event_roster,
@@ -108,6 +110,57 @@ def _summary_table(teams, master_ids: dict[str, str]) -> Table:
     return table
 
 
+def _completed_summary(roster) -> None:
+    """Report entries by the tournament's cohorts, independently of registry ages."""
+    from src.tournaments.backtest_intake_state import tournament_totals
+
+    totals = tournament_totals(roster)
+    console.print(f"[bold cyan]{escape(printable_text(totals['event_name']))}[/bold cyan]")
+    console.print(
+        f"[bold]{totals['total_teams']}[/bold] unique teams, "
+        f"[bold]{totals['division_entries']}[/bold] division entries"
+    )
+    table = Table(title="Teams by tournament cohort")
+    for heading in ("Tournament cohort", "Gender", "Teams"):
+        table.add_column(heading)
+    for row in totals["cohorts"]:
+        table.add_row(row["Tournament cohort"], row["Gender"], str(row["Teams"]))
+    console.print(table)
+    if totals["unidentified_teams"]:
+        console.print(
+            f"[yellow]{totals['unidentified_teams']} published team entries have no registration ID; "
+            "they remain separate local entries for review.[/yellow]"
+        )
+
+
+def _default_output_path(event_id: str, *, completed_event: bool) -> Path:
+    if completed_event:
+        from src.tournaments.storage.event_key import existing_event_key, intake_dir
+
+        return intake_dir(existing_event_key("gotsport", event_id)) / "last_walk.json"
+    return Path(f"reports/seeding/gotsport_{event_id}/roster.json")
+
+
+def _write_completed_roster(out_path: Path, payload: dict, *, force: bool) -> None:
+    """Share the Backtest recovery lock and preserve a richer existing capture."""
+    from src.tournaments.backtest_intake_state import IntakeOverwriteRefused, assert_capture_preserved
+    from src.tournaments.storage._file_lock import _acquire_file_lock
+
+    fresh = event_roster_from_dict(payload)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with _acquire_file_lock(out_path.with_suffix(".lock"), timeout=1.0):
+        if out_path.exists() and not force:
+            previous = event_roster_from_dict(json.loads(out_path.read_text(encoding="utf-8")))
+            try:
+                assert_capture_preserved(previous, fresh)
+            except IntakeOverwriteRefused as exc:
+                raise SystemExit(
+                    f"{out_path} already holds a different or more complete capture. "
+                    "Pass --force to replace it, or --out to write elsewhere."
+                ) from exc
+        write_json(out_path, payload)
+
+
 def _write_roster(out_path: Path, payload: dict, *, force: bool) -> None:
     """Write the roster, refusing to replace a complete one with a partial one.
 
@@ -118,6 +171,9 @@ def _write_roster(out_path: Path, payload: dict, *, force: bool) -> None:
     absent rather than aborting, because the run's own result is the thing
     that cost money.
     """
+    if payload.get("completed_event") is True:
+        _write_completed_roster(out_path, payload, force=force)
+        return
     if not payload["is_complete"] and not force:
         try:
             existing = json.loads(out_path.read_text(encoding="utf-8"))
@@ -152,6 +208,10 @@ def main() -> int:
     parser.add_argument("--delay-min", type=_non_negative_float, default=0.0)
     parser.add_argument("--delay-max", type=_non_negative_float, default=0.0)
     parser.add_argument("--no-resolve", action="store_true", help="Skip the master-id lookup")
+    parser.add_argument(
+        "--completed-event", action="store_true",
+        help="Capture every division of a played event, its published cohorts and exact structure",
+    )
     parser.add_argument("--force", action="store_true", help="Replace a complete roster anyway")
     parser.add_argument("--dry-run", action="store_true", help="Scrape and report, write nothing")
     args = parser.parse_args()
@@ -161,7 +221,7 @@ def main() -> int:
         raise SystemExit("ZENROWS_API_KEY is required — these pages are WAF-gated.")
 
     event_id = _event_id_from(args)
-    out_path = Path(args.out or f"reports/seeding/gotsport_{event_id}/roster.json")
+    out_path = Path(args.out) if args.out else _default_output_path(event_id, completed_event=args.completed_event)
 
     console.print(f"[bold cyan]Scraping event {event_id}[/bold cyan]")
     try:
@@ -173,6 +233,7 @@ def main() -> int:
             limit_groups=args.limit_groups,
             max_workers=args.concurrency,
             on_progress=lambda done, total: console.print(f"  team {done}/{total}", end="\r"),
+            completed_event=args.completed_event,
         )
     except WafChallengeError as exc:
         raise SystemExit(f"Blocked: {exc}") from exc
@@ -187,36 +248,34 @@ def main() -> int:
     resolved = [team for team in with_id if team.provider_team_id in master_ids]
 
     console.print()
-    console.print(_summary_table(roster.teams, master_ids))
-    console.print(
-        f"[bold]{len(roster.teams)}[/bold] teams, "
-        f"[bold]{len(with_id)}[/bold] with a provider id, "
-        f"[bold]{len(resolved)}[/bold] resolved to a PitchRank team"
-    )
+    if args.completed_event:
+        _completed_summary(roster)
+    else:
+        console.print(_summary_table(roster.teams, master_ids))
+        console.print(
+            f"[bold]{len(roster.teams)}[/bold] teams, "
+            f"[bold]{len(with_id)}[/bold] with a provider id, "
+            f"[bold]{len(resolved)}[/bold] resolved to a PitchRank team"
+        )
     if not roster.is_complete:
         console.print("[yellow]Partial walk — this roster is not the whole event[/yellow]")
     for warning in warnings:
         console.print(f"[yellow]{escape(printable_text(warning))}[/yellow]")
 
     payload = {
-        "event_id": roster.event_id,
+        **event_roster_to_dict(replace(roster, warnings=tuple(printable_text(warning) for warning in warnings))),
         "scraped_at": datetime.now(timezone.utc).isoformat(),
-        "is_complete": roster.is_complete,
-        "divisions_found": roster.divisions_found,
-        "divisions_walked": roster.divisions_walked,
-        "divisions_unreadable": roster.divisions_unreadable,
-        "teams_unreadable": roster.teams_unreadable,
-        "warnings": [printable_text(warning) for warning in warnings],
-        "teams": [
-            asdict(team)
-            | {
-                "division_label": printable_text(team.division_label),
-                "team_name": printable_text(team.team_name),
-                "team_id_master": master_ids.get(team.provider_team_id or ""),
-            }
-            for team in roster.teams
-        ],
     }
+    if args.completed_event:
+        payload = {**payload, "walked_at": payload["scraped_at"], "limit_groups": args.limit_groups}
+    payload["teams"] = [
+        item | {
+            "division_label": printable_text(item["division_label"]),
+            "team_name": printable_text(item["team_name"]),
+            "team_id_master": master_ids.get(item.get("provider_team_id") or ""),
+        }
+        for item in payload["teams"]
+    ]
 
     if args.dry_run:
         console.print(f"[yellow]DRY RUN — would write {escape(str(out_path))}[/yellow]")

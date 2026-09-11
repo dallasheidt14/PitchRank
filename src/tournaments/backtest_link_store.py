@@ -30,8 +30,9 @@ from typing import Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.storage._file_lock import FileLockError, _acquire_file_lock
 from src.tournaments.storage._io import write_json
-from src.tournaments.storage.event_key import intake_dir
+from src.tournaments.storage.event_key import intake_dir, parse_event_key
 from src.tournaments.storage.schema_version import (
     assert_supported_version,
     stamp_schema_version,
@@ -42,6 +43,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "EVENT_LINKS_FILENAME",
     "EventLinks",
+    "EventLinksError",
+    "EventLinksLockError",
     "TeamLink",
     "build_links",
     "event_links_path",
@@ -51,11 +54,20 @@ __all__ = [
     "load_links",
     "restore_overrides",
     "save_links",
+    "update_links",
 ]
 
 EVENT_LINKS_FILENAME = "event_links.json"
 
 MATCHED_BY_OPERATOR = "operator"
+
+
+class EventLinksError(RuntimeError):
+    """Saved link decisions cannot safely be read or changed."""
+
+
+class EventLinksLockError(EventLinksError):
+    """Another session is still changing this event's links."""
 
 
 @dataclass(frozen=True)
@@ -76,6 +88,8 @@ class EventLinks:
     event_id: str = ""
     links: tuple[TeamLink, ...] = ()
     saved_at: str = ""
+    removed_registration_ids: tuple[str, ...] = ()
+    """Explicitly cleared registrations; only a new operator choice revives one."""
 
 
 def event_links_path(event_key: str, *, base_dir: Path | str = "reports") -> Path:
@@ -85,43 +99,157 @@ def event_links_path(event_key: str, *, base_dir: Path | str = "reports") -> Pat
 def save_links(
     event_key: str, links: EventLinks, *, base_dir: Path | str = "reports"
 ) -> Path:
-    """Write the links, replacing whatever this event held before.
+    """Merge a legacy snapshot without erasing other sessions' decisions.
 
-    Through ``_io.write_json`` rather than ``Path.write_text``: this file is the
-    only copy of work that cost an operator a lookup each, and a truncated one
-    reads back as no links at all, which the next render would then persist.
-    That helper writes a sibling and renames it, so an interrupted save leaves
-    the previous file whole.
-
-    The caller is expected to hand over a merged set — see ``plan_sync``. A walk
-    that saw fewer teams than the file holds must not replace it wholesale.
+    Omission does not delete a link, and a stale snapshot cannot revive a
+    cleared registration. Use ``update_links`` for explicit edits and clears.
     """
-    path = event_links_path(event_key, base_dir=base_dir)
-    write_json(
-        path,
-        stamp_schema_version(
-            {
-                "event_id": links.event_id,
-                "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-                "links": [asdict(link) for link in links.links],
-            }
-        ),
+    _update_links(
+        event_key,
+        event_id=links.event_id,
+        changed_links=links.links,
+        removed_registration_ids=links.removed_registration_ids,
+        base_dir=base_dir,
+        allow_relink=False,
     )
-    return path
+    return event_links_path(event_key, base_dir=base_dir)
+
+
+def _merge_decisions(
+    saved: EventLinks,
+    fresh: EventLinks,
+    *,
+    allow_relink: bool,
+) -> EventLinks:
+    if saved.event_id and fresh.event_id and saved.event_id != fresh.event_id:
+        raise EventLinksError("Cannot merge links from different events")
+    removed = set(saved.removed_registration_ids) | set(fresh.removed_registration_ids)
+    explicit_removals = set(fresh.removed_registration_ids)
+    by_id = {link.registration_id: link for link in saved.links if link.registration_id not in removed}
+    for link in fresh.links:
+        if link.registration_id in explicit_removals:
+            continue
+        if link.registration_id in removed:
+            if not allow_relink or link.matched_by != MATCHED_BY_OPERATOR:
+                continue
+            removed.remove(link.registration_id)
+        previous = by_id.get(link.registration_id)
+        if previous is not None:
+            if previous.matched_by == MATCHED_BY_OPERATOR and link.matched_by != MATCHED_BY_OPERATOR:
+                continue
+            if (
+                previous.team_id_master == link.team_id_master
+                and previous.matched_by == link.matched_by
+                and previous.event_team_name == link.event_team_name
+            ):
+                continue  # A rerender's new linked_at is not a new decision.
+        by_id[link.registration_id] = link
+    return EventLinks(
+        event_id=fresh.event_id or saved.event_id,
+        links=tuple(by_id.values()),
+        saved_at=saved.saved_at,
+        removed_registration_ids=tuple(sorted(removed)),
+    )
+
+
+def update_links(
+    event_key: str,
+    *,
+    event_id: str,
+    changed_links: Sequence[TeamLink] = (),
+    removed_registration_ids: Sequence[str] = (),
+    base_dir: Path | str = "reports",
+    dry_run: bool = False,
+) -> EventLinks:
+    """Atomically apply explicit changes against this event's latest decisions.
+
+    Automatic matches cannot replace operator choices or clear tombstones.
+    An explicit operator link can relink a previously cleared registration.
+    Pass only changed rows, not a full session snapshot. The returned snapshot
+    includes other sessions' links and all removals so the UI can display and
+    edit saved choices without turning them into permanent session overrides.
+    ``dry_run`` returns the proposed merge without creating or changing files.
+    """
+    return _update_links(
+        event_key,
+        event_id=event_id,
+        changed_links=changed_links,
+        removed_registration_ids=removed_registration_ids,
+        base_dir=base_dir,
+        allow_relink=True,
+        dry_run=dry_run,
+    )
+
+
+def _update_links(
+    event_key: str,
+    *,
+    event_id: str,
+    changed_links: Sequence[TeamLink],
+    removed_registration_ids: Sequence[str],
+    base_dir: Path | str,
+    allow_relink: bool,
+    dry_run: bool = False,
+) -> EventLinks:
+    path = event_links_path(event_key, base_dir=base_dir)
+    expected_id = parse_event_key(event_key)[1]
+    if event_id != expected_id:
+        raise EventLinksError(f"Event id {event_id!r} does not match {event_key!r}")
+    fresh = EventLinks(
+        event_id=event_id,
+        links=tuple(changed_links),
+        removed_registration_ids=tuple(removed_registration_ids),
+    )
+    _validate_links(fresh)
+
+    def apply() -> EventLinks:
+        try:
+            saved = _load_links_strict(path, expected_id=expected_id)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise EventLinksError(f"Refusing to overwrite unreadable links at {path}: {exc}") from exc
+        merged = _merge_decisions(saved, fresh, allow_relink=allow_relink)
+        if dry_run or merged == saved:
+            return merged
+        saved_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        write_json(
+            path,
+            stamp_schema_version(
+                {
+                    "event_id": merged.event_id,
+                    "saved_at": saved_at,
+                    "links": [asdict(link) for link in merged.links],
+                    "removed_registration_ids": list(merged.removed_registration_ids),
+                }
+            ),
+        )
+        return EventLinks(
+            event_id=merged.event_id,
+            links=merged.links,
+            saved_at=saved_at,
+            removed_registration_ids=merged.removed_registration_ids,
+        )
+
+    if dry_run:
+        return apply()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with _acquire_file_lock(path.with_name(".event_links.lock"), timeout=5.0):
+            return apply()
+    except FileLockError as exc:
+        raise EventLinksLockError(str(exc)) from exc
 
 
 def merge_links(saved: EventLinks, fresh: EventLinks) -> EventLinks:
     """Fold this walk's links into the ones already on file.
 
-    This walk wins for every team it saw, and a saved link for a team it did not
-    see is kept. A partial walk is the normal path, not an edge case: the UI
+    Operator choices and explicit removals survive automatic rematching, and a
+    saved link for a team it did not see is kept. A partial walk is the normal
+    path, not an edge case: the UI
     requires a two-division probe before it will enable the full walk, so the
     first roster of every session holds a handful of an event's teams. Replacing
     the file from it would delete the operator's fixes for every other division.
     """
-    walked = {link.registration_id for link in fresh.links}
-    carried = tuple(link for link in saved.links if link.registration_id not in walked)
-    return EventLinks(event_id=fresh.event_id or saved.event_id, links=fresh.links + carried)
+    return _merge_decisions(saved, fresh, allow_relink=False)
 
 
 def rows_fingerprint(rows: Sequence[RosterRow]) -> str:
@@ -209,45 +337,78 @@ def plan_sync(
 def load_links(event_key: str, *, base_dir: Path | str = "reports") -> EventLinks:
     """Read an event's links back, or an empty set when there are none.
 
-    Degrades rather than raises. An event with no links yet is the normal state
-    of every event before its first walk, and a file this cannot read is worth
-    no more than that — the links are recomputable, and refusing to render the
-    screen over them would cost the walk that is not.
+    Malformed files remain display-compatible with the legacy reader, but
+    every writer loads strictly under its lock and refuses to overwrite them.
+    Future schemas and another event's decisions are always refused.
     """
     path = event_links_path(event_key, base_dir=base_dir)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, Mapping):
-            # Valid JSON that is not an object — a hand-repaired `[]`, say. The
-            # version check would call `.get` on it and raise `AttributeError`,
-            # which the handler below does not catch, so an optional artifact
-            # would stop the screen rendering.
-            raise ValueError(f"{path} holds {type(payload).__name__}, not an object")
-        # `SchemaVersionError` is a `RuntimeError`, so the handler below does
-        # not catch it and a future-format file stops the sync rather than
-        # reading as no links at all — that emptiness would be written straight
-        # back over decisions this build cannot see. Widening that tuple to
-        # `Exception` would silently reintroduce exactly that, which is what
-        # `test_a_file_from_a_future_version_is_refused_rather_than_read_as_empty`
-        # is there to catch.
-        assert_supported_version(payload, source=str(path))
-        return EventLinks(
-            event_id=str(payload["event_id"]),
-            links=tuple(
-                TeamLink(
-                    registration_id=str(item["registration_id"]),
-                    event_team_name=str(item["event_team_name"]),
-                    team_id_master=str(item["team_id_master"]),
-                    matched_by=str(item["matched_by"]),
-                    linked_at=str(item["linked_at"]),
-                )
-                for item in payload["links"]
-            ),
-            saved_at=str(payload.get("saved_at", "")),
-        )
+        return _load_links_strict(path, expected_id=parse_event_key(event_key)[1])
     except (OSError, ValueError, TypeError, KeyError) as exc:
         logger.info("No readable links for %s: %s", event_key, exc)
         return EventLinks()
+
+
+def _validate_links(links: EventLinks) -> None:
+    registrations: set[str] = set()
+    for link in links.links:
+        if not isinstance(link, TeamLink):
+            raise ValueError("Every saved link must be a TeamLink")
+        for field in ("registration_id", "team_id_master", "matched_by", "linked_at"):
+            value = getattr(link, field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Link {field} must be a nonempty string")
+        if not isinstance(link.event_team_name, str):
+            raise ValueError("Link event_team_name must be a string")
+        if link.registration_id in registrations:
+            raise ValueError(f"Duplicate registration id {link.registration_id!r}")
+        registrations.add(link.registration_id)
+    removed: set[str] = set()
+    for registration_id in links.removed_registration_ids:
+        if not isinstance(registration_id, str) or not registration_id.strip():
+            raise ValueError("Removed registration ids must be nonempty strings")
+        if registration_id in removed or registration_id in registrations:
+            raise ValueError(f"Conflicting registration id {registration_id!r}")
+        removed.add(registration_id)
+
+
+def _load_links_strict(path: Path, *, expected_id: str) -> EventLinks:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return EventLinks()
+    payload = json.loads(raw)
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{path} must hold an object")
+    assert_supported_version(payload, source=str(path))
+    if payload["event_id"] != expected_id:
+        raise EventLinksError(f"Saved event id at {path} does not match {expected_id!r}")
+    if not isinstance(payload["links"], list):
+        raise ValueError("Saved links must be a list")
+    removed = payload.get("removed_registration_ids", [])
+    if not isinstance(removed, list):
+        raise ValueError("Saved removed_registration_ids must be a list")
+    decoded: list[TeamLink] = []
+    for item in payload["links"]:
+        if not isinstance(item, Mapping):
+            raise ValueError("Each saved link must be an object")
+        decoded.append(
+            TeamLink(
+                registration_id=item["registration_id"],
+                event_team_name=item["event_team_name"],
+                team_id_master=item["team_id_master"],
+                matched_by=item["matched_by"],
+                linked_at=item["linked_at"],
+            )
+        )
+    links = EventLinks(
+        event_id=payload["event_id"],
+        links=tuple(decoded),
+        saved_at=str(payload.get("saved_at", "")),
+        removed_registration_ids=tuple(removed),
+    )
+    _validate_links(links)
+    return links
 
 
 def build_links(

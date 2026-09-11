@@ -3549,6 +3549,11 @@ class _WalkKeys:
         """
         return f"{self.prefix}_registrations"
 
+    @property
+    def snapshot(self) -> str:
+        """Atomic completed-event capture; used only by the Backtest view."""
+        return f"{self.prefix}_intake_snapshot"
+
 
 _SEEDING_KEYS = _WalkKeys("_seeding")
 _BACKTEST_KEYS = _WalkKeys("_backtest")
@@ -3719,7 +3724,8 @@ def _run_event_roster_scrape(
                         fetch=make_zenrows_fetcher(api_key),
                         limit_groups=limit_groups,
                         max_workers=_SEEDING_EVENT_WORKERS,
-                        wanted_cohorts=_RANKED_COHORTS,
+                        wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
+                        **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
                     )
                     parked = _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
             finally:
@@ -3773,7 +3779,10 @@ def _park_event_roster(
     only when the operator asks and the tab holds less than it does. Naming a
     run and keeping it stays the operator's step.
     """
-    _write_event_roster_recovery(roster, limit_groups)
+    if keys == _BACKTEST_KEYS:
+        _write_backtest_recovery(roster, limit_groups)
+    else:
+        _write_event_roster_recovery(roster, limit_groups)
 
     master_ids, resolve_warnings = resolve_master_ids(
         roster.teams,
@@ -3783,6 +3792,16 @@ def _park_event_roster(
         lookup_factory=lambda _client, _resolver: _seeding_provider_id_lookup(supabase_client),
     )
     parsed, resolved = to_seeding_rows(roster, master_ids, resolve_warnings)
+
+    if keys == _BACKTEST_KEYS:
+        from src.tournaments.backtest_intake_state import BacktestSnapshot
+
+        # One assignment publishes event identity, structure and team outcomes.
+        # The compatibility fields below may be interrupted independently, but
+        # the Backtest display and save path consume only this coherent object.
+        st.session_state[keys.snapshot] = BacktestSnapshot.create(
+            roster, resolved, limit_groups=limit_groups
+        )
 
     st.session_state[keys.probe] = {
         "url": url,
@@ -3879,8 +3898,32 @@ def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
     return False
 
 
-def _event_recovery_path(event_id: str) -> Path:
+def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Path:
+    if completed_event:
+        from src.tournaments.storage.event_key import existing_event_key
+
+        key = existing_event_key("gotsport", event_id, base_dir=reports_dir())
+        return reports_dir() / key / "intake" / "last_walk.json"
     return reports_dir() / "seeding" / f"gotsport_{event_id}" / "last_walk.json"
+
+
+def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> None:
+    """Keep the paid Backtest capture separately from upcoming-event Seeding."""
+    from src.tournaments.backtest_intake_state import assert_capture_preserved
+    from src.tournaments.gotsport_event_roster import event_roster_from_dict, event_roster_to_dict
+    from src.tournaments.storage._file_lock import _acquire_file_lock
+
+    path = _event_recovery_path(roster.event_id, completed_event=True)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _acquire_file_lock(path.with_suffix(".lock"), timeout=1.0):
+            if path.exists():
+                existing = event_roster_from_dict(read_json(path))
+                assert_capture_preserved(existing, roster)
+            write_json(path, {**event_roster_to_dict(roster), "walked_at": utc_now_iso(),
+                              "limit_groups": limit_groups})
+    except Exception as exc:
+        logger.warning("Could not preserve this Backtest walk: %s", exc)
 
 
 def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None = None) -> None:
@@ -3945,7 +3988,7 @@ def _recovery_holds_a_complete_walk(path: Path) -> bool:
     return isinstance(existing, dict) and existing.get("is_complete") is True
 
 
-def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
+def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[EventRoster, int | None] | None:
     """The walk already paid for under this event id, and the limit it ran under.
 
     The recovery file is written before anything in the parking step that can be
@@ -3978,6 +4021,26 @@ def _recovered_walk(event_id: str) -> tuple[EventRoster, int | None] | None:
     strength of it coming from ``resolve_cohort``, and this is the one path that
     could hand it anything else.
     """
+    if completed_event:
+        from src.tournaments.gotsport_event_roster import event_roster_from_dict
+        from src.tournaments.storage.schema_version import SchemaVersionError
+
+        path = _event_recovery_path(event_id, completed_event=True)
+        if not path.exists():
+            # Existing paid walks predate the separate Backtest recovery path.
+            # They remain inspectable, with their unverified coverage disclosed.
+            return _recovered_walk(event_id)
+        try:
+            payload = read_json(path)
+            roster = event_roster_from_dict(payload)
+            if roster.event_id != event_id:
+                raise ValueError("Recovery file names another event")
+            limit = payload.get("limit_groups")
+            if limit is not None and (type(limit) is not int or limit < 1):
+                raise ValueError("Invalid division limit")
+            return roster, limit
+        except (OSError, ValueError, TypeError, KeyError, SchemaVersionError):
+            return None
     try:
         payload = read_json(_event_recovery_path(event_id))
     except (OSError, ValueError):
@@ -4043,6 +4106,13 @@ def _run_seeding_name_lookup(
     ``ValueError`` and ``KeyError`` covers, and anything escaping here would
     discard a roster that has already been paid for.
     """
+    snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
+    if keys == _BACKTEST_KEYS:
+        if snapshot is None:
+            return
+        # Retry controls still share the Seeding machinery, but a Backtest
+        # retry must never read an interrupted legacy result/event-id pair.
+        parsed, resolved = snapshot.parsed, snapshot.resolved
     indices = needs_name_lookup(parsed, resolved)
     if not indices:
         st.session_state[keys.resolution_failed] = False
@@ -4050,6 +4120,12 @@ def _run_seeding_name_lookup(
 
     session = requests.Session()
     try:
+        if keys == _BACKTEST_KEYS:
+            from src.tournaments.event_roster_intake import make_historical_name_lookup
+
+            name_lookup = make_historical_name_lookup(supabase_client, _seeding_merge_resolver(supabase_client))
+        else:
+            name_lookup = make_exact_name_lookup(supabase_client)
         with st.spinner(f"Looking up {len(indices)} teams the event did not link..."):
             spliced = resolve_unlinked(
                 parsed,
@@ -4059,8 +4135,9 @@ def _run_seeding_name_lookup(
                     name, age_group, gender, session=session
                 ),
                 lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
-                lookup_exact_name=make_exact_name_lookup(supabase_client),
+                lookup_exact_name=name_lookup,
                 delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
+                **({"historical_context": True} if keys == _BACKTEST_KEYS else {}),
             )
     except Exception as exc:  # noqa: BLE001 — the paid roster must outlive any lookup failure
         st.session_state[keys.resolution_failed] = True
@@ -4069,8 +4146,15 @@ def _run_seeding_name_lookup(
     finally:
         session.close()
 
+    if keys == _BACKTEST_KEYS:
+        current = st.session_state.get(keys.snapshot)
+        if current is None or current.generation != snapshot.generation:
+            return
+        st.session_state[keys.snapshot] = snapshot.with_resolution(parsed, spliced, generation=snapshot.generation)
     _park_seeding_result(
-        (parsed, spliced), event_id=st.session_state.get(keys.result_event_id), keys=keys
+        (parsed, spliced),
+        event_id=snapshot.roster.event_id if keys == _BACKTEST_KEYS else st.session_state.get(keys.result_event_id),
+        keys=keys,
     )
     st.session_state[keys.resolution_failed] = False
 
@@ -4418,6 +4502,17 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
 
 def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:
     """The last walk's counts, but only while they describe this same URL."""
+    if keys == _BACKTEST_KEYS:
+        snapshot = st.session_state.get(keys.snapshot)
+        if snapshot is None or snapshot.roster.event_id != event_id_from(url):
+            return None
+        roster = snapshot.roster
+        return {
+            "url": url, "limit_groups": snapshot.limit_groups, "divisions_found": roster.divisions_found,
+            "divisions_walked": roster.divisions_walked, "teams": len(roster.teams),
+            "linked": sum(bool(team.provider_team_id) for team in roster.teams),
+            "complete": roster.is_complete and roster.completed_event,
+        }
     probe = st.session_state.get(keys.probe) or {}
     return probe if probe.get("url") == url and url else None
 
@@ -4491,11 +4586,15 @@ def _render_recovered_walk(
     event_id = event_id_from(url)
     if not event_id:
         return
-    recovered = _recovered_walk(event_id)
+    recovered = _recovered_walk(event_id, **({"completed_event": True} if keys == _BACKTEST_KEYS else {}))
     if recovered is None:
         return
     roster, limit_groups = recovered
-    if len(roster.teams) <= _parked_roster_size(event_id, keys=keys):
+    if keys == _BACKTEST_KEYS:
+        snapshot = st.session_state.get(keys.snapshot)
+        if snapshot is not None and snapshot.roster == roster:
+            return
+    elif len(roster.teams) <= _parked_roster_size(event_id, keys=keys):
         return
 
     st.caption(
@@ -4509,8 +4608,13 @@ def _render_recovered_walk(
     )
     if reload_clicked and not in_progress:
         _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
-        parsed, resolved = st.session_state[keys.result]
-        _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
+        if keys == _BACKTEST_KEYS:
+            snapshot = st.session_state[keys.snapshot]
+            if snapshot.roster.teams:
+                _run_seeding_name_lookup(snapshot.parsed, snapshot.resolved, supabase_client, keys=keys)
+        else:
+            parsed, resolved = st.session_state[keys.result]
+            _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
         st.rerun()
 
 
@@ -4533,6 +4637,9 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
 
 def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> int:
     """How many rows the seeding table holds *for this event*, and none for any other."""
+    if keys == _BACKTEST_KEYS:
+        snapshot = st.session_state.get(keys.snapshot)
+        return len(snapshot.roster.teams) if snapshot and snapshot.roster.event_id == event_id else 0
     if st.session_state.get(keys.result_event_id) != event_id:
         return 0
     result = st.session_state.get(keys.result)
@@ -4748,69 +4855,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:
-    """Scrape-and-triage flow for a tournament that has already been played.
-
-    Two intakes live here while the triage list, division editor and Run
-    backtest below still read the older one's ``raw_scrape.jsonl``. The newer
-    one leads because it is the one to use; the older is folded away, because
-    two unexplained URL boxes on one tab is a coin toss — and the wrong side of
-    that toss writes to the team database, which this flow exists to avoid.
-    """
+    """Completed-event capture and identity review; seeding is a separate project."""
     render_backtest_event_intake(supabase_client)
-    with st.expander("Legacy intake — writes to the team database", expanded=False):
-        st.caption(
-            "The older scrape. Everything below this section — the team triage list, the "
-            "division editor and Run backtest — still reads what it writes, so it stays "
-            "until they are moved across. Unlike the scrape above, it writes rows to "
-            "`team_alias_map` and the team match review queue every time it runs."
-        )
-        _render_intake_section(supabase_client)
-    _render_registry_persist_results()
-
-    key = st.session_state.event_key
-    if not key:
-        st.info(
-            "The triage list, division editor and Run backtest appear once an event is "
-            "loaded through the legacy intake above. The scrape at the top of this tab "
-            "does not feed them yet."
-        )
-        return
-
-    try:
-        meta = read_event_metadata(key)
-    except (FileNotFoundError, SchemaVersionError) as exc:
-        st.error(f"Cannot read event metadata for {key}: {exc}")
-        return
-
-    records = load_raw_scrape(key)
-    _render_event_banner(
-        meta,
-        records,
-        event_key=key,
-        scenario=st.session_state.scenario_name,
-    )
-    if not records:
-        st.warning("No teams in this event's raw_scrape.jsonl yet.")
-        return
-
-    cohorts = _group_cohorts(records)
-    sorted_keys = sorted(cohorts.keys(), key=_cohort_sort_key)
-    _render_reviewer_email_input()
-    tints = _render_cohort_summary(
-        cohorts,
-        sorted_keys,
-        event_name=meta.event_name,
-        supabase_client=supabase_client,
-    )
-    _render_cohort_containers(
-        cohorts,
-        sorted_keys,
-        tints,
-        event_key=key,
-        scenario=st.session_state.scenario_name,
-        event_name=meta.event_name,
-        supabase_client=supabase_client,
-    )
 
 
 def main() -> None:
