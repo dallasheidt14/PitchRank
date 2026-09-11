@@ -130,7 +130,9 @@ def registration_map(parked: Mapping[str, Any]) -> dict[int, str]:
     return dict(by_index) if isinstance(by_index, Mapping) else {}
 
 
-def generations_agree(rows: Sequence[RosterRow], parked: Mapping[str, Any]) -> bool:
+def generations_agree(
+    rows: Sequence[RosterRow], parked: Mapping[str, Any], event_id: str
+) -> bool:
     """Do these rows and this parked registration map come from the same walk?
 
     ``_park_event_roster`` writes the map and the parked result as separate
@@ -141,15 +143,19 @@ def generations_agree(rows: Sequence[RosterRow], parked: Mapping[str, Any]) -> b
     registration id and then save it, which is the silent corruption this whole
     store exists to prevent.
 
-    Compared by a fingerprint of the rows rather than by their indexes.
+    Compared on two axes, because either alone lets a real pair through.
     ``source_index`` is assigned as ``len(teams)``, so every walk numbers
     0..n-1 and any two walks of equal size share an index set however different
-    their teams are — an index check would wave exactly the dangerous pair
-    through.
+    their teams are — an index check waves the dangerous pair through. And a
+    fingerprint of the rows cannot separate two *events* whose rosters match:
+    annual editions field the same clubs in the same order, and the ids behind
+    those identical names are not the same, so the event has to match too.
     """
     if not isinstance(parked, Mapping):
         return False
     if not registration_map(parked):
+        return False
+    if parked.get("event_id") != event_id:
         return False
     return parked.get("fingerprint") == rows_fingerprint(rows)
 

@@ -2195,6 +2195,10 @@ def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
     assert parked_registrations["fingerprint"] == tournament_intake.rows_fingerprint(
         expected_parsed.rows
     ), "the map carries a fingerprint of the rows it belongs to, so a stop between the two parks is detectable"
+    assert parked_registrations["event_id"] == roster.event_id, (
+        "two events can field the same clubs in the same order, so the rows alone "
+        "cannot say which event the map was walked for"
+    )
     assert fake_st.session_state.get("_seeding_result") is None, (
         "a backtest-keyed walk must not touch the seeding view's parked result"
     )

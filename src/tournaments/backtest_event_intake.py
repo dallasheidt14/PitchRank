@@ -118,9 +118,9 @@ def _sync_links(
     import streamlit as st
 
     from src.tournaments.storage.event_key import existing_event_key
-    from tournament_intake import _BACKTEST_KEYS, _seeding_merge_resolver
+    from tournament_intake import _BACKTEST_KEYS, _merge_map_loaded, _seeding_merge_resolver
 
-    if not generations_agree(parsed.rows, registrations):
+    if not generations_agree(parsed.rows, registrations, event_id):
         # The walk parks the registration map and the result in separate
         # session-state writes, either of which Streamlit can stop between. Doing
         # nothing costs one render; pairing two walks would save a team's link
@@ -134,6 +134,12 @@ def _sync_links(
     # override both beats the resolver and hides its row from the outstanding
     # list — so without this the dead id is re-saved with nothing to notice.
     resolver = _seeding_merge_resolver(supabase_client)
+    if not _merge_map_loaded(resolver):
+        # Restoring now would write the saved id unresolved, and a restored
+        # override is then skipped on every later sync — so a merge map that
+        # recovers a moment later could never correct it, and the row stays
+        # hidden from the outstanding list. One idle render costs nothing.
+        return 0
     to_add, merged = plan_sync(
         saved,
         parsed.rows,

@@ -3798,6 +3798,7 @@ def _park_event_roster(
     # result leaves the two describing different walks, and every walk numbers
     # its teams 0..n-1, so only the rows themselves can tell one from another.
     st.session_state[keys.registrations] = {
+        "event_id": roster.event_id,
         "fingerprint": rows_fingerprint(parsed.rows),
         "by_index": {team.source_index: team.registration_id for team in roster.teams},
     }

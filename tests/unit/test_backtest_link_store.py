@@ -215,14 +215,14 @@ def test_an_override_the_operator_is_already_changing_is_left_alone():
     assert next(link for link in merged.links if link.registration_id == "4383677").team_id_master == "just-picked"
 
 
-def _parked(rows, by_index):
-    return {"fingerprint": rows_fingerprint(rows), "by_index": by_index}
+def _parked(rows, by_index, event_id="51783"):
+    return {"event_id": event_id, "fingerprint": rows_fingerprint(rows), "by_index": by_index}
 
 
 def test_a_registration_map_from_the_same_walk_is_accepted():
     rows = (_row(0, "Aztecas"), _row(1, "City White"))
 
-    assert generations_agree(rows, _parked(rows, {0: "4411807", 1: "4383677"}))
+    assert generations_agree(rows, _parked(rows, {0: "4411807", 1: "4383677"}), "51783")
 
 
 def test_a_map_from_a_walk_that_found_a_different_set_of_teams_is_refused():
@@ -232,28 +232,37 @@ def test_a_map_from_a_walk_that_found_a_different_set_of_teams_is_refused():
     walked = (_row(0, "Aztecas"), _row(1, "City White"))
     other = (_row(0, "Someone Else"), _row(1, "A Third Club"))
 
-    assert not generations_agree(other, _parked(walked, {0: "4411807", 1: "4383677"}))
+    assert not generations_agree(other, _parked(walked, {0: "4411807", 1: "4383677"}), "51783")
 
 
 def test_a_map_from_a_walk_that_reordered_the_same_teams_is_refused():
     walked = (_row(0, "Aztecas"), _row(1, "City White"))
     reordered = (_row(0, "City White"), _row(1, "Aztecas"))
 
-    assert not generations_agree(reordered, _parked(walked, {0: "4411807", 1: "4383677"}))
+    assert not generations_agree(reordered, _parked(walked, {0: "4411807", 1: "4383677"}), "51783")
 
 
 def test_a_map_of_a_different_size_is_refused():
     walked = (_row(0, "Aztecas"), _row(1, "City White"))
 
-    assert not generations_agree((_row(0, "Aztecas"),), _parked(walked, {0: "4411807", 1: "4383677"}))
+    assert not generations_agree((_row(0, "Aztecas"),), _parked(walked, {0: "4411807", 1: "4383677"}), "51783")
 
 
 def test_a_malformed_parked_map_is_refused_rather_than_trusted():
     rows = (_row(0, "Aztecas"),)
 
-    assert not generations_agree(rows, {})
-    assert not generations_agree(rows, {"by_index": {0: "4411807"}})
-    assert not generations_agree(rows, {"fingerprint": "nope", "by_index": {0: "4411807"}})
+    assert not generations_agree(rows, {}, "51783")
+    assert not generations_agree(rows, {"by_index": {0: "4411807"}}, "51783")
+    assert not generations_agree(rows, {"fingerprint": "nope", "by_index": {0: "4411807"}}, "51783")
+
+
+def test_a_walk_of_another_event_with_the_same_teams_is_refused():
+    """Annual editions can field the same clubs in the same order, so the rows
+    alone cannot separate two events — only the event the map was walked for."""
+    rows = (_row(0, "Aztecas"), _row(1, "City White"))
+    other_event = _parked(rows, {0: "4411807", 1: "4383677"}, event_id="60001")
+
+    assert not generations_agree(rows, other_event, "51783")
 
 
 def test_a_restored_link_is_resolved_through_the_merge_map():
