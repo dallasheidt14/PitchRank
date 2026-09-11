@@ -39,6 +39,7 @@ __all__ = [
     "TeamLink",
     "build_links",
     "event_links_path",
+    "generations_agree",
     "load_links",
     "restore_overrides",
     "save_links",
@@ -111,6 +112,28 @@ def merge_links(saved: EventLinks, fresh: EventLinks) -> EventLinks:
     walked = {link.registration_id for link in fresh.links}
     carried = tuple(link for link in saved.links if link.registration_id not in walked)
     return EventLinks(event_id=fresh.event_id or saved.event_id, links=fresh.links + carried)
+
+
+def generations_agree(
+    rows: Sequence[RosterRow], registration_ids: Mapping[int, str]
+) -> bool:
+    """Do these rows and this registration map come from the same walk?
+
+    ``_park_event_roster`` writes the map and the parked result as separate
+    session-state writes, and Streamlit raises a queued rerun from
+    ``BaseException`` at every one of them — so a stop landing between the two
+    leaves this walk's map standing against the previous walk's rows. Pairing
+    those by ``source_index`` would file one team's link under another team's
+    registration id and then save it, which is the silent corruption this whole
+    store exists to prevent.
+
+    The source-index sets are what separate them: two walks of one event
+    disagree whenever either found a different set of teams, which is exactly
+    when the positions have moved. Two that agree on every index found the same
+    teams in the same places, so pairing them is safe whichever walk each came
+    from.
+    """
+    return set(registration_ids) == {row.source_index for row in rows}
 
 
 def plan_sync(

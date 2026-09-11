@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from src.tournaments.backtest_link_store import (
+    generations_agree,
     load_links,
     plan_sync,
     save_links,
@@ -115,6 +116,13 @@ def _sync_links(parsed: Any, resolved: Any, registrations: Any, event_id: str) -
 
     from src.tournaments.storage.event_key import existing_event_key
     from tournament_intake import _BACKTEST_KEYS
+
+    if not generations_agree(parsed.rows, registrations):
+        # The walk parks the registration map and the result in separate
+        # session-state writes, either of which Streamlit can stop between. Doing
+        # nothing costs one render; pairing two walks would save a team's link
+        # under another team's id, and nothing afterwards could tell.
+        return 0
 
     key = existing_event_key("gotsport", event_id)
     saved = load_links(key)

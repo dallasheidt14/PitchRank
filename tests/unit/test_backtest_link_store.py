@@ -12,6 +12,7 @@ from src.tournaments.backtest_link_store import (
     TeamLink,
     build_links,
     event_links_path,
+    generations_agree,
     load_links,
     plan_sync,
     restore_overrides,
@@ -211,6 +212,22 @@ def test_an_override_the_operator_is_already_changing_is_left_alone():
 
     assert to_add == {}
     assert next(link for link in merged.links if link.registration_id == "4383677").team_id_master == "just-picked"
+
+
+def test_a_registration_map_from_a_different_walk_is_refused():
+    """`_park_event_roster` writes the map and the parked result as separate
+    session-state writes, and Streamlit can stop the script between any two of
+    them — leaving this walk's map against the previous walk's rows. Pairing
+    those by position would save a team's link under another team's id."""
+    rows = (_row(0, "Aztecas"), _row(1, "City White"))
+    resolved = (
+        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="aaaa-1111"),
+        ResolvedTeam(source_index=1, status="gotsport_id", team_id_master="bbbb-2222"),
+    )
+
+    assert not generations_agree(rows, {0: "4411807"})
+    assert generations_agree(rows, {0: "4411807", 1: "4383677"})
+    assert build_links("51783", rows, resolved, {}, {0: "4411807", 1: "4383677"}).links
 
 
 def test_a_failed_replacement_leaves_the_previous_links_intact(tmp_path, monkeypatch):
