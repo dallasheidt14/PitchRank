@@ -288,6 +288,17 @@ def test_a_resolver_that_answers_nothing_leaves_the_saved_id_alone():
     assert restored[0]["team_id_master"] == "bbbb-2222"
 
 
+def test_a_payload_that_is_not_an_object_reads_as_empty(tmp_path):
+    """A hand-repaired `[]` is valid JSON, and the version check calls `.get` on
+    it. That must follow this reader's malformed-file path, not abort the screen
+    over an optional artifact."""
+    path = event_links_path(EVENT_KEY, base_dir=tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for payload in ("[]", '"just a string"', "42", "null"):
+        path.write_text(payload, encoding="utf-8")
+        assert load_links(EVENT_KEY, base_dir=tmp_path).links == (), payload
+
+
 def test_the_payload_is_stamped_with_a_schema_version(tmp_path):
     save_links(EVENT_KEY, _links(), base_dir=tmp_path)
     payload = json.loads(event_links_path(EVENT_KEY, base_dir=tmp_path).read_text(encoding="utf-8"))

@@ -209,6 +209,12 @@ def load_links(event_key: str, *, base_dir: Path | str = "reports") -> EventLink
     path = event_links_path(event_key, base_dir=base_dir)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, Mapping):
+            # Valid JSON that is not an object — a hand-repaired `[]`, say. The
+            # version check would call `.get` on it and raise `AttributeError`,
+            # which the handler below does not catch, so an optional artifact
+            # would stop the screen rendering.
+            raise ValueError(f"{path} holds {type(payload).__name__}, not an object")
         # `SchemaVersionError` is a `RuntimeError`, so the handler below does
         # not catch it and a future-format file stops the sync rather than
         # reading as no links at all — that emptiness would be written straight
