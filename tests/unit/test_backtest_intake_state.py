@@ -8,8 +8,11 @@ import pytest
 
 from src.tournaments.backtest_intake_state import (
     BacktestSnapshot,
+    CaptureVerification,
+    CohortDecision,
     DivisionReview,
     IntakeOverwriteRefused,
+    effective_roster,
     entrant_key,
     read_snapshot,
     structure_hash,
@@ -64,6 +67,45 @@ def test_snapshot_round_trip_preserves_all_divisions_entrants_scores_and_reviews
     assert loaded.roster.divisions[0].fixtures[0].home_shootout_score == 4
     assert loaded.roster.divisions[0].fixtures[0].date_label == "May 10, 2025"
     assert loaded.resolved[2].candidates == ({"team_id_master": "candidate-c"},)
+
+
+def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):
+    snapshot = sample_snapshot()
+    decision = CohortDecision("10", "u12/u13", "Male", "Published combined bracket", "https://example.test")
+    verification = CaptureVerification(("10", "20"), (1, 2, 2), "2026-09-11T12:00:00+00:00", True)
+    snapshot = replace(snapshot, cohort_decisions=(decision,), verification=verification)
+
+    write_snapshot("gotsport__51783__2025", snapshot, base_dir=tmp_path)
+    loaded = read_snapshot("gotsport__51783__2025", base_dir=tmp_path)
+
+    assert loaded.cohort_decisions == (decision,)
+    assert loaded.verification == verification
+    effective = effective_roster(loaded)
+    assert effective.divisions[0].published_age_group == "u12/u13"
+    assert effective.teams[0].published_age_group == "u12/u13"
+
+
+def test_concurrent_cohort_decisions_for_different_divisions_are_merged(tmp_path):
+    key = "gotsport__51783__2025"
+    baseline = sample_snapshot()
+    first = CohortDecision("10", "u12", "Male", "First source", "https://example.test/10")
+    second = CohortDecision("20", "u13", "Female", "Second source", "https://example.test/20")
+    write_snapshot(key, baseline, base_dir=tmp_path)
+
+    write_snapshot(
+        key,
+        replace(baseline, cohort_decisions=(first,)),
+        base_dir=tmp_path,
+        cohort_baseline=(),
+    )
+    write_snapshot(
+        key,
+        replace(baseline, cohort_decisions=(second,)),
+        base_dir=tmp_path,
+        cohort_baseline=(),
+    )
+
+    assert set(read_snapshot(key, base_dir=tmp_path).cohort_decisions) == {first, second}
 
 
 def test_tournament_totals_use_entered_age_and_gender_with_multidivision_registrations_and_unknowns():
