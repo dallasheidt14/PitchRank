@@ -28,6 +28,7 @@ from pathlib import Path
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.storage._io import write_json
 from src.tournaments.storage.event_key import intake_dir
 
 logger = logging.getLogger(__name__)
@@ -77,19 +78,67 @@ def save_links(
 ) -> Path:
     """Write the links, replacing whatever this event held before.
 
-    No overwrite guard, unlike ``write_event_structure``: the structure is a
-    paid artifact a lesser walk must not erase, while these are cheap to
-    recompute and the newest set is always the one to keep.
+    Through ``_io.write_json`` rather than ``Path.write_text``: this file is the
+    only copy of work that cost an operator a lookup each, and a truncated one
+    reads back as no links at all, which the next render would then persist.
+    That helper writes a sibling and renames it, so an interrupted save leaves
+    the previous file whole.
+
+    The caller is expected to hand over a merged set — see ``plan_sync``. A walk
+    that saw fewer teams than the file holds must not replace it wholesale.
     """
     path = event_links_path(event_key, base_dir=base_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "event_id": links.event_id,
-        "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-        "links": [asdict(link) for link in links.links],
-    }
-    path.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_json(
+        path,
+        {
+            "event_id": links.event_id,
+            "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+            "links": [asdict(link) for link in links.links],
+        },
+    )
     return path
+
+
+def merge_links(saved: EventLinks, fresh: EventLinks) -> EventLinks:
+    """Fold this walk's links into the ones already on file.
+
+    This walk wins for every team it saw, and a saved link for a team it did not
+    see is kept. A partial walk is the normal path, not an edge case: the UI
+    requires a two-division probe before it will enable the full walk, so the
+    first roster of every session holds a handful of an event's teams. Replacing
+    the file from it would delete the operator's fixes for every other division.
+    """
+    walked = {link.registration_id for link in fresh.links}
+    carried = tuple(link for link in saved.links if link.registration_id not in walked)
+    return EventLinks(event_id=fresh.event_id or saved.event_id, links=fresh.links + carried)
+
+
+def plan_sync(
+    saved: EventLinks,
+    rows: Sequence[RosterRow],
+    resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, Mapping[str, str]],
+    registration_ids: Mapping[int, str],
+    event_id: str,
+) -> tuple[dict[int, dict[str, str]], EventLinks]:
+    """Reconcile one render against the file: what to restore, and what to store.
+
+    Returns the operator fixes this walk is missing and the links that should be
+    on disk once they are applied. Pure, and idempotent by construction — a fix
+    already present is not returned, so running this on every rerun cannot
+    overwrite a decision the operator is partway through changing, and no
+    "have I restored yet" marker is needed. A marker is what made a second walk
+    of the same event come back without its fixes: the walk clears the
+    overrides, but the marker still said the event had been restored.
+    """
+    to_add = {
+        source_index: link
+        for source_index, link in restore_overrides(rows, saved, registration_ids).items()
+        if source_index not in overrides
+    }
+    applied = {**dict(overrides), **to_add}
+    fresh = build_links(event_id, rows, resolved, applied, registration_ids)
+    return to_add, merge_links(saved, fresh)
 
 
 def load_links(event_key: str, *, base_dir: Path | str = "reports") -> EventLinks:
