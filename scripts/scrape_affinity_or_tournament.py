@@ -7,10 +7,13 @@ Affinity platform.  Public schedule pages are HTML — no login needed.
 
 Two things differ from the WA sibling and drive the code below:
 
-- OYSA labels divisions ``BU13``/``GU14`` with no birth-year parenthetical, and
-  its U-number is one BELOW PitchRank's for the same players: ``BU13`` fields
-  2013-born teams, which this project calls u14.  The label is therefore read
-  as a birth year (``season - u_number``) and never as a cohort.
+- OYSA labels divisions ``BU13``/``GU14``, with no birth-year parenthetical for
+  ``_parse_band_birth_year`` to read.  The U-number is the cohort as this
+  project means it: OYSA runs the Aug 1 - Jul 31 cycle USYS adopted for
+  2026-27, so its U13 is the Aug 2013 - Jul 2014 band, which is u13 here.
+  Do not adjust it.  Team names are the trap instead — Oregon writes that band
+  as "13B", after its older year, so reading a name as a birth year files the
+  division a cohort high.
 - Unplayed fixtures are kept.  The importer inserts a future-dated row whose
   scores are both empty as a scheduled game and backfills the score on a later
   scrape (``EnhancedETLPipeline._should_accept_for_insert``).
@@ -28,7 +31,6 @@ import re
 import sys
 import time
 import uuid
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -126,20 +128,23 @@ def _compute_result(gf: Optional[int], ga: Optional[int]) -> str:
     return "D"
 
 
-def _division_birth_year(age_u: int, season_year: Optional[int] = None) -> int:
-    """Read an OYSA division's U-number as a birth year.
+def _age_u_to_birth_year(age_u: int, season_year: Optional[int] = None) -> int:
+    """Derive the band's birth year from a U-age. Season year rolls over Aug 1.
 
-    OYSA numbers a division by ``season - birth_year``; PitchRank numbers the
-    same cohort ``season - birth_year + 1``.  BU13 is therefore 2013-born and
-    lands on the u14 board — taking the 13 as a cohort files every Oregon team
-    a full year low.  Verified against the 2026 Fall League on 2026-09-11:
-    BU11/BU12/BU13/BU14 field 15B/14B/13B/12B teams respectively.
+    OYSA runs the Aug 1 - Jul 31 cycle that USYS adopted for 2026-27, so its
+    U13 is the Aug 2013 - Jul 2014 band — the same cohort PitchRank calls u13.
+    The label needs no adjustment; it needs to be read as a band, whose younger
+    year is what ``calculate_age_group_from_birth_year`` takes.
+
+    Team names are not that year. Oregon writes the 2013-14 band as "13B",
+    after its older year, so reading a name as a single birth year files the
+    whole division one cohort high.
     """
     if season_year is None:
         from src.utils.team_utils import CURRENT_YEAR
 
         season_year = CURRENT_YEAR
-    return season_year - age_u
+    return season_year - age_u + 1
 
 
 def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Optional[int]]:
@@ -147,8 +152,8 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
     Parse 'BU13 RCL North 2' → (gender='Male', age_u=13).
     Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1'.
 
-    ``age_u`` is the provider's own number, not a PitchRank cohort — see
-    :func:`_division_birth_year`.
+    ``age_u`` is the cohort directly; OYSA and PitchRank number the Aug 1 -
+    Jul 31 band the same way.
     """
     compact = re.match(r"^\s*([BG])U(\d{1,2})\b", div_name, re.I)
     if compact:
@@ -171,24 +176,6 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
             age_u = int(m.group(1))
 
     return gender, age_u
-
-
-def _roster_birth_year(team_names: List[str]) -> Optional[int]:
-    """Most common birth year named by a flight's teams, e.g. 'LFC 13B Red' → 2013.
-
-    Used only to veto a division label, never to replace it: a provider's
-    cohort is safe to disagree with and unsafe to write from.  Returns None
-    when fewer than three teams carry a year token, which is too thin to
-    overrule anything.
-    """
-    years = Counter()
-    for name in team_names:
-        for token in re.findall(r"\b(\d{2})[BG]\b", name, re.I):
-            years[2000 + int(token)] += 1
-
-    if not years or sum(years.values()) < 3:
-        return None
-    return years.most_common(1)[0][0]
 
 
 def _age_label_to_int(label: str) -> int:
@@ -223,9 +210,6 @@ def _fetch(url: str, retries: int = 3) -> Optional[str]:
 
 def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> List[Dict]:
     """Return list of {flight_guid, division_name, birth_year, age_u, gender}.
-
-    ``target_age`` is a PitchRank cohort (u13), so it is compared against the
-    cohort the division's birth year resolves to, not against OYSA's number.
 
     The accepted_list page has Boys/Girls tabs.  The default view only shows
     one gender, so we fetch the appropriate tab directly via ``&show=boys``
@@ -274,13 +258,10 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
             gender = target_gender
         if age_u is None:
             continue
-        if gender != target_gender:
+        if age_u != target_age or gender != target_gender:
             continue
 
-        birth_year = _division_birth_year(age_u)
-        age_group = calculate_age_group_from_birth_year(birth_year)
-        if not age_group or _age_label_to_int(age_group) != target_age:
-            continue
+        birth_year = _age_u_to_birth_year(age_u)
 
         flights.append(
             {
@@ -321,7 +302,6 @@ def scrape_flight_games(
 
     soup = BeautifulSoup(html, "lxml")
     records: List[Dict] = []
-    roster_names: List[str] = []
 
     current_date: Optional[datetime] = None
 
@@ -354,8 +334,6 @@ def scrape_flight_games(
             home_score_str = cell_text[6]
             away_name = cell_text[8]
             away_score_str = cell_text[9] if len(cell_text) > 9 else ""
-
-            roster_names.extend((home_name, away_name))
 
             if not in_window:
                 continue
@@ -438,15 +416,6 @@ def scrape_flight_games(
             }
             records.append(home_record)
             records.append(away_record)
-
-    roster_year = _roster_birth_year(roster_names)
-    if roster_year is not None and roster_year != flight["birth_year"]:
-        print(
-            f"      SKIPPED: '{flight['division_name']}' reads as {flight['birth_year']} "
-            f"but its teams are named {roster_year} — OYSA may have changed how it "
-            f"numbers divisions; confirm before importing Oregon."
-        )
-        return []
 
     return records
 
