@@ -27,17 +27,6 @@ class SeedableTeam:
     club_name: str | None = None
     state_code: str | None = None
     games_played: int | None = None
-    canonical_team_id: str | None = None
-    coach_names: tuple[str, ...] = ()
-    prior_opponent_ids: frozenset[str] = frozenset()
-
-
-@dataclass(frozen=True)
-class AssignmentConstraints:
-    avoid_same_club_early: bool = False
-    avoid_same_coach_early: bool = False
-    avoid_same_state_pool: bool = False
-    avoid_prior_rematches: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,8 +53,6 @@ class MatchupCost:
 
 
 MatchupCostFn = Callable[["SeedableTeam", "SeedableTeam"], MatchupCost]
-PairViolationFn = Callable[["SeedableTeam", "SeedableTeam"], tuple[str, ...]]
-FlightViolationCountFn = Callable[[int, Sequence["SeedableTeam"]], int]
 
 
 @dataclass(frozen=True)
@@ -289,54 +276,6 @@ def total_tournament_cost(
     return float(sum(flight_total_cost(flight, matchup_cost_fn=matchup_cost_fn) for flight in flights))
 
 
-def build_pair_violation_fn(constraints: AssignmentConstraints) -> PairViolationFn:
-    def violations(team_a: SeedableTeam, team_b: SeedableTeam) -> tuple[str, ...]:
-        found: list[str] = []
-        club_a = str(team_a.club_name or "").strip().casefold()
-        club_b = str(team_b.club_name or "").strip().casefold()
-        if constraints.avoid_same_club_early and club_a and club_a == club_b:
-            found.append("same_club")
-
-        coaches_a = {str(name).strip().casefold() for name in team_a.coach_names if str(name).strip()}
-        coaches_b = {str(name).strip().casefold() for name in team_b.coach_names if str(name).strip()}
-        if constraints.avoid_same_coach_early and coaches_a & coaches_b:
-            found.append("same_coach")
-
-        state_a = str(team_a.state_code or "").strip().casefold()
-        state_b = str(team_b.state_code or "").strip().casefold()
-        if constraints.avoid_same_state_pool and state_a and state_a == state_b:
-            found.append("same_state")
-
-        canonical_a = str(team_a.canonical_team_id or team_a.team_id)
-        canonical_b = str(team_b.canonical_team_id or team_b.team_id)
-        if constraints.avoid_prior_rematches and (
-            canonical_b in team_a.prior_opponent_ids or canonical_a in team_b.prior_opponent_ids
-        ):
-            found.append("prior_rematch")
-        return tuple(found)
-
-    return violations
-
-
-def assignment_constraint_violations(
-    flights: Sequence[Sequence[SeedableTeam]],
-    pair_violation_fn: PairViolationFn,
-) -> tuple[dict[str, str], ...]:
-    violations: list[dict[str, str]] = []
-    for flight_index, flight in enumerate(flights):
-        for team_a, team_b in combinations(flight, 2):
-            for kind in pair_violation_fn(team_a, team_b):
-                violations.append(
-                    {
-                        "kind": kind,
-                        "flight": str(flight_index),
-                        "team_a_id": team_a.team_id,
-                        "team_b_id": team_b.team_id,
-                    }
-                )
-    return tuple(violations)
-
-
 def _positive_slot_count(value: Any, *, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(f"{label} must be a positive integer; got {value!r}")
@@ -448,10 +387,8 @@ def optimize_division_assignments(
     improvement_tolerance: float = 1e-9,
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
-    pair_violation_fn: PairViolationFn | None = None,
-    flight_violation_count_fn: FlightViolationCountFn | None = None,
 ) -> TournamentOptimizationResult:
-    """Assign teams to flights, minimizing hard violations before model cost."""
+    """Assign teams to fixed-size flights to minimize matchup-model cost."""
 
     _validate_flights(teams, flights)
     ordered_teams = sorted(teams, key=_team_sort_key)
@@ -464,21 +401,12 @@ def optimize_division_assignments(
         start_index = end_index
 
     current_cost = total_tournament_cost(working_flights, matchup_cost_fn=matchup_cost_fn)
-    if flight_violation_count_fn is not None:
-        current_violation_count = sum(
-            flight_violation_count_fn(index, flight) for index, flight in enumerate(working_flights)
-        )
-    else:
-        current_violation_count = (
-            len(assignment_constraint_violations(working_flights, pair_violation_fn)) if pair_violation_fn else 0
-        )
     iterations = 0
 
     while iterations < max_iterations:
         iterations += 1
         best_swap: tuple[int, int, int, int] | None = None
         best_new_cost = current_cost
-        best_new_violation_count = current_violation_count
 
         for left_flight_index in range(len(working_flights)):
             for right_flight_index in range(left_flight_index + 1, len(working_flights)):
@@ -505,42 +433,8 @@ def optimize_division_assignments(
                             matchup_cost_fn=matchup_cost_fn,
                         )
                         tournament_cost = current_cost - base_cost + candidate_cost
-                        if flight_violation_count_fn is not None:
-                            base_violations = flight_violation_count_fn(
-                                left_flight_index, left_flight
-                            ) + flight_violation_count_fn(right_flight_index, right_flight)
-                            candidate_violations = flight_violation_count_fn(
-                                left_flight_index, candidate_left
-                            ) + flight_violation_count_fn(right_flight_index, candidate_right)
-                            tournament_violation_count = (
-                                current_violation_count - base_violations + candidate_violations
-                            )
-                        elif pair_violation_fn is None:
-                            tournament_violation_count = 0
-                        else:
-                            base_violations = len(
-                                assignment_constraint_violations(
-                                    (left_flight, right_flight),
-                                    pair_violation_fn,
-                                )
-                            )
-                            candidate_violations = len(
-                                assignment_constraint_violations(
-                                    (candidate_left, candidate_right),
-                                    pair_violation_fn,
-                                )
-                            )
-                            tournament_violation_count = (
-                                current_violation_count - base_violations + candidate_violations
-                            )
-                        improves_violations = tournament_violation_count < best_new_violation_count
-                        improves_cost = (
-                            tournament_violation_count == best_new_violation_count
-                            and tournament_cost + improvement_tolerance < best_new_cost
-                        )
-                        if improves_violations or improves_cost:
+                        if tournament_cost + improvement_tolerance < best_new_cost:
                             best_new_cost = tournament_cost
-                            best_new_violation_count = tournament_violation_count
                             best_swap = (
                                 left_flight_index,
                                 right_flight_index,
@@ -557,7 +451,6 @@ def optimize_division_assignments(
             working_flights[left_flight_index][left_team_index],
         )
         current_cost = best_new_cost
-        current_violation_count = best_new_violation_count
 
     base_assignments = tuple(
         _build_flight_assignment(
@@ -592,6 +485,90 @@ def optimize_division_assignments(
     )
 
 
+def _optimize_division_memberships_by_pool_cost(
+    teams: Sequence[SeedableTeam],
+    divisions: Sequence[DivisionSpec],
+    *,
+    max_iterations: int,
+    improvement_tolerance: float,
+    matchup_cost_fn: MatchupCostFn,
+    matchup_proxy: str,
+) -> tuple[
+    tuple[tuple[SeedableTeam, ...], ...],
+    int,
+    dict[tuple[int, tuple[str, ...]], TournamentOptimizationResult],
+]:
+    """Choose division membership against the pools that will be played."""
+
+    division_specs = [FlightSpec(name=division.name, team_count=division.team_count) for division in divisions]
+    _validate_flights(teams, division_specs)
+    ordered_teams = sorted(teams, key=_team_sort_key)
+    working: list[list[SeedableTeam]] = []
+    start_index = 0
+    for division in divisions:
+        end_index = start_index + int(division.team_count)
+        working.append(list(ordered_teams[start_index:end_index]))
+        start_index = end_index
+
+    pool_result_cache: dict[tuple[int, tuple[str, ...]], TournamentOptimizationResult] = {}
+
+    def pool_result(division_index: int, members: Sequence[SeedableTeam]) -> TournamentOptimizationResult:
+        key = (division_index, tuple(sorted(team.team_id for team in members)))
+        cached = pool_result_cache.get(key)
+        if cached is not None:
+            return cached
+        result = optimize_division_assignments(
+            members,
+            _pool_specs_from_division(divisions[division_index]),
+            max_iterations=max_iterations,
+            improvement_tolerance=improvement_tolerance,
+            matchup_cost_fn=matchup_cost_fn,
+            matchup_proxy=matchup_proxy,
+        )
+        pool_result_cache[key] = result
+        return result
+
+    division_costs = [pool_result(index, members).total_cost for index, members in enumerate(working)]
+    current_cost = float(sum(division_costs))
+    iterations = 0
+    while iterations < max_iterations:
+        iterations += 1
+        best_swap: tuple[int, int, int, int] | None = None
+        best_cost = current_cost
+        best_pair_costs: tuple[float, float] | None = None
+        for left_index in range(len(working)):
+            for right_index in range(left_index + 1, len(working)):
+                left_members = working[left_index]
+                right_members = working[right_index]
+                base_cost = division_costs[left_index] + division_costs[right_index]
+                for left_team_index in range(len(left_members)):
+                    for right_team_index in range(len(right_members)):
+                        candidate_left = list(left_members)
+                        candidate_right = list(right_members)
+                        candidate_left[left_team_index], candidate_right[right_team_index] = (
+                            candidate_right[right_team_index],
+                            candidate_left[left_team_index],
+                        )
+                        left_cost = pool_result(left_index, candidate_left).total_cost
+                        right_cost = pool_result(right_index, candidate_right).total_cost
+                        candidate_cost = current_cost - base_cost + left_cost + right_cost
+                        if candidate_cost + improvement_tolerance < best_cost:
+                            best_cost = candidate_cost
+                            best_pair_costs = (left_cost, right_cost)
+                            best_swap = (left_index, right_index, left_team_index, right_team_index)
+        if best_swap is None or best_pair_costs is None:
+            break
+        left_index, right_index, left_team_index, right_team_index = best_swap
+        working[left_index][left_team_index], working[right_index][right_team_index] = (
+            working[right_index][right_team_index],
+            working[left_index][left_team_index],
+        )
+        division_costs[left_index], division_costs[right_index] = best_pair_costs
+        current_cost = best_cost
+
+    return tuple(tuple(members) for members in working), iterations, pool_result_cache
+
+
 def optimize_tournament_format(
     teams: Sequence[SeedableTeam],
     divisions: Sequence[DivisionSpec],
@@ -600,7 +577,6 @@ def optimize_tournament_format(
     improvement_tolerance: float = 1e-9,
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
-    constraints: AssignmentConstraints | None = None,
 ) -> TournamentOptimizationResult:
     """Assign teams into the provided tournament format.
 
@@ -611,94 +587,36 @@ def optimize_tournament_format(
     if not divisions:
         raise ValueError("At least one division format is required")
 
-    top_level_specs = [FlightSpec(name=division.name, team_count=division.team_count) for division in divisions]
-    pair_violation_fn = build_pair_violation_fn(constraints) if constraints is not None else None
-    top_level_violation_cache: dict[tuple[int, tuple[str, ...]], int] = {}
-
-    def top_level_violation_count(
-        division_index: int,
-        division_teams: Sequence[SeedableTeam],
-    ) -> int:
-        """Score division membership by the best constraint-feasible pool split."""
-
-        if pair_violation_fn is None:
-            return 0
-        cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
-        if cache_key in top_level_violation_cache:
-            return top_level_violation_cache[cache_key]
-        pool_specs = _pool_specs_from_division(divisions[division_index])
-        if len(pool_specs) == 1:
-            count = len(assignment_constraint_violations((division_teams,), pair_violation_fn))
-        else:
-            pool_result = optimize_division_assignments(
-                division_teams,
-                pool_specs,
-                max_iterations=max_iterations,
-                improvement_tolerance=improvement_tolerance,
-                matchup_cost_fn=matchup_cost_fn,
-                matchup_proxy=matchup_proxy,
-                pair_violation_fn=pair_violation_fn,
-            )
-            count = len(
-                assignment_constraint_violations(
-                    tuple(pool.teams for pool in pool_result.divisions),
-                    pair_violation_fn,
-                )
-            )
-        top_level_violation_cache[cache_key] = count
-        return count
-
-    top_level_result = optimize_division_assignments(
+    division_memberships, total_iterations, pool_result_cache = _optimize_division_memberships_by_pool_cost(
         teams,
-        top_level_specs,
+        divisions,
         max_iterations=max_iterations,
         improvement_tolerance=improvement_tolerance,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
-        flight_violation_count_fn=top_level_violation_count if pair_violation_fn is not None else None,
     )
 
     division_assignments: list[DivisionAssignment] = []
-    total_iterations = int(top_level_result.optimizer_iterations)
-    for division_spec, base_assignment in zip(divisions, top_level_result.divisions, strict=True):
+    for division_index, (division_spec, division_teams) in enumerate(
+        zip(divisions, division_memberships, strict=True)
+    ):
         pool_specs = _pool_specs_from_division(division_spec)
-        if len(pool_specs) == 1:
-            pools = (
-                FlightAssignment(
-                    name=pool_specs[0].name,
-                    teams=base_assignment.teams,
-                    total_pair_cost=base_assignment.total_pair_cost,
-                    average_pair_cost=base_assignment.average_pair_cost,
-                    average_projected_margin=base_assignment.average_projected_margin,
-                    competitive_probability=base_assignment.competitive_probability,
-                    blowout_3plus_probability=base_assignment.blowout_3plus_probability,
-                    blowout_5plus_probability=base_assignment.blowout_5plus_probability,
-                ),
+        cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
+        pool_result = pool_result_cache[cache_key]
+        total_iterations += int(pool_result.optimizer_iterations)
+        pools = tuple(
+            FlightAssignment(
+                name=pool.name,
+                teams=pool.teams,
+                total_pair_cost=pool.total_pair_cost,
+                average_pair_cost=pool.average_pair_cost,
+                average_projected_margin=pool.average_projected_margin,
+                competitive_probability=pool.competitive_probability,
+                blowout_3plus_probability=pool.blowout_3plus_probability,
+                blowout_5plus_probability=pool.blowout_5plus_probability,
             )
-        else:
-            pool_result = optimize_division_assignments(
-                base_assignment.teams,
-                pool_specs,
-                max_iterations=max_iterations,
-                improvement_tolerance=improvement_tolerance,
-                matchup_cost_fn=matchup_cost_fn,
-                matchup_proxy=matchup_proxy,
-                pair_violation_fn=pair_violation_fn,
-            )
-            total_iterations += int(pool_result.optimizer_iterations)
-            pools = tuple(
-                FlightAssignment(
-                    name=pool.name,
-                    teams=pool.teams,
-                    total_pair_cost=pool.total_pair_cost,
-                    average_pair_cost=pool.average_pair_cost,
-                    average_projected_margin=pool.average_projected_margin,
-                    competitive_probability=pool.competitive_probability,
-                    blowout_3plus_probability=pool.blowout_3plus_probability,
-                    blowout_5plus_probability=pool.blowout_5plus_probability,
-                )
-                for pool in pool_result.divisions
-            )
+            for pool in pool_result.divisions
+        )
 
         total_pool_pairs = sum(_pair_count(len(pool.teams)) for pool in pools)
         if total_pool_pairs > 0:
@@ -727,7 +645,7 @@ def optimize_tournament_format(
         division_assignments.append(
             DivisionAssignment(
                 name=division_spec.name,
-                teams=base_assignment.teams,
+                teams=division_teams,
                 total_pair_cost=total_pair_cost,
                 average_pair_cost=average_pair_cost,
                 average_projected_margin=average_projected_margin,
@@ -747,17 +665,6 @@ def optimize_tournament_format(
         matchup_proxy=matchup_proxy,
     )
     _assert_assignment_integrity(teams, result.divisions)
-    if pair_violation_fn is not None:
-        violations = assignment_constraint_violations(
-            tuple(pool.teams for division in result.divisions for pool in division.pools),
-            pair_violation_fn,
-        )
-        if violations:
-            details = ", ".join(
-                f"{item['kind']}:{item['team_a_id']}:{item['team_b_id']}" for item in violations[:10]
-            )
-            suffix = "" if len(violations) <= 10 else f" (+{len(violations) - 10} more)"
-            raise ValueError(f"Tournament constraints could not be satisfied: {details}{suffix}")
     return result
 
 
@@ -784,9 +691,6 @@ def build_seedable_teams(rows: Iterable[dict[str, Any]]) -> list[SeedableTeam]:
                 club_name=row.get("club_name"),
                 state_code=row.get("state_code"),
                 games_played=int(row["games_played"]) if row.get("games_played") is not None else None,
-                canonical_team_id=str(row.get("canonical_team_id") or row["team_id"]),
-                coach_names=tuple(str(name) for name in row.get("coach_names") or ()),
-                prior_opponent_ids=frozenset(str(team_id) for team_id in row.get("prior_opponent_ids") or ()),
             )
         )
     return teams

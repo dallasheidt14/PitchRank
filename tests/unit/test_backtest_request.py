@@ -88,6 +88,8 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     request = build_cohort_backtest_requests(_snapshot(), event_links=_links())[0]
 
     assert request["age_group"] == "u14"
+    assert request["assignment_policy"] == "competitive_balance_only"
+    assert "constraints" not in request
     assert request["divisions"] == [
         {
             "name": "Gold",

@@ -2,6 +2,12 @@
 
 Backtest captures a completed GotSport event for later analysis. The Seeding tab remains the separate upcoming-tournament workflow. The intake itself does not reseed or write tournament teams to the PitchRank database. The downstream command-line tools can evaluate an original arrangement and a proposed arrangement after the capture is reviewed.
 
+MatchBalance has three distinct product workflows:
+
+- **Backtest** is the sales proof. It takes a completed tournament's exact entrants and verified structure, reseeds those teams using historical competitive strength, and shows how the projected matchup quality would have changed.
+- **Seeding Tab** is the self-service ranking product. It gives a director a ranked list of accepted teams so the director can seed the tournament manually.
+- **Auto Seeder** is the future premium product. It will create the tournament assignments and apply operational constraints such as club separation, shared coaches, geography, travel, and rematches.
+
 ## Operator workflow
 
 1. Open **Backtest** and enter the completed event URL. **Scrape the whole event** is the primary action; the priced two-division check is optional.
@@ -49,7 +55,7 @@ A reviewed intake can be converted directly with `python scripts/backtest_review
 
 Backtest strength comes from `prediction_feature_history` before the event start. The snapshot's `created_at` must also precede the event cutoff, proving it was available at the time; reconstructed later backfills are rejected. Current `rankings_full`, future or same-day snapshots, synthesized snapshots, and snapshots without provenance are rejected. Historical game context starts at the configured lookback and ends before the event cutoff. Point-in-time model artifacts must declare a `model_data_end_date` before the event; older or future-trained artifacts stop the run. Train an eligible artifact with `train_point_in_time_match_model.py --max-game-date <event-date>`, where the bound is exclusive. Each cohort output includes `historical_inputs.json`, which freezes the matched IDs, source and tournament cohorts, strength/confidence features, snapshot and creation dates, cutoff, model training metadata, model artifact SHA-256, and an overall input digest.
 
-The optimizer applies saved pool constraints lexicographically: it first minimizes same-club, known same-coach, same-state when enabled, and prior-rematch violations; it then minimizes the matchup model cost. Null coach data does not create a false match. Any remaining hard violation stops the run and identifies the pair. `same_event` rejects repeated early meetings across pool and semifinal stages; advancement-driven final and third-place rematches remain valid. Combined tournament cohorts such as `U10/U11` and `U17/U18` remain combined in the backtest request while each team's historical rating age stays separate.
+Backtest uses a `competitive_balance_only` assignment policy. It reseeds the captured entrants solely against the matchup model while preserving the verified division sizes, pool sizes, and advancement format. Club, coach, geography, travel, and rematch constraints belong to the separate upcoming-event Auto Seeding workflow and are not read or enforced here. Combined tournament cohorts such as `U10/U11` and `U17/U18` remain combined in the backtest request while each team's historical rating age stays separate.
 
 Match predictions retain the requested team order, so an A-versus-B prediction cannot be reused as B-versus-A. Symmetric matchup costs use one canonical entrant order and may still be cached once per pair. Model-supplied probabilities keep valid boundary values such as 0 and 1; only absent values use the existing estimated blowout fallback, while nonfinite or out-of-range values stop the run.
 

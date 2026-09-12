@@ -3,7 +3,6 @@ import math
 import pytest
 
 from src.tournaments.seeding_optimizer import (
-    AssignmentConstraints,
     DivisionSpec,
     FlightSpec,
     MatchupCost,
@@ -208,37 +207,28 @@ def test_combined_tournament_cohort_is_preserved_without_u18_fold():
     assert normalize_tournament_age_group("U17/U18 Boys") == "u17/u18"
 
 
-def test_optimizer_separates_same_club_and_same_coach_in_early_pools():
+def test_tournament_optimizer_uses_final_pool_matchups_for_division_moves():
     teams = [
-        SeedableTeam("a", "A", "u14", "Male", 0.90, club_name="Club X", coach_names=("Coach One",)),
-        SeedableTeam("b", "B", "u14", "Male", 0.85, club_name="Club X", coach_names=("Coach Two",)),
-        SeedableTeam("c", "C", "u14", "Male", 0.80, club_name="Club Y", coach_names=("Coach One",)),
-        SeedableTeam("d", "D", "u14", "Male", 0.75, club_name="Club Z", coach_names=("Coach Three",)),
+        SeedableTeam(team_id, team_id.upper(), "u14", "Male", 1.0 - index / 10)
+        for index, team_id in enumerate("abcdefgh")
     ]
+    ideal_pairs = {
+        frozenset(("a", "e")),
+        frozenset(("b", "f")),
+        frozenset(("c", "g")),
+        frozenset(("d", "h")),
+    }
+    initial_groups = (frozenset("abcd"), frozenset("efgh"))
 
-    result = optimize_tournament_format(
-        teams,
-        [DivisionSpec("Gold", 4, pool_sizes=(2, 2))],
-        constraints=AssignmentConstraints(avoid_same_club_early=True, avoid_same_coach_early=True),
-    )
-
-    for pool in result.divisions[0].pools:
-        assert len({team.club_name for team in pool.teams}) == len(pool.teams)
-        coach_sets = [set(team.coach_names) for team in pool.teams]
-        assert not coach_sets[0] & coach_sets[1]
-
-
-def test_optimizer_moves_teams_between_divisions_to_make_pool_constraints_feasible():
-    teams = [
-        SeedableTeam("x1", "X1", "u14", "Male", 0.95, club_name="Club X"),
-        SeedableTeam("x2", "X2", "u14", "Male", 0.94, club_name="Club X"),
-        SeedableTeam("x3", "X3", "u14", "Male", 0.93, club_name="Club X"),
-        SeedableTeam("a", "A", "u14", "Male", 0.92, club_name="Club A"),
-        SeedableTeam("b", "B", "u14", "Male", 0.50, club_name="Club B"),
-        SeedableTeam("c", "C", "u14", "Male", 0.49, club_name="Club C"),
-        SeedableTeam("d", "D", "u14", "Male", 0.48, club_name="Club D"),
-        SeedableTeam("e", "E", "u14", "Male", 0.47, club_name="Club E"),
-    ]
+    def matchup_cost(team_a, team_b):
+        pair = frozenset((team_a.team_id, team_b.team_id))
+        if pair in ideal_pairs:
+            value = 0.0
+        elif any(pair <= group for group in initial_groups):
+            value = 1.0
+        else:
+            value = 100.0
+        return MatchupCost(value, 0.5, 0.2, 0.1, value)
 
     result = optimize_tournament_format(
         teams,
@@ -246,45 +236,16 @@ def test_optimizer_moves_teams_between_divisions_to_make_pool_constraints_feasib
             DivisionSpec("Gold", 4, pool_sizes=(2, 2)),
             DivisionSpec("Silver", 4, pool_sizes=(2, 2)),
         ],
-        constraints=AssignmentConstraints(avoid_same_club_early=True),
+        matchup_cost_fn=matchup_cost,
     )
 
-    for division in result.divisions:
-        assert sum(team.club_name == "Club X" for team in division.teams) <= 2
-        for pool in division.pools:
-            assert len({team.club_name for team in pool.teams}) == len(pool.teams)
-
-
-def test_optimizer_enforces_prior_rematch_constraint():
-    teams = [
-        SeedableTeam("a", "A", "u14", "Male", 0.90, canonical_team_id="ca", prior_opponent_ids=frozenset({"cb"})),
-        SeedableTeam("b", "B", "u14", "Male", 0.85, canonical_team_id="cb"),
-        SeedableTeam("c", "C", "u14", "Male", 0.80, canonical_team_id="cc"),
-        SeedableTeam("d", "D", "u14", "Male", 0.75, canonical_team_id="cd"),
-    ]
-
-    result = optimize_tournament_format(
-        teams,
-        [DivisionSpec("Gold", 4, pool_sizes=(2, 2))],
-        constraints=AssignmentConstraints(avoid_prior_rematches=True),
-    )
-
-    pool_pairs = [{team.canonical_team_id for team in pool.teams} for pool in result.divisions[0].pools]
-    assert {"ca", "cb"} not in pool_pairs
-
-
-def test_optimizer_fails_when_hard_constraint_is_impossible():
-    teams = [
-        SeedableTeam("a", "A", "u14", "Male", 0.9, club_name="Club X"),
-        SeedableTeam("b", "B", "u14", "Male", 0.8, club_name="Club X"),
-    ]
-
-    with pytest.raises(ValueError, match="same_club:a:b"):
-        optimize_tournament_format(
-            teams,
-            [DivisionSpec("Gold", 2, pool_sizes=(2,))],
-            constraints=AssignmentConstraints(avoid_same_club_early=True),
-        )
+    scheduled_pairs = {
+        frozenset((pool.teams[0].team_id, pool.teams[1].team_id))
+        for division in result.divisions
+        for pool in division.pools
+    }
+    assert scheduled_pairs == ideal_pairs
+    assert result.total_cost == 0.0
 
 
 @pytest.mark.parametrize("invalid_id", [None, "", "  ", 42])

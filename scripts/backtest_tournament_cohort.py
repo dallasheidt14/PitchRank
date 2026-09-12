@@ -26,7 +26,7 @@ import math
 import os
 import re
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +62,6 @@ from src.tournaments.schedule_simulator import (  # noqa: E402
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
-    AssignmentConstraints,
     DivisionSpec,
     MatchupCost,
     SeedableTeam,
@@ -143,70 +142,6 @@ def _normalize_actual_games_override(
             }
         )
     return normalized_rows
-
-
-def _assignment_constraints(payload: dict[str, Any]) -> tuple[AssignmentConstraints, str]:
-    raw = payload.get("constraints") or {}
-    rematch_scope = str(raw.get("rematch_avoidance_scope") or "same_event")
-    if rematch_scope not in {"same_event", "same_season", "prior_weekend"}:
-        raise ValueError(f"Unsupported rematch_avoidance_scope: {rematch_scope!r}")
-    return (
-        AssignmentConstraints(
-            avoid_same_club_early=bool(raw.get("avoid_same_club_early", True)),
-            avoid_same_coach_early=bool(raw.get("avoid_same_coach_early", True)),
-            avoid_same_state_pool=bool(raw.get("avoid_same_state_pool", False)),
-            avoid_prior_rematches=rematch_scope in {"same_season", "prior_weekend"},
-        ),
-        rematch_scope,
-    )
-
-
-def _coach_names(value: Any) -> tuple[str, ...]:
-    if isinstance(value, (list, tuple, set)):
-        values = value
-    else:
-        values = re.split(r"[|,]", str(value or ""))
-    return tuple(dict.fromkeys(str(name).strip() for name in values if str(name).strip()))
-
-
-def _prior_opponents(
-    games: list[PredictorGame],
-    *,
-    prediction_date: str,
-    rematch_scope: str,
-) -> dict[str, frozenset[str]]:
-    if rematch_scope == "same_event":
-        return {}
-    cutoff = None
-    if rematch_scope == "prior_weekend":
-        cutoff = pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=7)
-    opponents: dict[str, set[str]] = {}
-    for game in games:
-        if cutoff is not None and pd.Timestamp(game.game_date).normalize() < cutoff:
-            continue
-        home = str(game.home_team_master_id or "")
-        away = str(game.away_team_master_id or "")
-        if not home or not away or home == away:
-            continue
-        opponents.setdefault(home, set()).add(away)
-        opponents.setdefault(away, set()).add(home)
-    return {team_id: frozenset(team_opponents) for team_id, team_opponents in opponents.items()}
-
-
-def _assert_no_same_event_rematches(simulated_tournament) -> None:
-    early_stages = {"Pool", "Semi Final A", "Semi Final B"}
-    seen: set[frozenset[str]] = set()
-    repeated: list[str] = []
-    for division in simulated_tournament.divisions:
-        for match in division.matches:
-            if match.stage not in early_stages:
-                continue
-            pair = frozenset((match.home_team_id, match.away_team_id))
-            if pair in seen:
-                repeated.append(":".join(sorted(pair)))
-            seen.add(pair)
-    if repeated:
-        raise ValueError(f"same_event rematch constraint could not be satisfied: {', '.join(repeated)}")
 
 
 def _pair_count(team_count: int) -> int:
@@ -1179,7 +1114,6 @@ def main() -> int:
     event_name = str(payload["event_name"])
     age_group = normalize_tournament_age_group(str(payload["age_group"]))
     gender = normalize_gender_label(str(payload["gender"]))
-    assignment_constraints, rematch_scope = _assignment_constraints(payload)
     divisions = _build_division_specs(payload)
     entrants_payload = payload.get("entrants") or []
     if not entrants_payload:
@@ -1284,8 +1218,6 @@ def main() -> int:
                 club_name=entrant_row["club_name"],
                 state_code=entrant_row["state_code"],
                 games_played=entrant_row["games_played"],
-                canonical_team_id=ranking_source_team_id,
-                coach_names=_coach_names(entrant.get("coach_names")),
             )
         )
         print(f"PROGRESS: entrant-snapshots {index + 1}/{len(entrants_payload)}", flush=True)
@@ -1297,19 +1229,6 @@ def main() -> int:
         as_of_date=prediction_date,
         lookback_days=args.history_lookback_days,
     )
-    prior_opponents_by_team = _prior_opponents(
-        recent_games,
-        prediction_date=prediction_date,
-        rematch_scope=rematch_scope,
-    )
-    seedable_teams = [
-        replace(
-            team,
-            prior_opponent_ids=prior_opponents_by_team.get(str(team.canonical_team_id), frozenset()),
-        )
-        for team in seedable_teams
-    ]
-
     predictor_details: dict[str, Any] = {
         "source": args.predictor_source,
         "prediction_date": prediction_date,
@@ -1399,7 +1318,6 @@ def main() -> int:
         divisions,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
-        constraints=assignment_constraints,
     )
 
     actual_game_counts = {
@@ -1425,8 +1343,6 @@ def main() -> int:
         templates,
         predict_fn,
     )
-    if rematch_scope == "same_event":
-        _assert_no_same_event_rematches(simulated_tournament)
     original_model_projection, comparison_issues = _project_original_pool_arrangement(
         entrant_rows,
         seedable_teams,
@@ -1460,12 +1376,7 @@ def main() -> int:
         "unique_canonical_team_count": len(canonical_team_ids),
         "historical_games_used_for_prediction": len(recent_games),
         "predictor": predictor_details,
-        "constraints": {
-            "avoid_same_club_early": assignment_constraints.avoid_same_club_early,
-            "avoid_same_coach_early": assignment_constraints.avoid_same_coach_early,
-            "avoid_same_state_pool": assignment_constraints.avoid_same_state_pool,
-            "rematch_avoidance_scope": rematch_scope,
-        },
+        "assignment_policy": "competitive_balance_only",
         "historical_inputs": historical_inputs,
         "notes": sorted(set(notes)),
         "actual_results": actual_summary,

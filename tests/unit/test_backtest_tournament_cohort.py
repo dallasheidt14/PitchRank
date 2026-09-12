@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pandas as pd
 import pytest
 
@@ -113,52 +111,6 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert first["data_cutoff_exclusive"] == "2026-04-10"
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
-
-
-def test_prior_weekend_rematches_ignore_older_games():
-    games = [
-        PredictorGame("recent", "a", "b", 1, 0, "2026-04-08"),
-        PredictorGame("old", "a", "c", 1, 0, "2026-03-20"),
-    ]
-
-    opponents = cohort._prior_opponents(
-        games,
-        prediction_date="2026-04-10",
-        rematch_scope="prior_weekend",
-    )
-
-    assert opponents == {"a": frozenset({"b"}), "b": frozenset({"a"})}
-
-
-def test_same_event_rematch_validation_ignores_final_repeats():
-    tournament = SimpleNamespace(
-        divisions=[
-            SimpleNamespace(
-                matches=[
-                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Pool"),
-                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Final"),
-                ]
-            )
-        ]
-    )
-
-    cohort._assert_no_same_event_rematches(tournament)
-
-
-def test_same_event_rematch_validation_rejects_repeated_early_pair():
-    tournament = SimpleNamespace(
-        divisions=[
-            SimpleNamespace(
-                matches=[
-                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Pool"),
-                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Semi Final A"),
-                ]
-            )
-        ]
-    )
-
-    with pytest.raises(ValueError, match="same_event rematch"):
-        cohort._assert_no_same_event_rematches(tournament)
 
 
 def test_captured_fixture_count_does_not_shrink_to_scored_games():

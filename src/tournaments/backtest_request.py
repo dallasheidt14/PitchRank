@@ -44,7 +44,6 @@ def _fixture_game(
 def build_cohort_backtest_requests(
     snapshot: BacktestSnapshot,
     *,
-    constraints_by_cohort: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
     event_links: EventLinks | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Translate checked divisions, exact pools, and saved links into requests."""
@@ -202,7 +201,7 @@ def build_cohort_backtest_requests(
                 "divisions": divisions_payload,
                 "entrants": entrants,
                 "actual_games_override": actual_games,
-                "constraints": dict((constraints_by_cohort or {}).get(cohort_key, {})),
+                "assignment_policy": "competitive_balance_only",
                 "source_capture_generation": snapshot.generation,
             }
         )

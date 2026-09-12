@@ -47,7 +47,6 @@ from src.tournaments.storage import (
     write_registry,
     write_structure,
 )
-from src.tournaments.storage._io import write_json
 from src.tournaments.storage.event_key import scenario_dir
 from src.tournaments.storage.structure import CohortStructure, DivisionStructure
 
@@ -165,9 +164,6 @@ def test_collect_run_metadata_includes_cohort_and_hashes(tmp_path: Path):
             "balance_score_weights": {"preset_id": "default"},
         },
     )
-    # Constraints file presence drives one of the SHA hashes
-    write_json(_scenario(tmp_path) / "constraints.json", {"foo": "bar"})
-
     metadata = _collect_run_metadata(
         EVENT_KEY,
         SCENARIO,
@@ -196,7 +192,7 @@ def test_collect_run_metadata_includes_cohort_and_hashes(tmp_path: Path):
     assert metadata["hashes"]["registry"] is not None
     assert len(metadata["hashes"]["registry"]) == 64
     assert metadata["hashes"]["structure"] is not None
-    assert metadata["hashes"]["constraints"] is not None
+    assert "constraints" not in metadata["hashes"]
 
 
 def test_collect_run_metadata_handles_missing_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -269,7 +265,7 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
     assert stale == []
 
 
-def test_build_cohort_request_payload_includes_saved_constraints(tmp_path: Path):
+def test_build_cohort_request_payload_ignores_auto_seeding_constraints(tmp_path: Path):
     _bootstrap_event(tmp_path)
     write_constraints(
         EVENT_KEY,
@@ -296,12 +292,8 @@ def test_build_cohort_request_payload_includes_saved_constraints(tmp_path: Path)
         extras={},
     )
 
-    assert payload["constraints"] == {
-        "avoid_same_club_early": False,
-        "avoid_same_coach_early": True,
-        "avoid_same_state_pool": True,
-        "rematch_avoidance_scope": "prior_weekend",
-    }
+    assert payload["assignment_policy"] == "competitive_balance_only"
+    assert "constraints" not in payload
 
 
 def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
