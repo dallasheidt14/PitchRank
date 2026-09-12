@@ -201,9 +201,12 @@ def _fetch_recent_games_for_teams(
         while True:
             response = (
                 client.table("games")
-                .select("id,home_team_master_id,away_team_master_id,home_score,away_score,game_date")
+                .select(
+                    "id,home_team_master_id,away_team_master_id,home_score,away_score,game_date,created_at"
+                )
                 .gte("game_date", cutoff_date)
                 .lt("game_date", prediction_ts.strftime("%Y-%m-%d"))
+                .lt("created_at", f"{prediction_ts.strftime('%Y-%m-%d')}T00:00:00+00:00")
                 .not_.is_("home_score", "null")
                 .not_.is_("away_score", "null")
                 .eq("is_excluded", False)
@@ -232,6 +235,7 @@ def _fetch_recent_games_for_teams(
                         home_score=game_row.get("home_score"),
                         away_score=game_row.get("away_score"),
                         game_date=str(game_row["game_date"]),
+                        created_at=str(game_row.get("created_at") or ""),
                     )
                 )
 
@@ -344,7 +348,20 @@ def _freeze_historical_inputs(
     history_start_date: str,
     model_artifact: Path | None,
     model_training_metadata: dict[str, Any] | None,
+    recent_games: list[PredictorGame] | None = None,
+    related_snapshot_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    def freeze_value(value: Any) -> Any:
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        try:
+            if value is not None and pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        item = getattr(value, "item", None)
+        return item() if callable(item) else value
+
     teams = []
     for entrant in sorted(entrant_rows, key=lambda row: str(row["entrant_id"])):
         source_id = str(entrant["ranking_source_team_id"])
@@ -377,6 +394,35 @@ def _freeze_historical_inputs(
     artifact_sha256 = None
     if model_artifact is not None:
         artifact_sha256 = hashlib.sha256(model_artifact.read_bytes()).hexdigest()
+    frozen_games = [
+        {
+            "id": str(game.id),
+            "home_team_master_id": game.home_team_master_id,
+            "away_team_master_id": game.away_team_master_id,
+            "home_score": game.home_score,
+            "away_score": game.away_score,
+            "game_date": str(game.game_date),
+            "created_at": str(game.created_at or ""),
+        }
+        for game in sorted(recent_games or [], key=lambda item: (str(item.game_date), str(item.id)))
+    ]
+    frozen_related_snapshots: list[dict[str, Any]] = []
+    for team_id in sorted(related_snapshot_index or {}):
+        for snapshot in related_snapshot_index[team_id]:
+            frozen_related_snapshots.append(
+                {
+                    str(key): freeze_value(value)
+                    for key, value in sorted(snapshot.items())
+                    if key != "snapshot_ts"
+                }
+            )
+    frozen_related_snapshots.sort(
+        key=lambda row: (
+            str(row.get("team_id") or ""),
+            str(row.get("snapshot_date") or ""),
+            str(row.get("created_at") or ""),
+        )
+    )
     payload: dict[str, Any] = {
         "source": "prediction_feature_history",
         "availability_policy": "snapshot_created_before_event_cutoff",
@@ -387,6 +433,8 @@ def _freeze_historical_inputs(
         "model_artifact": str(model_artifact) if model_artifact is not None else None,
         "model_artifact_sha256": artifact_sha256,
         "model_training_metadata": model_training_metadata or {},
+        "recent_games": frozen_games,
+        "related_snapshots": frozen_related_snapshots,
     }
     digest_source = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     payload["input_digest_sha256"] = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
@@ -750,6 +798,7 @@ def _build_python_prediction_and_cost_functions(
                 "team_name": row["event_team_name"],
                 "power_score": row["power_score"],
                 "age_group": row["age_group"],
+                "source_age_group": row["source_age_group"],
                 "games_played": row["games_played"],
                 "sos_norm": row["sos_norm"],
                 "off_norm": row["off_norm"],
@@ -1273,6 +1322,7 @@ def main() -> int:
     }
     model_artifact_for_manifest: Path | None = None
     model_training_metadata: dict[str, Any] = {}
+    related_snapshot_index: dict[str, list[dict[str, Any]]] = {}
     if args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME:
         probability_strategy_override = _resolve_point_in_time_probability_strategy_override(
             args.point_in_time_probability_strategy,
@@ -1313,6 +1363,7 @@ def main() -> int:
                 f"No point-in-time snapshots with pre-event provenance found for predictor date "
                 f"{prediction_date} and {len(related_team_ids)} teams"
             )
+        related_snapshot_index = snapshot_index
         snapshot_resolution_counts = {"as_of": len(entrant_rows)}
         predict_fn, matchup_cost_fn, point_in_time_model = _build_point_in_time_prediction_and_cost_functions(
             entrant_rows,
@@ -1355,6 +1406,8 @@ def main() -> int:
         history_start_date=snapshot_start,
         model_artifact=model_artifact_for_manifest,
         model_training_metadata=model_training_metadata,
+        recent_games=recent_games,
+        related_snapshot_index=related_snapshot_index,
     )
 
     print("PHASE: running-optimizer", flush=True)

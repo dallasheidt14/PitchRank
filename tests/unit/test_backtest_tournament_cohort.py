@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -142,6 +144,149 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert first["data_cutoff_exclusive"] == "2026-04-10"
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
+
+
+def test_freeze_historical_inputs_covers_games_and_related_snapshots():
+    entrant = {
+        "entrant_id": "entry-a",
+        "canonical_team_id": "canonical-a",
+        "ranking_source_team_id": "source-a",
+        "source_age_group": "u14",
+        "source_gender": "Male",
+        "age_group": "u14",
+        "gender": "Male",
+        "power_score": 0.61,
+        "rank_in_cohort": 4,
+        "games_played": 9,
+        "sos_norm": 0.51,
+        "off_norm": 0.54,
+        "def_norm": 0.48,
+        "glicko_rating": None,
+        "glicko_rd": None,
+        "glicko_volatility": None,
+    }
+    entrant_snapshot = {
+        "snapshot_date": "2026-04-09",
+        "created_at": "2026-04-09T23:00:00+00:00",
+    }
+    game = PredictorGame(
+        id="game-1",
+        home_team_master_id="source-a",
+        away_team_master_id="opponent",
+        home_score=2,
+        away_score=1,
+        game_date="2026-04-08",
+        created_at="2026-04-08T12:00:00+00:00",
+    )
+    related = {
+        "opponent": [
+            {
+                "team_id": "opponent",
+                "snapshot_date": "2026-04-08",
+                "snapshot_ts": pd.Timestamp("2026-04-08"),
+                "created_at": "2026-04-09T12:00:00+00:00",
+                "power_score_final": 0.55,
+            }
+        ]
+    }
+
+    frozen = cohort._freeze_historical_inputs(
+        [entrant],
+        {"source-a": entrant_snapshot},
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        model_artifact=None,
+        model_training_metadata={},
+        recent_games=[game],
+        related_snapshot_index=related,
+    )
+
+    assert frozen["recent_games"][0]["created_at"] == "2026-04-08T12:00:00+00:00"
+    assert frozen["related_snapshots"][0]["team_id"] == "opponent"
+    assert "snapshot_ts" not in frozen["related_snapshots"][0]
+    changed = cohort._freeze_historical_inputs(
+        [entrant],
+        {"source-a": entrant_snapshot},
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        model_artifact=None,
+        model_training_metadata={},
+        recent_games=[PredictorGame(**{**game.__dict__, "home_score": 3})],
+        related_snapshot_index=related,
+    )
+    assert changed["input_digest_sha256"] != frozen["input_digest_sha256"]
+
+
+def test_recent_games_require_import_before_prediction_cutoff():
+    calls: list[tuple[str, str]] = []
+
+    class Query:
+        def __init__(self):
+            self.page = 0
+
+        def select(self, columns):
+            calls.append(("select", columns))
+            return self
+
+        def gte(self, column, value):
+            calls.append((f"gte:{column}", value))
+            return self
+
+        def lt(self, column, value):
+            calls.append((f"lt:{column}", value))
+            return self
+
+        @property
+        def not_(self):
+            return self
+
+        def is_(self, _column, _value):
+            return self
+
+        def eq(self, _column, _value):
+            return self
+
+        def or_(self, _filters):
+            return self
+
+        def range(self, _start, _end):
+            return self
+
+        def execute(self):
+            self.page += 1
+            if self.page > 1:
+                return SimpleNamespace(data=[])
+            return SimpleNamespace(
+                data=[
+                    {
+                        "id": "game-1",
+                        "home_team_master_id": "team-a",
+                        "away_team_master_id": "team-b",
+                        "home_score": 2,
+                        "away_score": 1,
+                        "game_date": "2026-04-08",
+                        "created_at": "2026-04-09T12:00:00+00:00",
+                    }
+                ]
+            )
+
+    query = Query()
+
+    class Client:
+        def table(self, name):
+            assert name == "games"
+            return query
+
+    games = cohort._fetch_recent_games_for_teams(
+        Client(),
+        ["team-a"],
+        as_of_date="2026-04-10",
+    )
+
+    assert ("lt:game_date", "2026-04-10") in calls
+    assert ("lt:created_at", "2026-04-10T00:00:00+00:00") in calls
+    assert "created_at" in dict(calls)["select"]
+    assert games[0].created_at == "2026-04-09T12:00:00+00:00"
 
 
 def test_captured_fixture_count_does_not_shrink_to_scored_games():
@@ -520,6 +665,39 @@ def test_build_predictor_team_ranking_prefers_source_age_group():
     )
 
     assert ranking.age == 10
+
+
+def test_python_predictor_receives_source_age_for_combined_cohort(monkeypatch):
+    captured: list[dict[str, object]] = []
+
+    def fake_build(row):
+        captured.append(row)
+        return cohort.TeamRanking(team_id_master=str(row["team_id"]), age=10)
+
+    monkeypatch.setattr(cohort, "_build_predictor_team_ranking", fake_build)
+    cohort._build_python_prediction_and_cost_functions(
+        [
+            {
+                "entrant_id": "entry-a",
+                "ranking_source_team_id": "source-a",
+                "event_team_name": "Alpha",
+                "power_score": 0.6,
+                "age_group": "u10/u11",
+                "source_age_group": "u10",
+                "games_played": 8,
+                "sos_norm": 0.5,
+                "off_norm": 0.5,
+                "def_norm": 0.5,
+                "glicko_rating": None,
+                "glicko_rd": None,
+                "glicko_volatility": None,
+            }
+        ],
+        [],
+    )
+
+    assert captured[0]["age_group"] == "u10/u11"
+    assert captured[0]["source_age_group"] == "u10"
 
 
 def test_pool_arrangement_comparison_matches_optimizer_objective_exactly():

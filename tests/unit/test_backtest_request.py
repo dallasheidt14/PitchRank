@@ -139,6 +139,69 @@ def test_build_request_requires_exact_duplicate_mapping_acknowledgement():
     assert len(request["entrants"]) == 2
 
 
+def test_build_request_validates_duplicate_mapping_across_cohorts():
+    snapshot = _snapshot()
+    second_division = replace(
+        snapshot.roster.divisions[0],
+        group_id="group-2",
+        division_label="Silver",
+        age_group="u15",
+        pools=(
+            Pool(
+                "pool-b",
+                "Bracket B",
+                (PoolMember("reg-c", "Charlie", 1), PoolMember("reg-d", "Delta", 2)),
+            ),
+        ),
+        fixtures=(
+            replace(
+                snapshot.roster.divisions[0].fixtures[0],
+                match_number="2",
+                home_registration_id="reg-c",
+                away_registration_id="reg-d",
+            ),
+        ),
+    )
+    roster = replace(
+        snapshot.roster,
+        teams=snapshot.roster.teams
+        + (
+            EventRosterTeam(2, "group-2", "Silver", "u15", "Male", "Charlie", "reg-c", "pid-c", "u15"),
+            EventRosterTeam(3, "group-2", "Silver", "u15", "Male", "Delta", "reg-d", "pid-d", "u15"),
+        ),
+        divisions=snapshot.roster.divisions + (second_division,),
+        divisions_found=2,
+        divisions_walked=2,
+    )
+    second_review = DivisionReview(
+        "group-2",
+        structure_hash(second_division),
+        checked=True,
+        format_code="ROUND_ROBIN",
+    )
+    snapshot = replace(
+        snapshot,
+        roster=roster,
+        resolved=snapshot.resolved
+        + (
+            ResolvedTeam(2, "gotsport_id", "canonical-a", "pid-c"),
+            ResolvedTeam(3, "gotsport_id", "canonical-d", "pid-d"),
+        ),
+        reviews=snapshot.reviews + (second_review,),
+    )
+    links = replace(
+        _links(),
+        links=_links().links
+        + (
+            TeamLink("reg-c", "Charlie", "canonical-a", "operator", "2026-09-11T00:00:00+00:00"),
+            TeamLink("reg-d", "Delta", "canonical-d", "operator", "2026-09-11T00:00:00+00:00"),
+        ),
+    )
+
+    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
+        build_cohort_backtest_requests(snapshot, event_links=links)
+
+
 def test_build_request_uses_operator_link_instead_of_raw_resolution():
     request = build_cohort_backtest_requests(
         _snapshot(),

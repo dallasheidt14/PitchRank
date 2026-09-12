@@ -73,6 +73,7 @@ def build_cohort_backtest_requests(
         cohorts[(division.age_group, division.gender)].append(division)
 
     requests: list[dict[str, Any]] = []
+    registrations_by_canonical: dict[str, set[str]] = defaultdict(set)
     for cohort_key in sorted(cohorts):
         age_group, gender = cohort_key
         if not age_group or not gender:
@@ -81,7 +82,6 @@ def build_cohort_backtest_requests(
         entrants: list[dict[str, Any]] = []
         actual_games: list[dict[str, Any]] = []
         canonical_by_registration: dict[str, str] = {}
-        registrations_by_canonical: dict[str, set[str]] = defaultdict(set)
 
         for division in cohorts[cohort_key]:
             review = reviews.get(division.group_id)
@@ -181,16 +181,6 @@ def build_cohort_backtest_requests(
                 if game is not None:
                     actual_games.append(game)
 
-        for canonical_id, registrations in registrations_by_canonical.items():
-            if len(registrations) < 2:
-                continue
-            acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
-            if acknowledged != frozenset(registrations):
-                raise BacktestRequestError(
-                    f"Canonical team {canonical_id} is linked to distinct registrations without "
-                    "an acknowledgement for the exact membership"
-                )
-
         requests.append(
             {
                 "event_name": roster.event_name or f"GotSport event {roster.event_id}",
@@ -205,4 +195,13 @@ def build_cohort_backtest_requests(
                 "source_capture_generation": snapshot.generation,
             }
         )
+    for canonical_id, registrations in registrations_by_canonical.items():
+        if len(registrations) < 2:
+            continue
+        acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
+        if acknowledged != frozenset(registrations):
+            raise BacktestRequestError(
+                f"Canonical team {canonical_id} is linked to distinct registrations without "
+                "an acknowledgement for the exact membership"
+            )
     return tuple(requests)
