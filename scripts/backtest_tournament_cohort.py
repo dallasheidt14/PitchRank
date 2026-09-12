@@ -23,6 +23,7 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -717,14 +718,42 @@ def _build_point_in_time_prediction_and_cost_functions(
     return predict_fn, matchup_cost_fn, model
 
 
+def _parse_positive_slot_count(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if isinstance(value, int):
+        count = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        count = int(value.strip())
+    else:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if count <= 0:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    return count
+
+
+def _parse_division_name(value: Any, *, index: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Division at index {index} needs a non-empty string name")
+    return value.strip()
+
+
 def _build_division_specs(payload: dict[str, Any]) -> list[DivisionSpec]:
     divisions: list[DivisionSpec] = []
-    for division in payload.get("divisions") or []:
-        pool_sizes = tuple(int(size) for size in division.get("pool_sizes") or [int(division["team_count"])])
+    for index, division in enumerate(payload.get("divisions") or []):
+        name = _parse_division_name(division.get("name"), index=index)
+        team_count = _parse_positive_slot_count(
+            division["team_count"],
+            label=f"Division '{name}' team_count",
+        )
+        pool_sizes = tuple(
+            _parse_positive_slot_count(size, label=f"Division '{name}' pool size")
+            for size in (division.get("pool_sizes") or [team_count])
+        )
         divisions.append(
             DivisionSpec(
-                name=str(division["name"]),
-                team_count=int(division["team_count"]),
+                name=name,
+                team_count=team_count,
                 pool_sizes=pool_sizes,
                 advancement=str(division["advancement"]) if division.get("advancement") else None,
             )

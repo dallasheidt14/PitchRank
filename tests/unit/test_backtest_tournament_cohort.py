@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import pandas as pd
+import pytest
 
 from scripts import backtest_tournament_cohort as cohort
 from scripts.predictor_python import Game as PredictorGame
@@ -182,7 +181,10 @@ def test_override_point_in_time_probability_strategy_swaps_policy():
     class FakeModel:
         probability_strategy = "hybrid"
         requested_probability_strategy = "auto"
-        draw_decision_policy = {"default": {"min_draw_probability": 0.16}, "by_age": {14: {"min_draw_probability": 0.2}}}
+        draw_decision_policy = {
+            "default": {"min_draw_probability": 0.16},
+            "by_age": {14: {"min_draw_probability": 0.2}},
+        }
 
         @staticmethod
         def _default_draw_decision_policy():
@@ -232,6 +234,34 @@ def test_resolve_point_in_time_probability_strategy_override_prefers_cli_then_pa
         )
         == "poisson_primary"
     )
+
+
+def test_build_division_specs_accepts_integer_strings():
+    divisions = cohort._build_division_specs(
+        {
+            "divisions": [
+                {"name": "Gold", "team_count": "7", "pool_sizes": ["4", "3"]},
+            ]
+        }
+    )
+
+    assert divisions == [cohort.DivisionSpec("Gold", 7, (4, 3))]
+
+
+@pytest.mark.parametrize("invalid_count", [0, -1, 1.5, True, "1.5"])
+def test_build_division_specs_rejects_invalid_capacities(invalid_count):
+    with pytest.raises(ValueError, match="positive integer"):
+        cohort._build_division_specs(
+            {"divisions": [{"name": "Gold", "team_count": invalid_count}]}
+        )
+
+
+@pytest.mark.parametrize("invalid_name", [None, "", "  ", 42])
+def test_build_division_specs_rejects_invalid_names(invalid_name):
+    with pytest.raises(ValueError, match="non-empty string name"):
+        cohort._build_division_specs(
+            {"divisions": [{"name": invalid_name, "team_count": 2}]}
+        )
 
 
 def test_normalize_actual_games_override_filters_divisions_and_coerces_scores():

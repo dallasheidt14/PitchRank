@@ -14,6 +14,7 @@ import difflib
 import json
 import math
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from itertools import combinations
@@ -527,16 +528,41 @@ def _build_predictor_matchup_cost_fn(
     return predictor_matchup_cost, predictor_name
 
 
+def _parse_positive_slot_count(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if isinstance(value, int):
+        count = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        count = int(value.strip())
+    else:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if count <= 0:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    return count
+
+
+def _parse_division_name(value: Any, *, index: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Division at index {index} needs a non-empty string name")
+    return value.strip()
+
+
 def _derive_pool_sizes(division: dict[str, Any]) -> tuple[int, ...]:
+    name = str(division.get("name") or "")
+    team_count = _parse_positive_slot_count(
+        division["team_count"],
+        label=f"Division '{name}' team_count",
+    )
     if division.get("pool_sizes"):
-        return tuple(int(size) for size in division["pool_sizes"])
+        return tuple(
+            _parse_positive_slot_count(size, label=f"Division '{name}' pool size")
+            for size in division["pool_sizes"]
+        )
     pool_count = division.get("pool_count")
-    team_count = int(division["team_count"])
-    if pool_count in (None, "", 0):
+    if pool_count in (None, ""):
         return (team_count,)
-    pool_count = int(pool_count)
-    if pool_count <= 0:
-        raise ValueError(f"Invalid pool_count {pool_count} for division '{division.get('name')}'")
+    pool_count = _parse_positive_slot_count(pool_count, label=f"Division '{name}' pool_count")
     if team_count % pool_count != 0:
         raise ValueError(
             f"Division '{division.get('name')}' has team_count={team_count} and pool_count={pool_count}. "
@@ -550,11 +576,15 @@ def _build_division_specs(cohort_request: dict[str, Any]) -> list[DivisionSpec]:
     format_payload = cohort_request.get("format") or {}
     divisions_payload = format_payload.get("divisions") or cohort_request.get("divisions") or []
     divisions = []
-    for division in divisions_payload:
+    for index, division in enumerate(divisions_payload):
+        name = _parse_division_name(division.get("name"), index=index)
         divisions.append(
             DivisionSpec(
-                name=str(division["name"]),
-                team_count=int(division["team_count"]),
+                name=name,
+                team_count=_parse_positive_slot_count(
+                    division["team_count"],
+                    label=f"Division '{name}' team_count",
+                ),
                 pool_sizes=_derive_pool_sizes(division),
                 advancement=str(division["advancement"]) if division.get("advancement") else None,
             )

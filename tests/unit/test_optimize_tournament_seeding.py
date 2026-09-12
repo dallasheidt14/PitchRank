@@ -1,3 +1,6 @@
+import pytest
+
+from scripts import optimize_tournament_seeding as seeding_script
 from scripts.optimize_tournament_seeding import (
     _build_projection_vs_actual_comparison,
     _summarize_actual_games,
@@ -99,3 +102,41 @@ def test_build_projection_vs_actual_comparison_reports_improvement():
     assert round(comparison["close_game_rate_delta"], 4) == 0.35
     assert round(comparison["blowout_3plus_rate_improvement"], 4) == 0.30
     assert round(comparison["blowout_5plus_rate_improvement"], 4) == 0.20
+
+
+def test_standalone_division_parser_accepts_integer_strings():
+    divisions = seeding_script._build_division_specs(
+        {"format": {"divisions": [{"name": "Gold", "team_count": "7", "pool_sizes": ["4", "3"]}]}}
+    )
+
+    assert divisions == [DivisionSpec("Gold", 7, (4, 3))]
+
+
+@pytest.mark.parametrize("invalid_count", [0, -1, 1.5, True, "1.5"])
+def test_standalone_division_parser_rejects_invalid_capacities(invalid_count):
+    with pytest.raises(ValueError, match="positive integer"):
+        seeding_script._build_division_specs(
+            {"format": {"divisions": [{"name": "Gold", "team_count": invalid_count}]}}
+        )
+
+
+@pytest.mark.parametrize("invalid_pool_count", [0, -1, 1.5, True, "1.5"])
+def test_standalone_division_parser_rejects_invalid_pool_counts(invalid_pool_count):
+    with pytest.raises(ValueError, match="positive integer"):
+        seeding_script._build_division_specs(
+            {
+                "format": {
+                    "divisions": [
+                        {"name": "Gold", "team_count": 4, "pool_count": invalid_pool_count},
+                    ]
+                }
+            }
+        )
+
+
+@pytest.mark.parametrize("invalid_name", [None, "", "  ", 42])
+def test_standalone_division_parser_rejects_invalid_names(invalid_name):
+    with pytest.raises(ValueError, match="non-empty string name"):
+        seeding_script._build_division_specs(
+            {"format": {"divisions": [{"name": invalid_name, "team_count": 2}]}}
+        )
