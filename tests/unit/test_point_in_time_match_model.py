@@ -175,6 +175,33 @@ def test_snapshot_as_of_ignores_backdated_snapshot_created_after_training_game()
     assert selected["power_score_final"] == 0.51
 
 
+def test_snapshot_as_of_continues_after_unavailable_older_snapshot():
+    selected = _snapshot_as_of(
+        {
+            "a": [
+                _snapshot(
+                    "2026-03-31",
+                    "a",
+                    power_score_final=0.99,
+                    created_at="2026-04-03T12:00:00+00:00",
+                ),
+                _snapshot(
+                    "2026-04-01",
+                    "a",
+                    power_score_final=0.61,
+                    created_at="2026-04-01T12:00:00+00:00",
+                ),
+            ]
+        },
+        "a",
+        "2026-04-02",
+    )
+
+    assert selected is not None
+    assert selected["snapshot_date"] == "2026-04-01"
+    assert selected["power_score_final"] == 0.61
+
+
 def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
     games_df = pd.DataFrame(
         [

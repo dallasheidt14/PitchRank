@@ -361,10 +361,10 @@ def _snapshot_as_of(snapshot_index: Dict[str, List[dict]], team_id: str, target_
                 available = False
                 break
 
-        if snapshot_ts <= target_ts and available:
+        if snapshot_ts > target_ts:
+            break
+        if available:
             candidate = entry
-            continue
-        break
 
     return candidate
 
