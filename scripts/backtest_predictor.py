@@ -155,6 +155,7 @@ def _fetch_prediction_feature_snapshots_via_db(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
 ) -> pd.DataFrame:
     logger.info(
         "Fetching prediction feature snapshots for %s teams between %s and %s via direct Postgres...",
@@ -163,7 +164,10 @@ def _fetch_prediction_feature_snapshots_via_db(
         end_date,
     )
 
-    sql = """
+    availability_filter = ""
+    if availability_cutoff:
+        availability_filter = "AND created_at < %s"
+    sql = f"""
         SELECT
             snapshot_date,
             team_id,
@@ -193,6 +197,7 @@ def _fetch_prediction_feature_snapshots_via_db(
         WHERE snapshot_date >= %s
           AND snapshot_date <= %s
           AND team_id = ANY(%s::uuid[])
+          {availability_filter}
     """
 
     frames: List[pd.DataFrame] = []
@@ -201,7 +206,10 @@ def _fetch_prediction_feature_snapshots_via_db(
     with closing(_open_direct_db_connection()) as conn:
         for index in range(0, len(team_ids), DIRECT_DB_BATCH_SIZE):
             batch = team_ids[index : index + DIRECT_DB_BATCH_SIZE]
-            frame = pd.read_sql_query(sql, conn, params=[start_date, end_date, batch])
+            params: List[object] = [start_date, end_date, batch]
+            if availability_cutoff:
+                params.append(pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"))
+            frame = pd.read_sql_query(sql, conn, params=params)
             if not frame.empty:
                 frames.append(frame)
                 rows_fetched += len(frame)
@@ -249,6 +257,7 @@ async def _fetch_prediction_feature_snapshots_via_rest(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
 ) -> pd.DataFrame:
     supabase_url, supabase_key = _supabase_rest_credentials()
     if not supabase_url or not supabase_key:
@@ -291,6 +300,10 @@ async def _fetch_prediction_feature_snapshots_via_rest(
                     ("limit", str(REST_PAGE_SIZE)),
                     ("offset", str(offset)),
                 ]
+                if availability_cutoff:
+                    params.append(
+                        ("created_at", f"lt.{pd.Timestamp(availability_cutoff).strftime('%Y-%m-%d')}")
+                    )
                 async with semaphore:
                     response = await client.get(endpoint, params=params, headers=headers)
                     response.raise_for_status()
@@ -502,6 +515,7 @@ async def fetch_prediction_feature_snapshots(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Fetch point-in-time predictor snapshots for the requested teams and date range.
@@ -515,6 +529,7 @@ async def fetch_prediction_feature_snapshots(
                 team_ids=team_ids,
                 start_date=start_date,
                 end_date=end_date,
+                availability_cutoff=availability_cutoff,
             )
         except Exception as error:
             logger.warning("Direct Postgres snapshot fetch failed, falling back to Supabase REST: %s", error)
@@ -524,6 +539,7 @@ async def fetch_prediction_feature_snapshots(
             team_ids=team_ids,
             start_date=start_date,
             end_date=end_date,
+            availability_cutoff=availability_cutoff,
         )
     except Exception as error:
         logger.warning("Concurrent Supabase REST snapshot fetch failed, falling back to serial client: %s", error)
@@ -548,15 +564,20 @@ async def fetch_prediction_feature_snapshots(
     for index in range(0, len(team_ids), batch_size):
         batch = team_ids[index : index + batch_size]
         try:
-            response = (
+            query = (
                 supabase.table("prediction_feature_history")
                 .select(fields)
                 .in_("team_id", batch)
                 .gte("snapshot_date", start_date)
                 .lte("snapshot_date", end_date)
                 .order("snapshot_date", desc=False)
-                .execute()
             )
+            if availability_cutoff:
+                query = query.lt(
+                    "created_at",
+                    pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"),
+                )
+            response = query.execute()
         except Exception as error:
             error_message = str(error).lower()
             if "prediction_feature_history" in error_message and (

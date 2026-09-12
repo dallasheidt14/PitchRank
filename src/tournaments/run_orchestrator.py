@@ -359,6 +359,18 @@ def preflight(
                 f"{gender} {age}: explicit replay format missing for {', '.join(missing_formats)}; "
                 "review the division in Backtest intake",
             )
+        missing_pool_membership = tuple(
+            division.name
+            for division in cohort_structure.divisions
+            if len(division.pool_sizes) != 1
+            or not division.pool_sizes
+            or division.pool_sizes[0] != division.team_count
+        )
+        if missing_pool_membership:
+            blockers_for_cohort += (
+                f"{gender} {age}: exact original pool membership unavailable for "
+                f"{', '.join(missing_pool_membership)}; review the division in Backtest intake",
+            )
 
     warnings: list[str] = []
     try:

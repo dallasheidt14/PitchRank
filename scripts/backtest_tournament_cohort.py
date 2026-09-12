@@ -1263,6 +1263,7 @@ def main() -> int:
             ranking_source_ids,
             snapshot_start,
             snapshot_end,
+            availability_cutoff=prediction_date,
         )
     )
     entrant_snapshot_index = build_snapshot_index(entrant_snapshots_df)
@@ -1358,6 +1359,7 @@ def main() -> int:
                 related_team_ids,
                 snapshot_start,
                 snapshot_end,
+                availability_cutoff=prediction_date,
             )
         )
         if snapshots_df.empty:

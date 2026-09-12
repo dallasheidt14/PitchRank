@@ -169,7 +169,13 @@ async def main():
         pd.Timestamp(games_df["game_date"].min()) - pd.Timedelta(days=max(0, args.snapshot_buffer_days))
     ).strftime("%Y-%m-%d")
     snapshot_end = pd.Timestamp(games_df["game_date"].max()).strftime("%Y-%m-%d")
-    snapshots_df = await fetch_prediction_feature_snapshots(supabase, team_ids, snapshot_start, snapshot_end)
+    snapshots_df = await fetch_prediction_feature_snapshots(
+        supabase,
+        team_ids,
+        snapshot_start,
+        snapshot_end,
+        availability_cutoff=args.max_game_date,
+    )
     if snapshots_df.empty:
         logger.error("No point-in-time snapshots found in prediction_feature_history")
         sys.exit(1)
