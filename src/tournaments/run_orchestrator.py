@@ -65,6 +65,7 @@ from src.tournaments.storage import (
     fail_run,
     load_overrides,
     promote_run,
+    read_constraints,
     read_event_metadata,
     read_registry,
     read_structure,
@@ -442,6 +443,18 @@ def _build_cohort_request_payload(
     meta = read_event_metadata(event_key, base_dir=base_dir)
     registry = read_registry(event_key, scenario, base_dir=base_dir)
     structure = read_structure(event_key, scenario, base_dir=base_dir)
+    try:
+        saved_constraints = read_constraints(event_key, scenario, base_dir=base_dir)
+    except FileNotFoundError:
+        saved_constraints = []
+    cohort_constraints = next(
+        (
+            item
+            for item in saved_constraints
+            if item.cohort_age_group == age and item.cohort_gender == gender
+        ),
+        None,
+    )
 
     cohort_structure = next(
         (c for c in structure if c.age_group == age and c.gender == gender),
@@ -524,6 +537,7 @@ def _build_cohort_request_payload(
                 "actual_division_name": actual_division_name,
                 "team_count": division.team_count,
                 "pool_sizes": list(division.pool_sizes),
+                "advancement": division.advancement,
             }
         )
 
@@ -533,6 +547,16 @@ def _build_cohort_request_payload(
         "gender": gender.lower(),
         "divisions": divisions_payload,
         "entrants": entrants,
+        "constraints": (
+            {
+                "avoid_same_club_early": cohort_constraints.avoid_same_club_early,
+                "avoid_same_coach_early": cohort_constraints.avoid_same_coach_early,
+                "avoid_same_state_pool": cohort_constraints.avoid_same_state_pool,
+                "rematch_avoidance_scope": cohort_constraints.rematch_avoidance_scope,
+            }
+            if cohort_constraints is not None
+            else {}
+        ),
     }
     snapshot_date = extras.get("ranking_snapshot_date")
     if snapshot_date:

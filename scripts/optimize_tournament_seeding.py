@@ -350,10 +350,18 @@ def _summarize_projected_result(
         for pool in division.pools
         for team_a, team_b in combinations(pool.teams, 2)
     ]
-    return summarize_modelled_matchups(
+    projection = summarize_modelled_matchups(
         project_matchup_pairs(pairs, matchup_cost_fn),
         projection_basis="all_intra_pool_pairings",
     )
+    if not math.isclose(
+        float(projection["total_model_cost"]),
+        float(result.total_cost),
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError("Optimizer total cost disagrees with its reported intra-pool matchup set")
+    return projection
 
 
 def _fetch_actual_event_games(
@@ -424,32 +432,37 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
     }
 
 
-def _project_actual_fixture_arrangement(
-    game_rows: list[dict[str, Any]],
+def _project_original_pool_arrangement(
+    original_pools: list[dict[str, Any]] | None,
     teams: list[SeedableTeam],
     matchup_cost_fn,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    if not original_pools:
+        return None, ("Exact original pool membership was not supplied",)
     teams_by_id = {team.team_id: team for team in teams}
+    seen: list[str] = []
     pairs: list[tuple[SeedableTeam, SeedableTeam]] = []
     issues: list[str] = []
-    for index, row in enumerate(game_rows):
-        home_id = str(row.get("home_team_master_id") or "")
-        away_id = str(row.get("away_team_master_id") or "")
-        home = teams_by_id.get(home_id)
-        away = teams_by_id.get(away_id)
-        if home is None or away is None or home_id == away_id:
-            issues.append(
-                f"Actual fixture {row.get('id') or index} does not resolve to two distinct tournament entrants"
-            )
+    for pool_index, pool in enumerate(original_pools):
+        team_ids = [str(team_id) for team_id in pool.get("team_ids") or []]
+        if not team_ids:
+            issues.append(f"Original pool at index {pool_index} has no team_ids")
             continue
-        pairs.append((home, away))
-
+        missing = [team_id for team_id in team_ids if team_id not in teams_by_id]
+        if missing:
+            issues.append(f"Original pool at index {pool_index} contains unknown teams: {', '.join(missing)}")
+            continue
+        seen.extend(team_ids)
+        pool_teams = [teams_by_id[team_id] for team_id in team_ids]
+        pairs.extend(combinations(pool_teams, 2))
+    if sorted(seen) != sorted(teams_by_id):
+        issues.append("Original pools must contain every tournament team exactly once")
     if issues:
         return None, tuple(issues)
     return (
         summarize_modelled_matchups(
             project_matchup_pairs(pairs, matchup_cost_fn),
-            projection_basis="observed_original_fixture_pairs",
+            projection_basis="supplied_original_intra_pool_pairings",
         ),
         (),
     )
@@ -628,28 +641,26 @@ def main() -> int:
             cohort_request.get("actual_event_name") or request_payload.get("actual_event_name") or ""
         ).strip()
         actual_summary = None
-        original_projection = None
-        seeding_comparison = None
-        comparison_issues: tuple[str, ...] = ()
+        original_projection, comparison_issues = _project_original_pool_arrangement(
+            cohort_request.get("original_pools"),
+            seedable_teams,
+            matchup_cost_fn,
+        )
+        seeding_comparison = (
+            compare_modelled_arrangements(original_projection, proposed_projection)
+            if original_projection is not None
+            else {
+                "status": "unavailable",
+                "reason": "; ".join(comparison_issues),
+                "comparison_basis": "same_model_original_vs_proposed_matchups",
+            }
+        )
         if actual_event_name:
             actual_games = _fetch_actual_event_games(client, actual_event_name, [team.team_id for team in seedable_teams])  # noqa: E501
             actual_summary = {
                 "event_name": actual_event_name,
                 **_summarize_actual_games(actual_games),
             }
-            original_projection, comparison_issues = _project_actual_fixture_arrangement(
-                actual_games,
-                seedable_teams,
-                matchup_cost_fn,
-            )
-            if original_projection is not None:
-                seeding_comparison = compare_modelled_arrangements(original_projection, proposed_projection)
-            else:
-                seeding_comparison = {
-                    "status": "unavailable",
-                    "reason": "; ".join(comparison_issues),
-                    "comparison_basis": "same_model_original_vs_proposed_matchups",
-                }
 
         results.append(
             {

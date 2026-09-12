@@ -36,11 +36,13 @@ from src.tournaments.run_orchestrator import (
     generate_run_id,
 )
 from src.tournaments.storage import (
+    CohortConstraints,
     EventMetadata,
     RunStateError,
     TeamRegistryEntry,
     append_override,
     ensure_scenario,
+    write_constraints,
     write_event_metadata,
     write_registry,
     write_structure,
@@ -89,7 +91,9 @@ def _bootstrap_event(
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,), advancement=None),),
+                divisions=(
+                    DivisionStructure(name="A", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"),
+                ),
             )
         ],
         base_dir=base,
@@ -257,11 +261,47 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
     assert payload["prediction_date"] == "2026-04-30"
     assert payload["age_group"] == "u14"
     assert payload["gender"] == "boys"
+    assert payload["divisions"][0]["advancement"] == "ROUND_ROBIN"
     assert len(payload["entrants"]) == 2
     # Fixture team names "A Alpha" / "A Bravo" both start with division "A"
     # so the resolver returns ``source="prefix"`` with no fallbacks.
     assert fallbacks == []
     assert stale == []
+
+
+def test_build_cohort_request_payload_includes_saved_constraints(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_constraints(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortConstraints(
+                cohort_age_group="u14",
+                cohort_gender="Boys",
+                avoid_same_club_early=False,
+                avoid_same_coach_early=True,
+                avoid_same_state_pool=True,
+                rematch_avoidance_scope="prior_weekend",
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+
+    assert payload["constraints"] == {
+        "avoid_same_club_early": False,
+        "avoid_same_coach_early": True,
+        "avoid_same_state_pool": True,
+        "rematch_avoidance_scope": "prior_weekend",
+    }
 
 
 def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):

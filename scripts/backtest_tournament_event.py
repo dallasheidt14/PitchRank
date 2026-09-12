@@ -26,7 +26,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backtest_tournament_cohort import _fetch_rows_by_ids, _get_supabase  # noqa: E402
 from src.tournaments.event_team_matcher import enrich_registry_rows_with_matcher  # noqa: E402
-from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label  # noqa: E402
+from src.tournaments.seeding_optimizer import (  # noqa: E402
+    normalize_gender_label,
+    normalize_tournament_age_group,
+)
 
 MIN_SUPPORTED_AGE = 10
 MAX_SUPPORTED_AGE = 19
@@ -48,18 +51,13 @@ def _parse_group_title(group_title: str) -> tuple[str, str, str]:
     if len(parts) < 2:
         raise ValueError(f"Unexpected group title format: {group_title}")
     gender = normalize_gender_label(parts[0])
-    age_group = normalize_age_group(parts[1])
+    age_group = normalize_tournament_age_group(parts[1])
     return age_group, gender, division_name.strip()
 
 
-def _age_number(age_group: str) -> int | None:
-    normalized = normalize_age_group(age_group)
-    if not normalized.startswith("u"):
-        return None
-    try:
-        return int(normalized.removeprefix("u"))
-    except ValueError:
-        return None
+def _age_numbers(age_group: str) -> tuple[int, ...]:
+    normalized = normalize_tournament_age_group(age_group)
+    return tuple(int(part.removeprefix("u")) for part in normalized.split("/"))
 
 
 def _derive_pool_sizes(team_count: int, bracket_count: int) -> list[int]:
@@ -69,6 +67,22 @@ def _derive_pool_sizes(team_count: int, bracket_count: int) -> list[int]:
     sizes = [base_size] * bracket_count
     for index in range(remainder):
         sizes[index] += 1
+    return sizes
+
+
+def _parse_explicit_pool_sizes(value: Any) -> list[int]:
+    if isinstance(value, (list, tuple)):
+        raw_parts = list(value)
+    else:
+        raw = str(value or "").strip()
+        if not raw:
+            return []
+        raw_parts = [part.strip() for part in re.split(r"[|,]", raw) if part.strip()]
+    sizes: list[int] = []
+    for part in raw_parts:
+        if isinstance(part, bool) or not str(part).strip().isdigit() or int(part) <= 0:
+            raise ValueError(f"pool_sizes must contain positive integers; got {value!r}")
+        sizes.append(int(part))
     return sizes
 
 
@@ -140,15 +154,15 @@ def _fetch_rows_by_provider_ids(client, provider_ids: list[str]) -> list[dict[st
 
 
 def _cohort_key(age_group: str, gender: str) -> tuple[str, str]:
-    return normalize_age_group(age_group), normalize_gender_label(gender)
+    return normalize_tournament_age_group(age_group), normalize_gender_label(gender)
 
 
 def _build_event_structure(group_rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
     cohorts: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in group_rows:
         age_group, gender, division_name = _parse_group_title(str(row["group_title"]))
-        age_number = _age_number(age_group)
-        if age_number is None or age_number < MIN_SUPPORTED_AGE or age_number > MAX_SUPPORTED_AGE:
+        age_numbers = _age_numbers(age_group)
+        if not age_numbers or any(age < MIN_SUPPORTED_AGE or age > MAX_SUPPORTED_AGE for age in age_numbers):
             continue
         cohorts[_cohort_key(age_group, gender)].append(
             {
@@ -156,7 +170,8 @@ def _build_event_structure(group_rows: list[dict[str, Any]]) -> dict[tuple[str, 
                 "division_name": division_name,
                 "team_count": int(row["team_count"]),
                 "bracket_count": int(row["bracket_count"]),
-                "pool_sizes": _derive_pool_sizes(int(row["team_count"]), int(row["bracket_count"])),
+                "pool_sizes": _parse_explicit_pool_sizes(row.get("pool_sizes")),
+                "advancement": str(row.get("advancement") or row.get("knockout_format") or "").strip(),
                 "group_url": row.get("group_url"),
             }
         )
@@ -341,6 +356,7 @@ def _build_request_payload(
                 "actual_division_name": division["division_name"],
                 "team_count": division["team_count"],
                 "pool_sizes": division["pool_sizes"],
+                "advancement": division["advancement"],
             }
             for division in divisions
         ],
@@ -358,7 +374,10 @@ def _cohort_status_rows(
         runnable = True
         for division in divisions:
             actual_count = len(teams_by_division.get(str(division["division_name"]), set()))
-            complete = actual_count == int(division["team_count"])
+            pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
+            structure_explicit = bool(pool_sizes) and sum(pool_sizes) == int(division["team_count"])
+            structure_explicit = structure_explicit and bool(str(division.get("advancement") or "").strip())
+            complete = actual_count == int(division["team_count"]) and structure_explicit
             if not complete:
                 runnable = False
             division_statuses.append(
@@ -366,6 +385,7 @@ def _cohort_status_rows(
                     "division_name": division["division_name"],
                     "expected_team_count": int(division["team_count"]),
                     "actual_team_count": actual_count,
+                    "structure_explicit": structure_explicit,
                     "complete": complete,
                 }
             )

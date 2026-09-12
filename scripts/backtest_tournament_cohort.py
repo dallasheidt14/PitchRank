@@ -12,7 +12,7 @@ known entrants and a known division structure, so this script accepts:
 That lets us replay:
 1. the actual completed tournament results
 2. an optimized regrouping / reseeding of the same entrants
-3. the exact inferred tournament format on the optimized grouping
+3. the operator-verified tournament format on the optimized grouping
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import hashlib
 import json
 import math
 import os
 import re
 import sys
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -58,38 +58,21 @@ from src.tournaments.modelled_comparison import (  # noqa: E402
     summarize_modelled_matchups,
 )
 from src.tournaments.schedule_simulator import (  # noqa: E402
-    infer_division_schedule_template,
+    explicit_division_schedule_template,
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
+    AssignmentConstraints,
     DivisionSpec,
     MatchupCost,
     SeedableTeam,
     normalize_age_group,
     normalize_gender_label,
+    normalize_tournament_age_group,
     optimize_tournament_format,
 )
 
 TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id,provider_id,is_deprecated"
-RANKING_COLS = ",".join(
-    [
-        "team_id",
-        "age_group",
-        "gender",
-        "status",
-        "games_played",
-        "power_score_true",
-        "power_score_final",
-        "sos_norm",
-        "off_norm",
-        "def_norm",
-        "glicko_rating",
-        "glicko_rd",
-        "glicko_volatility",
-        "rank_in_cohort_final",
-    ]
-)
-
 PREDICTOR_SOURCE_PYTHON = "python"
 PREDICTOR_SOURCE_POINT_IN_TIME = "point_in_time"
 DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = "poisson_draw_gate"
@@ -162,8 +145,87 @@ def _normalize_actual_games_override(
     return normalized_rows
 
 
+def _assignment_constraints(payload: dict[str, Any]) -> tuple[AssignmentConstraints, str]:
+    raw = payload.get("constraints") or {}
+    rematch_scope = str(raw.get("rematch_avoidance_scope") or "same_event")
+    if rematch_scope not in {"same_event", "same_season", "prior_weekend"}:
+        raise ValueError(f"Unsupported rematch_avoidance_scope: {rematch_scope!r}")
+    return (
+        AssignmentConstraints(
+            avoid_same_club_early=bool(raw.get("avoid_same_club_early", True)),
+            avoid_same_coach_early=bool(raw.get("avoid_same_coach_early", True)),
+            avoid_same_state_pool=bool(raw.get("avoid_same_state_pool", False)),
+            avoid_prior_rematches=rematch_scope in {"same_season", "prior_weekend"},
+        ),
+        rematch_scope,
+    )
+
+
+def _coach_names(value: Any) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = re.split(r"[|,]", str(value or ""))
+    return tuple(dict.fromkeys(str(name).strip() for name in values if str(name).strip()))
+
+
+def _prior_opponents(
+    games: list[PredictorGame],
+    *,
+    prediction_date: str,
+    rematch_scope: str,
+) -> dict[str, frozenset[str]]:
+    if rematch_scope == "same_event":
+        return {}
+    cutoff = None
+    if rematch_scope == "prior_weekend":
+        cutoff = pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=7)
+    opponents: dict[str, set[str]] = {}
+    for game in games:
+        if cutoff is not None and pd.Timestamp(game.game_date).normalize() < cutoff:
+            continue
+        home = str(game.home_team_master_id or "")
+        away = str(game.away_team_master_id or "")
+        if not home or not away or home == away:
+            continue
+        opponents.setdefault(home, set()).add(away)
+        opponents.setdefault(away, set()).add(home)
+    return {team_id: frozenset(team_opponents) for team_id, team_opponents in opponents.items()}
+
+
+def _assert_no_same_event_rematches(simulated_tournament) -> None:
+    early_stages = {"Pool", "Semi Final A", "Semi Final B"}
+    seen: set[frozenset[str]] = set()
+    repeated: list[str] = []
+    for division in simulated_tournament.divisions:
+        for match in division.matches:
+            if match.stage not in early_stages:
+                continue
+            pair = frozenset((match.home_team_id, match.away_team_id))
+            if pair in seen:
+                repeated.append(":".join(sorted(pair)))
+            seen.add(pair)
+    if repeated:
+        raise ValueError(f"same_event rematch constraint could not be satisfied: {', '.join(repeated)}")
+
+
 def _pair_count(team_count: int) -> int:
     return max(0, int(team_count) * max(0, int(team_count) - 1) // 2)
+
+
+def _captured_fixture_count(
+    division_payload: dict[str, Any],
+    actual_game_counts: dict[str, int],
+    *,
+    fallback_division_name: str,
+) -> int | None:
+    """Keep structural fixture coverage separate from the scored-game baseline."""
+
+    captured = division_payload.get("captured_fixture_count")
+    if captured is not None:
+        return int(captured)
+    actual_name = str(division_payload.get("actual_division_name") or fallback_division_name)
+    return actual_game_counts.get(actual_name)
 
 
 def _fetch_rows_by_ids(client, table: str, columns: str, id_column: str, ids: list[str]) -> list[dict[str, Any]]:
@@ -180,6 +242,7 @@ def _fetch_recent_games_for_teams(
     client,
     team_ids: list[str],
     *,
+    as_of_date: str,
     lookback_days: int = 365,
     sub_batch_size: int = 10,
     page_size: int = 1000,
@@ -187,7 +250,8 @@ def _fetch_recent_games_for_teams(
     if not team_ids:
         return []
 
-    cutoff_date = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    prediction_ts = pd.Timestamp(as_of_date).normalize()
+    cutoff_date = (prediction_ts - pd.Timedelta(days=max(0, lookback_days))).strftime("%Y-%m-%d")
     seen_game_ids: set[str] = set()
     games: list[PredictorGame] = []
 
@@ -204,6 +268,7 @@ def _fetch_recent_games_for_teams(
                 client.table("games")
                 .select("id,home_team_master_id,away_team_master_id,home_score,away_score,game_date")
                 .gte("game_date", cutoff_date)
+                .lt("game_date", prediction_ts.strftime("%Y-%m-%d"))
                 .not_.is_("home_score", "null")
                 .not_.is_("away_score", "null")
                 .eq("is_excluded", False)
@@ -240,6 +305,121 @@ def _fetch_recent_games_for_teams(
             offset += page_size
 
     return games
+
+
+def _historical_ranking_row(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Adapt a frozen prediction snapshot to the entrant rating contract."""
+
+    return {
+        "team_id": str(snapshot["team_id"]),
+        "age_group": snapshot.get("age_group"),
+        "gender": snapshot.get("gender"),
+        "status": snapshot.get("status"),
+        "games_played": snapshot.get("games_played"),
+        "power_score_final": snapshot.get("power_score_final"),
+        "sos_norm": snapshot.get("sos_norm"),
+        "off_norm": snapshot.get("offense_norm"),
+        "def_norm": snapshot.get("defense_norm"),
+        "glicko_rating": snapshot.get("glicko_rating"),
+        "glicko_rd": snapshot.get("glicko_rd"),
+        "glicko_volatility": snapshot.get("glicko_volatility"),
+        "rank_in_cohort_final": snapshot.get("rank_in_cohort_final"),
+    }
+
+
+def _verify_snapshot_provenance(snapshot: dict[str, Any], *, prediction_date: str, team_name: str) -> None:
+    created_at = snapshot.get("created_at")
+    if not created_at:
+        raise ValueError(
+            f"Historical snapshot for '{team_name}' has no created_at provenance and cannot prove availability"
+        )
+    created_ts = pd.Timestamp(created_at)
+    if created_ts.tzinfo is not None:
+        created_ts = created_ts.tz_convert("UTC").tz_localize(None)
+    if created_ts >= pd.Timestamp(prediction_date):
+        raise ValueError(
+            f"Historical snapshot for '{team_name}' was created after the event cutoff; "
+            "it is a reconstructed input, not contemporaneous evidence"
+        )
+
+
+def _verify_model_training_provenance(
+    model_training_metadata: dict[str, Any],
+    *,
+    prediction_date: str,
+) -> str:
+    """Require proof that model fitting and selection used only earlier games."""
+
+    data_end_date = model_training_metadata.get("model_data_end_date")
+    if not data_end_date:
+        raise ValueError(
+            "Point-in-time model artifact has no model_data_end_date provenance; "
+            "retrain it with the current training pipeline"
+        )
+    normalized_end = pd.Timestamp(data_end_date).normalize()
+    if normalized_end >= pd.Timestamp(prediction_date).normalize():
+        raise ValueError(
+            f"Point-in-time model used data through {normalized_end.strftime('%Y-%m-%d')}, "
+            f"which is not before the event cutoff {prediction_date}"
+        )
+    return normalized_end.strftime("%Y-%m-%d")
+
+
+def _freeze_historical_inputs(
+    entrant_rows: list[dict[str, Any]],
+    snapshots_by_source_id: dict[str, dict[str, Any]],
+    *,
+    prediction_date: str,
+    history_start_date: str,
+    model_artifact: Path | None,
+    model_training_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    teams = []
+    for entrant in sorted(entrant_rows, key=lambda row: str(row["entrant_id"])):
+        source_id = str(entrant["ranking_source_team_id"])
+        snapshot = snapshots_by_source_id[source_id]
+        teams.append(
+            {
+                "entrant_id": str(entrant["entrant_id"]),
+                "canonical_team_id": str(entrant["canonical_team_id"]),
+                "ranking_source_team_id": source_id,
+                "snapshot_date": str(snapshot["snapshot_date"]),
+                "snapshot_created_at": str(snapshot["created_at"]),
+                "snapshot_last_calculated": str(snapshot.get("last_calculated") or ""),
+                "availability_verified": True,
+                "source_age_group": str(entrant["source_age_group"]),
+                "source_gender": str(entrant["source_gender"]),
+                "event_age_group": str(entrant["age_group"]),
+                "event_gender": str(entrant["gender"]),
+                "power_score": float(entrant["power_score"]),
+                "rank_in_cohort": entrant.get("rank_in_cohort"),
+                "games_played": int(entrant.get("games_played") or 0),
+                "sos_norm": entrant.get("sos_norm"),
+                "off_norm": entrant.get("off_norm"),
+                "def_norm": entrant.get("def_norm"),
+                "glicko_rating": entrant.get("glicko_rating"),
+                "glicko_rd": entrant.get("glicko_rd"),
+                "glicko_volatility": entrant.get("glicko_volatility"),
+            }
+        )
+
+    artifact_sha256 = None
+    if model_artifact is not None:
+        artifact_sha256 = hashlib.sha256(model_artifact.read_bytes()).hexdigest()
+    payload: dict[str, Any] = {
+        "source": "prediction_feature_history",
+        "availability_policy": "snapshot_created_before_event_cutoff",
+        "data_cutoff_exclusive": prediction_date,
+        "history_start_date": history_start_date,
+        "team_count": len(teams),
+        "teams": teams,
+        "model_artifact": str(model_artifact) if model_artifact is not None else None,
+        "model_artifact_sha256": artifact_sha256,
+        "model_training_metadata": model_training_metadata or {},
+    }
+    digest_source = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    payload["input_digest_sha256"] = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
+    return payload
 
 
 def _build_predictor_team_ranking(row: dict[str, Any]) -> TeamRanking:
@@ -288,7 +468,7 @@ def _build_entrant_row(
 
     source_age_group = normalize_age_group(str(ranking_row.get("age_group") or cohort_age_group))
     source_gender = normalize_gender_label(str(ranking_row.get("gender") or cohort_gender))
-    event_age_group = normalize_age_group(str(entrant.get("event_age_group") or cohort_age_group))
+    event_age_group = normalize_tournament_age_group(str(entrant.get("event_age_group") or cohort_age_group))
     event_gender = normalize_gender_label(str(entrant.get("event_gender") or cohort_gender))
 
     if notes is not None and canonical_team_id != ranking_source_team_id:
@@ -308,6 +488,7 @@ def _build_entrant_row(
         "event_team_name": event_team_name,
         "provider_team_id": str(entrant.get("provider_team_id") or ""),
         "actual_division_name": str(entrant["actual_division_name"]),
+        "actual_pool_name": str(entrant.get("actual_pool_name") or ""),
         "canonical_team_name": (team_row or {}).get("team_name") or event_team_name,
         "club_name": (team_row or {}).get("club_name"),
         "state_code": (team_row or {}).get("state_code"),
@@ -389,7 +570,7 @@ def _snapshot_as_of_date(snapshot_entries: list[dict[str, Any]] | None, target_d
                 snapshot_ts = pd.Timestamp(snapshot_date).normalize()
             except Exception:
                 continue
-        if snapshot_ts <= target_ts:
+        if snapshot_ts < target_ts:
             candidate = entry
             continue
         break
@@ -438,13 +619,21 @@ def _resolve_prediction_snapshot(
     entrant_row: dict[str, Any],
     snapshot_entries: list[dict[str, Any]] | None,
     prediction_date: str,
+    *,
+    allow_fallbacks: bool = False,
 ) -> tuple[dict[str, Any], str]:
     as_of_snapshot = _snapshot_as_of_date(snapshot_entries, prediction_date)
     if as_of_snapshot is not None:
         return as_of_snapshot, "as_of"
-    if snapshot_entries:
+    if allow_fallbacks and snapshot_entries:
         return snapshot_entries[0], "future_snapshot_fallback"
-    return _synthesize_snapshot_from_entrant_row(entrant_row, prediction_date), "synthetic_snapshot_fallback"
+    if allow_fallbacks:
+        return _synthesize_snapshot_from_entrant_row(entrant_row, prediction_date), "synthetic_snapshot_fallback"
+    raise ValueError(
+        f"No prediction_feature_history snapshot exists before {prediction_date} for "
+        f"'{entrant_row.get('event_team_name') or entrant_row.get('ranking_source_team_id')}' "
+        f"(ranking_source_team_id={entrant_row.get('ranking_source_team_id')})"
+    )
 
 
 def _point_in_time_prediction_from_row(
@@ -835,63 +1024,62 @@ def _summarize_actual_games_by_division(game_rows: list[dict[str, Any]]) -> dict
     return {division_name: _summarize_actual_games(rows) for division_name, rows in by_division.items()}
 
 
-def _project_original_fixture_arrangement(
-    game_rows: list[dict[str, Any]],
+def _project_original_pool_arrangement(
     entrant_rows: list[dict[str, Any]],
     teams: list[SeedableTeam],
     matchup_cost_fn,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
-    entrant_ids_by_canonical: dict[str, list[str]] = {}
-    for entrant in entrant_rows:
-        entrant_ids_by_canonical.setdefault(str(entrant["canonical_team_id"]), []).append(str(entrant["entrant_id"]))
-    teams_by_entrant_id = {team.team_id: team for team in teams}
-    pairs: list[tuple[SeedableTeam, SeedableTeam]] = []
+    teams_by_id = {team.team_id: team for team in teams}
+    pools: dict[tuple[str, str], list[SeedableTeam]] = {}
     issues: list[str] = []
-
-    for index, row in enumerate(game_rows):
-        fixture_id = str(row.get("id") or index)
-        home_canonical = str(row.get("home_team_master_id") or "")
-        away_canonical = str(row.get("away_team_master_id") or "")
-        home_entrants = entrant_ids_by_canonical.get(home_canonical, [])
-        away_entrants = entrant_ids_by_canonical.get(away_canonical, [])
-        if len(home_entrants) != 1 or len(away_entrants) != 1:
-            issues.append(
-                f"Original fixture {fixture_id} cannot be mapped unambiguously from canonical teams to registrations"
-            )
+    for entrant in entrant_rows:
+        division_name = str(entrant.get("actual_division_name") or "").strip()
+        pool_name = str(entrant.get("actual_pool_name") or "").strip()
+        entrant_id = str(entrant["entrant_id"])
+        if not pool_name:
+            issues.append(f"Entrant {entrant_id} is missing its captured original pool")
             continue
-        home = teams_by_entrant_id.get(home_entrants[0])
-        away = teams_by_entrant_id.get(away_entrants[0])
-        if home is None or away is None or home.team_id == away.team_id:
-            issues.append(f"Original fixture {fixture_id} does not resolve to two distinct tournament entrants")
-            continue
-        pairs.append((home, away))
-
+        pools.setdefault((division_name, pool_name), []).append(teams_by_id[entrant_id])
     if issues:
         return None, tuple(issues)
+    pairs = [
+        (pool_teams[left], pool_teams[right])
+        for pool_teams in pools.values()
+        for left in range(len(pool_teams))
+        for right in range(left + 1, len(pool_teams))
+    ]
     return (
         summarize_modelled_matchups(
             project_matchup_pairs(pairs, matchup_cost_fn),
-            projection_basis="observed_original_fixture_pairs",
+            projection_basis="captured_original_intra_pool_pairings",
         ),
         (),
     )
 
 
-def _project_simulated_arrangement(
-    simulated_tournament,
-    teams: list[SeedableTeam],
+def _project_optimized_pool_arrangement(
+    optimization_result,
     matchup_cost_fn,
 ) -> dict[str, Any]:
-    teams_by_id = {team.team_id: team for team in teams}
     pairs = [
-        (teams_by_id[match.home_team_id], teams_by_id[match.away_team_id])
-        for division in simulated_tournament.divisions
-        for match in division.matches
+        (pool.teams[left], pool.teams[right])
+        for division in optimization_result.divisions
+        for pool in division.pools
+        for left in range(len(pool.teams))
+        for right in range(left + 1, len(pool.teams))
     ]
-    return summarize_modelled_matchups(
+    projection = summarize_modelled_matchups(
         project_matchup_pairs(pairs, matchup_cost_fn),
-        projection_basis="proposed_simulated_fixture_pairs",
+        projection_basis="optimized_intra_pool_pairings",
     )
+    if not math.isclose(
+        float(projection["total_model_cost"]),
+        float(optimization_result.total_cost),
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError("Optimizer total cost disagrees with its reported intra-pool matchup set")
+    return projection
 
 
 def _build_division_recommendations(
@@ -989,8 +1177,9 @@ def main() -> int:
 
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     event_name = str(payload["event_name"])
-    age_group = normalize_age_group(str(payload["age_group"]))
+    age_group = normalize_tournament_age_group(str(payload["age_group"]))
     gender = normalize_gender_label(str(payload["gender"]))
+    assignment_constraints, rematch_scope = _assignment_constraints(payload)
     divisions = _build_division_specs(payload)
     entrants_payload = payload.get("entrants") or []
     if not entrants_payload:
@@ -1004,50 +1193,7 @@ def main() -> int:
     )
 
     team_rows = _fetch_rows_by_ids(client, "teams", TEAM_META_COLS, "team_id_master", canonical_team_ids)
-    ranking_rows = _fetch_rows_by_ids(client, "rankings_full", RANKING_COLS, "team_id", ranking_source_ids)
     team_by_id = {str(row["team_id_master"]): row for row in team_rows}
-    ranking_by_id = {str(row["team_id"]): row for row in ranking_rows}
-
-    entrant_rows: list[dict[str, Any]] = []
-    seedable_teams: list[SeedableTeam] = []
-    notes: list[str] = []
-    for entrant in entrants_payload:
-        canonical_team_id = str(entrant["canonical_team_id"])
-        ranking_source_team_id = str(entrant.get("ranking_source_team_id") or canonical_team_id)
-        team_row = team_by_id.get(canonical_team_id)
-        ranking_row = ranking_by_id.get(ranking_source_team_id)
-
-        if ranking_row is None:
-            raise ValueError(
-                f"No rankings_full row found for entrant '{entrant.get('event_team_name')}' "
-                f"(ranking_source_team_id={ranking_source_team_id})"
-            )
-
-        entrant_row = _build_entrant_row(
-            entrant,
-            team_row,
-            ranking_row,
-            cohort_age_group=age_group,
-            cohort_gender=gender,
-            notes=notes,
-        )
-        entrant_rows.append(entrant_row)
-        seedable_teams.append(
-            SeedableTeam(
-                team_id=entrant_row["entrant_id"],
-                team_name=entrant_row["event_team_name"],
-                age_group=entrant_row["age_group"],
-                gender=entrant_row["gender"],
-                power_score=entrant_row["power_score"],
-                rank_in_cohort=float(entrant_row["rank_in_cohort"])
-                if entrant_row["rank_in_cohort"] is not None
-                else None,  # noqa: E501
-                club_name=entrant_row["club_name"],
-                state_code=entrant_row["state_code"],
-                games_played=entrant_row["games_played"],
-            )
-        )
-
     actual_games = _normalize_actual_games_override(
         payload.get("actual_games_override"),
         {str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]},
@@ -1079,14 +1225,98 @@ def main() -> int:
     }
 
     prediction_date = str(payload.get("prediction_date") or min(str(row["game_date"]) for row in actual_games))
+    snapshot_lookback_days = max(0, max(args.history_lookback_days, args.snapshot_buffer_days))
+    snapshot_start = (
+        pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=snapshot_lookback_days)
+    ).strftime("%Y-%m-%d")
+    snapshot_end = pd.Timestamp(prediction_date).normalize().strftime("%Y-%m-%d")
+    print("PHASE: fetching-entrant-snapshots", flush=True)
+    entrant_snapshots_df = asyncio.run(
+        fetch_prediction_feature_snapshots(
+            client,
+            ranking_source_ids,
+            snapshot_start,
+            snapshot_end,
+        )
+    )
+    entrant_snapshot_index = build_snapshot_index(entrant_snapshots_df)
+    resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
+    entrant_rows: list[dict[str, Any]] = []
+    seedable_teams: list[SeedableTeam] = []
+    notes: list[str] = []
+    for index, entrant in enumerate(entrants_payload):
+        canonical_team_id = str(entrant["canonical_team_id"])
+        ranking_source_team_id = str(entrant.get("ranking_source_team_id") or canonical_team_id)
+        provisional = {
+            "event_team_name": entrant.get("event_team_name"),
+            "ranking_source_team_id": ranking_source_team_id,
+        }
+        resolved_snapshot, _resolution_mode = _resolve_prediction_snapshot(
+            provisional,
+            entrant_snapshot_index.get(ranking_source_team_id),
+            prediction_date,
+        )
+        _verify_snapshot_provenance(
+            resolved_snapshot,
+            prediction_date=prediction_date,
+            team_name=str(entrant.get("event_team_name") or ranking_source_team_id),
+        )
+        resolved_snapshots_by_source_id[ranking_source_team_id] = resolved_snapshot
+        entrant_row = _build_entrant_row(
+            entrant,
+            team_by_id.get(canonical_team_id),
+            _historical_ranking_row(resolved_snapshot),
+            cohort_age_group=age_group,
+            cohort_gender=gender,
+            notes=notes,
+        )
+        entrant_rows.append(entrant_row)
+        seedable_teams.append(
+            SeedableTeam(
+                team_id=entrant_row["entrant_id"],
+                team_name=entrant_row["event_team_name"],
+                age_group=entrant_row["age_group"],
+                gender=entrant_row["gender"],
+                power_score=entrant_row["power_score"],
+                rank_in_cohort=float(entrant_row["rank_in_cohort"])
+                if entrant_row["rank_in_cohort"] is not None
+                else None,
+                club_name=entrant_row["club_name"],
+                state_code=entrant_row["state_code"],
+                games_played=entrant_row["games_played"],
+                canonical_team_id=ranking_source_team_id,
+                coach_names=_coach_names(entrant.get("coach_names")),
+            )
+        )
+        print(f"PROGRESS: entrant-snapshots {index + 1}/{len(entrants_payload)}", flush=True)
+
     print("PHASE: fetching-recent-games", flush=True)
-    recent_games = _fetch_recent_games_for_teams(client, ranking_source_ids, lookback_days=args.history_lookback_days)
+    recent_games = _fetch_recent_games_for_teams(
+        client,
+        ranking_source_ids,
+        as_of_date=prediction_date,
+        lookback_days=args.history_lookback_days,
+    )
+    prior_opponents_by_team = _prior_opponents(
+        recent_games,
+        prediction_date=prediction_date,
+        rematch_scope=rematch_scope,
+    )
+    seedable_teams = [
+        replace(
+            team,
+            prior_opponent_ids=prior_opponents_by_team.get(str(team.canonical_team_id), frozenset()),
+        )
+        for team in seedable_teams
+    ]
 
     predictor_details: dict[str, Any] = {
         "source": args.predictor_source,
         "prediction_date": prediction_date,
         "history_lookback_days": args.history_lookback_days,
     }
+    model_artifact_for_manifest: Path | None = None
+    model_training_metadata: dict[str, Any] = {}
     if args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME:
         probability_strategy_override = _resolve_point_in_time_probability_strategy_override(
             args.point_in_time_probability_strategy,
@@ -1098,17 +1328,13 @@ def main() -> int:
         artifact_candidate = Path(artifact_option)
         if not artifact_candidate.exists():
             raise FileNotFoundError(f"Point-in-time model artifact not found: {artifact_candidate}")
+        model_artifact_for_manifest = artifact_candidate
 
         related_team_ids = sorted(
             {str(game.home_team_master_id) for game in recent_games if game.home_team_master_id}
             | {str(game.away_team_master_id) for game in recent_games if game.away_team_master_id}
             | set(ranking_source_ids)
         )
-        snapshot_lookback_days = max(0, max(args.history_lookback_days, args.snapshot_buffer_days))
-        snapshot_start = (
-            pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=snapshot_lookback_days)
-        ).strftime("%Y-%m-%d")
-        snapshot_end = pd.Timestamp(prediction_date).normalize().strftime("%Y-%m-%d")
         print("PHASE: fetching-snapshots", flush=True)
         snapshots_df = asyncio.run(
             fetch_prediction_feature_snapshots(
@@ -1123,29 +1349,7 @@ def main() -> int:
                 f"No point-in-time snapshots found for predictor date {prediction_date} and {len(related_team_ids)} teams"  # noqa: E501
             )
         snapshot_index = build_snapshot_index(snapshots_df)
-        resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
-        snapshot_resolution_counts = {"as_of": 0, "future_snapshot_fallback": 0, "synthetic_snapshot_fallback": 0}
-        print("PHASE: resolving-snapshots", flush=True)
-        for idx, entrant_row in enumerate(entrant_rows):
-            source_id = str(entrant_row["ranking_source_team_id"])
-            resolved_snapshot, resolution_mode = _resolve_prediction_snapshot(
-                entrant_row,
-                snapshot_index.get(source_id),
-                prediction_date,
-            )
-            resolved_snapshots_by_source_id[source_id] = resolved_snapshot
-            snapshot_resolution_counts[resolution_mode] += 1
-            print(f"PROGRESS: snapshots {idx + 1}/{len(entrant_rows)}", flush=True)
-            if resolution_mode == "future_snapshot_fallback":
-                notes.append(
-                    f"{entrant_row['event_team_name']}: no as-of point-in-time snapshot on {prediction_date}; "
-                    f"using earliest later snapshot from {resolved_snapshot.get('snapshot_date')}"
-                )
-            elif resolution_mode == "synthetic_snapshot_fallback":
-                notes.append(
-                    f"{entrant_row['event_team_name']}: no point-in-time snapshots found; using synthesized "
-                    f"snapshot from current ranking inputs"
-                )
+        snapshot_resolution_counts = {"as_of": len(entrant_rows)}
         predict_fn, matchup_cost_fn, point_in_time_model = _build_point_in_time_prediction_and_cost_functions(
             entrant_rows,
             recent_games,
@@ -1154,6 +1358,11 @@ def main() -> int:
             resolved_snapshots_by_source_id=resolved_snapshots_by_source_id,
             model_artifact=artifact_candidate,
             probability_strategy_override=probability_strategy_override,
+        )
+        model_training_metadata = dict(point_in_time_model.training_metadata or {})
+        model_data_end_date = _verify_model_training_provenance(
+            model_training_metadata,
+            prediction_date=prediction_date,
         )
         predictor_details.update(
             {
@@ -1167,6 +1376,7 @@ def main() -> int:
                 "probability_strategy_override": probability_strategy_override,
                 "probability_strategy_default": DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
                 "selection_objective": point_in_time_model.selection_objective,
+                "model_data_end_date": model_data_end_date,
             }
         )
         matchup_proxy = f"point_in_time_match_model:{point_in_time_model.probability_strategy}"
@@ -1174,12 +1384,22 @@ def main() -> int:
         predict_fn, matchup_cost_fn = _build_python_prediction_and_cost_functions(entrant_rows, recent_games)
         matchup_proxy = "python_match_predictor_v1"
 
+    historical_inputs = _freeze_historical_inputs(
+        entrant_rows,
+        resolved_snapshots_by_source_id,
+        prediction_date=prediction_date,
+        history_start_date=snapshot_start,
+        model_artifact=model_artifact_for_manifest,
+        model_training_metadata=model_training_metadata,
+    )
+
     print("PHASE: running-optimizer", flush=True)
     optimization_result = optimize_tournament_format(
         seedable_teams,
         divisions,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
+        constraints=assignment_constraints,
     )
 
     actual_game_counts = {
@@ -1187,13 +1407,16 @@ def main() -> int:
         for division_name, summary in actual_summary["divisions"].items()
     }
     templates = {
-        division_spec.name: infer_division_schedule_template(
+        division_spec.name: explicit_division_schedule_template(
             division_name=division_spec.name,
             actual_division_name=str(division_payload.get("actual_division_name") or division_spec.name),
             pool_sizes=division_spec.pool_sizes,
-            actual_game_count=actual_game_counts.get(
-                str(division_payload.get("actual_division_name") or division_spec.name)
-            ),  # noqa: E501
+            format_code=division_spec.advancement,
+            actual_game_count=_captured_fixture_count(
+                division_payload,
+                actual_game_counts,
+                fallback_division_name=division_spec.name,
+            ),
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }
@@ -1202,15 +1425,15 @@ def main() -> int:
         templates,
         predict_fn,
     )
-    original_model_projection, comparison_issues = _project_original_fixture_arrangement(
-        actual_games,
+    if rematch_scope == "same_event":
+        _assert_no_same_event_rematches(simulated_tournament)
+    original_model_projection, comparison_issues = _project_original_pool_arrangement(
         entrant_rows,
         seedable_teams,
         matchup_cost_fn,
     )
-    proposed_model_projection = _project_simulated_arrangement(
-        simulated_tournament,
-        seedable_teams,
+    proposed_model_projection = _project_optimized_pool_arrangement(
+        optimization_result,
         matchup_cost_fn,
     )
     if original_model_projection is None:
@@ -1237,6 +1460,13 @@ def main() -> int:
         "unique_canonical_team_count": len(canonical_team_ids),
         "historical_games_used_for_prediction": len(recent_games),
         "predictor": predictor_details,
+        "constraints": {
+            "avoid_same_club_early": assignment_constraints.avoid_same_club_early,
+            "avoid_same_coach_early": assignment_constraints.avoid_same_coach_early,
+            "avoid_same_state_pool": assignment_constraints.avoid_same_state_pool,
+            "rematch_avoidance_scope": rematch_scope,
+        },
+        "historical_inputs": historical_inputs,
         "notes": sorted(set(notes)),
         "actual_results": actual_summary,
         "original_model_projection": original_model_projection,
@@ -1252,6 +1482,7 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     print("PHASE: writing-summary", flush=True)
     _write_json(output_dir / "summary.json", output_payload)
+    _write_json(output_dir / "historical_inputs.json", historical_inputs)
     _write_json(output_dir / "division_recommendations.json", recommendations)
     _write_csv(output_dir / "division_recommendations.csv", recommendations)
 

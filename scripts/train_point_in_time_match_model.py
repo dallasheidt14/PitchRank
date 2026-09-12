@@ -59,6 +59,10 @@ async def main():
         help="Optional explicit lower bound for training games in YYYY-MM-DD format. Overrides --lookback-days.",
     )
     parser.add_argument(
+        "--max-game-date",
+        help="Optional exclusive upper bound for training games in YYYY-MM-DD format.",
+    )
+    parser.add_argument(
         "--snapshot-buffer-days",
         type=int,
         default=30,
@@ -150,6 +154,7 @@ async def main():
         limit=args.limit,
         test_slice=test_slice,
         min_game_date=args.min_game_date,
+        max_game_date=args.max_game_date,
     )
     if games_df.empty:
         logger.error("No historical games found")

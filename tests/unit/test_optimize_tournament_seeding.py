@@ -2,7 +2,7 @@ import pytest
 
 from scripts import optimize_tournament_seeding as seeding_script
 from scripts.optimize_tournament_seeding import (
-    _project_actual_fixture_arrangement,
+    _project_original_pool_arrangement,
     _summarize_actual_games,
     _summarize_projected_result,
 )
@@ -76,7 +76,7 @@ def test_summarize_projected_result_reports_pairwise_projection_metrics():
     assert summary["blowout_5plus_probability"] == 0.0
 
 
-def test_observed_blowout_does_not_create_improvement_without_reseeding():
+def test_identical_original_and_proposed_pools_have_zero_improvement():
     alpha = _team(1, 0.8, 1)
     bravo = _team(2, 0.4, 2)
 
@@ -89,16 +89,8 @@ def test_observed_blowout_does_not_create_improvement_without_reseeding():
         matchup_cost_fn=cost,
     )
     proposed = _summarize_projected_result(proposed_result, cost)
-    original, issues = _project_actual_fixture_arrangement(
-        [
-            {
-                "id": "actual-1",
-                "home_team_master_id": alpha.team_id,
-                "away_team_master_id": bravo.team_id,
-                "home_score": 5,
-                "away_score": 1,
-            }
-        ],
+    original, issues = _project_original_pool_arrangement(
+        [{"name": "Gold", "team_ids": [alpha.team_id, bravo.team_id]}],
         [alpha, bravo],
         cost,
     )
@@ -109,6 +101,17 @@ def test_observed_blowout_does_not_create_improvement_without_reseeding():
     assert comparison["arrangements_identical"] is True
     assert comparison["average_goal_differential_improvement"] == 0.0
     assert comparison["blowout_3plus_probability_improvement"] == 0.0
+
+
+def test_standalone_comparison_requires_exact_original_pools():
+    projection, issues = _project_original_pool_arrangement(
+        None,
+        [_team(1, 0.8, 1), _team(2, 0.4, 2)],
+        lambda _a, _b: MatchupCost(1.0, 0.5, 0.2, 0.1, 1.0),
+    )
+
+    assert projection is None
+    assert issues == ("Exact original pool membership was not supplied",)
 
 
 def test_standalone_division_parser_accepts_integer_strings():

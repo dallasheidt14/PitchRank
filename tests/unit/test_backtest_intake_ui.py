@@ -445,6 +445,7 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
 def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.selectbox(key="bt_division_capture-one_10_format_code").select("ROUND_ROBIN").run()
     test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
     test.checkbox(key="bt_division_capture-one_10_checked").check()
     test.button(key="bt_save_capture-one").click().run()
@@ -453,6 +454,7 @@ def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intak
     loaded = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path)
     review = next(item for item in loaded.reviews if item.group_id == "10")
     assert review.checked is True
+    assert review.format_code == "ROUND_ROBIN"
     assert review.notes == "Top two advance; head-to-head first"
 
 
@@ -461,7 +463,9 @@ def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_int
 
     test, tmp_path = rendered_intake
     snapshot = sample_snapshot()
-    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Two advance", checked=True)
+    review = DivisionReview(
+        "10", structure_hash(snapshot.roster.divisions[0]), "Two advance", checked=True, format_code="ROUND_ROBIN"
+    )
     write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
     refreshed = replace(snapshot, generation="fresh-capture")
     test.session_state[app._BACKTEST_KEYS.snapshot] = refreshed
@@ -482,8 +486,13 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
     snapshot = sample_snapshot()
-    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]),
-                            "Saved in another session", checked=True)
+    review = DivisionReview(
+        "10",
+        structure_hash(snapshot.roster.divisions[0]),
+        "Saved in another session",
+        checked=True,
+        format_code="ROUND_ROBIN",
+    )
     write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
 
     # This form was opened before the other session saved. Its unchanged blanks

@@ -88,6 +88,7 @@ def _fetch_historical_games_via_db(
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
     min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
     cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
     logger.info("Fetching historical games from %s via direct Postgres...", cutoff_date)
@@ -95,6 +96,11 @@ def _fetch_historical_games_via_db(
     params: List[object] = [cutoff_date]
     joins = ""
     filters = ""
+    date_ceiling_filter = ""
+
+    if max_game_date:
+        date_ceiling_filter = "AND g.game_date < %s"
+        params.append(pd.Timestamp(max_game_date).strftime("%Y-%m-%d"))
 
     if test_slice:
         state_code, age_group = test_slice
@@ -130,6 +136,7 @@ def _fetch_historical_games_via_db(
           AND g.home_score IS NOT NULL
           AND g.away_score IS NOT NULL
           AND g.game_date >= %s
+          {date_ceiling_filter}
           {filters}
         ORDER BY g.game_date ASC
         {limit_clause}
@@ -177,7 +184,9 @@ def _fetch_prediction_feature_snapshots_via_db(
             exp_margin,
             exp_win_rate,
             exp_goals_for,
-            exp_goals_against
+            exp_goals_against,
+            last_calculated,
+            created_at
         FROM prediction_feature_history
         WHERE snapshot_date >= %s
           AND snapshot_date <= %s
@@ -254,7 +263,7 @@ async def _fetch_prediction_feature_snapshots_via_rest(
         "snapshot_date,team_id,age_group,gender,status,rank_in_cohort_final,"
         "power_score_final,sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
         "glicko_volatility,wins,losses,draws,games_played,win_percentage,exp_margin,"
-        "exp_win_rate,exp_goals_for,exp_goals_against"
+        "exp_win_rate,exp_goals_for,exp_goals_against,last_calculated,created_at"
     )
     endpoint = f"{supabase_url.rstrip('/')}/rest/v1/prediction_feature_history"
     headers = {
@@ -327,6 +336,7 @@ async def fetch_historical_games(
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
     min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Fetch historical games from database
@@ -337,6 +347,7 @@ async def fetch_historical_games(
         limit: Maximum number of games to fetch (None = all)
         test_slice: Optional tuple (state, age_group) for testing (e.g., ('AZ', 'u12'))
         min_game_date: Optional explicit floor in YYYY-MM-DD. Overrides lookback_days when provided.
+        max_game_date: Optional exclusive ceiling in YYYY-MM-DD.
     """
     if _can_use_direct_db():
         try:
@@ -345,6 +356,7 @@ async def fetch_historical_games(
                 limit=limit,
                 test_slice=test_slice,
                 min_game_date=min_game_date,
+                max_game_date=max_game_date,
             )
         except Exception as error:
             logger.warning("Direct Postgres historical-game fetch failed, falling back to Supabase REST: %s", error)
@@ -354,7 +366,7 @@ async def fetch_historical_games(
     logger.info(f"Fetching historical games from {cutoff_date}...")
 
     def build_base_query():
-        return (
+        query = (
             supabase.table("games")
             .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
             .not_.is_("home_team_master_id", "null")
@@ -364,6 +376,9 @@ async def fetch_historical_games(
             .gte("game_date", cutoff_date)
             .order("game_date", desc=False)  # Oldest first for consistent processing
         )
+        if max_game_date:
+            query = query.lt("game_date", pd.Timestamp(max_game_date).strftime("%Y-%m-%d"))
+        return query
 
     # If test slice specified, filter by state and age_group via teams table
     if test_slice:
@@ -521,7 +536,7 @@ async def fetch_prediction_feature_snapshots(
         "snapshot_date, team_id, age_group, gender, status, rank_in_cohort_final, "
         "power_score_final, sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
         "glicko_volatility, wins, losses, draws, games_played, win_percentage, exp_margin, "
-        "exp_win_rate, exp_goals_for, exp_goals_against"
+        "exp_win_rate, exp_goals_for, exp_goals_against, last_calculated, created_at"
     )
 
     rows = []

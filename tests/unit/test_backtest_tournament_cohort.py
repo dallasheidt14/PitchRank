@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -18,6 +20,179 @@ def test_snapshot_as_of_date_returns_latest_prior_snapshot():
     assert selected is not None
     assert selected["snapshot_date"] == "2026-04-10"
     assert selected["power_score_final"] == 0.63
+
+
+def test_resolve_prediction_snapshot_rejects_future_only_history():
+    with pytest.raises(ValueError, match="before 2026-04-10"):
+        cohort._resolve_prediction_snapshot(
+            {"event_team_name": "Alpha", "ranking_source_team_id": "team-a"},
+            [{"snapshot_date": "2026-04-11", "snapshot_ts": pd.Timestamp("2026-04-11")}],
+            "2026-04-10",
+        )
+
+
+def test_historical_ranking_row_uses_frozen_prediction_features():
+    row = cohort._historical_ranking_row(
+        {
+            "team_id": "team-a",
+            "snapshot_date": "2026-04-09",
+            "age_group": "u14",
+            "gender": "Male",
+            "status": "Active",
+            "games_played": 8,
+            "power_score_final": 0.61,
+            "sos_norm": 0.52,
+            "offense_norm": 0.55,
+            "defense_norm": 0.49,
+            "rank_in_cohort_final": 7,
+        }
+    )
+
+    assert row["power_score_final"] == 0.61
+    assert row["off_norm"] == 0.55
+    assert row["def_norm"] == 0.49
+    assert row["rank_in_cohort_final"] == 7
+
+
+def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
+    with pytest.raises(ValueError, match="reconstructed input"):
+        cohort._verify_snapshot_provenance(
+            {"created_at": "2026-04-12T00:00:00+00:00"},
+            prediction_date="2026-04-10",
+            team_name="Alpha",
+        )
+
+
+def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
+    entrants = [
+        {
+            "entrant_id": "entry-b",
+            "canonical_team_id": "canonical-b",
+            "ranking_source_team_id": "source-b",
+            "source_age_group": "u13",
+            "source_gender": "Female",
+            "age_group": "u13/u14",
+            "gender": "Female",
+            "power_score": 0.58,
+            "rank_in_cohort": 4,
+            "games_played": 9,
+            "sos_norm": 0.51,
+            "off_norm": 0.54,
+            "def_norm": 0.48,
+            "glicko_rating": None,
+            "glicko_rd": None,
+            "glicko_volatility": None,
+        }
+    ]
+    snapshots = {
+        "source-b": {
+            "snapshot_date": "2026-04-09",
+            "created_at": "2026-04-09T23:00:00+00:00",
+        }
+    }
+
+    first = cohort._freeze_historical_inputs(
+        entrants,
+        snapshots,
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        model_artifact=None,
+        model_training_metadata={"train_examples": 100},
+    )
+    second = cohort._freeze_historical_inputs(
+        list(reversed(entrants)),
+        snapshots,
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        model_artifact=None,
+        model_training_metadata={"train_examples": 100},
+    )
+
+    assert first == second
+    assert first["source"] == "prediction_feature_history"
+    assert first["data_cutoff_exclusive"] == "2026-04-10"
+    assert first["teams"][0]["snapshot_date"] == "2026-04-09"
+    assert len(first["input_digest_sha256"]) == 64
+
+
+def test_prior_weekend_rematches_ignore_older_games():
+    games = [
+        PredictorGame("recent", "a", "b", 1, 0, "2026-04-08"),
+        PredictorGame("old", "a", "c", 1, 0, "2026-03-20"),
+    ]
+
+    opponents = cohort._prior_opponents(
+        games,
+        prediction_date="2026-04-10",
+        rematch_scope="prior_weekend",
+    )
+
+    assert opponents == {"a": frozenset({"b"}), "b": frozenset({"a"})}
+
+
+def test_same_event_rematch_validation_ignores_final_repeats():
+    tournament = SimpleNamespace(
+        divisions=[
+            SimpleNamespace(
+                matches=[
+                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Pool"),
+                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Final"),
+                ]
+            )
+        ]
+    )
+
+    cohort._assert_no_same_event_rematches(tournament)
+
+
+def test_same_event_rematch_validation_rejects_repeated_early_pair():
+    tournament = SimpleNamespace(
+        divisions=[
+            SimpleNamespace(
+                matches=[
+                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Pool"),
+                    SimpleNamespace(home_team_id="a", away_team_id="b", stage="Semi Final A"),
+                ]
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="same_event rematch"):
+        cohort._assert_no_same_event_rematches(tournament)
+
+
+def test_captured_fixture_count_does_not_shrink_to_scored_games():
+    division = {
+        "name": "Gold",
+        "actual_division_name": "Gold",
+        "captured_fixture_count": 614,
+    }
+
+    assert (
+        cohort._captured_fixture_count(
+            division,
+            {"Gold": 613},
+            fallback_division_name="Gold",
+        )
+        == 614
+    )
+
+
+def test_model_training_provenance_requires_pre_event_data():
+    assert (
+        cohort._verify_model_training_provenance(
+            {"model_data_end_date": "2026-04-09"},
+            prediction_date="2026-04-10",
+        )
+        == "2026-04-09"
+    )
+    with pytest.raises(ValueError, match="no model_data_end_date"):
+        cohort._verify_model_training_provenance({}, prediction_date="2026-04-10")
+    with pytest.raises(ValueError, match="not before the event cutoff"):
+        cohort._verify_model_training_provenance(
+            {"model_data_end_date": "2026-04-10"},
+            prediction_date="2026-04-10",
+        )
 
 
 def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(monkeypatch, tmp_path):
@@ -360,63 +535,43 @@ def test_build_predictor_team_ranking_prefers_source_age_group():
     assert ranking.age == 10
 
 
-def test_project_original_fixture_arrangement_ignores_observed_score():
+def test_pool_arrangement_comparison_matches_optimizer_objective_exactly():
     teams = [
-        SeedableTeam("entrant-a", "Alpha", "u14", "Male", 0.8),
-        SeedableTeam("entrant-b", "Bravo", "u14", "Male", 0.4),
+        SeedableTeam("a", "A", "u14", "Male", 0.9),
+        SeedableTeam("b", "B", "u14", "Male", 0.8),
+        SeedableTeam("c", "C", "u14", "Male", 0.7),
+        SeedableTeam("d", "D", "u14", "Male", 0.6),
     ]
-    entrants = [
-        {"entrant_id": "entrant-a", "canonical_team_id": "canonical-a"},
-        {"entrant_id": "entrant-b", "canonical_team_id": "canonical-b"},
-    ]
+    costs = {
+        frozenset(("a", "b")): 1.0,
+        frozenset(("c", "d")): 1.0,
+        frozenset(("a", "d")): 4.0,
+        frozenset(("b", "c")): 3.0,
+    }
 
-    projection, issues = cohort._project_original_fixture_arrangement(
-        [
-            {
-                "id": "actual-1",
-                "home_team_master_id": "canonical-a",
-                "away_team_master_id": "canonical-b",
-                "home_score": 5,
-                "away_score": 1,
-            }
-        ],
-        entrants,
+    def matchup_cost(team_a, team_b):
+        value = costs.get(frozenset((team_a.team_id, team_b.team_id)), 2.0)
+        return MatchupCost(value, 0.5, 0.2, 0.1, value)
+
+    result = cohort.optimize_tournament_format(
         teams,
-        lambda _a, _b: MatchupCost(1.25, 0.7, 0.2, 0.05, 1.25),
+        [cohort.DivisionSpec("Gold", 4, pool_sizes=(2, 2))],
+        matchup_cost_fn=matchup_cost,
     )
+    proposed = cohort._project_optimized_pool_arrangement(result, matchup_cost)
 
-    assert issues == ()
-    assert projection is not None
-    assert projection["average_goal_differential"] == 1.25
-    assert projection["blowout_3plus_probability"] == 0.2
+    assert proposed["projection_basis"] == "optimized_intra_pool_pairings"
+    assert proposed["total_model_cost"] == pytest.approx(result.total_cost)
 
 
-def test_project_original_fixture_arrangement_rejects_ambiguous_canonical_mapping():
-    teams = [
-        SeedableTeam("registration-a", "Alpha A", "u14", "Male", 0.8),
-        SeedableTeam("registration-b", "Alpha B", "u14", "Male", 0.8),
-        SeedableTeam("registration-c", "Bravo", "u14", "Male", 0.4),
-    ]
-    entrants = [
-        {"entrant_id": "registration-a", "canonical_team_id": "canonical-a"},
-        {"entrant_id": "registration-b", "canonical_team_id": "canonical-a"},
-        {"entrant_id": "registration-c", "canonical_team_id": "canonical-b"},
-    ]
+def test_original_pool_projection_requires_exact_membership():
+    teams = [SeedableTeam("a", "A", "u14", "Male", 0.9)]
 
-    projection, issues = cohort._project_original_fixture_arrangement(
-        [
-            {
-                "id": "actual-1",
-                "home_team_master_id": "canonical-a",
-                "away_team_master_id": "canonical-b",
-            }
-        ],
-        entrants,
+    projection, issues = cohort._project_original_pool_arrangement(
+        [{"entrant_id": "a", "actual_division_name": "Gold", "actual_pool_name": ""}],
         teams,
-        lambda _a, _b: MatchupCost(1.0, 0.7, 0.2, 0.05, 1.0),
+        lambda _a, _b: MatchupCost(1.0, 0.5, 0.2, 0.1, 1.0),
     )
 
     assert projection is None
-    assert issues == (
-        "Original fixture actual-1 cannot be mapped unambiguously from canonical teams to registrations",
-    )
+    assert issues == ("Entrant a is missing its captured original pool",)
