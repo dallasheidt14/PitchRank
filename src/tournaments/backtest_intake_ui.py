@@ -10,6 +10,14 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from src.tournaments.backtest_event_rollup import build_event_rollup, event_rollup_export
+from src.tournaments.backtest_historical_preflight import (
+    HistoricalPreflightUnavailable,
+    load_historical_preflight,
+    preflight_input_sha256,
+    run_historical_preflight,
+    write_historical_preflight,
+)
 from src.tournaments.backtest_intake_state import (
     BacktestSnapshot,
     CaptureVerification,
@@ -43,8 +51,10 @@ from src.tournaments.backtest_reviewed_run import (
     capture_verification_blockers,
     default_model_artifact,
     execute_reviewed_run,
+    list_failed_reviewed_runs,
     list_reviewed_runs,
     load_reviewed_run,
+    model_artifact_sha256,
     resolve_model_artifact,
     reviewed_run_export,
 )
@@ -1017,6 +1027,88 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     )
 
 
+def _render_event_rollup(
+    snapshot: BacktestSnapshot,
+    readiness: list[ReviewedCohortReadiness],
+    event_key: str,
+    base_dir,
+    *,
+    model_sha256: str | None,
+) -> None:
+    records = (*list_reviewed_runs(event_key, base_dir=base_dir),
+               *list_failed_reviewed_runs(event_key, base_dir=base_dir))
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        records,
+        model_sha256=model_sha256,
+    )
+    modelled = rollup["modelled_pool_matchups"]
+    movements = rollup["team_movements"]
+    coverage = rollup["coverage"]
+    st.markdown("#### Tournament-wide sales summary")
+    st.caption(modelled["scope_note"] + ". Each cohort uses the same selected historical model.")
+    metric_columns = st.columns(4)
+    metric_columns[0].metric(
+        "Original projected margin",
+        _format_model_value(modelled["original_average_goal_margin"], "goals"),
+    )
+    metric_columns[1].metric(
+        "MatchBalance margin",
+        _format_model_value(modelled["matchbalance_average_goal_margin"], "goals"),
+        delta=(
+            _format_model_value(modelled["goal_margin_improvement"], "goals") + " lower"
+            if modelled["goal_margin_improvement"] is not None else None
+        ),
+        delta_color="off",
+    )
+    metric_columns[2].metric(
+        "Original projected 4+ rate",
+        _format_model_value(modelled["original_blowout_4plus_rate"], "rate"),
+    )
+    metric_columns[3].metric(
+        "MatchBalance 4+ rate",
+        _format_model_value(modelled["matchbalance_blowout_4plus_rate"], "rate"),
+        delta=(
+            _format_model_value(modelled["blowout_4plus_rate_improvement"], "rate") + " lower"
+            if modelled["blowout_4plus_rate_improvement"] is not None else None
+        ),
+        delta_color="off",
+    )
+    move_columns = st.columns(3)
+    move_columns[0].metric("Teams moved up", movements["moved_up"])
+    move_columns[1].metric("Teams moved down", movements["moved_down"])
+    move_columns[2].metric("Teams unchanged", movements["unchanged"])
+    coverage_columns = st.columns(4)
+    coverage_columns[0].metric("Cohorts completed", coverage["completed"])
+    coverage_columns[1].metric("Failed", coverage["failed"])
+    coverage_columns[2].metric("Awaiting matches", coverage["awaiting_matches"])
+    coverage_columns[3].metric(
+        "Other remaining",
+        coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
+    )
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                "Teams": row["team_count"],
+                "Status": row["status"].replace("_", " ").title(),
+                "What remains": row["what_remains"],
+            }
+            for row in coverage["rows"]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
+    st.download_button(
+        "Download tournament-director report",
+        event_rollup_export(rollup),
+        file_name=f"{event_key}-tournament-backtest.zip",
+        mime="application/zip",
+        key=f"bt_event_rollup_{snapshot.generation}_{model_sha256 or 'none'}",
+    )
+
+
 def _run_reviewed_requests(
     event_key: str,
     readiness: list[ReviewedCohortReadiness],
@@ -1082,6 +1174,7 @@ def _render_backtest_runner(
     event_key: str,
     base_dir,
     *,
+    supabase_client: Any,
     matching_blocker: str = "",
 ) -> None:
     st.markdown("#### Run Backtest")
@@ -1134,12 +1227,89 @@ def _render_backtest_runner(
         artifact_path = None
         model_ready = False
     model_blocker = "" if model_ready else "Historical model artifact not found"
+    selected_model_sha = model_artifact_sha256(artifact_path) if model_ready else None
     if not model_ready:
         st.info(
             "Provide a point-in-time model trained with data ending before this event. "
             "Use `python scripts/train_point_in_time_match_model.py --max-game-date YYYY-MM-DD`, "
             "then select its point_in_time_match_model.pkl file above."
         )
+    request_items = [item for item in readiness if item.request is not None]
+    preflight = None
+    expected_preflight_sha = ""
+    if model_ready and request_items:
+        expected_preflight_sha = preflight_input_sha256(
+            (item.request for item in request_items if item.request is not None),
+            artifact_path,
+        )
+        try:
+            cached_preflight = load_historical_preflight(event_key, base_dir=base_dir)
+        except Exception as exc:
+            st.warning(f"Saved historical preflight could not be read: {exc}")
+        else:
+            if cached_preflight and cached_preflight.input_sha256 == expected_preflight_sha:
+                preflight = cached_preflight
+    if st.button(
+        "Check historical ratings",
+        disabled=not (model_ready and request_items),
+        help=model_blocker or "Read-only check of every matched entrant before any cohort runs.",
+        key=f"bt_historical_preflight_{snapshot.generation}",
+    ):
+        with st.spinner("Checking pre-event rating snapshots for every matched team..."):
+            try:
+                preflight = run_historical_preflight(
+                    (item.request for item in request_items if item.request is not None),
+                    supabase_client,
+                    model_artifact=artifact_path,
+                )
+                write_historical_preflight(event_key, preflight, base_dir=base_dir)
+            except HistoricalPreflightUnavailable as exc:
+                st.error(f"Historical data could not be checked: {exc}")
+            except Exception as exc:
+                st.error(f"Historical preflight failed: {exc}")
+    preflight_by_cohort = {
+        (item.age_group, item.gender): item for item in (preflight.cohorts if preflight else ())
+    }
+    if preflight:
+        eligible = sum(item.eligible for item in preflight.cohorts)
+        total = sum(item.total for item in preflight.cohorts)
+        if preflight.ready:
+            st.success(
+                f"Historical ratings ready: {eligible} of {total} entrants have eligible "
+                f"pre-event snapshots before {preflight.cutoff_exclusive}."
+            )
+        else:
+            st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
+            with st.expander("Missing historical evidence"):
+                missing_rows = [
+                    {
+                        "Cohort": f"{_display_gender(cohort.gender)} {cohort.age_group.upper()}",
+                        "Team": entrant.event_team_name,
+                        "Reason": entrant.reason,
+                    }
+                    for cohort in preflight.cohorts
+                    for entrant in cohort.entrants
+                    if not entrant.eligible
+                ]
+                st.dataframe(pd.DataFrame(missing_rows), hide_index=True, width="stretch")
+    if model_ready:
+        enriched = []
+        for item in readiness:
+            cohort_preflight = preflight_by_cohort.get((item.age_group, item.gender))
+            history_blocker = ""
+            if item.request is not None and cohort_preflight is None:
+                history_blocker = "Check historical ratings before running this cohort"
+            elif cohort_preflight is not None and not cohort_preflight.ready:
+                missing = cohort_preflight.total - cohort_preflight.eligible
+                history_blocker = f"{missing} entrants lack eligible pre-event ratings"
+            enriched.append(
+                replace(
+                    item,
+                    request=item.request,
+                    blockers=((*item.blockers, history_blocker) if history_blocker else item.blockers),
+                )
+            )
+        readiness = enriched
     table_rows = []
     for item in readiness:
         blockers = list(item.blockers)
@@ -1157,6 +1327,9 @@ def _render_backtest_runner(
     st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
     if not readiness:
         st.info("No tournament cohorts are available to run.")
+        _render_event_rollup(
+            saved_snapshot, readiness, event_key, base_dir, model_sha256=selected_model_sha
+        )
         _render_reviewed_result(event_key, base_dir)
         return
     selected_index = st.selectbox(
@@ -1197,6 +1370,9 @@ def _render_backtest_runner(
             model_artifact=str(artifact_path),
             base_dir=base_dir,
         )
+    _render_event_rollup(
+        saved_snapshot, readiness, event_key, base_dir, model_sha256=selected_model_sha
+    )
     _render_reviewed_result(event_key, base_dir)
 
 
@@ -1284,6 +1460,7 @@ def render_intake(supabase_client: Any) -> None:
             links,
             event_key,
             base_dir,
+            supabase_client=supabase_client,
             matching_blocker=matching_blocker,
         )
     elif section == "Teams":

@@ -324,8 +324,16 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
 
 
 def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monkeypatch):
+    import hashlib
+
     import tournament_intake as app
     from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_historical_preflight import (
+        HistoricalCohortCheck,
+        HistoricalEntrantCheck,
+        HistoricalPreflight,
+        preflight_input_sha256,
+    )
     from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
     from src.tournaments.backtest_link_store import update_links
     from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
@@ -369,6 +377,11 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
             "cohort_gender": "Male",
             "event_name": "Spring Cup",
             "ended_at": "2026-09-12T01:00:00+00:00",
+            "source_capture_generation": snapshot.generation,
+            "request_sha256": hashlib.sha256(
+                json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "model_artifact_sha256": ui.model_artifact_sha256(model_artifact),
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
         (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
@@ -385,11 +398,40 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     )
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
     monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", str(artifact))
+
+    def fake_preflight(requests, _client, *, model_artifact):
+        request_list = list(requests)
+        entrants = tuple(
+            HistoricalEntrantCheck(
+                entrant["entrant_id"],
+                entrant["event_team_name"],
+                entrant["canonical_team_id"],
+                entrant["ranking_source_team_id"],
+                True,
+                snapshot_date="2025-05-09",
+                source_age_group="u14",
+                source_gender="Male",
+                power_score=0.5,
+            )
+            for entrant in request_list[0]["entrants"]
+        )
+        return HistoricalPreflight(
+            preflight_input_sha256(request_list, model_artifact),
+            "2026-09-12T00:00:00+00:00",
+            "2025-05-10",
+            ui.model_artifact_sha256(model_artifact),
+            "2025-05-09",
+            "merge-v1",
+            (HistoricalCohortCheck("u14", "Male", len(entrants), len(entrants), entrants),),
+        )
+
+    monkeypatch.setattr(ui, "run_historical_preflight", fake_preflight)
     test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
     test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
     test.run()
 
     assert not test.exception, [error.message for error in test.exception]
+    next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
     run_button.click().run()
@@ -407,6 +449,8 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
         item.value for item in test.dataframe if "MatchBalance division" in item.value.columns
     )
     assert movements["Decision"].tolist() == ["Stayed"]
+    assert metrics["Cohorts completed"] == "1"
+    assert metrics["Teams unchanged"] == "1"
 
 
 def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
@@ -523,7 +567,8 @@ def test_actual_results_weight_games_follow_entered_cohorts_and_survive_saved_re
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if kwargs.get("mime") == "application/json":
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     monkeypatch.setattr(ui.st, "download_button", record_download)

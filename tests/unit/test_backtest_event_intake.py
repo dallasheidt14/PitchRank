@@ -151,6 +151,8 @@ _ROOTS = (
 
 _READ_ONLY_MODULES = (
     "src/tournaments/backtest_event_intake.py",
+    "src/tournaments/backtest_event_rollup.py",
+    "src/tournaments/backtest_historical_preflight.py",
     "src/tournaments/backtest_intake_state.py",
     "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",

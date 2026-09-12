@@ -19,7 +19,8 @@ MatchBalance has three distinct product workflows:
 6. Record published format, advancement, and tiebreaker notes with a source URL. A sourced cohort correction changes displayed totals without replacing the captured label and resets that division's check.
 7. **Save progress** to resume later, or download the JSON bundle containing the capture, totals, displayed matches, saved links, and division reviews.
 8. Return to **Overview** and use **Run Backtest**. Each cohort shows its own readiness blockers, so one unfinished age group does not hide a ready one. Run one selected cohort or every ready cohort. The historical model path can come from `MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT` or the local field on the page.
-9. Review the completed result in place. Observed games, average goal margin, 4+ goal blowouts, and blowout rate remain a descriptive record of what happened. The original and MatchBalance arrangements are compared separately through the same frozen historical model. The team table shows every entrant as Moved up, Moved down, or Stayed, and the downloads include a director HTML report, result JSON, and the complete local evidence package.
+9. Review the completed result in place. Observed games, average goal margin, 4+ goal blowouts, and blowout rate remain a descriptive record of what happened. The original and MatchBalance arrangements are compared separately through the same frozen historical model. The team table shows every entrant as Moved up, Moved down, or Stayed.
+10. The **Whole-tournament result** combines the newest compatible result for every cohort. It shows weighted original-versus-MatchBalance projected goal margin and exact 4+ blowout rate, team movement totals, and separate completed, failed, awaiting-match, awaiting-review, and awaiting-history counts. Download one director package containing a self-contained HTML report and its machine-readable JSON evidence.
 
 ## Capture verification and recovery
 
@@ -57,13 +58,23 @@ A reviewed intake can be converted directly with `python scripts/backtest_review
 
 Backtest strength comes from `prediction_feature_history` before the event start. The snapshot's `created_at` and any `last_calculated` timestamp must also precede the event cutoff, proving the stored features were available at the time; reconstructed later backfills and recalculations are rejected. During model training, each historical game can use only snapshots created and calculated before that game's date. Current `rankings_full`, future or same-day snapshots, synthesized snapshots, and snapshots without provenance are rejected. Every reviewed request requires the normalized tournament start date as its cutoff. Historical game context starts at the configured lookback and ends before that cutoff. Point-in-time model artifacts must declare a `model_data_end_date` before the event; older or future-trained artifacts stop the run. Train an eligible artifact with `train_point_in_time_match_model.py --max-game-date <event-date>`, where the bound is exclusive and the default lookback is measured backward from that historical date. Each cohort output includes `historical_inputs.json`, which freezes the matched IDs, source and tournament cohorts, strength/confidence features, snapshot and creation dates, cutoff, model training metadata, model artifact SHA-256, and an overall input digest.
 
+Before any cohort can run, **Check historical ratings** performs the same strict read-only identity resolution, snapshot selection, provenance checks, and PowerScore validation as the runner for every currently ready entrant. Missing history remains visible by cohort and team. A database or service outage is reported as an unavailable check rather than being mislabeled as missing team history. The saved preflight is reused only while the exact cohort requests and model artifact SHA-256 remain unchanged.
+
+For San Antonio Labor Cup 26, the tournament cutoff is **2026-09-05 exclusive**. Build its local artifact with:
+
+```powershell
+python scripts/train_point_in_time_match_model.py --min-game-date 2025-09-05 --max-game-date 2026-09-05 --limit None --test-ratio 0.2 --min-examples 100 --probability-strategy poisson_draw_gate --selection-objective competitive_match_quality --model-dir models/matchbalance_san_antonio_2026_pre_event
+```
+
+The model artifact stays local and is not committed. Select `models/matchbalance_san_antonio_2026_pre_event/point_in_time_match_model.pkl` in Backtest, then run the historical preflight.
+
 Historical feature rows are immutable through the ranking writer: a repeated team/date snapshot keeps the first stored values instead of rewriting them under the original `created_at`. Historical snapshot and game queries include IDs that were deprecated by a later merge, then resolve those immutable rows to the current canonical identity. The manifest retains each snapshot's stored source team ID. Historical game context also requires both the played date and the database `created_at` to precede the event cutoff. The manifest freezes those eligible games and every related-team snapshot used for common-opponent features under the same digest.
 
 Backtest uses a `competitive_balance_only` assignment policy. It reseeds the captured entrants solely against the matchup model while preserving the verified division sizes, pool sizes, and advancement format. Club, coach, geography, travel, and rematch constraints belong to the separate upcoming-event Auto Seeding workflow and are not read or enforced here. Combined tournament cohorts such as `U10/U11` and `U17/U18` remain combined in the backtest request while each team's historical rating age stays separate.
 
 Match predictions retain the requested team order, so an A-versus-B prediction cannot be reused as B-versus-A. Symmetric matchup costs use one canonical entrant order and may still be cached once per pair. Model-supplied probabilities keep valid boundary values such as 0 and 1; only absent values use the existing estimated blowout fallback, while nonfinite or out-of-range values stop the run.
 
-The optimizer objective and the reported seeding comparison use the same intra-pool matchup set. Captured group and pool IDs provide stable internal identities when published display labels are blank or repeated; reports retain the published labels for the director. The output verifies that the projected pair-cost total equals the optimizer's recorded total before reporting a delta. Playoff simulation remains a separate schedule projection and does not silently enter the optimization claim. The optimizer still reports its existing projected 3+ and 5+ goal thresholds; the intake's actual-results baseline continues to define a blowout as 4 or more goals.
+The optimizer objective and the reported seeding comparison use the same intra-pool matchup set. Captured group and pool IDs provide stable internal identities when published display labels are blank or repeated; reports retain the published labels for the director. The output verifies that the projected pair-cost total equals the optimizer's recorded total before reporting a delta. Playoff simulation remains a separate schedule projection and does not silently enter the optimization claim. The matchup model now calculates the exact probability of a 4+ goal margin from its score distribution for reporting. This metric does not change the optimizer objective. Older cohort outputs without that exact value stay unavailable in the whole-event 4+ comparison instead of being estimated.
 
 ## Local artifacts
 
@@ -72,6 +83,7 @@ Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/int
 - `last_walk.json`: canonical paid capture written before matching, recoverable without another scrape.
 - `event_intake.json`: saved capture, matching outcomes, and division reviews.
 - `event_links.json`: editable event team links and persistent clear decisions.
+- `historical_preflight.json`: read-only eligibility results tied to the exact reviewed requests and selected model hash.
 - `scenarios/reviewed-backtest/runs/<run_id>/`: one atomic completed cohort run containing the strict request, frozen historical evidence, original-versus-proposed model summary, team movements, logs, and director report.
 
 An existing event directory is reused. Locks and atomic writes protect local updates. Recovery and saved captures reject replacements that discard captured entrants, divisions, pool members, fixtures, or table readability. Event IDs and capture generations prevent an interrupted scrape or late matching result from mixing two events.
@@ -86,8 +98,24 @@ Generated Backtest capture files and locks are ignored by Git and remain in thes
 
 The CLI's `--completed-event` option selects the same complete-event capture and recovery path. Its existing `--force` option explicitly permits replacing the selected output. Default CLI and Seeding behavior stay unchanged.
 
+After the San Antonio review, matching, historical preflight, and cohort runs are complete, validate the entire event with one command:
+
+```powershell
+python scripts/validate_backtest_event.py --event-key gotsport__51783__unknown --profile san-antonio-51783 --model-artifact models/matchbalance_san_antonio_2026_pre_event/point_in_time_match_model.pkl
+```
+
+The command exits successfully only when the fixed capture totals, all 58 current division reviews, all 332 direct or operator-confirmed links, duplicate-mapping acknowledgements, the exclusive-cutoff model, the current historical preflight, every cohort output, all 332 movement rows, and the final event rollup agree. It prints a JSON report and can save the same report with `--output <path>`.
+
 ## Validation
+
+Run the saved-event acceptance gate after matching, verification, division review, historical preflight, and cohort execution:
+
+```powershell
+python scripts/validate_backtest_event.py --event-key gotsport__51783__unknown --profile san-antonio-51783 --model-artifact models/matchbalance_san_antonio_2026_pre_event/point_in_time_match_model.pkl
+```
+
+It checks the exact San Antonio baseline of 332 teams, 58 divisions, 88 pools, 614 fixtures, 613 scored games, 1,857 total goal margin, and 198 blowouts. It also requires current division checks, all teams matched, collision acknowledgements, one eligible historical snapshot per entrant, completed compatible cohort outputs, and a reconciled whole-event rollup. The command writes nothing unless `--output` is supplied and exits with status 1 while work remains.
 
 Offline parser, storage, matching, capture, Streamlit interaction, and optimizer tests cover play-ups, unranked divisions, missing IDs, unresolved matches, manual replacement/clear, historical-name review, source structure round trips, interrupted publication, concurrent link updates, partial-capture preservation, prediction orientation, probability boundaries, malformed assignment inputs, and assignment integrity. A newly scraped production event has not been used as end-to-end acceptance evidence for this change.
 
-Validated 2026-09-11: **4,862 tests passed and 12 were skipped** in the required repository suite (`tests/test_enhanced_pipeline.py` excluded). The shell-hook module was rerun under Git for Windows Bash so its path-sensitive coverage ran correctly. The required backend Ruff check and Git diff check passed. The saved San Antonio Labor Cup 26 export retained 332 teams, 58 divisions, 88 pools, 614 fixtures, 613 scored games, 1,857 total goal margin, and 198 blowouts after local cohort repair.
+Validated 2026-09-12: **4,900 tests passed and 12 were skipped** across the required suite. The 112 path-sensitive shell-hook tests were run under Git for Windows Bash; the other 4,788 tests were run under Python on Windows. The required backend Ruff check and Git diff check passed. The San Antonio acceptance command independently preserved all nine immutable capture totals and reported the still-unfinished operator gates rather than treating the event as complete.
