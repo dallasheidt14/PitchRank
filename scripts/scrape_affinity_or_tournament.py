@@ -98,9 +98,21 @@ SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _team_hash(team_name: str) -> str:
-    """Deterministic provider-side team ID."""
-    return f"affinity_or:{hashlib.md5(team_name.lower().strip().encode()).hexdigest()[:12]}"
+def _team_hash(team_name: str, age_group: str, gender: str) -> str:
+    """Deterministic provider-side team ID, unique per cohort.
+
+    The cohort is part of the identity, not decoration. Alias uniqueness is
+    ``(provider_id, provider_team_id)`` and ``_create_new_affinity_or_team``
+    returns an existing team with that id without re-checking its age or
+    gender, so a name-only hash would link a club's identically-named U12 and
+    U13 squads to one master team and file half their games on the wrong
+    board. Oregon happens to embed the year in nearly every name — 261 names
+    across four cohorts collided zero times on 2026-09-12 — but a single
+    year-less name repeated across cohorts is enough, and the damage is not
+    reversible by a merge.
+    """
+    key = f"{team_name.lower().strip()}|{age_group}|{gender}"
+    return f"affinity_or:{hashlib.md5(key.encode()).hexdigest()[:12]}"
 
 
 def _parse_date_header(text: str) -> Optional[datetime]:
@@ -191,6 +203,18 @@ def _gender_label_to_canonical(label: str) -> str:
 # ── Network ────────────────────────────────────────────────────────────────────
 
 
+class ScrapeFetchError(RuntimeError):
+    """A page could not be read after every retry.
+
+    Raised rather than returned so the run fails. An empty flight list is a
+    legitimate answer for a cohort OYSA does not field, and the workflow's
+    stale-GUID check sums flight counts across all twenty (age x gender)
+    invocations — so a transport failure that returned "no flights" would be
+    absorbed by any other cohort that succeeded, and the week would import
+    partial data over a green step.
+    """
+
+
 def _fetch(url: str, retries: int = 3) -> Optional[str]:
     for attempt in range(retries):
         try:
@@ -225,8 +249,7 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
     url = f"{base}/tour/public/info/accepted_list.asp?sessionguid=&tournamentguid={tguid}&show={show}"
     html = _fetch(url)
     if not html:
-        print(f"  Could not fetch accepted list for {tournament['name']}")
-        return []
+        raise ScrapeFetchError(f"accepted list unreadable for {tournament['name']} ({show}): {url}")
 
     soup = BeautifulSoup(html, "lxml")
     flights: List[Dict] = []
@@ -298,7 +321,7 @@ def scrape_flight_games(
     url = f"{base}/tour/public/info/schedule_results2.asp?sessionguid=&flightguid={fguid}&tournamentguid={tguid}"
     html = _fetch(url)
     if not html:
-        return []
+        raise ScrapeFetchError(f"schedule unreadable for flight {flight['division_name']}: {url}")
 
     soup = BeautifulSoup(html, "lxml")
     records: List[Dict] = []
@@ -393,12 +416,12 @@ def scrape_flight_games(
 
             home_record = {
                 **base_record,
-                "team_id": _team_hash(home_name),
-                "team_id_source": _team_hash(home_name),
+                "team_id": _team_hash(home_name, age_group, gender_display),
+                "team_id_source": _team_hash(home_name, age_group, gender_display),
                 "team_name": home_name,
                 "club_name": "",
-                "opponent_id": _team_hash(away_name),
-                "opponent_id_source": _team_hash(away_name),
+                "opponent_id": _team_hash(away_name, age_group, gender_display),
+                "opponent_id_source": _team_hash(away_name, age_group, gender_display),
                 "opponent_name": away_name,
                 "opponent_club_name": "",
                 "home_away": "H",
@@ -408,12 +431,12 @@ def scrape_flight_games(
             }
             away_record = {
                 **base_record,
-                "team_id": _team_hash(away_name),
-                "team_id_source": _team_hash(away_name),
+                "team_id": _team_hash(away_name, age_group, gender_display),
+                "team_id_source": _team_hash(away_name, age_group, gender_display),
                 "team_name": away_name,
                 "club_name": "",
-                "opponent_id": _team_hash(home_name),
-                "opponent_id_source": _team_hash(home_name),
+                "opponent_id": _team_hash(home_name, age_group, gender_display),
+                "opponent_id_source": _team_hash(home_name, age_group, gender_display),
                 "opponent_name": home_name,
                 "opponent_club_name": "",
                 "home_away": "A",

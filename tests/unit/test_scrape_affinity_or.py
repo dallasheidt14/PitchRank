@@ -271,6 +271,56 @@ class TestDiscoverFlights:
         assert [f["gender"] for f in flights] == ["Female"]
 
 
+class TestTeamIdentity:
+    """A provider team id is scoped to its cohort, because aliases are keyed on it."""
+
+    def test_the_same_name_in_two_cohorts_gets_two_ids(self):
+        u12 = scraper._team_hash("SCA Gold", "u12", "Boys")
+        u13 = scraper._team_hash("SCA Gold", "u13", "Boys")
+
+        assert u12 != u13
+
+    def test_the_same_name_in_two_genders_gets_two_ids(self):
+        boys = scraper._team_hash("SCA Gold", "u13", "Boys")
+        girls = scraper._team_hash("SCA Gold", "u13", "Girls")
+
+        assert boys != girls
+
+    def test_the_same_team_is_stable_across_runs(self):
+        assert scraper._team_hash("SCA Gold", "u13", "Boys") == scraper._team_hash(
+            " sca gold ", "u13", "Boys"
+        )
+
+
+class TestFetchFailureIsLoud:
+    """An unreadable page must fail the run, not read as an empty cohort.
+
+    The workflow sums flight counts over all twenty (age x gender) calls, so a
+    transport failure that returned no flights would be hidden by any cohort
+    that succeeded and the week would import partial data over a green step.
+    """
+
+    def test_an_unreadable_accepted_list_raises(self, monkeypatch):
+        monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: None)
+
+        with pytest.raises(scraper.ScrapeFetchError):
+            scraper.discover_flights(TOURNAMENT, 13, "Male")
+
+    def test_an_unreadable_schedule_raises(self, monkeypatch):
+        monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: None)
+
+        with pytest.raises(scraper.ScrapeFetchError):
+            scraper.scrape_flight_games(TOURNAMENT, FLIGHT, *WIDE_WINDOW)
+
+    def test_a_cohort_oysa_does_not_field_is_still_just_empty(self, monkeypatch):
+        """Only a failure is loud — an absent cohort stays a legitimate zero."""
+        monkeypatch.setattr(
+            scraper, "_fetch", lambda url, retries=3: _accepted_list_html(DIVISIONS)
+        )
+
+        assert scraper.discover_flights(TOURNAMENT, 17, "Male") == []
+
+
 class TestDateWindow:
     """The window bounds the scrape at both ends; --days-forward opens the near one."""
 

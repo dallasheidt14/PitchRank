@@ -984,3 +984,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `teams_created` metric fold in `EnhancedETLPipeline.import_games` (`src/etl/enhanced_pipeline.py`), against the `"created": True` flag the provider matchers return from `_match_team`
 - **Why**: Verified 2026-09-11 on `affinity_or`: the matcher returns `{"created": True, ...}` and the teams table is genuinely untouched, but the dry-run summary prints `Teams matched: 226 / Teams created: 0` while a direct pass over the same 57 distinct names creates 41 of them. So the one number an operator would read to size an autocreate before letting it write is always zero, for every provider. CLAUDE.md already warns that a new provider's dry run has to be verified against the database rather than its summary; this is the specific reason why.
 - **Noted**: 2026-09-11
+
+### A same-day rematch is deduped away for every provider but `playmetrics_tournament`
+
+- **ID**: IMP-213
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_make_composite_key` and the `schedule_id` branch of `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
+- **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
+- **Noted**: 2026-09-12
