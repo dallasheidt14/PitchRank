@@ -8,6 +8,7 @@ from src.tournaments.seeding_optimizer import (
     MatchupCost,
     SeedableTeam,
     build_seedable_teams,
+    normalize_tournament_age_group,
     optimize_division_assignments,
     optimize_tournament_format,
     projected_matchup_cost,
@@ -199,6 +200,54 @@ def test_build_seedable_teams_rejects_missing_strength_instead_of_dropping_team(
                 }
             ]
         )
+
+
+def test_combined_tournament_cohort_is_preserved_without_u18_fold():
+    assert normalize_tournament_age_group("U10/U11 Girls") == "u10/u11"
+    assert normalize_tournament_age_group("U17/U18 Boys") == "u17/u18"
+    assert normalize_tournament_age_group("U10/11 Girls") == "u10/u11"
+    assert normalize_tournament_age_group("U18/19 Boys") == "u18/u19"
+
+
+def test_tournament_optimizer_uses_final_pool_matchups_for_division_moves():
+    teams = [
+        SeedableTeam(team_id, team_id.upper(), "u14", "Male", 1.0 - index / 10)
+        for index, team_id in enumerate("abcdefgh")
+    ]
+    ideal_pairs = {
+        frozenset(("a", "e")),
+        frozenset(("b", "f")),
+        frozenset(("c", "g")),
+        frozenset(("d", "h")),
+    }
+    initial_groups = (frozenset("abcd"), frozenset("efgh"))
+
+    def matchup_cost(team_a, team_b):
+        pair = frozenset((team_a.team_id, team_b.team_id))
+        if pair in ideal_pairs:
+            value = 0.0
+        elif any(pair <= group for group in initial_groups):
+            value = 1.0
+        else:
+            value = 100.0
+        return MatchupCost(value, 0.5, 0.2, 0.1, value)
+
+    result = optimize_tournament_format(
+        teams,
+        [
+            DivisionSpec("Gold", 4, pool_sizes=(2, 2)),
+            DivisionSpec("Silver", 4, pool_sizes=(2, 2)),
+        ],
+        matchup_cost_fn=matchup_cost,
+    )
+
+    scheduled_pairs = {
+        frozenset((pool.teams[0].team_id, pool.teams[1].team_id))
+        for division in result.divisions
+        for pool in division.pools
+    }
+    assert scheduled_pairs == ideal_pairs
+    assert result.total_cost == 0.0
 
 
 @pytest.mark.parametrize("invalid_id", [None, "", "  ", 42])

@@ -342,10 +342,29 @@ def _snapshot_as_of(snapshot_index: Dict[str, List[dict]], team_id: str, target_
             except Exception:
                 continue
 
-        if snapshot_ts <= target_ts:
+        available = True
+        for timestamp_field in ("created_at", "last_calculated"):
+            timestamp_value = entry.get(timestamp_field)
+            if not timestamp_value:
+                continue
+            try:
+                availability_ts = pd.Timestamp(timestamp_value)
+            except (TypeError, ValueError):
+                available = False
+                break
+            if pd.isna(availability_ts):
+                available = False
+                break
+            if availability_ts.tzinfo is not None:
+                availability_ts = availability_ts.tz_convert("UTC").tz_localize(None)
+            if availability_ts >= target_ts:
+                available = False
+                break
+
+        if snapshot_ts > target_ts:
+            break
+        if available:
             candidate = entry
-            continue
-        break
 
     return candidate
 
@@ -2660,6 +2679,10 @@ class PointInTimeMatchModel:
             "metrics": metrics,
             "train_examples": int(len(train_df)),
             "test_examples": int(len(test_df)),
+            "model_data_start_date": str(pd.Timestamp(dataset_df["game_date"].min()).date()),
+            "model_data_end_date": str(pd.Timestamp(dataset_df["game_date"].max()).date()),
+            "training_partition_end_date": str(pd.Timestamp(train_df["game_date"].max()).date()),
+            "holdout_partition_start_date": str(pd.Timestamp(test_df["game_date"].min()).date()),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "requested_probability_strategy": self.requested_probability_strategy,

@@ -26,7 +26,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backtest_tournament_cohort import _fetch_rows_by_ids, _get_supabase  # noqa: E402
 from src.tournaments.event_team_matcher import enrich_registry_rows_with_matcher  # noqa: E402
-from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label  # noqa: E402
+from src.tournaments.schedule_simulator import (  # noqa: E402
+    SUPPORTED_PLAYOFF_FORMATS,
+    explicit_division_schedule_template,
+)
+from src.tournaments.seeding_optimizer import (  # noqa: E402
+    normalize_gender_label,
+    normalize_tournament_age_group,
+)
 
 MIN_SUPPORTED_AGE = 10
 MAX_SUPPORTED_AGE = 19
@@ -48,18 +55,13 @@ def _parse_group_title(group_title: str) -> tuple[str, str, str]:
     if len(parts) < 2:
         raise ValueError(f"Unexpected group title format: {group_title}")
     gender = normalize_gender_label(parts[0])
-    age_group = normalize_age_group(parts[1])
+    age_group = normalize_tournament_age_group(parts[1])
     return age_group, gender, division_name.strip()
 
 
-def _age_number(age_group: str) -> int | None:
-    normalized = normalize_age_group(age_group)
-    if not normalized.startswith("u"):
-        return None
-    try:
-        return int(normalized.removeprefix("u"))
-    except ValueError:
-        return None
+def _age_numbers(age_group: str) -> tuple[int, ...]:
+    normalized = normalize_tournament_age_group(age_group)
+    return tuple(int(part.removeprefix("u")) for part in normalized.split("/"))
 
 
 def _derive_pool_sizes(team_count: int, bracket_count: int) -> list[int]:
@@ -69,6 +71,22 @@ def _derive_pool_sizes(team_count: int, bracket_count: int) -> list[int]:
     sizes = [base_size] * bracket_count
     for index in range(remainder):
         sizes[index] += 1
+    return sizes
+
+
+def _parse_explicit_pool_sizes(value: Any) -> list[int]:
+    if isinstance(value, (list, tuple)):
+        raw_parts = list(value)
+    else:
+        raw = str(value or "").strip()
+        if not raw:
+            return []
+        raw_parts = [part.strip() for part in re.split(r"[|,]", raw) if part.strip()]
+    sizes: list[int] = []
+    for part in raw_parts:
+        if isinstance(part, bool) or not str(part).strip().isdigit() or int(part) <= 0:
+            raise ValueError(f"pool_sizes must contain positive integers; got {value!r}")
+        sizes.append(int(part))
     return sizes
 
 
@@ -140,15 +158,15 @@ def _fetch_rows_by_provider_ids(client, provider_ids: list[str]) -> list[dict[st
 
 
 def _cohort_key(age_group: str, gender: str) -> tuple[str, str]:
-    return normalize_age_group(age_group), normalize_gender_label(gender)
+    return normalize_tournament_age_group(age_group), normalize_gender_label(gender)
 
 
 def _build_event_structure(group_rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
     cohorts: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in group_rows:
         age_group, gender, division_name = _parse_group_title(str(row["group_title"]))
-        age_number = _age_number(age_group)
-        if age_number is None or age_number < MIN_SUPPORTED_AGE or age_number > MAX_SUPPORTED_AGE:
+        age_numbers = _age_numbers(age_group)
+        if not age_numbers or any(age < MIN_SUPPORTED_AGE or age > MAX_SUPPORTED_AGE for age in age_numbers):
             continue
         cohorts[_cohort_key(age_group, gender)].append(
             {
@@ -156,7 +174,8 @@ def _build_event_structure(group_rows: list[dict[str, Any]]) -> dict[tuple[str, 
                 "division_name": division_name,
                 "team_count": int(row["team_count"]),
                 "bracket_count": int(row["bracket_count"]),
-                "pool_sizes": _derive_pool_sizes(int(row["team_count"]), int(row["bracket_count"])),
+                "pool_sizes": _parse_explicit_pool_sizes(row.get("pool_sizes")),
+                "advancement": str(row.get("advancement") or row.get("knockout_format") or "").strip(),
                 "group_url": row.get("group_url"),
             }
         )
@@ -311,6 +330,12 @@ def _build_request_payload(
     entrants: list[dict[str, Any]] = []
     for division in divisions:
         actual_division_name = str(division["division_name"])
+        pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
+        if len(pool_sizes) != 1:
+            raise ValueError(
+                f"Division '{actual_division_name}' has {len(pool_sizes)} pools, but the legacy event input "
+                "does not preserve each team's original pool membership"
+            )
         for team_id in sorted(teams_by_division[actual_division_name]):
             team_row = teams_by_id.get(team_id) or {}
             event_team_name = str(team_row.get("team_name") or team_id)
@@ -327,6 +352,7 @@ def _build_request_payload(
                     ).strip()  # noqa: E501
                     if actual_division_name.startswith("BU")
                     else actual_division_name,
+                    "actual_pool_name": "Pool A",
                 }
             )
     return {
@@ -341,6 +367,7 @@ def _build_request_payload(
                 "actual_division_name": division["division_name"],
                 "team_count": division["team_count"],
                 "pool_sizes": division["pool_sizes"],
+                "advancement": division["advancement"],
             }
             for division in divisions
         ],
@@ -358,7 +385,29 @@ def _cohort_status_rows(
         runnable = True
         for division in divisions:
             actual_count = len(teams_by_division.get(str(division["division_name"]), set()))
-            complete = actual_count == int(division["team_count"])
+            pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
+            format_code = str(division.get("advancement") or "").strip()
+            pool_shape_valid = bool(pool_sizes) and sum(pool_sizes) == int(division["team_count"])
+            format_supported = format_code in SUPPORTED_PLAYOFF_FORMATS
+            format_compatible = False
+            if pool_shape_valid and format_supported:
+                try:
+                    explicit_division_schedule_template(
+                        division_name=str(division["division_name"]),
+                        pool_sizes=pool_sizes,
+                        format_code=format_code,
+                        actual_game_count=None,
+                    )
+                    format_compatible = True
+                except ValueError:
+                    pass
+            structure_explicit = pool_shape_valid and format_supported and format_compatible
+            exact_pool_membership = len(pool_sizes) == 1
+            complete = (
+                actual_count == int(division["team_count"])
+                and structure_explicit
+                and exact_pool_membership
+            )
             if not complete:
                 runnable = False
             division_statuses.append(
@@ -366,6 +415,10 @@ def _cohort_status_rows(
                     "division_name": division["division_name"],
                     "expected_team_count": int(division["team_count"]),
                     "actual_team_count": actual_count,
+                    "structure_explicit": structure_explicit,
+                    "format_supported": format_supported,
+                    "format_compatible": format_compatible,
+                    "exact_pool_membership": exact_pool_membership,
                     "complete": complete,
                 }
             )
@@ -562,15 +615,20 @@ def main() -> int:
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             result_payload["actual_average_goal_differential"] = summary["actual_results"]["average_goal_differential"]
-            result_payload["optimized_average_goal_differential"] = summary["optimized_projection"][
-                "simulated_schedule"
-            ][  # noqa: E501
-                "average_goal_differential"
-            ]
-            result_payload["close_game_rate_delta"] = summary["comparison_to_actual"]["close_game_rate_delta"]
-            result_payload["blowout_3plus_rate_improvement"] = summary["comparison_to_actual"][
-                "blowout_3plus_rate_improvement"
-            ]
+            result_payload["original_model_average_goal_differential"] = (
+                (summary.get("original_model_projection") or {}).get("average_goal_differential")
+            )
+            result_payload["proposed_model_average_goal_differential"] = (
+                (summary.get("proposed_model_projection") or {}).get("average_goal_differential")
+            )
+            comparison = summary.get("seeding_comparison") or {}
+            result_payload["seeding_comparison_status"] = comparison.get("status", "unavailable")
+            result_payload["seeding_comparison_reason"] = comparison.get("reason")
+            if comparison.get("status") == "comparable":
+                result_payload["close_game_probability_delta"] = comparison["close_game_probability_delta"]
+                result_payload["blowout_3plus_probability_improvement"] = comparison[
+                    "blowout_3plus_probability_improvement"
+                ]
         cohort_results.append(result_payload)
 
     summary_payload = {

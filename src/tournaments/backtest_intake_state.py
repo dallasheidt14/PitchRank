@@ -45,6 +45,7 @@ class DivisionReview:
     notes: str = ""
     source_url: str = ""
     checked: bool = False
+    format_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -307,7 +308,7 @@ def _merge_reviews(
             continue
         original = before.get(group, empty)
         values = {}
-        for field in ("notes", "source_url", "checked"):
+        for field in ("format_code", "notes", "source_url", "checked"):
             wanted = getattr(desired, field)
             prior = getattr(original, field)
             saved = getattr(latest, field)

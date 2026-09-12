@@ -41,6 +41,14 @@ class _Game:
     legacy: bool = False
 
 
+@dataclass(frozen=True)
+class DeduplicatedFixture:
+    """One structural fixture row plus its result-summary exclusion state."""
+
+    fixture: Fixture
+    exclusion: str = ""
+
+
 _CONFLICTS = frozenset({"conflicting_results", "attribution_conflict", "ambiguous_identity"})
 _EXCLUDED_STATUSES = frozenset({"unplayed", "cancelled", "postponed", "forfeit", "unrecognized"})
 
@@ -129,6 +137,31 @@ def _games(roster: EventRoster) -> list[_Game]:
         buckets[key].append(row)
     games.extend(_classify(group, identified=True, ambiguous=key in ambiguous) for key, group in buckets.items())
     return games
+
+
+def deduplicated_fixtures_by_group(roster: EventRoster) -> dict[str, tuple[DeduplicatedFixture, ...]]:
+    """Return one captured fixture row per stable game identity and division.
+
+    GotSport can repeat the same identified game in a division response. This
+    uses the same identity rules as the result summary so strict request
+    validation and reported tournament totals share one denominator. Rows
+    without a stable identity remain distinct because merging them would be
+    guesswork.
+    """
+
+    fixtures: dict[str, list[DeduplicatedFixture]] = defaultdict(list)
+    for game in _games(roster):
+        rows_by_group: dict[str, list[_Row]] = defaultdict(list)
+        for row in game.rows:
+            rows_by_group[row.division.group_id].append(row)
+        for group_id, rows in rows_by_group.items():
+            if game.identified:
+                fixtures[group_id].append(DeduplicatedFixture(rows[0].fixture, game.exclusion))
+            else:
+                fixtures[group_id].extend(
+                    DeduplicatedFixture(row.fixture, game.exclusion) for row in rows
+                )
+    return {group_id: tuple(rows) for group_id, rows in fixtures.items()}
 
 
 def _metrics(games: list[_Game], *, partial: bool, groups: set[str] | None = None) -> dict[str, Any]:

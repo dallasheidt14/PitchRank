@@ -516,6 +516,15 @@ def _save_review_field(draft_key: str, group_id: str, field: str, widget_key: st
     st.session_state[draft_key] = drafts
 
 
+def _save_review_format(draft_key: str, group_id: str, widget_key: str) -> None:
+    drafts = dict(st.session_state[draft_key])
+    item = dict(drafts[group_id])
+    item["format_code"] = st.session_state[widget_key]
+    item["checked"] = False
+    drafts[group_id] = item
+    st.session_state[draft_key] = drafts
+
+
 def _save_cohort_field(
     cohort_key: str, review_key: str, group_id: str, field: str, widget_key: str
 ) -> None:
@@ -610,6 +619,19 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
         st.warning(_as_plain_text(warning))
     if division.rules_links:
         st.dataframe(pd.DataFrame([asdict(link) for link in division.rules_links]), hide_index=True)
+    format_options = ("", "ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P")
+    format_key = f"{widget}_format_code"
+    current_format = saved.get("format_code", "")
+    st.selectbox(
+        "Verified replay format",
+        format_options,
+        index=format_options.index(current_format) if current_format in format_options else 0,
+        format_func=lambda value: value or "Select a supported format",
+        key=format_key,
+        on_change=_save_review_format,
+        args=(review_key, selected, format_key),
+        help="Choose only after confirming the published pool and playoff structure.",
+    )
     for field, label in (("notes", "Published format / advancement / tiebreaker notes"),
                          ("source_url", "Rules source URL")):
         widget_key = f"{widget}_{field}"
@@ -619,7 +641,7 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
     checked_key = f"{widget}_checked"
     st.checkbox(
         "I checked this division's teams, pools and fixtures against the source",
-        value=saved["checked"], key=checked_key, on_change=_save_review_field,
+        value=saved["checked"], disabled=not saved.get("format_code"), key=checked_key, on_change=_save_review_field,
         args=(review_key, selected, "checked", checked_key),
     )
 

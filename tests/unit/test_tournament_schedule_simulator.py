@@ -1,6 +1,12 @@
 from types import SimpleNamespace
 
-from src.tournaments.schedule_simulator import infer_division_schedule_template, simulate_tournament_schedule
+import pytest
+
+from src.tournaments.schedule_simulator import (
+    explicit_division_schedule_template,
+    infer_division_schedule_template,
+    simulate_tournament_schedule,
+)
 from src.tournaments.seeding_optimizer import DivisionSpec, MatchupCost, SeedableTeam, optimize_tournament_format
 
 
@@ -63,6 +69,61 @@ def test_infer_division_schedule_template_matches_known_formats():
 
     assert eight_team.playoff_format == "pool_winners_final"
     assert six_team.playoff_format == "cross_semis_final_third"
+
+
+def test_explicit_template_uses_format_code_instead_of_guessing_from_count():
+    template = explicit_division_schedule_template(
+        division_name="Super Elite",
+        actual_division_name="BU14 Super Elite",
+        pool_sizes=(4, 4),
+        format_code="F_ONLY",
+        actual_game_count=13,
+    )
+
+    assert template.playoff_format == "pool_winners_final"
+    assert template.inference_notes == ()
+
+
+def test_explicit_template_rejects_missing_or_unsupported_format():
+    with pytest.raises(ValueError, match="explicit supported format code"):
+        explicit_division_schedule_template(
+            division_name="Super Elite",
+            pool_sizes=(4, 4),
+            format_code=None,
+            actual_game_count=13,
+        )
+
+
+def test_explicit_template_rejects_captured_game_count_mismatch():
+    with pytest.raises(ValueError, match="captured division contains 14"):
+        explicit_division_schedule_template(
+            division_name="Super Elite",
+            pool_sizes=(4, 4),
+            format_code="F_ONLY",
+            actual_game_count=14,
+        )
+
+
+@pytest.mark.parametrize(
+    ("pool_sizes", "format_code", "message"),
+    [
+        ((1,), "F_ONLY", "at least two teams in its pool"),
+        ((1, 3), "SF_F", "at least two teams in each pool"),
+        ((3, 1), "SF_F_3P", "at least two teams in each pool"),
+    ],
+)
+def test_explicit_template_rejects_undersized_playoff_qualifier_pools(
+    pool_sizes,
+    format_code,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        explicit_division_schedule_template(
+            division_name="Gold",
+            pool_sizes=pool_sizes,
+            format_code=format_code,
+            actual_game_count=None,
+        )
 
 
 def test_simulate_tournament_schedule_replays_two_pools_of_four_with_final():

@@ -7,8 +7,7 @@ real tournament format against that optimized placement so we can compare:
 - actual completed tournament goal differential
 - simulated goal differential under the optimized grouping
 
-The current inference intentionally targets the formats we have already seen in
-the beta fixtures:
+The explicit v1 contract supports:
 
 - 2 pools of 4 -> pool round robin + final
 - 2 pools of 3 -> pool round robin + crossover semis + final + 3rd place
@@ -24,6 +23,8 @@ from typing import Any, Callable, Sequence
 from src.tournaments.seeding_optimizer import DivisionAssignment, SeedableTeam
 
 PredictionFn = Callable[[SeedableTeam, SeedableTeam], Any]
+
+SUPPORTED_PLAYOFF_FORMATS = frozenset({"ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P"})
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,75 @@ class TournamentScheduleSimulation:
 
 def _pair_count(team_count: int) -> int:
     return max(0, int(team_count) * max(0, int(team_count) - 1) // 2)
+
+
+def explicit_division_schedule_template(
+    *,
+    division_name: str,
+    pool_sizes: Sequence[int],
+    format_code: str | None,
+    actual_game_count: int | None,
+    actual_division_name: str | None = None,
+) -> DivisionScheduleTemplate:
+    """Build a replay template only from an operator-reviewed format code.
+
+    Game counts are validation evidence. They never select a format.
+    """
+
+    normalized_format = str(format_code or "").strip().upper()
+    if normalized_format not in SUPPORTED_PLAYOFF_FORMATS:
+        raise ValueError(
+            f"Division '{division_name}' needs an explicit supported format code: "
+            f"{', '.join(sorted(SUPPORTED_PLAYOFF_FORMATS))}; got {format_code!r}"
+        )
+    normalized_pool_sizes = tuple(int(size) for size in pool_sizes)
+    if not normalized_pool_sizes or any(size <= 0 for size in normalized_pool_sizes):
+        raise ValueError(f"Division '{division_name}' needs positive explicit pool sizes")
+    if normalized_format == "F_ONLY" and len(normalized_pool_sizes) == 1 and normalized_pool_sizes[0] < 2:
+        raise ValueError(
+            f"Division '{division_name}' format F_ONLY needs at least two teams in its pool"
+        )
+    if normalized_format in {"SF_F", "SF_F_3P"} and any(size < 2 for size in normalized_pool_sizes):
+        raise ValueError(
+            f"Division '{division_name}' format {normalized_format} needs at least two teams in each pool"
+        )
+
+    if normalized_format == "ROUND_ROBIN":
+        playoff_format = "none"
+        extra_games = 0
+    elif normalized_format == "F_ONLY" and len(normalized_pool_sizes) == 1:
+        playoff_format = "one_pool_final"
+        extra_games = 1
+    elif normalized_format == "F_ONLY" and len(normalized_pool_sizes) == 2:
+        playoff_format = "pool_winners_final"
+        extra_games = 1
+    elif normalized_format == "SF_F" and len(normalized_pool_sizes) == 2:
+        playoff_format = "cross_semis_final"
+        extra_games = 3
+    elif normalized_format == "SF_F_3P" and len(normalized_pool_sizes) == 2:
+        playoff_format = "cross_semis_final_third"
+        extra_games = 4
+    else:
+        raise ValueError(
+            f"Division '{division_name}' format {normalized_format} does not support "
+            f"{len(normalized_pool_sizes)} pool(s)"
+        )
+
+    expected_game_count = sum(_pair_count(size) for size in normalized_pool_sizes) + extra_games
+    if actual_game_count is not None and int(actual_game_count) != expected_game_count:
+        raise ValueError(
+            f"Division '{division_name}' explicit format {normalized_format} produces "
+            f"{expected_game_count} games, but the captured division contains {actual_game_count}"
+        )
+    return DivisionScheduleTemplate(
+        division_name=division_name,
+        actual_division_name=actual_division_name,
+        pool_sizes=normalized_pool_sizes,
+        pool_play_format="round_robin",
+        playoff_format=playoff_format,
+        actual_game_count=actual_game_count,
+        inference_notes=(),
+    )
 
 
 def infer_division_schedule_template(

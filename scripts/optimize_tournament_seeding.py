@@ -37,9 +37,15 @@ if not os.getenv("SUPABASE_KEY") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
 from src.rankings.data_adapter import batch_fetch_rows  # noqa: E402
+from src.tournaments.modelled_comparison import (  # noqa: E402
+    compare_modelled_arrangements,
+    project_matchup_pairs,
+    summarize_modelled_matchups,
+)
 from src.tournaments.seeding_optimizer import (  # noqa: E402
     DivisionSpec,
     MatchupCost,
+    SeedableTeam,
     TournamentOptimizationResult,
     build_seedable_teams,
     normalize_age_group,
@@ -334,49 +340,28 @@ def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
-def _projected_matchup_costs_from_result(
-    result: TournamentOptimizationResult,
-    matchup_cost_fn,
-) -> list[MatchupCost]:
-    projected_costs: list[MatchupCost] = []
-    for division in result.divisions:
-        for pool in division.pools:
-            projected_costs.extend(matchup_cost_fn(team_a, team_b) for team_a, team_b in combinations(pool.teams, 2))
-    return projected_costs
-
-
 def _summarize_projected_result(
     result: TournamentOptimizationResult,
     matchup_cost_fn,
-) -> dict[str, float | int | str]:
-    projected_costs = _projected_matchup_costs_from_result(result, matchup_cost_fn)
-    if not projected_costs:
-        return {
-            "projection_basis": "all_intra_pool_pairings",
-            "projected_matchup_count": 0,
-            "average_goal_differential": 0.0,
-            "median_goal_differential": 0.0,
-            "close_game_probability": 1.0,
-            "blowout_3plus_probability": 0.0,
-            "blowout_5plus_probability": 0.0,
-        }
-
-    margins = [float(cost.projected_margin) for cost in projected_costs]
-    return {
-        "projection_basis": "all_intra_pool_pairings",
-        "projected_matchup_count": len(projected_costs),
-        "average_goal_differential": float(sum(margins) / len(margins)),
-        "median_goal_differential": float(median(margins)),
-        "close_game_probability": float(
-            sum(float(cost.competitive_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-        "blowout_3plus_probability": float(
-            sum(float(cost.blowout_3plus_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-        "blowout_5plus_probability": float(
-            sum(float(cost.blowout_5plus_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-    }
+) -> dict[str, Any]:
+    pairs = [
+        (team_a, team_b)
+        for division in result.divisions
+        for pool in division.pools
+        for team_a, team_b in combinations(pool.teams, 2)
+    ]
+    projection = summarize_modelled_matchups(
+        project_matchup_pairs(pairs, matchup_cost_fn),
+        projection_basis="all_intra_pool_pairings",
+    )
+    if not math.isclose(
+        float(projection["total_model_cost"]),
+        float(result.total_cost),
+        rel_tol=1e-12,
+        abs_tol=1e-12,
+    ):
+        raise RuntimeError("Optimizer total cost disagrees with its reported intra-pool matchup set")
+    return projection
 
 
 def _fetch_actual_event_games(
@@ -447,29 +432,40 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
     }
 
 
-def _build_projection_vs_actual_comparison(
-    projected_summary: dict[str, float | int | str],
-    actual_summary: dict[str, float | int],
-) -> dict[str, float | int] | None:
-    actual_game_count = int(actual_summary.get("actual_game_count") or 0)
-    projected_matchup_count = int(projected_summary.get("projected_matchup_count") or 0)
-    if actual_game_count <= 0 or projected_matchup_count <= 0:
-        return None
-
-    projected_average = float(projected_summary["average_goal_differential"])
-    actual_average = float(actual_summary["average_goal_differential"])
-    projected_median = float(projected_summary["median_goal_differential"])
-    actual_median = float(actual_summary["median_goal_differential"])
-
-    return {
-        "average_goal_differential_improvement": float(actual_average - projected_average),
-        "median_goal_differential_improvement": float(actual_median - projected_median),
-        "close_game_rate_delta": float(projected_summary["close_game_probability"]) - float(actual_summary["close_game_rate"]),  # noqa: E501
-        "blowout_3plus_rate_improvement": float(actual_summary["blowout_3plus_rate"])
-        - float(projected_summary["blowout_3plus_probability"]),
-        "blowout_5plus_rate_improvement": float(actual_summary["blowout_5plus_rate"])
-        - float(projected_summary["blowout_5plus_probability"]),
-    }
+def _project_original_pool_arrangement(
+    original_pools: list[dict[str, Any]] | None,
+    teams: list[SeedableTeam],
+    matchup_cost_fn,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    if not original_pools:
+        return None, ("Exact original pool membership was not supplied",)
+    teams_by_id = {team.team_id: team for team in teams}
+    seen: list[str] = []
+    pairs: list[tuple[SeedableTeam, SeedableTeam]] = []
+    issues: list[str] = []
+    for pool_index, pool in enumerate(original_pools):
+        team_ids = [str(team_id) for team_id in pool.get("team_ids") or []]
+        if not team_ids:
+            issues.append(f"Original pool at index {pool_index} has no team_ids")
+            continue
+        missing = [team_id for team_id in team_ids if team_id not in teams_by_id]
+        if missing:
+            issues.append(f"Original pool at index {pool_index} contains unknown teams: {', '.join(missing)}")
+            continue
+        seen.extend(team_ids)
+        pool_teams = [teams_by_id[team_id] for team_id in team_ids]
+        pairs.extend(combinations(pool_teams, 2))
+    if sorted(seen) != sorted(teams_by_id):
+        issues.append("Original pools must contain every tournament team exactly once")
+    if issues:
+        return None, tuple(issues)
+    return (
+        summarize_modelled_matchups(
+            project_matchup_pairs(pairs, matchup_cost_fn),
+            projection_basis="supplied_original_intra_pool_pairings",
+        ),
+        (),
+    )
 
 
 def _build_predictor_matchup_cost_fn(
@@ -640,19 +636,31 @@ def main() -> int:
             matchup_cost_fn=matchup_cost_fn,
             matchup_proxy=matchup_proxy,
         )
-        projected_summary = _summarize_projected_result(optimization_result, matchup_cost_fn)
+        proposed_projection = _summarize_projected_result(optimization_result, matchup_cost_fn)
         actual_event_name = str(
             cohort_request.get("actual_event_name") or request_payload.get("actual_event_name") or ""
         ).strip()
         actual_summary = None
-        comparison = None
+        original_projection, comparison_issues = _project_original_pool_arrangement(
+            cohort_request.get("original_pools"),
+            seedable_teams,
+            matchup_cost_fn,
+        )
+        seeding_comparison = (
+            compare_modelled_arrangements(original_projection, proposed_projection)
+            if original_projection is not None
+            else {
+                "status": "unavailable",
+                "reason": "; ".join(comparison_issues),
+                "comparison_basis": "same_model_original_vs_proposed_matchups",
+            }
+        )
         if actual_event_name:
             actual_games = _fetch_actual_event_games(client, actual_event_name, [team.team_id for team in seedable_teams])  # noqa: E501
             actual_summary = {
                 "event_name": actual_event_name,
                 **_summarize_actual_games(actual_games),
             }
-            comparison = _build_projection_vs_actual_comparison(projected_summary, actual_summary)
 
         results.append(
             {
@@ -660,9 +668,12 @@ def main() -> int:
                 "gender": normalize_gender_label(gender),
                 "team_count": len(seedable_teams),
                 "historical_games_used": len(recent_games),
-                "projection": projected_summary,
+                "projection": proposed_projection,
                 "actual_results": actual_summary,
-                "comparison_to_actual": comparison,
+                "original_model_projection": original_projection,
+                "seeding_comparison": seeding_comparison,
+                "comparison_issues": list(comparison_issues),
+                "comparison_to_actual": None,
                 "format": {
                     "divisions": [
                         {

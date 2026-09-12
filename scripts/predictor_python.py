@@ -87,6 +87,7 @@ class Game:
     home_score: Optional[int]
     away_score: Optional[int]
     game_date: str
+    created_at: Optional[str] = None
 
 
 @dataclass

@@ -30,7 +30,7 @@ from src.tournaments.storage import (
     write_event_metadata,
     write_registry,
 )
-from src.tournaments.storage._io import append_jsonl, write_json
+from src.tournaments.storage._io import append_jsonl, read_json, write_json
 from src.tournaments.storage.event_key import run_dir
 from src.tournaments.storage.schema_version import stamp_schema_version
 from src.tournaments.triage import build_override_record
@@ -247,10 +247,35 @@ def _write_summary(
     }
     if actual_overrides:
         actual.update(actual_overrides)
+    original_model_projection = {
+        "projection_basis": "observed_original_fixture_pairs",
+        "projected_matchup_count": n,
+        "arrangement_signature": "original",
+        "average_goal_differential": actual["average_goal_differential"],
+        "median_goal_differential": actual["median_goal_differential"],
+        "close_game_probability": actual["close_game_rate"],
+        "blowout_3plus_probability": actual["blowout_3plus_rate"],
+        "blowout_5plus_probability": actual["blowout_5plus_rate"],
+        "uncertainty": {},
+    }
+    proposed_model_projection = {
+        "projection_basis": "proposed_simulated_fixture_pairs",
+        "projected_matchup_count": n,
+        "arrangement_signature": "proposed",
+        "average_goal_differential": float(avg_gd),
+        "median_goal_differential": 1.5,
+        "close_game_probability": one_goal / n if n else 0.0,
+        "blowout_3plus_probability": blow3 / n if n else 0.0,
+        "blowout_5plus_probability": blow5 / n if n else 0.0,
+        "uncertainty": {},
+    }
     payload = {
         "event_name": "Phoenix Cup 2026",
         "cohort": {"age_group": "u14", "gender": "Male"},
         "actual_results": actual,
+        "original_model_projection": original_model_projection,
+        "proposed_model_projection": proposed_model_projection,
+        "seeding_comparison": {"status": "comparable"},
         "optimized_projection": {
             "simulated_schedule": {
                 "match_count": n,
@@ -329,7 +354,7 @@ def test_compute_report_card_basic_metrics(tmp_path: Path):
     assert len(rc.metrics) == 8
 
     metric_labels = [m.label for m in rc.metrics]
-    assert "Expected avg GD (raw)" == metric_labels[0]
+    assert "Modeled average GD" == metric_labels[0]
     # 8 metrics, in the locked order; capped GD is metric #2
     assert "capped at 3" in metric_labels[1]
 
@@ -707,6 +732,21 @@ def test_missing_run_metadata_raises_report_card_error(tmp_path: Path):
         compute_report_card(EVENT_KEY, SCENARIO, RUN_ID, base_dir=tmp_path)
 
 
+def test_unavailable_same_model_comparison_blocks_report_card(tmp_path: Path):
+    run_path = _bootstrap(tmp_path)
+    _write_summary(run_path)
+    summary = read_json(run_path / "summary.json")
+    summary["seeding_comparison"] = {
+        "status": "unavailable",
+        "reason": "Original and proposed arrangements contain different matchup counts",
+    }
+    write_json(run_path / "summary.json", summary)
+    _write_division_recommendations(run_path)
+
+    with pytest.raises(ReportCardError, match="different matchup counts"):
+        compute_report_card(EVENT_KEY, SCENARIO, RUN_ID, base_dir=tmp_path)
+
+
 def test_top_reasons_ordered_by_magnitude(tmp_path: Path):
     """The largest absolute delta lands first."""
     run_path = _bootstrap(tmp_path)
@@ -735,7 +775,7 @@ def test_top_reasons_ordered_by_magnitude(tmp_path: Path):
     assert len(rc.top_reasons) >= 3
     assert "Tightened average goal differential" in rc.top_reasons[0].text
     assert "5+ goal mismatches" in rc.top_reasons[1].text
-    assert "one-goal games" in rc.top_reasons[2].text
+    assert "competitive-game probability" in rc.top_reasons[2].text
 
 
 def test_top_reasons_skip_regressed_metrics(tmp_path: Path):
@@ -744,7 +784,8 @@ def test_top_reasons_skip_regressed_metrics(tmp_path: Path):
     "Tightened") and emitting them when the optimized side is worse
     misleads the Report Card reader."""
     run_path = _bootstrap(tmp_path)
-    # Optimized blowouts WORSE than actual; one_goal lower; avg_gd higher.
+    # Proposed blowouts WORSE than the original model projection; close-game
+    # probability lower; avg_gd higher.
     matches = [
         {"stage": "Pool", "home_team_id": "e1", "away_team_id": "e2", "goal_differential": 6},
         {"stage": "Pool", "home_team_id": "e3", "away_team_id": "e4", "goal_differential": 5},

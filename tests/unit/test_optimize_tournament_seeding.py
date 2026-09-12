@@ -2,10 +2,11 @@ import pytest
 
 from scripts import optimize_tournament_seeding as seeding_script
 from scripts.optimize_tournament_seeding import (
-    _build_projection_vs_actual_comparison,
+    _project_original_pool_arrangement,
     _summarize_actual_games,
     _summarize_projected_result,
 )
+from src.tournaments.modelled_comparison import compare_modelled_arrangements
 from src.tournaments.seeding_optimizer import DivisionSpec, MatchupCost, SeedableTeam, optimize_tournament_format
 
 
@@ -75,33 +76,42 @@ def test_summarize_projected_result_reports_pairwise_projection_metrics():
     assert summary["blowout_5plus_probability"] == 0.0
 
 
-def test_build_projection_vs_actual_comparison_reports_improvement():
-    projected_summary = {
-        "projected_matchup_count": 8,
-        "average_goal_differential": 2.0,
-        "median_goal_differential": 2.0,
-        "close_game_probability": 0.55,
-        "blowout_3plus_probability": 0.20,
-        "blowout_5plus_probability": 0.05,
-    }
-    actual_summary = {
-        "actual_game_count": 8,
-        "average_goal_differential": 5.5,
-        "median_goal_differential": 4.0,
-        "close_game_rate": 0.20,
-        "blowout_3plus_rate": 0.50,
-        "blowout_5plus_rate": 0.25,
-        "draw_rate": 0.0,
-    }
+def test_identical_original_and_proposed_pools_have_zero_improvement():
+    alpha = _team(1, 0.8, 1)
+    bravo = _team(2, 0.4, 2)
 
-    comparison = _build_projection_vs_actual_comparison(projected_summary, actual_summary)
+    def cost(_team_a, _team_b):
+        return MatchupCost(2.0, 0.5, 0.25, 0.1, 2.0)
 
-    assert comparison is not None
-    assert comparison["average_goal_differential_improvement"] == 3.5
-    assert comparison["median_goal_differential_improvement"] == 2.0
-    assert round(comparison["close_game_rate_delta"], 4) == 0.35
-    assert round(comparison["blowout_3plus_rate_improvement"], 4) == 0.30
-    assert round(comparison["blowout_5plus_rate_improvement"], 4) == 0.20
+    proposed_result = optimize_tournament_format(
+        [alpha, bravo],
+        [DivisionSpec("Gold", 2)],
+        matchup_cost_fn=cost,
+    )
+    proposed = _summarize_projected_result(proposed_result, cost)
+    original, issues = _project_original_pool_arrangement(
+        [{"name": "Gold", "team_ids": [alpha.team_id, bravo.team_id]}],
+        [alpha, bravo],
+        cost,
+    )
+
+    assert issues == ()
+    assert original is not None
+    comparison = compare_modelled_arrangements(original, proposed)
+    assert comparison["arrangements_identical"] is True
+    assert comparison["average_goal_differential_improvement"] == 0.0
+    assert comparison["blowout_3plus_probability_improvement"] == 0.0
+
+
+def test_standalone_comparison_requires_exact_original_pools():
+    projection, issues = _project_original_pool_arrangement(
+        None,
+        [_team(1, 0.8, 1), _team(2, 0.4, 2)],
+        lambda _a, _b: MatchupCost(1.0, 0.5, 0.2, 0.1, 1.0),
+    )
+
+    assert projection is None
+    assert issues == ("Exact original pool membership was not supplied",)
 
 
 def test_standalone_division_parser_accepts_integer_strings():
