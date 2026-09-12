@@ -59,6 +59,8 @@ RECORDED = {
     # NN Boys/Girls shape. A run predating IMP-136 reports 2,953 against this
     # key: a change of metric, not movement in the data.
     "gender_word_only_year_rows": 758,
+    # Positive set Doorway C calibrates against: hand-made merges only.
+    "human_vetted_merges": 2938,
 }
 RECORDED_ON = "2026-09-12"
 
@@ -280,6 +282,53 @@ FOUR_DIGIT_YEAR = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
 GENDER_WORD = re.compile(r"\b(?:boys|girls)\b", re.I)
 
 
+HUMAN_MERGE_ACTORS = (
+    "dallasheidt@gmail.com",
+    "DALLASHEIDT@GMAIL.COM",
+    "dallas",
+    "manual",
+    "cursor_agent",
+    "cursor-agent",
+    "your-email@example.com",
+)
+
+
+def measure_calibration_set(r: Result, sb) -> None:
+    """Size of the positive set Doorway C's calibration rests on.
+
+    The skill segments team_merge_map by actor because the bot rows include a run that merged
+    1,772 pairs of distinct teams. Only the hand-made rows are ground truth, and that pool grows
+    every time the operator merges something, so it is worth watching for drift.
+    """
+    res = (
+        sb.table("team_merge_map")
+        .select("deprecated_team_id", count="exact", head=True)
+        .in_("merged_by", list(HUMAN_MERGE_ACTORS))
+        .execute()
+    )
+    r.measure("human_vetted_merges", res.count or 0)
+
+
+def note_doorway_c_calibration_unverifiable(r: Result) -> None:
+    """Doorway C's discriminating figures need self-joins PostgREST cannot express.
+
+    Every one of them compares pairs of teams -- same club and cohort, differing provider, or
+    having played each other -- which is a self-join on `teams` plus an aggregate over `games`.
+    PostgREST offers neither, so this script must not imply it re-measured them.
+    """
+    r.needs_human(
+        "Doorway C calibration figures (cross-provider 78.3%/1.7%, opponent Jaccard 0.053/0.200)",
+        "Measured 2026-09-12 by direct SQL against 2,530 hand-made merges with games on both "
+        "sides (positives) and 33,674 live same-club/cohort pairs that have played each other "
+        "(negatives). Head-to-head base rate 0.43%; identical-name tier 0 provable false "
+        "positives in 1,082 historical candidates against ~4.7 expected, containment tier 10 "
+        "against ~10.5 expected. Re-derive with a self-join on `teams` keyed on normalised "
+        "club + age_group + gender + state_code, joined to per-team aggregates over `games`; "
+        "PostgREST supports neither the self-join nor the aggregate, so this script cannot. "
+        "`human_vetted_merges` below tracks the positive pool's size as a proxy.",
+    )
+
+
 def note_self_play_unverifiable(r: Result) -> None:
     """Step 5's survivor-integrity rule rests on a figure PostgREST cannot produce.
 
@@ -410,11 +459,13 @@ def main() -> int:
     check_scorer_backend(result)
     check_workflow_flags(result)
     note_self_play_unverifiable(result)
+    note_doorway_c_calibration_unverifiable(result)
 
     if not args.code_only:
         sb = get_client()
         check_enqueue_migration_applied(result, sb)
         measure_counts(result, sb)
+        measure_calibration_set(result, sb)
         measure_names(result, sb)
 
     if args.json:
