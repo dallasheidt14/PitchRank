@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster, entrant_key
@@ -19,14 +20,18 @@ def _fixture_game(
     fixture,
     *,
     division_name: str,
-    canonical_by_registration: Mapping[str, str],
+    canonical_by_participant: Mapping[str, str],
 ) -> dict[str, Any] | None:
     if fixture.home_score is None or fixture.away_score is None:
         return None
     home_registration = str(fixture.home_registration_id or "")
     away_registration = str(fixture.away_registration_id or "")
-    home_canonical = canonical_by_registration.get(home_registration)
-    away_canonical = canonical_by_registration.get(away_registration)
+    home_label = " ".join(str(fixture.home_label or "").split()).casefold()
+    away_label = " ".join(str(fixture.away_label or "").split()).casefold()
+    home_key = f"registration:{home_registration}" if home_registration else f"name:{home_label}"
+    away_key = f"registration:{away_registration}" if away_registration else f"name:{away_label}"
+    home_canonical = canonical_by_participant.get(home_key)
+    away_canonical = canonical_by_participant.get(away_key)
     if not home_canonical or not away_canonical:
         raise BacktestRequestError(
             f"Fixture {fixture.match_number or fixture.source_url} does not resolve to two matched registrations"
@@ -46,6 +51,7 @@ def build_cohort_backtest_requests(
     snapshot: BacktestSnapshot,
     *,
     event_links: EventLinks | None = None,
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Translate checked divisions, exact pools, and saved links into requests."""
 
@@ -60,8 +66,14 @@ def build_cohort_backtest_requests(
     all_links = {link.registration_id: link for link in event_links.links}
     removed_registrations = set(event_links.removed_registration_ids)
     not_found_registrations = set(event_links.not_found_registration_ids)
+
+    def canonicalize(team_id: str) -> str:
+        if resolve_team_id is None:
+            return str(team_id)
+        return str(resolve_team_id(str(team_id)) or team_id)
+
     collision_acknowledgements = {
-        item.team_id_master: frozenset(item.registration_ids)
+        canonicalize(item.team_id_master): frozenset(item.registration_ids)
         for item in event_links.collision_acknowledgements
     }
     reviews = {review.group_id: review for review in snapshot.reviews}
@@ -83,10 +95,11 @@ def build_cohort_backtest_requests(
         divisions_payload: list[dict[str, Any]] = []
         entrants: list[dict[str, Any]] = []
         actual_games: list[dict[str, Any]] = []
-        canonical_by_registration: dict[str, str] = {}
+        canonical_by_participant: dict[str, str] = {}
 
         for division in cohorts[cohort_key]:
-            division_fixtures = fixtures_by_group.get(division.group_id, ())
+            fixture_evidence = fixtures_by_group.get(division.group_id, ())
+            division_fixtures = tuple(item.fixture for item in fixture_evidence)
             review = reviews.get(division.group_id)
             if review is None or not review.checked or not review.format_code:
                 raise BacktestRequestError(
@@ -126,25 +139,35 @@ def build_cohort_backtest_requests(
                     "captured_fixture_count": len(division_fixtures),
                 }
             )
-            for pool in division.pools:
+            normalized_names = Counter(
+                " ".join(member.team_name.split()).casefold()
+                for pool in division.pools
+                for member in pool.members
+            )
+            for pool_index, pool in enumerate(division.pools):
                 for member in pool.members:
-                    registration = str(member.registration_id)
-                    roster_team = roster_teams_by_group_registration.get((division.group_id, registration))
+                    registration = str(member.registration_id or "")
+                    participant_key = registration or (
+                        f"pool:{division.group_id}:{pool.pool_id or pool_index}:{member.standings_position}"
+                    )
+                    roster_team = roster_teams_by_group_registration.get(
+                        (division.group_id, participant_key)
+                    )
                     if roster_team is None:
                         raise BacktestRequestError(
                             f"Pool member {registration} in '{division.division_label}' is missing from the roster"
                         )
-                    if registration in removed_registrations:
+                    if participant_key in removed_registrations:
                         raise BacktestRequestError(
                             f"Team '{member.team_name}' in '{division.division_label}' has a cleared match"
                         )
-                    if registration in not_found_registrations:
+                    if participant_key in not_found_registrations:
                         raise BacktestRequestError(
                             f"Team '{member.team_name}' in '{division.division_label}' is marked not found in PitchRank"
                         )
-                    link = confirmed_links.get(registration)
+                    link = confirmed_links.get(participant_key)
                     if link is None:
-                        unconfirmed = all_links.get(registration)
+                        unconfirmed = all_links.get(participant_key)
                         detail = (
                             f" has an unconfirmed {unconfirmed.matched_by} suggestion"
                             if unconfirmed is not None
@@ -154,13 +177,18 @@ def build_cohort_backtest_requests(
                             f"Team '{member.team_name}' in '{division.division_label}'{detail}"
                         )
                     resolved = resolved_by_source.get(roster_team.source_index)
-                    canonical_id = str(link.team_id_master)
-                    canonical_by_registration[registration] = canonical_id
-                    registrations_by_canonical[canonical_id].add(registration)
+                    canonical_id = canonicalize(link.team_id_master)
+                    if registration:
+                        canonical_by_participant[f"registration:{registration}"] = canonical_id
+                    normalized_name = " ".join(member.team_name.split()).casefold()
+                    if normalized_names[normalized_name] == 1:
+                        canonical_by_participant[f"name:{normalized_name}"] = canonical_id
+                    registrations_by_canonical[canonical_id].add(participant_key)
                     entrants.append(
                         {
-                            "entrant_id": f"{division.group_id}:{registration}",
+                            "entrant_id": f"{division.group_id}:{participant_key}",
                             "registration_id": registration,
+                            "source_entry_key": participant_key if not registration else "",
                             "canonical_team_id": canonical_id,
                             "ranking_source_team_id": canonical_id,
                             "provider_team_id": str(
@@ -175,11 +203,13 @@ def build_cohort_backtest_requests(
                             "actual_pool_name": pool.label,
                         }
                     )
-            for fixture in division_fixtures:
+            for evidence in fixture_evidence:
+                if evidence.exclusion:
+                    continue
                 game = _fixture_game(
-                    fixture,
+                    evidence.fixture,
                     division_name=division.division_label,
-                    canonical_by_registration=canonical_by_registration,
+                    canonical_by_participant=canonical_by_participant,
                 )
                 if game is not None:
                     actual_games.append(game)

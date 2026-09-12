@@ -41,6 +41,14 @@ class _Game:
     legacy: bool = False
 
 
+@dataclass(frozen=True)
+class DeduplicatedFixture:
+    """One structural fixture row plus its result-summary exclusion state."""
+
+    fixture: Fixture
+    exclusion: str = ""
+
+
 _CONFLICTS = frozenset({"conflicting_results", "attribution_conflict", "ambiguous_identity"})
 _EXCLUDED_STATUSES = frozenset({"unplayed", "cancelled", "postponed", "forfeit", "unrecognized"})
 
@@ -131,7 +139,7 @@ def _games(roster: EventRoster) -> list[_Game]:
     return games
 
 
-def deduplicated_fixtures_by_group(roster: EventRoster) -> dict[str, tuple[Fixture, ...]]:
+def deduplicated_fixtures_by_group(roster: EventRoster) -> dict[str, tuple[DeduplicatedFixture, ...]]:
     """Return one captured fixture row per stable game identity and division.
 
     GotSport can repeat the same identified game in a division response. This
@@ -141,16 +149,18 @@ def deduplicated_fixtures_by_group(roster: EventRoster) -> dict[str, tuple[Fixtu
     guesswork.
     """
 
-    fixtures: dict[str, list[Fixture]] = defaultdict(list)
+    fixtures: dict[str, list[DeduplicatedFixture]] = defaultdict(list)
     for game in _games(roster):
         rows_by_group: dict[str, list[_Row]] = defaultdict(list)
         for row in game.rows:
             rows_by_group[row.division.group_id].append(row)
         for group_id, rows in rows_by_group.items():
             if game.identified:
-                fixtures[group_id].append(rows[0].fixture)
+                fixtures[group_id].append(DeduplicatedFixture(rows[0].fixture, game.exclusion))
             else:
-                fixtures[group_id].extend(row.fixture for row in rows)
+                fixtures[group_id].extend(
+                    DeduplicatedFixture(row.fixture, game.exclusion) for row in rows
+                )
     return {group_id: tuple(rows) for group_id, rows in fixtures.items()}
 
 

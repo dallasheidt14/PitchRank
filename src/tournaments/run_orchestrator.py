@@ -340,6 +340,25 @@ def preflight(
         return match is not None and not blocker.startswith(this_label)
 
     blockers_for_cohort = tuple(b for b in result.blockers if not is_other_cohort(b))
+    try:
+        structure = read_structure(event_key, scenario, base_dir=base_dir)
+        cohort_structure = next(
+            (item for item in structure if item.age_group == age and item.gender == gender),
+            None,
+        )
+    except (FileNotFoundError, ValueError):
+        cohort_structure = None
+    if cohort_structure is not None:
+        missing_formats = tuple(
+            division.name
+            for division in cohort_structure.divisions
+            if not str(division.advancement or "").strip()
+        )
+        if missing_formats:
+            blockers_for_cohort += (
+                f"{gender} {age}: explicit replay format missing for {', '.join(missing_formats)}; "
+                "review the division in Backtest intake",
+            )
 
     warnings: list[str] = []
     try:
@@ -504,6 +523,11 @@ def _build_cohort_request_payload(
             teams_by_division.get(actual_division_name, []),
             key=lambda team: team["team_id_master"],
         )
+        if division_teams and not str(division.advancement or "").strip():
+            raise ValueError(
+                f"Legacy scenario storage for division '{actual_division_name}' has no explicit replay format. "
+                "Run this event from the reviewed Backtest intake."
+            )
         if division_teams and (
             len(division.pool_sizes) != 1
             or division.pool_sizes[0] != division.team_count

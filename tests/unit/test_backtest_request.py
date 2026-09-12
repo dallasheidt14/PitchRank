@@ -125,6 +125,76 @@ def test_build_request_deduplicates_repeated_identified_fixture_rows():
     assert len(request["actual_games_override"]) == 1
 
 
+def test_build_request_keeps_excluded_fixture_for_format_but_not_results():
+    snapshot = _snapshot()
+    fixture = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        result_status="forfeit",
+    )
+    division = replace(snapshot.roster.divisions[0], fixtures=(fixture,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["captured_fixture_count"] == 1
+    assert request["actual_games_override"] == []
+
+
+def test_build_request_uses_source_entry_key_when_registration_id_is_missing():
+    snapshot = _snapshot()
+    source_key = "pool:group-1:pool-a:1"
+    teams = (
+        replace(snapshot.roster.teams[0], registration_id="", source_entry_key=source_key),
+        snapshot.roster.teams[1],
+    )
+    pool = replace(
+        snapshot.roster.divisions[0].pools[0],
+        members=(
+            replace(snapshot.roster.divisions[0].pools[0].members[0], registration_id=""),
+            snapshot.roster.divisions[0].pools[0].members[1],
+        ),
+    )
+    fixture = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        home_registration_id="",
+        home_label="Alpha",
+    )
+    division = replace(snapshot.roster.divisions[0], pools=(pool,), fixtures=(fixture,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, teams=teams, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+    links = replace(
+        _links(),
+        links=(replace(_links().links[0], registration_id=source_key), _links().links[1]),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=links)[0]
+
+    alpha = next(item for item in request["entrants"] if item["event_team_name"] == "Alpha")
+    assert alpha["registration_id"] == ""
+    assert alpha["source_entry_key"] == source_key
+    assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
+
+
+def test_build_request_canonicalizes_saved_links_after_team_merge():
+    request = build_cohort_backtest_requests(
+        _snapshot(),
+        event_links=_links(),
+        resolve_team_id=lambda team_id: "survivor-a" if team_id == "canonical-a" else team_id,
+    )[0]
+
+    alpha = next(item for item in request["entrants"] if item["event_team_name"] == "Alpha")
+    assert alpha["canonical_team_id"] == "survivor-a"
+    assert alpha["ranking_source_team_id"] == "survivor-a"
+    assert request["actual_games_override"][0]["home_team_master_id"] == "survivor-a"
+
+
 def test_build_request_blocks_unreviewed_format():
     snapshot = _snapshot()
     snapshot = replace(snapshot, reviews=(replace(snapshot.reviews[0], format_code=""),))

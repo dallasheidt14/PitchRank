@@ -330,6 +330,39 @@ def test_build_cohort_request_payload_refuses_unknown_multi_pool_membership(tmp_
         )
 
 
+def test_build_cohort_request_payload_refuses_missing_replay_format(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement=None,
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="has no explicit replay format"):
+        _build_cohort_request_payload(
+            EVENT_KEY,
+            SCENARIO,
+            "u14",
+            "Boys",
+            base_dir=tmp_path,
+            extras={},
+        )
+
+
 def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
     _bootstrap_event(tmp_path)
     payload, _fallbacks, _stale = _build_cohort_request_payload(
@@ -369,8 +402,12 @@ def _two_division_structure() -> CohortStructure:
         age_group="u14",
         gender="Boys",
         divisions=(
-            DivisionStructure(name="BU14 Premier", team_count=1, pool_sizes=(1,)),
-            DivisionStructure(name="BU14 Champions", team_count=1, pool_sizes=(1,)),
+            DivisionStructure(
+                name="BU14 Premier", team_count=1, pool_sizes=(1,), advancement="ROUND_ROBIN"
+            ),
+            DivisionStructure(
+                name="BU14 Champions", team_count=1, pool_sizes=(1,), advancement="ROUND_ROBIN"
+            ),
         ),
     )
 
@@ -379,7 +416,11 @@ def _single_premier_division_structure() -> CohortStructure:
     return CohortStructure(
         age_group="u14",
         gender="Boys",
-        divisions=(DivisionStructure(name="BU14 Premier", team_count=2, pool_sizes=(2,)),),
+        divisions=(
+            DivisionStructure(
+                name="BU14 Premier", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"
+            ),
+        ),
     )
 
 
@@ -1246,7 +1287,11 @@ def test_execute_run_emits_division_routing_fallback_warning(tmp_path: Path, mon
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,)),),
+                divisions=(
+                    DivisionStructure(
+                        name="A", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"
+                    ),
+                ),
             )
         ],
         base_dir=tmp_path,

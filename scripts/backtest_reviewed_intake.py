@@ -5,16 +5,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+
+from supabase import create_client
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot
 from src.tournaments.backtest_link_store import CollisionAcknowledgement, EventLinks, TeamLink, load_links
 from src.tournaments.backtest_request import build_cohort_backtest_requests
+from src.utils.merge_resolver import MergeResolver
 
 
 def _slug(value: str) -> str:
@@ -49,6 +55,8 @@ def _embedded_links(payload: dict[str, Any], *, event_id: str) -> EventLinks:
 
 
 def main() -> int:
+    load_dotenv(Path(__file__).parent.parent / ".env.local")
+    load_dotenv(Path(__file__).parent.parent / ".env")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--intake-json", required=True, help="Reviewed Backtest event_intake.json or download")
     parser.add_argument("--output-dir", default="reports/reviewed_tournament_backtest")
@@ -67,9 +75,22 @@ def main() -> int:
     if intake_path.name == "event_intake.json" and intake_path.parent.name == "intake":
         event_key = intake_path.parent.parent.name
         links = load_links(event_key, base_dir=intake_path.parent.parent.parent)
+    supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    supabase_key = (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_KEY")
+    )
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("Missing Supabase credentials needed to resolve merged team IDs")
+    resolver = MergeResolver(create_client(supabase_url, supabase_key))
+    resolver.load_merge_map()
+    if resolver.version == "error":
+        raise RuntimeError("Team merge information could not be loaded")
     requests = build_cohort_backtest_requests(
         snapshot,
         event_links=links,
+        resolve_team_id=resolver.resolve,
     )
     output_dir = Path(args.output_dir)
     request_dir = output_dir / "requests"

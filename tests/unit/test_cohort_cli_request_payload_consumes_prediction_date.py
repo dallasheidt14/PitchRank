@@ -54,7 +54,14 @@ def _bootstrap(base: Path) -> None:
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=1, pool_sizes=(1,)),),
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=1,
+                        pool_sizes=(1,),
+                        advancement="ROUND_ROBIN",
+                    ),
+                ),
             )
         ],
         base_dir=base,
