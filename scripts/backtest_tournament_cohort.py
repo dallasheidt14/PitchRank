@@ -209,8 +209,14 @@ def _captured_fixture_count(
     captured = division_payload.get("captured_fixture_count")
     if captured is not None:
         return int(captured)
-    actual_name = str(division_payload.get("actual_division_name") or fallback_division_name)
+    actual_name = _actual_division_name(division_payload, fallback_division_name)
     return actual_game_counts.get(actual_name)
+
+
+def _actual_division_name(division_payload: dict[str, Any], fallback_name: str) -> str:
+    if "actual_division_name" in division_payload:
+        return str(division_payload.get("actual_division_name") or "")
+    return str(fallback_name)
 
 
 def _fetch_rows_by_ids(client, table: str, columns: str, id_column: str, ids: list[str]) -> list[dict[str, Any]]:
@@ -368,6 +374,35 @@ def _filter_snapshot_index_for_cutoff(
     return filtered
 
 
+def _canonicalize_snapshot_index(
+    resolver: MergeResolver,
+    snapshot_index: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Index immutable snapshot rows under their current canonical team ID."""
+
+    canonical: dict[str, list[dict[str, Any]]] = {}
+    for source_id, entries in snapshot_index.items():
+        canonical_id = str(resolver.resolve(source_id) or source_id)
+        for entry in entries:
+            canonical.setdefault(canonical_id, []).append(
+                {
+                    **entry,
+                    "snapshot_source_team_id": str(entry.get("team_id") or source_id),
+                    "team_id": canonical_id,
+                }
+            )
+    for canonical_id, entries in canonical.items():
+        entries.sort(
+            key=lambda entry: (
+                pd.Timestamp(entry["snapshot_ts"]),
+                str(entry.get("snapshot_source_team_id") or "") == canonical_id,
+                str(entry.get("snapshot_source_team_id") or ""),
+                str(entry.get("created_at") or ""),
+            )
+        )
+    return canonical
+
+
 def _verify_model_training_provenance(
     model_training_metadata: dict[str, Any],
     *,
@@ -428,6 +463,9 @@ def _freeze_historical_inputs(
                 "canonical_team_id": str(entrant["canonical_team_id"]),
                 "ranking_source_team_id": source_id,
                 "snapshot_date": str(snapshot["snapshot_date"]),
+                "snapshot_source_team_id": str(
+                    snapshot.get("snapshot_source_team_id") or snapshot.get("team_id") or source_id
+                ),
                 "snapshot_created_at": str(snapshot["created_at"]),
                 "snapshot_last_calculated": str(snapshot.get("last_calculated") or ""),
                 "availability_verified": True,
@@ -562,6 +600,7 @@ def _build_entrant_row(
         "ranking_source_team_id": ranking_source_team_id,
         "event_team_name": event_team_name,
         "provider_team_id": str(entrant.get("provider_team_id") or ""),
+        "actual_division_key": str(entrant.get("actual_division_key") or entrant["actual_division_name"]),
         "actual_division_name": str(entrant["actual_division_name"]),
         "actual_pool_key": str(entrant.get("actual_pool_key") or ""),
         "actual_pool_name": str(entrant.get("actual_pool_name") or ""),
@@ -1170,6 +1209,10 @@ def _build_division_recommendations(
     optimized_divisions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     division_order = {division["name"]: index for index, division in enumerate(optimized_divisions, start=1)}
+    display_by_key = {
+        str(division["name"]): _actual_division_name(division, str(division["name"]))
+        for division in optimized_divisions
+    }
     recommended_by_entrant: dict[str, str] = {}
     for division in optimized_divisions:
         for team in division["teams"]:
@@ -1178,9 +1221,11 @@ def _build_division_recommendations(
     recommendations: list[dict[str, Any]] = []
     for entrant in entrant_rows:
         actual_division = str(entrant["actual_division_name"])
-        recommended_division = recommended_by_entrant[str(entrant["entrant_id"])]
-        actual_rank = division_order.get(actual_division, 0)
-        recommended_rank = division_order.get(recommended_division, 0)
+        actual_division_key = str(entrant.get("actual_division_key") or actual_division)
+        recommended_division_key = recommended_by_entrant[str(entrant["entrant_id"])]
+        recommended_division = display_by_key[recommended_division_key]
+        actual_rank = division_order.get(actual_division_key, 0)
+        recommended_rank = division_order.get(recommended_division_key, 0)
         if recommended_rank < actual_rank:
             move = "move_up"
         elif recommended_rank > actual_rank:
@@ -1193,7 +1238,9 @@ def _build_division_recommendations(
                 "canonical_team_name": entrant["canonical_team_name"],
                 "club_name": entrant["club_name"],
                 "provider_team_id": entrant.get("provider_team_id"),
+                "actual_division_key": actual_division_key,
                 "actual_division": actual_division,
+                "recommended_division_key": recommended_division_key,
                 "recommended_division": recommended_division,
                 "move": move,
                 "power_score": entrant["power_score"],
@@ -1298,7 +1345,7 @@ def main() -> int:
     team_rows = _fetch_rows_by_ids(client, "teams", TEAM_META_COLS, "team_id_master", canonical_team_ids)
     team_by_id = {str(row["team_id_master"]): row for row in team_rows}
     division_names = {
-        str(division.get("actual_division_name") or division["name"])
+        _actual_division_name(division, str(division["name"]))
         for division in payload["divisions"]
     }
     actual_games = _reviewed_actual_games(payload, division_names)
@@ -1335,19 +1382,23 @@ def main() -> int:
     ).strftime("%Y-%m-%d")
     snapshot_end = pd.Timestamp(prediction_date).normalize().strftime("%Y-%m-%d")
     print("PHASE: fetching-entrant-snapshots", flush=True)
+    snapshot_query_ids = _expand_merged_team_ids(merge_resolver, ranking_source_ids)
     entrant_snapshots_df = asyncio.run(
         fetch_prediction_feature_snapshots(
             client,
-            ranking_source_ids,
+            snapshot_query_ids,
             snapshot_start,
             snapshot_end,
             availability_cutoff=prediction_date,
         )
     )
     entrant_snapshot_index = build_snapshot_index(entrant_snapshots_df)
-    entrant_snapshot_index = _filter_snapshot_index_for_cutoff(
-        entrant_snapshot_index,
-        prediction_date,
+    entrant_snapshot_index = _canonicalize_snapshot_index(
+        merge_resolver,
+        _filter_snapshot_index_for_cutoff(
+            entrant_snapshot_index,
+            prediction_date,
+        ),
     )
     resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
     entrant_rows: list[dict[str, Any]] = []
@@ -1433,10 +1484,11 @@ def main() -> int:
             | set(ranking_source_ids)
         )
         print("PHASE: fetching-snapshots", flush=True)
+        related_snapshot_query_ids = _expand_merged_team_ids(merge_resolver, related_team_ids)
         snapshots_df = asyncio.run(
             fetch_prediction_feature_snapshots(
                 client,
-                related_team_ids,
+                related_snapshot_query_ids,
                 snapshot_start,
                 snapshot_end,
                 availability_cutoff=prediction_date,
@@ -1446,9 +1498,12 @@ def main() -> int:
             raise ValueError(
                 f"No point-in-time snapshots found for predictor date {prediction_date} and {len(related_team_ids)} teams"  # noqa: E501
             )
-        snapshot_index = _filter_snapshot_index_for_cutoff(
-            build_snapshot_index(snapshots_df),
-            prediction_date,
+        snapshot_index = _canonicalize_snapshot_index(
+            merge_resolver,
+            _filter_snapshot_index_for_cutoff(
+                build_snapshot_index(snapshots_df),
+                prediction_date,
+            ),
         )
         if not snapshot_index:
             raise ValueError(
@@ -1517,7 +1572,7 @@ def main() -> int:
     templates = {
         division_spec.name: explicit_division_schedule_template(
             division_name=division_spec.name,
-            actual_division_name=str(division_payload.get("actual_division_name") or division_spec.name),
+            actual_division_name=_actual_division_name(division_payload, division_spec.name),
             pool_sizes=division_spec.pool_sizes,
             format_code=division_spec.advancement,
             actual_game_count=_captured_fixture_count(
@@ -1555,6 +1610,15 @@ def main() -> int:
         )
 
     optimized_payload = optimization_result.to_dict()
+    for optimized_division, source_division in zip(
+        optimized_payload["divisions"],
+        payload["divisions"],
+        strict=True,
+    ):
+        optimized_division["actual_division_name"] = _actual_division_name(
+            source_division,
+            str(source_division["name"]),
+        )
     optimized_payload["simulated_schedule"] = simulated_tournament.to_dict()
     optimized_payload["schedule_templates"] = {name: template.to_dict() for name, template in templates.items()}
 

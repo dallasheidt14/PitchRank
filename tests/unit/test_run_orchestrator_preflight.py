@@ -151,6 +151,46 @@ def test_preflight_blocks_missing_explicit_replay_format(tmp_path: Path, monkeyp
     assert any("explicit replay format missing for A" in blocker for blocker in result.blockers)
 
 
+def test_preflight_blocks_unsupported_legacy_replay_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _bootstrap(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement="final_only",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        run_orchestrator,
+        "is_ready",
+        lambda *a, **k: ReadinessResult(ready=True, blockers=()),
+    )
+
+    result = preflight(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        supabase_client=None,
+    )
+
+    assert result.ready is False
+    assert any("unsupported replay format for A (final_only)" in blocker for blocker in result.blockers)
+
+
 def test_preflight_blocks_multi_pool_legacy_structure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     _bootstrap(tmp_path)
     write_structure(

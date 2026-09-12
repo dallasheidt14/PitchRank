@@ -92,7 +92,7 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert "constraints" not in request
     assert request["divisions"] == [
         {
-            "name": "Gold",
+            "name": "group-1",
             "actual_division_name": "Gold",
             "group_id": "group-1",
             "team_count": 2,
@@ -103,6 +103,7 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
         }
     ]
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
+    assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
     assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
 
@@ -124,6 +125,21 @@ def test_build_request_deduplicates_repeated_identified_fixture_rows():
 
     assert request["divisions"][0]["captured_fixture_count"] == 1
     assert len(request["actual_games_override"]) == 1
+
+
+def test_build_request_uses_group_id_when_division_label_is_blank():
+    snapshot = _snapshot()
+    division = replace(snapshot.roster.divisions[0], division_label="")
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["name"] == "group-1"
+    assert request["divisions"][0]["actual_division_name"] == ""
 
 
 def test_build_request_keeps_excluded_fixture_for_format_but_not_results():

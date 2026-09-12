@@ -130,7 +130,7 @@ def build_cohort_backtest_requests(
                 )
             divisions_payload.append(
                 {
-                    "name": division.division_label,
+                    "name": division.group_id,
                     "actual_division_name": division.division_label,
                     "group_id": division.group_id,
                     "team_count": sum(pool_sizes),
@@ -208,6 +208,7 @@ def build_cohort_backtest_requests(
                             "event_team_name": member.team_name,
                             "event_age_group": age_group,
                             "event_gender": gender,
+                            "actual_division_key": division.group_id,
                             "actual_division_name": division.division_label,
                             "actual_pool_key": (
                                 f"{division.group_id}:{pool.pool_id or f'row:{pool_index}'}"

@@ -58,6 +58,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
+from src.tournaments.schedule_simulator import SUPPORTED_PLAYOFF_FORMATS
 from src.tournaments.storage import (
     ScenarioLockError,
     acquire_scenario_lock,
@@ -357,6 +358,17 @@ def preflight(
         if missing_formats:
             blockers_for_cohort += (
                 f"{gender} {age}: explicit replay format missing for {', '.join(missing_formats)}; "
+                "review the division in Backtest intake",
+            )
+        unsupported_formats = tuple(
+            f"{division.name} ({division.advancement})"
+            for division in cohort_structure.divisions
+            if str(division.advancement or "").strip()
+            not in SUPPORTED_PLAYOFF_FORMATS
+        )
+        if unsupported_formats:
+            blockers_for_cohort += (
+                f"{gender} {age}: unsupported replay format for {', '.join(unsupported_formats)}; "
                 "review the division in Backtest intake",
             )
         missing_pool_membership = tuple(

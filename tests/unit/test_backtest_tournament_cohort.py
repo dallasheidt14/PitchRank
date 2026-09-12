@@ -347,6 +347,64 @@ def test_historical_game_context_expands_aliases_and_resolves_game_sides():
     ]
 
 
+def test_historical_snapshot_index_resolves_merged_aliases_to_canonical_id():
+    class Resolver:
+        def resolve(self, team_id):
+            return "team-a" if str(team_id) == "old-a" else team_id
+
+    snapshot_ts = pd.Timestamp("2026-04-08")
+    index = cohort._canonicalize_snapshot_index(
+        Resolver(),
+        {
+            "old-a": [
+                {
+                    "team_id": "old-a",
+                    "snapshot_date": "2026-04-08",
+                    "snapshot_ts": snapshot_ts,
+                    "created_at": "2026-04-08T12:00:00+00:00",
+                }
+            ]
+        },
+    )
+
+    assert set(index) == {"team-a"}
+    assert index["team-a"][0]["team_id"] == "team-a"
+    assert index["team-a"][0]["snapshot_source_team_id"] == "old-a"
+
+
+def test_division_recommendations_keep_stable_keys_internal_and_labels_for_display():
+    recommendations = cohort._build_division_recommendations(
+        [
+            {
+                "entrant_id": "entrant-a",
+                "event_team_name": "Alpha",
+                "canonical_team_name": "Alpha",
+                "club_name": "Club",
+                "provider_team_id": "pid-a",
+                "actual_division_key": "group-gold",
+                "actual_division_name": "Gold",
+                "power_score": 0.8,
+                "ranking_source_team_id": "team-a",
+                "canonical_team_id": "team-a",
+                "ranking_status": "Active",
+            }
+        ],
+        [
+            {
+                "name": "group-gold",
+                "actual_division_name": "Gold",
+                "teams": [{"team_id": "entrant-a"}],
+            }
+        ],
+    )
+
+    assert recommendations[0]["actual_division"] == "Gold"
+    assert recommendations[0]["actual_division_key"] == "group-gold"
+    assert recommendations[0]["recommended_division"] == "Gold"
+    assert recommendations[0]["recommended_division_key"] == "group-gold"
+    assert recommendations[0]["move"] == "stay"
+
+
 def test_captured_fixture_count_does_not_shrink_to_scored_games():
     division = {
         "name": "Gold",
@@ -672,6 +730,13 @@ def test_reviewed_actual_games_distinguishes_empty_override_from_missing_key():
         {"BU10 Premier"},
     ) == []
     assert cohort._reviewed_actual_games({}, {"BU10 Premier"}) is None
+
+
+def test_blank_captured_division_label_is_not_replaced_by_internal_key():
+    assert cohort._actual_division_name(
+        {"name": "group-1", "actual_division_name": ""},
+        "group-1",
+    ) == ""
 
 
 def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
