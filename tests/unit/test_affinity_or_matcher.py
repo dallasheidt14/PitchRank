@@ -79,9 +79,26 @@ class TestTierTokens:
     def test_tiers_are_read_from_the_name(self, name, expected):
         assert _extract_tier_tokens(name) == frozenset(expected)
 
-    def test_ecnl_and_ecnl_rl_are_different_tiers(self):
-        """The pair CLAUDE.md names explicitly: ECNL is not ECNL-RL."""
-        assert _extract_tier_tokens("United PDX ECNL 2013") != _extract_tier_tokens("United PDX ECNL RL 2013")
+    @pytest.mark.parametrize(
+        "spelling",
+        ["United PDX ECNL RL 2013", "United PDX ECNL-RL 2013", "United PDX ECRL 2013"],
+    )
+    def test_every_ecnl_rl_spelling_is_a_different_tier_from_ecnl(self, spelling):
+        """The pair CLAUDE.md names explicitly: ECNL is not ECNL-RL.
+
+        game_matcher.extract_club_from_team_name strips all three spellings, so
+        all three are live in this data. Testing only the space-separated one
+        left the hyphen and the contraction reading as no tier at all, which
+        merged an ECNL-RL squad onto its club's ECNL squad at confidence 1.0.
+        """
+        assert _extract_tier_tokens(spelling) != _extract_tier_tokens("United PDX ECNL 2013")
+
+    def test_the_three_ecnl_rl_spellings_agree_with_each_other(self):
+        assert (
+            _extract_tier_tokens("United PDX ECNL RL 2013")
+            == _extract_tier_tokens("United PDX ECNL-RL 2013")
+            == _extract_tier_tokens("United PDX ECRL 2013")
+        )
 
     def test_academy_and_premier_are_different_tiers(self):
         assert _extract_tier_tokens("WOODBURN FC 2013 Academy") != _extract_tier_tokens("WOODBURN FC 2013 Premier")
@@ -96,12 +113,19 @@ class TestLaneNumber:
             ("Columbia Premier SC 2013 Black 1", "1"),
             ("Columbia Premier SC 2013 Black 2", "2"),
             ("Eugene Metro FC 2013 Inter Comp 3", "3"),
-            # A trailing state suffix must not hide the lane
+            # A trailing parenthetical must not hide the lane, whatever it says
             ("Columbia Premier SC N1 2012/13 Black 1 (OR)", "1"),
+            ("Columbia Premier SC N1 2012/13 Black 1 (Oregon)", "1"),
             # A birth year is not a lane
             ("FC Portland 2013", None),
             ("FC Portland 2013 Red", None),
             ("RVT N1 2013/14 Red (OR)", None),
+            # Nor is the tail of a two-digit birth-year band. Every trailing
+            # two-digit token in the OR corpus is one of these, so reading it
+            # as a lane hard-rejects correct candidates over a year.
+            ("Eugene Metro FC ECNL RL B2013/14", None),
+            ("Westside Metros ECNL RL B06/07", None),
+            ("Eastside Timbers 09", None),
         ],
     )
     def test_lane_is_the_trailing_number(self, name, expected):

@@ -23,9 +23,8 @@ run before this gate existed.
 
 import logging
 import re
+from difflib import SequenceMatcher
 from typing import Dict, Optional
-
-from rapidfuzz import fuzz
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
@@ -68,6 +67,22 @@ def _normalize_for_affinity_or(name: str) -> str:
     return n
 
 
+def _token_sort_ratio(a: str, b: str) -> float:
+    """Order-insensitive similarity on two names, 0.0-1.0, stdlib only.
+
+    Deliberately not ``rapidfuzz``. It is in neither requirements file, so
+    ``club_normalizer`` carries a difflib fallback and CI and the scheduled
+    workflows all run on it — and that fallback defines no ``token_sort_ratio``
+    at all. Importing rapidfuzz here made every threshold in this module
+    measured against a library production does not have, and would have raised
+    ``AttributeError`` into the broad ``except`` below, matching nothing and
+    autocreating every Oregon team.
+    """
+    sorted_a = " ".join(sorted(a.split()))
+    sorted_b = " ".join(sorted(b.split()))
+    return SequenceMatcher(None, sorted_a, sorted_b).ratio()
+
+
 def _is_same_club(provider_club: str, candidate_club: str, threshold: float) -> bool:
     """Same club by canonical id AND by order-insensitive name similarity.
 
@@ -82,17 +97,17 @@ def _is_same_club(provider_club: str, candidate_club: str, threshold: float) -> 
       "portland" sits inside "portland city united", so FC Portland and
       Portland City United SC score a perfect 1.0.
 
-    ``token_sort_ratio`` is the one that reads both names whole. Measured
-    2026-09-11 over the 106 distinct OR club names, genuinely-different pairs
-    top out at 0.67 while same-club pairs reach 0.74-1.00, so the configured
-    threshold clears every different-club pair. It also declines two true
+    :func:`_token_sort_ratio` is the one that reads both names whole.
+    Measured 2026-09-12 over the 106 distinct OR club names, genuinely-
+    different pairs top out at 0.67 while same-club pairs reach 0.74-1.00,
+    so the configured threshold clears every different-club pair. It also declines two true
     same-club pairs that differ by a trailing "and Thorns"; that costs a
     duplicate row, which ``merging-duplicate-teams`` reverses, where the other
     direction fuses two squads into one and does not reverse.
 
     The ``are_same_club`` half is redundant on every Oregon pair measured, and
     a mutation run confirms no test here pins it: ``token_set_ratio`` never
-    scores below ``token_sort_ratio``, so a name pair clearing the sort check
+    scores below a token-sort score, so a name pair clearing the sort check
     clears it too. It is kept because the one case that *can* separate two
     near-identical names is a hand-curated canonical id, which lives there and
     nowhere else.
@@ -100,11 +115,10 @@ def _is_same_club(provider_club: str, candidate_club: str, threshold: float) -> 
     if not are_same_club(provider_club, candidate_club, threshold=threshold):
         return False
     return (
-        fuzz.token_sort_ratio(
+        _token_sort_ratio(
             normalize_club_name(provider_club),
             normalize_club_name(candidate_club),
         )
-        / 100.0
         >= threshold
     )
 
@@ -113,17 +127,27 @@ _TIER_TOKENS = frozenset(
     {"ecnl", "rl", "npl", "dpl", "ga", "mls", "premier", "elite", "select", "classic", "academy"}
 )
 
+# One tier, three spellings in this data — game_matcher.extract_club_from_team_name
+# strips all of ``ECNL-RL|ECNL RL|ECRL``. Splitting on the hyphen makes the first
+# two agree; the contraction has to be expanded explicitly or it reads as no tier
+# at all and an ECNL-RL squad merges onto its club's ECNL squad.
+_TIER_ALIASES = {"ecrl": frozenset({"ecnl", "rl"})}
+
 
 def _extract_tier_tokens(name: str) -> frozenset:
     """Competitive tiers named in a team name, e.g. 'United PDX ECNL 2013' -> {'ecnl'}.
 
-    Returned as a set so 'ECNL RL' ({'ecnl', 'rl'}) stays distinct from plain
-    'ECNL' ({'ecnl'}), the pair CLAUDE.md singles out as never mergeable.
+    Returned as a set so every spelling of ECNL-RL ({'ecnl', 'rl'}) stays
+    distinct from plain 'ECNL' ({'ecnl'}), the pair CLAUDE.md singles out as
+    never mergeable.
     """
     if not name:
         return frozenset()
-    words = {w.strip("-").lower() for w in re.split(r"[\s/]+", name)}
-    return frozenset(words & _TIER_TOKENS)
+    words = {w.lower() for w in re.split(r"[\s/\-]+", name) if w}
+    tiers = set(words & _TIER_TOKENS)
+    for word in words:
+        tiers |= _TIER_ALIASES.get(word, frozenset())
+    return frozenset(tiers)
 
 
 def _extract_lane_number(name: str) -> Optional[str]:
@@ -135,16 +159,22 @@ def _extract_lane_number(name: str) -> Optional[str]:
     squads match each other at full confidence.  A four-digit birth year is not
     a lane: the word boundary keeps '... 2013' from reading as lane 13.
 
-    A trailing state suffix hides the lane, and DB rows carry one far more
+    A trailing parenthetical hides the lane, and DB rows carry one far more
     often than provider rows do — 'Columbia Premier SC ... Black 1 (OR)'
     against provider 'Columbia Premier SC 2013 Black 2' left the gate with
     only one lane number and so no opinion, which is the shape that let the
-    two squads match.
+    two squads match. Any parenthetical is stripped, not just a state code.
+
+    A lane is one digit. Measured over the 2,861 OR team names on 2026-09-12:
+    every trailing single digit is a lane ('Comp 1', 'Prem 2', 'East 3', 152
+    rows) and every trailing two-digit token is the tail of a birth-year band
+    ('ECNL RL B2013/14', 'B06/07', 93 rows), so reading two digits would make
+    the gate reject correct candidates over a year.
     """
     if not name:
         return None
-    trimmed = re.sub(r"\s*\([A-Za-z]{2}\)\s*$", "", name)
-    m = re.search(r"\b(\d{1,2})\s*$", trimmed)
+    trimmed = re.sub(r"\s*\([^)]*\)\s*$", "", name)
+    m = re.search(r"(?<![\d/])(\d)\s*$", trimmed)
     return m.group(1) if m else None
 
 
@@ -241,6 +271,14 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 candidate_name_norm = _normalize_for_affinity_or(candidate_name_raw)
                 candidate_club_raw = team.get("club_name")
                 candidate_club_norm = _normalize_club_for_affinity(candidate_club_raw)
+                # A row with no club_name still names its club inside team_name.
+                # Derive it once: the gate below and the scoring further down must
+                # agree, or a candidate admitted on the derived club is then scored
+                # as having none, which caps it at 0.55 against a 0.75 threshold and
+                # makes every club-less row an unmatchable duplicate.
+                candidate_club_effective = candidate_club_norm or _normalize_club_for_affinity(
+                    extract_club_from_team_name(candidate_name_norm)
+                )
 
                 # Stage 1 gate: canonical same-club (or very high similarity).
                 # 9% of OR rows carry no club_name, so comparing the column alone
@@ -251,9 +289,6 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 # cannot produce at all, decline: a duplicate is recoverable by
                 # merge, a wrong match fuses two squads.
                 if provider_club_name:
-                    candidate_club_effective = candidate_club_norm or _normalize_club_for_affinity(
-                        extract_club_from_team_name(candidate_name_norm)
-                    )
                     if not candidate_club_effective:
                         reject_counts["club_unknown"] += 1
                         continue
@@ -290,7 +325,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 candidate_count_after_gate += 1
                 candidate = {
                     "team_name": candidate_name_norm,
-                    "club_name": candidate_club_norm or candidate_club_raw,
+                    "club_name": candidate_club_effective or candidate_club_raw,
                     "age_group": team.get("age_group"),
                     "state_code": team.get("state_code"),
                 }
@@ -318,7 +353,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                     1
                     if provider_club_name
                     and candidate_club_norm
-                    and _is_same_club(provider_club_name, candidate_club_norm, 0.95)
+                    and _is_same_club(provider_club_name, candidate_club_effective, 0.95)
                     else 0,
                 )
 

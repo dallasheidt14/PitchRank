@@ -126,20 +126,25 @@ TOURNAMENT = {
     "base_url": "https://oysa.sportsaffinity.com",
 }
 
-WINDOW_START = scraper.datetime(2026, 9, 1)
-WINDOW_END = scraper.datetime(2026, 10, 1)
+# Whether a blank pair is a fixture depends on the wall clock, so these dates
+# are far enough either side of it that the suite does not change meaning as
+# time passes — a fixed 2026 date silently became "today" mid-review.
+FUTURE_HEADER = "Bracket - Saturday,  September 12, 2099"
+PAST_HEADER = "Bracket - Saturday,  September 12, 2020"
+WIDE_WINDOW = (scraper.datetime(2019, 1, 1), scraper.datetime(2100, 1, 1))
+NARROW_WINDOW = (scraper.datetime(2026, 9, 1), scraper.datetime(2026, 10, 1))
 
 
-def _scrape(monkeypatch, rows, date_header=None):
+def _scrape(monkeypatch, rows, date_header=FUTURE_HEADER, window=WIDE_WINDOW):
     """Scrape `rows` with the season pinned, so Aug 1 does not move the expectations."""
-    html = _schedule_html(rows) if date_header is None else _schedule_html(rows, date_header)
+    html = _schedule_html(rows, date_header)
     monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: html)
     monkeypatch.setattr(
         scraper,
         "calculate_age_group_from_birth_year",
         lambda birth_year: team_utils.calculate_age_group_from_birth_year(birth_year, PINNED_SEASON),
     )
-    return scraper.scrape_flight_games(TOURNAMENT, FLIGHT, WINDOW_START, WINDOW_END)
+    return scraper.scrape_flight_games(TOURNAMENT, FLIGHT, *window)
 
 
 class TestScoreShapes:
@@ -151,6 +156,13 @@ class TestScoreShapes:
         home, away = records
         assert (home["goals_for"], home["goals_against"], home["result"]) == (3, 1, "W")
         assert (away["goals_for"], away["goals_against"], away["result"]) == (1, 3, "L")
+
+    def test_a_past_dated_blank_pair_is_not_a_fixture(self, monkeypatch):
+        """The importer rejects it, so shipping it is only warning noise."""
+        assert _scrape(monkeypatch, [UNPLAYED], PAST_HEADER) == []
+
+    def test_a_past_dated_played_game_is_still_kept(self, monkeypatch):
+        assert len(_scrape(monkeypatch, [PLAYED], PAST_HEADER)) == 2
 
     def test_unplayed_fixture_emits_both_scores_empty(self, monkeypatch):
         records = _scrape(monkeypatch, [UNPLAYED])
@@ -270,10 +282,11 @@ class TestDateWindow:
         ],
     )
     def test_a_date_outside_the_window_is_skipped(self, monkeypatch, date_header):
-        assert _scrape(monkeypatch, [PLAYED], date_header) == []
+        assert _scrape(monkeypatch, [PLAYED], date_header, NARROW_WINDOW) == []
 
     def test_a_date_inside_the_window_is_kept(self, monkeypatch):
-        assert len(_scrape(monkeypatch, [PLAYED], "Bracket - Saturday,  September 26, 2026")) == 2
+        header = "Bracket - Saturday,  September 26, 2026"
+        assert len(_scrape(monkeypatch, [PLAYED], header, NARROW_WINDOW)) == 2
 
 
 class TestRecordFields:

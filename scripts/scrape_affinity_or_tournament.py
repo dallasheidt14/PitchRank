@@ -341,6 +341,15 @@ def scrape_flight_games(
             if home_blank != away_blank:
                 continue
             if home_blank:
+                # Only a FUTURE blank is a fixture. The importer accepts a blank
+                # pair only when game_date > today (_should_accept_for_insert);
+                # a past blank is a result nobody posted, and shipping it earns
+                # two "REJECTED due to invalid scores" warnings per row and
+                # inflates skipped_empty_scores, which is meant to flag real
+                # data-quality problems. A Monday scrape of a weekend league
+                # produces these by the hundred.
+                if current_date.date() <= datetime.now().date():
+                    continue
                 home_score: object = ""
                 away_score: object = ""
                 result_home = result_away = "U"

@@ -18,6 +18,7 @@ import pytest
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.etl import enhanced_pipeline
+from src.models.affinity_or_matcher import AffinityORGameMatcher
 from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
@@ -28,6 +29,7 @@ AUTOCREATING_MATCHERS = [
     ("tgs", TGSGameMatcher),
     ("sincsports", SincSportsGameMatcher),
     ("affinity_wa", AffinityWAGameMatcher),
+    ("affinity_or", AffinityORGameMatcher),
     ("playmetrics", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
 ]

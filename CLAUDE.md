@@ -626,7 +626,7 @@ comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
 Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`),
 `or-scraper.yml` runs the Affinity OR matcher, which hardcodes `"OR"`
-(`src/models/affinity_or_matcher.py:345`), and
+(`src/models/affinity_or_matcher.py:506`, in `_create_new_affinity_or_team`), and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes its
 `default_state_code` (`src/models/playmetrics_matcher.py:237`). None sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
