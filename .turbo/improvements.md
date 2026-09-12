@@ -964,3 +964,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_write_event_roster_recovery` and `_recovery_holds_a_complete_walk` in `tournament_intake.py`; `EventRoster.is_complete` in `src/tournaments/gotsport_event_roster.py`
 - **Why**: The overwrite guard asks only whether the file already holds a *complete* walk, and `is_complete` is satisfied by any walk that read every division it found — including a one-division event. So a small complete roster replaces a large partial one, which is backwards: the partial walk of 57 divisions is the expensive artifact. This is not theoretical. On 2026-09-09 a process sharing this checkout wrote a synthetic 1-division roster over `reports/seeding/gotsport_52975/last_walk.json`, and 9 of the real walk's 11 team entries were unrecoverable; the surviving file carries a `_restored_note` recording it. Comparing team counts, or refusing to replace a walk of a different `divisions_found`, would both have held. Related: the same file is the one `_recovered_walk` now reads back, so a wrong winner here is offered to the operator as the walk they paid for.
 - **Noted**: 2026-09-09
+
+### Games where a team plays itself reach the ranking engine
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/rankings/data_adapter.py` `drop_duplicates(subset=["id"])` (no self-play filter); origin likely `src/etl/enhanced_pipeline.py` team-id backfill / provider matchers
+- **Why**: 1,028 game rows across 552 live teams carry `home_team_master_id = away_team_master_id`, verified by direct SQL 2026-09-12 (894 GotSport, 124 TGS, 5 PlayMetrics, 3 Modular11, 2 Affinity WA; dates 2024-03-29 to 2027-03-13). Nothing filters them before Glicko, so a team is rated against itself. They also mark rows that are two squads fused into one record — `XF 2016 RCL 1` (`ab31993f`) holds 42 games against 17-20 for each sibling squad and plays every flight opponent twice. Root cause unknown: could be a matcher resolving two provider ids to one master, or a provider feed listing both sides identically.
+- **Noted**: 2026-09-12

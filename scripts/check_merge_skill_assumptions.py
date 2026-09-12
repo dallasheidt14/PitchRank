@@ -49,18 +49,20 @@ DRIFT_TOLERANCE = 0.20
 
 # Figures quoted in the skill, with the date they were measured. Update both together.
 RECORDED = {
-    "live_teams": 207991,
-    "null_club": 17600,
-    "null_team_name_original": 97862,
-    "u_label_no_year": 21420,
-    "u19_guard_blind": 6526,
-    "protected_division_rows": 4890,
+    "live_teams": 207989,
+    "null_club": 14940,
+    "null_team_name_original": 97861,
+    "u_label_no_year": 22728,
+    "u19_guard_blind": 6914,
+    "protected_division_rows": 5054,
     # Renamed from gender_word_year_rows, which counted rows merely matching an
     # NN Boys/Girls shape. A run predating IMP-136 reports 2,953 against this
     # key: a change of metric, not movement in the data.
-    "gender_word_only_year_rows": 427,
+    "gender_word_only_year_rows": 758,
+    # Positive set Doorway C calibrates against: hand-made merges only.
+    "human_vetted_merges": 2938,
 }
-RECORDED_ON = "2026-09-08"
+RECORDED_ON = "2026-09-12"
 
 
 @dataclass
@@ -280,6 +282,70 @@ FOUR_DIGIT_YEAR = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
 GENDER_WORD = re.compile(r"\b(?:boys|girls)\b", re.I)
 
 
+HUMAN_MERGE_ACTORS = (
+    "dallasheidt@gmail.com",
+    "DALLASHEIDT@GMAIL.COM",
+    "dallas",
+    "manual",
+    "cursor_agent",
+    "cursor-agent",
+    "your-email@example.com",
+)
+
+
+def measure_calibration_set(r: Result, sb) -> None:
+    """Size of the positive set Doorway C's calibration rests on.
+
+    The skill segments team_merge_map by actor because the bot rows include a run that merged
+    1,772 pairs of distinct teams. Only the hand-made rows are ground truth, and that pool grows
+    every time the operator merges something, so it is worth watching for drift.
+    """
+    res = (
+        sb.table("team_merge_map")
+        .select("deprecated_team_id", count="exact", head=True)
+        .in_("merged_by", list(HUMAN_MERGE_ACTORS))
+        .execute()
+    )
+    r.measure("human_vetted_merges", res.count or 0)
+
+
+def note_doorway_c_calibration_unverifiable(r: Result) -> None:
+    """Doorway C's discriminating figures need self-joins PostgREST cannot express.
+
+    Every one of them compares pairs of teams -- same club and cohort, differing provider, or
+    having played each other -- which is a self-join on `teams` plus an aggregate over `games`.
+    PostgREST offers neither, so this script must not imply it re-measured them.
+    """
+    r.needs_human(
+        "Doorway C calibration figures (cross-provider 78.3%/1.7%, opponent Jaccard 0.053/0.200)",
+        "Measured 2026-09-12 by direct SQL against 2,530 hand-made merges with games on both "
+        "sides (positives) and 33,674 live same-club/cohort pairs that have played each other "
+        "(negatives). Head-to-head base rate 0.43%; identical-name tier 0 provable false "
+        "positives in 1,082 historical candidates against ~4.7 expected, containment tier 10 "
+        "against ~10.5 expected. Re-derive with a self-join on `teams` keyed on normalised "
+        "club + age_group + gender + state_code, joined to per-team aggregates over `games`; "
+        "PostgREST supports neither the self-join nor the aggregate, so this script cannot. "
+        "`human_vetted_merges` below tracks the positive pool's size as a proxy.",
+    )
+
+
+def note_self_play_unverifiable(r: Result) -> None:
+    """Step 5's survivor-integrity rule rests on a figure PostgREST cannot produce.
+
+    The rule rejects a merge whose surviving row appears in a game as both home and away team.
+    Counting those needs a column-to-column comparison, which PostgREST has no filter for, so
+    this script cannot re-measure it and must not imply that it did.
+    """
+    r.needs_human(
+        "self-play rows remain a live defect (Step 5 survivor-integrity rule)",
+        "Measured 2026-09-12 by direct SQL: 1,028 game rows across 552 live teams have "
+        "home_team_master_id = away_team_master_id, 894 of them GotSport. PostgREST cannot "
+        "compare two columns, so re-measure with "
+        "`select count(*) from games where home_team_master_id = away_team_master_id` before "
+        "trusting that figure. If it has reached zero the Step 5 screen is no longer load-bearing.",
+    )
+
+
 def measure_counts(r: Result, sb) -> None:
     """Cheap server-side counts, for the figures a plain operator can express."""
     r.measure("live_teams", count(sb, "teams", lambda q: q.eq("is_deprecated", False)))
@@ -392,11 +458,14 @@ def main() -> int:
     check_precondition_compares_raw_strings(result)
     check_scorer_backend(result)
     check_workflow_flags(result)
+    note_self_play_unverifiable(result)
+    note_doorway_c_calibration_unverifiable(result)
 
     if not args.code_only:
         sb = get_client()
         check_enqueue_migration_applied(result, sb)
         measure_counts(result, sb)
+        measure_calibration_set(result, sb)
         measure_names(result, sb)
 
     if args.json:
