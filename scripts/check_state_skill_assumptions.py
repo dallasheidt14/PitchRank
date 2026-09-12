@@ -69,11 +69,13 @@ RECORDED = {
     # is right.
     "audit_candidates": 267,
     "audit_candidates_with_alias": 217,
-    # SKILL.md Step 2b, as the current population the operator sizes --probe-limit
-    # against. Measured by the selectors the tool runs -- anchorable_clubs and
-    # unclubbed_candidates over the same teams list -- so a drift here is a drift in what
-    # the next run will select, not in a proxy. The alias lookups cost one batched call per
-    # hundred ids, which a preflight can afford.
+    # SKILL.md Step 2b, as the current population an anchor pass draws from. Measured by
+    # the selectors the tool runs -- anchorable_clubs and unclubbed_candidates over the same
+    # teams list -- so a drift here is a drift in what the next run considers, not in a
+    # proxy. It is not a --probe-limit budget: anchorable_clubs runs before the alias
+    # lookup, and anchor_candidates then discards every club with no GotSport id on any
+    # member, which on 2026-09-11 took 908 clubs down to 37 selected. The alias lookups cost
+    # one batched call per hundred ids, which a preflight can afford.
     "anchorable_clubs": 893,
     "teams_in_anchorable_clubs": 5859,
     "teams_in_anchorable_clubs_with_alias": 2192,

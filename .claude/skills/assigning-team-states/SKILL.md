@@ -161,11 +161,15 @@ current population is stated here and guarded by `check_state_skill_assumptions.
 end of 2026-09-11, **893 clubs with two or more askable teams have no confirmed member,
 holding 5,859 teams, 2,192 of them with a GotSport id**. That is the population the checker
 measures; the tool prints fewer, the clubs it can pick a team from once the alias lookup and
-the retry cap have had their say. **Expect "fewer" to mean a rounding error of the figure
-above, not a trim**: on 2026-09-11 the checker measured 893 and the run selected 37, because
-6,560 clubs were already anchored, 1,972 hold a single askable team and belong to the
-unclubbed pass, and 288 had been retired as unanswerable. Size `--probe-limit` from a
-rehearsal run's own "clubs can be anchored" line, never from the population here. The base rate says about 2.9% of their teams are wrong.
+the retry cap have had their say. **Expect "fewer" to mean a small fraction of the figure
+above, not a trim, and expect the alias lookup to be the whole reason**: on 2026-09-11 a run
+whose population stood at 908 selected **37**, because 583 of those clubs carry no GotSport
+id on any member to ask through and 288 had been retired as unanswerable. Read the
+decomposition off the run's own "passed over (clubs)" line, which counts against every club
+in the database — the `anchored` and `single team` entries there are already excluded from
+the figure above by `anchorable_clubs`, so they explain none of the shortfall. Size
+`--probe-limit` from a rehearsal run's "clubs can be anchored" line, never from the
+population here. The base rate says about 2.9% of their teams are wrong.
 This mode asks **one team per unanchored club**,
 largest clubs first so a capped run buys the most coverage per call: a team stored in the
 club's majority state, so that a disagreeing answer is an ordinary Tier A correction and an
