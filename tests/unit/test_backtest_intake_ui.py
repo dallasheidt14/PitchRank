@@ -323,7 +323,7 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert test.session_state["_seeding_result"] == "seeding-must-survive"
 
 
-def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monkeypatch):
+def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, monkeypatch):
     import hashlib
 
     import tournament_intake as app
@@ -446,9 +446,12 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     assert metrics["Observed games"] == "1"
     assert metrics["Observed average margin"] == "1.00"
     comparison = next(
-        item.value for item in test.dataframe if "MatchBalance model" in item.value.columns
+        item.value for item in test.dataframe if "MatchBalance projection" in item.value.columns
     )
-    assert comparison["Metric"].tolist()[0] == "Average expected goal margin"
+    assert comparison["Metric"].tolist()[0] == "Average goal margin"
+    assert comparison["Actual tournament"].tolist()[0] == "1.00"
+    assert comparison["MatchBalance projection"].tolist()[0] == "1.50"
+    assert comparison["Estimated reduction"].tolist()[0] == "0.50 higher"
     movements = next(
         item.value for item in test.dataframe if "MatchBalance division" in item.value.columns
     )

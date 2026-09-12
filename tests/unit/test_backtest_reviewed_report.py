@@ -1,5 +1,5 @@
 from src.tournaments.backtest_reviewed_report import (
-    model_comparison_rows,
+    actual_vs_matchbalance_rows,
     movement_rows,
     observed_result_values,
     render_reviewed_backtest_html,
@@ -7,12 +7,25 @@ from src.tournaments.backtest_reviewed_report import (
 from tests.unit.test_backtest_reviewed_run import _summary
 
 
-def test_model_comparison_uses_better_direction_for_each_metric():
-    rows = model_comparison_rows(_summary())
+def test_sales_comparison_uses_captured_results_and_matchbalance_projection():
+    rows = actual_vs_matchbalance_rows(_summary())
 
-    assert rows[0]["Improvement"] == 0.5
-    assert round(rows[2]["Improvement"], 6) == 0.2
-    assert round(rows[3]["Improvement"], 6) == 0.1
+    assert rows == [
+        {
+            "Metric": "Average goal margin",
+            "Actual tournament": 1.0,
+            "MatchBalance projection": 1.5,
+            "Estimated reduction": -0.5,
+            "Unit": "goals",
+        },
+        {
+            "Metric": "4+ goal blowout rate",
+            "Actual tournament": 0.0,
+            "MatchBalance projection": 0.1,
+            "Estimated reduction": -0.1,
+            "Unit": "rate",
+        },
+    ]
 
 
 def test_movement_rows_include_staying_teams():
@@ -37,6 +50,8 @@ def test_director_report_escapes_tournament_and_team_names():
     assert "<script>alert(1)</script>" not in rendered
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
     assert "&lt;b&gt;Alpha&lt;/b&gt;" in rendered
+    assert "Actual tournament versus MatchBalance" in rendered
+    assert "Modeled original" not in rendered
 
 
 def test_observed_aggregates_are_unavailable_without_scored_games():

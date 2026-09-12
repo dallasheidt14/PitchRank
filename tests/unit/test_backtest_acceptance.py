@@ -62,11 +62,12 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 1},
             "team_movements": {"evaluated": 2, "duplicate_entry_ids_skipped": []},
-            "modelled_pool_matchups": {
-                "original_count": 1,
-                "matchbalance_count": 1,
-                "original_blowout_4plus_rate": 0.2,
-                "matchbalance_blowout_4plus_rate": 0.1,
+            "actual_vs_matchbalance": {
+                "comparison_ready": True,
+                "actual_game_count": 1,
+                "matchbalance_projected_matchup_count": 1,
+                "actual_blowout_4plus_rate": 0.2,
+                "matchbalance_projected_blowout_4plus_rate": 0.1,
             },
         },
     )
@@ -103,11 +104,12 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 0},
             "team_movements": {"evaluated": 0, "duplicate_entry_ids_skipped": []},
-            "modelled_pool_matchups": {
-                "original_count": 0,
-                "matchbalance_count": 0,
-                "original_blowout_4plus_rate": None,
-                "matchbalance_blowout_4plus_rate": None,
+            "actual_vs_matchbalance": {
+                "comparison_ready": False,
+                "actual_game_count": 0,
+                "matchbalance_projected_matchup_count": 0,
+                "actual_blowout_4plus_rate": None,
+                "matchbalance_projected_blowout_4plus_rate": None,
             },
         },
     )

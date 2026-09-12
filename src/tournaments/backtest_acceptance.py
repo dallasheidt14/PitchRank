@@ -234,13 +234,14 @@ def validate_backtest_acceptance(
             detail=f"{movements['evaluated']} unique movement rows",
         )
     )
-    modelled = rollup["modelled_pool_matchups"]
+    comparison = rollup["actual_vs_matchbalance"]
     rollup_reconciled = bool(
         coverage["completed"] == coverage["total_cohorts"]
-        and modelled["original_count"] == modelled["matchbalance_count"]
-        and modelled["original_count"] > 0
-        and modelled["original_blowout_4plus_rate"] is not None
-        and modelled["matchbalance_blowout_4plus_rate"] is not None
+        and comparison["comparison_ready"]
+        and comparison["actual_game_count"] > 0
+        and comparison["matchbalance_projected_matchup_count"] > 0
+        and comparison["actual_blowout_4plus_rate"] is not None
+        and comparison["matchbalance_projected_blowout_4plus_rate"] is not None
     )
     checks.append(_check("tournament rollup reconciliation", True, rollup_reconciled))
     failed = Counter(check["status"] for check in checks)["fail"]

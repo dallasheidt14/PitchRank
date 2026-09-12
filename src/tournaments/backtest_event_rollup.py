@@ -171,11 +171,7 @@ def build_event_rollup(
         records,
         model_sha256=model_sha256,
     )
-    original_margin, original_matchups = _weighted_projection(selected, "original_model_projection")
     proposed_margin, proposed_matchups = _weighted_projection(selected, "proposed_model_projection")
-    original_blowout, original_blowout_matchups = _weighted_probability(
-        selected, "original_model_projection"
-    )
     proposed_blowout, proposed_blowout_matchups = _weighted_probability(
         selected, "proposed_model_projection"
     )
@@ -195,13 +191,21 @@ def build_event_rollup(
     coverage_counts = Counter(row["status"] for row in coverage)
     totals = tournament_totals(effective_roster(snapshot))
     actual = totals["results"]
+    all_cohorts_complete = bool(coverage) and coverage_counts["completed"] == len(coverage)
     complete_4plus = (
-        original_blowout_matchups == original_matchups
+        all_cohorts_complete
         and proposed_blowout_matchups == proposed_matchups
-        and original_matchups > 0
+        and proposed_matchups > 0
     )
+    actual_margin = actual["average_goal_margin"]
+    actual_blowout = (
+        float(actual["blowout_percentage"]) / 100.0
+        if actual["blowout_percentage"] is not None
+        else None
+    )
+    comparison_proposed_margin = proposed_margin if all_cohorts_complete else None
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "event": {
             "event_id": snapshot.roster.event_id,
             "event_name": totals["event_name"],
@@ -220,24 +224,29 @@ def build_event_rollup(
                 else None
             ),
         },
-        "modelled_pool_matchups": {
-            "original_count": original_matchups,
-            "matchbalance_count": proposed_matchups,
-            "original_average_goal_margin": original_margin,
-            "matchbalance_average_goal_margin": proposed_margin,
-            "goal_margin_improvement": (
-                original_margin - proposed_margin
-                if original_margin is not None and proposed_margin is not None
+        "actual_vs_matchbalance": {
+            "comparison_ready": all_cohorts_complete,
+            "actual_game_count": int(actual["scored_games"]),
+            "matchbalance_projected_matchup_count": proposed_matchups,
+            "actual_average_goal_margin": actual_margin,
+            "matchbalance_projected_average_goal_margin": comparison_proposed_margin,
+            "estimated_goal_margin_reduction": (
+                actual_margin - comparison_proposed_margin
+                if actual_margin is not None and comparison_proposed_margin is not None
                 else None
             ),
-            "original_blowout_4plus_rate": original_blowout if complete_4plus else None,
-            "matchbalance_blowout_4plus_rate": proposed_blowout if complete_4plus else None,
-            "blowout_4plus_rate_improvement": (
-                original_blowout - proposed_blowout
-                if complete_4plus and original_blowout is not None and proposed_blowout is not None
+            "actual_blowout_4plus_count": int(actual["blowout_games"]),
+            "actual_blowout_4plus_rate": actual_blowout,
+            "matchbalance_projected_blowout_4plus_rate": proposed_blowout if complete_4plus else None,
+            "estimated_blowout_4plus_rate_reduction": (
+                actual_blowout - proposed_blowout
+                if complete_4plus and actual_blowout is not None and proposed_blowout is not None
                 else None
             ),
-            "scope_note": "Frozen-model projections for intra-pool matchups in completed cohorts",
+            "scope_note": (
+                "All observed games from the captured tournament compared with frozen-model "
+                "projections for the MatchBalance pool assignments after every cohort finishes"
+            ),
         },
         "team_movements": {
             "evaluated": len(movements),
@@ -271,7 +280,7 @@ def _format(value: Any, *, rate: bool = False) -> str:
 def render_event_rollup_html(rollup: dict[str, Any]) -> str:
     event = rollup["event"]
     actual = rollup["actual_results"]
-    modelled = rollup["modelled_pool_matchups"]
+    comparison = rollup["actual_vs_matchbalance"]
     coverage = rollup["coverage"]
     movements = rollup["team_movements"]
     coverage_rows = "".join(
@@ -287,12 +296,16 @@ def render_event_rollup_html(rollup: dict[str, Any]) -> str:
         f"<td>{html.escape(str(row.get('move') or '').replace('_', ' ').title())}</td></tr>"
         for row in movements["rows"]
     )
-    original_margin = _format(modelled["original_average_goal_margin"])
-    matchbalance_margin = _format(modelled["matchbalance_average_goal_margin"])
-    margin_improvement = _format(modelled["goal_margin_improvement"])
-    original_blowout = _format(modelled["original_blowout_4plus_rate"], rate=True)
-    matchbalance_blowout = _format(modelled["matchbalance_blowout_4plus_rate"], rate=True)
-    blowout_improvement = _format(modelled["blowout_4plus_rate_improvement"], rate=True)
+    comparison_actual_margin = _format(comparison["actual_average_goal_margin"])
+    matchbalance_margin = _format(comparison["matchbalance_projected_average_goal_margin"])
+    margin_reduction = _format(comparison["estimated_goal_margin_reduction"])
+    comparison_actual_blowout = _format(comparison["actual_blowout_4plus_rate"], rate=True)
+    matchbalance_blowout = _format(
+        comparison["matchbalance_projected_blowout_4plus_rate"], rate=True
+    )
+    blowout_reduction = _format(
+        comparison["estimated_blowout_4plus_rate_reduction"], rate=True
+    )
     model_sha = html.escape(str(rollup.get("model_artifact_sha256") or "Unavailable"))
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>{html.escape(str(event['event_name']))} MatchBalance Backtest</title><style>
@@ -310,12 +323,13 @@ th{{background:#f9fafb}}.muted{{color:#667085}}</style></head><body>
 <div class="card">Observed 4+ blowouts<div class="value">{actual['blowout_4plus_count']}</div></div>
 <div class="card">Observed blowout rate
 <div class="value">{_format(actual['blowout_4plus_rate'], rate=True)}</div></div></div>
-<h2>Original projected versus MatchBalance</h2><p class="muted">{html.escape(modelled['scope_note'])}.</p>
-<table><thead><tr><th>Metric</th><th>Original</th><th>MatchBalance</th><th>Improvement</th></tr></thead><tbody>
-<tr><td>Average goal margin</td><td>{original_margin}</td><td>{matchbalance_margin}</td>
-<td>{margin_improvement}</td></tr>
-<tr><td>4+ blowout rate</td><td>{original_blowout}</td><td>{matchbalance_blowout}</td>
-<td>{blowout_improvement}</td></tr></tbody></table>
+<h2>Actual tournament versus MatchBalance</h2><p class="muted">{html.escape(comparison['scope_note'])}.</p>
+<table><thead><tr><th>Metric</th><th>Actual tournament</th>
+<th>MatchBalance projection</th><th>Estimated reduction</th></tr></thead><tbody>
+<tr><td>Average goal margin</td><td>{comparison_actual_margin}</td><td>{matchbalance_margin}</td>
+<td>{margin_reduction}</td></tr>
+<tr><td>4+ blowout rate</td><td>{comparison_actual_blowout}</td><td>{matchbalance_blowout}</td>
+<td>{blowout_reduction}</td></tr></tbody></table>
 <h2>Team movement</h2><div class="cards">
 <div class="card">Moved up<div class="value">{movements['moved_up']}</div></div>
 <div class="card">Moved down<div class="value">{movements['moved_down']}</div></div>

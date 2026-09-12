@@ -41,7 +41,7 @@ from src.tournaments.backtest_link_store import (
     update_links,
 )
 from src.tournaments.backtest_reviewed_report import (
-    model_comparison_rows,
+    actual_vs_matchbalance_rows,
     movement_rows,
     observed_result_values,
 )
@@ -922,6 +922,14 @@ def _format_model_value(value: Any, unit: str) -> str:
     return f"{number * 100:.1f}%" if unit == "rate" else f"{number:.2f}"
 
 
+def _format_reduction(value: Any, unit: str) -> str:
+    if value is None:
+        return "Unavailable"
+    number = float(value)
+    direction = "lower" if number >= 0 else "higher"
+    return f"{_format_model_value(abs(number), unit)} {direction}"
+
+
 def _render_reviewed_result(event_key: str, base_dir) -> None:
     records = list_reviewed_runs(event_key, base_dir=base_dir)
     st.markdown("#### Backtest results")
@@ -945,11 +953,10 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         st.error(f"This completed run could not be read: {exc}")
         return
 
-    comparison = summary.get("seeding_comparison") or {}
-    if comparison.get("status") != "comparable":
+    proposed = summary.get("proposed_model_projection") or {}
+    if proposed.get("average_goal_differential") is None:
         st.warning(
-            "A fair original-versus-proposed comparison is unavailable: "
-            + str(comparison.get("reason") or "the modeled matchup evidence is incomplete")
+            "The MatchBalance projection is unavailable because its modeled matchup evidence is incomplete."
         )
     observed = observed_result_values(summary)
     actual_columns = st.columns(4)
@@ -967,20 +974,22 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         _format_model_value(observed["blowout_4plus_rate"], "rate"),
     )
     st.caption(
-        "Observed results describe what happened. The comparison below evaluates both arrangements "
-        "with the same frozen historical model."
+        "The tournament values come directly from the captured results. The MatchBalance values "
+        "project the reseeded pool assignments using only pre-event evidence."
     )
-    comparison_rows = model_comparison_rows(summary)
+    comparison_rows = actual_vs_matchbalance_rows(summary)
     comparison_display = [
         {
             "Metric": row["Metric"],
-            "Original model": _format_model_value(row["Original model"], row["Unit"]),
-            "MatchBalance model": _format_model_value(row["MatchBalance model"], row["Unit"]),
-            "Improvement": _format_model_value(row["Improvement"], row["Unit"]),
+            "Actual tournament": _format_model_value(row["Actual tournament"], row["Unit"]),
+            "MatchBalance projection": _format_model_value(
+                row["MatchBalance projection"], row["Unit"]
+            ),
+            "Estimated reduction": _format_reduction(row["Estimated reduction"], row["Unit"]),
         }
         for row in comparison_rows
     ]
-    st.markdown("##### Modeled original versus MatchBalance")
+    st.markdown("##### Actual tournament versus MatchBalance")
     st.dataframe(pd.DataFrame(comparison_display), hide_index=True, width="stretch")
 
     moves = movement_rows(summary)
@@ -1050,35 +1059,35 @@ def _render_event_rollup(
         records,
         model_sha256=model_sha256,
     )
-    modelled = rollup["modelled_pool_matchups"]
+    comparison = rollup["actual_vs_matchbalance"]
     movements = rollup["team_movements"]
     coverage = rollup["coverage"]
     st.markdown("#### Tournament-wide sales summary")
-    st.caption(modelled["scope_note"] + ". Each cohort uses the same selected historical model.")
+    st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
     metric_columns = st.columns(4)
     metric_columns[0].metric(
-        "Original projected margin",
-        _format_model_value(modelled["original_average_goal_margin"], "goals"),
+        "Actual tournament margin",
+        _format_model_value(comparison["actual_average_goal_margin"], "goals"),
     )
     metric_columns[1].metric(
-        "MatchBalance margin",
-        _format_model_value(modelled["matchbalance_average_goal_margin"], "goals"),
+        "MatchBalance projected margin",
+        _format_model_value(comparison["matchbalance_projected_average_goal_margin"], "goals"),
         delta=(
-            _format_model_value(modelled["goal_margin_improvement"], "goals") + " lower"
-            if modelled["goal_margin_improvement"] is not None else None
+            _format_reduction(comparison["estimated_goal_margin_reduction"], "goals")
+            if comparison["estimated_goal_margin_reduction"] is not None else None
         ),
         delta_color="off",
     )
     metric_columns[2].metric(
-        "Original projected 4+ rate",
-        _format_model_value(modelled["original_blowout_4plus_rate"], "rate"),
+        "Actual tournament 4+ rate",
+        _format_model_value(comparison["actual_blowout_4plus_rate"], "rate"),
     )
     metric_columns[3].metric(
-        "MatchBalance 4+ rate",
-        _format_model_value(modelled["matchbalance_blowout_4plus_rate"], "rate"),
+        "MatchBalance projected 4+ rate",
+        _format_model_value(comparison["matchbalance_projected_blowout_4plus_rate"], "rate"),
         delta=(
-            _format_model_value(modelled["blowout_4plus_rate_improvement"], "rate") + " lower"
-            if modelled["blowout_4plus_rate_improvement"] is not None else None
+            _format_reduction(comparison["estimated_blowout_4plus_rate_reduction"], "rate")
+            if comparison["estimated_blowout_4plus_rate_reduction"] is not None else None
         ),
         delta_color="off",
     )
