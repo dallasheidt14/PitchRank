@@ -37,9 +37,15 @@ if not os.getenv("SUPABASE_KEY") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
 from src.rankings.data_adapter import batch_fetch_rows  # noqa: E402
+from src.tournaments.modelled_comparison import (  # noqa: E402
+    compare_modelled_arrangements,
+    project_matchup_pairs,
+    summarize_modelled_matchups,
+)
 from src.tournaments.seeding_optimizer import (  # noqa: E402
     DivisionSpec,
     MatchupCost,
+    SeedableTeam,
     TournamentOptimizationResult,
     build_seedable_teams,
     normalize_age_group,
@@ -334,49 +340,20 @@ def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
-def _projected_matchup_costs_from_result(
-    result: TournamentOptimizationResult,
-    matchup_cost_fn,
-) -> list[MatchupCost]:
-    projected_costs: list[MatchupCost] = []
-    for division in result.divisions:
-        for pool in division.pools:
-            projected_costs.extend(matchup_cost_fn(team_a, team_b) for team_a, team_b in combinations(pool.teams, 2))
-    return projected_costs
-
-
 def _summarize_projected_result(
     result: TournamentOptimizationResult,
     matchup_cost_fn,
-) -> dict[str, float | int | str]:
-    projected_costs = _projected_matchup_costs_from_result(result, matchup_cost_fn)
-    if not projected_costs:
-        return {
-            "projection_basis": "all_intra_pool_pairings",
-            "projected_matchup_count": 0,
-            "average_goal_differential": 0.0,
-            "median_goal_differential": 0.0,
-            "close_game_probability": 1.0,
-            "blowout_3plus_probability": 0.0,
-            "blowout_5plus_probability": 0.0,
-        }
-
-    margins = [float(cost.projected_margin) for cost in projected_costs]
-    return {
-        "projection_basis": "all_intra_pool_pairings",
-        "projected_matchup_count": len(projected_costs),
-        "average_goal_differential": float(sum(margins) / len(margins)),
-        "median_goal_differential": float(median(margins)),
-        "close_game_probability": float(
-            sum(float(cost.competitive_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-        "blowout_3plus_probability": float(
-            sum(float(cost.blowout_3plus_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-        "blowout_5plus_probability": float(
-            sum(float(cost.blowout_5plus_probability) for cost in projected_costs) / len(projected_costs)
-        ),
-    }
+) -> dict[str, Any]:
+    pairs = [
+        (team_a, team_b)
+        for division in result.divisions
+        for pool in division.pools
+        for team_a, team_b in combinations(pool.teams, 2)
+    ]
+    return summarize_modelled_matchups(
+        project_matchup_pairs(pairs, matchup_cost_fn),
+        projection_basis="all_intra_pool_pairings",
+    )
 
 
 def _fetch_actual_event_games(
@@ -447,29 +424,35 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
     }
 
 
-def _build_projection_vs_actual_comparison(
-    projected_summary: dict[str, float | int | str],
-    actual_summary: dict[str, float | int],
-) -> dict[str, float | int] | None:
-    actual_game_count = int(actual_summary.get("actual_game_count") or 0)
-    projected_matchup_count = int(projected_summary.get("projected_matchup_count") or 0)
-    if actual_game_count <= 0 or projected_matchup_count <= 0:
-        return None
+def _project_actual_fixture_arrangement(
+    game_rows: list[dict[str, Any]],
+    teams: list[SeedableTeam],
+    matchup_cost_fn,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    teams_by_id = {team.team_id: team for team in teams}
+    pairs: list[tuple[SeedableTeam, SeedableTeam]] = []
+    issues: list[str] = []
+    for index, row in enumerate(game_rows):
+        home_id = str(row.get("home_team_master_id") or "")
+        away_id = str(row.get("away_team_master_id") or "")
+        home = teams_by_id.get(home_id)
+        away = teams_by_id.get(away_id)
+        if home is None or away is None or home_id == away_id:
+            issues.append(
+                f"Actual fixture {row.get('id') or index} does not resolve to two distinct tournament entrants"
+            )
+            continue
+        pairs.append((home, away))
 
-    projected_average = float(projected_summary["average_goal_differential"])
-    actual_average = float(actual_summary["average_goal_differential"])
-    projected_median = float(projected_summary["median_goal_differential"])
-    actual_median = float(actual_summary["median_goal_differential"])
-
-    return {
-        "average_goal_differential_improvement": float(actual_average - projected_average),
-        "median_goal_differential_improvement": float(actual_median - projected_median),
-        "close_game_rate_delta": float(projected_summary["close_game_probability"]) - float(actual_summary["close_game_rate"]),  # noqa: E501
-        "blowout_3plus_rate_improvement": float(actual_summary["blowout_3plus_rate"])
-        - float(projected_summary["blowout_3plus_probability"]),
-        "blowout_5plus_rate_improvement": float(actual_summary["blowout_5plus_rate"])
-        - float(projected_summary["blowout_5plus_probability"]),
-    }
+    if issues:
+        return None, tuple(issues)
+    return (
+        summarize_modelled_matchups(
+            project_matchup_pairs(pairs, matchup_cost_fn),
+            projection_basis="observed_original_fixture_pairs",
+        ),
+        (),
+    )
 
 
 def _build_predictor_matchup_cost_fn(
@@ -640,19 +623,33 @@ def main() -> int:
             matchup_cost_fn=matchup_cost_fn,
             matchup_proxy=matchup_proxy,
         )
-        projected_summary = _summarize_projected_result(optimization_result, matchup_cost_fn)
+        proposed_projection = _summarize_projected_result(optimization_result, matchup_cost_fn)
         actual_event_name = str(
             cohort_request.get("actual_event_name") or request_payload.get("actual_event_name") or ""
         ).strip()
         actual_summary = None
-        comparison = None
+        original_projection = None
+        seeding_comparison = None
+        comparison_issues: tuple[str, ...] = ()
         if actual_event_name:
             actual_games = _fetch_actual_event_games(client, actual_event_name, [team.team_id for team in seedable_teams])  # noqa: E501
             actual_summary = {
                 "event_name": actual_event_name,
                 **_summarize_actual_games(actual_games),
             }
-            comparison = _build_projection_vs_actual_comparison(projected_summary, actual_summary)
+            original_projection, comparison_issues = _project_actual_fixture_arrangement(
+                actual_games,
+                seedable_teams,
+                matchup_cost_fn,
+            )
+            if original_projection is not None:
+                seeding_comparison = compare_modelled_arrangements(original_projection, proposed_projection)
+            else:
+                seeding_comparison = {
+                    "status": "unavailable",
+                    "reason": "; ".join(comparison_issues),
+                    "comparison_basis": "same_model_original_vs_proposed_matchups",
+                }
 
         results.append(
             {
@@ -660,9 +657,12 @@ def main() -> int:
                 "gender": normalize_gender_label(gender),
                 "team_count": len(seedable_teams),
                 "historical_games_used": len(recent_games),
-                "projection": projected_summary,
+                "projection": proposed_projection,
                 "actual_results": actual_summary,
-                "comparison_to_actual": comparison,
+                "original_model_projection": original_projection,
+                "seeding_comparison": seeding_comparison,
+                "comparison_issues": list(comparison_issues),
+                "comparison_to_actual": None,
                 "format": {
                     "divisions": [
                         {

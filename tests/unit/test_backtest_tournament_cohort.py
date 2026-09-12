@@ -3,7 +3,7 @@ import pytest
 
 from scripts import backtest_tournament_cohort as cohort
 from scripts.predictor_python import Game as PredictorGame
-from src.tournaments.seeding_optimizer import SeedableTeam
+from src.tournaments.seeding_optimizer import MatchupCost, SeedableTeam
 
 
 def test_snapshot_as_of_date_returns_latest_prior_snapshot():
@@ -358,3 +358,65 @@ def test_build_predictor_team_ranking_prefers_source_age_group():
     )
 
     assert ranking.age == 10
+
+
+def test_project_original_fixture_arrangement_ignores_observed_score():
+    teams = [
+        SeedableTeam("entrant-a", "Alpha", "u14", "Male", 0.8),
+        SeedableTeam("entrant-b", "Bravo", "u14", "Male", 0.4),
+    ]
+    entrants = [
+        {"entrant_id": "entrant-a", "canonical_team_id": "canonical-a"},
+        {"entrant_id": "entrant-b", "canonical_team_id": "canonical-b"},
+    ]
+
+    projection, issues = cohort._project_original_fixture_arrangement(
+        [
+            {
+                "id": "actual-1",
+                "home_team_master_id": "canonical-a",
+                "away_team_master_id": "canonical-b",
+                "home_score": 5,
+                "away_score": 1,
+            }
+        ],
+        entrants,
+        teams,
+        lambda _a, _b: MatchupCost(1.25, 0.7, 0.2, 0.05, 1.25),
+    )
+
+    assert issues == ()
+    assert projection is not None
+    assert projection["average_goal_differential"] == 1.25
+    assert projection["blowout_3plus_probability"] == 0.2
+
+
+def test_project_original_fixture_arrangement_rejects_ambiguous_canonical_mapping():
+    teams = [
+        SeedableTeam("registration-a", "Alpha A", "u14", "Male", 0.8),
+        SeedableTeam("registration-b", "Alpha B", "u14", "Male", 0.8),
+        SeedableTeam("registration-c", "Bravo", "u14", "Male", 0.4),
+    ]
+    entrants = [
+        {"entrant_id": "registration-a", "canonical_team_id": "canonical-a"},
+        {"entrant_id": "registration-b", "canonical_team_id": "canonical-a"},
+        {"entrant_id": "registration-c", "canonical_team_id": "canonical-b"},
+    ]
+
+    projection, issues = cohort._project_original_fixture_arrangement(
+        [
+            {
+                "id": "actual-1",
+                "home_team_master_id": "canonical-a",
+                "away_team_master_id": "canonical-b",
+            }
+        ],
+        entrants,
+        teams,
+        lambda _a, _b: MatchupCost(1.0, 0.7, 0.2, 0.05, 1.0),
+    )
+
+    assert projection is None
+    assert issues == (
+        "Original fixture actual-1 cannot be mapped unambiguously from canonical teams to registrations",
+    )

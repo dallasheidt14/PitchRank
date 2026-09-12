@@ -54,16 +54,16 @@ delta-flat
 
   <section class="rc-hero">
     <div class="rc-card rc-actual">
-      <div class="rc-eyebrow rc-eyebrow-muted">Actual tournament</div>
+      <div class="rc-eyebrow rc-eyebrow-muted">Original arrangement (modeled)</div>
       {% if report_card.balance_score.actual is none %}
-        <div class="rc-na">n/a &mdash; actual per-match data not available in v1</div>
+        <div class="rc-na">n/a &mdash; original constraint data not available in v1</div>
       {% else %}
         <div class="rc-score">{{ '%.0f' | format(report_card.balance_score.actual) }}</div>
         <div class="rc-meta">/ 100 Balance Score</div>
       {% endif %}
     </div>
     <div class="rc-card rc-optimized">
-      <div class="rc-eyebrow rc-eyebrow-good">MatchBalance</div>
+      <div class="rc-eyebrow rc-eyebrow-good">Proposed arrangement (modeled)</div>
       <div class="rc-score rc-score-good">{{ '%.0f' | format(report_card.balance_score.optimized) }}</div>
       <div class="rc-meta rc-meta-good">/ 100 Balance Score &middot; preset <code>{{ report_card.balance_score.preset_id }}</code></div>
       {% if report_card.balance_score.delta is not none %}
@@ -75,7 +75,7 @@ delta-flat
   </section>
 
   <section class="rc-section">
-    <div class="rc-eyebrow">Why MatchBalance beats the status quo</div>
+    <div class="rc-eyebrow">Modeled effect of the proposed arrangement</div>
     {% if report_card.top_reasons %}
       <ul class="rc-list">
         {% for reason in report_card.top_reasons %}
@@ -83,7 +83,7 @@ delta-flat
         {% endfor %}
       </ul>
     {% else %}
-      <div class="rc-na">No measurable improvement over the actual schedule.</div>
+      <div class="rc-na">No measurable modeled improvement over the original arrangement.</div>
     {% endif %}
   </section>
 
@@ -93,8 +93,8 @@ delta-flat
       <thead>
         <tr>
           <th>Metric</th>
-          <th class="rc-num">Actual</th>
-          <th class="rc-num">MatchBalance</th>
+          <th class="rc-num">Original model</th>
+          <th class="rc-num">Proposed model</th>
           <th class="rc-num">&Delta;</th>
         </tr>
       </thead>

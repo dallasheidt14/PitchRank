@@ -562,15 +562,20 @@ def main() -> int:
         if summary_path.exists():
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             result_payload["actual_average_goal_differential"] = summary["actual_results"]["average_goal_differential"]
-            result_payload["optimized_average_goal_differential"] = summary["optimized_projection"][
-                "simulated_schedule"
-            ][  # noqa: E501
-                "average_goal_differential"
-            ]
-            result_payload["close_game_rate_delta"] = summary["comparison_to_actual"]["close_game_rate_delta"]
-            result_payload["blowout_3plus_rate_improvement"] = summary["comparison_to_actual"][
-                "blowout_3plus_rate_improvement"
-            ]
+            result_payload["original_model_average_goal_differential"] = (
+                (summary.get("original_model_projection") or {}).get("average_goal_differential")
+            )
+            result_payload["proposed_model_average_goal_differential"] = (
+                (summary.get("proposed_model_projection") or {}).get("average_goal_differential")
+            )
+            comparison = summary.get("seeding_comparison") or {}
+            result_payload["seeding_comparison_status"] = comparison.get("status", "unavailable")
+            result_payload["seeding_comparison_reason"] = comparison.get("reason")
+            if comparison.get("status") == "comparable":
+                result_payload["close_game_probability_delta"] = comparison["close_game_probability_delta"]
+                result_payload["blowout_3plus_probability_improvement"] = comparison[
+                    "blowout_3plus_probability_improvement"
+                ]
         cohort_results.append(result_payload)
 
     summary_payload = {

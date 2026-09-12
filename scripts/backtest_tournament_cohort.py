@@ -52,6 +52,11 @@ from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
 )
+from src.tournaments.modelled_comparison import (  # noqa: E402
+    compare_modelled_arrangements,
+    project_matchup_pairs,
+    summarize_modelled_matchups,
+)
 from src.tournaments.schedule_simulator import (  # noqa: E402
     infer_division_schedule_template,
     simulate_tournament_schedule,
@@ -830,6 +835,65 @@ def _summarize_actual_games_by_division(game_rows: list[dict[str, Any]]) -> dict
     return {division_name: _summarize_actual_games(rows) for division_name, rows in by_division.items()}
 
 
+def _project_original_fixture_arrangement(
+    game_rows: list[dict[str, Any]],
+    entrant_rows: list[dict[str, Any]],
+    teams: list[SeedableTeam],
+    matchup_cost_fn,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    entrant_ids_by_canonical: dict[str, list[str]] = {}
+    for entrant in entrant_rows:
+        entrant_ids_by_canonical.setdefault(str(entrant["canonical_team_id"]), []).append(str(entrant["entrant_id"]))
+    teams_by_entrant_id = {team.team_id: team for team in teams}
+    pairs: list[tuple[SeedableTeam, SeedableTeam]] = []
+    issues: list[str] = []
+
+    for index, row in enumerate(game_rows):
+        fixture_id = str(row.get("id") or index)
+        home_canonical = str(row.get("home_team_master_id") or "")
+        away_canonical = str(row.get("away_team_master_id") or "")
+        home_entrants = entrant_ids_by_canonical.get(home_canonical, [])
+        away_entrants = entrant_ids_by_canonical.get(away_canonical, [])
+        if len(home_entrants) != 1 or len(away_entrants) != 1:
+            issues.append(
+                f"Original fixture {fixture_id} cannot be mapped unambiguously from canonical teams to registrations"
+            )
+            continue
+        home = teams_by_entrant_id.get(home_entrants[0])
+        away = teams_by_entrant_id.get(away_entrants[0])
+        if home is None or away is None or home.team_id == away.team_id:
+            issues.append(f"Original fixture {fixture_id} does not resolve to two distinct tournament entrants")
+            continue
+        pairs.append((home, away))
+
+    if issues:
+        return None, tuple(issues)
+    return (
+        summarize_modelled_matchups(
+            project_matchup_pairs(pairs, matchup_cost_fn),
+            projection_basis="observed_original_fixture_pairs",
+        ),
+        (),
+    )
+
+
+def _project_simulated_arrangement(
+    simulated_tournament,
+    teams: list[SeedableTeam],
+    matchup_cost_fn,
+) -> dict[str, Any]:
+    teams_by_id = {team.team_id: team for team in teams}
+    pairs = [
+        (teams_by_id[match.home_team_id], teams_by_id[match.away_team_id])
+        for division in simulated_tournament.divisions
+        for match in division.matches
+    ]
+    return summarize_modelled_matchups(
+        project_matchup_pairs(pairs, matchup_cost_fn),
+        projection_basis="proposed_simulated_fixture_pairs",
+    )
+
+
 def _build_division_recommendations(
     entrant_rows: list[dict[str, Any]],
     optimized_divisions: list[dict[str, Any]],
@@ -1138,22 +1202,28 @@ def main() -> int:
         templates,
         predict_fn,
     )
-
-    comparison = {
-        "average_goal_differential_improvement": float(
-            actual_summary["average_goal_differential"] - simulated_tournament.average_goal_differential
-        ),
-        "median_goal_differential_improvement": float(
-            actual_summary["median_goal_differential"] - simulated_tournament.median_goal_differential
-        ),
-        "close_game_rate_delta": float(simulated_tournament.close_game_rate - actual_summary["close_game_rate"]),
-        "blowout_3plus_rate_improvement": float(
-            actual_summary["blowout_3plus_rate"] - simulated_tournament.blowout_3plus_rate
-        ),
-        "blowout_5plus_rate_improvement": float(
-            actual_summary["blowout_5plus_rate"] - simulated_tournament.blowout_5plus_rate
-        ),
-    }
+    original_model_projection, comparison_issues = _project_original_fixture_arrangement(
+        actual_games,
+        entrant_rows,
+        seedable_teams,
+        matchup_cost_fn,
+    )
+    proposed_model_projection = _project_simulated_arrangement(
+        simulated_tournament,
+        seedable_teams,
+        matchup_cost_fn,
+    )
+    if original_model_projection is None:
+        seeding_comparison = {
+            "status": "unavailable",
+            "reason": "; ".join(comparison_issues),
+            "comparison_basis": "same_model_original_vs_proposed_matchups",
+        }
+    else:
+        seeding_comparison = compare_modelled_arrangements(
+            original_model_projection,
+            proposed_model_projection,
+        )
 
     optimized_payload = optimization_result.to_dict()
     optimized_payload["simulated_schedule"] = simulated_tournament.to_dict()
@@ -1169,8 +1239,12 @@ def main() -> int:
         "predictor": predictor_details,
         "notes": sorted(set(notes)),
         "actual_results": actual_summary,
+        "original_model_projection": original_model_projection,
         "optimized_projection": optimized_payload,
-        "comparison_to_actual": comparison,
+        "proposed_model_projection": proposed_model_projection,
+        "seeding_comparison": seeding_comparison,
+        "comparison_issues": list(comparison_issues),
+        "comparison_to_actual": None,
         "entrants": entrant_rows,
         "division_recommendations": recommendations,
     }
@@ -1182,9 +1256,11 @@ def main() -> int:
     _write_csv(output_dir / "division_recommendations.csv", recommendations)
 
     print(f"Saved tournament cohort backtest to {output_dir}")
+    proposed_average = proposed_model_projection.get("average_goal_differential")
+    proposed_average_label = "unavailable" if proposed_average is None else f"{float(proposed_average):.2f}"
     print(
         f"{age_group} {gender}: actual avg GD={actual_summary['average_goal_differential']:.2f}, "
-        f"optimized simulated avg GD={simulated_tournament.average_goal_differential:.2f}"
+        f"proposed modeled avg GD={proposed_average_label}"
     )
     return 0
 

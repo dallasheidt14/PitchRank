@@ -88,7 +88,7 @@ def test_render_html_includes_event_and_cohort():
 
 def test_balance_score_actual_renders_n_a_when_none():
     rendered = render_html(_hand_built_report())
-    assert "n/a &mdash; actual per-match data not available in v1" in rendered
+    assert "n/a &mdash; original constraint data not available in v1" in rendered
 
 
 def test_metric_with_none_actual_renders_n_a():

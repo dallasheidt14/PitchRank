@@ -101,8 +101,11 @@ literals are written. ``"Final"`` and ``"Third Place"`` are excluded.
 """
 
 TOP_REASON_TEMPLATES: dict[str, str] = {
-    "blowout_5plus": "Reduced 5+ goal mismatches from {actual_count} games to {optimized_count} ({pct_change:+.0%}).",
-    "one_goal_rate": "Raised one-goal games from {actual_pct:.0%} to {optimized_pct:.0%} of the schedule.",
+    "blowout_5plus": (
+        "Reduced modeled 5+ goal mismatches from {actual_count} games "
+        "to {optimized_count} ({pct_change:+.0%})."
+    ),
+    "one_goal_rate": "Raised modeled competitive-game probability from {actual_pct:.0%} to {optimized_pct:.0%}.",
     "same_club_early": "Removed {removed_count} same-club early matchups.",
     "same_coach_early": "Removed {removed_count} same-coach pool conflicts.",
     "rematches": "Eliminated {removed_count} intra-event rematches.",
@@ -230,69 +233,70 @@ def _read_run_metadata(run_dir_path: Path) -> dict[str, Any]:
 
 
 def _build_metrics(
-    actual_results: dict[str, Any],
-    optimized_proj: dict[str, Any],
+    original_projection: dict[str, Any],
+    proposed_projection: dict[str, Any],
+    optimized_schedule: dict[str, Any],
     same_club_early_count: int,
     rematch_count: int,
     capped_gd_limit: int,
 ) -> tuple[Metric, ...]:
     """Eight-row metrics tuple. Sign convention for ``delta``:
 
-    - GD / blowout / 3+ blowout / 5+ blowout: ``actual - optimized`` so a
+    - GD / blowout / 3+ blowout / 5+ blowout: ``original - proposed`` so a
       positive delta is improvement (lower is better).
-    - One-goal rate: ``optimized - actual`` so positive delta is
+    - One-goal rate: ``proposed - original`` so positive delta is
       improvement (higher is better).
     """
-    matches = list(_iter_optimized_matches(optimized_proj))
+    matches = list(_iter_optimized_matches(optimized_schedule))
     capped_optimized = _capped_avg_gd(matches, capped_gd_limit)
 
-    actual_avg_gd = float(actual_results["average_goal_differential"])
-    opt_avg_gd = float(optimized_proj["average_goal_differential"])
-    actual_close = float(actual_results["close_game_rate"])
-    opt_close = float(optimized_proj["close_game_rate"])
-    actual_3plus = float(actual_results["blowout_3plus_rate"])
-    opt_3plus = float(optimized_proj["blowout_3plus_rate"])
-    actual_5plus = float(actual_results["blowout_5plus_rate"])
-    opt_5plus = float(optimized_proj["blowout_5plus_rate"])
+    original_avg_gd = float(original_projection["average_goal_differential"])
+    proposed_avg_gd = float(proposed_projection["average_goal_differential"])
+    original_close = float(original_projection["close_game_probability"])
+    proposed_close = float(proposed_projection["close_game_probability"])
+    original_3plus = float(original_projection["blowout_3plus_probability"])
+    proposed_3plus = float(proposed_projection["blowout_3plus_probability"])
+    original_5plus = float(original_projection["blowout_5plus_probability"])
+    proposed_5plus = float(proposed_projection["blowout_5plus_probability"])
 
     return (
         Metric(
-            label="Expected avg GD (raw)",
-            actual=actual_avg_gd,
-            optimized=opt_avg_gd,
-            delta=actual_avg_gd - opt_avg_gd,
+            label="Modeled average GD",
+            actual=original_avg_gd,
+            optimized=proposed_avg_gd,
+            delta=original_avg_gd - proposed_avg_gd,
             unit="gd",
         ),
         Metric(
-            label=f"Expected avg GD (capped at {capped_gd_limit}; actual unavailable in v1)",
+            label=f"Proposed simulated avg GD (capped at {capped_gd_limit}; original unavailable)",
             actual=None,
             optimized=capped_optimized,
             delta=None,
             unit="gd",
         ),
         Metric(
-            label="One-goal game rate",
-            actual=actual_close,
-            optimized=opt_close,
-            delta=opt_close - actual_close,
+            label="Competitive-game probability",
+            actual=original_close,
+            optimized=proposed_close,
+            delta=proposed_close - original_close,
             unit="rate",
         ),
         Metric(
-            label="3+ goal blowout rate",
-            actual=actual_3plus,
-            optimized=opt_3plus,
-            delta=actual_3plus - opt_3plus,
+            label="Modeled 3+ goal blowout probability",
+            actual=original_3plus,
+            optimized=proposed_3plus,
+            delta=original_3plus - proposed_3plus,
             unit="rate",
         ),
         Metric(
-            label="5+ goal blowout rate",
-            actual=actual_5plus,
-            optimized=opt_5plus,
-            delta=actual_5plus - opt_5plus,
+            label="Modeled 5+ goal blowout probability",
+            actual=original_5plus,
+            optimized=proposed_5plus,
+            delta=original_5plus - proposed_5plus,
             unit="rate",
         ),
         Metric(
-            label="Same-club early meetings (actual unavailable in v1)",
+            label="Same-club early meetings (original unavailable in v1)",
             actual=None,
             optimized=int(same_club_early_count),
             delta=None,
@@ -306,7 +310,7 @@ def _build_metrics(
             unit="count",
         ),
         Metric(
-            label="Intra-event rematches (actual unavailable in v1)",
+            label="Intra-event rematches (original unavailable in v1)",
             actual=None,
             optimized=int(rematch_count),
             delta=None,
@@ -373,8 +377,8 @@ def _compute_balance_score(
 
 
 def _build_top_reasons(
-    actual_results: dict[str, Any],
-    optimized_proj: dict[str, Any],
+    original_projection: dict[str, Any],
+    proposed_projection: dict[str, Any],
 ) -> tuple[TopReason, ...]:
     """Generate templated top-reason bullets ranked by improvement magnitude.
 
@@ -392,14 +396,14 @@ def _build_top_reasons(
     # Report Card reader. Direction per metric:
     #   blowout_5plus / avg_gd: lower-is-better (opt < actual)
     #   one_goal_rate: higher-is-better (opt > actual)
-    actual_5plus = actual_results.get("blowout_5plus_rate")
-    opt_5plus = optimized_proj.get("blowout_5plus_rate")
+    actual_5plus = original_projection.get("blowout_5plus_probability")
+    opt_5plus = proposed_projection.get("blowout_5plus_probability")
     if actual_5plus is not None and opt_5plus is not None and float(opt_5plus) < float(actual_5plus):
         # Directional gate (opt < actual on a non-negative rate) guarantees
         # actual_5plus > 0, so the divide is safe and the prior
         # ``if actual_5plus == 0`` zero-guard is unreachable here.
-        actual_count = int(round(float(actual_5plus) * int(actual_results.get("actual_game_count", 0) or 0)))
-        opt_count = int(round(float(opt_5plus) * int(optimized_proj.get("match_count", 0) or 0)))
+        actual_count = int(round(float(actual_5plus) * int(original_projection.get("projected_matchup_count", 0) or 0)))
+        opt_count = int(round(float(opt_5plus) * int(proposed_projection.get("projected_matchup_count", 0) or 0)))
         pct_change = (float(opt_5plus) - float(actual_5plus)) / float(actual_5plus)
         text = TOP_REASON_TEMPLATES["blowout_5plus"].format(
             actual_count=actual_count,
@@ -408,8 +412,8 @@ def _build_top_reasons(
         )
         candidates.append(("blowout_5plus", abs(float(opt_5plus) - float(actual_5plus)), text))
 
-    actual_one = actual_results.get("close_game_rate")
-    opt_one = optimized_proj.get("close_game_rate")
+    actual_one = original_projection.get("close_game_probability")
+    opt_one = proposed_projection.get("close_game_probability")
     if actual_one is not None and opt_one is not None and float(opt_one) > float(actual_one):
         text = TOP_REASON_TEMPLATES["one_goal_rate"].format(
             actual_pct=float(actual_one),
@@ -417,8 +421,8 @@ def _build_top_reasons(
         )
         candidates.append(("one_goal_rate", abs(float(opt_one) - float(actual_one)), text))
 
-    actual_avg = actual_results.get("average_goal_differential")
-    opt_avg = optimized_proj.get("average_goal_differential")
+    actual_avg = original_projection.get("average_goal_differential")
+    opt_avg = proposed_projection.get("average_goal_differential")
     if actual_avg is not None and opt_avg is not None and float(opt_avg) < float(actual_avg):
         text = TOP_REASON_TEMPLATES["avg_gd"].format(
             actual_avg=float(actual_avg),
@@ -666,8 +670,13 @@ def compute_report_card(
     gender = str(run_metadata["cohort_gender"])
     event_name = str(run_metadata.get("event_name") or summary.get("event_name") or "")
 
-    actual_results = summary.get("actual_results") or {}
+    original_projection = summary.get("original_model_projection") or {}
+    proposed_projection = summary.get("proposed_model_projection") or {}
+    seeding_comparison = summary.get("seeding_comparison") or {}
     optimized_proj = (summary.get("optimized_projection") or {}).get("simulated_schedule") or {}
+    if not original_projection or not proposed_projection or seeding_comparison.get("status") != "comparable":
+        reason = str(seeding_comparison.get("reason") or "same-model arrangement projections are missing")
+        raise ReportCardError(f"Fair seeding comparison unavailable for run {run_id!r}: {reason}")
     entrants = list(summary.get("entrants") or [])
     entrants_by_id = {str(e.get("entrant_id") or ""): e for e in entrants}
 
@@ -695,7 +704,8 @@ def compute_report_card(
     rematch_count = _count_intra_event_rematches(matches)
 
     metrics = _build_metrics(
-        actual_results,
+        original_projection,
+        proposed_projection,
         optimized_proj,
         same_club_early_count,
         rematch_count,
@@ -720,7 +730,7 @@ def compute_report_card(
         gender=gender,
         balance_score_flags=balance_score_flags,
     )
-    top_reasons = _build_top_reasons(actual_results, optimized_proj)
+    top_reasons = _build_top_reasons(original_projection, proposed_projection)
     team_movements = _build_team_movements(run_dir_path)
     override_audit = tuple(OverrideAuditRow.from_dict(row) for row in audit_rows)
 

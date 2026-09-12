@@ -1,6 +1,6 @@
 # MatchBalance completed-tournament intake
 
-Backtest captures a completed GotSport event for later analysis. The Seeding tab remains the separate upcoming-tournament workflow. This stage does not reseed, run comparisons, or write tournament teams to the PitchRank database.
+Backtest captures a completed GotSport event for later analysis. The Seeding tab remains the separate upcoming-tournament workflow. The intake itself does not reseed or write tournament teams to the PitchRank database. The downstream command-line tools can evaluate an original arrangement and a proposed arrangement after the capture is reviewed.
 
 ## Operator workflow
 
@@ -35,7 +35,11 @@ Both scores must be nonnegative integers. Explicit unplayed, cancelled, postpone
 
 Provider match IDs identify repeated listings across the event; printed match numbers are scoped to their division. Conflicting results or division assignments are excluded rather than choosing a version. Fixtures with neither a provider match ID nor a printed number are excluded because duplicate listings cannot be ruled out. Coverage, duplicates, exclusions, and partial captures are displayed alongside the totals. A conflicting cross-division fixture appears as excluded in each affected breakdown, so those exclusion counts can overlap.
 
-Results use the tournament's entered cohort and gender. They are calculated directly from the saved fixture evidence and included under `tournament_totals.results` in the downloaded JSON. Loading a saved capture with scores makes these numbers available without another scrape; captures with missing fixtures or scores still need that evidence collected. This adds the actual-results baseline only; alternative seeding and projected improvements remain future work.
+Results use the tournament's entered cohort and gender. They are calculated directly from the saved fixture evidence and included under `tournament_totals.results` in the downloaded JSON. Loading a saved capture with scores makes these numbers available without another scrape; captures with missing fixtures or scores still need that evidence collected.
+
+Observed results remain a descriptive baseline. They are never compared directly with a modeled proposal because that would mix realized scores with predictions. Downstream summaries instead evaluate the original fixture pairs and proposed fixture pairs through the same matchup model. A reported seeding delta therefore measures only the arrangement change. Comparison is unavailable when either arrangement cannot be resolved or when their matchup counts differ. Reversing home and away order does not change the arrangement identity, and identical arrangements produce exact zero deltas.
+
+Each modeled arrangement reports 95% normal-approximation intervals. Probability intervals use each matchup's predicted Bernoulli variance. The goal-margin interval describes variation across scheduled matchup projections; it is not a claim that the rating model itself is perfectly calibrated. Delta intervals conservatively treat the two arrangement summaries as independent unless the arrangements are identical, in which case delta uncertainty is exactly zero.
 
 ## Downstream optimizer safeguards
 
@@ -43,7 +47,7 @@ The current command-line backtest and seeding runners validate their inputs befo
 
 Match predictions retain the requested team order, so an A-versus-B prediction cannot be reused as B-versus-A. Symmetric matchup costs use one canonical entrant order and may still be cached once per pair. Model-supplied probabilities keep valid boundary values such as 0 and 1; only absent values use the existing estimated blowout fallback, while nonfinite or out-of-range values stop the run.
 
-These safeguards make the existing optimizer safer to evaluate, but they do not yet create the director-facing comparison. Historical rating snapshots, exact-format replay, reseeded schedule construction, objective alignment, and comparison metrics remain separate implementation work. The optimizer still reports its existing projected 3+ and 5+ goal thresholds; the intake's actual-results baseline continues to define a blowout as 4 or more goals.
+These safeguards make the existing optimizer safer to evaluate and make its model-to-model delta valid when both arrangements are fully resolved. Historical rating snapshots, exact-format replay, reseeded schedule construction, and objective alignment remain separate implementation work. The optimizer still reports its existing projected 3+ and 5+ goal thresholds; the intake's actual-results baseline continues to define a blowout as 4 or more goals.
 
 ## Local artifacts
 
