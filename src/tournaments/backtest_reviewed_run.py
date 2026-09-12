@@ -91,6 +91,8 @@ class ReviewedRunRecord:
     gender: str
     event_name: str
     ended_at: str
+    state: Literal["completed", "failed"] = "completed"
+    error: str | None = None
 
 
 def _cohort_sort_key(item: tuple[str, str]) -> tuple[int, str, str]:
@@ -196,6 +198,12 @@ def _sha256_bytes(value: bytes) -> str:
 
 def _sha256_file(path: Path) -> str:
     return _sha256_bytes(path.read_bytes())
+
+
+def model_artifact_sha256(path: str | Path) -> str:
+    """Return the stable identity used to select compatible cohort runs."""
+
+    return _sha256_file(resolve_model_artifact(path))
 
 
 def _finalize_failure(
@@ -456,6 +464,43 @@ def list_reviewed_runs(
                 gender=str(metadata.get("cohort_gender") or ""),
                 event_name=str(metadata.get("event_name") or ""),
                 ended_at=str(metadata.get("ended_at") or ""),
+            )
+        )
+    return tuple(sorted(records, key=lambda item: (item.ended_at, item.run_id), reverse=True))
+
+
+def list_failed_reviewed_runs(
+    event_key: str,
+    *,
+    base_dir: Path | str = "reports",
+) -> tuple[ReviewedRunRecord, ...]:
+    """List retained failed attempts so event coverage does not hide failures."""
+
+    runs_root = run_dir(
+        event_key,
+        BACKTEST_SCENARIO,
+        "placeholder",
+        base_dir=base_dir,
+    ).parent
+    records: list[ReviewedRunRecord] = []
+    if not runs_root.is_dir():
+        return ()
+    for path in runs_root.glob("*.failed"):
+        try:
+            metadata = read_json(path / "run_metadata.json")
+            error_payload = read_json(path / "error.json")
+        except (OSError, ValueError, TypeError):
+            continue
+        records.append(
+            ReviewedRunRecord(
+                run_id=path.name.removesuffix(".failed"),
+                run_dir=path,
+                age_group=str(metadata.get("cohort_age_group") or ""),
+                gender=str(metadata.get("cohort_gender") or ""),
+                event_name=str(metadata.get("event_name") or ""),
+                ended_at=str(metadata.get("ended_at") or error_payload.get("failed_at") or ""),
+                state="failed",
+                error=str(error_payload.get("error") or "The run failed"),
             )
         )
     return tuple(sorted(records, key=lambda item: (item.ended_at, item.run_id), reverse=True))
