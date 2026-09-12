@@ -61,6 +61,37 @@ def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
         )
 
 
+def test_related_snapshot_index_excludes_same_day_and_late_backfills():
+    filtered = cohort._filter_snapshot_index_for_cutoff(
+        {
+            "common-opponent": [
+                {
+                    "snapshot_date": "2026-04-07",
+                    "snapshot_ts": pd.Timestamp("2026-04-07"),
+                    "created_at": "2026-04-11T00:00:00+00:00",
+                },
+                {
+                    "snapshot_date": "2026-04-08",
+                    "snapshot_ts": pd.Timestamp("2026-04-08"),
+                    "created_at": "2026-04-09T23:00:00+00:00",
+                },
+                {
+                    "snapshot_date": "2026-04-09",
+                    "snapshot_ts": pd.Timestamp("2026-04-09"),
+                },
+                {
+                    "snapshot_date": "2026-04-10",
+                    "snapshot_ts": pd.Timestamp("2026-04-10"),
+                    "created_at": "2026-04-09T23:00:00+00:00",
+                },
+            ]
+        },
+        "2026-04-10",
+    )
+
+    assert [row["snapshot_date"] for row in filtered["common-opponent"]] == ["2026-04-08"]
+
+
 def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     entrants = [
         {
@@ -165,6 +196,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
             {
                 "snapshot_date": "2026-04-09",
                 "snapshot_ts": pd.Timestamp("2026-04-09"),
+                "created_at": "2026-04-09T23:00:00+00:00",
                 "age_group": "14",
                 "gender": "Male",
                 "status": "Active",
@@ -173,6 +205,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
             {
                 "snapshot_date": "2026-04-12",
                 "snapshot_ts": pd.Timestamp("2026-04-12"),
+                "created_at": "2026-04-12T00:00:00+00:00",
                 "age_group": "14",
                 "gender": "Male",
                 "status": "Active",
@@ -183,6 +216,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
             {
                 "snapshot_date": "2026-04-08",
                 "snapshot_ts": pd.Timestamp("2026-04-08"),
+                "created_at": "2026-04-09T23:00:00+00:00",
                 "age_group": "14",
                 "gender": "Male",
                 "status": "Active",
@@ -191,6 +225,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
             {
                 "snapshot_date": "2026-04-11",
                 "snapshot_ts": pd.Timestamp("2026-04-11"),
+                "created_at": "2026-04-11T00:00:00+00:00",
                 "age_group": "14",
                 "gender": "Male",
                 "status": "Active",

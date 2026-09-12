@@ -500,13 +500,26 @@ def _build_cohort_request_payload(
     divisions_payload: list[dict[str, Any]] = []
     for division in cohort_structure.divisions:
         actual_division_name = division.name
+        division_teams = sorted(
+            teams_by_division.get(actual_division_name, []),
+            key=lambda team: team["team_id_master"],
+        )
+        if division_teams and (
+            len(division.pool_sizes) != 1
+            or division.pool_sizes[0] != division.team_count
+        ):
+            raise ValueError(
+                f"Legacy scenario storage for division '{actual_division_name}' does not preserve "
+                "exact original pool membership. Run this event from the reviewed Backtest intake."
+            )
+        original_pool_name = "Pool A" if division_teams else ""
         # ``BU<n> `` strip mirrors event:403/414 for parity with the event CLI.
         normalized_name = (
             actual_division_name.removeprefix(bu_prefix).strip()
             if actual_division_name.startswith(bu_prefix)
             else actual_division_name
         )
-        for team in sorted(teams_by_division.get(actual_division_name, []), key=lambda t: t["team_id_master"]):
+        for team in division_teams:
             entrants.append(
                 {
                     "entrant_id": f"{_slugify(actual_division_name)}_{_slugify(team['event_team_name'])}",
@@ -516,6 +529,11 @@ def _build_cohort_request_payload(
                     "event_age_group": age,
                     "event_gender": gender,
                     "actual_division_name": normalized_name,
+                    # A one-pool division has exact membership by definition:
+                    # every division entrant belongs to that sole pool. Legacy
+                    # scenario storage has no per-team pool field, so multi-pool
+                    # divisions are refused above instead of inventing evidence.
+                    "actual_pool_name": original_pool_name,
                 }
             )
         divisions_payload.append(

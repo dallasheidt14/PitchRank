@@ -269,6 +269,10 @@ def _verify_snapshot_provenance(snapshot: dict[str, Any], *, prediction_date: st
             f"Historical snapshot for '{team_name}' has no created_at provenance and cannot prove availability"
         )
     created_ts = pd.Timestamp(created_at)
+    if pd.isna(created_ts):
+        raise ValueError(
+            f"Historical snapshot for '{team_name}' has invalid created_at provenance and cannot prove availability"
+        )
     if created_ts.tzinfo is not None:
         created_ts = created_ts.tz_convert("UTC").tz_localize(None)
     if created_ts >= pd.Timestamp(prediction_date):
@@ -276,6 +280,38 @@ def _verify_snapshot_provenance(snapshot: dict[str, Any], *, prediction_date: st
             f"Historical snapshot for '{team_name}' was created after the event cutoff; "
             "it is a reconstructed input, not contemporaneous evidence"
         )
+
+
+def _filter_snapshot_index_for_cutoff(
+    snapshot_index: dict[str, list[dict[str, Any]]],
+    prediction_date: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Keep only snapshots proven available before the event cutoff.
+
+    The matchup model also consults snapshots for common opponents. Those
+    rows need the same strict date and ``created_at`` provenance policy as
+    entrant rows; otherwise a same-day or later-backfilled opponent rating
+    can leak into a claimed point-in-time comparison.
+    """
+
+    filtered: dict[str, list[dict[str, Any]]] = {}
+    for team_id, entries in snapshot_index.items():
+        eligible: list[dict[str, Any]] = []
+        for entry in entries:
+            if _snapshot_as_of_date([entry], prediction_date) is None:
+                continue
+            try:
+                _verify_snapshot_provenance(
+                    entry,
+                    prediction_date=prediction_date,
+                    team_name=str(team_id),
+                )
+            except (TypeError, ValueError):
+                continue
+            eligible.append(entry)
+        if eligible:
+            filtered[str(team_id)] = eligible
+    return filtered
 
 
 def _verify_model_training_provenance(
@@ -792,6 +828,7 @@ def _build_point_in_time_prediction_and_cost_functions(
     model_artifact: Path,
     probability_strategy_override: str | None = None,
 ):
+    snapshot_index = _filter_snapshot_index_for_cutoff(snapshot_index, prediction_date)
     model = PointInTimeMatchModel.load(str(model_artifact))
     _override_point_in_time_probability_strategy(model, probability_strategy_override)
     entrant_by_id = {str(row["entrant_id"]): row for row in entrant_rows}
@@ -1267,7 +1304,15 @@ def main() -> int:
             raise ValueError(
                 f"No point-in-time snapshots found for predictor date {prediction_date} and {len(related_team_ids)} teams"  # noqa: E501
             )
-        snapshot_index = build_snapshot_index(snapshots_df)
+        snapshot_index = _filter_snapshot_index_for_cutoff(
+            build_snapshot_index(snapshots_df),
+            prediction_date,
+        )
+        if not snapshot_index:
+            raise ValueError(
+                f"No point-in-time snapshots with pre-event provenance found for predictor date "
+                f"{prediction_date} and {len(related_team_ids)} teams"
+            )
         snapshot_resolution_counts = {"as_of": len(entrant_rows)}
         predict_fn, matchup_cost_fn, point_in_time_model = _build_point_in_time_prediction_and_cost_functions(
             entrant_rows,
@@ -1288,7 +1333,7 @@ def main() -> int:
                 "artifact_path": str(artifact_candidate),
                 "snapshot_start": snapshot_start,
                 "snapshot_end": snapshot_end,
-                "snapshot_team_count": len(related_team_ids),
+                "snapshot_team_count": len(snapshot_index),
                 "snapshot_row_count": int(len(snapshots_df)),
                 "snapshot_resolution_counts": snapshot_resolution_counts,
                 "probability_strategy": point_in_time_model.probability_strategy,

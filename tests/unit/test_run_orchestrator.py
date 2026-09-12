@@ -259,6 +259,7 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
     assert payload["gender"] == "boys"
     assert payload["divisions"][0]["advancement"] == "ROUND_ROBIN"
     assert len(payload["entrants"]) == 2
+    assert {entrant["actual_pool_name"] for entrant in payload["entrants"]} == {"Pool A"}
     # Fixture team names "A Alpha" / "A Bravo" both start with division "A"
     # so the resolver returns ``source="prefix"`` with no fallbacks.
     assert fallbacks == []
@@ -294,6 +295,39 @@ def test_build_cohort_request_payload_ignores_auto_seeding_constraints(tmp_path:
 
     assert payload["assignment_policy"] == "competitive_balance_only"
     assert "constraints" not in payload
+
+
+def test_build_cohort_request_payload_refuses_unknown_multi_pool_membership(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(1, 1),
+                        advancement="ROUND_ROBIN",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="does not preserve exact original pool membership"):
+        _build_cohort_request_payload(
+            EVENT_KEY,
+            SCENARIO,
+            "u14",
+            "Boys",
+            base_dir=tmp_path,
+            extras={},
+        )
 
 
 def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
