@@ -326,6 +326,12 @@ def _build_request_payload(
     entrants: list[dict[str, Any]] = []
     for division in divisions:
         actual_division_name = str(division["division_name"])
+        pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
+        if len(pool_sizes) != 1:
+            raise ValueError(
+                f"Division '{actual_division_name}' has {len(pool_sizes)} pools, but the legacy event input "
+                "does not preserve each team's original pool membership"
+            )
         for team_id in sorted(teams_by_division[actual_division_name]):
             team_row = teams_by_id.get(team_id) or {}
             event_team_name = str(team_row.get("team_name") or team_id)
@@ -342,6 +348,7 @@ def _build_request_payload(
                     ).strip()  # noqa: E501
                     if actual_division_name.startswith("BU")
                     else actual_division_name,
+                    "actual_pool_name": "Pool A",
                 }
             )
     return {
@@ -377,7 +384,12 @@ def _cohort_status_rows(
             pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
             structure_explicit = bool(pool_sizes) and sum(pool_sizes) == int(division["team_count"])
             structure_explicit = structure_explicit and bool(str(division.get("advancement") or "").strip())
-            complete = actual_count == int(division["team_count"]) and structure_explicit
+            exact_pool_membership = len(pool_sizes) == 1
+            complete = (
+                actual_count == int(division["team_count"])
+                and structure_explicit
+                and exact_pool_membership
+            )
             if not complete:
                 runnable = False
             division_statuses.append(
@@ -386,6 +398,7 @@ def _cohort_status_rows(
                     "expected_team_count": int(division["team_count"]),
                     "actual_team_count": actual_count,
                     "structure_explicit": structure_explicit,
+                    "exact_pool_membership": exact_pool_membership,
                     "complete": complete,
                 }
             )

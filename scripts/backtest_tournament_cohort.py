@@ -360,7 +360,13 @@ def _freeze_historical_inputs(
         except (TypeError, ValueError):
             pass
         item = getattr(value, "item", None)
-        return item() if callable(item) else value
+        if callable(item):
+            value = item()
+        try:
+            json.dumps(value)
+        except TypeError:
+            return str(value)
+        return value
 
     teams = []
     for entrant in sorted(entrant_rows, key=lambda row: str(row["entrant_id"])):
@@ -1260,6 +1266,10 @@ def main() -> int:
         )
     )
     entrant_snapshot_index = build_snapshot_index(entrant_snapshots_df)
+    entrant_snapshot_index = _filter_snapshot_index_for_cutoff(
+        entrant_snapshot_index,
+        prediction_date,
+    )
     resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
     entrant_rows: list[dict[str, Any]] = []
     seedable_teams: list[SeedableTeam] = []

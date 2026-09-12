@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster, entrant_key
 from src.tournaments.backtest_link_store import EventLinks
+from src.tournaments.backtest_result_summary import deduplicated_fixtures_by_group
 from src.tournaments.schedule_simulator import explicit_division_schedule_template
 
 
@@ -68,6 +69,7 @@ def build_cohort_backtest_requests(
     roster_teams_by_group_registration = {
         (team.group_id, entrant_key(team)): team for team in roster.teams
     }
+    fixtures_by_group = deduplicated_fixtures_by_group(roster)
     cohorts: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for division in roster.divisions:
         cohorts[(division.age_group, division.gender)].append(division)
@@ -84,6 +86,7 @@ def build_cohort_backtest_requests(
         canonical_by_registration: dict[str, str] = {}
 
         for division in cohorts[cohort_key]:
+            division_fixtures = fixtures_by_group.get(division.group_id, ())
             review = reviews.get(division.group_id)
             if review is None or not review.checked or not review.format_code:
                 raise BacktestRequestError(
@@ -97,15 +100,15 @@ def build_cohort_backtest_requests(
                     division_name=division.division_label,
                     pool_sizes=pool_sizes,
                     format_code=review.format_code,
-                    actual_game_count=len(division.fixtures),
+                    actual_game_count=len(division_fixtures),
                     actual_division_name=division.division_label,
                 )
             except ValueError as error:
                 raise BacktestRequestError(str(error)) from error
             expected_pool_games = sum(size * (size - 1) // 2 for size in pool_sizes)
-            captured_pool_games = sum(1 for fixture in division.fixtures if fixture.kind == "pool")
-            expected_bracket_games = len(division.fixtures) - expected_pool_games
-            captured_bracket_games = sum(1 for fixture in division.fixtures if fixture.kind == "bracket")
+            captured_pool_games = sum(1 for fixture in division_fixtures if fixture.kind == "pool")
+            expected_bracket_games = len(division_fixtures) - expected_pool_games
+            captured_bracket_games = sum(1 for fixture in division_fixtures if fixture.kind == "bracket")
             if captured_pool_games != expected_pool_games or captured_bracket_games != expected_bracket_games:
                 raise BacktestRequestError(
                     f"Division '{division.division_label}' fixture stages disagree with verified format "
@@ -120,7 +123,7 @@ def build_cohort_backtest_requests(
                     "pool_sizes": list(pool_sizes),
                     "advancement": review.format_code,
                     "playoff_format": template.playoff_format,
-                    "captured_fixture_count": len(division.fixtures),
+                    "captured_fixture_count": len(division_fixtures),
                 }
             )
             for pool in division.pools:
@@ -172,7 +175,7 @@ def build_cohort_backtest_requests(
                             "actual_pool_name": pool.label,
                         }
                     )
-            for fixture in division.fixtures:
+            for fixture in division_fixtures:
                 game = _fixture_game(
                     fixture,
                     division_name=division.division_label,

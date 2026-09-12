@@ -106,6 +106,25 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
 
 
+def test_build_request_deduplicates_repeated_identified_fixture_rows():
+    snapshot = _snapshot()
+    duplicate = replace(snapshot.roster.divisions[0].fixtures[0])
+    division = replace(
+        snapshot.roster.divisions[0],
+        fixtures=(snapshot.roster.divisions[0].fixtures[0], duplicate),
+    )
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["captured_fixture_count"] == 1
+    assert len(request["actual_games_override"]) == 1
+
+
 def test_build_request_blocks_unreviewed_format():
     snapshot = _snapshot()
     snapshot = replace(snapshot, reviews=(replace(snapshot.reviews[0], format_code=""),))

@@ -99,8 +99,9 @@ def _fetch_historical_games_via_db(
     date_ceiling_filter = ""
 
     if max_game_date:
-        date_ceiling_filter = "AND g.game_date < %s"
-        params.append(pd.Timestamp(max_game_date).strftime("%Y-%m-%d"))
+        date_ceiling_filter = "AND g.game_date < %s AND g.created_at < %s"
+        cutoff = pd.Timestamp(max_game_date).strftime("%Y-%m-%d")
+        params.extend([cutoff, cutoff])
 
     if test_slice:
         state_code, age_group = test_slice
@@ -125,6 +126,7 @@ def _fetch_historical_games_via_db(
         SELECT
             g.id,
             g.game_date,
+            g.created_at,
             g.home_team_master_id,
             g.away_team_master_id,
             g.home_score,
@@ -368,7 +370,7 @@ async def fetch_historical_games(
     def build_base_query():
         query = (
             supabase.table("games")
-            .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+            .select("id, game_date, created_at, home_team_master_id, away_team_master_id, home_score, away_score")
             .not_.is_("home_team_master_id", "null")
             .not_.is_("away_team_master_id", "null")
             .not_.is_("home_score", "null")
@@ -377,7 +379,8 @@ async def fetch_historical_games(
             .order("game_date", desc=False)  # Oldest first for consistent processing
         )
         if max_game_date:
-            query = query.lt("game_date", pd.Timestamp(max_game_date).strftime("%Y-%m-%d"))
+            cutoff = pd.Timestamp(max_game_date).strftime("%Y-%m-%d")
+            query = query.lt("game_date", cutoff).lt("created_at", cutoff)
         return query
 
     # If test slice specified, filter by state and age_group via teams table

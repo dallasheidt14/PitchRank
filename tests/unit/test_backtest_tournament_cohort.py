@@ -94,6 +94,38 @@ def test_related_snapshot_index_excludes_same_day_and_late_backfills():
     assert [row["snapshot_date"] for row in filtered["common-opponent"]] == ["2026-04-08"]
 
 
+def test_entrant_snapshot_resolution_falls_back_from_late_backfill():
+    filtered = cohort._filter_snapshot_index_for_cutoff(
+        {
+            "team-a": [
+                {
+                    "snapshot_date": "2026-04-07",
+                    "snapshot_ts": pd.Timestamp("2026-04-07"),
+                    "created_at": "2026-04-08T12:00:00+00:00",
+                    "power_score_final": 0.52,
+                },
+                {
+                    "snapshot_date": "2026-04-09",
+                    "snapshot_ts": pd.Timestamp("2026-04-09"),
+                    "created_at": "2026-04-11T12:00:00+00:00",
+                    "power_score_final": 0.68,
+                },
+            ]
+        },
+        "2026-04-10",
+    )
+
+    selected, mode = cohort._resolve_prediction_snapshot(
+        {"event_team_name": "Alpha", "ranking_source_team_id": "team-a"},
+        filtered["team-a"],
+        "2026-04-10",
+    )
+
+    assert mode == "as_of"
+    assert selected["snapshot_date"] == "2026-04-07"
+    assert selected["power_score_final"] == 0.52
+
+
 def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     entrants = [
         {
