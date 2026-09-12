@@ -3,6 +3,7 @@
 import json
 import sys
 from dataclasses import asdict, replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -305,8 +306,11 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
-    assert metrics["Capture verification"] == "Verified"
+    assert metrics["Capture verification"] == "Needs review"
     assert metrics["Team matching"] == "1 / 3"
+    overview_labels = {button.label for button in test.button}
+    assert "Run selected cohort" in overview_labels
+    assert "Run all ready cohorts (0)" in overview_labels
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
     test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     tables = [item.value for item in test.dataframe]
@@ -315,8 +319,94 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert matches["Status"].tolist() == ["Matched", "Needs review", "Needs review"]
     labels = {button.label for button in test.button}
     assert "Save progress" in labels
-    assert not any("Run backtest" in label or "Seeding" in label for label in labels)
+    assert not any("Seeding" in label for label in labels)
     assert test.session_state["_seeding_result"] == "seeding-must-survive"
+
+
+def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monkeypatch):
+    import tournament_intake as app
+    from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
+    from src.tournaments.backtest_link_store import update_links
+    from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
+    from tests.unit.test_backtest_request import _links, _snapshot
+    from tests.unit.test_backtest_reviewed_run import _summary
+
+    event_key = "gotsport__51783__2025"
+    artifact = tmp_path / "historical-model.pkl"
+    artifact.write_bytes(b"model")
+    snapshot = replace(
+        _snapshot(),
+        verification=CaptureVerification(
+            ("group-1",),
+            (1, 1),
+            "2026-09-12T00:00:00+00:00",
+            True,
+        ),
+    )
+    write_snapshot(event_key, snapshot, base_dir=tmp_path)
+    update_links(
+        event_key,
+        event_id="51783",
+        changed_links=_links().links,
+        base_dir=tmp_path,
+    )
+    calls = []
+
+    def fake_execute(event_key_value, request, *, model_artifact, base_dir, on_progress):
+        calls.append((event_key_value, request["age_group"], str(model_artifact)))
+        run_path = (
+            Path(base_dir)
+            / event_key_value
+            / "scenarios"
+            / "reviewed-backtest"
+            / "runs"
+            / "u14_male_test"
+        )
+        run_path.mkdir(parents=True)
+        metadata = {
+            "cohort_age_group": "u14",
+            "cohort_gender": "Male",
+            "event_name": "Spring Cup",
+            "ended_at": "2026-09-12T01:00:00+00:00",
+        }
+        (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
+        (run_path / "comparison.html").write_text("<html>report</html>", encoding="utf-8")
+        (run_path / "done.json").write_text("{}", encoding="utf-8")
+        return ReviewedRunOutcome("completed", run_path)
+
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(app, "_render_seeding_event_scrape", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "_seeding_merge_resolver",
+        lambda client: SimpleNamespace(version="ok", resolve=lambda team_id: team_id),
+    )
+    monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
+    monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", str(artifact))
+    test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
+    test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
+    test.run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    run_button = next(button for button in test.button if button.label == "Run selected cohort")
+    assert run_button.disabled is False
+    run_button.click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    assert calls == [(event_key, "u14", str(artifact.resolve()))]
+    metrics = {item.label: item.value for item in test.metric}
+    assert metrics["Observed games"] == "1"
+    assert metrics["Observed average margin"] == "1.00"
+    comparison = next(
+        item.value for item in test.dataframe if "MatchBalance model" in item.value.columns
+    )
+    assert comparison["Metric"].tolist()[0] == "Average expected goal margin"
+    movements = next(
+        item.value for item in test.dataframe if "MatchBalance division" in item.value.columns
+    )
+    assert movements["Decision"].tolist() == ["Stayed"]
 
 
 def test_actual_results_weight_games_follow_entered_cohorts_and_survive_saved_reload(rendered_intake, monkeypatch):

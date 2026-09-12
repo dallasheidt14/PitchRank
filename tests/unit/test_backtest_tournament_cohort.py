@@ -308,6 +308,21 @@ def test_freeze_historical_inputs_hashes_resolved_probability_strategy():
     assert draw_gate["input_digest_sha256"] != hybrid["input_digest_sha256"]
 
 
+def test_actual_summary_keeps_the_sales_baseline_four_goal_blowout_definition():
+    summary = cohort._summarize_actual_games(
+        [
+            {"home_score": 5, "away_score": 1},
+            {"home_score": 4, "away_score": 1},
+            {"home_score": 2, "away_score": 2},
+        ]
+    )
+
+    assert summary["actual_game_count"] == 3
+    assert summary["total_goal_differential"] == 7
+    assert summary["blowout_4plus_count"] == 1
+    assert summary["blowout_4plus_rate"] == pytest.approx(1 / 3)
+
+
 def test_recent_games_require_import_before_prediction_cutoff():
     calls: list[tuple[str, str]] = []
 

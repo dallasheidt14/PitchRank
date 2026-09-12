@@ -32,6 +32,18 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
+from src.tournaments.backtest_reviewed_report import model_comparison_rows, movement_rows
+from src.tournaments.backtest_reviewed_run import (
+    ReviewedCohortReadiness,
+    build_reviewed_cohort_readiness,
+    capture_verification_blockers,
+    default_model_artifact,
+    execute_reviewed_run,
+    list_reviewed_runs,
+    load_reviewed_run,
+    resolve_model_artifact,
+    reviewed_run_export,
+)
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
 from src.tournaments.storage._io import utc_now_iso
@@ -195,7 +207,15 @@ def _sync_matches(snapshot: BacktestSnapshot, client: Any, base_dir) -> tuple[Ev
     links = update_links(key, event_id=event_id, changed_links=automatic, base_dir=base_dir)
     canonical_links = tuple(replace(link, team_id_master=resolver.resolve(link.team_id_master) or link.team_id_master)
                             for link in links.links)
-    links = replace(links, links=canonical_links)
+    canonical_acknowledgements = tuple(
+        replace(item, team_id_master=resolver.resolve(item.team_id_master) or item.team_id_master)
+        for item in links.collision_acknowledgements
+    )
+    links = replace(
+        links,
+        links=canonical_links,
+        collision_acknowledgements=canonical_acknowledgements,
+    )
     return links, _details(client, [link.team_id_master for link in links.links]), conflicts
 
 
@@ -870,6 +890,301 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
         _render_seeding_event_scrape(supabase_client, keys=_BACKTEST_KEYS)
 
 
+def _display_gender(value: str) -> str:
+    return {"Male": "Boys", "Female": "Girls"}.get(value, value or "Not stated")
+
+
+def _format_model_value(value: Any, unit: str) -> str:
+    if value is None:
+        return "Unavailable"
+    number = float(value)
+    return f"{number * 100:.1f}%" if unit == "rate" else f"{number:.2f}"
+
+
+def _render_reviewed_result(event_key: str, base_dir) -> None:
+    records = list_reviewed_runs(event_key, base_dir=base_dir)
+    st.markdown("#### Backtest results")
+    if not records:
+        st.caption("No completed Backtest runs yet for this event.")
+        return
+    by_id = {record.run_id: record for record in records}
+    selected_id = st.selectbox(
+        "Completed run",
+        tuple(by_id),
+        format_func=lambda run_id: (
+            f"{_display_gender(by_id[run_id].gender)} {by_id[run_id].age_group.upper()} · "
+            f"{by_id[run_id].ended_at or run_id}"
+        ),
+        key=f"bt_completed_run_{event_key}",
+    )
+    record = by_id[selected_id]
+    try:
+        summary, metadata = load_reviewed_run(record)
+    except Exception as exc:
+        st.error(f"This completed run could not be read: {exc}")
+        return
+
+    comparison = summary.get("seeding_comparison") or {}
+    if comparison.get("status") != "comparable":
+        st.warning(
+            "A fair original-versus-proposed comparison is unavailable: "
+            + str(comparison.get("reason") or "the modeled matchup evidence is incomplete")
+        )
+    actual = summary.get("actual_results") or {}
+    actual_columns = st.columns(4)
+    actual_columns[0].metric("Observed games", int(actual.get("actual_game_count") or 0))
+    actual_columns[1].metric(
+        "Observed average margin",
+        f"{float(actual.get('average_goal_differential') or 0):.2f}",
+    )
+    actual_columns[2].metric(
+        "Observed 4+ blowouts",
+        int(actual.get("blowout_4plus_count") or 0),
+    )
+    actual_columns[3].metric(
+        "Observed blowout rate",
+        f"{float(actual.get('blowout_4plus_rate') or 0) * 100:.1f}%",
+    )
+    st.caption(
+        "Observed results describe what happened. The comparison below evaluates both arrangements "
+        "with the same frozen historical model."
+    )
+    comparison_rows = model_comparison_rows(summary)
+    comparison_display = [
+        {
+            "Metric": row["Metric"],
+            "Original model": _format_model_value(row["Original model"], row["Unit"]),
+            "MatchBalance model": _format_model_value(row["MatchBalance model"], row["Unit"]),
+            "Improvement": _format_model_value(row["Improvement"], row["Unit"]),
+        }
+        for row in comparison_rows
+    ]
+    st.markdown("##### Modeled original versus MatchBalance")
+    st.dataframe(pd.DataFrame(comparison_display), hide_index=True, width="stretch")
+
+    moves = movement_rows(summary)
+    changed = sum(row["Decision"] != "Stayed" for row in moves)
+    move_columns = st.columns(3)
+    move_columns[0].metric("Teams evaluated", len(moves))
+    move_columns[1].metric("Teams moved", changed)
+    move_columns[2].metric("Teams kept", len(moves) - changed)
+    movement_filter = st.radio(
+        "Team placement rows",
+        ("All teams", "Changes only"),
+        horizontal=True,
+        key=f"bt_movement_filter_{selected_id}",
+    )
+    visible_moves = moves if movement_filter == "All teams" else [
+        row for row in moves if row["Decision"] != "Stayed"
+    ]
+    st.dataframe(pd.DataFrame(visible_moves), hide_index=True, width="stretch")
+
+    historical = summary.get("historical_inputs") or {}
+    predictor = summary.get("predictor") or {}
+    with st.expander("Historical evidence used"):
+        st.write(f"Exclusive event cutoff: {predictor.get('prediction_date') or 'Unavailable'}")
+        st.write(f"Historical games used: {summary.get('historical_games_used_for_prediction', 0)}")
+        st.write(f"Probability strategy: {predictor.get('probability_strategy') or 'Unavailable'}")
+        st.write(f"Model SHA-256: {historical.get('model_artifact_sha256') or 'Unavailable'}")
+        st.write(f"Frozen input digest: {historical.get('input_digest_sha256') or 'Unavailable'}")
+    downloads = st.columns(3)
+    html_path = record.run_dir / "comparison.html"
+    if html_path.is_file():
+        downloads[0].download_button(
+            "Download director report",
+            html_path.read_bytes(),
+            file_name=f"{record.run_id}-backtest.html",
+            mime="text/html",
+            key=f"bt_report_html_{selected_id}",
+        )
+    downloads[1].download_button(
+        "Download result JSON",
+        (record.run_dir / "summary.json").read_bytes(),
+        file_name=f"{record.run_id}-summary.json",
+        mime="application/json",
+        key=f"bt_report_json_{selected_id}",
+    )
+    downloads[2].download_button(
+        "Download evidence package",
+        reviewed_run_export(record),
+        file_name=f"{record.run_id}-evidence.zip",
+        mime="application/zip",
+        key=f"bt_report_zip_{selected_id}",
+    )
+
+
+def _run_reviewed_requests(
+    event_key: str,
+    readiness: list[ReviewedCohortReadiness],
+    *,
+    model_artifact: str,
+    base_dir,
+) -> None:
+    for index, cohort in enumerate(readiness, start=1):
+        if cohort.request is None:
+            continue
+        label = f"{_display_gender(cohort.gender)} {cohort.age_group.upper()}"
+        with st.status(
+            f"Running {label} ({index} of {len(readiness)})",
+            expanded=True,
+            state="running",
+        ) as status:
+            progress = st.progress(0.0, text="Preparing historical evidence...")
+            phase_line = st.empty()
+            log = st.empty()
+
+            def on_progress(event) -> None:
+                if event.phase:
+                    phase_line.caption(f"{label}: {event.phase}")
+                    status.update(label=f"{label}: {event.phase}")
+                if event.completed is not None and event.total:
+                    progress.progress(
+                        event.completed / event.total,
+                        text=f"{event.raw_line}",
+                    )
+                elif event.raw_line and not event.phase:
+                    log.caption(event.raw_line[-500:])
+
+            try:
+                outcome = execute_reviewed_run(
+                    event_key,
+                    cohort.request,
+                    model_artifact=model_artifact,
+                    base_dir=base_dir,
+                    on_progress=on_progress,
+                )
+            except Exception as exc:
+                status.update(label=f"{label}: could not start", state="error")
+                st.error(str(exc))
+                return
+            if outcome.state == "failed":
+                status.update(label=f"{label}: failed", state="error")
+                st.error(outcome.error or "The Backtest run failed")
+                return
+            progress.progress(1.0, text="Completed")
+            status.update(label=f"{label}: completed", state="complete")
+            st.success(f"{label}: completed")
+            st.session_state[f"bt_completed_run_{event_key}"] = outcome.run_dir.name
+    st.rerun()
+
+
+def _render_backtest_runner(
+    snapshot: BacktestSnapshot,
+    links: EventLinks,
+    event_key: str,
+    base_dir,
+) -> None:
+    st.markdown("#### Run Backtest")
+    st.caption(
+        "Reseed matched teams within each tournament cohort while keeping division sizes, pool sizes, "
+        "and reviewed formats fixed. Runs and evidence stay local."
+    )
+    operator_snapshot = replace(
+        snapshot,
+        reviews=_current_reviews(snapshot),
+        cohort_decisions=_current_cohort_decisions(snapshot),
+    )
+    unsaved_reason = ""
+    try:
+        saved_snapshot = read_snapshot(event_key, base_dir=base_dir)
+    except Exception:
+        saved_snapshot = operator_snapshot
+        unsaved_reason = "Save progress before running this event"
+    else:
+        if saved_snapshot.generation != operator_snapshot.generation:
+            unsaved_reason = "Save this capture before running it"
+        elif (
+            saved_snapshot.reviews != operator_snapshot.reviews
+            or saved_snapshot.cohort_decisions != operator_snapshot.cohort_decisions
+            or saved_snapshot.verification != operator_snapshot.verification
+        ):
+            unsaved_reason = "Save the current review and verification changes before running"
+    readiness = list(build_reviewed_cohort_readiness(saved_snapshot, links))
+    if unsaved_reason:
+        readiness = [
+            replace(item, request=None, blockers=(unsaved_reason, *item.blockers))
+            for item in readiness
+        ]
+
+    artifact_value = st.text_input(
+        "Historical model artifact",
+        value=default_model_artifact(),
+        key=f"bt_model_artifact_{snapshot.roster.event_id}",
+        help="A point-in-time model trained only on data before this tournament.",
+    )
+    try:
+        artifact_path = resolve_model_artifact(artifact_value)
+        model_ready = artifact_path.is_file()
+    except (OSError, ValueError):
+        artifact_path = None
+        model_ready = False
+    model_blocker = "" if model_ready else "Historical model artifact not found"
+    if not model_ready:
+        st.info(
+            "Provide a point-in-time model trained with data ending before this event. "
+            "Use scripts/train_point_in_time_match_model.py --max-game-date <event-start-date>, "
+            "then select its point_in_time_match_model.pkl file above."
+        )
+    table_rows = []
+    for item in readiness:
+        blockers = list(item.blockers)
+        if model_blocker:
+            blockers.append(model_blocker)
+        table_rows.append(
+            {
+                "Cohort": f"{_display_gender(item.gender)} {item.age_group.upper()}",
+                "Teams": item.team_count,
+                "Divisions": item.division_count,
+                "Status": "Ready" if item.ready and model_ready else "Blocked",
+                "What remains": "; ".join(blockers),
+            }
+        )
+    st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
+    if not readiness:
+        st.info("No tournament cohorts are available to run.")
+        _render_reviewed_result(event_key, base_dir)
+        return
+    selected_index = st.selectbox(
+        "Cohort to run",
+        tuple(range(len(readiness))),
+        format_func=lambda index: (
+            f"{_display_gender(readiness[index].gender)} {readiness[index].age_group.upper()}"
+        ),
+        key=f"bt_run_cohort_{snapshot.generation}",
+    )
+    selected = readiness[selected_index]
+    ready = [item for item in readiness if item.ready]
+    actions = st.columns(2)
+    run_selected = actions[0].button(
+        "Run selected cohort",
+        type="primary",
+        disabled=not (selected.ready and model_ready),
+        help="\n".join((*selected.blockers, model_blocker)) or None,
+        key=f"bt_run_selected_{snapshot.generation}",
+    )
+    run_all = actions[1].button(
+        f"Run all ready cohorts ({len(ready)})",
+        disabled=not (ready and model_ready),
+        help=model_blocker or None,
+        key=f"bt_run_all_{snapshot.generation}",
+    )
+    if run_selected:
+        _run_reviewed_requests(
+            event_key,
+            [selected],
+            model_artifact=str(artifact_path),
+            base_dir=base_dir,
+        )
+    if run_all:
+        _run_reviewed_requests(
+            event_key,
+            ready,
+            model_artifact=str(artifact_path),
+            base_dir=base_dir,
+        )
+    _render_reviewed_result(event_key, base_dir)
+
+
 def render_intake(supabase_client: Any) -> None:
     from tournament_intake import _BACKTEST_KEYS, _as_plain_text, _render_seeding_event_scrape, reports_dir
 
@@ -904,7 +1219,8 @@ def render_intake(supabase_client: Any) -> None:
     matched = len({row["Match key"] for row in rows if row["Status"] == "Matched"})
     reviewed = sum(review.checked for review in _current_reviews(snapshot))
     status_columns = st.columns(3)
-    status_columns[0].metric("Capture verification", "Verified" if snapshot.roster.is_complete else "Needs review")
+    capture_verified = not capture_verification_blockers(snapshot)
+    status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
     status_columns[1].metric("Team matching", f"{matched} / {totals['total_teams']}")
     status_columns[2].metric("Division review", f"{reviewed} / {len(snapshot.roster.divisions)}")
     section = st.radio(
@@ -941,6 +1257,7 @@ def render_intake(supabase_client: Any) -> None:
             st.warning("Remaining work: " + ", ".join(issue_parts) + ".")
         else:
             st.success("This intake is fully captured, matched, and reviewed.")
+        _render_backtest_runner(snapshot, links, event_key, base_dir)
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")
         st.caption(f"{matched} of {totals['total_teams']} teams matched")

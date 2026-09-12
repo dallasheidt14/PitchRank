@@ -1128,15 +1128,19 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
     if not margins:
         return {
             "actual_game_count": 0,
+            "total_goal_differential": 0,
             "average_goal_differential": 0.0,
             "median_goal_differential": 0.0,
             "close_game_rate": 0.0,
             "blowout_3plus_rate": 0.0,
+            "blowout_4plus_count": 0,
+            "blowout_4plus_rate": 0.0,
             "blowout_5plus_rate": 0.0,
             "draw_rate": 0.0,
         }
     return {
         "actual_game_count": len(margins),
+        "total_goal_differential": sum(margins),
         "average_goal_differential": float(sum(margins) / len(margins)),
         "median_goal_differential": float(
             sorted(margins)[len(margins) // 2]
@@ -1145,6 +1149,8 @@ def _summarize_actual_games(game_rows: list[dict[str, Any]]) -> dict[str, float 
         ),  # noqa: E501
         "close_game_rate": float(sum(1 for margin in margins if margin <= 1) / len(margins)),
         "blowout_3plus_rate": float(sum(1 for margin in margins if margin >= 3) / len(margins)),
+        "blowout_4plus_count": sum(1 for margin in margins if margin >= 4),
+        "blowout_4plus_rate": float(sum(1 for margin in margins if margin >= 4) / len(margins)),
         "blowout_5plus_rate": float(sum(1 for margin in margins if margin >= 5) / len(margins)),
         "draw_rate": float(sum(1 for margin in margins if margin == 0) / len(margins)),
     }

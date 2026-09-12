@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import date
 from typing import Any, Mapping
 
@@ -53,8 +53,13 @@ def build_cohort_backtest_requests(
     *,
     event_links: EventLinks | None = None,
     resolve_team_id: Callable[[str], str | None] | None = None,
+    cohort_filter: Collection[tuple[str, str]] | None = None,
 ) -> tuple[dict[str, Any], ...]:
-    """Translate checked divisions, exact pools, and saved links into requests."""
+    """Translate checked divisions, exact pools, and saved links into requests.
+
+    ``cohort_filter`` lets the UI evaluate and run one cohort without an
+    unfinished cohort elsewhere in the same event hiding its readiness.
+    """
 
     roster = effective_roster(snapshot)
     if not roster.event_start_date:
@@ -87,6 +92,24 @@ def build_cohort_backtest_requests(
         canonicalize(item.team_id_master): frozenset(item.registration_ids)
         for item in event_links.collision_acknowledgements
     }
+    roster_participants = {entrant_key(team) for team in roster.teams}
+    registrations_by_canonical: dict[str, set[str]] = defaultdict(set)
+    for participant_key, link in confirmed_links.items():
+        if (
+            participant_key in roster_participants
+            and participant_key not in removed_registrations
+            and participant_key not in not_found_registrations
+        ):
+            registrations_by_canonical[canonicalize(link.team_id_master)].add(participant_key)
+    for canonical_id, registrations in registrations_by_canonical.items():
+        if len(registrations) < 2:
+            continue
+        acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
+        if acknowledged != frozenset(registrations):
+            raise BacktestRequestError(
+                f"Canonical team {canonical_id} is linked to distinct registrations without "
+                "an acknowledgement for the exact membership"
+            )
     reviews = {review.group_id: review for review in snapshot.reviews}
     resolved_by_source = {item.source_index: item for item in snapshot.resolved}
     roster_teams_by_group_registration = {
@@ -95,10 +118,11 @@ def build_cohort_backtest_requests(
     fixtures_by_group = deduplicated_fixtures_by_group(roster)
     cohorts: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for division in roster.divisions:
-        cohorts[(division.age_group, division.gender)].append(division)
+        cohort_key = (division.age_group, division.gender)
+        if cohort_filter is None or cohort_key in cohort_filter:
+            cohorts[cohort_key].append(division)
 
     requests: list[dict[str, Any]] = []
-    registrations_by_canonical: dict[str, set[str]] = defaultdict(set)
     for cohort_key in sorted(cohorts):
         age_group, gender = cohort_key
         if not age_group or not gender:
@@ -203,7 +227,6 @@ def build_cohort_backtest_requests(
                     normalized_name = " ".join(member.team_name.split()).casefold()
                     if normalized_names[normalized_name] == 1:
                         canonical_by_participant[f"name:{normalized_name}"] = canonical_id
-                    registrations_by_canonical[canonical_id].add(participant_key)
                     entrants.append(
                         {
                             "entrant_id": f"{division.group_id}:{participant_key}",
@@ -252,13 +275,4 @@ def build_cohort_backtest_requests(
                 "source_capture_generation": snapshot.generation,
             }
         )
-    for canonical_id, registrations in registrations_by_canonical.items():
-        if len(registrations) < 2:
-            continue
-        acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
-        if acknowledged != frozenset(registrations):
-            raise BacktestRequestError(
-                f"Canonical team {canonical_id} is linked to distinct registrations without "
-                "an acknowledgement for the exact membership"
-            )
     return tuple(requests)

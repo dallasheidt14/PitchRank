@@ -154,8 +154,12 @@ _READ_ONLY_MODULES = (
     "src/tournaments/backtest_intake_state.py",
     "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
+    "src/tournaments/backtest_request.py",
     "src/tournaments/backtest_result_summary.py",
+    "src/tournaments/backtest_reviewed_report.py",
+    "src/tournaments/backtest_reviewed_run.py",
     "src/tournaments/gotsport_event_structure.py",
+    "src/tournaments/schedule_simulator.py",
     "src/tournaments/storage/_io.py",
     "src/tournaments/storage/_file_lock.py",
     "src/tournaments/storage/event_key.py",
@@ -236,7 +240,16 @@ def test_no_module_on_this_path_calls_a_write_method(relative):
     called = {
         node.func.attr
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        # Streamlit's status box uses ``status.update`` to change its label
+        # and terminal state. This exact receiver is a UI operation, not a
+        # PostgREST builder; keep every other bare write-method call guarded.
+        and not (
+            node.func.attr == "update"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "status"
+        )
     }
 
     assert called.isdisjoint(_WRITE_METHODS), f"{relative} calls {sorted(called & set(_WRITE_METHODS))}"
