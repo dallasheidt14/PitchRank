@@ -566,7 +566,7 @@ def _build_python_prediction_and_cost_functions(
     cost_cache: dict[tuple[str, str], MatchupCost] = {}
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam):
-        cache_key = tuple(sorted((team_a.team_id, team_b.team_id)))
+        cache_key = (team_a.team_id, team_b.team_id)
         cached = prediction_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -585,7 +585,8 @@ def _build_python_prediction_and_cost_functions(
         if cached is not None:
             return cached
 
-        prediction = predict_fn(team_a, team_b)
+        canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
+        prediction = predict_fn(canonical_a, canonical_b)
         projected_margin = max(
             abs(float(prediction.expected_margin)),
             abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
@@ -651,7 +652,7 @@ def _build_point_in_time_prediction_and_cost_functions(
     cost_cache: dict[tuple[str, str], MatchupCost] = {}
 
     def _predict(team_a: SeedableTeam, team_b: SeedableTeam) -> TournamentMatchPrediction:
-        cache_key = tuple(sorted((team_a.team_id, team_b.team_id)))
+        cache_key = (team_a.team_id, team_b.team_id)
         cached = prediction_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -697,7 +698,6 @@ def _build_point_in_time_prediction_and_cost_functions(
             source=f"{PREDICTOR_SOURCE_POINT_IN_TIME}:{model_artifact.stem}",
         )
         prediction_cache[cache_key] = prediction
-        cost_cache[cache_key] = _point_in_time_matchup_cost(prediction)
         return prediction
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam) -> TournamentMatchPrediction:
@@ -708,8 +708,11 @@ def _build_point_in_time_prediction_and_cost_functions(
         cached = cost_cache.get(cache_key)
         if cached is not None:
             return cached
-        _predict(team_a, team_b)
-        return cost_cache[cache_key]
+        canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
+        prediction = _predict(canonical_a, canonical_b)
+        result = _point_in_time_matchup_cost(prediction)
+        cost_cache[cache_key] = result
+        return result
 
     return predict_fn, matchup_cost_fn, model
 

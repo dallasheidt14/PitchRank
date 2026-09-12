@@ -488,9 +488,10 @@ def _build_predictor_matchup_cost_fn(
         if cached is not None:
             return cached
 
+        canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
         prediction = predict_match(
-            rankings_by_team_id[team_a.team_id],
-            rankings_by_team_id[team_b.team_id],
+            rankings_by_team_id[canonical_a.team_id],
+            rankings_by_team_id[canonical_b.team_id],
             all_games,
         )
         projected_margin = max(
