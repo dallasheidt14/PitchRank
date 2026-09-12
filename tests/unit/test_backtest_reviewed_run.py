@@ -171,6 +171,84 @@ def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
     assert "historical data unavailable" in (outcome.error or "")
 
 
+def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_path, monkeypatch):
+    from src.tournaments import backtest_reviewed_run as runner
+
+    class InterruptedProcess:
+        returncode = None
+        terminated = False
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    artifact = tmp_path / "model.pkl"
+    artifact.write_bytes(b"historical model")
+    process = InterruptedProcess()
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        runner,
+        "_stream_process",
+        lambda _process, _staging_dir, _on_progress: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    request = build_reviewed_cohort_readiness(_verified_snapshot(), _links())[0].request
+
+    try:
+        execute_reviewed_run(
+            "gotsport__51783__2025",
+            request,
+            model_artifact=artifact,
+            base_dir=tmp_path,
+        )
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("Streamlit control-flow interruption should be re-raised")
+
+    assert process.terminated is True
+    failed = list(
+        (tmp_path / "gotsport__51783__2025" / "scenarios" / "reviewed-backtest" / "runs").glob(
+            "*.failed"
+        )
+    )
+    assert len(failed) == 1
+    assert (failed[0] / "error.json").is_file()
+
+
+def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypatch):
+    from src.tournaments import backtest_reviewed_run as runner
+
+    artifact = tmp_path / "model.pkl"
+    artifact.write_bytes(b"historical model")
+    process = SimpleNamespace(returncode=0)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
+
+    def stream(_process, staging_dir, _on_progress):
+        (staging_dir / "summary.json").write_text("not-json", encoding="utf-8")
+        return []
+
+    monkeypatch.setattr(runner, "_stream_process", stream)
+    request = build_reviewed_cohort_readiness(_verified_snapshot(), _links())[0].request
+
+    outcome = execute_reviewed_run(
+        "gotsport__51783__2025",
+        request,
+        model_artifact=artifact,
+        base_dir=tmp_path,
+    )
+
+    assert outcome.state == "failed"
+    assert outcome.run_dir.name.endswith(".failed")
+    assert "Could not finalize" in (outcome.error or "")
+    assert (outcome.run_dir / "error.json").is_file()
+
+
 def test_execute_reviewed_run_rejects_an_event_directory_mismatch(tmp_path):
     artifact = tmp_path / "model.pkl"
     artifact.write_bytes(b"model")

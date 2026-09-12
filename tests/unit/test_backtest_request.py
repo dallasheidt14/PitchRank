@@ -251,6 +251,12 @@ def test_build_request_requires_exact_duplicate_mapping_acknowledgement():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=colliding_links)
+    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
+        build_cohort_backtest_requests(
+            snapshot,
+            event_links=colliding_links,
+            cohort_filter={("u14", "Male")},
+        )
 
     acknowledged_links = replace(
         colliding_links,
@@ -331,12 +337,13 @@ def test_build_request_validates_duplicate_mapping_across_cohorts():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=links)
-    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
-        build_cohort_backtest_requests(
-            snapshot,
-            event_links=links,
-            cohort_filter={("u14", "Male")},
-        )
+    requests = build_cohort_backtest_requests(
+        snapshot,
+        event_links=links,
+        cohort_filter={("u14", "Male")},
+    )
+    assert len(requests) == 1
+    assert requests[0]["age_group"] == "u14"
 
 
 def test_build_request_rejects_repeated_registration_within_cohort():

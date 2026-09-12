@@ -218,6 +218,22 @@ def _finalize_failure(
     return ReviewedRunOutcome("failed", failed, error)
 
 
+def _terminate_process(process: subprocess.Popen) -> None:
+    """Best-effort terminate and reap for interrupted Streamlit runs."""
+
+    try:
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5.0)
+    except Exception:
+        return
+
+
 def _stream_process(
     process: subprocess.Popen,
     staging_dir: Path,
@@ -237,33 +253,38 @@ def _stream_process(
 
     stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
     stderr_thread.start()
-    if process.stdout is not None:
-        with open(staging_dir / "cli_stdout.log", "a", encoding="utf-8") as log:
-            for raw in iter(process.stdout.readline, ""):
-                line = raw.rstrip("\n")
-                log.write(line + "\n")
-                log.flush()
-                phase = line.removeprefix("PHASE: ") if line.startswith("PHASE: ") else None
-                progress_match = _PROGRESS_RE.match(line)
-                completed = int(progress_match.group(2)) if progress_match else None
-                total = int(progress_match.group(3)) if progress_match else None
-                event = ReviewedRunProgress(phase, completed, total, line)
-                if phase is not None or progress_match is not None:
-                    append_jsonl(
-                        staging_dir / "progress.jsonl",
-                        stamp_schema_version(
-                            {
-                                "phase": phase or progress_match.group(1),
-                                "completed": completed,
-                                "total": total,
-                                "raw_line": line,
-                                "ts": utc_now_iso(),
-                            }
-                        ),
-                    )
-                on_progress(event)
-    process.wait()
-    stderr_thread.join(timeout=5.0)
+    try:
+        if process.stdout is not None:
+            with open(staging_dir / "cli_stdout.log", "a", encoding="utf-8") as log:
+                for raw in iter(process.stdout.readline, ""):
+                    line = raw.rstrip("\n")
+                    log.write(line + "\n")
+                    log.flush()
+                    phase = line.removeprefix("PHASE: ") if line.startswith("PHASE: ") else None
+                    progress_match = _PROGRESS_RE.match(line)
+                    completed = int(progress_match.group(2)) if progress_match else None
+                    total = int(progress_match.group(3)) if progress_match else None
+                    event = ReviewedRunProgress(phase, completed, total, line)
+                    if phase is not None or progress_match is not None:
+                        append_jsonl(
+                            staging_dir / "progress.jsonl",
+                            stamp_schema_version(
+                                {
+                                    "phase": phase or progress_match.group(1),
+                                    "completed": completed,
+                                    "total": total,
+                                    "raw_line": line,
+                                    "ts": utc_now_iso(),
+                                }
+                            ),
+                        )
+                    on_progress(event)
+        process.wait()
+    except BaseException:
+        _terminate_process(process)
+        raise
+    finally:
+        stderr_thread.join(timeout=5.0)
     return stderr_lines
 
 
@@ -340,8 +361,9 @@ def execute_reviewed_run(
             }
         )
         write_json(staging_dir / "run_metadata.json", metadata)
-        on_progress(ReviewedRunProgress("starting", None, None, "Starting historical backtest"))
+        process: subprocess.Popen | None = None
         try:
+            on_progress(ReviewedRunProgress("starting", None, None, "Starting historical backtest"))
             process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
@@ -352,14 +374,20 @@ def execute_reviewed_run(
                 start_new_session=(sys.platform != "win32"),
             )
             stderr_lines = _stream_process(process, staging_dir, on_progress)
-        except Exception as exc:
-            return _finalize_failure(
+        except BaseException as exc:
+            if process is not None:
+                _terminate_process(process)
+            outcome = _finalize_failure(
                 event_key,
                 run_id,
                 staging_dir,
                 f"Could not run historical backtest: {exc!r}",
                 base_dir=base_dir,
             )
+            if not isinstance(exc, Exception):
+                raise
+            return outcome
+        assert process is not None
         if process.returncode != 0:
             tail = "\n".join(stderr_lines[-20:])
             error = f"Historical backtest exited with code {process.returncode}"
@@ -375,23 +403,32 @@ def execute_reviewed_run(
                 base_dir=base_dir,
             )
 
-        from src.tournaments.backtest_reviewed_report import write_reviewed_backtest_html
+        try:
+            from src.tournaments.backtest_reviewed_report import write_reviewed_backtest_html
 
-        summary = read_json(staging_dir / "summary.json")
-        write_reviewed_backtest_html(
-            staging_dir / "comparison.html",
-            summary,
-            metadata,
-        )
-        metadata["ended_at"] = utc_now_iso()
-        metadata["state"] = "completed"
-        write_json(staging_dir / "run_metadata.json", metadata)
-        final_dir = promote_run(
-            event_key,
-            BACKTEST_SCENARIO,
-            run_id,
-            base_dir=base_dir,
-        )
+            summary = read_json(staging_dir / "summary.json")
+            write_reviewed_backtest_html(
+                staging_dir / "comparison.html",
+                summary,
+                metadata,
+            )
+            metadata["ended_at"] = utc_now_iso()
+            metadata["state"] = "completed"
+            write_json(staging_dir / "run_metadata.json", metadata)
+            final_dir = promote_run(
+                event_key,
+                BACKTEST_SCENARIO,
+                run_id,
+                base_dir=base_dir,
+            )
+        except Exception as exc:
+            return _finalize_failure(
+                event_key,
+                run_id,
+                staging_dir,
+                f"Could not finalize historical backtest: {exc!r}",
+                base_dir=base_dir,
+            )
         return ReviewedRunOutcome("completed", final_dir)
 
 

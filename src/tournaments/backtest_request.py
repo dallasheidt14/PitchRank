@@ -92,7 +92,14 @@ def build_cohort_backtest_requests(
         canonicalize(item.team_id_master): frozenset(item.registration_ids)
         for item in event_links.collision_acknowledgements
     }
-    roster_participants = {entrant_key(team) for team in roster.teams}
+    selected_group_ids = {
+        division.group_id
+        for division in roster.divisions
+        if cohort_filter is None or (division.age_group, division.gender) in cohort_filter
+    }
+    roster_participants = {
+        entrant_key(team) for team in roster.teams if team.group_id in selected_group_ids
+    }
     registrations_by_canonical: dict[str, set[str]] = defaultdict(set)
     for participant_key, link in confirmed_links.items():
         if (
@@ -105,6 +112,8 @@ def build_cohort_backtest_requests(
         if len(registrations) < 2:
             continue
         acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
+        if cohort_filter is not None:
+            acknowledged = frozenset(acknowledged.intersection(roster_participants))
         if acknowledged != frozenset(registrations):
             raise BacktestRequestError(
                 f"Canonical team {canonical_id} is linked to distinct registrations without "
