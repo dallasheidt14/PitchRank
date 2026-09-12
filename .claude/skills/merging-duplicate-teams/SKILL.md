@@ -369,6 +369,37 @@ Self-play is not exotic: **1,028 game rows across 552 live teams**, mostly GotSp
 2026-09-12). Those rows also reach the ranking engine, which is a separate defect worth its own
 backlog entry — but for merge purposes treat one as a hard stop on that pair.
 
+### Count games from `games`, never from `teams.game_row_count`
+
+That column is stale. On 2026-09-12, **12 of 68 rows it reported as holding zero games actually
+held up to five**. Building a candidate tier on it does two things at once, both silent: rows with
+real fixtures are classified as empty and so skip the head-to-head and shared-date screens
+entirely, and the same rows are excluded from the with-games tier that would have screened them.
+They fall through both. Always aggregate from `games` on `home_team_master_id` /
+`away_team_master_id`.
+
+### The empty-side class: what is provably safe, and what is not
+
+A side with no games at all is the narrowest class, but "no games" removes every fixture-based
+test, so most of it is *unverifiable* rather than *safe*. Split it:
+
+**Provably safe — apply without review.** The empty row's `(provider_id, provider_team_id)` is
+already present in `team_alias_map` pointing at the survivor's master. Its fixtures are already
+being attributed to the survivor, so the merge changes no attribution at all; it only retires the
+orphan `teams` row. 17 of 56 candidates met this on 2026-09-12.
+
+**Everything else — per-pair review.** And the failure this class actually produces at scale is
+not the one the screens look for. It is **a competing empty partner inside a cluster of three or
+more rows**: 49 of those 56 pairs sat in a club-cohort cluster larger than two, and a bulk rule
+picking one partner arbitrarily leaves the other duplicate standing, or binds a live provider id
+to a dead registration that has never recorded a game. Before merging an empty row, enumerate
+every row of that club in that age group, gender and state across all providers, and confirm the
+proposed partner is the best one rather than merely *a* match.
+
+Where the pair has zero games on **both** sides, say so: the merge cannot affect rankings either
+way, so it is shell tidying, and picking the wrong survivor costs nothing but is also worth no
+risk.
+
 ## Step 6: Apply only what survives review
 
 Filter `.turbo/step3/decisions_approved.json` down to the pairs that survived review, keeping the
