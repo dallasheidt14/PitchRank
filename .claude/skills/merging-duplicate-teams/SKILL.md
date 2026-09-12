@@ -118,9 +118,90 @@ remaining count before proposing to repeat anything.
 Stale tier output from an earlier run may still be lying around. An empty tier file proves
 nothing on its own — verify against the database, never against a scratch file.
 
+**Doorway C — the same squad registered with two providers.** Both doorways above miss this
+class entirely: Doorway A refuses it because the two rows' `club_name` values are rarely
+byte-identical across providers, and Doorway B is blind to it by its own admission, because the
+opponents are duplicated too so no fixture fingerprint matches. It is nevertheless the single
+largest clean class in the database, and it is the one a customer notices, because both rows are
+published on the rankings boards with half a record each.
+
+Generate it with a query, not a script — there is no committed implementation yet (IMP: see
+backlog). The pair qualifies when **all** of:
+
+1. **Different team-level `provider_id`.** This is the dominant signal — see the calibration
+   below. Exclude `modular11` rows; they are out of scope by operator decision.
+2. Same `age_group`, `gender` and `state_code`.
+3. Club matches after normalising `lower(regexp_replace(club_name,'[^a-zA-Z0-9]','','g'))` —
+   which alone unifies `Total Futbol Academy(OH)` with `Total Futbol Academy (OH)`, a pair
+   Doorway A's byte-identical test rejects — **or** the two clubs are joined by a rebrand bridge
+   (below).
+4. Normalised team names **identical**, minimum length 8. Containment is a separate, weaker tier;
+   see the warning below.
+5. Zero head-to-head, zero shared game dates, and **opponent Jaccard ≤ 0.20**.
+6. Neither row fails the survivor-integrity check in Step 5.
+
+**Club bridges, and the trap inside them.** A club whose name differs across providers can still
+be matched by mining `team_merge_map` for pairs of differing `club_name` values already joined by
+a vetted merge (~160 exist). Drop the `No Club Selection` placeholder first. Then **split the
+bridges by whether one club string contains the other**:
+
+| Bridge kind | Example | Head-to-head rate |
+|---|---|---|
+| `branch_qualifier` — one contains the other | `RSL Arizona` ↔ `RSL Arizona Mesa` | **8.5%** (13 of 153) |
+| `rebrand_or_abbrev` — neither contains the other | `Tfa Cincinnati` ↔ `Total Futbol Academy(OH)` | **0%** (0 of 127) |
+
+Against a 0.43% base rate, branch bridges pair teams that have played each other at twenty times
+chance — they are sibling branches fielding distinct squads. **Use rebrand bridges only.** Even
+inside those, `Legends FC (ca)` ↔ `Legends FC SD` and `Liverpool FC IA Central` ↔
+`Liverpool FC IA Michigan` read like branches and deserve a look.
+
 **Loosening a threshold and adding an independent signal are not the same move.** The measured
-table in evidence-rules.md forbids the first. Doorway B is the second, and it is the only route
-past the ceiling.
+table in evidence-rules.md forbids the first. Doorways B and C are the second, and are the only
+routes past the ceiling.
+
+## What the signals are actually worth (measured 2026-09-12)
+
+Calibrated against two labelled sets drawn from the database itself. **Do not use
+`team_merge_map` wholesale as ground truth** — it contains 7,165 `pitchrank-bot` fuzzy merges,
+the run that once merged 1,772 pairs of distinct teams. Segment by actor.
+
+- **POSITIVES**: 2,530 merges made by the owner by hand (`dallasheidt@gmail.com` and the other
+  human actors), both sides holding games. `pitchrank-operator` rows are this pipeline's own
+  output and are circular — exclude them.
+- **NEGATIVES**: 33,674 pairs of live teams sharing club, age group, gender and state that have
+  **played each other**, and so are certainly distinct.
+
+| Signal | True merges | Known-distinct |
+|---|---|---|
+| **Different providers** | **78.3%** | **1.7%** |
+| Team name identical (normalised) | 8.4% | 1.6% |
+| One name contains the other | 10.4% | 1.4% |
+| Median trigram similarity | 0.346 | 0.190 |
+| Median opponent Jaccard | **0.053** | **0.200** |
+| Zero shared game dates (both sides ≥5 games) | **86.1%** | n/a |
+
+Four things follow, and three of them correct earlier guidance:
+
+1. **Cross-provider is worth roughly a 46× likelihood ratio.** It is the strongest single signal
+   available and should anchor any new detector.
+2. **"Zero head-to-head" on its own proves nothing.** The base rate among same-club, same-cohort
+   pairs is **0.43%** — same-club teams essentially never play each other whether or not they are
+   duplicates. In 187 candidates you expect 0.8 by chance. Use it to *exclude* the rare provable
+   negative, never to argue a pair is a duplicate.
+3. **Opponent overlap runs the opposite way to intuition.** Two squads of one club play the same
+   local league and share opponents constantly; one squad recorded twice plays two different
+   circuits and its opponent pools barely intersect. **High overlap is a red flag, not
+   confirmation.** Reject above ~0.20.
+4. **The identical-name tier is clean; containment is not.** Replaying the detector over all
+   history: of 1,082 identical-name candidates, **0** had ever played each other (≈4.7 expected by
+   base rate). Of 2,444 containment candidates, **10** had — exactly the base rate, i.e. no
+   discriminating power at all. Containment also mismatches Roman numerals and ordinals
+   (`WIUFC 2015 Elite I` is a substring of `WIUFC 2015 Elite II`). **Never auto-apply the
+   containment tier.**
+
+One caution on "zero shared dates": it describes true duplicates well, but on a pair whose thin
+side holds 2–5 games it is satisfied by chance and proves little. Only 5 of 187 identical-name
+candidates had 10+ games on *both* sides.
 
 ## Step 3: Decide every candidate from evidence
 
@@ -200,6 +281,22 @@ The rules produce a candidate list, not a safe list. Expect roughly one in fourt
 pairs to fail review — including, in past runs, a 2008 team about to absorb a 2009 team and a
 boys squad about to absorb a girls squad.
 
+**That rate is Doorway A's.** Doorway C measured far cleaner: 30 candidates drawn at random
+(hashed, not hand-picked) and reviewed pair-by-pair on 2026-09-12 returned **29 merge, 1 hold, 0
+reject** — no case of two different teams being wrongly paired. With zero errors in 30 the honest
+statement is that the true rate is *probably under 10%*; do not quote it as 0%. The single hold
+was the survivor-integrity failure above, not a mis-paired candidate. Direct the review at the
+qualifier traps that per-pair name comparison cannot see, all of which appeared in that sample and
+all of which were settled by same-weekend fixture evidence rather than by reasoning about names:
+
+- **Colour** — Pacific FC *Blue* vs *Orange*, Richmond United *Red* vs *Orange*.
+- **Letter suffix** (Washington especially) — `Sound FC G16A` vs `G16B` are different squads; both
+  entered the same tournament in the Gold and Silver brackets respectively.
+- **Roman numeral / ordinal** — `St. Louis Stars SC II` is the club's second squad; at one
+  Pre-ECNL weekend the I squad played Union KC *Navy* while II played Union KC *Red*.
+- **Tier number** — Crossfire's `RCL 1` vs `RCL 2` is a competitive level.
+- **Coach surname** — `Beach FC 2014 Pre-ECNL 1 Dominguez` names one specific squad.
+
 Split the approved pairs into disjoint slices, sized so each agent examines its slice pair by
 pair rather than sampling. Launch all agents in a single message. Run them in the foreground so
 all results return in this turn (`model: "opus"`, no `name`). Give each agent database access, an
@@ -220,6 +317,27 @@ nothing has ever confirmed the identity of.
 
 Rows carrying three or more registrations from one provider are already routed to `REVIEW` and
 will not appear here. The residual risk is a **two**-registration fusion.
+
+### Check the survivor is a healthy row, not just that the pair is right
+
+Every rule above asks whether the two rows are the same team. None asks whether the row you are
+about to merge *into* is sound — and a merge into an already-fused row compounds the damage
+silently.
+
+`XF 2016 RCL 1` (`ab31993f`) passed every screen in Doorway C and was still wrong to apply: it
+holds 42 games against 20, 20, 18 and 17 for its four sibling squads, plays every opponent in its
+flight twice where siblings play them once, and carries **two game rows naming it as both home and
+away team** (2025-10-29, 2025-11-18). It is two squads already fused. Merging a third into it
+would have buried the problem further.
+
+So before applying, reject any pair where either row:
+
+- appears in a game with `home_team_master_id = away_team_master_id`, or
+- carries a game count far out of line with its sibling squads in the same club and cohort.
+
+Self-play is not exotic: **1,028 game rows across 552 live teams**, mostly GotSport (measured
+2026-09-12). Those rows also reach the ranking engine, which is a separate defect worth its own
+backlog entry — but for merge purposes treat one as a hard stop on that pair.
 
 ## Step 6: Apply only what survives review
 

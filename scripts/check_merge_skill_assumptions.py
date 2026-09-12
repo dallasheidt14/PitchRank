@@ -49,18 +49,18 @@ DRIFT_TOLERANCE = 0.20
 
 # Figures quoted in the skill, with the date they were measured. Update both together.
 RECORDED = {
-    "live_teams": 207991,
-    "null_club": 17600,
-    "null_team_name_original": 97862,
-    "u_label_no_year": 21420,
-    "u19_guard_blind": 6526,
-    "protected_division_rows": 4890,
+    "live_teams": 207989,
+    "null_club": 14940,
+    "null_team_name_original": 97861,
+    "u_label_no_year": 22728,
+    "u19_guard_blind": 6914,
+    "protected_division_rows": 5054,
     # Renamed from gender_word_year_rows, which counted rows merely matching an
     # NN Boys/Girls shape. A run predating IMP-136 reports 2,953 against this
     # key: a change of metric, not movement in the data.
-    "gender_word_only_year_rows": 427,
+    "gender_word_only_year_rows": 758,
 }
-RECORDED_ON = "2026-09-08"
+RECORDED_ON = "2026-09-12"
 
 
 @dataclass
@@ -280,6 +280,23 @@ FOUR_DIGIT_YEAR = re.compile(r"(?<!\d)(19|20)\d{2}(?!\d)")
 GENDER_WORD = re.compile(r"\b(?:boys|girls)\b", re.I)
 
 
+def note_self_play_unverifiable(r: Result) -> None:
+    """Step 5's survivor-integrity rule rests on a figure PostgREST cannot produce.
+
+    The rule rejects a merge whose surviving row appears in a game as both home and away team.
+    Counting those needs a column-to-column comparison, which PostgREST has no filter for, so
+    this script cannot re-measure it and must not imply that it did.
+    """
+    r.needs_human(
+        "self-play rows remain a live defect (Step 5 survivor-integrity rule)",
+        "Measured 2026-09-12 by direct SQL: 1,028 game rows across 552 live teams have "
+        "home_team_master_id = away_team_master_id, 894 of them GotSport. PostgREST cannot "
+        "compare two columns, so re-measure with "
+        "`select count(*) from games where home_team_master_id = away_team_master_id` before "
+        "trusting that figure. If it has reached zero the Step 5 screen is no longer load-bearing.",
+    )
+
+
 def measure_counts(r: Result, sb) -> None:
     """Cheap server-side counts, for the figures a plain operator can express."""
     r.measure("live_teams", count(sb, "teams", lambda q: q.eq("is_deprecated", False)))
@@ -392,6 +409,7 @@ def main() -> int:
     check_precondition_compares_raw_strings(result)
     check_scorer_backend(result)
     check_workflow_flags(result)
+    note_self_play_unverifiable(result)
 
     if not args.code_only:
         sb = get_client()
