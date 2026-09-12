@@ -666,6 +666,14 @@ def test_normalize_actual_games_override_filters_divisions_and_coerces_scores():
     ]
 
 
+def test_reviewed_actual_games_distinguishes_empty_override_from_missing_key():
+    assert cohort._reviewed_actual_games(
+        {"actual_games_override": []},
+        {"BU10 Premier"},
+    ) == []
+    assert cohort._reviewed_actual_games({}, {"BU10 Premier"}) is None
+
+
 def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
     notes: list[str] = []
 
@@ -798,3 +806,48 @@ def test_original_pool_projection_requires_exact_membership():
 
     assert projection is None
     assert issues == ("Entrant a is missing its captured original pool",)
+
+
+def test_original_pool_projection_uses_stable_keys_when_labels_repeat_or_are_blank():
+    teams = [
+        SeedableTeam("a", "A", "u14", "Male", 0.9),
+        SeedableTeam("b", "B", "u14", "Male", 0.8),
+        SeedableTeam("c", "C", "u14", "Male", 0.7),
+        SeedableTeam("d", "D", "u14", "Male", 0.6),
+    ]
+    entrants = [
+        {
+            "entrant_id": "a",
+            "actual_division_name": "Gold",
+            "actual_pool_key": "g1:p1",
+            "actual_pool_name": "",
+        },
+        {
+            "entrant_id": "b",
+            "actual_division_name": "Gold",
+            "actual_pool_key": "g1:p1",
+            "actual_pool_name": "",
+        },
+        {
+            "entrant_id": "c",
+            "actual_division_name": "Gold",
+            "actual_pool_key": "g1:p2",
+            "actual_pool_name": "Pool",
+        },
+        {
+            "entrant_id": "d",
+            "actual_division_name": "Gold",
+            "actual_pool_key": "g1:p2",
+            "actual_pool_name": "Pool",
+        },
+    ]
+
+    projection, issues = cohort._project_original_pool_arrangement(
+        entrants,
+        teams,
+        lambda _a, _b: MatchupCost(1.0, 0.5, 0.2, 0.1, 1.0),
+    )
+
+    assert issues == ()
+    assert projection is not None
+    assert projection["projected_matchup_count"] == 2

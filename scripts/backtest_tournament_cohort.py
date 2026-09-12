@@ -183,6 +183,17 @@ def _normalize_actual_games_override(
     return normalized_rows
 
 
+def _reviewed_actual_games(
+    payload: dict[str, Any],
+    division_names: set[str],
+) -> list[dict[str, Any]] | None:
+    """Return reviewed games when supplied; ``None`` means the key was absent."""
+
+    if "actual_games_override" not in payload:
+        return None
+    return _normalize_actual_games_override(payload.get("actual_games_override"), division_names)
+
+
 def _pair_count(team_count: int) -> int:
     return max(0, int(team_count) * max(0, int(team_count) - 1) // 2)
 
@@ -552,6 +563,7 @@ def _build_entrant_row(
         "event_team_name": event_team_name,
         "provider_team_id": str(entrant.get("provider_team_id") or ""),
         "actual_division_name": str(entrant["actual_division_name"]),
+        "actual_pool_key": str(entrant.get("actual_pool_key") or ""),
         "actual_pool_name": str(entrant.get("actual_pool_name") or ""),
         "canonical_team_name": (team_row or {}).get("team_name") or event_team_name,
         "club_name": (team_row or {}).get("club_name"),
@@ -1096,16 +1108,21 @@ def _project_original_pool_arrangement(
     matchup_cost_fn,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
     teams_by_id = {team.team_id: team for team in teams}
-    pools: dict[tuple[str, str], list[SeedableTeam]] = {}
+    pools: dict[tuple[str, ...], list[SeedableTeam]] = {}
     issues: list[str] = []
     for entrant in entrant_rows:
         division_name = str(entrant.get("actual_division_name") or "").strip()
+        pool_key = str(entrant.get("actual_pool_key") or "").strip()
         pool_name = str(entrant.get("actual_pool_name") or "").strip()
         entrant_id = str(entrant["entrant_id"])
-        if not pool_name:
+        if pool_key:
+            identity = ("captured", pool_key)
+        elif pool_name:
+            identity = ("legacy", division_name, pool_name)
+        else:
             issues.append(f"Entrant {entrant_id} is missing its captured original pool")
             continue
-        pools.setdefault((division_name, pool_name), []).append(teams_by_id[entrant_id])
+        pools.setdefault(identity, []).append(teams_by_id[entrant_id])
     if issues:
         return None, tuple(issues)
     pairs = [
@@ -1280,18 +1297,19 @@ def main() -> int:
 
     team_rows = _fetch_rows_by_ids(client, "teams", TEAM_META_COLS, "team_id_master", canonical_team_ids)
     team_by_id = {str(row["team_id_master"]): row for row in team_rows}
-    actual_games = _normalize_actual_games_override(
-        payload.get("actual_games_override"),
-        {str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]},
-    )
-    if not actual_games:
+    division_names = {
+        str(division.get("actual_division_name") or division["name"])
+        for division in payload["divisions"]
+    }
+    actual_games = _reviewed_actual_games(payload, division_names)
+    if actual_games is None:
         actual_games = (
             client.table("games")
             .select("id,division_name,game_date,home_team_master_id,away_team_master_id,home_score,away_score")
             .eq("event_name", event_name)
             .in_(
                 "division_name",
-                [str(division.get("actual_division_name") or division["name"]) for division in payload["divisions"]],
+                sorted(division_names),
             )  # noqa: E501
             .eq("is_excluded", False)
             .not_.is_("home_score", "null")

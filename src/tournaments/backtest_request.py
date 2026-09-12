@@ -96,6 +96,7 @@ def build_cohort_backtest_requests(
         entrants: list[dict[str, Any]] = []
         actual_games: list[dict[str, Any]] = []
         canonical_by_participant: dict[str, str] = {}
+        participant_divisions: dict[str, str] = {}
 
         for division in cohorts[cohort_key]:
             fixture_evidence = fixtures_by_group.get(division.group_id, ())
@@ -150,6 +151,14 @@ def build_cohort_backtest_requests(
                     participant_key = registration or (
                         f"pool:{division.group_id}:{pool.pool_id or pool_index}:{member.standings_position}"
                     )
+                    previous_division = participant_divisions.get(participant_key)
+                    if previous_division is not None:
+                        raise BacktestRequestError(
+                            f"Tournament registration/source key '{participant_key}' appears more than once "
+                            f"in cohort {age_group} {gender} (divisions {previous_division} and "
+                            f"{division.group_id})"
+                        )
+                    participant_divisions[participant_key] = division.group_id
                     roster_team = roster_teams_by_group_registration.get(
                         (division.group_id, participant_key)
                     )
@@ -200,6 +209,9 @@ def build_cohort_backtest_requests(
                             "event_age_group": age_group,
                             "event_gender": gender,
                             "actual_division_name": division.division_label,
+                            "actual_pool_key": (
+                                f"{division.group_id}:{pool.pool_id or f'row:{pool_index}'}"
+                            ),
                             "actual_pool_name": pool.label,
                         }
                     )
