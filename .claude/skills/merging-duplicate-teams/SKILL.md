@@ -151,9 +151,39 @@ bridges by whether one club string contains the other**:
 | `rebrand_or_abbrev` — neither contains the other | `Tfa Cincinnati` ↔ `Total Futbol Academy(OH)` | **0%** (0 of 127) |
 
 Against a 0.43% base rate, branch bridges pair teams that have played each other at twenty times
-chance — they are sibling branches fielding distinct squads. **Use rebrand bridges only.** Even
-inside those, `Legends FC (ca)` ↔ `Legends FC SD` and `Liverpool FC IA Central` ↔
-`Liverpool FC IA Michigan` read like branches and deserve a look.
+chance — they are sibling branches fielding distinct squads. **Use rebrand bridges only.**
+
+**But the string test is a filter, not the verdict — validate every bridge from fixtures.** It has
+a hole in both directions, and a 23-pair review on 2026-09-12 found three pairs through it:
+
+- *A branch whose qualifier does not nest inside the parent name escapes the containment test.*
+  `Legends FC (ca)` and `Legends FC SD North` normalise to strings where neither contains the
+  other, so the classifier called it a rebrand. They are two clubs: their teams have **played each
+  other 30 times** across u11–u20, and at one TGS event SD North entered two 2011 boys squads
+  while Legends FC (ca) entered its own.
+- *Conversely, a "two clubs" verdict does not by itself kill a pair.* Twice the foreign club name
+  was a provider's umbrella org stamp, contradicted by the row's own `team_name_original`:
+  a GotSport row filed under `Players Development Academy` is literally named
+  `PDA Hibernian Mbappe`, and one filed under `Rebels Soccer Club` has
+  `team_name_original = "Flyte SC-IE B10 Contreras"`. Read `team_name_original`, not just
+  `club_name`.
+
+So the bridge test that actually works is: **do teams of club A play teams of club B?** Frequent
+fixtures across cohorts mean two organisations; zero fixtures plus an overlapping roster of team
+names mean one club under two spellings. Check that before trusting any pair on the bridge.
+
+**Never trust the stored `gender` or `age_group` of a candidate row.** The clearest near-miss of
+that review was `Oklahoma Cosmos 2012 Premier`, where the two rows passed every club and name
+test and would have fused **a girls team into a boys team**: one row's `team_name_original` is
+`Oklahoma Cosmos 12G Premier` and all seven of its opponents are female, but its stored `gender`
+says Male, which is the only reason it entered the candidate pool. Its real twin already existed
+separately. Re-derive gender and cohort from `team_name_original` and from the opponents' own
+rows before approving.
+
+**The bridged tier is materially riskier than the same-club tier, and the numbers say so.** The
+same-club identical-name tier returned 30 of 30 on a random hand-check. The bridged tier returned
+**20 merge, 3 reject out of 23** — roughly one in eight wrong. Treat bridged candidates as
+review-required, never as a batch to apply on the screens alone.
 
 **Loosening a threshold and adding an independent signal are not the same move.** The measured
 table in evidence-rules.md forbids the first. Doorways B and C are the second, and are the only
