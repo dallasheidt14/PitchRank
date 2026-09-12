@@ -110,8 +110,8 @@ def _schedule_html(rows, date_header="Bracket - Saturday,  September 12, 2026"):
 
 PLAYED = ["738750", "Duniway Park", "10:30 AM", "Turf", "A4 vs A7", "LFC 13B Red", "3", "vs.", "PCFC Unity 13B", "1"]
 UNPLAYED = ["738713", "Lake Oswego", "12:00 PM", "Turf", "A5 vs A3", "OPFC 13B Gold", "", "vs.", "LCYSA 13B Red", ""]
-HOME_ONLY = ["738705", "Luke Jensen", "01:30 PM", "Trf1", "A6 vs A9", "Pacific FC 13B Blue", "2", "vs.", "SCA 13B Gold", ""]
-AWAY_ONLY = ["738721", "Westside HS", "03:00 PM", "Turf", "A11 vs A10", "RYSC 13B Black", "", "vs.", "CUSC 13B Black", "4"]
+HOME_ONLY = ["738705", "Luke Jensen", "01:30 PM", "Trf1", "A6 vs A9", "Pacific FC 13B Blue", "2", "vs.", "SCA 13B", ""]
+AWAY_ONLY = ["738721", "Westside HS", "03:00 PM", "Turf", "A11 vs A10", "RYSC 13B Black", "", "vs.", "CUSC 13B", "4"]
 
 FLIGHT = {
     "flight_guid": "9A8F7D52-BA9B-44E1-8E76-201AAEDD2767",
@@ -130,9 +130,10 @@ WINDOW_START = scraper.datetime(2026, 9, 1)
 WINDOW_END = scraper.datetime(2026, 10, 1)
 
 
-def _scrape(monkeypatch, rows):
+def _scrape(monkeypatch, rows, date_header=None):
     """Scrape `rows` with the season pinned, so Aug 1 does not move the expectations."""
-    monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: _schedule_html(rows))
+    html = _schedule_html(rows) if date_header is None else _schedule_html(rows, date_header)
+    monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: html)
     monkeypatch.setattr(
         scraper,
         "calculate_age_group_from_birth_year",
@@ -172,6 +173,107 @@ class TestScoreShapes:
 
         assert len(records) == 4
         assert sum(1 for r in records if r["goals_for"] == "") == 2
+
+
+def _accepted_list_html(divisions):
+    """Build an accepted_list page shaped like OYSA's, one row per division."""
+    rows = "".join(
+        "<tr>"
+        f"<td>{name}</td>"
+        "<td>Brackets</td>"
+        f'<td><a href="schedule_results2.asp?sessionguid=&flightguid={guid}'
+        f'&tournamentguid=765ABB82-7406-4A4D-9446-7EA366142522">Schedule &amp; Results</a></td>'
+        "</tr>"
+        for name, guid in divisions
+    )
+    return f"<html><body><table>{rows}</table></body></html>"
+
+
+DIVISIONS = [
+    ("BU11 SCL", "11111111-1111-4111-8111-111111111111"),
+    ("BU12 RCL North 1", "22222222-2222-4222-8222-222222222222"),
+    ("BU13 RCL North 2", "33333333-3333-4333-8333-333333333333"),
+    ("BU14 RCL South", "44444444-4444-4444-8444-444444444444"),
+]
+
+
+class TestDiscoverFlights:
+    """The step that turns a division label into a cohort and a birth year.
+
+    This is where the shipped off-by-one actually lived — the helpers were
+    right in isolation and the wiring fed them the wrong thing — so the
+    assertions here are on what a flight ends up carrying, not on a helper.
+    """
+
+    def _discover(self, monkeypatch, target_age, target_gender="Male"):
+        monkeypatch.setattr(
+            scraper, "_fetch", lambda url, retries=3: _accepted_list_html(DIVISIONS)
+        )
+        unpinned = scraper._age_u_to_birth_year
+        monkeypatch.setattr(
+            scraper,
+            "_age_u_to_birth_year",
+            lambda age_u, season_year=None: unpinned(age_u, PINNED_SEASON),
+        )
+        return scraper.discover_flights(TOURNAMENT, target_age, target_gender)
+
+    @pytest.mark.parametrize(
+        "target_age, expected_division, expected_birth_year",
+        [
+            (11, "BU11 SCL", 2016),
+            (12, "BU12 RCL North 1", 2015),
+            (13, "BU13 RCL North 2", 2014),
+            (14, "BU14 RCL South", 2013),
+        ],
+    )
+    def test_a_cohort_selects_its_own_division(
+        self, monkeypatch, target_age, expected_division, expected_birth_year
+    ):
+        """u13 must select BU13 — not BU12, which the shipped off-by-one did."""
+        flights = self._discover(monkeypatch, target_age)
+
+        assert [f["division_name"] for f in flights] == [expected_division]
+        assert flights[0]["birth_year"] == expected_birth_year
+        assert flights[0]["age_u"] == target_age
+
+    def test_other_cohorts_are_filtered_out(self, monkeypatch):
+        """Without the cohort filter every sweep would return all four divisions."""
+        flights = self._discover(monkeypatch, 13)
+
+        assert len(flights) == 1
+
+    def test_an_absent_cohort_selects_nothing(self, monkeypatch):
+        assert self._discover(monkeypatch, 17) == []
+
+    def test_the_girls_tab_is_requested_for_female(self, monkeypatch):
+        seen = {}
+
+        def fake_fetch(url, retries=3):
+            seen["url"] = url
+            return _accepted_list_html([("GU13 RCL Central", "55555555-5555-4555-8555-555555555555")])
+
+        monkeypatch.setattr(scraper, "_fetch", fake_fetch)
+        flights = scraper.discover_flights(TOURNAMENT, 13, "Female")
+
+        assert "show=girls" in seen["url"]
+        assert [f["gender"] for f in flights] == ["Female"]
+
+
+class TestDateWindow:
+    """The window bounds the scrape at both ends; --days-forward opens the near one."""
+
+    @pytest.mark.parametrize(
+        "date_header",
+        [
+            "Bracket - Saturday,  August 15, 2026",
+            "Bracket - Saturday,  November 14, 2026",
+        ],
+    )
+    def test_a_date_outside_the_window_is_skipped(self, monkeypatch, date_header):
+        assert _scrape(monkeypatch, [PLAYED], date_header) == []
+
+    def test_a_date_inside_the_window_is_kept(self, monkeypatch):
+        assert len(_scrape(monkeypatch, [PLAYED], "Bracket - Saturday,  September 26, 2026")) == 2
 
 
 class TestRecordFields:

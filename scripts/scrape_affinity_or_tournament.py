@@ -315,7 +315,8 @@ def scrape_flight_games(
         if element.name != "table" or current_date is None:
             continue
 
-        in_window = min_date <= current_date <= max_date
+        if current_date < min_date or current_date > max_date:
+            continue
 
         rows = element.find_all("tr")
         for row in rows:
@@ -334,9 +335,6 @@ def scrape_flight_games(
             home_score_str = cell_text[6]
             away_name = cell_text[8]
             away_score_str = cell_text[9] if len(cell_text) > 9 else ""
-
-            if not in_window:
-                continue
 
             home_blank = not home_score_str.strip()
             away_blank = not away_score_str.strip()
