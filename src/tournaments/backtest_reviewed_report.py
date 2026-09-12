@@ -16,6 +16,23 @@ _MODEL_METRICS = (
 )
 
 
+def observed_result_values(summary: dict[str, Any]) -> dict[str, int | float | None]:
+    """Return observed aggregates without treating missing scores as zero-margin games."""
+
+    actual = summary.get("actual_results") or {}
+    game_count = int(actual.get("actual_game_count") or 0)
+    return {
+        "game_count": game_count,
+        "average_goal_differential": (
+            float(actual.get("average_goal_differential") or 0) if game_count else None
+        ),
+        "blowout_4plus_count": int(actual.get("blowout_4plus_count") or 0),
+        "blowout_4plus_rate": (
+            float(actual.get("blowout_4plus_rate") or 0) if game_count else None
+        ),
+    }
+
+
 def model_comparison_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
     original = summary.get("original_model_projection") or {}
     proposed = summary.get("proposed_model_projection") or {}
@@ -81,7 +98,7 @@ def render_reviewed_backtest_html(
     )
     comparison = summary.get("seeding_comparison") or {}
     status = html.escape(str(comparison.get("status") or "unavailable"))
-    actual = summary.get("actual_results") or {}
+    observed = observed_result_values(summary)
     model_rows = "".join(
         "<tr>"
         f"<td>{html.escape(str(row['Metric']))}</td>"
@@ -109,7 +126,7 @@ def render_reviewed_backtest_html(
 <style>
 body{{font-family:Arial,sans-serif;color:#17212b;max-width:1100px;margin:32px auto;padding:0 20px}}
 h1{{margin-bottom:4px}} .muted{{color:#667085}}
-.cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:24px 0}}
+.cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:24px 0}}
 .card{{border:1px solid #d0d5dd;border-radius:10px;padding:16px}}
 .value{{font-size:28px;font-weight:700;margin-top:6px}}
 table{{border-collapse:collapse;width:100%;margin:12px 0 28px}}
@@ -120,10 +137,12 @@ th{{background:#f9fafb}} .good{{color:#067647;font-weight:700}} code{{font-size:
 <p class="muted">MatchBalance completed-tournament Backtest</p><h1>{event_name}</h1>
 <p>{cohort_label} · comparison status <strong class="good">{status}</strong></p>
 <div class="cards">
-<div class="card">Observed games<div class="value">{int(actual.get('actual_game_count') or 0)}</div></div>
+<div class="card">Observed games<div class="value">{observed['game_count']}</div></div>
 <div class="card">Observed average margin
-<div class="value">{float(actual.get('average_goal_differential') or 0):.2f}</div></div>
-<div class="card">Observed 4+ blowouts<div class="value">{int(actual.get('blowout_4plus_count') or 0)}</div></div>
+<div class="value">{_format(observed['average_goal_differential'], 'goals')}</div></div>
+<div class="card">Observed 4+ blowouts<div class="value">{observed['blowout_4plus_count']}</div></div>
+<div class="card">Observed blowout rate
+<div class="value">{_format(observed['blowout_4plus_rate'], 'rate')}</div></div>
 <div class="card">Teams reseeded<div class="value">{sum(1 for row in moves if row['Decision'] != 'Stayed')}</div></div>
 </div>
 <p class="muted">Observed results describe what happened. The fair improvement below evaluates the

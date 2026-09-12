@@ -32,7 +32,11 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
-from src.tournaments.backtest_reviewed_report import model_comparison_rows, movement_rows
+from src.tournaments.backtest_reviewed_report import (
+    model_comparison_rows,
+    movement_rows,
+    observed_result_values,
+)
 from src.tournaments.backtest_reviewed_run import (
     ReviewedCohortReadiness,
     build_reviewed_cohort_readiness,
@@ -930,20 +934,20 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
             "A fair original-versus-proposed comparison is unavailable: "
             + str(comparison.get("reason") or "the modeled matchup evidence is incomplete")
         )
-    actual = summary.get("actual_results") or {}
+    observed = observed_result_values(summary)
     actual_columns = st.columns(4)
-    actual_columns[0].metric("Observed games", int(actual.get("actual_game_count") or 0))
+    actual_columns[0].metric("Observed games", observed["game_count"])
     actual_columns[1].metric(
         "Observed average margin",
-        f"{float(actual.get('average_goal_differential') or 0):.2f}",
+        _format_model_value(observed["average_goal_differential"], "goals"),
     )
     actual_columns[2].metric(
         "Observed 4+ blowouts",
-        int(actual.get("blowout_4plus_count") or 0),
+        observed["blowout_4plus_count"],
     )
     actual_columns[3].metric(
         "Observed blowout rate",
-        f"{float(actual.get('blowout_4plus_rate') or 0) * 100:.1f}%",
+        _format_model_value(observed["blowout_4plus_rate"], "rate"),
     )
     st.caption(
         "Observed results describe what happened. The comparison below evaluates both arrangements "
