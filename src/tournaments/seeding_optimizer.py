@@ -8,8 +8,10 @@ model can later be swapped to a calibrated point-in-time competitive model.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import asdict, dataclass
 from itertools import combinations
+from numbers import Integral
 from typing import Any, Callable, Iterable, Sequence
 
 
@@ -260,12 +262,66 @@ def total_tournament_cost(
     return float(sum(flight_total_cost(flight, matchup_cost_fn=matchup_cost_fn) for flight in flights))
 
 
-def _validate_flights(teams: Sequence[SeedableTeam], flights: Sequence[FlightSpec]) -> None:
+def _positive_slot_count(value: Any, *, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    count = int(value)
+    if count <= 0:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    return count
+
+
+def _validate_teams(teams: Sequence[SeedableTeam]) -> None:
     if not teams:
         raise ValueError("At least one team is required")
+
+    team_ids: list[str] = []
+    for index, team in enumerate(teams):
+        if not isinstance(team.team_id, str):
+            raise ValueError(f"Team at index {index} needs a non-empty string team_id")
+        raw_team_id = team.team_id
+        team_id = raw_team_id.strip()
+        if not team_id:
+            raise ValueError(f"Team at index {index} needs a non-empty team_id")
+        if team_id != raw_team_id:
+            raise ValueError(f"Team ID {raw_team_id!r} must not have leading or trailing whitespace")
+        team_ids.append(team_id)
+
+        if isinstance(team.power_score, bool):
+            raise ValueError(f"Team '{team_id}' needs a finite power_score between 0 and 1")
+        try:
+            power_score = float(team.power_score)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Team '{team_id}' needs a finite power_score between 0 and 1") from error
+        if not math.isfinite(power_score) or not 0.0 <= power_score <= 1.0:
+            raise ValueError(
+                f"Team '{team_id}' needs a finite power_score between 0 and 1; got {team.power_score!r}"
+            )
+
+    duplicate_ids = sorted(team_id for team_id, count in Counter(team_ids).items() if count > 1)
+    if duplicate_ids:
+        raise ValueError(f"Tournament entrant IDs must be unique; duplicates: {', '.join(duplicate_ids)}")
+
+
+def _validate_flights(teams: Sequence[SeedableTeam], flights: Sequence[FlightSpec]) -> None:
+    _validate_teams(teams)
     if not flights:
         raise ValueError("At least one flight is required")
-    requested_slots = sum(max(0, int(flight.team_count)) for flight in flights)
+
+    names: list[str] = []
+    requested_slots = 0
+    for index, flight in enumerate(flights):
+        if not isinstance(flight.name, str):
+            raise ValueError(f"Flight at index {index} needs a non-empty string name")
+        name = flight.name.strip()
+        if not name:
+            raise ValueError(f"Flight at index {index} needs a non-empty name")
+        names.append(name)
+        requested_slots += _positive_slot_count(flight.team_count, label=f"Flight '{name}' team_count")
+
+    duplicate_names = sorted(name for name, count in Counter(names).items() if count > 1)
+    if duplicate_names:
+        raise ValueError(f"Flight names must be unique; duplicates: {', '.join(duplicate_names)}")
     if requested_slots != len(teams):
         raise ValueError(
             f"Flight sizes total {requested_slots}, but {len(teams)} teams were provided. "
@@ -274,15 +330,39 @@ def _validate_flights(teams: Sequence[SeedableTeam], flights: Sequence[FlightSpe
 
 
 def _pool_specs_from_division(division: DivisionSpec) -> list[FlightSpec]:
-    pool_sizes = tuple(int(size) for size in division.pool_sizes if int(size) > 0)
+    division_count = _positive_slot_count(
+        division.team_count,
+        label=f"Division '{division.name}' team_count",
+    )
+    pool_sizes = tuple(
+        _positive_slot_count(size, label=f"Division '{division.name}' pool size") for size in division.pool_sizes
+    )
     if not pool_sizes:
-        pool_sizes = (int(division.team_count),)
-    if sum(pool_sizes) != int(division.team_count):
+        pool_sizes = (division_count,)
+    if sum(pool_sizes) != division_count:
         raise ValueError(
             f"Division '{division.name}' pool sizes sum to {sum(pool_sizes)}, "
-            f"but division team_count is {division.team_count}."
+            f"but division team_count is {division_count}."
         )
     return [FlightSpec(name=f"Pool {chr(65 + index)}", team_count=size) for index, size in enumerate(pool_sizes)]
+
+
+def _assert_assignment_integrity(
+    teams: Sequence[SeedableTeam],
+    divisions: Sequence[DivisionAssignment],
+) -> None:
+    expected = Counter(team.team_id for team in teams)
+    assigned = Counter(team.team_id for division in divisions for team in division.teams)
+    if assigned != expected:
+        raise RuntimeError("Optimizer output must contain every tournament entrant exactly once")
+
+    for division in divisions:
+        pooled = Counter(team.team_id for pool in division.pools for team in pool.teams)
+        division_members = Counter(team.team_id for team in division.teams)
+        if pooled != division_members:
+            raise RuntimeError(f"Division '{division.name}' pool membership does not match its entrants")
+        if tuple(len(pool.teams) for pool in division.pools) != division.pool_sizes:
+            raise RuntimeError(f"Division '{division.name}' pool capacities changed during optimization")
 
 
 def optimize_division_assignments(
@@ -382,6 +462,7 @@ def optimize_division_assignments(
         )
         for assignment in base_assignments
     )
+    _assert_assignment_integrity(teams, divisions)
     return TournamentOptimizationResult(
         divisions=divisions,
         total_cost=float(sum(division.total_pair_cost for division in divisions)),
@@ -408,7 +489,7 @@ def optimize_tournament_format(
     if not divisions:
         raise ValueError("At least one division format is required")
 
-    top_level_specs = [FlightSpec(name=division.name, team_count=int(division.team_count)) for division in divisions]
+    top_level_specs = [FlightSpec(name=division.name, team_count=division.team_count) for division in divisions]
     top_level_result = optimize_division_assignments(
         teams,
         top_level_specs,
@@ -421,7 +502,7 @@ def optimize_tournament_format(
     division_assignments: list[DivisionAssignment] = []
     total_iterations = int(top_level_result.optimizer_iterations)
 
-    for division_spec, base_assignment in zip(divisions, top_level_result.divisions, strict=False):
+    for division_spec, base_assignment in zip(divisions, top_level_result.divisions, strict=True):
         pool_specs = _pool_specs_from_division(division_spec)
         if len(pool_specs) == 1:
             pools = (
@@ -500,23 +581,31 @@ def optimize_tournament_format(
             )
         )
 
-    return TournamentOptimizationResult(
+    result = TournamentOptimizationResult(
         divisions=tuple(division_assignments),
         total_cost=float(sum(division.total_pair_cost for division in division_assignments)),
         optimizer_iterations=total_iterations,
         matchup_proxy=matchup_proxy,
     )
+    _assert_assignment_integrity(teams, result.divisions)
+    return result
 
 
 def build_seedable_teams(rows: Iterable[dict[str, Any]]) -> list[SeedableTeam]:
     teams: list[SeedableTeam] = []
-    for row in rows:
+    for index, row in enumerate(rows):
+        team_id = row.get("team_id")
+        if not isinstance(team_id, str) or not team_id.strip():
+            raise ValueError(f"Team at index {index} needs a non-empty string team_id")
+        if team_id != team_id.strip():
+            raise ValueError(f"Team ID {team_id!r} must not have leading or trailing whitespace")
         power_score = row.get("power_score")
         if power_score is None:
-            continue
+            identity = team_id or row.get("team_name") or "unknown team"
+            raise ValueError(f"No power_score found for '{identity}'")
         teams.append(
             SeedableTeam(
-                team_id=str(row["team_id"]),
+                team_id=team_id,
                 team_name=str(row["team_name"]),
                 age_group=normalize_age_group(str(row["age_group"])),
                 gender=normalize_gender_label(str(row["gender"])),

@@ -23,6 +23,7 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -452,18 +453,33 @@ def _point_in_time_prediction_from_row(
     expected_score = _winner_consistent_expected_score(predicted_winner, expected_goals_a, expected_goals_b)
     expected_margin = float(row.get("predicted_margin", expected_goals_a - expected_goals_b) or 0.0)
 
+    def optional_probability(column: str) -> float | None:
+        value = row.get(column)
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+
     return TournamentMatchPrediction(
         predicted_winner=predicted_winner,
         expected_score=expected_score,
         expected_margin=expected_margin,
-        win_probability_a=float(row.get("prob_team_a_win", 0.0) or 0.0),
-        draw_probability=float(row.get("prob_draw", 0.0) or 0.0),
-        win_probability_b=float(row.get("prob_team_b_win", 0.0) or 0.0),
-        blowout_3plus_probability=float(row.get("blowout_3plus_probability", 0.0) or 0.0),
-        blowout_5plus_probability=float(row.get("blowout_5plus_probability", 0.0) or 0.0),
+        win_probability_a=optional_probability("prob_team_a_win"),
+        draw_probability=optional_probability("prob_draw"),
+        win_probability_b=optional_probability("prob_team_b_win"),
+        blowout_3plus_probability=optional_probability("blowout_3plus_probability"),
+        blowout_5plus_probability=optional_probability("blowout_5plus_probability"),
         probability_strategy=str(row.get("probability_strategy") or ""),
         source=source,
     )
+
+
+def _validate_optional_probability(value: float | None, *, name: str) -> float | None:
+    if value is None:
+        return None
+    probability = float(value)
+    if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+        raise ValueError(f"{name} must be a finite probability between 0 and 1; got {value!r}")
+    return probability
 
 
 def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> MatchupCost:
@@ -471,9 +487,13 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
         abs(float(prediction.expected_margin)),
         abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
     )
-    win_probability_a = float(prediction.win_probability_a or 0.0)
-    win_probability_b = float(prediction.win_probability_b or 0.0)
-    draw_probability = float(prediction.draw_probability or 0.0)
+    win_probability_a = _validate_optional_probability(
+        prediction.win_probability_a, name="win_probability_a"
+    ) or 0.0
+    win_probability_b = _validate_optional_probability(
+        prediction.win_probability_b, name="win_probability_b"
+    ) or 0.0
+    draw_probability = _validate_optional_probability(prediction.draw_probability, name="draw_probability") or 0.0
     probability_gap = abs(win_probability_a - win_probability_b)
     competitive_probability = (
         _sigmoid((1.05 - projected_margin) / 0.35) * 0.45
@@ -483,8 +503,22 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
     if prediction.predicted_winner == "draw":
         competitive_probability = max(competitive_probability, 0.88)
 
-    blowout_3plus_probability = float(prediction.blowout_3plus_probability or _sigmoid((projected_margin - 2.6) / 0.45))
-    blowout_5plus_probability = float(prediction.blowout_5plus_probability or _sigmoid((projected_margin - 4.5) / 0.40))
+    supplied_blowout_3plus = _validate_optional_probability(
+        prediction.blowout_3plus_probability, name="blowout_3plus_probability"
+    )
+    supplied_blowout_5plus = _validate_optional_probability(
+        prediction.blowout_5plus_probability, name="blowout_5plus_probability"
+    )
+    blowout_3plus_probability = (
+        supplied_blowout_3plus
+        if supplied_blowout_3plus is not None
+        else _sigmoid((projected_margin - 2.6) / 0.45)
+    )
+    blowout_5plus_probability = (
+        supplied_blowout_5plus
+        if supplied_blowout_5plus is not None
+        else _sigmoid((projected_margin - 4.5) / 0.40)
+    )
     total_cost = (
         projected_margin
         + (1.0 - competitive_probability)
@@ -566,7 +600,7 @@ def _build_python_prediction_and_cost_functions(
     cost_cache: dict[tuple[str, str], MatchupCost] = {}
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam):
-        cache_key = tuple(sorted((team_a.team_id, team_b.team_id)))
+        cache_key = (team_a.team_id, team_b.team_id)
         cached = prediction_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -585,7 +619,8 @@ def _build_python_prediction_and_cost_functions(
         if cached is not None:
             return cached
 
-        prediction = predict_fn(team_a, team_b)
+        canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
+        prediction = predict_fn(canonical_a, canonical_b)
         projected_margin = max(
             abs(float(prediction.expected_margin)),
             abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
@@ -651,7 +686,7 @@ def _build_point_in_time_prediction_and_cost_functions(
     cost_cache: dict[tuple[str, str], MatchupCost] = {}
 
     def _predict(team_a: SeedableTeam, team_b: SeedableTeam) -> TournamentMatchPrediction:
-        cache_key = tuple(sorted((team_a.team_id, team_b.team_id)))
+        cache_key = (team_a.team_id, team_b.team_id)
         cached = prediction_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -697,7 +732,6 @@ def _build_point_in_time_prediction_and_cost_functions(
             source=f"{PREDICTOR_SOURCE_POINT_IN_TIME}:{model_artifact.stem}",
         )
         prediction_cache[cache_key] = prediction
-        cost_cache[cache_key] = _point_in_time_matchup_cost(prediction)
         return prediction
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam) -> TournamentMatchPrediction:
@@ -708,20 +742,51 @@ def _build_point_in_time_prediction_and_cost_functions(
         cached = cost_cache.get(cache_key)
         if cached is not None:
             return cached
-        _predict(team_a, team_b)
-        return cost_cache[cache_key]
+        canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
+        prediction = _predict(canonical_a, canonical_b)
+        result = _point_in_time_matchup_cost(prediction)
+        cost_cache[cache_key] = result
+        return result
 
     return predict_fn, matchup_cost_fn, model
 
 
+def _parse_positive_slot_count(value: Any, *, label: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if isinstance(value, int):
+        count = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        count = int(value.strip())
+    else:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    if count <= 0:
+        raise ValueError(f"{label} must be a positive integer; got {value!r}")
+    return count
+
+
+def _parse_division_name(value: Any, *, index: int) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Division at index {index} needs a non-empty string name")
+    return value.strip()
+
+
 def _build_division_specs(payload: dict[str, Any]) -> list[DivisionSpec]:
     divisions: list[DivisionSpec] = []
-    for division in payload.get("divisions") or []:
-        pool_sizes = tuple(int(size) for size in division.get("pool_sizes") or [int(division["team_count"])])
+    for index, division in enumerate(payload.get("divisions") or []):
+        name = _parse_division_name(division.get("name"), index=index)
+        team_count = _parse_positive_slot_count(
+            division["team_count"],
+            label=f"Division '{name}' team_count",
+        )
+        pool_sizes = tuple(
+            _parse_positive_slot_count(size, label=f"Division '{name}' pool size")
+            for size in (division.get("pool_sizes") or [team_count])
+        )
         divisions.append(
             DivisionSpec(
-                name=str(division["name"]),
-                team_count=int(division["team_count"]),
+                name=name,
+                team_count=team_count,
                 pool_sizes=pool_sizes,
                 advancement=str(division["advancement"]) if division.get("advancement") else None,
             )

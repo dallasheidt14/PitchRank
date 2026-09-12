@@ -1,7 +1,14 @@
+import math
+
+import pytest
+
 from src.tournaments.seeding_optimizer import (
     DivisionSpec,
+    FlightSpec,
     MatchupCost,
     SeedableTeam,
+    build_seedable_teams,
+    optimize_division_assignments,
     optimize_tournament_format,
     projected_matchup_cost,
 )
@@ -111,3 +118,100 @@ def test_optimize_tournament_format_uses_injected_matchup_cost_function():
 
     assert division_team_sets == preferred_pairs
     assert result.matchup_proxy == "custom_predictor_v1"
+
+
+@pytest.mark.parametrize("invalid_count", [0, -1, 1.5, True, "2"])
+def test_optimize_division_assignments_rejects_invalid_core_capacities(invalid_count):
+    teams = [_team(1, 0.7, 1), _team(2, 0.6, 2)]
+
+    with pytest.raises(ValueError, match="positive integer"):
+        optimize_division_assignments(teams, [FlightSpec("Gold", invalid_count), FlightSpec("Silver", 2)])
+
+
+def test_optimize_tournament_format_rejects_duplicate_entrant_ids():
+    duplicate = _team(1, 0.7, 1)
+
+    with pytest.raises(ValueError, match="entrant IDs must be unique"):
+        optimize_tournament_format([duplicate, duplicate], [DivisionSpec("Gold", 2)])
+
+
+@pytest.mark.parametrize("invalid_score", [-0.01, 1.01, math.nan, math.inf, -math.inf, None, "unknown", True])
+def test_optimize_tournament_format_rejects_invalid_power_scores(invalid_score):
+    invalid_team = SeedableTeam("invalid", "Invalid", "u13", "Male", invalid_score)
+
+    with pytest.raises(ValueError, match="finite power_score between 0 and 1"):
+        optimize_tournament_format([invalid_team], [DivisionSpec("Gold", 1)])
+
+
+@pytest.mark.parametrize("invalid_id", ["", "  ", None, 42])
+def test_optimize_tournament_format_rejects_invalid_entrant_ids(invalid_id):
+    invalid_team = SeedableTeam(invalid_id, "Invalid", "u13", "Male", 0.5)
+
+    with pytest.raises(ValueError, match="non-empty"):
+        optimize_tournament_format([invalid_team], [DivisionSpec("Gold", 1)])
+
+
+def test_optimize_tournament_format_rejects_duplicate_and_empty_division_names():
+    teams = [_team(1, 0.7, 1), _team(2, 0.6, 2)]
+
+    with pytest.raises(ValueError, match="Flight names must be unique"):
+        optimize_tournament_format(teams, [DivisionSpec("Gold", 1), DivisionSpec("Gold", 1)])
+    with pytest.raises(ValueError, match="non-empty name"):
+        optimize_tournament_format(teams, [DivisionSpec("", 1), DivisionSpec("Silver", 1)])
+
+
+def test_optimize_tournament_format_preserves_each_entrant_once_across_uneven_pools():
+    teams = [_team(index, 0.9 - index * 0.03, index) for index in range(1, 8)]
+
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec("Gold", 7, pool_sizes=(4, 3))],
+    )
+
+    division = result.divisions[0]
+    assert [len(pool.teams) for pool in division.pools] == [4, 3]
+    assert sorted(team.team_id for pool in division.pools for team in pool.teams) == sorted(
+        team.team_id for team in teams
+    )
+
+
+def test_distinct_registrations_can_share_external_canonical_identity():
+    teams = [
+        SeedableTeam("registration-a", "Alpha First Entry", "u13", "Male", 0.7),
+        SeedableTeam("registration-b", "Alpha Second Entry", "u13", "Male", 0.7),
+    ]
+
+    result = optimize_tournament_format(teams, [DivisionSpec("Gold", 2)])
+
+    assert {team.team_id for team in result.divisions[0].teams} == {"registration-a", "registration-b"}
+
+
+def test_build_seedable_teams_rejects_missing_strength_instead_of_dropping_team():
+    with pytest.raises(ValueError, match="No power_score found"):
+        build_seedable_teams(
+            [
+                {
+                    "team_id": "team-1",
+                    "team_name": "Team 1",
+                    "age_group": "u13",
+                    "gender": "Male",
+                    "power_score": None,
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize("invalid_id", [None, "", "  ", 42])
+def test_build_seedable_teams_rejects_invalid_entrant_ids(invalid_id):
+    with pytest.raises(ValueError, match="non-empty string team_id"):
+        build_seedable_teams(
+            [
+                {
+                    "team_id": invalid_id,
+                    "team_name": "Team 1",
+                    "age_group": "u13",
+                    "gender": "Male",
+                    "power_score": 0.5,
+                }
+            ]
+        )
