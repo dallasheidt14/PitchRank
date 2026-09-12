@@ -109,7 +109,7 @@ itself.
 directions: it falls as the audit runs — an agreeing answer is written as a confirm, so the
 team leaves the population — and it regrows whenever a Tier A write lands somewhere new,
 because every anchor exposes its dissenters, which is the point of Step 2b. Measured at the
-end of 2026-09-08: **437 teams qualify, 331 with a GotSport id**, all of
+end of 2026-09-11: **267 teams qualify, 217 with a GotSport id**, all of
 them already answered on an earlier run. A club that comes to hold two confirmed states is
 dropped from the anchor index as two clubs sharing a name, so its remaining dissent is never
 audited. `check_state_skill_assumptions.py` warns when this drifts.
@@ -158,10 +158,18 @@ python scripts/assign_team_states.py --anchor-clubs --probe-limit 2500 --out anc
 
 The audit only works inside a club that already holds a provider-confirmed team. The
 current population is stated here and guarded by `check_state_skill_assumptions.py`: at the
-end of 2026-09-08, **893 clubs with two or more askable teams have no confirmed member,
-holding 5,851 teams, 2,138 of them with a GotSport id**. That is the population the checker
+end of 2026-09-11, **893 clubs with two or more askable teams have no confirmed member,
+holding 5,859 teams, 2,192 of them with a GotSport id**. That is the population the checker
 measures; the tool prints fewer, the clubs it can pick a team from once the alias lookup and
-the retry cap have had their say. The base rate says about 2.9% of their teams are wrong.
+the retry cap have had their say. **Expect "fewer" to mean a small fraction of the figure
+above, not a trim, and expect the alias lookup to be the whole reason**: on 2026-09-11 a run
+whose population stood at 908 selected **37**, because 583 of those clubs carry no GotSport
+id on any member to ask through and 288 had been retired as unanswerable. Read the
+decomposition off the run's own "passed over (clubs)" line, which counts against every club
+in the database — the `anchored` and `single team` entries there are already excluded from
+the figure above by `anchorable_clubs`, so they explain none of the shortfall. Size
+`--probe-limit` from a rehearsal run's "clubs can be anchored" line, never from the
+population here. The base rate says about 2.9% of their teams are wrong.
 This mode asks **one team per unanchored club**,
 largest clubs first so a capped run buys the most coverage per call: a team stored in the
 club's majority state, so that a disagreeing answer is an ordinary Tier A correction and an
@@ -211,7 +219,7 @@ python scripts/assign_team_states.py --probe-unclubbed --probe-limit 2000 --out 
 ```
 
 is the tail no anchor reaches — a team with no club name, or the only askable team of its
-club: **5,898 teams at the end of 2026-09-08, 5,073 with a GotSport id** — the tool
+club: **5,926 teams at the end of 2026-09-11, 5,102 with a GotSport id** — the tool
 prints the aliased count — asked directly, lowest id first, with the same confirm rule and
 the same exclusions (a stored province, an operator's answer, a team the record already
 vouches for). Teams with no GotSport id are reported under "passed over (teams)" as "no
