@@ -32,6 +32,15 @@ def test_resolve_game_start_date_uses_lookback_when_floor_missing(monkeypatch):
     assert resolved == "2026-04-11"
 
 
+def test_resolve_game_start_date_anchors_lookback_to_historical_ceiling():
+    resolved = backtest_predictor._resolve_game_start_date(
+        lookback_days=365,
+        max_game_date="2024-10-01",
+    )
+
+    assert resolved == "2023-10-02"
+
+
 def test_direct_db_historical_games_enforces_import_cutoff(monkeypatch):
     captured = {}
 

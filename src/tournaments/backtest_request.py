@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from datetime import date
 from typing import Any, Mapping
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster, entrant_key
@@ -56,6 +57,16 @@ def build_cohort_backtest_requests(
     """Translate checked divisions, exact pools, and saved links into requests."""
 
     roster = effective_roster(snapshot)
+    if not roster.event_start_date:
+        raise BacktestRequestError(
+            "The reviewed event needs a normalized event start date before a historical backtest can run"
+        )
+    try:
+        prediction_date = date.fromisoformat(str(roster.event_start_date)).isoformat()
+    except ValueError as error:
+        raise BacktestRequestError(
+            "The reviewed event start date must use YYYY-MM-DD before a historical backtest can run"
+        ) from error
     if event_links is None or event_links.event_id != roster.event_id:
         raise BacktestRequestError("The reviewed event needs its matching EventLinks decision record")
     confirmed_links = {
@@ -233,7 +244,7 @@ def build_cohort_backtest_requests(
                 "event_id": roster.event_id,
                 "age_group": age_group,
                 "gender": gender,
-                "prediction_date": roster.event_start_date,
+                "prediction_date": prediction_date,
                 "divisions": divisions_payload,
                 "entrants": entrants,
                 "actual_games_override": actual_games,

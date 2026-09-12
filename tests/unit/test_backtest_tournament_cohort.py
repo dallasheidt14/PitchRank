@@ -61,6 +61,15 @@ def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
             prediction_date="2026-04-10",
             team_name="Alpha",
         )
+    with pytest.raises(ValueError, match="recalculated after the event cutoff"):
+        cohort._verify_snapshot_provenance(
+            {
+                "created_at": "2026-04-08T00:00:00+00:00",
+                "last_calculated": "2026-04-12T00:00:00+00:00",
+            },
+            prediction_date="2026-04-10",
+            team_name="Alpha",
+        )
 
 
 def test_related_snapshot_index_excludes_same_day_and_late_backfills():

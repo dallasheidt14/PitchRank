@@ -220,6 +220,16 @@ def test_build_request_blocks_unreviewed_format():
         build_cohort_backtest_requests(snapshot, event_links=_links())
 
 
+def test_build_request_requires_normalized_event_start_date():
+    snapshot = _snapshot()
+
+    with pytest.raises(BacktestRequestError, match="normalized event start date"):
+        build_cohort_backtest_requests(
+            replace(snapshot, roster=replace(snapshot.roster, event_start_date=None)),
+            event_links=_links(),
+        )
+
+
 def test_build_request_requires_exact_duplicate_mapping_acknowledgement():
     snapshot = _snapshot()
     colliding_links = _links(second_team_id="canonical-a")

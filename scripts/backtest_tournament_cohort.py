@@ -340,6 +340,20 @@ def _verify_snapshot_provenance(snapshot: dict[str, Any], *, prediction_date: st
             f"Historical snapshot for '{team_name}' was created after the event cutoff; "
             "it is a reconstructed input, not contemporaneous evidence"
         )
+    last_calculated = snapshot.get("last_calculated")
+    if last_calculated:
+        calculated_ts = pd.Timestamp(last_calculated)
+        if pd.isna(calculated_ts):
+            raise ValueError(
+                f"Historical snapshot for '{team_name}' has invalid last_calculated provenance"
+            )
+        if calculated_ts.tzinfo is not None:
+            calculated_ts = calculated_ts.tz_convert("UTC").tz_localize(None)
+        if calculated_ts >= pd.Timestamp(prediction_date):
+            raise ValueError(
+                f"Historical snapshot for '{team_name}' was recalculated after the event cutoff; "
+                "it is a reconstructed input, not contemporaneous evidence"
+            )
 
 
 def _filter_snapshot_index_for_cutoff(

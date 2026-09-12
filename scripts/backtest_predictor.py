@@ -62,10 +62,16 @@ REST_SNAPSHOT_CONCURRENCY = 8
 REST_PAGE_SIZE = 1000
 
 
-def _resolve_game_start_date(*, lookback_days: int, min_game_date: Optional[str] = None) -> str:
+def _resolve_game_start_date(
+    *,
+    lookback_days: int,
+    min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
+) -> str:
     if min_game_date:
         return pd.Timestamp(min_game_date).strftime("%Y-%m-%d")
-    return (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    anchor = pd.Timestamp(max_game_date).normalize() if max_game_date else pd.Timestamp(datetime.now()).normalize()
+    return (anchor - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
 
 def _database_url() -> Optional[str]:
@@ -90,7 +96,11 @@ def _fetch_historical_games_via_db(
     min_game_date: Optional[str] = None,
     max_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
+    cutoff_date = _resolve_game_start_date(
+        lookback_days=lookback_days,
+        min_game_date=min_game_date,
+        max_game_date=max_game_date,
+    )
     logger.info("Fetching historical games from %s via direct Postgres...", cutoff_date)
 
     params: List[object] = [cutoff_date]
@@ -376,7 +386,11 @@ async def fetch_historical_games(
         except Exception as error:
             logger.warning("Direct Postgres historical-game fetch failed, falling back to Supabase REST: %s", error)
 
-    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
+    cutoff_date = _resolve_game_start_date(
+        lookback_days=lookback_days,
+        min_game_date=min_game_date,
+        max_game_date=max_game_date,
+    )
 
     logger.info(f"Fetching historical games from {cutoff_date}...")
 
