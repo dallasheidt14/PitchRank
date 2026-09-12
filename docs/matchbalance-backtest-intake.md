@@ -18,6 +18,8 @@ MatchBalance has three distinct product workflows:
 5. Start team review with **Needs review**. Filter by division, cohort, gender, or issue; search PitchRank by current name/club without forcing the historical bracket age. A team may be linked, cleared, or explicitly marked not found. Distinct registrations resolving to one canonical team require correction or a noted acknowledgement.
 6. Record published format, advancement, and tiebreaker notes with a source URL. A sourced cohort correction changes displayed totals without replacing the captured label and resets that division's check.
 7. **Save progress** to resume later, or download the JSON bundle containing the capture, totals, displayed matches, saved links, and division reviews.
+8. Return to **Overview** and use **Run Backtest**. Each cohort shows its own readiness blockers, so one unfinished age group does not hide a ready one. Run one selected cohort or every ready cohort. The historical model path can come from `MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT` or the local field on the page.
+9. Review the completed result in place. Observed games, average goal margin, 4+ goal blowouts, and blowout rate remain a descriptive record of what happened. The original and MatchBalance arrangements are compared separately through the same frozen historical model. The team table shows every entrant as Moved up, Moved down, or Stayed, and the downloads include a director HTML report, result JSON, and the complete local evidence package.
 
 ## Capture verification and recovery
 
@@ -70,6 +72,7 @@ Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/int
 - `last_walk.json`: canonical paid capture written before matching, recoverable without another scrape.
 - `event_intake.json`: saved capture, matching outcomes, and division reviews.
 - `event_links.json`: editable event team links and persistent clear decisions.
+- `scenarios/reviewed-backtest/runs/<run_id>/`: one atomic completed cohort run containing the strict request, frozen historical evidence, original-versus-proposed model summary, team movements, logs, and director report.
 
 An existing event directory is reused. Locks and atomic writes protect local updates. Recovery and saved captures reject replacements that discard captured entrants, divisions, pool members, fixtures, or table readability. Event IDs and capture generations prevent an interrupted scrape or late matching result from mixing two events.
 

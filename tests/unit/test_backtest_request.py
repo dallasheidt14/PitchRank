@@ -108,6 +108,21 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
 
 
+def test_build_request_can_select_one_reviewed_cohort():
+    assert len(
+        build_cohort_backtest_requests(
+            _snapshot(),
+            event_links=_links(),
+            cohort_filter={("u14", "Male")},
+        )
+    ) == 1
+    assert build_cohort_backtest_requests(
+        _snapshot(),
+        event_links=_links(),
+        cohort_filter={("u15", "Male")},
+    ) == ()
+
+
 def test_build_request_deduplicates_repeated_identified_fixture_rows():
     snapshot = _snapshot()
     duplicate = replace(snapshot.roster.divisions[0].fixtures[0])
@@ -236,6 +251,12 @@ def test_build_request_requires_exact_duplicate_mapping_acknowledgement():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=colliding_links)
+    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
+        build_cohort_backtest_requests(
+            snapshot,
+            event_links=colliding_links,
+            cohort_filter={("u14", "Male")},
+        )
 
     acknowledged_links = replace(
         colliding_links,
@@ -316,6 +337,13 @@ def test_build_request_validates_duplicate_mapping_across_cohorts():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=links)
+    requests = build_cohort_backtest_requests(
+        snapshot,
+        event_links=links,
+        cohort_filter={("u14", "Male")},
+    )
+    assert len(requests) == 1
+    assert requests[0]["age_group"] == "u14"
 
 
 def test_build_request_rejects_repeated_registration_within_cohort():
