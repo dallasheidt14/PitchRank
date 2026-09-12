@@ -47,7 +47,7 @@ def test_cohort_status_rows_marks_only_complete_cohorts_runnable():
     event_structure = {
         ("u14", "Male"): [
             {"division_name": "BU14 Super Elite", "team_count": 8, "pool_sizes": [8], "advancement": "F_ONLY"},
-            {"division_name": "BU14 Super Pro", "team_count": 6, "pool_sizes": [6], "advancement": "SF_F_3P"},
+            {"division_name": "BU14 Super Pro", "team_count": 6, "pool_sizes": [6], "advancement": "F_ONLY"},
             {"division_name": "BU14 Premier", "team_count": 6, "pool_sizes": [6], "advancement": "ROUND_ROBIN"},
         ],
         ("u15", "Male"): [
@@ -197,6 +197,26 @@ def test_cohort_status_blocks_multi_pool_structure_without_membership():
     assert statuses[0]["runnable"] is False
     assert statuses[0]["divisions"][0]["structure_explicit"] is True
     assert statuses[0]["divisions"][0]["exact_pool_membership"] is False
+
+
+@pytest.mark.parametrize("format_code", ["final_only", "SF_F"])
+def test_cohort_status_blocks_unsupported_or_incompatible_replay_format(format_code):
+    statuses = event_backtest._cohort_status_rows(
+        {
+            ("u14", "Male"): [
+                {
+                    "division_name": "BU14 Gold",
+                    "team_count": 6,
+                    "pool_sizes": [6],
+                    "advancement": format_code,
+                }
+            ]
+        },
+        {"BU14 Gold": {f"team-{index}" for index in range(6)}},
+    )
+
+    assert statuses[0]["runnable"] is False
+    assert statuses[0]["divisions"][0]["structure_explicit"] is False
 
 
 def test_enrich_registry_rows_with_matcher_promotes_high_confidence_match(monkeypatch):

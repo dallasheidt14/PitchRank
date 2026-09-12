@@ -26,6 +26,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backtest_tournament_cohort import _fetch_rows_by_ids, _get_supabase  # noqa: E402
 from src.tournaments.event_team_matcher import enrich_registry_rows_with_matcher  # noqa: E402
+from src.tournaments.schedule_simulator import (  # noqa: E402
+    SUPPORTED_PLAYOFF_FORMATS,
+    explicit_division_schedule_template,
+)
 from src.tournaments.seeding_optimizer import (  # noqa: E402
     normalize_gender_label,
     normalize_tournament_age_group,
@@ -382,8 +386,22 @@ def _cohort_status_rows(
         for division in divisions:
             actual_count = len(teams_by_division.get(str(division["division_name"]), set()))
             pool_sizes = [int(size) for size in division.get("pool_sizes") or []]
-            structure_explicit = bool(pool_sizes) and sum(pool_sizes) == int(division["team_count"])
-            structure_explicit = structure_explicit and bool(str(division.get("advancement") or "").strip())
+            format_code = str(division.get("advancement") or "").strip()
+            pool_shape_valid = bool(pool_sizes) and sum(pool_sizes) == int(division["team_count"])
+            format_supported = format_code in SUPPORTED_PLAYOFF_FORMATS
+            format_compatible = False
+            if pool_shape_valid and format_supported:
+                try:
+                    explicit_division_schedule_template(
+                        division_name=str(division["division_name"]),
+                        pool_sizes=pool_sizes,
+                        format_code=format_code,
+                        actual_game_count=None,
+                    )
+                    format_compatible = True
+                except ValueError:
+                    pass
+            structure_explicit = pool_shape_valid and format_supported and format_compatible
             exact_pool_membership = len(pool_sizes) == 1
             complete = (
                 actual_count == int(division["team_count"])
@@ -398,6 +416,8 @@ def _cohort_status_rows(
                     "expected_team_count": int(division["team_count"]),
                     "actual_team_count": actual_count,
                     "structure_explicit": structure_explicit,
+                    "format_supported": format_supported,
+                    "format_compatible": format_compatible,
                     "exact_pool_membership": exact_pool_membership,
                     "complete": complete,
                 }

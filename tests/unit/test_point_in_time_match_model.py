@@ -9,8 +9,9 @@ from src.predictions.point_in_time_match_model import (
     _poisson_outcome_probabilities,
     _poisson_score_matrix,
     _score_matrix_summary,
-    build_point_in_time_matchup_row,
+    _snapshot_as_of,
     build_point_in_time_dataset,
+    build_point_in_time_matchup_row,
 )
 
 
@@ -143,6 +144,35 @@ def test_build_point_in_time_dataset_skips_games_without_snapshot():
     result = build_point_in_time_dataset(games_df, snapshot_index=snapshot_index, include_mirrored_examples=True)
     assert result.dataset.empty
     assert result.summary["skipped_missing_snapshot"] == 1
+
+
+def test_snapshot_as_of_ignores_backdated_snapshot_created_after_training_game():
+    selected = _snapshot_as_of(
+        {
+            "a": [
+                _snapshot(
+                    "2026-03-31",
+                    "a",
+                    power_score_final=0.51,
+                    created_at="2026-03-31T12:00:00+00:00",
+                    last_calculated="2026-03-31T12:00:00+00:00",
+                ),
+                _snapshot(
+                    "2026-04-01",
+                    "a",
+                    power_score_final=0.99,
+                    created_at="2026-04-03T12:00:00+00:00",
+                    last_calculated="2026-04-03T12:00:00+00:00",
+                ),
+            ]
+        },
+        "a",
+        "2026-04-02",
+    )
+
+    assert selected is not None
+    assert selected["snapshot_date"] == "2026-03-31"
+    assert selected["power_score_final"] == 0.51
 
 
 def test_build_point_in_time_dataset_tracks_draw_oriented_signals():
