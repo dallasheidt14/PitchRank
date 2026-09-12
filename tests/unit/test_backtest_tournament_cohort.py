@@ -321,6 +321,32 @@ def test_recent_games_require_import_before_prediction_cutoff():
     assert games[0].created_at == "2026-04-09T12:00:00+00:00"
 
 
+def test_historical_game_context_expands_aliases_and_resolves_game_sides():
+    class Resolver:
+        merges = {"old-a": "team-a", "old-b": "team-b", "old-self": "team-a"}
+
+        def resolve(self, team_id):
+            return self.merges.get(str(team_id), team_id)
+
+        def get_deprecated_teams(self):
+            return set(self.merges)
+
+    resolver = Resolver()
+    expanded = cohort._expand_merged_team_ids(resolver, ["team-a", "team-b"])
+    games = cohort._canonicalize_historical_games(
+        resolver,
+        [
+            PredictorGame("game-1", "old-a", "old-b", 2, 1, "2026-04-08"),
+            PredictorGame("game-2", "old-a", "old-self", 1, 1, "2026-04-08"),
+        ],
+    )
+
+    assert expanded == ["old-a", "old-b", "old-self", "team-a", "team-b"]
+    assert [(game.home_team_master_id, game.away_team_master_id) for game in games] == [
+        ("team-a", "team-b")
+    ]
+
+
 def test_captured_fixture_count_does_not_shrink_to_scored_games():
     division = {
         "name": "Gold",

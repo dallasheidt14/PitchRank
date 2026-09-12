@@ -157,6 +157,14 @@ def explicit_division_schedule_template(
     normalized_pool_sizes = tuple(int(size) for size in pool_sizes)
     if not normalized_pool_sizes or any(size <= 0 for size in normalized_pool_sizes):
         raise ValueError(f"Division '{division_name}' needs positive explicit pool sizes")
+    if normalized_format == "F_ONLY" and len(normalized_pool_sizes) == 1 and normalized_pool_sizes[0] < 2:
+        raise ValueError(
+            f"Division '{division_name}' format F_ONLY needs at least two teams in its pool"
+        )
+    if normalized_format in {"SF_F", "SF_F_3P"} and any(size < 2 for size in normalized_pool_sizes):
+        raise ValueError(
+            f"Division '{division_name}' format {normalized_format} needs at least two teams in each pool"
+        )
 
     if normalized_format == "ROUND_ROBIN":
         playoff_format = "none"

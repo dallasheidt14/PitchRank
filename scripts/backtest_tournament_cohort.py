@@ -70,6 +70,7 @@ from src.tournaments.seeding_optimizer import (  # noqa: E402
     normalize_tournament_age_group,
     optimize_tournament_format,
 )
+from src.utils.merge_resolver import MergeResolver  # noqa: E402
 
 TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id,provider_id,is_deprecated"
 PREDICTOR_SOURCE_PYTHON = "python"
@@ -99,6 +100,44 @@ def _get_supabase():
     if not supabase_url or not supabase_key:
         raise RuntimeError("Missing SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY")
     return create_client(supabase_url, supabase_key)
+
+
+def _expand_merged_team_ids(resolver: MergeResolver, team_ids: list[str]) -> list[str]:
+    """Include deprecated aliases whose immutable game rows belong to these teams."""
+
+    canonical_ids = {str(resolver.resolve(team_id) or team_id) for team_id in team_ids}
+    aliases = {
+        str(team_id)
+        for team_id in resolver.get_deprecated_teams()
+        if str(resolver.resolve(team_id) or team_id) in canonical_ids
+    }
+    return sorted(canonical_ids | aliases)
+
+
+def _canonicalize_historical_games(
+    resolver: MergeResolver,
+    games: list[PredictorGame],
+) -> list[PredictorGame]:
+    """Resolve immutable game-side IDs and omit merge-created self games."""
+
+    canonical: list[PredictorGame] = []
+    for game in games:
+        home_id = str(resolver.resolve(game.home_team_master_id) or "")
+        away_id = str(resolver.resolve(game.away_team_master_id) or "")
+        if not home_id or not away_id or home_id == away_id:
+            continue
+        canonical.append(
+            PredictorGame(
+                id=game.id,
+                home_team_master_id=home_id,
+                away_team_master_id=away_id,
+                home_score=game.home_score,
+                away_score=game.away_score,
+                game_date=game.game_date,
+                created_at=game.created_at,
+            )
+        )
+    return canonical
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -1212,6 +1251,27 @@ def main() -> int:
         raise ValueError("Input needs a non-empty entrants list")
 
     client = _get_supabase()
+    merge_resolver = MergeResolver(client)
+    merge_resolver.load_merge_map()
+    if merge_resolver.version == "error":
+        raise RuntimeError("Team merge information could not be loaded for the historical backtest")
+    entrants_payload = [
+        {
+            **entrant,
+            "canonical_team_id": str(
+                merge_resolver.resolve(str(entrant["canonical_team_id"]))
+                or entrant["canonical_team_id"]
+            ),
+            "ranking_source_team_id": str(
+                merge_resolver.resolve(
+                    str(entrant.get("ranking_source_team_id") or entrant["canonical_team_id"])
+                )
+                or entrant.get("ranking_source_team_id")
+                or entrant["canonical_team_id"]
+            ),
+        }
+        for entrant in entrants_payload
+    ]
     print("PHASE: loading-actual-games", flush=True)
     canonical_team_ids = sorted({str(entrant["canonical_team_id"]) for entrant in entrants_payload})
     ranking_source_ids = sorted(
@@ -1320,12 +1380,14 @@ def main() -> int:
         print(f"PROGRESS: entrant-snapshots {index + 1}/{len(entrants_payload)}", flush=True)
 
     print("PHASE: fetching-recent-games", flush=True)
+    historical_game_team_ids = _expand_merged_team_ids(merge_resolver, ranking_source_ids)
     recent_games = _fetch_recent_games_for_teams(
         client,
-        ranking_source_ids,
+        historical_game_team_ids,
         as_of_date=prediction_date,
         lookback_days=args.history_lookback_days,
     )
+    recent_games = _canonicalize_historical_games(merge_resolver, recent_games)
     predictor_details: dict[str, Any] = {
         "source": args.predictor_source,
         "prediction_date": prediction_date,

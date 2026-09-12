@@ -104,6 +104,28 @@ def test_explicit_template_rejects_captured_game_count_mismatch():
         )
 
 
+@pytest.mark.parametrize(
+    ("pool_sizes", "format_code", "message"),
+    [
+        ((1,), "F_ONLY", "at least two teams in its pool"),
+        ((1, 3), "SF_F", "at least two teams in each pool"),
+        ((3, 1), "SF_F_3P", "at least two teams in each pool"),
+    ],
+)
+def test_explicit_template_rejects_undersized_playoff_qualifier_pools(
+    pool_sizes,
+    format_code,
+    message,
+):
+    with pytest.raises(ValueError, match=message):
+        explicit_division_schedule_template(
+            division_name="Gold",
+            pool_sizes=pool_sizes,
+            format_code=format_code,
+            actual_game_count=None,
+        )
+
+
 def test_simulate_tournament_schedule_replays_two_pools_of_four_with_final():
     teams = [_team(index, 0.90 - index * 0.03, index) for index in range(1, 9)]
     result = optimize_tournament_format(

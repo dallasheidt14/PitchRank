@@ -159,7 +159,16 @@ def normalize_age_group(value: str) -> str:
 def normalize_tournament_age_group(value: str) -> str:
     """Normalize a published bracket age without folding or collapsing it."""
 
-    ages = [int(age) for age in re.findall(r"(?i)u\s*([0-9]{1,2})", str(value or ""))]
+    ages: list[int] = []
+    for match in re.finditer(
+        r"(?i)\bu\s*([0-9]{1,2})((?:\s*/\s*(?:u\s*)?[0-9]{1,2})*)",
+        str(value or ""),
+    ):
+        ages.append(int(match.group(1)))
+        ages.extend(
+            int(age)
+            for age in re.findall(r"(?i)/\s*(?:u\s*)?([0-9]{1,2})", match.group(2))
+        )
     if not ages:
         digits = "".join(character for character in str(value or "") if character.isdigit())
         if not digits:
