@@ -9,6 +9,7 @@ import pytest
 from src.tournaments.backtest_historical_preflight import (
     HistoricalPreflight,
     HistoricalPreflightUnavailable,
+    preflight_input_sha256,
     run_historical_preflight,
 )
 from src.tournaments.backtest_intake_state import CaptureVerification
@@ -152,3 +153,17 @@ def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path,
 
     with pytest.raises(HistoricalPreflightUnavailable, match="could not be read"):
         run_historical_preflight((_request(),), object(), model_artifact=artifact)
+
+
+def test_preflight_cache_key_changes_with_merge_map_version(tmp_path, monkeypatch):
+    artifact = tmp_path / "model.pkl"
+    artifact.write_bytes(b"model")
+    monkeypatch.setattr(
+        "src.tournaments.backtest_historical_preflight.model_artifact_sha256",
+        lambda _path: "model-sha",
+    )
+
+    first = preflight_input_sha256((_request(),), artifact, merge_map_version="merge-v1")
+    second = preflight_input_sha256((_request(),), artifact, merge_map_version="merge-v2")
+
+    assert first != second

@@ -122,3 +122,19 @@ def test_event_rollup_rejects_stale_capture_or_different_model(tmp_path):
     assert rollup["coverage"]["completed"] == 0
     assert rollup["coverage"]["ready"] == 1
     assert rollup["selected_runs"] == []
+
+
+def test_event_rollup_requires_explicit_model_hash(tmp_path):
+    snapshot = _verified_snapshot()
+    readiness = build_reviewed_cohort_readiness(snapshot, _links())
+    record = _record(tmp_path, readiness[0])
+
+    rollup = build_event_rollup(snapshot, readiness, (record,), model_sha256=None)
+
+    assert rollup["coverage"]["completed"] == 0
+    assert rollup["coverage"]["awaiting_history"] == 1
+    assert rollup["selected_runs"] == []
+    assert (
+        rollup["coverage"]["rows"][0]["what_remains"]
+        == "Select a valid historical model artifact"
+    )

@@ -194,7 +194,9 @@ def search_master_teams(
     return query.range(start, start + page_size - 1).execute().data or []
 
 
-def _sync_matches(snapshot: BacktestSnapshot, client: Any, base_dir) -> tuple[EventLinks, dict, dict]:
+def _sync_matches(
+    snapshot: BacktestSnapshot, client: Any, base_dir
+) -> tuple[EventLinks, dict, dict, str]:
     from tournament_intake import _merge_map_loaded, _seeding_merge_resolver
 
     event_id = snapshot.roster.event_id
@@ -230,7 +232,12 @@ def _sync_matches(snapshot: BacktestSnapshot, client: Any, base_dir) -> tuple[Ev
         links=canonical_links,
         collision_acknowledgements=canonical_acknowledgements,
     )
-    return links, _details(client, [link.team_id_master for link in links.links]), conflicts
+    return (
+        links,
+        _details(client, [link.team_id_master for link in links.links]),
+        conflicts,
+        str(resolver.version),
+    )
 
 
 def _load_saved(base_dir) -> None:
@@ -1176,6 +1183,7 @@ def _render_backtest_runner(
     *,
     supabase_client: Any,
     matching_blocker: str = "",
+    merge_map_version: str = "",
 ) -> None:
     st.markdown("#### Run Backtest")
     st.caption(
@@ -1241,6 +1249,7 @@ def _render_backtest_runner(
         expected_preflight_sha = preflight_input_sha256(
             (item.request for item in request_items if item.request is not None),
             artifact_path,
+            merge_map_version=merge_map_version,
         )
         try:
             cached_preflight = load_historical_preflight(event_key, base_dir=base_dir)
@@ -1402,10 +1411,13 @@ def render_intake(supabase_client: Any) -> None:
     event_key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
     matching_blocker = ""
     try:
-        links, details, conflicts = _sync_matches(display_snapshot, supabase_client, base_dir)
+        links, details, conflicts, merge_map_version = _sync_matches(
+            display_snapshot, supabase_client, base_dir
+        )
     except Exception as exc:
         st.warning(f"Team matching is unavailable right now: {exc}. The captured event can still be saved.")
         matching_blocker = "Retry team matching before running; merge-synchronized team IDs are unavailable"
+        merge_map_version = ""
         details, conflicts = {}, {}
         links = load_links(event_key, base_dir=base_dir)
     rows = match_table(display_snapshot, links, details, conflicts=conflicts)
@@ -1462,6 +1474,7 @@ def render_intake(supabase_client: Any) -> None:
             base_dir,
             supabase_client=supabase_client,
             matching_blocker=matching_blocker,
+            merge_map_version=merge_map_version,
         )
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")

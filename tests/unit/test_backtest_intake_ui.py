@@ -416,7 +416,11 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
             for entrant in request_list[0]["entrants"]
         )
         return HistoricalPreflight(
-            preflight_input_sha256(request_list, model_artifact),
+            preflight_input_sha256(
+                request_list,
+                model_artifact,
+                merge_map_version="ok",
+            ),
             "2026-09-12T00:00:00+00:00",
             "2025-05-10",
             ui.model_artifact_sha256(model_artifact),
@@ -811,9 +815,10 @@ def test_sync_coalesces_same_registration_after_canonical_merge_resolution(tmp_p
     ))
     client = ReadOnlyTeams()
 
-    links, details, conflicts = _sync_matches(snapshot, client, tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(snapshot, client, tmp_path)
 
     assert conflicts == {}
+    assert merge_map_version == "ok"
     assert len(links.links) == 1
     assert links.links[0].registration_id == "100"
     assert links.links[0].team_id_master == "canonical-a"
@@ -837,10 +842,13 @@ def test_conflicting_automatic_ids_never_choose_a_team_or_discard_operator_decis
         update_links("gotsport__51783__unknown", event_id="51783", base_dir=tmp_path,
                      changed_links=(TeamLink("100", "Alpha", "saved-choice", saved_method, "now"),))
 
-    links, details, conflicts = _sync_matches(snapshot, ReadOnlyTeams(), tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(
+        snapshot, ReadOnlyTeams(), tmp_path
+    )
     rows = match_table(snapshot, links, details, conflicts=conflicts)
 
     assert conflicts == {"100": ("canonical-a", "canonical-other")}
+    assert merge_map_version == "ok"
     assert links.removed_registration_ids == ()
     assert [link.team_id_master for link in links.links] == (["saved-choice"] if saved_method else [])
     assert [row["Status"] for row in rows if row["Registration ID"] == "100"] == (

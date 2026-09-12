@@ -69,7 +69,10 @@ def select_compatible_runs(
     for item in readiness:
         match: SelectedCohortRun | None = None
         failed_reason = ""
-        for record in records_by_cohort.get((item.age_group, item.gender), ()):
+        candidate_records = (
+            records_by_cohort.get((item.age_group, item.gender), ()) if model_sha256 else ()
+        )
+        for record in candidate_records:
             try:
                 metadata = json.loads((record.run_dir / "run_metadata.json").read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError):
@@ -78,7 +81,7 @@ def select_compatible_runs(
                 continue
             if metadata.get("request_sha256") != _request_sha(item.request):
                 continue
-            if model_sha256 and metadata.get("model_artifact_sha256") != model_sha256:
+            if metadata.get("model_artifact_sha256") != model_sha256:
                 continue
             if record.state == "failed":
                 failed_reason = record.error or "The latest compatible run failed"
@@ -91,7 +94,18 @@ def select_compatible_runs(
                 continue
             match = SelectedCohortRun(item, record, summary, metadata)
             break
-        status = "completed" if match else ("failed" if failed_reason else _remaining_status(item))
+        if match:
+            status = "completed"
+            what_remains = ""
+        elif failed_reason:
+            status = "failed"
+            what_remains = failed_reason
+        elif not model_sha256:
+            status = "awaiting_history"
+            what_remains = "Select a valid historical model artifact"
+        else:
+            status = _remaining_status(item)
+            what_remains = "; ".join(item.blockers)
         coverage.append(
             {
                 "age_group": item.age_group,
@@ -100,7 +114,7 @@ def select_compatible_runs(
                 "division_count": item.division_count,
                 "status": status,
                 "run_id": match.record.run_id if match else None,
-                "what_remains": "" if match else (failed_reason or "; ".join(item.blockers)),
+                "what_remains": what_remains,
             }
         )
         if match:

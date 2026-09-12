@@ -106,10 +106,16 @@ class HistoricalPreflight:
         )
 
 
-def preflight_input_sha256(requests: Iterable[dict[str, Any]], model_artifact: str | Path) -> str:
+def preflight_input_sha256(
+    requests: Iterable[dict[str, Any]],
+    model_artifact: str | Path,
+    *,
+    merge_map_version: str,
+) -> str:
     payload = {
         "requests": list(requests),
         "model_artifact_sha256": model_artifact_sha256(model_artifact),
+        "merge_map_version": merge_map_version,
         "policy": "strict-pre-event-snapshot-v1",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -274,7 +280,11 @@ def run_historical_preflight(
             )
         )
     return HistoricalPreflight(
-        input_sha256=preflight_input_sha256(request_list, artifact),
+        input_sha256=preflight_input_sha256(
+            request_list,
+            artifact,
+            merge_map_version=str(resolver.version),
+        ),
         checked_at=utc_now_iso(),
         cutoff_exclusive=cutoff,
         model_artifact_sha256=model_artifact_sha256(artifact),

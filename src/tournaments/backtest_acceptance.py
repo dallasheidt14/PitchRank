@@ -84,6 +84,7 @@ def validate_backtest_acceptance(
     *,
     model_artifact: str | Path,
     base_dir: str | Path = "reports",
+    merge_map_version: str = "",
 ) -> dict:
     snapshot = read_snapshot(event_key, base_dir=base_dir)
     links = load_links(event_key, base_dir=base_dir)
@@ -179,12 +180,18 @@ def validate_backtest_acceptance(
     )
     preflight = load_historical_preflight(event_key, base_dir=base_dir)
     expected_preflight_sha = (
-        preflight_input_sha256(requests, artifact)
+        preflight_input_sha256(
+            requests,
+            artifact,
+            merge_map_version=merge_map_version,
+        )
         if artifact_exists and len(requests) == len(readiness) and requests
         else ""
     )
     preflight_current = bool(
         preflight
+        and bool(merge_map_version)
+        and preflight.merge_map_version == merge_map_version
         and preflight.input_sha256 == expected_preflight_sha
         and preflight.cutoff_exclusive == profile.cutoff_exclusive
         and preflight.ready

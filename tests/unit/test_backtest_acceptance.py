@@ -42,6 +42,7 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         input_sha256="preflight-sha",
         cutoff_exclusive="2025-05-10",
         ready=True,
+        merge_map_version="merge-v1",
         cohorts=(SimpleNamespace(eligible=2, total=2),),
     )
     monkeypatch.setattr(acceptance, "read_snapshot", lambda *_args, **_kwargs: snapshot)
@@ -49,7 +50,9 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
     monkeypatch.setattr(acceptance, "build_reviewed_cohort_readiness", lambda *_args: readiness)
     monkeypatch.setattr(acceptance, "model_artifact_sha256", lambda *_args: "model-sha")
     monkeypatch.setattr(acceptance, "_model_data_end", lambda *_args: "2025-05-09")
-    monkeypatch.setattr(acceptance, "preflight_input_sha256", lambda *_args: "preflight-sha")
+    monkeypatch.setattr(
+        acceptance, "preflight_input_sha256", lambda *_args, **_kwargs: "preflight-sha"
+    )
     monkeypatch.setattr(acceptance, "load_historical_preflight", lambda *_args, **_kwargs: preflight)
     monkeypatch.setattr(acceptance, "list_reviewed_runs", lambda *_args, **_kwargs: ())
     monkeypatch.setattr(acceptance, "list_failed_reviewed_runs", lambda *_args, **_kwargs: ())
@@ -73,6 +76,7 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         profile,
         model_artifact=model_path,
         base_dir=tmp_path,
+        merge_map_version="merge-v1",
     )
 
     assert report["status"] == "pass"
