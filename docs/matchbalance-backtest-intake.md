@@ -37,6 +37,14 @@ Provider match IDs identify repeated listings across the event; printed match nu
 
 Results use the tournament's entered cohort and gender. They are calculated directly from the saved fixture evidence and included under `tournament_totals.results` in the downloaded JSON. Loading a saved capture with scores makes these numbers available without another scrape; captures with missing fixtures or scores still need that evidence collected. This adds the actual-results baseline only; alternative seeding and projected improvements remain future work.
 
+## Downstream optimizer safeguards
+
+The current command-line backtest and seeding runners validate their inputs before assigning teams. Every tournament entrant needs a unique, nonempty registration ID and a finite PowerScore from 0 through 1. Division names must be unique and nonempty, division and pool capacities must be positive whole numbers, and the requested slots must equal the supplied entrants. Numeric strings remain accepted in JSON input for compatibility. Missing ratings stop the run instead of silently removing a team. Completed output is checked to confirm that every entrant appears exactly once and that each pool retains its requested capacity.
+
+Match predictions retain the requested team order, so an A-versus-B prediction cannot be reused as B-versus-A. Symmetric matchup costs use one canonical entrant order and may still be cached once per pair. Model-supplied probabilities keep valid boundary values such as 0 and 1; only absent values use the existing estimated blowout fallback, while nonfinite or out-of-range values stop the run.
+
+These safeguards make the existing optimizer safer to evaluate, but they do not yet create the director-facing comparison. Historical rating snapshots, exact-format replay, reseeded schedule construction, objective alignment, and comparison metrics remain separate implementation work. The optimizer still reports its existing projected 3+ and 5+ goal thresholds; the intake's actual-results baseline continues to define a blowout as 4 or more goals.
+
 ## Local artifacts
 
 Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/intake/`:
@@ -59,6 +67,6 @@ The CLI's `--completed-event` option selects the same complete-event capture and
 
 ## Validation
 
-Offline parser, storage, matching, capture, and Streamlit interaction tests cover play-ups, unranked divisions, missing IDs, unresolved matches, manual replacement/clear, historical-name review, source structure round trips, interrupted publication, concurrent link updates, and partial-capture preservation. A newly scraped production event has not been used as end-to-end acceptance evidence for this change.
+Offline parser, storage, matching, capture, Streamlit interaction, and optimizer tests cover play-ups, unranked divisions, missing IDs, unresolved matches, manual replacement/clear, historical-name review, source structure round trips, interrupted publication, concurrent link updates, partial-capture preservation, prediction orientation, probability boundaries, malformed assignment inputs, and assignment integrity. A newly scraped production event has not been used as end-to-end acceptance evidence for this change.
 
-Validated 2026-09-11: **4,711 tests passed and 12 were skipped** in the required repository suite (`tests/test_enhanced_pipeline.py` excluded). The process used Git for Windows Bash so the shell-hook coverage ran correctly. The required backend Ruff check and Git diff check passed. The saved San Antonio Labor Cup 26 export retained 332 teams, 58 divisions, 88 pools, 614 fixtures, 613 scored games, 1,857 total goal margin, and 198 blowouts after local cohort repair.
+Validated 2026-09-11: **4,793 tests passed and 12 were skipped** in the required repository suite (`tests/test_enhanced_pipeline.py` excluded). The shell-hook module was rerun under Git for Windows Bash so its path-sensitive coverage ran correctly. The required backend Ruff check and Git diff check passed. The saved San Antonio Labor Cup 26 export retained 332 teams, 58 divisions, 88 pools, 614 fixtures, 613 scored games, 1,857 total goal margin, and 198 blowouts after local cohort repair.
