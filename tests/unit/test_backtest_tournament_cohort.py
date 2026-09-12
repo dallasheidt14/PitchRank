@@ -170,6 +170,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         history_start_date="2025-04-10",
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
+        resolved_probability_strategy="poisson_draw_gate",
     )
     second = cohort._freeze_historical_inputs(
         list(reversed(entrants)),
@@ -178,11 +179,13 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         history_start_date="2025-04-10",
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
+        resolved_probability_strategy="poisson_draw_gate",
     )
 
     assert first == second
     assert first["source"] == "prediction_feature_history"
     assert first["data_cutoff_exclusive"] == "2026-04-10"
+    assert first["resolved_probability_strategy"] == "poisson_draw_gate"
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
 
@@ -238,6 +241,7 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         history_start_date="2025-04-10",
         model_artifact=None,
         model_training_metadata={},
+        resolved_probability_strategy="poisson_draw_gate",
         recent_games=[game],
         related_snapshot_index=related,
     )
@@ -252,10 +256,56 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         history_start_date="2025-04-10",
         model_artifact=None,
         model_training_metadata={},
+        resolved_probability_strategy="poisson_draw_gate",
         recent_games=[PredictorGame(**{**game.__dict__, "home_score": 3})],
         related_snapshot_index=related,
     )
     assert changed["input_digest_sha256"] != frozen["input_digest_sha256"]
+
+
+def test_freeze_historical_inputs_hashes_resolved_probability_strategy():
+    entrant = {
+        "entrant_id": "entry-a",
+        "canonical_team_id": "canonical-a",
+        "ranking_source_team_id": "source-a",
+        "source_age_group": "u14",
+        "source_gender": "Male",
+        "age_group": "u14",
+        "gender": "Male",
+        "power_score": 0.61,
+        "rank_in_cohort": 4,
+        "games_played": 9,
+        "sos_norm": 0.51,
+        "off_norm": 0.54,
+        "def_norm": 0.48,
+        "glicko_rating": None,
+        "glicko_rd": None,
+        "glicko_volatility": None,
+    }
+    snapshots = {
+        "source-a": {
+            "snapshot_date": "2026-04-09",
+            "created_at": "2026-04-09T23:00:00+00:00",
+        }
+    }
+
+    def freeze(strategy: str) -> dict:
+        return cohort._freeze_historical_inputs(
+            [entrant],
+            snapshots,
+            prediction_date="2026-04-10",
+            history_start_date="2025-04-10",
+            model_artifact=None,
+            model_training_metadata={},
+            resolved_probability_strategy=strategy,
+        )
+
+    draw_gate = freeze("poisson_draw_gate")
+    hybrid = freeze("hybrid")
+
+    assert draw_gate["resolved_probability_strategy"] == "poisson_draw_gate"
+    assert hybrid["resolved_probability_strategy"] == "hybrid"
+    assert draw_gate["input_digest_sha256"] != hybrid["input_digest_sha256"]
 
 
 def test_recent_games_require_import_before_prediction_cutoff():

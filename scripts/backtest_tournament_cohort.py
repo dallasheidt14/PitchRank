@@ -447,6 +447,7 @@ def _freeze_historical_inputs(
     history_start_date: str,
     model_artifact: Path | None,
     model_training_metadata: dict[str, Any] | None,
+    resolved_probability_strategy: str | None,
     recent_games: list[PredictorGame] | None = None,
     related_snapshot_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
@@ -541,6 +542,7 @@ def _freeze_historical_inputs(
         "model_artifact": str(model_artifact) if model_artifact is not None else None,
         "model_artifact_sha256": artifact_sha256,
         "model_training_metadata": model_training_metadata or {},
+        "resolved_probability_strategy": resolved_probability_strategy,
         "recent_games": frozen_games,
         "related_snapshots": frozen_related_snapshots,
     }
@@ -1478,6 +1480,7 @@ def main() -> int:
     }
     model_artifact_for_manifest: Path | None = None
     model_training_metadata: dict[str, Any] = {}
+    resolved_probability_strategy: str | None = None
     related_snapshot_index: dict[str, list[dict[str, Any]]] = {}
     if args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME:
         probability_strategy_override = _resolve_point_in_time_probability_strategy_override(
@@ -1536,6 +1539,7 @@ def main() -> int:
             probability_strategy_override=probability_strategy_override,
         )
         model_training_metadata = dict(point_in_time_model.training_metadata or {})
+        resolved_probability_strategy = point_in_time_model.probability_strategy
         model_data_end_date = _verify_model_training_provenance(
             model_training_metadata,
             prediction_date=prediction_date,
@@ -1567,6 +1571,7 @@ def main() -> int:
         history_start_date=snapshot_start,
         model_artifact=model_artifact_for_manifest,
         model_training_metadata=model_training_metadata,
+        resolved_probability_strategy=resolved_probability_strategy,
         recent_games=recent_games,
         related_snapshot_index=related_snapshot_index,
     )

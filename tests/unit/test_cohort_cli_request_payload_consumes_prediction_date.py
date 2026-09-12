@@ -1,7 +1,6 @@
 """Regression: the cohort CLI's request payload reads ``prediction_date``.
 
-Shell 06 sets ``payload["prediction_date"]`` from the operator's
-``meta.extras["ranking_snapshot_date"]`` in
+Shell 06 sets ``payload["prediction_date"]`` from the event start in
 ``run_orchestrator._build_cohort_request_payload``. The cohort CLI then
 falls back to ``min(game_date)`` only when the field is absent — see
 ``scripts/backtest_tournament_cohort.py`` near the ``prediction_date =``
@@ -83,7 +82,7 @@ def _bootstrap(base: Path) -> None:
     )
 
 
-def test_payload_carries_prediction_date_from_extras(tmp_path: Path):
+def test_payload_carries_event_start_as_prediction_date(tmp_path: Path):
     _bootstrap(tmp_path)
     payload, _fallbacks, _stale = _build_cohort_request_payload(
         EVENT_KEY,
@@ -93,7 +92,7 @@ def test_payload_carries_prediction_date_from_extras(tmp_path: Path):
         base_dir=tmp_path,
         extras={"ranking_snapshot_date": "2026-01-15"},
     )
-    assert payload["prediction_date"] == "2026-01-15"
+    assert payload["prediction_date"] == "2026-05-01"
 
 
 def test_cohort_cli_reads_payload_prediction_date():

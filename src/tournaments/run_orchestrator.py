@@ -624,9 +624,11 @@ def _build_cohort_request_payload(
         "entrants": entrants,
         "assignment_policy": "competitive_balance_only",
     }
-    snapshot_date = extras.get("ranking_snapshot_date")
-    if snapshot_date:
-        payload["prediction_date"] = snapshot_date
+    # The predictor cutoff is the event start. ``ranking_snapshot_date`` is
+    # evidence selected for the run, but using it as an exclusive cutoff
+    # would make that exact snapshot ineligible.
+    if meta.event_start_date:
+        payload["prediction_date"] = meta.event_start_date
     return payload, sorted(division_routing_fallbacks), sorted(division_routing_stale_assignments)
 
 

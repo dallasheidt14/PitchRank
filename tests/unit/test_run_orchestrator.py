@@ -244,7 +244,7 @@ def test_build_cli_args_raises_on_unknown_model_pin(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(tmp_path: Path):
+def test_build_cohort_request_payload_uses_event_start_as_prediction_date(tmp_path: Path):
     _bootstrap_event(tmp_path, extras={"ranking_snapshot_date": "2026-04-30"})
     payload, fallbacks, stale = _build_cohort_request_payload(
         EVENT_KEY,
@@ -254,7 +254,7 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
         base_dir=tmp_path,
         extras={"ranking_snapshot_date": "2026-04-30"},
     )
-    assert payload["prediction_date"] == "2026-04-30"
+    assert payload["prediction_date"] == "2026-05-01"
     assert payload["age_group"] == "u14"
     assert payload["gender"] == "boys"
     assert payload["divisions"][0]["advancement"] == "ROUND_ROBIN"
@@ -363,7 +363,7 @@ def test_build_cohort_request_payload_refuses_missing_replay_format(tmp_path: Pa
         )
 
 
-def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
+def test_build_cohort_request_payload_uses_event_start_without_snapshot_selection(tmp_path: Path):
     _bootstrap_event(tmp_path)
     payload, _fallbacks, _stale = _build_cohort_request_payload(
         EVENT_KEY,
@@ -373,7 +373,7 @@ def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path
         base_dir=tmp_path,
         extras={},
     )
-    assert "prediction_date" not in payload
+    assert payload["prediction_date"] == "2026-05-01"
 
 
 def _bootstrap_event_metadata_only(base: Path) -> None:
