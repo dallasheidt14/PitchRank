@@ -353,6 +353,7 @@ def test_score_matrix_summary_tracks_blowout_risk_for_lopsided_matchups():
     )
 
     assert lopsided_summary["blowout_3plus_probability"][0] > balanced_summary["blowout_3plus_probability"][0]
+    assert lopsided_summary["blowout_4plus_probability"][0] > balanced_summary["blowout_4plus_probability"][0]
     assert lopsided_summary["blowout_5plus_probability"][0] > balanced_summary["blowout_5plus_probability"][0]
 
 

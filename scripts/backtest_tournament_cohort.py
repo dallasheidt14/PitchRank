@@ -87,6 +87,7 @@ class TournamentMatchPrediction:
     draw_probability: float | None = None
     win_probability_b: float | None = None
     blowout_3plus_probability: float | None = None
+    blowout_4plus_probability: float | None = None
     blowout_5plus_probability: float | None = None
     probability_strategy: str | None = None
     source: str = PREDICTOR_SOURCE_PYTHON
@@ -792,6 +793,7 @@ def _point_in_time_prediction_from_row(
         draw_probability=optional_probability("prob_draw"),
         win_probability_b=optional_probability("prob_team_b_win"),
         blowout_3plus_probability=optional_probability("blowout_3plus_probability"),
+        blowout_4plus_probability=optional_probability("blowout_4plus_probability"),
         blowout_5plus_probability=optional_probability("blowout_5plus_probability"),
         probability_strategy=str(row.get("probability_strategy") or ""),
         source=source,
@@ -831,6 +833,9 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
     supplied_blowout_3plus = _validate_optional_probability(
         prediction.blowout_3plus_probability, name="blowout_3plus_probability"
     )
+    supplied_blowout_4plus = _validate_optional_probability(
+        prediction.blowout_4plus_probability, name="blowout_4plus_probability"
+    )
     supplied_blowout_5plus = _validate_optional_probability(
         prediction.blowout_5plus_probability, name="blowout_5plus_probability"
     )
@@ -856,6 +861,7 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
         blowout_3plus_probability=blowout_3plus_probability,
         blowout_5plus_probability=blowout_5plus_probability,
         total_cost=total_cost,
+        blowout_4plus_probability=supplied_blowout_4plus,
     )
 
 
@@ -1260,6 +1266,7 @@ def _build_division_recommendations(
                 "canonical_team_name": entrant["canonical_team_name"],
                 "club_name": entrant["club_name"],
                 "provider_team_id": entrant.get("provider_team_id"),
+                "entrant_id": entrant["entrant_id"],
                 "actual_division_key": actual_division_key,
                 "actual_division": actual_division,
                 "recommended_division_key": recommended_division_key,

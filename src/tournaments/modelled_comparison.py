@@ -94,6 +94,7 @@ def summarize_modelled_matchups(
             "median_goal_differential": None,
             "close_game_probability": None,
             "blowout_3plus_probability": None,
+            "blowout_4plus_probability": None,
             "blowout_5plus_probability": None,
             "uncertainty": None,
         }
@@ -101,7 +102,10 @@ def summarize_modelled_matchups(
     margins = [float(matchup.cost.projected_margin) for matchup in matchups]
     close_probabilities = [float(matchup.cost.competitive_probability) for matchup in matchups]
     blowout_3plus = [float(matchup.cost.blowout_3plus_probability) for matchup in matchups]
+    blowout_4plus = [matchup.cost.blowout_4plus_probability for matchup in matchups]
     blowout_5plus = [float(matchup.cost.blowout_5plus_probability) for matchup in matchups]
+    complete_4plus = all(value is not None for value in blowout_4plus)
+    numeric_4plus = [float(value) for value in blowout_4plus if value is not None]
     count = len(matchups)
     average_margin = sum(margins) / count
     margin_standard_error = stdev(margins) / math.sqrt(count) if count > 1 else 0.0
@@ -115,6 +119,9 @@ def summarize_modelled_matchups(
         "median_goal_differential": float(median(margins)),
         "close_game_probability": float(sum(close_probabilities) / count),
         "blowout_3plus_probability": float(sum(blowout_3plus) / count),
+        "blowout_4plus_probability": (
+            float(sum(numeric_4plus) / count) if complete_4plus else None
+        ),
         "blowout_5plus_probability": float(sum(blowout_5plus) / count),
         "uncertainty": {
             "method": "normal_95",
@@ -129,6 +136,9 @@ def summarize_modelled_matchups(
             ),
             "close_game_probability": _mean_probability_uncertainty(close_probabilities),
             "blowout_3plus_probability": _mean_probability_uncertainty(blowout_3plus),
+            "blowout_4plus_probability": (
+                _mean_probability_uncertainty(numeric_4plus) if complete_4plus else None
+            ),
             "blowout_5plus_probability": _mean_probability_uncertainty(blowout_5plus),
         },
     }
@@ -167,6 +177,7 @@ def compare_modelled_arrangements(
         "median_goal_differential_improvement": ("median_goal_differential", "original_minus_proposed"),
         "close_game_probability_delta": ("close_game_probability", "proposed_minus_original"),
         "blowout_3plus_probability_improvement": ("blowout_3plus_probability", "original_minus_proposed"),
+        "blowout_4plus_probability_improvement": ("blowout_4plus_probability", "original_minus_proposed"),
         "blowout_5plus_probability_improvement": ("blowout_5plus_probability", "original_minus_proposed"),
     }
     result: dict[str, Any] = {
@@ -183,6 +194,10 @@ def compare_modelled_arrangements(
     }
 
     for output_name, (source_name, direction) in metric_specs.items():
+        if original.get(source_name) is None or proposed.get(source_name) is None:
+            result[output_name] = None
+            uncertainty["metrics"][output_name] = None
+            continue
         original_value = float(original[source_name])
         proposed_value = float(proposed[source_name])
         delta = (

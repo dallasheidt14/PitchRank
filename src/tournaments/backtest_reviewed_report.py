@@ -12,6 +12,7 @@ _MODEL_METRICS = (
     ("Median expected goal margin", "median_goal_differential", "lower"),
     ("Close-game probability", "close_game_probability", "higher"),
     ("3+ goal blowout probability", "blowout_3plus_probability", "lower"),
+    ("4+ goal blowout probability", "blowout_4plus_probability", "lower"),
     ("5+ goal blowout probability", "blowout_5plus_probability", "lower"),
 )
 
