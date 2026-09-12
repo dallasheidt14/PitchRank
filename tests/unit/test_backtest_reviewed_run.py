@@ -134,6 +134,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert [record.run_id for record in records] == [outcome.run_dir.name]
     with zipfile.ZipFile(BytesIO(reviewed_run_export(records[0]))) as archive:
         assert set(archive.namelist()) >= {
+            "done.json",
             "comparison.html",
             "summary.json",
             "historical_inputs.json",

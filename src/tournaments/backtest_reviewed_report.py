@@ -98,6 +98,7 @@ def render_reviewed_backtest_html(
     )
     comparison = summary.get("seeding_comparison") or {}
     status = html.escape(str(comparison.get("status") or "unavailable"))
+    status_class = "good" if comparison.get("status") == "comparable" else "warn"
     observed = observed_result_values(summary)
     model_rows = "".join(
         "<tr>"
@@ -131,11 +132,12 @@ h1{{margin-bottom:4px}} .muted{{color:#667085}}
 .value{{font-size:28px;font-weight:700;margin-top:6px}}
 table{{border-collapse:collapse;width:100%;margin:12px 0 28px}}
 th,td{{border-bottom:1px solid #eaecf0;padding:9px;text-align:left}}
-th{{background:#f9fafb}} .good{{color:#067647;font-weight:700}} code{{font-size:11px;word-break:break-all}}
+th{{background:#f9fafb}} .good{{color:#067647;font-weight:700}}
+.warn{{color:#b54708;font-weight:700}} code{{font-size:11px;word-break:break-all}}
 @media(max-width:760px){{.cards{{grid-template-columns:1fr 1fr}}}}
 </style></head><body>
 <p class="muted">MatchBalance completed-tournament Backtest</p><h1>{event_name}</h1>
-<p>{cohort_label} · comparison status <strong class="good">{status}</strong></p>
+<p>{cohort_label} · comparison status <strong class="{status_class}">{status}</strong></p>
 <div class="cards">
 <div class="card">Observed games<div class="value">{observed['game_count']}</div></div>
 <div class="card">Observed average margin

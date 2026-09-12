@@ -1077,6 +1077,8 @@ def _render_backtest_runner(
     links: EventLinks,
     event_key: str,
     base_dir,
+    *,
+    matching_blocker: str = "",
 ) -> None:
     st.markdown("#### Run Backtest")
     st.caption(
@@ -1109,6 +1111,11 @@ def _render_backtest_runner(
             replace(item, request=None, blockers=(unsaved_reason, *item.blockers))
             for item in readiness
         ]
+    if matching_blocker:
+        readiness = [
+            replace(item, request=None, blockers=(matching_blocker, *item.blockers))
+            for item in readiness
+        ]
 
     artifact_value = st.text_input(
         "Historical model artifact",
@@ -1126,7 +1133,7 @@ def _render_backtest_runner(
     if not model_ready:
         st.info(
             "Provide a point-in-time model trained with data ending before this event. "
-            "Use scripts/train_point_in_time_match_model.py --max-game-date <event-start-date>, "
+            "Use `python scripts/train_point_in_time_match_model.py --max-game-date YYYY-MM-DD`, "
             "then select its point_in_time_match_model.pkl file above."
         )
     table_rows = []
@@ -1213,10 +1220,12 @@ def render_intake(supabase_client: Any) -> None:
     st.caption(f"Event {snapshot.roster.event_id} · {start or 'Date not stated'}"
                + (f" to {end}" if end and end != start else ""))
     event_key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
+    matching_blocker = ""
     try:
         links, details, conflicts = _sync_matches(display_snapshot, supabase_client, base_dir)
     except Exception as exc:
         st.warning(f"Team matching is unavailable right now: {exc}. The captured event can still be saved.")
+        matching_blocker = "Retry team matching before running; merge-synchronized team IDs are unavailable"
         details, conflicts = {}, {}
         links = load_links(event_key, base_dir=base_dir)
     rows = match_table(display_snapshot, links, details, conflicts=conflicts)
@@ -1225,7 +1234,10 @@ def render_intake(supabase_client: Any) -> None:
     status_columns = st.columns(3)
     capture_verified = not capture_verification_blockers(snapshot)
     status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
-    status_columns[1].metric("Team matching", f"{matched} / {totals['total_teams']}")
+    status_columns[1].metric(
+        "Team matching",
+        "Unavailable" if matching_blocker else f"{matched} / {totals['total_teams']}",
+    )
     status_columns[2].metric("Division review", f"{reviewed} / {len(snapshot.roster.divisions)}")
     section = st.radio(
         "Backtest intake section", ("Overview", "Teams", "Structure", "Capture Details"),
@@ -1251,17 +1263,25 @@ def render_intake(supabase_client: Any) -> None:
         _render_results(totals["results"])
         outstanding = len({row["Match key"] for row in rows if row["Status"] != "Matched"})
         issue_parts = []
-        if not snapshot.roster.is_complete:
+        if not capture_verified:
             issue_parts.append("capture verification")
         if outstanding:
             issue_parts.append(f"{outstanding} team identities")
+        if matching_blocker:
+            issue_parts.append("team matching availability")
         if reviewed < len(snapshot.roster.divisions):
             issue_parts.append(f"{len(snapshot.roster.divisions) - reviewed} division reviews")
         if issue_parts:
             st.warning("Remaining work: " + ", ".join(issue_parts) + ".")
         else:
             st.success("This intake is fully captured, matched, and reviewed.")
-        _render_backtest_runner(snapshot, links, event_key, base_dir)
+        _render_backtest_runner(
+            snapshot,
+            links,
+            event_key,
+            base_dir,
+            matching_blocker=matching_blocker,
+        )
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")
         st.caption(f"{matched} of {totals['total_teams']} teams matched")

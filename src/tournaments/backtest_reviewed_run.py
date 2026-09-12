@@ -40,6 +40,7 @@ DEFAULT_MODEL_ARTIFACT = (
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (
+    "done.json",
     "comparison.html",
     "summary.json",
     "historical_inputs.json",
@@ -47,6 +48,9 @@ _EXPORT_FILES = (
     "division_recommendations.csv",
     "request.json",
     "run_metadata.json",
+    "progress.jsonl",
+    "cli_stdout.log",
+    "cli_stderr.log",
 )
 
 

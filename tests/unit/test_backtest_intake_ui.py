@@ -409,6 +409,38 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     assert movements["Decision"].tolist() == ["Stayed"]
 
 
+def test_overview_keeps_unverified_complete_capture_in_remaining_work(tmp_path, monkeypatch):
+    import tournament_intake as app
+    from src.tournaments.backtest_intake_state import write_snapshot
+    from src.tournaments.backtest_link_store import update_links
+    from tests.unit.test_backtest_request import _links, _snapshot
+
+    snapshot = _snapshot()
+    assert snapshot.roster.is_complete is True
+    write_snapshot("gotsport__51783__2025", snapshot, base_dir=tmp_path)
+    update_links(
+        "gotsport__51783__2025",
+        event_id="51783",
+        changed_links=_links().links,
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(app, "_render_seeding_event_scrape", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "_seeding_merge_resolver",
+        lambda client: SimpleNamespace(version="ok", resolve=lambda team_id: team_id),
+    )
+    test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
+    test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
+    test.run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    warnings = [item.value for item in test.warning]
+    assert any("Remaining work: capture verification" in item for item in warnings), warnings
+    assert not any("fully captured, matched, and reviewed" in item.value for item in test.success)
+
+
 def test_actual_results_weight_games_follow_entered_cohorts_and_survive_saved_reload(rendered_intake, monkeypatch):
     import tournament_intake as app
     from src.tournaments import backtest_intake_ui as ui
@@ -786,6 +818,13 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     else:
         monkeypatch.setattr(ReadOnlyTeams.Query, "execute", unavailable)
     test.run()
+
+    readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
+    assert next(button for button in test.button if button.label == "Run selected cohort").disabled
+    metrics = {item.label: item.value for item in test.metric}
+    assert metrics["Team matching"] == "Unavailable"
+    assert any("team matching availability" in item.value for item in test.warning)
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
 
     assert not test.exception, [error.message for error in test.exception]
