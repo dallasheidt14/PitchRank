@@ -65,6 +65,7 @@ class MatchupCost:
 
 MatchupCostFn = Callable[["SeedableTeam", "SeedableTeam"], MatchupCost]
 PairViolationFn = Callable[["SeedableTeam", "SeedableTeam"], tuple[str, ...]]
+FlightViolationCountFn = Callable[[int, Sequence["SeedableTeam"]], int]
 
 
 @dataclass(frozen=True)
@@ -448,6 +449,7 @@ def optimize_division_assignments(
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
     pair_violation_fn: PairViolationFn | None = None,
+    flight_violation_count_fn: FlightViolationCountFn | None = None,
 ) -> TournamentOptimizationResult:
     """Assign teams to flights, minimizing hard violations before model cost."""
 
@@ -462,9 +464,14 @@ def optimize_division_assignments(
         start_index = end_index
 
     current_cost = total_tournament_cost(working_flights, matchup_cost_fn=matchup_cost_fn)
-    current_violation_count = (
-        len(assignment_constraint_violations(working_flights, pair_violation_fn)) if pair_violation_fn else 0
-    )
+    if flight_violation_count_fn is not None:
+        current_violation_count = sum(
+            flight_violation_count_fn(index, flight) for index, flight in enumerate(working_flights)
+        )
+    else:
+        current_violation_count = (
+            len(assignment_constraint_violations(working_flights, pair_violation_fn)) if pair_violation_fn else 0
+        )
     iterations = 0
 
     while iterations < max_iterations:
@@ -498,7 +505,17 @@ def optimize_division_assignments(
                             matchup_cost_fn=matchup_cost_fn,
                         )
                         tournament_cost = current_cost - base_cost + candidate_cost
-                        if pair_violation_fn is None:
+                        if flight_violation_count_fn is not None:
+                            base_violations = flight_violation_count_fn(
+                                left_flight_index, left_flight
+                            ) + flight_violation_count_fn(right_flight_index, right_flight)
+                            candidate_violations = flight_violation_count_fn(
+                                left_flight_index, candidate_left
+                            ) + flight_violation_count_fn(right_flight_index, candidate_right)
+                            tournament_violation_count = (
+                                current_violation_count - base_violations + candidate_violations
+                            )
+                        elif pair_violation_fn is None:
                             tournament_violation_count = 0
                         else:
                             base_violations = len(
@@ -595,6 +612,42 @@ def optimize_tournament_format(
         raise ValueError("At least one division format is required")
 
     top_level_specs = [FlightSpec(name=division.name, team_count=division.team_count) for division in divisions]
+    pair_violation_fn = build_pair_violation_fn(constraints) if constraints is not None else None
+    top_level_violation_cache: dict[tuple[int, tuple[str, ...]], int] = {}
+
+    def top_level_violation_count(
+        division_index: int,
+        division_teams: Sequence[SeedableTeam],
+    ) -> int:
+        """Score division membership by the best constraint-feasible pool split."""
+
+        if pair_violation_fn is None:
+            return 0
+        cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
+        if cache_key in top_level_violation_cache:
+            return top_level_violation_cache[cache_key]
+        pool_specs = _pool_specs_from_division(divisions[division_index])
+        if len(pool_specs) == 1:
+            count = len(assignment_constraint_violations((division_teams,), pair_violation_fn))
+        else:
+            pool_result = optimize_division_assignments(
+                division_teams,
+                pool_specs,
+                max_iterations=max_iterations,
+                improvement_tolerance=improvement_tolerance,
+                matchup_cost_fn=matchup_cost_fn,
+                matchup_proxy=matchup_proxy,
+                pair_violation_fn=pair_violation_fn,
+            )
+            count = len(
+                assignment_constraint_violations(
+                    tuple(pool.teams for pool in pool_result.divisions),
+                    pair_violation_fn,
+                )
+            )
+        top_level_violation_cache[cache_key] = count
+        return count
+
     top_level_result = optimize_division_assignments(
         teams,
         top_level_specs,
@@ -602,12 +655,11 @@ def optimize_tournament_format(
         improvement_tolerance=improvement_tolerance,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
+        flight_violation_count_fn=top_level_violation_count if pair_violation_fn is not None else None,
     )
 
     division_assignments: list[DivisionAssignment] = []
     total_iterations = int(top_level_result.optimizer_iterations)
-    pair_violation_fn = build_pair_violation_fn(constraints) if constraints is not None else None
-
     for division_spec, base_assignment in zip(divisions, top_level_result.divisions, strict=True):
         pool_specs = _pool_specs_from_division(division_spec)
         if len(pool_specs) == 1:

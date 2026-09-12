@@ -6,6 +6,7 @@ from collections import defaultdict
 from typing import Any, Mapping
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster, entrant_key
+from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.schedule_simulator import explicit_division_schedule_template
 
 
@@ -44,11 +45,25 @@ def build_cohort_backtest_requests(
     snapshot: BacktestSnapshot,
     *,
     constraints_by_cohort: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
-    collision_acknowledgements: Mapping[str, frozenset[str]] | None = None,
+    event_links: EventLinks | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Translate checked divisions, exact pools, and saved links into requests."""
 
     roster = effective_roster(snapshot)
+    if event_links is None or event_links.event_id != roster.event_id:
+        raise BacktestRequestError("The reviewed event needs its matching EventLinks decision record")
+    confirmed_links = {
+        link.registration_id: link
+        for link in event_links.links
+        if link.matched_by in {"gotsport_id", "operator"}
+    }
+    all_links = {link.registration_id: link for link in event_links.links}
+    removed_registrations = set(event_links.removed_registration_ids)
+    not_found_registrations = set(event_links.not_found_registration_ids)
+    collision_acknowledgements = {
+        item.team_id_master: frozenset(item.registration_ids)
+        for item in event_links.collision_acknowledgements
+    }
     reviews = {review.group_id: review for review in snapshot.reviews}
     resolved_by_source = {item.source_index: item for item in snapshot.resolved}
     roster_teams_by_group_registration = {
@@ -117,20 +132,40 @@ def build_cohort_backtest_requests(
                         raise BacktestRequestError(
                             f"Pool member {registration} in '{division.division_label}' is missing from the roster"
                         )
-                    resolved = resolved_by_source.get(roster_team.source_index)
-                    if resolved is None or not resolved.team_id_master:
+                    if registration in removed_registrations:
                         raise BacktestRequestError(
-                            f"Team '{member.team_name}' in '{division.division_label}' is not matched to PitchRank"
+                            f"Team '{member.team_name}' in '{division.division_label}' has a cleared match"
                         )
-                    canonical_by_registration[registration] = str(resolved.team_id_master)
-                    registrations_by_canonical[str(resolved.team_id_master)].add(registration)
+                    if registration in not_found_registrations:
+                        raise BacktestRequestError(
+                            f"Team '{member.team_name}' in '{division.division_label}' is marked not found in PitchRank"
+                        )
+                    link = confirmed_links.get(registration)
+                    if link is None:
+                        unconfirmed = all_links.get(registration)
+                        detail = (
+                            f" has an unconfirmed {unconfirmed.matched_by} suggestion"
+                            if unconfirmed is not None
+                            else " has no saved match decision"
+                        )
+                        raise BacktestRequestError(
+                            f"Team '{member.team_name}' in '{division.division_label}'{detail}"
+                        )
+                    resolved = resolved_by_source.get(roster_team.source_index)
+                    canonical_id = str(link.team_id_master)
+                    canonical_by_registration[registration] = canonical_id
+                    registrations_by_canonical[canonical_id].add(registration)
                     entrants.append(
                         {
                             "entrant_id": f"{division.group_id}:{registration}",
                             "registration_id": registration,
-                            "canonical_team_id": str(resolved.team_id_master),
-                            "ranking_source_team_id": str(resolved.team_id_master),
-                            "provider_team_id": str(resolved.provider_team_id or roster_team.provider_team_id or ""),
+                            "canonical_team_id": canonical_id,
+                            "ranking_source_team_id": canonical_id,
+                            "provider_team_id": str(
+                                (resolved.provider_team_id if resolved is not None else None)
+                                or roster_team.provider_team_id
+                                or ""
+                            ),
                             "event_team_name": member.team_name,
                             "event_age_group": age_group,
                             "event_gender": gender,
@@ -150,7 +185,7 @@ def build_cohort_backtest_requests(
         for canonical_id, registrations in registrations_by_canonical.items():
             if len(registrations) < 2:
                 continue
-            acknowledged = (collision_acknowledgements or {}).get(canonical_id, frozenset())
+            acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
             if acknowledged != frozenset(registrations):
                 raise BacktestRequestError(
                     f"Canonical team {canonical_id} is linked to distinct registrations without "

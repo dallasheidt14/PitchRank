@@ -13,7 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot
-from src.tournaments.backtest_link_store import load_links
+from src.tournaments.backtest_link_store import CollisionAcknowledgement, EventLinks, TeamLink, load_links
 from src.tournaments.backtest_request import build_cohort_backtest_requests
 
 
@@ -24,6 +24,28 @@ def _slug(value: str) -> str:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _embedded_links(payload: dict[str, Any], *, event_id: str) -> EventLinks:
+    raw = payload.get("links") or {}
+    if not isinstance(raw, dict) or str(raw.get("event_id") or "") != event_id:
+        return EventLinks()
+    return EventLinks(
+        event_id=event_id,
+        links=tuple(TeamLink(**item) for item in raw.get("links") or ()),
+        saved_at=str(raw.get("saved_at") or ""),
+        removed_registration_ids=tuple(str(item) for item in raw.get("removed_registration_ids") or ()),
+        not_found_registration_ids=tuple(str(item) for item in raw.get("not_found_registration_ids") or ()),
+        collision_acknowledgements=tuple(
+            CollisionAcknowledgement(
+                team_id_master=str(item["team_id_master"]),
+                registration_ids=tuple(str(value) for value in item.get("registration_ids") or ()),
+                note=str(item["note"]),
+                acknowledged_at=str(item["acknowledged_at"]),
+            )
+            for item in raw.get("collision_acknowledgements") or ()
+        ),
+    )
 
 
 def main() -> int:
@@ -39,18 +61,15 @@ def main() -> int:
     intake_path = Path(args.intake_json)
     if not intake_path.exists():
         raise FileNotFoundError(f"Intake JSON not found: {intake_path}")
-    snapshot = BacktestSnapshot.from_dict(json.loads(intake_path.read_text(encoding="utf-8")))
-    links = None
+    intake_payload = json.loads(intake_path.read_text(encoding="utf-8"))
+    snapshot = BacktestSnapshot.from_dict(intake_payload)
+    links = _embedded_links(intake_payload, event_id=snapshot.roster.event_id)
     if intake_path.name == "event_intake.json" and intake_path.parent.name == "intake":
         event_key = intake_path.parent.parent.name
         links = load_links(event_key, base_dir=intake_path.parent.parent.parent)
-    acknowledgements = {
-        item.team_id_master: frozenset(item.registration_ids)
-        for item in (links.collision_acknowledgements if links is not None else ())
-    }
     requests = build_cohort_backtest_requests(
         snapshot,
-        collision_acknowledgements=acknowledgements,
+        event_links=links,
     )
     output_dir = Path(args.output_dir)
     request_dir = output_dir / "requests"

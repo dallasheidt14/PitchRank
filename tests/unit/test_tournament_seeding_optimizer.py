@@ -228,6 +228,33 @@ def test_optimizer_separates_same_club_and_same_coach_in_early_pools():
         assert not coach_sets[0] & coach_sets[1]
 
 
+def test_optimizer_moves_teams_between_divisions_to_make_pool_constraints_feasible():
+    teams = [
+        SeedableTeam("x1", "X1", "u14", "Male", 0.95, club_name="Club X"),
+        SeedableTeam("x2", "X2", "u14", "Male", 0.94, club_name="Club X"),
+        SeedableTeam("x3", "X3", "u14", "Male", 0.93, club_name="Club X"),
+        SeedableTeam("a", "A", "u14", "Male", 0.92, club_name="Club A"),
+        SeedableTeam("b", "B", "u14", "Male", 0.50, club_name="Club B"),
+        SeedableTeam("c", "C", "u14", "Male", 0.49, club_name="Club C"),
+        SeedableTeam("d", "D", "u14", "Male", 0.48, club_name="Club D"),
+        SeedableTeam("e", "E", "u14", "Male", 0.47, club_name="Club E"),
+    ]
+
+    result = optimize_tournament_format(
+        teams,
+        [
+            DivisionSpec("Gold", 4, pool_sizes=(2, 2)),
+            DivisionSpec("Silver", 4, pool_sizes=(2, 2)),
+        ],
+        constraints=AssignmentConstraints(avoid_same_club_early=True),
+    )
+
+    for division in result.divisions:
+        assert sum(team.club_name == "Club X" for team in division.teams) <= 2
+        for pool in division.pools:
+            assert len({team.club_name for team in pool.teams}) == len(pool.teams)
+
+
 def test_optimizer_enforces_prior_rematch_constraint():
     teams = [
         SeedableTeam("a", "A", "u14", "Male", 0.90, canonical_team_id="ca", prior_opponent_ids=frozenset({"cb"})),

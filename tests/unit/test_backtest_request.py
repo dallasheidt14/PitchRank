@@ -2,7 +2,9 @@ from dataclasses import replace
 
 import pytest
 
+from scripts.backtest_reviewed_intake import _embedded_links
 from src.tournaments.backtest_intake_state import BacktestSnapshot, DivisionReview, structure_hash
+from src.tournaments.backtest_link_store import CollisionAcknowledgement, EventLinks, TeamLink
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
@@ -72,8 +74,18 @@ def _snapshot() -> BacktestSnapshot:
     return BacktestSnapshot(roster, resolved, "generation-1", "2026-09-11T00:00:00+00:00", reviews=(review,))
 
 
+def _links(*, second_team_id: str = "canonical-b", second_method: str = "gotsport_id") -> EventLinks:
+    return EventLinks(
+        event_id="51783",
+        links=(
+            TeamLink("reg-a", "Alpha", "canonical-a", "gotsport_id", "2026-09-11T00:00:00+00:00"),
+            TeamLink("reg-b", "Bravo", second_team_id, second_method, "2026-09-11T00:00:00+00:00"),
+        ),
+    )
+
+
 def test_build_request_preserves_exact_pool_membership_and_source_results():
-    request = build_cohort_backtest_requests(_snapshot())[0]
+    request = build_cohort_backtest_requests(_snapshot(), event_links=_links())[0]
 
     assert request["age_group"] == "u14"
     assert request["divisions"] == [
@@ -97,27 +109,85 @@ def test_build_request_blocks_unreviewed_format():
     snapshot = replace(snapshot, reviews=(replace(snapshot.reviews[0], format_code=""),))
 
     with pytest.raises(BacktestRequestError, match="verified replay format"):
-        build_cohort_backtest_requests(snapshot)
+        build_cohort_backtest_requests(snapshot, event_links=_links())
 
 
 def test_build_request_requires_exact_duplicate_mapping_acknowledgement():
     snapshot = _snapshot()
-    snapshot = replace(
-        snapshot,
-        resolved=(
-            snapshot.resolved[0],
-            replace(snapshot.resolved[1], team_id_master="canonical-a"),
-        ),
-    )
+    colliding_links = _links(second_team_id="canonical-a")
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
-        build_cohort_backtest_requests(snapshot)
+        build_cohort_backtest_requests(snapshot, event_links=colliding_links)
 
+    acknowledged_links = replace(
+        colliding_links,
+        collision_acknowledgements=(
+            CollisionAcknowledgement(
+                "canonical-a",
+                ("reg-a", "reg-b"),
+                "Two registrations intentionally represent one squad",
+                "2026-09-11T00:00:00+00:00",
+            ),
+        ),
+    )
     request = build_cohort_backtest_requests(
         snapshot,
-        collision_acknowledgements={"canonical-a": frozenset({"reg-a", "reg-b"})},
+        event_links=acknowledged_links,
     )[0]
     assert len(request["entrants"]) == 2
+
+
+def test_build_request_uses_operator_link_instead_of_raw_resolution():
+    request = build_cohort_backtest_requests(
+        _snapshot(),
+        event_links=_links(second_team_id="operator-choice", second_method="operator"),
+    )[0]
+
+    bravo = next(item for item in request["entrants"] if item["registration_id"] == "reg-b")
+    assert bravo["canonical_team_id"] == "operator-choice"
+    assert request["actual_games_override"][0]["away_team_master_id"] == "operator-choice"
+
+
+def test_downloaded_intake_restores_embedded_link_decisions():
+    links = _embedded_links(
+        {
+            "links": {
+                "event_id": "51783",
+                "links": [
+                    {
+                        "registration_id": "reg-a",
+                        "event_team_name": "Alpha",
+                        "team_id_master": "canonical-a",
+                        "matched_by": "operator",
+                        "linked_at": "2026-09-11T00:00:00+00:00",
+                    }
+                ],
+                "removed_registration_ids": ["reg-b"],
+                "not_found_registration_ids": [],
+                "collision_acknowledgements": [],
+            }
+        },
+        event_id="51783",
+    )
+
+    assert links.links[0].team_id_master == "canonical-a"
+    assert links.removed_registration_ids == ("reg-b",)
+
+
+def test_build_request_rejects_unconfirmed_and_not_found_decisions():
+    with pytest.raises(BacktestRequestError, match="unconfirmed exact_name"):
+        build_cohort_backtest_requests(
+            _snapshot(),
+            event_links=_links(second_method="exact_name"),
+        )
+
+    not_found = replace(
+        _links(),
+        links=(_links().links[0],),
+        not_found_registration_ids=("reg-b",),
+    )
+    with pytest.raises(BacktestRequestError, match="marked not found"):
+        build_cohort_backtest_requests(_snapshot(), event_links=not_found)
 
 
 def test_build_request_preserves_combined_tournament_cohort():
@@ -141,6 +211,6 @@ def test_build_request_preserves_combined_tournament_cohort():
         ),
     )
 
-    request = build_cohort_backtest_requests(snapshot)[0]
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
     assert request["age_group"] == "u10/u11"
     assert {entrant["event_age_group"] for entrant in request["entrants"]} == {"u10/u11"}
