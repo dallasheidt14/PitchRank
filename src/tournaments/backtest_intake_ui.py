@@ -1024,6 +1024,7 @@ def _run_reviewed_requests(
     model_artifact: str,
     base_dir,
 ) -> None:
+    had_failure = False
     for index, cohort in enumerate(readiness, start=1):
         if cohort.request is None:
             continue
@@ -1060,16 +1061,19 @@ def _run_reviewed_requests(
             except Exception as exc:
                 status.update(label=f"{label}: could not start", state="error")
                 st.error(str(exc))
-                return
+                had_failure = True
+                continue
             if outcome.state == "failed":
                 status.update(label=f"{label}: failed", state="error")
                 st.error(outcome.error or "The Backtest run failed")
-                return
+                had_failure = True
+                continue
             progress.progress(1.0, text="Completed")
             status.update(label=f"{label}: completed", state="complete")
             st.success(f"{label}: completed")
             st.session_state[f"bt_completed_run_{event_key}"] = outcome.run_dir.name
-    st.rerun()
+    if not had_failure:
+        st.rerun()
 
 
 def _render_backtest_runner(

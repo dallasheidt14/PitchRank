@@ -409,6 +409,68 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     assert movements["Decision"].tolist() == ["Stayed"]
 
 
+def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_reviewed_run import ReviewedCohortReadiness, ReviewedRunOutcome
+
+    calls = []
+
+    def fake_execute(event_key, request, **_kwargs):
+        calls.append(request["age_group"])
+        if request["age_group"] == "u12":
+            return ReviewedRunOutcome("failed", tmp_path / "failed", "U12 failed")
+        completed = tmp_path / "u13-completed"
+        completed.mkdir()
+        return ReviewedRunOutcome("completed", completed)
+
+    class Status:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def update(self, **_kwargs):
+            return None
+
+    class Element:
+        def caption(self, *_args, **_kwargs):
+            return None
+
+        def progress(self, *_args, **_kwargs):
+            return None
+
+    errors = []
+    reruns = []
+    fake_st = SimpleNamespace(
+        session_state={},
+        status=lambda *_args, **_kwargs: Status(),
+        progress=lambda *_args, **_kwargs: Element(),
+        empty=Element,
+        error=errors.append,
+        success=lambda *_args, **_kwargs: None,
+        rerun=lambda: reruns.append(True),
+    )
+    readiness = [
+        ReviewedCohortReadiness("u12", "Male", 4, 1, {"age_group": "u12"}),
+        ReviewedCohortReadiness("u13", "Male", 4, 1, {"age_group": "u13"}),
+    ]
+    monkeypatch.setattr(ui, "st", fake_st)
+    monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
+
+    ui._run_reviewed_requests(
+        "gotsport__51783__2025",
+        readiness,
+        model_artifact="model.pkl",
+        base_dir=tmp_path,
+    )
+
+    assert calls == ["u12", "u13"]
+    assert errors == ["U12 failed"]
+    assert fake_st.session_state["bt_completed_run_gotsport__51783__2025"] == "u13-completed"
+    assert reruns == []
+
+
 def test_overview_keeps_unverified_complete_capture_in_remaining_work(tmp_path, monkeypatch):
     import tournament_intake as app
     from src.tournaments.backtest_intake_state import write_snapshot
