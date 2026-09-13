@@ -106,7 +106,13 @@ def captured_division_schedule_template(
     slots = tuple(dict(item) for item in fixture_slots)
     if not slots:
         raise ValueError(f"Division '{division_name}' needs at least one captured fixture slot")
-    allowed_refs = {"pool_slot", "pool_rank", "match_winner", "match_loser"}
+    allowed_refs = {
+        "pool_slot",
+        "pool_rank",
+        "division_rank",
+        "match_winner",
+        "match_loser",
+    }
     for index, fixture in enumerate(slots):
         for side in ("home", "away"):
             ref = fixture.get(side)
@@ -117,6 +123,13 @@ def captured_division_schedule_template(
             if ref["kind"] in {"match_winner", "match_loser"} and int(ref["match_index"]) >= index:
                 raise ValueError(
                     f"Division '{division_name}' fixture slot {index + 1} has a forward match reference"
+                )
+            if ref["kind"] == "division_rank" and not (
+                0 <= int(ref["rank"]) < sum(normalized_pool_sizes)
+            ):
+                raise ValueError(
+                    f"Division '{division_name}' fixture slot {index + 1} references a missing "
+                    "division standings position"
                 )
     try:
         normalized_tiebreak = normalize_tiebreak_order(tiebreak_order)
@@ -602,6 +615,22 @@ def _simulate_captured_division_schedule(
 
     def resolve(ref: dict[str, Any]) -> SeedableTeam:
         kind = str(ref["kind"])
+        if kind == "division_rank":
+            position = int(ref["rank"])
+            if position < 0 or position >= len(all_teams):
+                raise ValueError(
+                    f"Division '{division.name}' captured fixture references a missing "
+                    "division standings position"
+                )
+            ranked = _rank_pool_teams_for_qualifier(
+                all_teams,
+                standings,
+                template.tiebreak_order,
+                position,
+                division_name=division.name,
+                tiebreak_source_urls=template.tiebreak_source_urls,
+            )
+            return ranked[position]
         if kind in {"pool_slot", "pool_rank"}:
             pool_index = int(ref["pool_index"])
             position = int(ref["slot_index"] if kind == "pool_slot" else ref["rank"])

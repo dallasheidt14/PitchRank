@@ -1,10 +1,20 @@
 from dataclasses import replace
+from pathlib import Path
 
 from src.tournaments.backtest_replay_format import (
     assess_replay_format,
+    build_captured_fixture_slots,
     ordered_captured_fixtures,
 )
-from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
+from src.tournaments.gotsport_event_structure import (
+    Fixture,
+    Pool,
+    PoolMember,
+    ScrapedDivision,
+    parse_division_structure,
+)
+
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gotsport"
 
 
 def _division(*, fixture_kind: str = "pool", fixture_count: int = 1) -> ScrapedDivision:
@@ -83,3 +93,45 @@ def test_fully_numbered_fixtures_use_published_match_number_order():
     )
 
     assert ordered_captured_fixtures((later, earlier)) == (earlier, later)
+
+
+def test_cross_pool_wildcards_use_division_wide_standings_ranks():
+    division = parse_division_structure(
+        group_id="436891",
+        division_label="U11 Boys",
+        html=(FIXTURES / "event_49407__group_436891.html").read_text(encoding="utf-8"),
+    )
+
+    slots = build_captured_fixture_slots(division)
+    final = next(slot for slot in slots if slot["match_number"] == "23")
+
+    assert final["stage"] == "Final- Wildcard 1 v Wildcard 2"
+    assert final["home"] == {
+        "kind": "division_rank",
+        "rank": 0,
+        "evidence": "published_wildcard_slot_label",
+    }
+    assert final["away"] == {
+        "kind": "division_rank",
+        "rank": 1,
+        "evidence": "published_wildcard_slot_label",
+    }
+    assert assess_replay_format(division).ready is True
+
+
+def test_cross_pool_qualification_without_published_wildcard_slots_is_blocked():
+    division = _division(fixture_kind="bracket")
+    division = replace(
+        division,
+        pools=(
+            replace(
+                division.pools[0],
+                label="Top 2 Teams In Points Advance Regardless Of Group",
+            ),
+        ),
+    )
+
+    assessment = assess_replay_format(division)
+
+    assert assessment.ready is False
+    assert "needs its published wildcard slot labels" in assessment.reason

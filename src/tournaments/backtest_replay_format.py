@@ -9,6 +9,11 @@ from typing import Any, Sequence
 from src.tournaments.schedule_simulator import CAPTURED_GRAPH_FORMAT
 
 _MATCH_REFERENCE = re.compile(r"\b(winner|loser)\b.*?\b(?:match|game)?\s*#?\s*(\d+)\b", re.IGNORECASE)
+_WILDCARD_REFERENCE = re.compile(r"\bwild\s*card\s*#?\s*(\d+)\b", re.IGNORECASE)
+_CROSS_POOL_QUALIFICATION = re.compile(
+    r"\badvance\b.*\bregardless\s+of\s+(?:group|pool)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,28 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
         for index, fixture in enumerate(ordered)
         if str(fixture.match_number or "").strip()
     }
+    division_wide_qualification = any(
+        _CROSS_POOL_QUALIFICATION.search(str(pool.label or ""))
+        for pool in division.pools
+    )
+
+    def wildcard_references(fixture: Any) -> dict[str, dict[str, Any]]:
+        ranks = [int(value) - 1 for value in _WILDCARD_REFERENCE.findall(fixture.bracket_label)]
+        if not ranks:
+            return {}
+        if len(ranks) != 2 or any(rank < 0 for rank in ranks):
+            raise ValueError(
+                f"Fixture {fixture.match_number or fixture.source_url} has an unsupported "
+                f"wildcard qualification label '{fixture.bracket_label}'"
+            )
+        return {
+            side: {
+                "kind": "division_rank",
+                "rank": rank,
+                "evidence": "published_wildcard_slot_label",
+            }
+            for side, rank in zip(("home", "away"), ranks, strict=True)
+        }
 
     def historical_loser(fixture: Any) -> str:
         winner = str(fixture.winner_registration_id or "")
@@ -102,7 +129,10 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
         *,
         side: str,
         match_index: int,
+        published_reference: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if published_reference is not None:
+            return published_reference
         registration_id = getattr(fixture, f"{side}_registration_id")
         label = str(getattr(fixture, f"{side}_label") or "")
         if fixture.kind == "bracket":
@@ -143,6 +173,11 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
             )
         pool_index, slot_index, final_rank = slot
         if fixture.kind == "bracket":
+            if division_wide_qualification:
+                raise ValueError(
+                    f"Fixture {fixture.match_number or fixture.source_url} needs its published "
+                    "wildcard slot labels before division-wide qualification can be replayed"
+                )
             return {
                 "kind": "pool_rank",
                 "pool_index": pool_index,
@@ -162,8 +197,19 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
             raise ValueError(
                 f"Fixture {fixture.match_number or fixture.source_url} has unclassified stage '{fixture.kind}'"
             )
-        home = side_reference(fixture, side="home", match_index=match_index)
-        away = side_reference(fixture, side="away", match_index=match_index)
+        published_references = wildcard_references(fixture)
+        home = side_reference(
+            fixture,
+            side="home",
+            match_index=match_index,
+            published_reference=published_references.get("home"),
+        )
+        away = side_reference(
+            fixture,
+            side="away",
+            match_index=match_index,
+            published_reference=published_references.get("away"),
+        )
         if fixture.kind == "pool":
             stage = "Pool"
             pool_index = int(home["pool_index"])

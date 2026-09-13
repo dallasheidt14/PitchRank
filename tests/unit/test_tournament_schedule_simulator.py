@@ -247,6 +247,64 @@ def test_captured_graph_replays_cross_pool_games_and_actual_advancement_path():
     )
 
 
+def test_captured_graph_selects_wildcards_across_the_whole_division():
+    teams = [_team(index, 1.0 - index * 0.1, index) for index in range(1, 7)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Wildcard", team_count=6, pool_sizes=(3, 3))],
+        matchup_cost_fn=_cost,
+    )
+    fixtures = [
+        {
+            "stage": "Cross-pool",
+            "counts_for_standings": True,
+            "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": home_slot},
+            "away": {"kind": "pool_slot", "pool_index": 1, "slot_index": away_slot},
+        }
+        for home_slot in range(3)
+        for away_slot in range(3)
+    ]
+    fixtures.append(
+        {
+            "stage": "Final- Wildcard 1 v Wildcard 2",
+            "home": {"kind": "division_rank", "rank": 0},
+            "away": {"kind": "division_rank", "rank": 1},
+        }
+    )
+    template = captured_division_schedule_template(
+        division_name="Wildcard",
+        actual_division_name="U14 Wildcard",
+        pool_sizes=(3, 3),
+        fixture_slots=fixtures,
+        tiebreak_order=DEFAULT_TIEBREAK_ORDER,
+        tiebreak_source_urls=("https://example.test/tiebreak",),
+        scoring_policy=STANDARD_SCORING_POLICY,
+    )
+
+    def ranked_prediction(team_a, team_b):
+        stronger_a = team_a.power_score > team_b.power_score
+        margin = max(1, round(abs(team_a.power_score - team_b.power_score) * 10))
+        return SimpleNamespace(
+            predicted_winner="team_a" if stronger_a else "team_b",
+            expected_score={
+                "teamA": margin if stronger_a else 0,
+                "teamB": 0 if stronger_a else margin,
+            },
+        )
+
+    simulation = simulate_tournament_schedule(
+        result.divisions,
+        {"Wildcard": template},
+        ranked_prediction,
+    )
+
+    final = simulation.divisions[0].matches[-1]
+    assert {final.home_team_id, final.away_team_id} == {"team-1", "team-2"}
+    assert {"team-1", "team-2"}.issubset(
+        {team.team_id for team in result.divisions[0].pools[0].teams}
+    )
+
+
 def test_captured_graph_blocks_a_tied_qualifier_without_verified_tiebreaks():
     teams = [_team(index, 0.9, index) for index in range(1, 5)]
     result = optimize_tournament_format(
