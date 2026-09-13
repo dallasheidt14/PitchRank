@@ -1511,45 +1511,51 @@ def _render_event_rollup(
         ),
         delta_color="off",
     )
-    move_columns = st.columns(4)
-    move_columns[0].metric("Teams moved up", movements["moved_up"])
-    move_columns[1].metric("Teams moved down", movements["moved_down"])
-    move_columns[2].metric("Division unchanged", movements["unchanged"])
-    move_columns[3].metric(
-        "Pool changed within division",
-        movements.get("pool_changed_within_division", 0),
-    )
-    with st.expander("Review team placements"):
-        placement_filter = st.radio(
-            "Team placement rows",
-            ("Placement changes", "All teams"),
-            horizontal=True,
-            key=f"bt_event_placement_filter_{snapshot.generation}",
+    if comparison["comparison_ready"]:
+        move_columns = st.columns(4)
+        move_columns[0].metric("Teams moved up", movements["moved_up"])
+        move_columns[1].metric("Teams moved down", movements["moved_down"])
+        move_columns[2].metric("Division unchanged", movements["unchanged"])
+        move_columns[3].metric(
+            "Pool changed within division",
+            movements.get("pool_changed_within_division", 0),
         )
-        placement_rows = list(movements.get("rows") or ())
-        if placement_filter == "Placement changes":
-            placement_rows = [
-                row
-                for row in placement_rows
-                if str(row.get("move") or "stay") != "stay"
-                or str(row.get("actual_pool") or "")
-                != str(row.get("recommended_pool") or "")
-            ]
-        st.dataframe(
-            pd.DataFrame(
-                {
-                    "Team": row.get("event_team_name") or row.get("canonical_team_name") or "",
-                    "Cohort": f"{_display_gender(row.get('gender'))} {str(row.get('age_group') or '').upper()}",
-                    "Original division": row.get("actual_division") or "",
-                    "MatchBalance division": row.get("recommended_division") or "",
-                    "Original pool": row.get("actual_pool") or "",
-                    "MatchBalance pool": row.get("recommended_pool") or "",
-                    "Division decision": str(row.get("move") or "stay").replace("_", " ").title(),
-                }
-                for row in placement_rows
-            ),
-            hide_index=True,
-            width="stretch",
+        with st.expander("Review team placements"):
+            placement_filter = st.radio(
+                "Team placement rows",
+                ("Placement changes", "All teams"),
+                horizontal=True,
+                key=f"bt_event_placement_filter_{snapshot.generation}",
+            )
+            placement_rows = list(movements.get("rows") or ())
+            if placement_filter == "Placement changes":
+                placement_rows = [
+                    row
+                    for row in placement_rows
+                    if str(row.get("move") or "stay") != "stay"
+                    or str(row.get("actual_pool") or "")
+                    != str(row.get("recommended_pool") or "")
+                ]
+            st.dataframe(
+                pd.DataFrame(
+                    {
+                        "Team": row.get("event_team_name") or row.get("canonical_team_name") or "",
+                        "Cohort": f"{_display_gender(row.get('gender'))} {str(row.get('age_group') or '').upper()}",
+                        "Original division": row.get("actual_division") or "",
+                        "MatchBalance division": row.get("recommended_division") or "",
+                        "Original pool": row.get("actual_pool") or "",
+                        "MatchBalance pool": row.get("recommended_pool") or "",
+                        "Division decision": str(row.get("move") or "stay").replace("_", " ").title(),
+                    }
+                    for row in placement_rows
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+    else:
+        st.caption(
+            "Team placement recommendations remain hidden until every cohort finishes and the "
+            "event-wide model check passes."
         )
     st.download_button(
         "Download tournament-director report",

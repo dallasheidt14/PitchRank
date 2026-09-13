@@ -386,6 +386,23 @@ def _render_failed_rollup_app():
     )
 
 
+def _render_unvalidated_rollup_app():
+    from pathlib import Path
+
+    from src.tournaments.backtest_intake_ui import _render_event_rollup
+    from src.tournaments.backtest_reviewed_run import ReviewedCohortReadiness
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    _render_event_rollup(
+        sample_snapshot(),
+        [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
+        "gotsport__51783__2025",
+        Path("."),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+
 @pytest.fixture
 def rendered_intake(tmp_path, monkeypatch):
     import tournament_intake as app
@@ -506,7 +523,15 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
             "merge_map_version": merge_map_version,
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-        (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
+        summary = _summary()
+        summary["original_model_projection"]["average_goal_differential"] = 1.0
+        summary["original_model_projection"]["blowout_4plus_probability"] = 0.0
+        summary["original_schedule_projection"] = {
+            **summary["original_model_projection"],
+            "average_goal_differential": 1.0,
+            "blowout_4plus_probability": 0.0,
+        }
+        (run_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
         (run_path / "comparison.html").write_text("<html>report</html>", encoding="utf-8")
         (run_path / "done.json").write_text("{}", encoding="utf-8")
         return ReviewedRunOutcome("completed", run_path)
@@ -633,6 +658,83 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
     assert coverage["Status"].tolist() == ["Failed"]
     assert coverage["What remains"].tolist() == ["Historical rating lookup timed out"]
     assert any("No compatible cohort results exist yet" in item.value for item in test.info)
+
+
+def test_event_placements_stay_hidden_until_event_comparison_is_validated(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    rollup = {
+        "selected_runs": ["run-1"],
+        "coverage": {
+            "completed": 1,
+            "failed": 0,
+            "awaiting_matches": 0,
+            "awaiting_review": 0,
+            "awaiting_history": 0,
+            "ready": 1,
+            "rows": [
+                {
+                    "gender": "Male",
+                    "age_group": "u12",
+                    "team_count": 2,
+                    "status": "completed",
+                    "what_remains": "",
+                }
+            ],
+        },
+        "actual_vs_matchbalance": {
+            "scope_note": "Completed compatible cohorts",
+            "comparison_ready": False,
+            "actual_average_goal_margin": 2.0,
+            "matchbalance_projected_average_goal_margin": None,
+            "estimated_goal_margin_reduction": None,
+            "actual_blowout_4plus_rate": 0.25,
+            "matchbalance_projected_blowout_4plus_rate": None,
+            "estimated_blowout_4plus_rate_reduction": None,
+        },
+        "team_movements": {
+            "moved_up": 1,
+            "moved_down": 0,
+            "unchanged": 1,
+            "pool_changed_within_division": 1,
+            "rows": [
+                {
+                    "event_team_name": "Alpha",
+                    "gender": "Male",
+                    "age_group": "u12",
+                    "actual_division": "Silver",
+                    "recommended_division": "Gold",
+                    "actual_pool": "A",
+                    "recommended_pool": "B",
+                    "move": "up",
+                }
+            ],
+        },
+        "model_validation": {
+            "event_validation": {
+                "status": "failed",
+                "actual_scored_game_count": 1,
+                "fixture_count_coverage": 1.0,
+            }
+        },
+    }
+    monkeypatch.setattr(ui, "list_reviewed_runs", lambda *_args, **_kwargs: (object(),))
+    monkeypatch.setattr(ui, "list_failed_reviewed_runs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(ui, "build_event_rollup", lambda *_args, **_kwargs: rollup)
+    monkeypatch.setattr(ui, "event_rollup_export", lambda _rollup: b"report")
+
+    test = AppTest.from_function(_render_unvalidated_rollup_app, default_timeout=10).run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    metric_labels = {item.label for item in test.metric}
+    assert "Teams moved up" not in metric_labels
+    assert not any(
+        "MatchBalance division" in item.value.columns for item in test.dataframe
+    )
+    assert any(
+        "placement recommendations remain hidden" in item.value.lower()
+        for item in test.caption
+    )
 
 
 def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):

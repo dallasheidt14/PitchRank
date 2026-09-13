@@ -74,6 +74,24 @@ def test_backtest_projection_calibration_scales_margin_and_blowout_probabilities
     assert calibrated.expected_score == prediction.expected_score
 
 
+def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="team_a",
+        expected_score={"teamA": 3, "teamB": 1},
+        expected_margin=0.75,
+        win_probability_a=0.55,
+        draw_probability=0.25,
+        win_probability_b=0.20,
+        blowout_3plus_probability=0.10,
+        blowout_4plus_probability=0.05,
+        blowout_5plus_probability=0.02,
+    )
+
+    cost = cohort._point_in_time_matchup_cost(prediction)
+
+    assert cost.projected_margin == pytest.approx(0.75)
+
+
 @pytest.mark.parametrize(
     "calibration",
     (
@@ -775,7 +793,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
     assert prediction.predicted_winner == "team_a"
     assert prediction.expected_score == {"teamA": 2, "teamB": 1}
     assert prediction.source == "point_in_time:fake_point_in_time_match_model"
-    assert round(cost.projected_margin, 2) == 1.0
+    assert round(cost.projected_margin, 2) == 0.9
     assert round(cost.blowout_3plus_probability, 2) == 0.18
     assert round(cost.blowout_5plus_probability, 2) == 0.04
 

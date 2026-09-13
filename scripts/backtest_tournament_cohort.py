@@ -871,10 +871,11 @@ def _validate_optional_probability(value: float | None, *, name: str) -> float |
 
 
 def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> MatchupCost:
-    projected_margin = max(
-        abs(float(prediction.expected_margin)),
-        abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
-    )
+    # ``expected_margin`` is the continuous, holdout-calibrated value that is
+    # also reported to the operator.  The integer score is presentation-only;
+    # using it as a floor here would optimize a different objective from the
+    # one shown in the Backtest result.
+    projected_margin = abs(float(prediction.expected_margin))
     win_probability_a = _validate_optional_probability(
         prediction.win_probability_a, name="win_probability_a"
     ) or 0.0
