@@ -224,9 +224,10 @@ Four things follow, and three of them correct earlier guidance:
    confirmation.** Reject above ~0.20.
 4. **The identical-name tier is clean. Containment is not one tier — classify it by the delta.**
    Replaying the detector over all history: of 1,082 identical-name candidates, **0** had ever
-   played each other (≈4.7 expected by base rate). Of 2,444 containment candidates, **10** had —
-   exactly the base rate. But that average hides two opposite populations, and the tier is only
-   worthless when you refuse to split it. See the delta classes below before parking it again.
+   played each other (≈4.7 expected by base rate). Containment, measured on the same criteria,
+   gives **2,678 pairs with 13** — against ≈11.5 expected, i.e. the base rate. But that average
+   hides classes running four times cleaner and six times worse, and the tier is only worthless
+   when you refuse to split it. See the delta classes below before parking it again.
 
 One caution on "zero shared dates": it describes true duplicates well, but on a pair whose thin
 side holds 2–5 games it is satisfied by chance and proves little. Only 5 of 187 identical-name
@@ -235,23 +236,39 @@ candidates had 10+ games on *both* sides.
 ### Containment: classify by the delta, never apply the tier whole
 
 When one normalised name contains the other, the **delta** — what the longer name has that the
-shorter does not — decides whether the pair is one squad or two. Measured 2026-09-13 by replaying
-every historical containment pair and asking how each was actually resolved:
+shorter does not — decides whether the pair is one squad or two.
 
-| Delta | Pairs | Merged by owner | Played each other | Use |
-|---|---|---|---|---|
-| **Club prefix** — the delta is a substring of the club name, ≥4 chars | 980 | 64 | **0** | **Safe.** As clean as the identical-name tier |
-| Gender token (`g`, `b`, `girls`, `boys`) | 85 | 7 | 0 | Allow, with the gender screen below |
-| **`rl`** — ECNL vs ECNL-RL | 29 | **0** | 0 | **Hard reject.** Never merged by hand, ever |
-| Colour | 216 | 3 | 4 | **Reject** — worse than a coin flip |
-| Roman numeral | 79 | 1 | 2 | **Reject** — `Elite I` nests inside `Elite II` |
-| Bare number | 35 | 1 | 1 | **Reject** — tier numbers (`RCL 1` / `RCL 2`) |
-| Residual | 1,707 | 59 | **11** | Review-required; holds every negative |
+**The classes overlap, so they must be evaluated in a fixed order.** A delta of `red` is both a
+colour and, for a club called *Redlands*, a club-name substring; `ii` is both a Roman numeral and
+a bare token. Classify with the first rule that matches, top to bottom, and the counts below are
+mutually exclusive. Score them in any other order and the totals stop reconciling.
 
-The club-prefix class is simply one provider writing the club name into the team name
-("Seattle United G16 Copa") while the other does not ("G16 Copa"). It carries **zero** known-
-distinct pairs in 980 historical examples. 139 were applied on 2026-09-13 after a 12-pair random
-review returned 12 for 12.
+Population: every pair of `teams` rows (live **and** deprecated, `modular11` excluded) sharing
+normalised club + `age_group` + `gender` + `state_code`, on different providers, whose normalised
+names differ, are each ≥8 characters, and where one contains the other. Measured 2026-09-13.
+
+| # | Delta class | Pairs | Owner-merged | Played each other | Rate vs 0.43% base | Use |
+|---|---|---|---|---|---|---|
+| 1 | **`rl`** — ECNL vs ECNL-RL | 29 | **0** | 0 | — | **Hard reject** |
+| 2 | Roman numeral | 78 | 1 | 2 | 2.6% — 6× worse | **Reject** |
+| 3 | Bare number | 39 | 1 | 1 | 2.6% — 6× worse | **Reject** |
+| 4 | Colour | 211 | 2 | 4 | 1.9% — 4× worse | **Reject** |
+| 5 | Gender token (`g`, `b`, `girls`, `boys`) | 89 | 8 | 0 | 0% | Allow + gender screen |
+| 6 | **Club prefix** — delta is a ≥4-char substring of the club name | 884 | 53 | 1 | 0.11% — 4× cleaner | **Safest class** |
+| 7 | Residual | 1,348 | 51 | 5 | 0.37% — at base | Review-required |
+| | **Total** | **2,678** | **116** | **13** | ≈11.5 expected | |
+
+The club-prefix class is one provider writing the club name into the team name
+("Seattle United G16 Copa") while the other does not ("G16 Copa"). It is the only class
+materially *below* base rate, at 53 owner merges against a single known-distinct pair. That pair
+is excluded by the head-to-head screen, which is why the screen stays mandatory rather than
+becoming a formality: 139 club-prefix pairs were applied on 2026-09-13 after a 12-pair random
+adversarial review returned 12 for 12, and none of them had played each other.
+
+**The negatives are not concentrated in one class.** Residual holds 5 of the 13; the three
+rejected classes hold 7 between them; club prefix holds 1. Rejecting classes 1–4 removes 7
+negatives for 357 pairs — which is what lifts the remainder below base rate, and is the whole
+reason the tier's aggregate reads as chance.
 
 The `rl` delta deserves its own line because it is a documented never-merge boundary — ECNL and
 ECNL-RL are different competitions — and the history agrees: not one of those 29 pairs has ever
