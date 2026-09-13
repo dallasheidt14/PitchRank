@@ -381,6 +381,79 @@ def test_captured_graph_replays_cross_pool_games_and_actual_advancement_path():
     )
 
 
+def test_captured_graph_skips_fixture_that_was_not_played():
+    teams = [_team(index, 0.95 - index * 0.1, index) for index in range(1, 5)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=4, pool_sizes=(4,))],
+        matchup_cost_fn=_cost,
+    )
+    template = captured_division_schedule_template(
+        division_name="Gold",
+        actual_division_name="U14 Gold",
+        pool_sizes=(4,),
+        fixture_slots=(
+            {
+                "stage": "Pool",
+                "include_in_projection": False,
+                "counts_for_standings": False,
+                "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+                "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+            },
+            {
+                "stage": "Pool",
+                "include_in_projection": True,
+                "counts_for_standings": True,
+                "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 2},
+                "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 3},
+            },
+        ),
+        tiebreak_order=DEFAULT_TIEBREAK_ORDER,
+        scoring_policy=STANDARD_SCORING_POLICY,
+    )
+
+    simulation = simulate_tournament_schedule(
+        result.divisions,
+        {"Gold": template},
+        _prediction,
+    )
+
+    assert template.actual_game_count == 1
+    assert simulation.match_count == 1
+    played_ids = {
+        simulation.divisions[0].matches[0].home_team_id,
+        simulation.divisions[0].matches[0].away_team_id,
+    }
+    expected_ids = {
+        result.divisions[0].pools[0].teams[2].team_id,
+        result.divisions[0].pools[0].teams[3].team_id,
+    }
+    assert played_ids == expected_ids
+
+
+def test_captured_graph_rejects_advancement_from_a_fixture_that_was_not_played():
+    with pytest.raises(ValueError, match="references a match that was not played"):
+        captured_division_schedule_template(
+            division_name="Gold",
+            actual_division_name="U14 Gold",
+            pool_sizes=(4,),
+            fixture_slots=(
+                {
+                    "stage": "Semi-Final",
+                    "include_in_projection": False,
+                    "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+                    "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+                },
+                {
+                    "stage": "Final",
+                    "home": {"kind": "match_winner", "match_index": 0},
+                    "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 2},
+                },
+            ),
+            scoring_policy=STANDARD_SCORING_POLICY,
+        )
+
+
 def test_captured_graph_selects_wildcards_across_the_whole_division():
     teams = [_team(index, 1.0 - index * 0.1, index) for index in range(1, 7)]
     result = optimize_tournament_format(

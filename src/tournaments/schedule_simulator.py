@@ -140,6 +140,14 @@ def captured_division_schedule_template(
                 raise ValueError(
                     f"Division '{division_name}' fixture slot {index + 1} has a forward match reference"
                 )
+            if (
+                ref["kind"] in {"match_winner", "match_loser"}
+                and slots[int(ref["match_index"])].get("include_in_projection", True) is False
+            ):
+                raise ValueError(
+                    f"Division '{division_name}' fixture slot {index + 1} references a match "
+                    "that was not played"
+                )
             if ref["kind"] == "division_rank" and not (
                 0 <= int(ref["rank"]) < sum(normalized_pool_sizes)
             ):
@@ -163,7 +171,9 @@ def captured_division_schedule_template(
         pool_sizes=normalized_pool_sizes,
         pool_play_format="captured_fixture_graph",
         playoff_format="captured_fixture_graph",
-        actual_game_count=len(slots),
+        actual_game_count=sum(
+            slot.get("include_in_projection", True) is not False for slot in slots
+        ),
         inference_notes=(),
         fixture_slots=slots,
         tiebreak_order=normalized_tiebreak,
@@ -851,6 +861,8 @@ def _simulate_captured_division_schedule(
         return loser
 
     for match_index, slot in enumerate(template.fixture_slots):
+        if slot.get("include_in_projection", True) is False:
+            continue
         home_team = resolve(dict(slot["home"]))
         away_team = resolve(dict(slot["away"]))
         if home_team.team_id == away_team.team_id:

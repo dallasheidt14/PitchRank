@@ -313,6 +313,9 @@ def test_build_request_keeps_excluded_fixture_for_format_but_not_results():
     request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
 
     assert request["divisions"][0]["captured_fixture_count"] == 1
+    slot = request["divisions"][0]["captured_schedule"]["fixture_slots"][0]
+    assert slot["include_in_projection"] is False
+    assert slot["counts_for_standings"] is False
     assert request["actual_games_override"] == []
 
 

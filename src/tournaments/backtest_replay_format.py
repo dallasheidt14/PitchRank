@@ -19,6 +19,22 @@ _CROSS_POOL_QUALIFICATION = re.compile(
 )
 
 
+def _include_fixture_in_projection(fixture: Any) -> bool:
+    """Replay only fixtures that the capture proves were played.
+
+    Legacy fixtures did not retain result status, so ``not_captured`` remains
+    replayable only when both captured scores exist. New captures must contain
+    both scores and an explicit ``played`` status.
+    """
+
+    status = str(getattr(fixture, "result_status", "not_captured") or "not_captured").strip().casefold()
+    has_scores = (
+        getattr(fixture, "home_score", None) is not None
+        and getattr(fixture, "away_score", None) is not None
+    )
+    return has_scores and status in {"played", "not_captured"}
+
+
 @dataclass(frozen=True)
 class ReplayFormatAssessment:
     format_code: str = ""
@@ -91,11 +107,11 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
     for key in ambiguous_names:
         participant_slots.pop(key, None)
 
-    match_number_to_index = {
-        str(fixture.match_number): index
-        for index, fixture in enumerate(ordered)
-        if str(fixture.match_number or "").strip()
-    }
+    match_number_indices: dict[str, list[int]] = {}
+    for index, fixture in enumerate(ordered):
+        number = str(fixture.match_number or "").strip()
+        if number:
+            match_number_indices.setdefault(number, []).append(index)
     division_wide_qualification = any(
         _CROSS_POOL_QUALIFICATION.search(str(pool.label or ""))
         for pool in division.pools
@@ -147,8 +163,20 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
         if fixture.kind == "bracket":
             label_reference = _MATCH_REFERENCE.search(label)
             if label_reference:
-                referenced = match_number_to_index.get(label_reference.group(2))
+                published_number = label_reference.group(2)
+                referenced_indices = match_number_indices.get(published_number, [])
+                if len(referenced_indices) > 1:
+                    raise ValueError(
+                        f"Fixture {fixture.match_number or fixture.source_url} {side} side "
+                        f"'{label}' references ambiguous published match number {published_number}"
+                    )
+                referenced = referenced_indices[0] if referenced_indices else None
                 if referenced is not None and referenced < match_index:
+                    if not _include_fixture_in_projection(ordered[referenced]):
+                        raise ValueError(
+                            f"Fixture {fixture.match_number or fixture.source_url} {side} side "
+                            f"'{label}' references published match {published_number}, which was not played"
+                        )
                     return {
                         "kind": "match_winner" if label_reference.group(1).casefold() == "winner" else "match_loser",
                         "match_index": referenced,
@@ -162,7 +190,7 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
             if registration:
                 for prior_index in range(match_index - 1, -1, -1):
                     prior = ordered[prior_index]
-                    if prior.kind != "bracket":
+                    if prior.kind != "bracket" or not _include_fixture_in_projection(prior):
                         continue
                     if registration == str(prior.winner_registration_id or ""):
                         return {
@@ -233,17 +261,23 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
         else:
             stage = str(fixture.bracket_label or "Bracket")
             pool_name = ""
-        slots.append(
-            {
-                "match_number": str(fixture.match_number or ""),
-                "stage": stage,
-                "pool_name": pool_name,
-                "counts_for_standings": fixture.kind in {"pool", "cross_pool"},
-                "home": home,
-                "away": away,
-                "source_url": str(fixture.source_url or division.source_url or ""),
-            }
-        )
+        include_in_projection = _include_fixture_in_projection(fixture)
+        slot = {
+            "match_number": str(fixture.match_number or ""),
+            "stage": stage,
+            "pool_name": pool_name,
+            "counts_for_standings": (
+                include_in_projection and fixture.kind in {"pool", "cross_pool"}
+            ),
+            "home": home,
+            "away": away,
+            "source_url": str(fixture.source_url or division.source_url or ""),
+        }
+        # Omit the true value so requests made from fully played captures remain
+        # byte-compatible with runs created before this optional field existed.
+        if not include_in_projection:
+            slot["include_in_projection"] = False
+        slots.append(slot)
     return tuple(slots)
 
 

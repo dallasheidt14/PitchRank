@@ -19,7 +19,18 @@ FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "gotsport"
 
 def _division(*, fixture_kind: str = "pool", fixture_count: int = 1) -> ScrapedDivision:
     fixtures = tuple(
-        Fixture(str(index + 1), "", fixture_kind, "reg-a", "reg-b", None, None, "", "")
+        Fixture(
+            str(index + 1),
+            "",
+            fixture_kind,
+            "reg-a",
+            "reg-b",
+            2,
+            1,
+            "",
+            "",
+            result_status="played",
+        )
         for index in range(fixture_count)
     )
     return ScrapedDivision(
@@ -174,6 +185,60 @@ def test_bracket_slot_cannot_reference_a_later_published_match():
 
     assert assessment.ready is False
     assert "references a missing or later published match" in assessment.reason
+
+
+def test_bracket_slot_cannot_reference_an_ambiguous_published_match_number():
+    division = _division(fixture_kind="bracket", fixture_count=3)
+    division = replace(
+        division,
+        fixtures=(
+            replace(division.fixtures[0], match_number="5"),
+            replace(division.fixtures[1], match_number="5"),
+            replace(
+                division.fixtures[2],
+                match_number="6",
+                home_label="Winner Match #5",
+            ),
+        ),
+    )
+
+    assessment = assess_replay_format(division)
+
+    assert assessment.ready is False
+    assert "references ambiguous published match number 5" in assessment.reason
+
+
+def test_unplayed_fixture_is_preserved_but_excluded_from_projection_and_standings():
+    division = _division()
+    division = replace(
+        division,
+        fixtures=(replace(division.fixtures[0], result_status="unplayed"),),
+    )
+
+    slots = build_captured_fixture_slots(division)
+
+    assert slots[0]["include_in_projection"] is False
+    assert slots[0]["counts_for_standings"] is False
+
+
+def test_scoreless_played_fixture_is_excluded_from_projection_and_standings():
+    division = _division()
+    division = replace(
+        division,
+        fixtures=(
+            replace(
+                division.fixtures[0],
+                home_score=None,
+                away_score=None,
+                result_status="played",
+            ),
+        ),
+    )
+
+    slots = build_captured_fixture_slots(division)
+
+    assert slots[0]["include_in_projection"] is False
+    assert slots[0]["counts_for_standings"] is False
 
 
 def test_team_name_ending_in_a_year_is_not_a_match_reference():
