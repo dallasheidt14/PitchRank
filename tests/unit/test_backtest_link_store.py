@@ -17,6 +17,7 @@ from src.tournaments.backtest_link_store import (
     EventLinksError,
     TeamLink,
     build_links,
+    canonicalize_event_links,
     event_links_path,
     generations_agree,
     link_decision_state,
@@ -78,6 +79,24 @@ def test_save_then_load_round_trips_every_field(tmp_path):
     assert back.event_id == "51783"
     assert back.links == _links().links
     assert back.saved_at != ""
+
+
+def test_canonicalization_invalidates_collision_acknowledgement_after_merge_membership_changes():
+    acknowledgement = CollisionAcknowledgement(
+        "aaaa-1111",
+        ("4411807", "extra-registration"),
+        "Same squad entered twice",
+        "2026-09-11T00:02:00+00:00",
+    )
+    links = replace(_links(), collision_acknowledgements=(acknowledgement,))
+
+    canonical = canonicalize_event_links(
+        links,
+        lambda team_id: "survivor" if team_id in {"aaaa-1111", "bbbb-2222"} else team_id,
+    )
+
+    assert {link.team_id_master for link in canonical.links} == {"survivor"}
+    assert canonical.collision_acknowledgements == ()
 
 
 def test_links_land_beside_the_other_intake_artifacts(tmp_path):
