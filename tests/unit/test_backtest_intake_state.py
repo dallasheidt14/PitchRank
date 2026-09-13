@@ -11,7 +11,9 @@ from src.tournaments.backtest_intake_state import (
     CaptureVerification,
     CohortDecision,
     DivisionReview,
+    EventTiebreakDecision,
     IntakeOverwriteRefused,
+    ReviewConflict,
     effective_roster,
     entrant_key,
     read_snapshot,
@@ -83,6 +85,77 @@ def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):
     effective = effective_roster(loaded)
     assert effective.divisions[0].published_age_group == "u12/u13"
     assert effective.teams[0].published_age_group == "u12/u13"
+
+
+def test_sourced_event_tiebreak_decision_round_trip_and_legacy_default(tmp_path):
+    decision = EventTiebreakDecision(
+        ("points", "wins", "goal_differential"),
+        "Confirmed on the published event page",
+        "https://example.test/tiebreaks",
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=decision)
+
+    write_snapshot("gotsport__51783__2025", snapshot, base_dir=tmp_path)
+    assert read_snapshot(
+        "gotsport__51783__2025", base_dir=tmp_path
+    ).tiebreak_decision == decision
+
+    legacy = snapshot.to_dict()
+    legacy.pop("event_tiebreak_decision")
+    assert BacktestSnapshot.from_dict(legacy).tiebreak_decision is None
+
+
+def test_stale_event_tiebreak_edit_cannot_overwrite_another_session(tmp_path):
+    key = "gotsport__51783__2025"
+    baseline = sample_snapshot()
+    first = EventTiebreakDecision(
+        ("points", "goal_differential"),
+        "First verified source",
+        "https://example.test/first",
+    )
+    stale = EventTiebreakDecision(
+        ("points", "wins"),
+        "Stale session source",
+        "https://example.test/stale",
+    )
+    write_snapshot(key, baseline, base_dir=tmp_path)
+    write_snapshot(
+        key,
+        replace(baseline, tiebreak_decision=first),
+        base_dir=tmp_path,
+        tiebreak_baseline=None,
+    )
+
+    with pytest.raises(ReviewConflict, match="tiebreak rules changed"):
+        write_snapshot(
+            key,
+            replace(baseline, tiebreak_decision=stale),
+            base_dir=tmp_path,
+            tiebreak_baseline=None,
+        )
+
+    assert read_snapshot(key, base_dir=tmp_path).tiebreak_decision == first
+
+
+def test_event_tiebreak_decision_rejects_unsupported_or_unsourced_rules():
+    with pytest.raises(ValueError, match="supported criteria"):
+        replace(
+            sample_snapshot(),
+            tiebreak_decision=EventTiebreakDecision(
+                ("points", "head_to_head"),
+                "Published source",
+                "https://example.test/tiebreaks",
+            ),
+        )
+    with pytest.raises(ValueError, match="note and source URL"):
+        replace(
+            sample_snapshot(),
+            tiebreak_decision=EventTiebreakDecision(
+                ("points", "wins"),
+                "",
+                "https://example.test/tiebreaks",
+            ),
+        )
 
 
 def test_concurrent_cohort_decisions_for_different_divisions_are_merged(tmp_path):

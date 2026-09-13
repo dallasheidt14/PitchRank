@@ -3,7 +3,12 @@ from dataclasses import replace
 import pytest
 
 from scripts.backtest_reviewed_intake import _embedded_links
-from src.tournaments.backtest_intake_state import BacktestSnapshot, DivisionReview, structure_hash
+from src.tournaments.backtest_intake_state import (
+    BacktestSnapshot,
+    DivisionReview,
+    EventTiebreakDecision,
+    structure_hash,
+)
 from src.tournaments.backtest_link_store import CollisionAcknowledgement, EventLinks, TeamLink
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
@@ -71,7 +76,18 @@ def _snapshot() -> BacktestSnapshot:
         checked=True,
         format_code="ROUND_ROBIN",
     )
-    return BacktestSnapshot(roster, resolved, "generation-1", "2026-09-11T00:00:00+00:00", reviews=(review,))
+    return BacktestSnapshot(
+        roster,
+        resolved,
+        "generation-1",
+        "2026-09-11T00:00:00+00:00",
+        reviews=(review,),
+        tiebreak_decision=EventTiebreakDecision(
+            ("points", "goal_differential", "goals_for", "wins"),
+            "Verified in the published event rules",
+            "https://example.test/tiebreaks",
+        ),
+    )
 
 
 def _links(*, second_team_id: str = "canonical-b", second_method: str = "gotsport_id") -> EventLinks:
@@ -101,11 +117,27 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert division["captured_fixture_count"] == 1
     assert len(division["captured_schedule"]["fixture_slots"]) == 1
     assert division["captured_schedule"]["fixture_slots"][0]["home"]["kind"] == "pool_slot"
-    assert division["captured_schedule"]["tiebreak_order"] == []
+    assert division["captured_schedule"]["tiebreak_order"] == [
+        "points",
+        "goal_differential",
+        "goals_for",
+        "wins",
+    ]
+    assert division["captured_schedule"]["tiebreak_source_urls"][0] == (
+        "https://example.test/tiebreaks"
+    )
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
     assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
+
+
+def test_build_request_requires_a_sourced_event_tiebreak_decision():
+    with pytest.raises(BacktestRequestError, match="published tiebreak order"):
+        build_cohort_backtest_requests(
+            replace(_snapshot(), tiebreak_decision=None),
+            event_links=_links(),
+        )
 
 
 def test_build_request_can_select_one_reviewed_cohort():

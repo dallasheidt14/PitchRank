@@ -35,6 +35,28 @@ DEFAULT_TIEBREAK_ORDER = (
 SUPPORTED_TIEBREAK_FIELDS = frozenset(DEFAULT_TIEBREAK_ORDER)
 
 
+def normalize_tiebreak_order(
+    tiebreak_order: Sequence[str],
+    *,
+    allow_empty: bool = True,
+) -> tuple[str, ...]:
+    """Validate the explicit tournament rule order used for pool standings."""
+
+    normalized = tuple(str(item).strip() for item in tiebreak_order)
+    if not normalized and allow_empty:
+        return ()
+    if (
+        not normalized
+        or normalized[0] != "points"
+        or len(set(normalized)) != len(normalized)
+        or not set(normalized).issubset(SUPPORTED_TIEBREAK_FIELDS)
+    ):
+        raise ValueError(
+            "A verified tiebreak order must contain unique supported criteria beginning with points"
+        )
+    return normalized
+
+
 @dataclass(frozen=True)
 class DivisionScheduleTemplate:
     division_name: str
@@ -92,15 +114,12 @@ def captured_division_schedule_template(
                 raise ValueError(
                     f"Division '{division_name}' fixture slot {index + 1} has a forward match reference"
                 )
-    normalized_tiebreak = tuple(str(item) for item in tiebreak_order)
-    if normalized_tiebreak and (
-        normalized_tiebreak[0] != "points"
-        or len(set(normalized_tiebreak)) != len(normalized_tiebreak)
-        or not set(normalized_tiebreak).issubset(SUPPORTED_TIEBREAK_FIELDS)
-    ):
+    try:
+        normalized_tiebreak = normalize_tiebreak_order(tiebreak_order)
+    except ValueError as error:
         raise ValueError(
             f"Division '{division_name}' needs a unique supported tiebreak order beginning with points"
-        )
+        ) from error
     return DivisionScheduleTemplate(
         division_name=division_name,
         actual_division_name=actual_division_name,

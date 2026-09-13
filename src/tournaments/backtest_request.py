@@ -81,6 +81,11 @@ def build_cohort_backtest_requests(
         ) from error
     if event_links is None or event_links.event_id != roster.event_id:
         raise BacktestRequestError("The reviewed event needs its matching EventLinks decision record")
+    if snapshot.tiebreak_decision is None:
+        raise BacktestRequestError(
+            "Verify the tournament's published tiebreak order before running a Backtest"
+        )
+    tiebreak_decision = snapshot.tiebreak_decision
 
     def canonicalize(team_id: str) -> str:
         if resolve_team_id is None:
@@ -164,14 +169,17 @@ def build_cohort_backtest_requests(
             if not pool_sizes or any(size <= 0 for size in pool_sizes):
                 raise BacktestRequestError(f"Division '{division.division_label}' has no readable pool membership")
             fixture_slots = build_captured_fixture_slots(division, division_fixtures)
-            tiebreak_source_urls = tuple(link.url for link in division.rules_links if link.url)
+            tiebreak_source_urls = tuple(dict.fromkeys(
+                (tiebreak_decision.source_url,)
+                + tuple(link.url for link in division.rules_links if link.url)
+            ))
             try:
                 template = captured_division_schedule_template(
                     division_name=division.group_id,
                     actual_division_name=division.division_label,
                     pool_sizes=pool_sizes,
                     fixture_slots=fixture_slots,
-                    tiebreak_order=(),
+                    tiebreak_order=tiebreak_decision.order,
                     tiebreak_source_urls=tiebreak_source_urls,
                 )
             except ValueError as error:

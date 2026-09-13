@@ -15,6 +15,7 @@ from src.tournaments.backtest_intake_state import (
     CaptureVerification,
     CohortDecision,
     DivisionReview,
+    EventTiebreakDecision,
     read_snapshot,
     structure_hash,
 )
@@ -192,11 +193,21 @@ def test_an_invalid_cohort_draft_keeps_the_last_saved_correction(monkeypatch):
     assert ui._current_cohort_decisions(snapshot) == (decision,)
 
 
-def test_targeted_capture_carries_reviews_and_cohort_decisions():
+def test_targeted_capture_carries_reviews_cohorts_and_tiebreak_rules():
     original = sample_snapshot()
     review = DivisionReview("10", structure_hash(original.roster.divisions[0]), "Checked", True)
     decision = CohortDecision("10", "u12", "Male", "Published source", "https://example.test")
-    original = replace(original, reviews=(review,), cohort_decisions=(decision,))
+    tiebreak = EventTiebreakDecision(
+        ("points", "goal_differential"),
+        "Published source",
+        "https://example.test/tiebreaks",
+    )
+    original = replace(
+        original,
+        reviews=(review,),
+        cohort_decisions=(decision,),
+        tiebreak_decision=tiebreak,
+    )
     current = replace(sample_snapshot(generation="targeted"), reviews=(), cohort_decisions=())
     verification = CaptureVerification(("10", "20"), (2, 2), "now", True)
 
@@ -204,6 +215,7 @@ def test_targeted_capture_carries_reviews_and_cohort_decisions():
 
     assert carried.reviews == (review,)
     assert carried.cohort_decisions == (decision,)
+    assert carried.tiebreak_decision == tiebreak
     assert carried.verification == verification
 
 
@@ -722,6 +734,34 @@ def test_optional_cohort_correction_survives_explicit_save(rendered_intake):
     decision = next(item for item in saved.cohort_decisions if item.group_id == "10")
     assert decision.age_group == "u13"
     assert decision.note == "Published bracket is U13"
+
+
+def test_event_tiebreak_draft_survives_navigation_and_explicit_save(rendered_intake):
+    test, tmp_path = rendered_intake
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.selectbox(key="bt_tiebreak_mode_capture-one").set_value(
+        "Points → goal differential → goals scored → wins"
+    ).run()
+    test.text_input(key="bt_tiebreak_note_capture-one").set_value(
+        "Confirmed on the published event page"
+    ).run()
+    test.text_input(key="bt_tiebreak_source_capture-one").set_value(
+        "https://example.test/tiebreaks"
+    ).run()
+
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
+    test.radio(key="bt_section_capture-one").set_value("Overview").run()
+    test.button(key="bt_save_capture-one").click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    decision = read_snapshot(
+        "gotsport__51783__unknown", base_dir=tmp_path
+    ).tiebreak_decision
+    assert decision == EventTiebreakDecision(
+        ("points", "goal_differential", "goals_for", "wins"),
+        "Confirmed on the published event page",
+        "https://example.test/tiebreaks",
+    )
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):

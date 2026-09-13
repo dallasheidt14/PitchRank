@@ -23,6 +23,7 @@ from src.tournaments.backtest_intake_state import (
     CaptureVerification,
     CohortDecision,
     DivisionReview,
+    EventTiebreakDecision,
     assert_capture_preserved,
     effective_roster,
     entrant_key,
@@ -62,12 +63,78 @@ from src.tournaments.backtest_reviewed_run import (
 from src.tournaments.backtest_scope import backtest_scope_snapshot
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
+from src.tournaments.schedule_simulator import DEFAULT_TIEBREAK_ORDER, normalize_tiebreak_order
 from src.tournaments.storage._io import utc_now_iso
 from src.tournaments.storage.event_key import existing_event_key
 
 
 def _set_session_value(key: str, value: Any) -> None:
     st.session_state[key] = value
+
+
+_TIEBREAK_NOT_VERIFIED = "Not verified"
+_TIEBREAK_COMMON = "Points → goal differential → goals scored → wins"
+_TIEBREAK_CUSTOM = "Custom supported order"
+_TIEBREAK_ALIASES = {
+    "points": "points",
+    "goal differential": "goal_differential",
+    "goal difference": "goal_differential",
+    "goal diff": "goal_differential",
+    "goal_differential": "goal_differential",
+    "goals scored": "goals_for",
+    "goals for": "goals_for",
+    "goals_for": "goals_for",
+    "wins": "wins",
+}
+
+
+def _format_tiebreak_order(order: tuple[str, ...]) -> str:
+    labels = {
+        "points": "points",
+        "goal_differential": "goal differential",
+        "goals_for": "goals scored",
+        "wins": "wins",
+    }
+    return ", ".join(labels.get(item, item) for item in order)
+
+
+def _parse_tiebreak_order(value: str) -> tuple[str, ...]:
+    normalized = value.casefold().replace("→", ",").replace(">", ",")
+    tokens = [token.strip() for token in re.split(r"[,;\n]+", normalized) if token.strip()]
+    unknown = [token for token in tokens if token not in _TIEBREAK_ALIASES]
+    if unknown:
+        raise ValueError(f"Unsupported criterion: {unknown[0]}")
+    return tuple(_TIEBREAK_ALIASES[token] for token in tokens)
+
+
+def _first_tiebreak_source(snapshot: BacktestSnapshot) -> str:
+    return next(
+        (
+            link.url
+            for division in snapshot.roster.divisions
+            for link in division.rules_links
+            if link.url
+        ),
+        "",
+    )
+
+
+def _decision_to_tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
+    decision = snapshot.tiebreak_decision
+    if decision is None:
+        return {
+            "mode": _TIEBREAK_NOT_VERIFIED,
+            "custom_order": _format_tiebreak_order(DEFAULT_TIEBREAK_ORDER),
+            "note": "",
+            "source_url": _first_tiebreak_source(snapshot),
+        }
+    mode = _TIEBREAK_COMMON if decision.order == DEFAULT_TIEBREAK_ORDER else _TIEBREAK_CUSTOM
+    return {
+        "mode": mode,
+        "custom_order": _format_tiebreak_order(decision.order),
+        "note": decision.note,
+        "source_url": decision.source_url,
+    }
 
 
 def _pool_labels(team: Any, division: Any) -> list[str]:
@@ -279,6 +346,9 @@ def _load_saved(base_dir) -> None:
             st.session_state[f"bt_cohort_drafts_{snapshot.generation}"] = {
                 decision.group_id: asdict(decision) for decision in snapshot.cohort_decisions
             }
+            st.session_state[f"bt_tiebreak_draft_{snapshot.generation}"] = (
+                _decision_to_tiebreak_draft(snapshot)
+            )
             # Fresh widget identities discard a stale session's rejected edits.
             epoch_key = f"bt_review_epoch_{snapshot.generation}"
             st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
@@ -292,7 +362,11 @@ def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSn
     loaded_key = f"bt_reviews_loaded_{snapshot.generation}"
     if st.session_state.get(loaded_key):
         return snapshot
-    if not snapshot.reviews or not snapshot.cohort_decisions:
+    if (
+        not snapshot.reviews
+        or not snapshot.cohort_decisions
+        or snapshot.tiebreak_decision is None
+    ):
         key = existing_event_key("gotsport", snapshot.roster.event_id, base_dir=base_dir)
         try:
             saved = read_snapshot(key, base_dir=base_dir)
@@ -311,6 +385,9 @@ def _restore_review_baseline(snapshot: BacktestSnapshot, base_dir) -> BacktestSn
                         decision for decision in saved.cohort_decisions
                         if decision.group_id in valid_groups
                     )
+                ),
+                tiebreak_decision=(
+                    snapshot.tiebreak_decision or saved.tiebreak_decision
                 ),
             )
             st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
@@ -638,6 +715,118 @@ def _current_cohort_decisions(snapshot: BacktestSnapshot) -> tuple[CohortDecisio
     return tuple(decisions)
 
 
+def _tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
+    key = f"bt_tiebreak_draft_{snapshot.generation}"
+    if key not in st.session_state:
+        st.session_state[key] = _decision_to_tiebreak_draft(snapshot)
+    return st.session_state[key]
+
+
+def _save_tiebreak_field(draft_key: str, field: str, widget_key: str) -> None:
+    draft = dict(st.session_state[draft_key])
+    draft[field] = st.session_state[widget_key]
+    st.session_state[draft_key] = draft
+
+
+def _current_tiebreak_decision(
+    snapshot: BacktestSnapshot,
+) -> tuple[EventTiebreakDecision | None, str]:
+    draft = _tiebreak_draft(snapshot)
+    mode = str(draft.get("mode") or _TIEBREAK_NOT_VERIFIED)
+    if mode == _TIEBREAK_NOT_VERIFIED:
+        return None, ""
+    note = str(draft.get("note") or "").strip()
+    source_url = str(draft.get("source_url") or "").strip()
+    if not note or not source_url:
+        return (
+            snapshot.tiebreak_decision,
+            "A verified tiebreak rule needs a verification note and source URL",
+        )
+    try:
+        order = (
+            DEFAULT_TIEBREAK_ORDER
+            if mode == _TIEBREAK_COMMON
+            else _parse_tiebreak_order(str(draft.get("custom_order") or ""))
+        )
+        decision = EventTiebreakDecision(
+            order=normalize_tiebreak_order(order, allow_empty=False),
+            note=note,
+            source_url=source_url,
+        )
+    except ValueError as exc:
+        return snapshot.tiebreak_decision, str(exc)
+    return decision, ""
+
+
+def _render_tiebreak_editor(snapshot: BacktestSnapshot) -> None:
+    draft_key = f"bt_tiebreak_draft_{snapshot.generation}"
+    draft = _tiebreak_draft(snapshot)
+    epoch = st.session_state.get(f"bt_review_epoch_{snapshot.generation}", 0)
+    suffix = f"_{epoch}" if epoch else ""
+    with st.expander("Tournament tiebreak rule"):
+        st.caption(
+            "Verify this once for the event. MatchBalance uses the same published rule order "
+            "when simulated pool standings decide who advances."
+        )
+        source = _first_tiebreak_source(snapshot)
+        if source:
+            st.link_button("Open a captured tiebreak source", source)
+        mode_key = f"bt_tiebreak_mode_{snapshot.generation}{suffix}"
+        mode_options = (_TIEBREAK_NOT_VERIFIED, _TIEBREAK_COMMON, _TIEBREAK_CUSTOM)
+        mode = str(draft.get("mode") or _TIEBREAK_NOT_VERIFIED)
+        if mode not in mode_options:
+            mode = _TIEBREAK_NOT_VERIFIED
+        st.selectbox(
+            "Published rule order",
+            mode_options,
+            index=mode_options.index(mode),
+            key=mode_key,
+            on_change=_save_tiebreak_field,
+            args=(draft_key, "mode", mode_key),
+        )
+        active_mode = str(_tiebreak_draft(snapshot).get("mode") or _TIEBREAK_NOT_VERIFIED)
+        if active_mode == _TIEBREAK_NOT_VERIFIED:
+            st.info(
+                "Backtest runs remain blocked until the published rule is verified; the software "
+                "will not guess which team advances from a tied pool."
+            )
+            return
+        if active_mode == _TIEBREAK_CUSTOM:
+            custom_key = f"bt_tiebreak_custom_{snapshot.generation}{suffix}"
+            st.text_input(
+                "Rule order",
+                value=str(draft.get("custom_order") or ""),
+                key=custom_key,
+                help=(
+                    "Enter supported criteria in order: points, goal differential, goals scored, wins."
+                ),
+                on_change=_save_tiebreak_field,
+                args=(draft_key, "custom_order", custom_key),
+            )
+        note_key = f"bt_tiebreak_note_{snapshot.generation}{suffix}"
+        source_key = f"bt_tiebreak_source_{snapshot.generation}{suffix}"
+        st.text_input(
+            "Verification note",
+            value=str(draft.get("note") or ""),
+            key=note_key,
+            help="Record where you confirmed the order and any limits stated by the organizer.",
+            on_change=_save_tiebreak_field,
+            args=(draft_key, "note", note_key),
+        )
+        st.text_input(
+            "Source URL",
+            value=str(draft.get("source_url") or source),
+            key=source_key,
+            on_change=_save_tiebreak_field,
+            args=(draft_key, "source_url", source_key),
+        )
+        decision, error = _current_tiebreak_decision(snapshot)
+        if error:
+            st.warning(error)
+        elif decision is not None:
+            st.success("This verified order will be used for every simulated pool standing.")
+
+
 def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview, ...], tuple[CohortDecision, ...]]:
     from tournament_intake import _as_plain_text
 
@@ -660,6 +849,7 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
         "You do not need to review divisions one by one. MatchBalance checks the captured structure "
         "automatically. Open the details below only when you want to inspect the source."
     )
+    _render_tiebreak_editor(snapshot)
     with st.expander(f"View division list ({len(by_group)})"):
         st.dataframe(
             pd.DataFrame([
@@ -878,6 +1068,7 @@ def _preserve_review_state_after_capture(
         reviews=reviews_for_capture(refreshed_roster, previous.reviews),
         cohort_decisions=previous.cohort_decisions,
         verification=verification,
+        tiebreak_decision=previous.tiebreak_decision,
     )
 
 
@@ -1610,9 +1801,16 @@ def render_intake(supabase_client: Any) -> None:
         return
     snapshot = _restore_review_baseline(snapshot, base_dir)
     if st.session_state.pop(f"bt_saved_{snapshot.generation}", False):
-        st.success("Saved the tournament name, teams, structure, matching outcomes and division reviews.")
+        st.success("Saved the tournament capture, team decisions, cohort corrections, and tiebreak rule.")
+    cohort_baseline = snapshot.cohort_decisions
+    tiebreak_baseline = snapshot.tiebreak_decision
     decisions = _current_cohort_decisions(snapshot)
-    snapshot = replace(snapshot, cohort_decisions=decisions)
+    tiebreak_decision, tiebreak_error = _current_tiebreak_decision(snapshot)
+    snapshot = replace(
+        snapshot,
+        cohort_decisions=decisions,
+        tiebreak_decision=tiebreak_decision,
+    )
     effective = effective_roster(snapshot)
     raw_totals = tournament_totals(effective)
     display_snapshot = backtest_scope_snapshot(snapshot)
@@ -1657,7 +1855,10 @@ def render_intake(supabase_client: Any) -> None:
     status_columns[2].metric(
         "Structure",
         f"{len(scoped_roster.divisions)} divisions captured",
-        help=f"{reviewed} schedules are replay-ready; MatchBalance is adding support for the rest.",
+        help=(
+            f"{reviewed} schedules are replay-ready. Tournament tiebreak rule: "
+            f"{'verified' if snapshot.tiebreak_decision else 'not verified'}."
+        ),
     )
     excluded_teams = raw_totals["total_teams"] - totals["total_teams"]
     excluded_divisions = raw_totals["divisions"] - totals["divisions"]
@@ -1723,6 +1924,18 @@ def render_intake(supabase_client: Any) -> None:
                 on_click=_set_session_value,
                 args=(section_key, "Teams"),
             )
+        elif snapshot.tiebreak_decision is None:
+            st.warning(
+                "Verify the tournament's published tiebreak order once so tied simulated pools "
+                "advance the correct team."
+            )
+            st.button(
+                "Open tournament tiebreak rule",
+                type="primary",
+                key=f"bt_open_tiebreak_{snapshot.generation}",
+                on_click=_set_session_value,
+                args=(f"bt_show_structure_{snapshot.generation}", True),
+            )
         else:
             st.success("The event capture and team identities are ready for Backtest checks.")
             st.button(
@@ -1774,31 +1987,48 @@ def render_intake(supabase_client: Any) -> None:
     reviews = _current_reviews(snapshot)
     decisions = _current_cohort_decisions(snapshot)
     if st.button("Save progress", type="primary", key=f"bt_save_{snapshot.generation}"):
-        saved = replace(snapshot, reviews=reviews, cohort_decisions=decisions)
-        try:
-            write_snapshot(
-                event_key,
-                saved,
-                base_dir=base_dir,
-                review_baseline=snapshot.reviews,
-                cohort_baseline=snapshot.cohort_decisions,
-            )
-            saved = read_snapshot(event_key, base_dir=base_dir)
-        except Exception as exc:
-            st.error(f"The intake was not saved: {exc}")
+        if tiebreak_error:
+            st.error(f"The intake was not saved: {tiebreak_error}")
         else:
-            st.session_state[_BACKTEST_KEYS.snapshot] = saved
-            st.session_state[f"bt_review_drafts_{saved.generation}"] = {
-                review.group_id: asdict(review) for review in saved.reviews
-            }
-            st.session_state[f"bt_cohort_drafts_{saved.generation}"] = {
-                decision.group_id: asdict(decision) for decision in saved.cohort_decisions
-            }
-            epoch_key = f"bt_review_epoch_{saved.generation}"
-            st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
-            st.session_state[f"bt_saved_{saved.generation}"] = True
-            st.rerun()
-    export = {**replace(snapshot, reviews=reviews, cohort_decisions=decisions).to_dict(),
+            saved = replace(
+                snapshot,
+                reviews=reviews,
+                cohort_decisions=decisions,
+                tiebreak_decision=tiebreak_decision,
+            )
+            try:
+                write_snapshot(
+                    event_key,
+                    saved,
+                    base_dir=base_dir,
+                    review_baseline=snapshot.reviews,
+                    cohort_baseline=cohort_baseline,
+                    tiebreak_baseline=tiebreak_baseline,
+                )
+                saved = read_snapshot(event_key, base_dir=base_dir)
+            except Exception as exc:
+                st.error(f"The intake was not saved: {exc}")
+            else:
+                st.session_state[_BACKTEST_KEYS.snapshot] = saved
+                st.session_state[f"bt_review_drafts_{saved.generation}"] = {
+                    review.group_id: asdict(review) for review in saved.reviews
+                }
+                st.session_state[f"bt_cohort_drafts_{saved.generation}"] = {
+                    decision.group_id: asdict(decision) for decision in saved.cohort_decisions
+                }
+                st.session_state[f"bt_tiebreak_draft_{saved.generation}"] = (
+                    _decision_to_tiebreak_draft(saved)
+                )
+                epoch_key = f"bt_review_epoch_{saved.generation}"
+                st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
+                st.session_state[f"bt_saved_{saved.generation}"] = True
+                st.rerun()
+    export = {**replace(
+                  snapshot,
+                  reviews=reviews,
+                  cohort_decisions=decisions,
+                  tiebreak_decision=tiebreak_decision,
+              ).to_dict(),
               "tournament_totals": raw_totals, "backtest_scope_totals": totals,
               "team_matches": rows, "links": asdict(links),
               "matching_conflicts": conflicts}
