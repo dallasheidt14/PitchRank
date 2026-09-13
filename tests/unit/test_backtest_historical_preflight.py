@@ -85,7 +85,10 @@ def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkey
     monkeypatch.setattr(
         preflight.PointInTimeMatchModel,
         "load",
-        lambda _path: SimpleNamespace(training_metadata={"model_data_end_date": "2025-05-08"}),
+        lambda _path: SimpleNamespace(
+            training_metadata={"model_data_end_date": "2025-05-08"},
+            probability_strategy="poisson_draw_gate",
+        ),
     )
     monkeypatch.setattr(
         preflight,
@@ -120,7 +123,10 @@ def test_preflight_reports_missing_snapshot_as_team_evidence_gap(tmp_path, monke
     monkeypatch.setattr(
         preflight.PointInTimeMatchModel,
         "load",
-        lambda _path: SimpleNamespace(training_metadata={"model_data_end_date": "2025-05-08"}),
+        lambda _path: SimpleNamespace(
+            training_metadata={"model_data_end_date": "2025-05-08"},
+            probability_strategy="poisson_draw_gate",
+        ),
     )
     monkeypatch.setattr(preflight, "_fetch_rows_by_ids", lambda *_args, **_kwargs: [])
 
@@ -147,7 +153,10 @@ def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(
     monkeypatch.setattr(
         preflight.PointInTimeMatchModel,
         "load",
-        lambda _path: SimpleNamespace(training_metadata={"model_data_end_date": "2025-05-08"}),
+        lambda _path: SimpleNamespace(
+            training_metadata={"model_data_end_date": "2025-05-08"},
+            probability_strategy="poisson_draw_gate",
+        ),
     )
     monkeypatch.setattr(
         preflight,
@@ -193,7 +202,10 @@ def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path,
     monkeypatch.setattr(
         preflight.PointInTimeMatchModel,
         "load",
-        lambda _path: SimpleNamespace(training_metadata={"model_data_end_date": "2025-05-08"}),
+        lambda _path: SimpleNamespace(
+            training_metadata={"model_data_end_date": "2025-05-08"},
+            probability_strategy="poisson_draw_gate",
+        ),
     )
     monkeypatch.setattr(
         preflight,
@@ -202,6 +214,29 @@ def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path,
     )
 
     with pytest.raises(HistoricalPreflightUnavailable, match="could not be read"):
+        run_historical_preflight((_request(),), object(), model_artifact=artifact)
+
+
+def test_preflight_rejects_an_incompatible_model_before_database_reads(tmp_path, monkeypatch):
+    from src.tournaments import backtest_historical_preflight as preflight
+
+    artifact = tmp_path / "model.pkl"
+    artifact.write_bytes(b"model")
+    monkeypatch.setattr(
+        preflight.PointInTimeMatchModel,
+        "load",
+        lambda _path: SimpleNamespace(
+            training_metadata={"model_data_end_date": "2025-05-08"},
+            probability_strategy="hybrid",
+        ),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "MergeResolver",
+        lambda *_args, **_kwargs: pytest.fail("database access should not start"),
+    )
+
+    with pytest.raises(HistoricalPreflightUnavailable, match="Backtest requires 'poisson_draw_gate'"):
         run_historical_preflight((_request(),), object(), model_artifact=artifact)
 
 

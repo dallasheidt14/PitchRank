@@ -13,6 +13,7 @@ import pandas as pd
 
 from scripts.backtest_predictor import build_snapshot_index, fetch_prediction_feature_snapshots
 from scripts.backtest_tournament_cohort import (
+    DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
     TEAM_META_COLS,
     _build_entrant_row,
     _canonicalize_snapshot_index,
@@ -20,6 +21,7 @@ from scripts.backtest_tournament_cohort import (
     _fetch_rows_by_ids,
     _filter_snapshot_index_for_cutoff,
     _historical_ranking_row,
+    _override_point_in_time_probability_strategy,
     _resolve_prediction_snapshot,
     _verify_model_training_provenance,
     _verify_snapshot_provenance,
@@ -173,6 +175,10 @@ def run_historical_preflight(
     artifact = resolve_model_artifact(model_artifact)
     try:
         model = PointInTimeMatchModel.load(str(artifact))
+        _override_point_in_time_probability_strategy(
+            model,
+            DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
+        )
         model_data_end = _verify_model_training_provenance(
             dict(model.training_metadata or {}), prediction_date=cutoff
         )

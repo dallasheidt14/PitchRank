@@ -392,6 +392,10 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     event_key = "gotsport__51783__2025"
     artifact = tmp_path / "historical-model.pkl"
     artifact.write_bytes(b"model")
+    artifact.with_name("historical-model_metadata.json").write_text(
+        json.dumps({"probability_strategy": "poisson_draw_gate"}),
+        encoding="utf-8",
+    )
     snapshot = replace(
         _snapshot(),
         verification=CaptureVerification(
@@ -799,6 +803,31 @@ def test_event_tiebreak_draft_survives_navigation_and_explicit_save(rendered_int
         "https://example.test/tiebreaks",
         STANDARD_SCORING_POLICY,
     )
+
+
+def test_unsaved_tiebreak_edit_blocks_backtest_from_using_the_saved_rule(rendered_intake):
+    import tournament_intake as app
+    from src.tournaments.backtest_intake_state import write_snapshot
+
+    test, tmp_path = rendered_intake
+    saved_rule = EventTiebreakDecision(
+        ("points", "goal_differential", "goals_for", "wins"),
+        "Published source",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved_rule)
+    write_snapshot("gotsport__51783__unknown", snapshot, base_dir=tmp_path)
+    test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
+    test.run()
+
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.selectbox(key="bt_tiebreak_mode_capture-one").set_value("Not verified").run()
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
+
+    readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert readiness["What remains"].str.contains("Save the current review").all()
+    assert next(button for button in test.button if button.label == "Run selected cohort").disabled
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):

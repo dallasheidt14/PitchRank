@@ -113,12 +113,23 @@ def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path
 
     monkeypatch.delenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", raising=False)
     monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
-    for folder, data_end in (("older", "2026-07-01"), ("newest", "2026-08-08"), ("too-new", "2026-09-05")):
+    candidates = (
+        ("older", "2026-07-01", "poisson_draw_gate"),
+        ("newest", "2026-08-08", "poisson_draw_gate"),
+        ("newer-incompatible", "2026-08-20", "hybrid"),
+        ("too-new", "2026-09-05", "poisson_draw_gate"),
+    )
+    for folder, data_end, strategy in candidates:
         model_dir = tmp_path / "models" / folder
         model_dir.mkdir(parents=True)
         (model_dir / "point_in_time_match_model.pkl").write_bytes(b"model")
         (model_dir / "point_in_time_match_model_metadata.json").write_text(
-            json.dumps({"model_data_end_date": data_end}),
+            json.dumps(
+                {
+                    "model_data_end_date": data_end,
+                    "probability_strategy": strategy,
+                }
+            ),
             encoding="utf-8",
         )
 

@@ -48,6 +48,7 @@ from src.tournaments.backtest_reviewed_report import (
     observed_result_values,
 )
 from src.tournaments.backtest_reviewed_run import (
+    BACKTEST_PROBABILITY_STRATEGY,
     ReviewedCohortReadiness,
     build_reviewed_cohort_readiness,
     capture_verification_blockers,
@@ -57,6 +58,7 @@ from src.tournaments.backtest_reviewed_run import (
     list_reviewed_runs,
     load_reviewed_run,
     model_artifact_sha256,
+    model_probability_strategy,
     resolve_model_artifact,
     reviewed_run_export,
 )
@@ -1557,6 +1559,7 @@ def _render_backtest_runner(
         snapshot,
         reviews=_current_reviews(snapshot),
         cohort_decisions=_current_cohort_decisions(snapshot),
+        tiebreak_decision=_current_tiebreak_decision(snapshot)[0],
     )
     unsaved_reason = ""
     try:
@@ -1571,8 +1574,9 @@ def _render_backtest_runner(
             saved_snapshot.reviews != operator_snapshot.reviews
             or saved_snapshot.cohort_decisions != operator_snapshot.cohort_decisions
             or saved_snapshot.verification != operator_snapshot.verification
+            or saved_snapshot.tiebreak_decision != operator_snapshot.tiebreak_decision
         ):
-            unsaved_reason = "Save the current review and verification changes before running"
+            unsaved_reason = "Save the current review, verification, and tiebreak changes before running"
     readiness = list(build_reviewed_cohort_readiness(saved_snapshot, links))
     if unsaved_reason:
         readiness = [
@@ -1595,15 +1599,29 @@ def _render_backtest_runner(
     )
     try:
         artifact_path = resolve_model_artifact(artifact_value)
-        model_ready = artifact_path.is_file()
+        model_exists = artifact_path.is_file()
+        artifact_strategy = model_probability_strategy(artifact_path) if model_exists else ""
+        model_ready = model_exists and artifact_strategy == BACKTEST_PROBABILITY_STRATEGY
     except (OSError, ValueError):
         artifact_path = None
+        model_exists = False
+        artifact_strategy = ""
         model_ready = False
-    model_blocker = "" if model_ready else "Historical model artifact not found"
+    if model_ready:
+        model_blocker = ""
+    elif model_exists:
+        described_strategy = artifact_strategy or "no recorded strategy"
+        model_blocker = (
+            f"Historical model uses {described_strategy}; Backtest requires "
+            f"{BACKTEST_PROBABILITY_STRATEGY}"
+        )
+    else:
+        model_blocker = "Historical model artifact not found"
     selected_model_sha = model_artifact_sha256(artifact_path) if model_ready else None
     if not model_ready:
         st.info(
-            "Provide a point-in-time model trained with data ending before this event. "
+            "Provide a point-in-time model trained with data ending before this event using "
+            f"the {BACKTEST_PROBABILITY_STRATEGY} strategy. "
             "Use `python scripts/train_point_in_time_match_model.py --max-game-date YYYY-MM-DD`, "
             "then select its point_in_time_match_model.pkl file above."
         )

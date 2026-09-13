@@ -934,20 +934,13 @@ def _override_point_in_time_probability_strategy(
     requested = str(probability_strategy).strip().lower()
     if not requested:
         return None
-    if requested == str(model.probability_strategy).strip().lower():
+    fitted = str(model.probability_strategy).strip().lower()
+    if requested == fitted:
         return None
-
-    model.requested_probability_strategy = requested
-    model.probability_strategy = requested
-    # Loaded artifacts only persist the selected policy. When we override the
-    # probability engine for tournament replay, fall back to the model's
-    # built-in conservative draw policy instead of reusing a policy fit for a
-    # different strategy.
-    model.draw_decision_policy = {
-        "default": model._default_draw_decision_policy(),
-        "by_age": {},
-    }
-    return requested
+    raise ValueError(
+        f"Point-in-time model was fitted for probability strategy '{fitted or 'unknown'}'; "
+        f"this Backtest requires '{requested}'"
+    )
 
 
 def _resolve_point_in_time_probability_strategy_override(

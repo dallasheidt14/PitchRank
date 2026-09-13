@@ -34,6 +34,7 @@ from src.tournaments.storage._io import append_jsonl, read_json, utc_now_iso, wr
 from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
+BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
     "point_in_time_match_model.pkl"
@@ -184,19 +185,31 @@ def resolve_model_artifact(value: str | Path) -> Path:
     return path.resolve()
 
 
-def _model_data_end_date(artifact: Path) -> str:
+def _model_metadata(artifact: Path) -> dict[str, Any]:
     metadata_path = artifact.with_name(f"{artifact.stem}_metadata.json")
     if not metadata_path.is_file():
-        return ""
+        return {}
     try:
         metadata = read_json(metadata_path)
     except (OSError, ValueError, TypeError):
-        return ""
-    return str(metadata.get("model_data_end_date") or "")
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _model_data_end_date(artifact: Path) -> str:
+    return str(_model_metadata(artifact).get("model_data_end_date") or "")
+
+
+def model_probability_strategy(artifact: str | Path) -> str:
+    """Return the fitted strategy recorded beside a point-in-time artifact."""
+
+    return str(
+        _model_metadata(resolve_model_artifact(artifact)).get("probability_strategy") or ""
+    ).strip().lower()
 
 
 def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
-    """Choose the newest local model whose data ends before the event."""
+    """Choose the newest compatible local model trained before the event."""
 
     cutoff = str(cutoff_exclusive or "").strip()[:10]
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff):
@@ -204,7 +217,11 @@ def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
     eligible = []
     for artifact in (_REPO_ROOT / "models").glob("**/point_in_time_match_model.pkl"):
         data_end = _model_data_end_date(artifact)
-        if data_end and data_end < cutoff:
+        if (
+            data_end
+            and data_end < cutoff
+            and model_probability_strategy(artifact) == BACKTEST_PROBABILITY_STRATEGY
+        ):
             eligible.append((data_end, artifact.resolve()))
     return max(eligible, default=("", None), key=lambda item: (item[0], str(item[1])))[1]
 
@@ -387,7 +404,7 @@ def execute_reviewed_run(
             "--point-in-time-model-artifact",
             str(artifact),
             "--point-in-time-probability-strategy",
-            "poisson_draw_gate",
+            BACKTEST_PROBABILITY_STRATEGY,
             "--history-lookback-days",
             "365",
             "--snapshot-buffer-days",
@@ -411,7 +428,7 @@ def execute_reviewed_run(
                 "ended_at": None,
                 "state": "running",
                 "predictor_source": "point_in_time",
-                "probability_strategy": "poisson_draw_gate",
+                "probability_strategy": BACKTEST_PROBABILITY_STRATEGY,
                 "model_artifact": str(artifact),
                 "model_artifact_sha256": _sha256_file(artifact),
                 "request_sha256": _sha256_bytes(request_bytes),

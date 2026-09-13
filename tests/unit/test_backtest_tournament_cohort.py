@@ -731,7 +731,7 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
     assert round(cost.blowout_5plus_probability, 2) == 0.04
 
 
-def test_override_point_in_time_probability_strategy_swaps_policy():
+def test_point_in_time_probability_strategy_rejects_an_incompatible_artifact():
     class FakeModel:
         probability_strategy = "hybrid"
         requested_probability_strategy = "auto"
@@ -751,20 +751,12 @@ def test_override_point_in_time_probability_strategy_swaps_policy():
 
     model = FakeModel()
 
-    overridden = cohort._override_point_in_time_probability_strategy(model, "poisson_draw_gate")
+    with pytest.raises(ValueError, match="fitted for probability strategy 'hybrid'"):
+        cohort._override_point_in_time_probability_strategy(model, "poisson_draw_gate")
 
-    assert overridden == "poisson_draw_gate"
-    assert model.requested_probability_strategy == "poisson_draw_gate"
-    assert model.probability_strategy == "poisson_draw_gate"
-    assert model.draw_decision_policy == {
-        "default": {
-            "min_draw_probability": 0.25,
-            "max_draw_gap": 0.02,
-            "max_total_goals": 2.2,
-            "min_stalemate_signal": 0.6,
-        },
-        "by_age": {},
-    }
+    assert model.requested_probability_strategy == "auto"
+    assert model.probability_strategy == "hybrid"
+    assert model.draw_decision_policy["by_age"] == {14: {"min_draw_probability": 0.2}}
 
 
 def test_resolve_point_in_time_probability_strategy_override_defaults_to_draw_gate():
