@@ -270,13 +270,14 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
         raise AssertionError("Streamlit control-flow interruption should be re-raised")
 
     assert process.terminated is True
-    failed = list(
+    cancelled = list(
         (tmp_path / "gotsport__51783__2025" / "scenarios" / "reviewed-backtest" / "runs").glob(
-            "*.failed"
+            "*.cancelled"
         )
     )
-    assert len(failed) == 1
-    assert (failed[0] / "error.json").is_file()
+    assert len(cancelled) == 1
+    assert (cancelled[0] / "cancelled.json").is_file()
+    assert json.loads((cancelled[0] / "run_metadata.json").read_text(encoding="utf-8"))["state"] == "cancelled"
 
 
 def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypatch):

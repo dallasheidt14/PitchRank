@@ -583,6 +583,14 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
 
     assert not test.exception, [error.message for error in test.exception]
     test.radio(key="bt_section_generation-1").set_value("Backtest").run()
+    assert any(item.label == "Advanced model settings" for item in test.expander)
+    assert any(item.label == "Historical model artifact override" for item in test.text_input)
+    readiness_table = next(
+        item.value for item in test.dataframe if {"Check", "Owner", "Action"}.issubset(item.value.columns)
+    )
+    model_row = readiness_table.loc[readiness_table["Check"] == "Historical model"].iloc[0]
+    assert model_row["Action"] == "Eligible pre-event model selected"
+    assert str(artifact.resolve()) not in readiness_table["Action"].tolist()
     next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
@@ -770,9 +778,16 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
 
     errors = []
     reruns = []
+    button_labels = []
+
+    def button(label, *_args, **_kwargs):
+        button_labels.append(label)
+        return False
+
     fake_st = SimpleNamespace(
         session_state={},
         status=lambda *_args, **_kwargs: Status(),
+        button=button,
         progress=lambda *_args, **_kwargs: Element(),
         empty=Element,
         error=errors.append,
@@ -796,6 +811,7 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
 
     assert calls == ["u12", "u13"]
     assert errors == ["U12 failed"]
+    assert button_labels == ["Stop current run", "Stop current run"]
     assert fake_st.session_state["bt_completed_run_gotsport__51783__2025"] == "u13-completed"
     assert reruns == []
 

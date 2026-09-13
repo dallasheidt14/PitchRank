@@ -22,6 +22,7 @@ from src.tournaments.backtest_request import BacktestRequestError, build_cohort_
 from src.tournaments.backtest_scope import backtest_scope_roster
 from src.tournaments.storage import (
     acquire_scenario_lock,
+    cancel_run,
     create_staging_run,
     ensure_scenario,
     fail_run,
@@ -80,7 +81,7 @@ class ReviewedRunProgress:
 
 @dataclass(frozen=True)
 class ReviewedRunOutcome:
-    state: Literal["completed", "failed"]
+    state: Literal["completed", "failed", "cancelled"]
     run_dir: Path
     error: str | None = None
 
@@ -287,6 +288,28 @@ def _finalize_failure(
     return ReviewedRunOutcome("failed", failed, error)
 
 
+def _finalize_cancellation(
+    event_key: str,
+    run_id: str,
+    staging_dir: Path,
+    *,
+    base_dir: Path | str,
+) -> ReviewedRunOutcome:
+    metadata_path = staging_dir / "run_metadata.json"
+    if metadata_path.exists():
+        metadata = read_json(metadata_path)
+        metadata["ended_at"] = utc_now_iso()
+        metadata["state"] = "cancelled"
+        write_json(metadata_path, metadata)
+    cancelled = cancel_run(
+        event_key,
+        BACKTEST_SCENARIO,
+        run_id,
+        base_dir=base_dir,
+    )
+    return ReviewedRunOutcome("cancelled", cancelled, "Stopped by the operator")
+
+
 def _terminate_process(process: subprocess.Popen) -> None:
     """Best-effort terminate and reap for interrupted Streamlit runs."""
 
@@ -452,16 +475,21 @@ def execute_reviewed_run(
         except BaseException as exc:
             if process is not None:
                 _terminate_process(process)
-            outcome = _finalize_failure(
+            if not isinstance(exc, Exception):
+                _finalize_cancellation(
+                    event_key,
+                    run_id,
+                    staging_dir,
+                    base_dir=base_dir,
+                )
+                raise
+            return _finalize_failure(
                 event_key,
                 run_id,
                 staging_dir,
                 f"Could not run historical backtest: {exc!r}",
                 base_dir=base_dir,
             )
-            if not isinstance(exc, Exception):
-                raise
-            return outcome
         assert process is not None
         if process.returncode != 0:
             tail = "\n".join(stderr_lines[-20:])

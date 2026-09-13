@@ -1581,6 +1581,7 @@ def _run_reviewed_requests(
     base_dir,
 ) -> None:
     had_failure = False
+    cancel_notice_key = f"bt_cancel_notice_{event_key}"
     for index, cohort in enumerate(readiness, start=1):
         if cohort.request is None:
             continue
@@ -1590,6 +1591,13 @@ def _run_reviewed_requests(
             expanded=True,
             state="running",
         ) as status:
+            st.button(
+                "Stop current run",
+                key=f"bt_cancel_run_{event_key}_{cohort.age_group}_{cohort.gender}_{index}",
+                on_click=_set_session_value,
+                args=(cancel_notice_key, label),
+                help="Stops the active cohort safely. You can run it again from this page.",
+            )
             progress = st.progress(0.0, text="Preparing historical evidence...")
             phase_line = st.empty()
             log = st.empty()
@@ -1651,6 +1659,9 @@ def _render_backtest_runner(
         "pool capacity, and fixture path fixed. MatchBalance optimizes both division and pool placement. "
         "Runs and evidence stay local."
     )
+    cancelled_label = st.session_state.pop(f"bt_cancel_notice_{event_key}", "")
+    if cancelled_label:
+        st.info(f"{cancelled_label} was stopped safely. Select it and run it again when ready.")
     operator_snapshot = replace(
         snapshot,
         reviews=_current_reviews(snapshot),
@@ -1687,22 +1698,34 @@ def _render_backtest_runner(
             for item in readiness
         ]
 
-    artifact_value = st.text_input(
-        "Historical model artifact",
-        value=default_model_artifact(snapshot.roster.event_start_date or ""),
-        key=f"bt_model_artifact_{snapshot.roster.event_id}",
-        help="MatchBalance automatically selects the newest local model trained only on earlier data.",
-    )
-    try:
-        artifact_path = resolve_model_artifact(artifact_value)
-        model_exists = artifact_path.is_file()
-        artifact_strategy = model_probability_strategy(artifact_path) if model_exists else ""
-        model_ready = model_exists and artifact_strategy == BACKTEST_PROBABILITY_STRATEGY
-    except (OSError, ValueError):
-        artifact_path = None
-        model_exists = False
-        artifact_strategy = ""
-        model_ready = False
+    automatic_artifact = default_model_artifact(snapshot.roster.event_start_date or "")
+    with st.expander("Advanced model settings"):
+        st.caption(
+            "MatchBalance automatically selects the newest eligible local model trained only "
+            "on data from before this event. Use this override only for engineering checks."
+        )
+        artifact_value = st.text_input(
+            "Historical model artifact override",
+            value=automatic_artifact,
+            key=f"bt_model_artifact_{snapshot.roster.event_id}",
+        )
+        try:
+            artifact_path = resolve_model_artifact(artifact_value)
+            model_exists = artifact_path.is_file()
+            artifact_strategy = model_probability_strategy(artifact_path) if model_exists else ""
+            model_ready = model_exists and artifact_strategy == BACKTEST_PROBABILITY_STRATEGY
+        except (OSError, ValueError):
+            artifact_path = None
+            model_exists = False
+            artifact_strategy = ""
+            model_ready = False
+        if not model_ready:
+            st.caption(
+                "Engineering setup: train an eligible model with "
+                "`python scripts/train_point_in_time_match_model.py "
+                "--max-game-date YYYY-MM-DD`, then select its "
+                "point_in_time_match_model.pkl file here."
+            )
     if model_ready:
         model_blocker = ""
     elif model_exists:
@@ -1714,12 +1737,15 @@ def _render_backtest_runner(
     else:
         model_blocker = "Historical model artifact not found"
     selected_model_sha = model_artifact_sha256(artifact_path) if model_ready else None
-    if not model_ready:
+    if model_ready:
+        st.caption(
+            "Historical model: eligible pre-event model selected automatically for the "
+            f"{snapshot.roster.event_start_date or 'event'} cutoff."
+        )
+    else:
         st.info(
-            "Provide a point-in-time model trained with data ending before this event using "
-            f"the {BACKTEST_PROBABILITY_STRATEGY} strategy. "
-            "Use `python scripts/train_point_in_time_match_model.py --max-game-date YYYY-MM-DD`, "
-            "then select its point_in_time_match_model.pkl file above."
+            "No eligible pre-event model is selected. Open Advanced model settings for "
+            "engineering setup."
         )
     request_items = [item for item in readiness if item.request is not None]
     preflight = None
@@ -1853,7 +1879,7 @@ def _render_backtest_runner(
                     "Check": "Historical model",
                     "Owner": "MatchBalance",
                     "Status": "Ready" if model_ready else "Needs engineering",
-                    "Action": str(artifact_path) if model_ready else model_blocker,
+                    "Action": "Eligible pre-event model selected" if model_ready else model_blocker,
                 },
                 {
                     "Check": "Pre-event team ratings",
