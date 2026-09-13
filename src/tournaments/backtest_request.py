@@ -15,7 +15,10 @@ from src.tournaments.backtest_replay_format import (
     assess_replay_format,
     build_captured_fixture_slots,
 )
-from src.tournaments.backtest_result_summary import deduplicated_fixtures_by_group
+from src.tournaments.backtest_result_summary import (
+    CONFLICTING_FIXTURE_EXCLUSIONS,
+    deduplicated_fixtures_by_group,
+)
 from src.tournaments.backtest_scope import backtest_scope_roster
 from src.tournaments.schedule_simulator import (
     STANDARD_SCORING_POLICY,
@@ -161,6 +164,17 @@ def build_cohort_backtest_requests(
 
         for division in cohorts[cohort_key]:
             fixture_evidence = fixtures_by_group.get(division.group_id, ())
+            fixture_conflicts = tuple(
+                item.exclusion
+                for item in fixture_evidence
+                if item.exclusion in CONFLICTING_FIXTURE_EXCLUSIONS
+            )
+            if fixture_conflicts:
+                reasons = ", ".join(sorted(set(fixture_conflicts)))
+                raise BacktestRequestError(
+                    f"Division '{division.division_label}' has conflicting fixture evidence "
+                    f"({reasons}); verify or recapture the source before replay"
+                )
             division_fixtures = tuple(item.fixture for item in fixture_evidence)
             review = reviews.get(division.group_id)
             manual_format = review.format_code if review is not None and review.checked else ""

@@ -50,6 +50,7 @@ class DeduplicatedFixture:
 
 
 _CONFLICTS = frozenset({"conflicting_results", "attribution_conflict", "ambiguous_identity"})
+CONFLICTING_FIXTURE_EXCLUSIONS = _CONFLICTS
 _EXCLUDED_STATUSES = frozenset({"unplayed", "cancelled", "postponed", "forfeit", "unrecognized"})
 
 

@@ -187,6 +187,27 @@ def test_build_request_deduplicates_repeated_identified_fixture_rows():
     assert len(request["actual_games_override"]) == 1
 
 
+def test_build_request_rejects_conflicting_duplicate_fixture_evidence():
+    snapshot = _snapshot()
+    conflicting = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        away_registration_id="reg-other",
+        away_label="Other team",
+    )
+    division = replace(
+        snapshot.roster.divisions[0],
+        fixtures=(snapshot.roster.divisions[0].fixtures[0], conflicting),
+    )
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    with pytest.raises(BacktestRequestError, match="conflicting fixture evidence"):
+        build_cohort_backtest_requests(snapshot, event_links=_links())
+
+
 def test_build_request_uses_group_id_when_division_label_is_blank():
     snapshot = _snapshot()
     division = replace(snapshot.roster.divisions[0], division_label="")
