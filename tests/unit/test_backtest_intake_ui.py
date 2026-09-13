@@ -31,6 +31,7 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
+from src.tournaments.backtest_reviewed_run import BACKTEST_ENGINE_VERSION
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
 from src.tournaments.schedule_simulator import (
     STANDARD_SCORING_POLICY,
@@ -511,6 +512,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         )
         run_path.mkdir(parents=True)
         metadata = {
+            "backtest_engine_version": BACKTEST_ENGINE_VERSION,
             "cohort_age_group": "u14",
             "cohort_gender": "Male",
             "event_name": "Spring Cup",
@@ -633,6 +635,7 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
     (failed_dir / "run_metadata.json").write_text(
         json.dumps(
             {
+                "backtest_engine_version": BACKTEST_ENGINE_VERSION,
                 "source_capture_generation": sample_snapshot().generation,
                 "request_sha256": hashlib.sha256(
                     json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")

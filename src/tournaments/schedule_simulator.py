@@ -452,6 +452,19 @@ def _optional_probability(prediction: Any, field: str) -> float | None:
     return probability
 
 
+def prediction_expected_margin(prediction: Any) -> float:
+    """Return the one signed margin used by optimization, reporting, and replay."""
+
+    scores = getattr(prediction, "expected_score", {}) or {}
+    fallback = float(scores.get("teamA", 0.0)) - float(scores.get("teamB", 0.0))
+    expected_margin = float(getattr(prediction, "expected_margin", fallback))
+    if not math.isfinite(expected_margin):
+        raise ValueError("expected_margin must be finite")
+    if str(getattr(prediction, "predicted_winner", "")) == "draw":
+        return 0.0
+    return expected_margin
+
+
 def _advancement_decision(
     prediction: Any,
     home_team: SeedableTeam,
@@ -494,11 +507,7 @@ def _simulate_match(
     prediction = predict_fn(home_team, away_team)
     raw_score_a = float(prediction.expected_score["teamA"])
     raw_score_b = float(prediction.expected_score["teamB"])
-    expected_margin = float(
-        getattr(prediction, "expected_margin", raw_score_a - raw_score_b)
-    )
-    if not math.isfinite(expected_margin):
-        raise ValueError("expected_margin must be finite")
+    expected_margin = prediction_expected_margin(prediction)
     home_score, away_score = _winner_consistent_score(
         prediction.predicted_winner,
         raw_score_a,

@@ -276,6 +276,28 @@ def test_calibrated_expected_margin_drives_the_standings_score():
     assert standings[away.team_id]["gd"] == -1
 
 
+def test_predicted_draw_uses_zero_margin_for_score_and_projection():
+    home = _team(1, 0.8, 1)
+    away = _team(2, 0.4, 2)
+
+    match = _simulate_match(
+        division_name="Gold",
+        stage="Pool",
+        pool_name="A",
+        home_team=home,
+        away_team=away,
+        predict_fn=lambda *_args: SimpleNamespace(
+            predicted_winner="draw",
+            expected_score={"teamA": 3, "teamB": 1},
+            expected_margin=2.4,
+        ),
+    )
+
+    assert match.home_score == match.away_score == 2
+    assert match.goal_differential == 0
+    assert match.expected_goal_differential == 0.0
+
+
 def test_tiger_tiebreak_uses_capped_goal_metrics_then_fewest_goals_conceded():
     teams = [_team(1, 0.7, 1), _team(2, 0.8, 2)]
     standings = _empty_standings(teams)

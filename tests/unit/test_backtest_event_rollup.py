@@ -15,6 +15,7 @@ from src.tournaments.backtest_rating_fallback import (
     DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
 )
 from src.tournaments.backtest_reviewed_run import (
+    BACKTEST_ENGINE_VERSION,
     ReviewedCohortReadiness,
     ReviewedRunRecord,
     build_reviewed_cohort_readiness,
@@ -41,6 +42,7 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
         readiness.request, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     metadata = {
+        "backtest_engine_version": BACKTEST_ENGINE_VERSION,
         "source_capture_generation": "generation-1",
         "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
         "model_artifact_sha256": "model-sha",
@@ -270,6 +272,27 @@ def test_event_rollup_rejects_stale_capture_or_different_model(tmp_path):
 
     assert rollup["coverage"]["completed"] == 0
     assert rollup["coverage"]["ready"] == 1
+    assert rollup["selected_runs"] == []
+
+
+def test_event_rollup_rejects_output_from_an_older_engine_version(tmp_path):
+    snapshot = _verified_snapshot()
+    readiness = build_reviewed_cohort_readiness(snapshot, _links())
+    record = _record(tmp_path, readiness[0])
+    metadata_path = record.run_dir / "run_metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["backtest_engine_version"] = "reviewed-backtest-v1"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+    assert rollup["coverage"]["completed"] == 0
     assert rollup["selected_runs"] == []
 
 

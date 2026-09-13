@@ -74,6 +74,29 @@ def test_backtest_projection_calibration_scales_margin_and_blowout_probabilities
     assert calibrated.expected_score == prediction.expected_score
 
 
+def test_predicted_draw_uses_zero_margin_for_optimizer_and_report():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="draw",
+        expected_score={"teamA": 1, "teamB": 1},
+        expected_margin=1.25,
+        win_probability_a=0.2,
+        draw_probability=0.6,
+        win_probability_b=0.2,
+        blowout_3plus_probability=0.1,
+        blowout_4plus_probability=0.05,
+        blowout_5plus_probability=0.02,
+    )
+
+    calibrated = cohort._apply_backtest_projection_calibration(
+        prediction,
+        {"margin_absolute_scale": 2.0},
+    )
+    cost = cohort._point_in_time_matchup_cost(calibrated)
+
+    assert calibrated.expected_margin == 0.0
+    assert cost.projected_margin == 0.0
+
+
 def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
     prediction = cohort.TournamentMatchPrediction(
         predicted_winner="team_a",

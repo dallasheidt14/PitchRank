@@ -178,6 +178,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert (outcome.run_dir / "comparison.html").is_file()
     metadata = json.loads((outcome.run_dir / "run_metadata.json").read_text(encoding="utf-8"))
     assert metadata["state"] == "completed"
+    assert metadata["backtest_engine_version"] == runner.BACKTEST_ENGINE_VERSION
     assert metadata["source_capture_generation"] == "generation-1"
     assert metadata["model_artifact_sha256"]
     assert metadata["merge_map_version"] == "merge-v1"

@@ -89,6 +89,7 @@ Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/int
 - `event_links.json`: editable event team links and persistent clear decisions.
 - `historical_preflight.json`: read-only eligibility results tied to the exact reviewed requests and selected model hash.
 - `scenarios/reviewed-backtest/runs/<run_id>/`: one atomic completed cohort run containing the strict request, frozen historical evidence, original-versus-proposed model summary, team movements, logs, and director report. Failed and operator-stopped attempts remain in `.failed` and `.cancelled` sibling directories for diagnosis and can be rerun from Backtest.
+- Each completed run records the Backtest engine version. A scoring or simulation change makes older outputs incompatible with the current tournament-wide result, so the affected cohorts must be rerun instead of silently mixing old and new behavior.
 
 An existing event directory is reused. Locks and atomic writes protect local updates. Completed-run promotion retries brief Windows file locks while keeping the directory rename atomic. Recovery and saved captures reject replacements that discard captured entrants, divisions, pool members, fixtures, or table readability. Event IDs and capture generations prevent an interrupted scrape or late matching result from mixing two events.
 

@@ -22,6 +22,7 @@ from src.tournaments.backtest_rating_fallback import (
     DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
 )
 from src.tournaments.backtest_reviewed_run import (
+    BACKTEST_ENGINE_VERSION,
     ReviewedCohortReadiness,
     ReviewedRunRecord,
     load_reviewed_run,
@@ -92,6 +93,8 @@ def select_compatible_runs(
             except (OSError, ValueError, TypeError):
                 continue
             if metadata.get("source_capture_generation") != snapshot.generation:
+                continue
+            if metadata.get("backtest_engine_version") != BACKTEST_ENGINE_VERSION:
                 continue
             if metadata.get("request_sha256") != _request_sha(item.request):
                 continue

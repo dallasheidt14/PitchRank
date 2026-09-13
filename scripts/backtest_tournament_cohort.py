@@ -65,6 +65,7 @@ from src.tournaments.modelled_comparison import (  # noqa: E402
 from src.tournaments.schedule_simulator import (  # noqa: E402
     captured_division_schedule_template,
     explicit_division_schedule_template,
+    prediction_expected_margin,
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
@@ -876,7 +877,7 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
     # also reported to the operator.  The integer score is presentation-only;
     # using it as a floor here would optimize a different objective from the
     # one shown in the Backtest result.
-    projected_margin = abs(float(prediction.expected_margin))
+    projected_margin = abs(prediction_expected_margin(prediction))
     win_probability_a = _validate_optional_probability(
         prediction.win_probability_a, name="win_probability_a"
     ) or 0.0
@@ -962,10 +963,8 @@ def _apply_backtest_projection_calibration(
             )
         return min(1.0, max(0.0, float(value) * scale))
 
-    expected_margin = math.copysign(
-        abs(float(prediction.expected_margin)) * margin_scale,
-        float(prediction.expected_margin),
-    )
+    unscaled_margin = prediction_expected_margin(prediction)
+    expected_margin = math.copysign(abs(unscaled_margin) * margin_scale, unscaled_margin)
     return replace(
         prediction,
         expected_margin=expected_margin,

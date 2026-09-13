@@ -36,6 +36,7 @@ from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
 BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v2"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
     "point_in_time_match_model.pkl"
@@ -442,6 +443,7 @@ def execute_reviewed_run(
                 "run_id": run_id,
                 "event_key": event_key,
                 "scenario": BACKTEST_SCENARIO,
+                "backtest_engine_version": BACKTEST_ENGINE_VERSION,
                 "event_name": str(request.get("event_name") or ""),
                 "cohort_age_group": age_group,
                 "cohort_gender": gender,
