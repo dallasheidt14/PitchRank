@@ -63,7 +63,11 @@ from src.tournaments.backtest_reviewed_run import (
 from src.tournaments.backtest_scope import backtest_scope_snapshot
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
-from src.tournaments.schedule_simulator import DEFAULT_TIEBREAK_ORDER, normalize_tiebreak_order
+from src.tournaments.schedule_simulator import (
+    DEFAULT_TIEBREAK_ORDER,
+    STANDARD_SCORING_POLICY,
+    normalize_tiebreak_order,
+)
 from src.tournaments.storage._io import utc_now_iso
 from src.tournaments.storage.event_key import existing_event_key
 
@@ -75,6 +79,9 @@ def _set_session_value(key: str, value: Any) -> None:
 _TIEBREAK_NOT_VERIFIED = "Not verified"
 _TIEBREAK_COMMON = "Points → goal differential → goals scored → wins"
 _TIEBREAK_CUSTOM = "Custom supported order"
+_SCORING_NOT_VERIFIED = "Not verified"
+_SCORING_STANDARD = "Standard: 3 win / 1 draw / 0 loss; uncapped goal differential"
+_SCORING_UNSUPPORTED = "Other scoring or standings modifiers"
 _TIEBREAK_ALIASES = {
     "points": "points",
     "goal differential": "goal_differential",
@@ -125,6 +132,7 @@ def _decision_to_tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
         return {
             "mode": _TIEBREAK_NOT_VERIFIED,
             "custom_order": _format_tiebreak_order(DEFAULT_TIEBREAK_ORDER),
+            "scoring_mode": _SCORING_NOT_VERIFIED,
             "note": "",
             "source_url": _first_tiebreak_source(snapshot),
         }
@@ -132,9 +140,21 @@ def _decision_to_tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
     return {
         "mode": mode,
         "custom_order": _format_tiebreak_order(decision.order),
+        "scoring_mode": (
+            _SCORING_STANDARD
+            if decision.scoring_policy == STANDARD_SCORING_POLICY
+            else _SCORING_NOT_VERIFIED
+        ),
         "note": decision.note,
         "source_url": decision.source_url,
     }
+
+
+def _tiebreak_ready(decision: EventTiebreakDecision | None) -> bool:
+    return bool(
+        decision is not None
+        and decision.scoring_policy == STANDARD_SCORING_POLICY
+    )
 
 
 def _pool_labels(team: Any, division: Any) -> list[str]:
@@ -735,11 +755,22 @@ def _current_tiebreak_decision(
     mode = str(draft.get("mode") or _TIEBREAK_NOT_VERIFIED)
     if mode == _TIEBREAK_NOT_VERIFIED:
         return None, ""
+    scoring_mode = str(draft.get("scoring_mode") or _SCORING_NOT_VERIFIED)
+    if scoring_mode == _SCORING_UNSUPPORTED:
+        return (
+            None,
+            "This event uses scoring or standings modifiers that Backtest cannot replay yet",
+        )
+    if scoring_mode != _SCORING_STANDARD:
+        return (
+            None,
+            "Confirm the published points and goal-differential scoring policy",
+        )
     note = str(draft.get("note") or "").strip()
     source_url = str(draft.get("source_url") or "").strip()
     if not note or not source_url:
         return (
-            snapshot.tiebreak_decision,
+            None,
             "A verified tiebreak rule needs a verification note and source URL",
         )
     try:
@@ -752,9 +783,10 @@ def _current_tiebreak_decision(
             order=normalize_tiebreak_order(order, allow_empty=False),
             note=note,
             source_url=source_url,
+            scoring_policy=STANDARD_SCORING_POLICY,
         )
     except ValueError as exc:
-        return snapshot.tiebreak_decision, str(exc)
+        return None, str(exc)
     return decision, ""
 
 
@@ -803,13 +835,34 @@ def _render_tiebreak_editor(snapshot: BacktestSnapshot) -> None:
                 on_change=_save_tiebreak_field,
                 args=(draft_key, "custom_order", custom_key),
             )
+        scoring_key = f"bt_tiebreak_scoring_{snapshot.generation}{suffix}"
+        scoring_options = (
+            _SCORING_NOT_VERIFIED,
+            _SCORING_STANDARD,
+            _SCORING_UNSUPPORTED,
+        )
+        scoring_mode = str(draft.get("scoring_mode") or _SCORING_NOT_VERIFIED)
+        if scoring_mode not in scoring_options:
+            scoring_mode = _SCORING_NOT_VERIFIED
+        st.selectbox(
+            "Published scoring policy",
+            scoring_options,
+            index=scoring_options.index(scoring_mode),
+            key=scoring_key,
+            help=(
+                "Choose standard only when the published rules award 3 points for a win, "
+                "1 for a draw, 0 for a loss, and do not cap goal differential."
+            ),
+            on_change=_save_tiebreak_field,
+            args=(draft_key, "scoring_mode", scoring_key),
+        )
         note_key = f"bt_tiebreak_note_{snapshot.generation}{suffix}"
         source_key = f"bt_tiebreak_source_{snapshot.generation}{suffix}"
         st.text_input(
             "Verification note",
             value=str(draft.get("note") or ""),
             key=note_key,
-            help="Record where you confirmed the order and any limits stated by the organizer.",
+            help="Record where you confirmed the published standings rules.",
             on_change=_save_tiebreak_field,
             args=(draft_key, "note", note_key),
         )
@@ -1857,7 +1910,7 @@ def render_intake(supabase_client: Any) -> None:
         f"{len(scoped_roster.divisions)} divisions captured",
         help=(
             f"{reviewed} schedules are replay-ready. Tournament tiebreak rule: "
-            f"{'verified' if snapshot.tiebreak_decision else 'not verified'}."
+            f"{'verified' if _tiebreak_ready(snapshot.tiebreak_decision) else 'not verified'}."
         ),
     )
     excluded_teams = raw_totals["total_teams"] - totals["total_teams"]
@@ -1924,7 +1977,7 @@ def render_intake(supabase_client: Any) -> None:
                 on_click=_set_session_value,
                 args=(section_key, "Teams"),
             )
-        elif snapshot.tiebreak_decision is None:
+        elif not _tiebreak_ready(snapshot.tiebreak_decision):
             st.warning(
                 "Verify the tournament's published tiebreak order once so tied simulated pools "
                 "advance the correct team."

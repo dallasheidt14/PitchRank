@@ -24,7 +24,7 @@ from src.tournaments.gotsport_event_roster import (
     event_roster_to_dict,
 )
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.schedule_simulator import normalize_tiebreak_order
+from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY, normalize_tiebreak_order
 from src.tournaments.storage._file_lock import _acquire_file_lock
 from src.tournaments.storage._io import read_versioned_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir, parse_event_key
@@ -62,11 +62,12 @@ class CohortDecision:
 
 @dataclass(frozen=True)
 class EventTiebreakDecision:
-    """A sourced event-wide rule order for simulated pool standings."""
+    """Sourced event-wide standings rules used by simulated pools."""
 
     order: tuple[str, ...]
     note: str
     source_url: str
+    scoring_policy: str = ""
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,8 @@ class BacktestSnapshot:
                 raise ValueError("The event tiebreak order must use normalized criterion names")
             if not decision.note.strip() or not decision.source_url.strip():
                 raise ValueError("The event tiebreak decision needs a note and source URL")
+            if decision.scoring_policy not in {"", STANDARD_SCORING_POLICY}:
+                raise ValueError("The event tiebreak decision has an unsupported scoring policy")
         if self.verification is not None:
             verification = self.verification
             if (
@@ -212,6 +215,7 @@ class BacktestSnapshot:
                     "order": list(self.tiebreak_decision.order),
                     "note": self.tiebreak_decision.note,
                     "source_url": self.tiebreak_decision.source_url,
+                    "scoring_policy": self.tiebreak_decision.scoring_policy,
                 }
                 if self.tiebreak_decision else None
             ),
@@ -247,6 +251,7 @@ class BacktestSnapshot:
                     order=tuple(payload["event_tiebreak_decision"].get("order", ())),
                     note=payload["event_tiebreak_decision"].get("note", ""),
                     source_url=payload["event_tiebreak_decision"].get("source_url", ""),
+                    scoring_policy=payload["event_tiebreak_decision"].get("scoring_policy", ""),
                 )
                 if payload.get("event_tiebreak_decision") else None
             ),

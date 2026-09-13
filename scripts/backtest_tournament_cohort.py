@@ -245,6 +245,7 @@ def _schedule_template_from_payload(
             fixture_slots=captured.get("fixture_slots") or (),
             tiebreak_order=captured.get("tiebreak_order") or (),
             tiebreak_source_urls=captured.get("tiebreak_source_urls") or (),
+            scoring_policy=str(captured.get("scoring_policy") or ""),
         )
     return explicit_division_schedule_template(
         division_name=division_spec.name,

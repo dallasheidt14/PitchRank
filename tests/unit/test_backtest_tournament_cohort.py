@@ -5,7 +5,7 @@ import pytest
 
 from scripts import backtest_tournament_cohort as cohort
 from scripts.predictor_python import Game as PredictorGame
-from src.tournaments.seeding_optimizer import MatchupCost, SeedableTeam
+from src.tournaments.seeding_optimizer import DivisionSpec, MatchupCost, SeedableTeam
 
 
 def test_team_metadata_queries_use_at_most_one_hundred_ids():
@@ -35,6 +35,27 @@ def test_team_metadata_queries_use_at_most_one_hundred_ids():
     )
 
     assert [len(batch) for batch in batches] == [100, 100, 5]
+
+
+def test_legacy_captured_schedule_without_scoring_policy_is_rejected():
+    division = DivisionSpec("Gold", 2, (2,), "CAPTURED_GRAPH")
+    payload = {
+        "captured_schedule": {
+            "fixture_slots": (
+                {
+                    "stage": "Pool",
+                    "counts_for_standings": True,
+                    "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+                    "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+                },
+            ),
+            "tiebreak_order": ("points", "goal_differential"),
+            "tiebreak_source_urls": ("https://example.test/tiebreaks",),
+        }
+    }
+
+    with pytest.raises(ValueError, match="unsupported scoring or standings modifier"):
+        cohort._schedule_template_from_payload(payload, division, {})
 
 
 def test_snapshot_as_of_date_returns_latest_prior_snapshot():

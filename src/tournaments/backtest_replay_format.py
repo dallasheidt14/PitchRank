@@ -30,9 +30,18 @@ def _fixture_sort_key(indexed_fixture: tuple[int, Any]) -> tuple[int, int, str, 
 
 
 def ordered_captured_fixtures(fixtures: Sequence[Any]) -> tuple[Any, ...]:
-    """Use published match numbers when page tables are not chronological."""
+    """Use match numbers only when every captured fixture has one.
 
-    return tuple(item for _, item in sorted(enumerate(fixtures), key=_fixture_sort_key))
+    GotSport occasionally leaves a real fixture's Match # blank. In that mixed
+    case the parser's page order is the only complete published ordering;
+    moving every numbered playoff match ahead of the blank pool row can resolve
+    a qualifier before its standings games have run.
+    """
+
+    indexed = tuple(enumerate(fixtures))
+    if any(not str(fixture.match_number or "").strip().isdigit() for _, fixture in indexed):
+        return tuple(fixture for _, fixture in indexed)
+    return tuple(item for _, item in sorted(indexed, key=_fixture_sort_key))
 
 
 def _participant_identity(registration_id: str | None, label: str) -> tuple[str, str]:

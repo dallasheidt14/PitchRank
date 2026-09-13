@@ -24,6 +24,7 @@ from src.tournaments.backtest_intake_state import (
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
 
 
 def sample_snapshot(event_id="51783", *, generation="capture-one"):
@@ -92,6 +93,7 @@ def test_sourced_event_tiebreak_decision_round_trip_and_legacy_default(tmp_path)
         ("points", "wins", "goal_differential"),
         "Confirmed on the published event page",
         "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
     )
     snapshot = replace(sample_snapshot(), tiebreak_decision=decision)
 
@@ -101,8 +103,15 @@ def test_sourced_event_tiebreak_decision_round_trip_and_legacy_default(tmp_path)
     ).tiebreak_decision == decision
 
     legacy = snapshot.to_dict()
-    legacy.pop("event_tiebreak_decision")
-    assert BacktestSnapshot.from_dict(legacy).tiebreak_decision is None
+    legacy["event_tiebreak_decision"].pop("scoring_policy")
+    assert BacktestSnapshot.from_dict(legacy).tiebreak_decision == replace(
+        decision,
+        scoring_policy="",
+    )
+
+    without_decision = snapshot.to_dict()
+    without_decision.pop("event_tiebreak_decision")
+    assert BacktestSnapshot.from_dict(without_decision).tiebreak_decision is None
 
 
 def test_stale_event_tiebreak_edit_cannot_overwrite_another_session(tmp_path):
@@ -154,6 +163,16 @@ def test_event_tiebreak_decision_rejects_unsupported_or_unsourced_rules():
                 ("points", "wins"),
                 "",
                 "https://example.test/tiebreaks",
+            ),
+        )
+    with pytest.raises(ValueError, match="unsupported scoring policy"):
+        replace(
+            sample_snapshot(),
+            tiebreak_decision=EventTiebreakDecision(
+                ("points", "wins"),
+                "Published source",
+                "https://example.test/tiebreaks",
+                "five_points_and_bonus",
             ),
         )
 

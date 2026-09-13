@@ -4,6 +4,7 @@ import pytest
 
 from src.tournaments.schedule_simulator import (
     DEFAULT_TIEBREAK_ORDER,
+    STANDARD_SCORING_POLICY,
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
@@ -218,6 +219,7 @@ def test_captured_graph_replays_cross_pool_games_and_actual_advancement_path():
         fixture_slots=fixtures,
         tiebreak_order=DEFAULT_TIEBREAK_ORDER,
         tiebreak_source_urls=("https://example.test/tiebreak",),
+        scoring_policy=STANDARD_SCORING_POLICY,
     )
 
     def cross_prediction(team_a, team_b):
@@ -271,6 +273,7 @@ def test_captured_graph_blocks_a_tied_qualifier_without_verified_tiebreaks():
         pool_sizes=(4,),
         fixture_slots=fixtures,
         tiebreak_source_urls=("https://example.test/tiebreak",),
+        scoring_policy=STANDARD_SCORING_POLICY,
     )
 
     with pytest.raises(ValueError, match="no verified tournament tiebreak order"):
@@ -318,6 +321,7 @@ def test_captured_graph_resolves_knockout_draws_without_home_side_bias():
         actual_division_name="U14 Gold",
         pool_sizes=(4,),
         fixture_slots=fixtures,
+        scoring_policy=STANDARD_SCORING_POLICY,
     )
     simulation = simulate_tournament_schedule(
         result.divisions,

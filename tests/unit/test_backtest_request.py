@@ -14,6 +14,7 @@ from src.tournaments.backtest_request import BacktestRequestError, build_cohort_
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
 
 
 def _snapshot() -> BacktestSnapshot:
@@ -86,6 +87,7 @@ def _snapshot() -> BacktestSnapshot:
             ("points", "goal_differential", "goals_for", "wins"),
             "Verified in the published event rules",
             "https://example.test/tiebreaks",
+            STANDARD_SCORING_POLICY,
         ),
     )
 
@@ -126,6 +128,7 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert division["captured_schedule"]["tiebreak_source_urls"][0] == (
         "https://example.test/tiebreaks"
     )
+    assert division["captured_schedule"]["scoring_policy"] == STANDARD_SCORING_POLICY
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
@@ -136,6 +139,16 @@ def test_build_request_requires_a_sourced_event_tiebreak_decision():
     with pytest.raises(BacktestRequestError, match="published tiebreak order"):
         build_cohort_backtest_requests(
             replace(_snapshot(), tiebreak_decision=None),
+            event_links=_links(),
+        )
+
+
+def test_build_request_requires_a_verified_supported_scoring_policy():
+    legacy_decision = replace(_snapshot().tiebreak_decision, scoring_policy="")
+
+    with pytest.raises(BacktestRequestError, match="standard 3/1/0"):
+        build_cohort_backtest_requests(
+            replace(_snapshot(), tiebreak_decision=legacy_decision),
             event_links=_links(),
         )
 

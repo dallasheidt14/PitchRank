@@ -17,7 +17,10 @@ from src.tournaments.backtest_replay_format import (
 )
 from src.tournaments.backtest_result_summary import deduplicated_fixtures_by_group
 from src.tournaments.backtest_scope import backtest_scope_roster
-from src.tournaments.schedule_simulator import captured_division_schedule_template
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    captured_division_schedule_template,
+)
 
 
 class BacktestRequestError(ValueError):
@@ -86,6 +89,11 @@ def build_cohort_backtest_requests(
             "Verify the tournament's published tiebreak order before running a Backtest"
         )
     tiebreak_decision = snapshot.tiebreak_decision
+    if tiebreak_decision.scoring_policy != STANDARD_SCORING_POLICY:
+        raise BacktestRequestError(
+            "Verify that the event used standard 3/1/0 points with uncapped goal differential; "
+            "other scoring or standings modifiers are not supported yet"
+        )
 
     def canonicalize(team_id: str) -> str:
         if resolve_team_id is None:
@@ -181,6 +189,7 @@ def build_cohort_backtest_requests(
                     fixture_slots=fixture_slots,
                     tiebreak_order=tiebreak_decision.order,
                     tiebreak_source_urls=tiebreak_source_urls,
+                    scoring_policy=tiebreak_decision.scoring_policy,
                 )
             except ValueError as error:
                 raise BacktestRequestError(str(error)) from error

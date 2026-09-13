@@ -33,6 +33,7 @@ DEFAULT_TIEBREAK_ORDER = (
     "wins",
 )
 SUPPORTED_TIEBREAK_FIELDS = frozenset(DEFAULT_TIEBREAK_ORDER)
+STANDARD_SCORING_POLICY = "standard_3_1_0_uncapped_goal_differential"
 
 
 def normalize_tiebreak_order(
@@ -69,6 +70,7 @@ class DivisionScheduleTemplate:
     fixture_slots: tuple[dict[str, Any], ...] = ()
     tiebreak_order: tuple[str, ...] = DEFAULT_TIEBREAK_ORDER
     tiebreak_source_urls: tuple[str, ...] = ()
+    scoring_policy: str = STANDARD_SCORING_POLICY
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +84,7 @@ class DivisionScheduleTemplate:
             "fixture_slots": [dict(item) for item in self.fixture_slots],
             "tiebreak_order": list(self.tiebreak_order),
             "tiebreak_source_urls": list(self.tiebreak_source_urls),
+            "scoring_policy": self.scoring_policy,
         }
 
 
@@ -93,6 +96,7 @@ def captured_division_schedule_template(
     fixture_slots: Sequence[dict[str, Any]],
     tiebreak_order: Sequence[str] = (),
     tiebreak_source_urls: Sequence[str] = (),
+    scoring_policy: str = "",
 ) -> DivisionScheduleTemplate:
     """Build a template from the captured match-slot graph rather than a canned format."""
 
@@ -120,6 +124,10 @@ def captured_division_schedule_template(
         raise ValueError(
             f"Division '{division_name}' needs a unique supported tiebreak order beginning with points"
         ) from error
+    if scoring_policy != STANDARD_SCORING_POLICY:
+        raise ValueError(
+            f"Division '{division_name}' uses an unsupported scoring or standings modifier"
+        )
     return DivisionScheduleTemplate(
         division_name=division_name,
         actual_division_name=actual_division_name,
@@ -131,6 +139,7 @@ def captured_division_schedule_template(
         fixture_slots=slots,
         tiebreak_order=normalized_tiebreak,
         tiebreak_source_urls=tuple(str(url) for url in tiebreak_source_urls if str(url)),
+        scoring_policy=scoring_policy,
     )
 
 

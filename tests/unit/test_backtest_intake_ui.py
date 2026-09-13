@@ -32,6 +32,7 @@ from src.tournaments.backtest_link_store import (
     update_links,
 )
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
+from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
 from tests.unit.test_backtest_intake_state import sample_snapshot
 
 
@@ -193,6 +194,37 @@ def test_an_invalid_cohort_draft_keeps_the_last_saved_correction(monkeypatch):
     assert ui._current_cohort_decisions(snapshot) == (decision,)
 
 
+def test_unsupported_scoring_draft_blocks_a_previously_saved_rule(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    saved = EventTiebreakDecision(
+        ("points", "goal_differential"),
+        "Published source",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved)
+    draft = {
+        "mode": "Points → goal differential → goals scored → wins",
+        "custom_order": "points, goal differential",
+        "scoring_mode": "Other scoring or standings modifiers",
+        "note": saved.note,
+        "source_url": saved.source_url,
+    }
+    monkeypatch.setattr(
+        ui,
+        "st",
+        SimpleNamespace(
+            session_state={f"bt_tiebreak_draft_{snapshot.generation}": draft}
+        ),
+    )
+
+    decision, error = ui._current_tiebreak_decision(snapshot)
+
+    assert decision is None
+    assert "cannot replay" in error
+
+
 def test_targeted_capture_carries_reviews_cohorts_and_tiebreak_rules():
     original = sample_snapshot()
     review = DivisionReview("10", structure_hash(original.roster.divisions[0]), "Checked", True)
@@ -201,6 +233,7 @@ def test_targeted_capture_carries_reviews_cohorts_and_tiebreak_rules():
         ("points", "goal_differential"),
         "Published source",
         "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
     )
     original = replace(
         original,
@@ -742,6 +775,9 @@ def test_event_tiebreak_draft_survives_navigation_and_explicit_save(rendered_int
     test.selectbox(key="bt_tiebreak_mode_capture-one").set_value(
         "Points → goal differential → goals scored → wins"
     ).run()
+    test.selectbox(key="bt_tiebreak_scoring_capture-one").set_value(
+        "Standard: 3 win / 1 draw / 0 loss; uncapped goal differential"
+    ).run()
     test.text_input(key="bt_tiebreak_note_capture-one").set_value(
         "Confirmed on the published event page"
     ).run()
@@ -761,6 +797,7 @@ def test_event_tiebreak_draft_survives_navigation_and_explicit_save(rendered_int
         ("points", "goal_differential", "goals_for", "wins"),
         "Confirmed on the published event page",
         "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
     )
 
 

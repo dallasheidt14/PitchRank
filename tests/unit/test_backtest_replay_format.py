@@ -1,6 +1,9 @@
 from dataclasses import replace
 
-from src.tournaments.backtest_replay_format import assess_replay_format
+from src.tournaments.backtest_replay_format import (
+    assess_replay_format,
+    ordered_captured_fixtures,
+)
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 
 
@@ -55,3 +58,28 @@ def test_unreadable_source_evidence_is_never_automatically_ready():
 
     assert assessment.ready is False
     assert "could not be read completely" in assessment.reason
+
+
+def test_mixed_numbered_and_unnumbered_fixtures_preserve_page_order():
+    pool_fixture = Fixture(
+        "", "", "pool", "reg-a", "reg-b", None, None, "9:00 AM", "Field 1"
+    )
+    playoff_fixture = Fixture(
+        "20", "Final", "bracket", "reg-a", "reg-b", None, None, "1:00 PM", "Field 1"
+    )
+
+    assert ordered_captured_fixtures((pool_fixture, playoff_fixture)) == (
+        pool_fixture,
+        playoff_fixture,
+    )
+
+
+def test_fully_numbered_fixtures_use_published_match_number_order():
+    later = Fixture(
+        "20", "Final", "bracket", "reg-a", "reg-b", None, None, "1:00 PM", "Field 1"
+    )
+    earlier = Fixture(
+        "10", "", "pool", "reg-a", "reg-b", None, None, "9:00 AM", "Field 1"
+    )
+
+    assert ordered_captured_fixtures((later, earlier)) == (earlier, later)
