@@ -38,8 +38,31 @@ ENDPOINTS = [
     ("/api/infographic/state?state=CA&age=u15&gender=male&platform=story", False),
 ]
 
+# The team share card is the OG image on every /teams/<id> page, so a 0-byte render
+# breaks the link preview a parent gets when they paste a team into a group chat.
+# Its URL carries a team id, and hard-coding one rots the first time that team is
+# merged away — resolve a team the rankings API is serving right now instead.
+TEAM_ID_SOURCE = "/api/rankings/national?age=13&gender=M&limit=1&offset=0"
+
 # A real infographic PNG is >100 KB; the 0-byte Satori failure returns 0 bytes.
 MIN_BYTES = 5000
+
+
+def resolve_team_card_path(base: str) -> str:
+    """Path for the team share card, for a team the rankings API is serving right now.
+
+    Raises rather than skipping: a skipped endpoint reports green, and this is the one
+    infographic a member of the public sees without visiting the site.
+    """
+    resp = requests.get(base + TEAM_ID_SOURCE, timeout=60)
+    resp.raise_for_status()
+    rows = resp.json()
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"{TEAM_ID_SOURCE} returned no teams")
+    team_id = rows[0].get("team_id_master")
+    if not team_id:
+        raise ValueError(f"{TEAM_ID_SOURCE} returned a row with no team_id_master")
+    return f"/api/infographic/team?id={team_id}"
 
 
 def main() -> int:
@@ -51,7 +74,13 @@ def main() -> int:
     base = args.base_url.rstrip("/")
     failures: list[str] = []
 
-    for path, allow_404 in ENDPOINTS:
+    endpoints = list(ENDPOINTS)
+    try:
+        endpoints.append((resolve_team_card_path(base), False))
+    except Exception as e:  # noqa: BLE001 — any failure is a smoke-test failure
+        failures.append(f"{TEAM_ID_SOURCE} -> could not resolve a team for the share card: {e}")
+
+    for path, allow_404 in endpoints:
         url = base + path
         try:
             resp = requests.get(url, timeout=60)
