@@ -20,6 +20,7 @@ from src.tournaments.backtest_reviewed_run import (
     ReviewedRunRecord,
     load_reviewed_run,
 )
+from src.tournaments.backtest_scope import backtest_scope_roster
 
 
 @dataclass(frozen=True)
@@ -189,7 +190,7 @@ def build_event_rollup(
             movements.append(dict(row))
     move_counts = Counter(str(row.get("move") or "stay") for row in movements)
     coverage_counts = Counter(row["status"] for row in coverage)
-    totals = tournament_totals(effective_roster(snapshot))
+    totals = tournament_totals(backtest_scope_roster(effective_roster(snapshot)))
     actual = totals["results"]
     all_cohorts_complete = bool(coverage) and coverage_counts["completed"] == len(coverage)
     complete_4plus = (

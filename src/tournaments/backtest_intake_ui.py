@@ -58,6 +58,7 @@ from src.tournaments.backtest_reviewed_run import (
     resolve_model_artifact,
     reviewed_run_export,
 )
+from src.tournaments.backtest_scope import backtest_group_ids, backtest_scope_snapshot
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
 from src.tournaments.storage._io import utc_now_iso
@@ -1410,8 +1411,11 @@ def render_intake(supabase_client: Any) -> None:
         st.success("Saved the tournament name, teams, structure, matching outcomes and division reviews.")
     decisions = _current_cohort_decisions(snapshot)
     snapshot = replace(snapshot, cohort_decisions=decisions)
-    display_snapshot = replace(snapshot, roster=effective_roster(snapshot))
-    totals = tournament_totals(display_snapshot.roster)
+    effective = effective_roster(snapshot)
+    raw_totals = tournament_totals(effective)
+    display_snapshot = backtest_scope_snapshot(snapshot)
+    scoped_roster = display_snapshot.roster
+    totals = tournament_totals(scoped_roster)
     st.markdown("### " + _as_plain_text(totals["event_name"]))
     start = getattr(snapshot.roster, "event_start_date", None)
     end = getattr(snapshot.roster, "event_end_date", None)
@@ -1431,7 +1435,10 @@ def render_intake(supabase_client: Any) -> None:
         links = load_links(event_key, base_dir=base_dir)
     rows = match_table(display_snapshot, links, details, conflicts=conflicts)
     matched = len({row["Match key"] for row in rows if row["Status"] == "Matched"})
-    reviewed = sum(review.checked for review in _current_reviews(snapshot))
+    scoped_groups = backtest_group_ids(scoped_roster)
+    reviewed = sum(
+        review.checked for review in _current_reviews(snapshot) if review.group_id in scoped_groups
+    )
     status_columns = st.columns(3)
     capture_verified = not capture_verification_blockers(snapshot)
     status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
@@ -1439,7 +1446,14 @@ def render_intake(supabase_client: Any) -> None:
         "Team matching",
         "Unavailable" if matching_blocker else f"{matched} / {totals['total_teams']}",
     )
-    status_columns[2].metric("Division review", f"{reviewed} / {len(snapshot.roster.divisions)}")
+    status_columns[2].metric("Division review", f"{reviewed} / {len(scoped_roster.divisions)}")
+    excluded_teams = raw_totals["total_teams"] - totals["total_teams"]
+    excluded_divisions = raw_totals["divisions"] - totals["divisions"]
+    if excluded_teams or excluded_divisions:
+        st.caption(
+            f"Backtest scope is U10-U18. The source capture retains {excluded_teams} teams "
+            f"across {excluded_divisions} out-of-scope divisions."
+        )
     section = st.radio(
         "Backtest intake section", ("Overview", "Teams", "Structure", "Capture Details"),
         horizontal=True, key=f"bt_section_{snapshot.generation}", label_visibility="collapsed",
@@ -1447,7 +1461,7 @@ def render_intake(supabase_client: Any) -> None:
 
     if section == "Overview":
         columns = st.columns(4)
-        for column, name, key in zip(columns, ("Total teams", "Divisions", "Pools", "Fixtures"),
+        for column, name, key in zip(columns, ("U10-U18 teams", "Divisions", "Pools", "Fixtures"),
                                      ("total_teams", "divisions", "pools", "fixtures")):
             column.metric(name, totals[key])
         st.markdown("#### Teams by tournament cohort and gender")
@@ -1470,8 +1484,8 @@ def render_intake(supabase_client: Any) -> None:
             issue_parts.append(f"{outstanding} team identities")
         if matching_blocker:
             issue_parts.append("team matching availability")
-        if reviewed < len(snapshot.roster.divisions):
-            issue_parts.append(f"{len(snapshot.roster.divisions) - reviewed} division reviews")
+        if reviewed < len(scoped_roster.divisions):
+            issue_parts.append(f"{len(scoped_roster.divisions) - reviewed} division reviews")
         if issue_parts:
             st.warning("Remaining work: " + ", ".join(issue_parts) + ".")
         else:
@@ -1490,7 +1504,7 @@ def render_intake(supabase_client: Any) -> None:
         st.caption(f"{matched} of {totals['total_teams']} teams matched")
         _render_match_editor(display_snapshot, rows, links, supabase_client, base_dir)
     elif section == "Structure":
-        reviews, decisions = _render_structure(snapshot)
+        reviews, decisions = _render_structure(display_snapshot)
     else:
         _render_capture_details(snapshot, supabase_client, base_dir)
 
@@ -1522,7 +1536,8 @@ def render_intake(supabase_client: Any) -> None:
             st.session_state[f"bt_saved_{saved.generation}"] = True
             st.rerun()
     export = {**replace(snapshot, reviews=reviews, cohort_decisions=decisions).to_dict(),
-              "tournament_totals": totals, "team_matches": rows, "links": asdict(links),
+              "tournament_totals": raw_totals, "backtest_scope_totals": totals,
+              "team_matches": rows, "links": asdict(links),
               "matching_conflicts": conflicts}
     import json
 

@@ -15,6 +15,7 @@ from src.tournaments.backtest_historical_preflight import (
     preflight_input_sha256,
 )
 from src.tournaments.backtest_intake_state import (
+    effective_roster,
     entrant_key,
     read_snapshot,
     structure_hash,
@@ -29,6 +30,7 @@ from src.tournaments.backtest_reviewed_run import (
     model_artifact_sha256,
     resolve_model_artifact,
 )
+from src.tournaments.backtest_scope import backtest_group_ids, backtest_scope_roster
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,8 @@ def validate_backtest_acceptance(
     snapshot = read_snapshot(event_key, base_dir=base_dir)
     links = load_links(event_key, base_dir=base_dir)
     totals = tournament_totals(snapshot.roster)
+    scoped_roster = backtest_scope_roster(effective_roster(snapshot))
+    scoped_groups = backtest_group_ids(scoped_roster)
     actual = totals["results"]
     checks = [
         _check("event id", profile.event_id, snapshot.roster.event_id),
@@ -112,17 +116,19 @@ def validate_backtest_acceptance(
     invalid_reviews = [
         division.group_id
         for division in snapshot.roster.divisions
+        if division.group_id in scoped_groups
         if division.group_id not in reviews
         or not reviews[division.group_id].checked
         or reviews[division.group_id].structure_hash != structure_hash(division)
     ]
     checks.append(_check("division reviews", [], invalid_reviews))
 
-    registrations = {entrant_key(team) for team in snapshot.roster.teams}
+    registrations = {entrant_key(team) for team in scoped_roster.teams}
     accepted_links = {
         link.registration_id: link
         for link in links.links
-        if link.matched_by in {"gotsport_id", "operator"}
+        if link.registration_id in registrations
+        and link.matched_by in {"gotsport_id", "operator"}
         and link.registration_id not in links.removed_registration_ids
         and link.registration_id not in links.not_found_registration_ids
     }
@@ -130,7 +136,7 @@ def validate_backtest_acceptance(
     checks.append(
         _check(
             "matched teams",
-            profile.total_teams,
+            len(registrations),
             len(registrations) - len(unmatched),
             detail="; ".join(unmatched[:10]),
         )
@@ -223,7 +229,7 @@ def validate_backtest_acceptance(
     checks.append(_check("completed cohort outputs", coverage["total_cohorts"], coverage["completed"]))
     movements = rollup["team_movements"]
     movement_rows_complete = bool(
-        movements["evaluated"] == profile.total_teams
+        movements["evaluated"] == len(registrations)
         and not movements["duplicate_entry_ids_skipped"]
     )
     checks.append(

@@ -299,10 +299,10 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert any("Spring Invitational" in item.value for item in test.markdown)
     metrics = {item.label: item.value for item in test.metric}
     assert {label: metrics[label] for label in (
-        "Total teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
+        "U10-U18 teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
         "Total goal margin", "Blowout games (4+ goals)", "Blowout rate",
     )} == {
-        "Total teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
+        "U10-U18 teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }

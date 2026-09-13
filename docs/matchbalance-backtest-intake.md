@@ -2,6 +2,8 @@
 
 Backtest captures a completed GotSport event for later analysis. The Seeding tab remains the separate upcoming-tournament workflow. The intake itself does not reseed or write tournament teams to the PitchRank database. The downstream command-line tools can evaluate an original arrangement and a proposed arrangement after the capture is reviewed.
 
+MatchBalance Backtest supports tournament cohorts from U10 through U18. Combined brackets such as U10/U11 and U17/U18 remain in scope. Younger divisions and U19 divisions stay in the immutable source capture for audit purposes but are excluded from matching, division review, Backtest runs, and sales metrics.
+
 MatchBalance has three distinct product workflows:
 
 - **Backtest** is the sales proof. It takes a completed tournament's exact entrants and verified structure, reseeds those teams using historical competitive strength, and shows how the projected matchup quality would have changed.

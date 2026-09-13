@@ -19,6 +19,7 @@ from typing import Any, Literal
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster
 from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
+from src.tournaments.backtest_scope import backtest_scope_roster
 from src.tournaments.storage import (
     acquire_scenario_lock,
     create_staging_run,
@@ -124,7 +125,7 @@ def build_reviewed_cohort_readiness(
 ) -> tuple[ReviewedCohortReadiness, ...]:
     """Evaluate each tournament cohort independently against strict evidence."""
 
-    roster = effective_roster(snapshot)
+    roster = backtest_scope_roster(effective_roster(snapshot))
     cohort_keys = sorted(
         {(division.age_group, division.gender) for division in roster.divisions},
         key=_cohort_sort_key,
