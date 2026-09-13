@@ -17,7 +17,6 @@ from src.tournaments.backtest_intake_state import (
     DivisionReview,
     read_snapshot,
     structure_hash,
-    write_snapshot,
 )
 from src.tournaments.backtest_intake_ui import (
     _preserve_review_state_after_capture,
@@ -68,7 +67,9 @@ def test_direct_apptest_restores_process_entrypoint_and_streamlit_globals():
     original_runtime = Runtime._instance
     original_secrets = st.secrets
 
-    test = AppTest.from_string("import streamlit as st\nst.write('isolated')").run()
+    test = AppTest.from_string(
+        "import streamlit as st\nst.write('isolated')", default_timeout=10
+    ).run()
 
     assert not test.exception
     assert sys.modules["__main__"] is original_main
@@ -309,8 +310,11 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert metrics["Capture verification"] == "Needs review"
     assert metrics["Team review"] == "1 / 3"
     overview_labels = {button.label for button in test.button}
-    assert "Run selected cohort" in overview_labels
-    assert "Run all ready cohorts (0)" in overview_labels
+    assert "Run selected cohort" not in overview_labels
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
+    run_labels = {button.label for button in test.button}
+    assert "Run selected cohort" in run_labels
+    assert "Run all ready cohorts (0)" in run_labels
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
     test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     tables = [item.value for item in test.dataframe]
@@ -361,7 +365,15 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     )
     calls = []
 
-    def fake_execute(event_key_value, request, *, model_artifact, base_dir, on_progress):
+    def fake_execute(
+        event_key_value,
+        request,
+        *,
+        model_artifact,
+        merge_map_version,
+        base_dir,
+        on_progress,
+    ):
         calls.append((event_key_value, request["age_group"], str(model_artifact)))
         run_path = (
             Path(base_dir)
@@ -382,6 +394,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
                 json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
             "model_artifact_sha256": ui.model_artifact_sha256(model_artifact),
+            "merge_map_version": merge_map_version,
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
         (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
@@ -435,6 +448,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     test.run()
 
     assert not test.exception, [error.message for error in test.exception]
+    test.radio(key="bt_section_generation-1").set_value("Backtest").run()
     next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
@@ -513,6 +527,7 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         readiness,
         model_artifact="model.pkl",
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
@@ -550,7 +565,7 @@ def test_overview_keeps_unverified_complete_capture_in_remaining_work(tmp_path, 
 
     assert not test.exception, [error.message for error in test.exception]
     warnings = [item.value for item in test.warning]
-    assert any("Remaining work: capture verification" in item for item in warnings), warnings
+    assert any("Verify the published division list once" in item for item in warnings), warnings
     assert not any("fully captured, matched, and reviewed" in item.value for item in test.success)
 
 
@@ -678,110 +693,35 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
     assert saved.roster.event_name == "Spring Invitational"
 
 
-def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
-    test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    test.selectbox(key="bt_division_capture-one_10_format_code").select("ROUND_ROBIN").run()
-    test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
-    test.checkbox(key="bt_division_capture-one_10_checked").check()
-    test.button(key="bt_save_capture-one").click().run()
-    assert not test.exception, [error.message for error in test.exception]
+def test_structure_is_supporting_detail_and_needs_no_manual_division_review(rendered_intake):
+    test, _ = rendered_intake
 
-    loaded = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path)
-    review = next(item for item in loaded.reviews if item.group_id == "10")
-    assert review.checked is True
-    assert review.format_code == "ROUND_ROBIN"
-    assert review.notes == "Top two advance; head-to-head first"
-
-
-def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_intake):
-    import tournament_intake as app
-
-    test, tmp_path = rendered_intake
-    snapshot = sample_snapshot()
-    review = DivisionReview(
-        "10", structure_hash(snapshot.roster.divisions[0]), "Two advance", checked=True, format_code="ROUND_ROBIN"
-    )
-    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-    refreshed = replace(snapshot, generation="fresh-capture")
-    test.session_state[app._BACKTEST_KEYS.snapshot] = refreshed
-
-    test.run()
-    test.radio(key="bt_section_fresh-capture").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_fresh-capture").set_value("All divisions").run()
+    assert test.radio(key="bt_section_capture-one").options == ["Overview", "Teams", "Backtest"]
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
 
     assert not test.exception, [error.message for error in test.exception]
-    assert test.text_area(key="bt_division_fresh-capture_10_notes").value == "Two advance"
-    assert test.checkbox(key="bt_division_fresh-capture_10_checked").value is True
-    test.button(key="bt_save_fresh-capture").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
+    assert any("Captured 2 divisions" in item.value for item in test.success)
+    assert not any(item.label == "Manual replay format" for item in test.selectbox)
+    assert not any("manual format" in item.label.lower() for item in test.checkbox)
 
 
-def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
-    import tournament_intake as app
-
+def test_optional_cohort_correction_survives_explicit_save(rendered_intake):
     test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    snapshot = sample_snapshot()
-    review = DivisionReview(
-        "10",
-        structure_hash(snapshot.roster.divisions[0]),
-        "Saved in another session",
-        checked=True,
-        format_code="ROUND_ROBIN",
-    )
-    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-
-    # This form was opened before the other session saved. Its unchanged blanks
-    # must not be mistaken for a request to erase that newer work.
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.text_input(key="bt_division_capture-one_10_cohort_age").set_value("U13").run()
+    test.text_input(key="bt_division_capture-one_10_cohort_note").set_value(
+        "Published bracket is U13"
+    ).run()
+    test.text_input(key="bt_division_capture-one_10_cohort_source_url").set_value(
+        "https://example.test/division/10"
+    ).run()
     test.button(key="bt_save_capture-one").click().run()
 
     assert not test.exception, [error.message for error in test.exception]
-    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
-    assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
-    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
-
-    # A fresh form opened after seeing the merged result can intentionally clear it.
-    test = AppTest.from_function(_render_fixture_app, default_timeout=10)
-    test.session_state[app._BACKTEST_KEYS.snapshot] = read_snapshot(
-        "gotsport__51783__unknown", base_dir=tmp_path
-    )
-    test.run()
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    test.text_area(key="bt_division_capture-one_10_notes").set_value("").run()
-    test.checkbox(key="bt_division_capture-one_10_checked").uncheck().run()
-    test.button(key="bt_save_capture-one").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0]
-    assert saved.notes == ""
-    assert saved.checked is False
-
-
-def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
-    test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    snapshot = sample_snapshot()
-    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
-    path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-    before = path.read_bytes()
-    test.text_area(key="bt_division_capture-one_10_notes").set_value("My competing notes")
-
-    test.button(key="bt_save_capture-one").click().run()
-
-    assert not test.exception, [error.message for error in test.exception]
-    assert any("changed in another session" in error.value for error in test.error)
-    assert path.read_bytes() == before
-    assert test.text_area(key="bt_division_capture-one_10_notes").value == "My competing notes"
-    test.button(key="_backtest_open_saved").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
+    saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path)
+    decision = next(item for item in saved.cohort_decisions if item.group_id == "10")
+    assert decision.age_group == "u13"
+    assert decision.note == "Published bracket is U13"
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):
@@ -948,13 +888,13 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     else:
         monkeypatch.setattr(ReadOnlyTeams.Query, "execute", unavailable)
     test.run()
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
 
     readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
     assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
     assert next(button for button in test.button if button.label == "Run selected cohort").disabled
     metrics = {item.label: item.value for item in test.metric}
     assert metrics["Team review"] == "Unavailable"
-    assert any("team matching availability" in item.value for item in test.warning)
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
 
     assert not test.exception, [error.message for error in test.exception]

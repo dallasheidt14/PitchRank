@@ -59,11 +59,15 @@ from src.tournaments.backtest_reviewed_run import (
     resolve_model_artifact,
     reviewed_run_export,
 )
-from src.tournaments.backtest_scope import backtest_group_ids, backtest_scope_snapshot
+from src.tournaments.backtest_scope import backtest_scope_snapshot
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
 from src.tournaments.storage._io import utc_now_iso
 from src.tournaments.storage.event_key import existing_event_key
+
+
+def _set_session_value(key: str, value: Any) -> None:
+    st.session_state[key] = value
 
 
 def _pool_labels(team: Any, division: Any) -> list[str]:
@@ -328,38 +332,51 @@ def _render_match_editor(
     if not rows:
         return
     generation = snapshot.generation
-    mode = st.radio("Show teams", ("Needs review", "All teams"), horizontal=True, key=f"bt_filter_{generation}")
-    completed_statuses = {"Matched", "Not found"}
-    candidates = (
-        rows if mode == "All teams" else [row for row in rows if row["Status"] not in completed_statuses]
-    )
-    filters = st.columns(4)
-    division = filters[0].selectbox(
-        "Division", ("All",) + tuple(sorted({row["Division"] for row in candidates})),
-        key=f"bt_team_division_{generation}",
-    )
-    cohort = filters[1].selectbox(
-        "Cohort", ("All",) + tuple(sorted({row["Tournament cohort"] or "Not stated" for row in candidates})),
-        key=f"bt_team_cohort_{generation}",
-    )
-    gender = filters[2].selectbox(
-        "Gender", ("All",) + tuple(sorted({row["Gender"] or "Not stated" for row in candidates})),
-        key=f"bt_team_gender_{generation}",
-    )
-    issue = filters[3].selectbox(
-        "Issue", ("All",) + tuple(sorted({row["Status"] for row in candidates})),
-        key=f"bt_team_issue_{generation}",
-    )
+    with st.expander("Filter review queue"):
+        mode = st.radio(
+            "Show teams",
+            ("Needs review", "All teams"),
+            horizontal=True,
+            key=f"bt_filter_{generation}",
+        )
+        completed_statuses = {"Matched", "Not found"}
+        candidates = (
+            rows
+            if mode == "All teams"
+            else [row for row in rows if row["Status"] not in completed_statuses]
+        )
+        filters = st.columns(4)
+        division = filters[0].selectbox(
+            "Division", ("All",) + tuple(sorted({row["Division"] for row in candidates})),
+            key=f"bt_team_division_{generation}",
+        )
+        cohort = filters[1].selectbox(
+            "Cohort",
+            ("All",)
+            + tuple(sorted({row["Tournament cohort"] or "Not stated" for row in candidates})),
+            key=f"bt_team_cohort_{generation}",
+        )
+        gender = filters[2].selectbox(
+            "Gender", ("All",) + tuple(sorted({row["Gender"] or "Not stated" for row in candidates})),
+            key=f"bt_team_gender_{generation}",
+        )
+        issue = filters[3].selectbox(
+            "Issue", ("All",) + tuple(sorted({row["Status"] for row in candidates})),
+            key=f"bt_team_issue_{generation}",
+        )
     visible = [row for row in candidates if (
         (division == "All" or row["Division"] == division)
         and (cohort == "All" or (row["Tournament cohort"] or "Not stated") == cohort)
         and (gender == "All" or (row["Gender"] or "Not stated") == gender)
         and (issue == "All" or row["Status"] == issue)
     )]
-    st.dataframe(
-        pd.DataFrame(visible).drop(columns=["source_index", "Match key"], errors="ignore"),
-        hide_index=True, width="stretch"
-    )
+    st.caption(f"{len(visible)} team registration(s) in this queue.")
+    with st.expander("View review queue"):
+        st.dataframe(
+            pd.DataFrame(visible).drop(columns=["source_index", "Match key"], errors="ignore"),
+            hide_index=True,
+            width="stretch",
+        )
     if not visible:
         st.success("No teams match these filters.")
         return
@@ -384,7 +401,18 @@ def _render_match_editor(
         st.session_state.pop(expected_key, None)
         st.rerun()
 
-    st.caption(_as_plain_text(f"Entered in: {display['Division']} · Registration {registration}"))
+    st.markdown(f"#### {_as_plain_text(display['Event team'])}")
+    identity_columns = st.columns(2)
+    identity_columns[0].write(f"**Tournament division:** {_as_plain_text(display['Division'])}")
+    identity_columns[0].write(
+        f"**Tournament cohort:** {_as_plain_text(display['Tournament cohort'] or 'Not stated')}"
+    )
+    identity_columns[1].write(f"**Gender:** {_as_plain_text(display['Gender'] or 'Not stated')}")
+    identity_columns[1].write(f"**Pool:** {_as_plain_text(display['Pools'] or 'Not stated')}")
+    with st.expander("IDs and source details"):
+        st.write(f"Registration ID: {registration}")
+        st.write(f"GotSport team ID: {display['GotSport team ID'] or 'Not captured'}")
+        st.write(f"PitchRank ID: {display['PitchRank ID'] or 'Not selected'}")
     if display["Match issue"]:
         st.warning(_as_plain_text(display["Match issue"]))
     collision_peers = _canonical_collisions(links).get(registration, ())
@@ -426,7 +454,7 @@ def _render_match_editor(
     if display["Status"] == "Not found":
         st.info(
             "Reviewed and marked as not found in PitchRank. The entrant and its results are preserved; "
-            "Backtest uses a clearly labeled median-rated peer as its rating fallback."
+            "Backtest uses a clearly labeled average pre-event strength estimate."
         )
         if st.button("Reopen review", key=f"bt_reopen_{generation}_{selected}"):
             update_links(event_key, event_id=snapshot.roster.event_id,
@@ -497,44 +525,51 @@ def _render_match_editor(
             else:
                 st.rerun()
 
-    reference = st.text_input("PitchRank team link or ID, or GotSport team link or ID",
-                              value=display["PitchRank ID"], key=f"bt_reference_{generation}_{selected}")
-    if not reference:
-        if display["Status"] != "Not found" and st.button(
-            "Mark not found in PitchRank", key=f"bt_not_found_{generation}_{selected}"
-        ):
-            update_links(
-                event_key, event_id=snapshot.roster.event_id,
-                not_found_registration_ids=(registration,),
-                expected_links={registration: expected_state}, base_dir=base_dir,
-            )
-            rerun_after_link_change()
-        return
-    try:
-        candidate = resolve_manual_reference(
-            reference, row, lookup_provider_id=_seeding_provider_id_lookup(client),
-            lookup_team_details=make_team_details_lookup(client),
+    if display["Status"] != "Not found" and st.button(
+        "Mark not found in PitchRank", key=f"bt_not_found_{generation}_{selected}"
+    ):
+        update_links(
+            event_key,
+            event_id=snapshot.roster.event_id,
+            not_found_registration_ids=(registration,),
+            expected_links={registration: expected_state},
+            base_dir=base_dir,
         )
-    except Exception as exc:
-        st.error(f"Could not check that team: {exc}")
-        return
-    if candidate.status != "ok":
-        st.warning("No PitchRank team was found for that link or ID.")
-        return
-    detail = candidate.details or {}
-    st.dataframe(pd.DataFrame([detail]), hide_index=True, width="stretch")
-    st.caption("Check the squad identity. Its current database age can differ from this historical bracket.")
-    if st.button("Use this team", key=f"bt_use_{generation}_{selected}"):
-        link = TeamLink(registration, row.team_name_raw, candidate.team_id_master, "operator", utc_now_iso())
+        rerun_after_link_change()
+
+    with st.expander("Advanced link or ID lookup"):
+        reference = st.text_input(
+            "PitchRank team link or ID, or GotSport team link or ID",
+            value=display["PitchRank ID"],
+            key=f"bt_reference_{generation}_{selected}",
+        )
+        if not reference:
+            return
         try:
-            update_links(
-                event_key, event_id=snapshot.roster.event_id, changed_links=(link,),
-                expected_links={registration: expected_state}, base_dir=base_dir,
+            candidate = resolve_manual_reference(
+                reference, row, lookup_provider_id=_seeding_provider_id_lookup(client),
+                lookup_team_details=make_team_details_lookup(client),
             )
         except Exception as exc:
-            st.error(f"The match was not saved: {exc}")
-        else:
-            rerun_after_link_change()
+            st.error(f"Could not check that team: {exc}")
+            return
+        if candidate.status != "ok":
+            st.warning("No PitchRank team was found for that link or ID.")
+            return
+        detail = candidate.details or {}
+        st.dataframe(pd.DataFrame([detail]), hide_index=True, width="stretch")
+        st.caption("Check the squad identity. Its current database age can differ from this historical bracket.")
+        if st.button("Use this team", key=f"bt_use_{generation}_{selected}"):
+            link = TeamLink(registration, row.team_name_raw, candidate.team_id_master, "operator", utc_now_iso())
+            try:
+                update_links(
+                    event_key, event_id=snapshot.roster.event_id, changed_links=(link,),
+                    expected_links={registration: expected_state}, base_dir=base_dir,
+                )
+            except Exception as exc:
+                st.error(f"The match was not saved: {exc}")
+            else:
+                rerun_after_link_change()
 
 
 def _review_drafts(snapshot: BacktestSnapshot) -> dict[str, dict[str, Any]]:
@@ -562,23 +597,6 @@ def _cohort_drafts(snapshot: BacktestSnapshot) -> dict[str, dict[str, str]]:
     if key not in st.session_state:
         st.session_state[key] = {item.group_id: asdict(item) for item in snapshot.cohort_decisions}
     return st.session_state[key]
-
-
-def _save_review_field(draft_key: str, group_id: str, field: str, widget_key: str) -> None:
-    drafts = dict(st.session_state[draft_key])
-    item = dict(drafts[group_id])
-    item[field] = st.session_state[widget_key]
-    drafts[group_id] = item
-    st.session_state[draft_key] = drafts
-
-
-def _save_review_format(draft_key: str, group_id: str, widget_key: str) -> None:
-    drafts = dict(st.session_state[draft_key])
-    item = dict(drafts[group_id])
-    item["format_code"] = st.session_state[widget_key]
-    item["checked"] = False
-    drafts[group_id] = item
-    st.session_state[draft_key] = drafts
 
 
 def _save_cohort_field(
@@ -624,30 +642,25 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
     from tournament_intake import _as_plain_text
 
     display_divisions = effective_roster(snapshot).divisions
-    st.markdown("#### Tournament replay coverage")
+    st.markdown("#### Tournament structure")
     review_key = f"bt_review_drafts_{snapshot.generation}"
     cohort_key = f"bt_cohort_drafts_{snapshot.generation}"
-    reviews = _review_drafts(snapshot)
+    _review_drafts(snapshot)
     cohorts = _cohort_drafts(snapshot)
     by_group = {division.group_id: division for division in display_divisions}
-    assessments = {
-        group: assess_replay_format(
-            division,
-            manual_format=(reviews[group]["format_code"] if reviews[group]["checked"] else ""),
-        )
-        for group, division in by_group.items()
-    }
+    assessments = {group: assess_replay_format(division) for group, division in by_group.items()}
     ready_groups = {group for group, assessment in assessments.items() if assessment.ready}
     attention_groups = [group for group in by_group if group not in ready_groups]
-    summary_columns = st.columns(3)
-    summary_columns[0].metric("Replay ready", f"{len(ready_groups)} / {len(by_group)}")
-    summary_columns[1].metric("Replay formats to build", len(attention_groups))
-    summary_columns[2].metric("Source divisions", len(by_group))
-    st.caption(
-        "MatchBalance validates routine pool and playoff shapes automatically. You do not need to "
-        "check every division. The remaining list is software work needed to reproduce unusual schedules."
+    pool_count = sum(len(division.pools) for division in display_divisions)
+    fixture_count = sum(len(division.fixtures) for division in display_divisions)
+    st.success(
+        f"Captured {len(by_group)} divisions, {pool_count} pools, and {fixture_count} fixtures."
     )
-    with st.expander("All division statuses"):
+    st.caption(
+        "You do not need to review divisions one by one. MatchBalance checks the captured structure "
+        "automatically. Open the details below only when you want to inspect the source."
+    )
+    with st.expander(f"View division list ({len(by_group)})"):
         st.dataframe(
             pd.DataFrame([
                 {
@@ -657,102 +670,97 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
                     "Teams": sum(len(pool.members) for pool in division.pools),
                     "Pools": len(division.pools),
                     "Fixtures": len(division.fixtures),
-                    "Replay status": "Ready" if assessments[group].ready else "Software needed",
-                    "Replay format": assessments[group].format_code,
-                    "Reason": assessments[group].reason,
                 }
-                for group, division in by_group.items()
+                for division in by_group.values()
             ]),
             hide_index=True,
             width="stretch",
         )
-    filter_mode = st.radio(
-        "Show divisions", ("Software needed", "Ready", "All divisions"), horizontal=True,
-        key=f"bt_structure_filter_{snapshot.generation}",
-    )
-    if filter_mode == "Software needed":
-        options = attention_groups
-    elif filter_mode == "Ready":
-        options = [group for group in by_group if group in ready_groups]
-    else:
-        options = list(by_group)
-    if not options:
-        st.success("No divisions match this filter.")
-        return _current_reviews(snapshot), _current_cohort_decisions(snapshot)
-    select_key = f"bt_structure_selected_{snapshot.generation}_{filter_mode}"
-    if st.button(
-        "Next unsupported division",
-        disabled=not attention_groups,
-        key=f"bt_next_attention_{snapshot.generation}",
-    ):
-        st.session_state[select_key] = attention_groups[0]
-    selected = st.selectbox(
-        "Division", options,
-        format_func=lambda group: by_group[group].division_label or f"Division {group}", key=select_key,
-    )
-    division = by_group[selected]
-    saved = reviews[selected]
-    assessment = assessments[selected]
-    epoch = st.session_state.get(f"bt_review_epoch_{snapshot.generation}", 0)
-    widget = f"bt_division_{snapshot.generation}_{selected}" + (f"_{epoch}" if epoch else "")
-    detail_columns = st.columns(4)
-    detail_columns[0].metric("Teams", sum(len(pool.members) for pool in division.pools))
-    detail_columns[1].metric("Pools", len(division.pools))
-    detail_columns[2].metric("Fixtures", len(division.fixtures))
-    detail_columns[3].metric("Cohort", division.age_group.upper())
-    if assessment.ready:
-        st.success(f"Replay format ready: {assessment.format_code}. No manual confirmation is required.")
-    else:
-        st.warning(f"MatchBalance cannot replay this schedule yet: {assessment.reason}")
-    if division.source_url:
-        st.link_button("Open published division", division.source_url)
-    memberships = [
-        {"Pool": pool.label, "Team": member.team_name, "Registration ID": member.registration_id,
-         "Final standing (not seed)": member.standings_position}
-        for pool in division.pools for member in pool.members
-    ]
-    with st.expander("Teams and pools"):
-        st.dataframe(pd.DataFrame(memberships), hide_index=True, width="stretch")
-    with st.expander("Fixtures and results"):
-        st.dataframe(
-            pd.DataFrame([asdict(fixture) for fixture in division.fixtures]),
-            hide_index=True,
-            width="stretch",
+    with st.expander("Inspect one division"):
+        selected = st.selectbox(
+            "Division",
+            tuple(by_group),
+            format_func=lambda group: by_group[group].division_label or f"Division {group}",
+            key=f"bt_structure_selected_{snapshot.generation}",
         )
-    if division.warnings or division.rules_links:
-        with st.expander("Source evidence and warnings"):
+        division = by_group[selected]
+        detail_columns = st.columns(4)
+        detail_columns[0].metric("Teams", sum(len(pool.members) for pool in division.pools))
+        detail_columns[1].metric("Pools", len(division.pools))
+        detail_columns[2].metric("Fixtures", len(division.fixtures))
+        detail_columns[3].metric("Cohort", division.age_group.upper())
+        if division.source_url:
+            st.link_button("Open published division", division.source_url)
+        evidence = st.radio(
+            "Show",
+            ("Teams and pools", "Fixtures and results", "Source notes"),
+            horizontal=True,
+            key=f"bt_structure_evidence_{snapshot.generation}_{selected}",
+        )
+        if evidence == "Teams and pools":
+            memberships = [
+                {
+                    "Pool": pool.label,
+                    "Team": member.team_name,
+                    "Registration ID": member.registration_id,
+                    "Final standing (not seed)": member.standings_position,
+                }
+                for pool in division.pools
+                for member in pool.members
+            ]
+            st.dataframe(pd.DataFrame(memberships), hide_index=True, width="stretch")
+        elif evidence == "Fixtures and results":
+            st.dataframe(
+                pd.DataFrame([asdict(fixture) for fixture in division.fixtures]),
+                hide_index=True,
+                width="stretch",
+            )
+        else:
             for warning in division.warnings:
                 st.warning(_as_plain_text(warning))
             if division.rules_links:
-                st.dataframe(pd.DataFrame([asdict(link) for link in division.rules_links]), hide_index=True)
-    with st.expander("Published rules or manual format override", expanded=False):
-        format_options = ("", "ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P")
-        format_key = f"{widget}_format_code"
-        current_format = saved.get("format_code", "")
-        st.selectbox(
-            "Manual replay format",
-            format_options,
-            index=format_options.index(current_format) if current_format in format_options else 0,
-            format_func=lambda value: value or "No manual override",
-            key=format_key,
-            on_change=_save_review_format,
-            args=(review_key, selected, format_key),
-            help="Use only when the published rules clarify an otherwise ambiguous captured schedule.",
-        )
-        for field, label in (("notes", "Published format / advancement / tiebreaker notes"),
-                             ("source_url", "Rules source URL")):
-            widget_key = f"{widget}_{field}"
-            render = st.text_area if field == "notes" else st.text_input
-            render(label, value=saved[field], key=widget_key, on_change=_save_review_field,
-                   args=(review_key, selected, field, widget_key))
-        checked_key = f"{widget}_checked"
-        st.checkbox(
-            "Use this manual format after checking the published source",
-            value=saved["checked"], disabled=not saved.get("format_code"), key=checked_key,
-            on_change=_save_review_field, args=(review_key, selected, "checked", checked_key),
-        )
+                st.dataframe(
+                    pd.DataFrame([asdict(link) for link in division.rules_links]),
+                    hide_index=True,
+                )
+            if not division.warnings and not division.rules_links:
+                st.caption("No additional source notes were captured for this division.")
 
-    with st.expander("Correct tournament cohort interpretation"):
+    with st.expander("Backtest replay readiness"):
+        st.write(f"{len(ready_groups)} of {len(by_group)} division schedules are replay-ready.")
+        if attention_groups:
+            st.info(
+                f"{len(attention_groups)} unusual schedule patterns still need MatchBalance engine "
+                "support. There is nothing for you to approve or correct here."
+            )
+            st.dataframe(
+                pd.DataFrame([
+                    {
+                        "Division": by_group[group].division_label,
+                        "Schedule pattern": assessments[group].reason,
+                    }
+                    for group in attention_groups
+                ]),
+                hide_index=True,
+                width="stretch",
+            )
+        else:
+            st.success("Every captured division schedule is replay-ready.")
+
+    with st.expander("Correct a tournament cohort"):
+        st.caption(
+            "Use this only when the published division label assigns the wrong age or gender. "
+            "The correction needs a note and source URL."
+        )
+        selected = st.selectbox(
+            "Division to update",
+            tuple(by_group),
+            format_func=lambda group: by_group[group].division_label or f"Division {group}",
+            key=f"bt_structure_update_{snapshot.generation}",
+        )
+        division = by_group[selected]
+        epoch = st.session_state.get(f"bt_review_epoch_{snapshot.generation}", 0)
+        widget = f"bt_division_{snapshot.generation}_{selected}" + (f"_{epoch}" if epoch else "")
         captured_age = division.published_age_group or ""
         if selected not in cohorts:
             cohorts = dict(cohorts)
@@ -1019,7 +1027,15 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         st.error(f"This completed run could not be read: {exc}")
         return
 
-    proposed = summary.get("proposed_model_projection") or {}
+    proposed = summary.get("proposed_schedule_projection") or summary.get(
+        "proposed_model_projection"
+    ) or {}
+    validation = summary.get("model_validation") or {}
+    if validation and validation.get("status") != "passed":
+        st.warning(
+            "This run is saved, but its sales comparison is withheld because the model did not "
+            "reproduce the unchanged tournament closely enough."
+        )
     if proposed.get("average_goal_differential") is None:
         st.warning(
             "The MatchBalance projection is unavailable because its modeled matchup evidence is incomplete."
@@ -1041,7 +1057,7 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     )
     st.caption(
         "The tournament values come directly from the captured results. The MatchBalance values "
-        "project the reseeded pool assignments using only pre-event evidence."
+        "project the reseeded division and pool assignments using only pre-event evidence."
     )
     comparison_rows = actual_vs_matchbalance_rows(summary)
     comparison_display = [
@@ -1116,6 +1132,7 @@ def _render_event_rollup(
     base_dir,
     *,
     model_sha256: str | None,
+    merge_map_version: str | None,
 ) -> None:
     records = (*list_reviewed_runs(event_key, base_dir=base_dir),
                *list_failed_reviewed_runs(event_key, base_dir=base_dir))
@@ -1124,12 +1141,28 @@ def _render_event_rollup(
         readiness,
         records,
         model_sha256=model_sha256,
+        merge_map_version=merge_map_version,
     )
     comparison = rollup["actual_vs_matchbalance"]
     movements = rollup["team_movements"]
     coverage = rollup["coverage"]
-    st.markdown("#### Tournament-wide sales summary")
+    st.markdown("#### Tournament-wide Backtest result")
+    if not rollup["selected_runs"]:
+        st.info(
+            "No compatible cohort results exist yet. Complete the readiness checks, then run one "
+            "cohort or every ready cohort."
+        )
+        return
     st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
+    if not comparison["comparison_ready"]:
+        validation = rollup.get("model_validation") or {}
+        if validation.get("failed_cohorts"):
+            st.warning(
+                "The completed runs are saved, but MatchBalance is withholding the sales comparison "
+                "because the model did not reproduce the unchanged tournament closely enough."
+            )
+        else:
+            st.info("Complete every cohort before producing the tournament-wide comparison.")
     metric_columns = st.columns(4)
     metric_columns[0].metric(
         "Actual tournament margin",
@@ -1188,6 +1221,12 @@ def _render_event_rollup(
         file_name=f"{event_key}-tournament-backtest.zip",
         mime="application/zip",
         key=f"bt_event_rollup_{snapshot.generation}_{model_sha256 or 'none'}",
+        disabled=not comparison["comparison_ready"],
+        help=(
+            None
+            if comparison["comparison_ready"]
+            else "Available after every cohort finishes and unchanged-fixture calibration passes."
+        ),
     )
 
 
@@ -1196,6 +1235,7 @@ def _run_reviewed_requests(
     readiness: list[ReviewedCohortReadiness],
     *,
     model_artifact: str,
+    merge_map_version: str,
     base_dir,
 ) -> None:
     had_failure = False
@@ -1229,6 +1269,7 @@ def _run_reviewed_requests(
                     event_key,
                     cohort.request,
                     model_artifact=model_artifact,
+                    merge_map_version=merge_map_version,
                     base_dir=base_dir,
                     on_progress=on_progress,
                 )
@@ -1259,11 +1300,14 @@ def _render_backtest_runner(
     supabase_client: Any,
     matching_blocker: str = "",
     merge_map_version: str = "",
+    team_reviewed: int = 0,
+    team_total: int = 0,
 ) -> None:
     st.markdown("#### Run Backtest")
     st.caption(
-        "Reseed matched teams within each tournament cohort while keeping division sizes, pool sizes, "
-        "and reviewed formats fixed. Runs and evidence stay local."
+        "Reseed matched teams within each tournament cohort while keeping every captured division, "
+        "pool capacity, and fixture path fixed. MatchBalance optimizes both division and pool placement. "
+        "Runs and evidence stay local."
     )
     operator_snapshot = replace(
         snapshot,
@@ -1288,9 +1332,11 @@ def _render_backtest_runner(
     readiness = list(build_reviewed_cohort_readiness(saved_snapshot, links))
     if unsaved_reason:
         readiness = [
-            replace(item, request=None, blockers=(unsaved_reason, *item.blockers))
+            replace(item, blockers=(unsaved_reason, *item.blockers))
             for item in readiness
         ]
+    if not merge_map_version and not matching_blocker:
+        matching_blocker = "Retry team matching; merge-synchronized team IDs are unavailable"
     if matching_blocker:
         readiness = [
             replace(item, request=None, blockers=(matching_blocker, *item.blockers))
@@ -1299,9 +1345,9 @@ def _render_backtest_runner(
 
     artifact_value = st.text_input(
         "Historical model artifact",
-        value=default_model_artifact(),
+        value=default_model_artifact(snapshot.roster.event_start_date or ""),
         key=f"bt_model_artifact_{snapshot.roster.event_id}",
-        help="A point-in-time model trained only on data before this tournament.",
+        help="MatchBalance automatically selects the newest local model trained only on earlier data.",
     )
     try:
         artifact_path = resolve_model_artifact(artifact_value)
@@ -1370,8 +1416,8 @@ def _render_backtest_runner(
             )
             if fallbacks:
                 st.info(
-                    f"{len(fallbacks)} reviewed not-found entrant(s) will use a median-rated "
-                    "historical peer. This limitation is included in the saved Backtest evidence."
+                    f"{len(fallbacks)} reviewed not-found entrant(s) will use an average "
+                    "pre-event strength estimate. This limitation is included in the saved Backtest evidence."
                 )
         else:
             st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
@@ -1387,6 +1433,73 @@ def _render_backtest_runner(
                     if not entrant.eligible
                 ]
                 st.dataframe(pd.DataFrame(missing_rows), hide_index=True, width="stretch")
+    scoped_divisions = backtest_scope_snapshot(saved_snapshot).roster.divisions
+    schedule_attention = [
+        assessment.reason
+        for division in scoped_divisions
+        if not (assessment := assess_replay_format(division)).ready
+    ]
+    capture_reasons = capture_verification_blockers(saved_snapshot)
+    if preflight is None:
+        history_status = "Not checked"
+        history_action = "Check historical ratings"
+    elif preflight.ready:
+        history_status = "Ready"
+        history_action = f"{sum(item.eligible for item in preflight.cohorts)} entrants eligible"
+    else:
+        history_status = "Needs attention"
+        history_action = "Resolve missing pre-event ratings"
+    st.markdown("##### Readiness")
+    st.caption("Your decisions and MatchBalance system checks are shown separately.")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Check": "Event capture",
+                    "Owner": "You",
+                    "Status": "Ready" if not capture_reasons else "Needs action",
+                    "Action": "; ".join(capture_reasons) or "Published division list verified",
+                },
+                {
+                    "Check": "Team identities",
+                    "Owner": "You",
+                    "Status": (
+                        "Unavailable"
+                        if matching_blocker
+                        else "Ready" if team_total and team_reviewed == team_total else "Needs action"
+                    ),
+                    "Action": (
+                        matching_blocker
+                        or f"{team_reviewed} of {team_total} reviewed"
+                    ),
+                },
+                {
+                    "Check": "Captured schedules",
+                    "Owner": "MatchBalance",
+                    "Status": "Ready" if not schedule_attention else "Needs engineering",
+                    "Action": (
+                        f"All {len(scoped_divisions)} division schedules are replay-ready"
+                        if not schedule_attention
+                        else f"{len(schedule_attention)} schedule patterns are unsupported"
+                    ),
+                },
+                {
+                    "Check": "Historical model",
+                    "Owner": "MatchBalance",
+                    "Status": "Ready" if model_ready else "Needs engineering",
+                    "Action": str(artifact_path) if model_ready else model_blocker,
+                },
+                {
+                    "Check": "Pre-event team ratings",
+                    "Owner": "MatchBalance",
+                    "Status": history_status,
+                    "Action": history_action,
+                },
+            ]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
     if model_ready:
         enriched = []
         for item in readiness:
@@ -1419,11 +1532,17 @@ def _render_backtest_runner(
                 "What remains": "; ".join(blockers),
             }
         )
-    st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
+    with st.expander("Cohort-by-cohort details"):
+        st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
     if not readiness:
         st.info("No tournament cohorts are available to run.")
         _render_event_rollup(
-            saved_snapshot, readiness, event_key, base_dir, model_sha256=selected_model_sha
+            saved_snapshot,
+            readiness,
+            event_key,
+            base_dir,
+            model_sha256=selected_model_sha,
+            merge_map_version=merge_map_version or None,
         )
         _render_reviewed_result(event_key, base_dir)
         return
@@ -1456,6 +1575,7 @@ def _render_backtest_runner(
             event_key,
             [selected],
             model_artifact=str(artifact_path),
+            merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
     if run_all:
@@ -1463,10 +1583,16 @@ def _render_backtest_runner(
             event_key,
             ready,
             model_artifact=str(artifact_path),
+            merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
     _render_event_rollup(
-        saved_snapshot, readiness, event_key, base_dir, model_sha256=selected_model_sha
+        saved_snapshot,
+        readiness,
+        event_key,
+        base_dir,
+        model_sha256=selected_model_sha,
+        merge_map_version=merge_map_version or None,
     )
     _render_reviewed_result(event_key, base_dir)
 
@@ -1513,21 +1639,8 @@ def render_intake(supabase_client: Any) -> None:
     matched = len({row["Match key"] for row in rows if row["Status"] == "Matched"})
     not_found = len({row["Match key"] for row in rows if row["Status"] == "Not found"})
     identity_reviewed = matched + not_found
-    scoped_groups = backtest_group_ids(scoped_roster)
-    reviews_by_group = {
-        review.group_id: review
-        for review in _current_reviews(snapshot)
-        if review.group_id in scoped_groups
-    }
     reviewed = sum(
-        assess_replay_format(
-            division,
-            manual_format=(
-                reviews_by_group[division.group_id].format_code
-                if division.group_id in reviews_by_group and reviews_by_group[division.group_id].checked
-                else ""
-            ),
-        ).ready
+        assess_replay_format(division).ready
         for division in scoped_roster.divisions
     )
     status_columns = st.columns(3)
@@ -1541,7 +1654,11 @@ def render_intake(supabase_client: Any) -> None:
             if not matching_blocker else None
         ),
     )
-    status_columns[2].metric("Structure ready", f"{reviewed} / {len(scoped_roster.divisions)}")
+    status_columns[2].metric(
+        "Structure",
+        f"{len(scoped_roster.divisions)} divisions captured",
+        help=f"{reviewed} schedules are replay-ready; MatchBalance is adding support for the rest.",
+    )
     excluded_teams = raw_totals["total_teams"] - totals["total_teams"]
     excluded_divisions = raw_totals["divisions"] - totals["divisions"]
     if excluded_teams or excluded_divisions:
@@ -1549,9 +1666,13 @@ def render_intake(supabase_client: Any) -> None:
             f"Backtest scope is U10-U18. The source capture retains {excluded_teams} teams "
             f"across {excluded_divisions} out-of-scope divisions."
         )
+    section_key = f"bt_section_{snapshot.generation}"
     section = st.radio(
-        "Backtest intake section", ("Overview", "Teams", "Structure", "Capture Details"),
-        horizontal=True, key=f"bt_section_{snapshot.generation}", label_visibility="collapsed",
+        "Backtest intake section",
+        ("Overview", "Teams", "Backtest"),
+        horizontal=True,
+        key=section_key,
+        label_visibility="collapsed",
     )
 
     if section == "Overview":
@@ -1561,7 +1682,8 @@ def render_intake(supabase_client: Any) -> None:
             column.metric(name, totals[key])
         st.markdown("#### Teams by tournament cohort and gender")
         st.caption("Counts use the bracket entered. A U11 team playing in a U12 bracket counts under U12.")
-        st.dataframe(pd.DataFrame(totals["cohorts"]), hide_index=True, width="stretch")
+        with st.expander("View cohort team counts"):
+            st.dataframe(pd.DataFrame(totals["cohorts"]), hide_index=True, width="stretch")
         if totals["cohort_entries"] != totals["total_teams"]:
             st.info(
                 f"{totals['total_teams']} distinct registrations appear in "
@@ -1574,21 +1696,69 @@ def render_intake(supabase_client: Any) -> None:
         outstanding = len({
             row["Match key"] for row in rows if row["Status"] not in {"Matched", "Not found"}
         })
-        issue_parts = []
+        st.markdown("#### What do I do next?")
         if not capture_verified:
-            issue_parts.append("capture verification")
-        if outstanding:
-            issue_parts.append(f"{outstanding} team identities")
-        if matching_blocker:
-            issue_parts.append("team matching availability")
-        if reviewed < len(scoped_roster.divisions):
-            issue_parts.append(
-                f"{len(scoped_roster.divisions) - reviewed} division replay formats need software support"
+            st.warning("Verify the published division list once so the Backtest uses the complete event.")
+            capture_key = f"bt_show_capture_{snapshot.generation}"
+            st.button(
+                "Open capture verification",
+                type="primary",
+                key=f"bt_open_capture_{snapshot.generation}",
+                on_click=_set_session_value,
+                args=(capture_key, True),
             )
-        if issue_parts:
-            st.warning("Remaining work: " + ", ".join(issue_parts) + ".")
+        elif matching_blocker:
+            st.warning("Team matching is temporarily unavailable. Retry before running the Backtest.")
+            st.button(
+                "Retry team matching",
+                type="primary",
+                key=f"bt_retry_matching_{snapshot.generation}",
+            )
+        elif outstanding:
+            st.warning(f"Review the remaining {outstanding} team identities.")
+            st.button(
+                "Continue matching teams",
+                type="primary",
+                key=f"bt_continue_teams_{snapshot.generation}",
+                on_click=_set_session_value,
+                args=(section_key, "Teams"),
+            )
         else:
-            st.success("This intake is fully captured, matched, and replay-ready.")
+            st.success("The event capture and team identities are ready for Backtest checks.")
+            st.button(
+                "Continue to Backtest",
+                type="primary",
+                key=f"bt_continue_backtest_{snapshot.generation}",
+                on_click=_set_session_value,
+                args=(section_key, "Backtest"),
+            )
+        if reviewed < len(scoped_roster.divisions):
+            st.info(
+                f"MatchBalance setup: support is still being added for "
+                f"{len(scoped_roster.divisions) - reviewed} unusual schedule patterns. "
+                "You do not need to review those divisions."
+            )
+        st.markdown("#### Supporting details")
+        show_structure = st.checkbox(
+            "Inspect tournament structure",
+            key=f"bt_show_structure_{snapshot.generation}",
+        )
+        show_capture = st.checkbox(
+            "Show capture diagnostics",
+            key=f"bt_show_capture_{snapshot.generation}",
+        )
+        if show_structure:
+            _render_structure(display_snapshot)
+        if show_capture:
+            _render_capture_details(snapshot, supabase_client, base_dir)
+    elif section == "Teams":
+        st.markdown("#### Match tournament teams to PitchRank")
+        st.caption(
+            f"{identity_reviewed} of {totals['total_teams']} team identities reviewed · "
+            f"{matched} matched · {not_found} not found with a Backtest rating fallback"
+        )
+        _render_match_editor(display_snapshot, rows, links, supabase_client, base_dir)
+    else:
         _render_backtest_runner(
             snapshot,
             links,
@@ -1597,18 +1767,9 @@ def render_intake(supabase_client: Any) -> None:
             supabase_client=supabase_client,
             matching_blocker=matching_blocker,
             merge_map_version=merge_map_version,
+            team_reviewed=identity_reviewed,
+            team_total=totals["total_teams"],
         )
-    elif section == "Teams":
-        st.markdown("#### Match tournament teams to PitchRank")
-        st.caption(
-            f"{identity_reviewed} of {totals['total_teams']} team identities reviewed · "
-            f"{matched} matched · {not_found} not found with a Backtest rating fallback"
-        )
-        _render_match_editor(display_snapshot, rows, links, supabase_client, base_dir)
-    elif section == "Structure":
-        reviews, decisions = _render_structure(display_snapshot)
-    else:
-        _render_capture_details(snapshot, supabase_client, base_dir)
 
     reviews = _current_reviews(snapshot)
     decisions = _current_cohort_decisions(snapshot)
