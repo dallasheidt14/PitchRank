@@ -243,6 +243,7 @@ class StrategyOutputs:
     predicted_score_a: np.ndarray
     predicted_score_b: np.ndarray
     blowout_3plus_probability: np.ndarray
+    blowout_4plus_probability: np.ndarray
     blowout_5plus_probability: np.ndarray
 
 
@@ -596,6 +597,7 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
 
     goal_margin_abs = np.abs(np.arange(score_matrix.shape[1])[:, None] - np.arange(score_matrix.shape[2])[None, :])
     blowout_3plus_probability = score_matrix[:, goal_margin_abs >= 3].sum(axis=1)
+    blowout_4plus_probability = score_matrix[:, goal_margin_abs >= 4].sum(axis=1)
     blowout_5plus_probability = score_matrix[:, goal_margin_abs >= 5].sum(axis=1)
 
     return {
@@ -605,6 +607,7 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
         "predicted_score_a": predicted_score_a,
         "predicted_score_b": predicted_score_b,
         "blowout_3plus_probability": blowout_3plus_probability,
+        "blowout_4plus_probability": blowout_4plus_probability,
         "blowout_5plus_probability": blowout_5plus_probability,
     }
 
@@ -2161,6 +2164,7 @@ class PointInTimeMatchModel:
             predicted_score_a=score_matrix_summary["predicted_score_a"],
             predicted_score_b=score_matrix_summary["predicted_score_b"],
             blowout_3plus_probability=blowout_3plus_probability,
+            blowout_4plus_probability=score_matrix_summary["blowout_4plus_probability"],
             blowout_5plus_probability=blowout_5plus_probability,
         )
 
@@ -2256,6 +2260,7 @@ class PointInTimeMatchModel:
             predicted_score_a=score_matrix_summary["predicted_score_a"],
             predicted_score_b=score_matrix_summary["predicted_score_b"],
             blowout_3plus_probability=blowout_3plus_probability,
+            blowout_4plus_probability=score_matrix_summary["blowout_4plus_probability"],
             blowout_5plus_probability=blowout_5plus_probability,
         )
 
@@ -2342,6 +2347,7 @@ class PointInTimeMatchModel:
         expected_goals_a: np.ndarray,
         expected_goals_b: np.ndarray,
         blowout_3plus_probability: np.ndarray,
+        blowout_4plus_probability: np.ndarray,
         blowout_5plus_probability: np.ndarray,
         predicted_blowout_3plus: np.ndarray,
         predicted_blowout_5plus: np.ndarray,
@@ -2366,6 +2372,7 @@ class PointInTimeMatchModel:
                 "poisson_prob_team_b_win": poisson_probabilities[:, OUTCOME_TEAM_B_WIN],
                 "draw_model_probability": draw_model_probability,
                 "blowout_3plus_probability": blowout_3plus_probability,
+                "blowout_4plus_probability": blowout_4plus_probability,
                 "blowout_5plus_probability": blowout_5plus_probability,
                 "predicted_blowout_3plus": predicted_blowout_3plus,
                 "predicted_blowout_5plus": predicted_blowout_5plus,
@@ -2576,6 +2583,7 @@ class PointInTimeMatchModel:
                 expected_goals_a=outputs.expected_goals_a,
                 expected_goals_b=outputs.expected_goals_b,
                 blowout_3plus_probability=outputs.blowout_3plus_probability,
+                blowout_4plus_probability=outputs.blowout_4plus_probability,
                 blowout_5plus_probability=outputs.blowout_5plus_probability,
                 predicted_blowout_3plus=predicted_blowout_3plus,
                 predicted_blowout_5plus=predicted_blowout_5plus,
@@ -2626,6 +2634,7 @@ class PointInTimeMatchModel:
             expected_goals_a=selected_outputs.expected_goals_a,
             expected_goals_b=selected_outputs.expected_goals_b,
             blowout_3plus_probability=selected_outputs.blowout_3plus_probability,
+            blowout_4plus_probability=selected_outputs.blowout_4plus_probability,
             blowout_5plus_probability=selected_outputs.blowout_5plus_probability,
             predicted_blowout_3plus=predicted_blowout_3plus,
             predicted_blowout_5plus=predicted_blowout_5plus,
@@ -2776,6 +2785,7 @@ class PointInTimeMatchModel:
             expected_goals_a=strategy_outputs.expected_goals_a,
             expected_goals_b=strategy_outputs.expected_goals_b,
             blowout_3plus_probability=strategy_outputs.blowout_3plus_probability,
+            blowout_4plus_probability=strategy_outputs.blowout_4plus_probability,
             blowout_5plus_probability=strategy_outputs.blowout_5plus_probability,
             predicted_blowout_3plus=predicted_blowout_3plus,
             predicted_blowout_5plus=predicted_blowout_5plus,

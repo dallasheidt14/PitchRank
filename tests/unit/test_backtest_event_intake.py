@@ -151,13 +151,18 @@ _ROOTS = (
 
 _READ_ONLY_MODULES = (
     "src/tournaments/backtest_event_intake.py",
+    "src/tournaments/backtest_event_rollup.py",
+    "src/tournaments/backtest_historical_preflight.py",
     "src/tournaments/backtest_intake_state.py",
     "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
     "src/tournaments/backtest_request.py",
+    "src/tournaments/backtest_rating_fallback.py",
+    "src/tournaments/backtest_replay_format.py",
     "src/tournaments/backtest_result_summary.py",
     "src/tournaments/backtest_reviewed_report.py",
     "src/tournaments/backtest_reviewed_run.py",
+    "src/tournaments/backtest_scope.py",
     "src/tournaments/gotsport_event_structure.py",
     "src/tournaments/schedule_simulator.py",
     "src/tournaments/storage/_io.py",

@@ -44,22 +44,27 @@ def _summary() -> dict:
             "blowout_4plus_rate": 0.0,
         },
         "original_model_projection": {
+            "projected_matchup_count": 1,
             "average_goal_differential": 2.0,
             "median_goal_differential": 2.0,
             "close_game_probability": 0.4,
             "blowout_3plus_probability": 0.3,
+            "blowout_4plus_probability": 0.2,
             "blowout_5plus_probability": 0.1,
         },
         "proposed_model_projection": {
+            "projected_matchup_count": 1,
             "average_goal_differential": 1.5,
             "median_goal_differential": 1.0,
             "close_game_probability": 0.6,
             "blowout_3plus_probability": 0.2,
+            "blowout_4plus_probability": 0.1,
             "blowout_5plus_probability": 0.05,
         },
         "seeding_comparison": {"status": "comparable"},
         "division_recommendations": [
             {
+                "entrant_id": "reg-a",
                 "event_team_name": "Alpha",
                 "actual_division": "Gold",
                 "recommended_division": "Gold",

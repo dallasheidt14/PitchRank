@@ -211,7 +211,12 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
     assert summary["blowout_3plus_brier"] is not None
     assert summary["blowout_5plus_brier"] is not None
     assert not margin_bands.empty
-    assert set(margin_bands["band"]) == {"competitive_1plus", "blowout_3plus", "blowout_5plus"}
+    assert set(margin_bands["band"]) == {
+        "competitive_1plus",
+        "blowout_3plus",
+        "blowout_4plus",
+        "blowout_5plus",
+    }
     assert "avg_probability" in margin_bands.columns
     assert "brier" in margin_bands.columns
 

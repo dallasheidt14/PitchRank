@@ -7,14 +7,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-_MODEL_METRICS = (
-    ("Average expected goal margin", "average_goal_differential", "lower"),
-    ("Median expected goal margin", "median_goal_differential", "lower"),
-    ("Close-game probability", "close_game_probability", "higher"),
-    ("3+ goal blowout probability", "blowout_3plus_probability", "lower"),
-    ("5+ goal blowout probability", "blowout_5plus_probability", "lower"),
-)
-
 
 def observed_result_values(summary: dict[str, Any]) -> dict[str, int | float | None]:
     """Return observed aggregates without treating missing scores as zero-margin games."""
@@ -33,29 +25,39 @@ def observed_result_values(summary: dict[str, Any]) -> dict[str, int | float | N
     }
 
 
-def model_comparison_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
-    original = summary.get("original_model_projection") or {}
+def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compare captured results with the proposed MatchBalance projection."""
+
+    observed = observed_result_values(summary)
     proposed = summary.get("proposed_model_projection") or {}
-    rows: list[dict[str, Any]] = []
-    for label, key, better in _MODEL_METRICS:
-        original_value = original.get(key)
-        proposed_value = proposed.get(key)
-        if original_value is None or proposed_value is None:
-            improvement = None
-        elif better == "lower":
-            improvement = float(original_value) - float(proposed_value)
-        else:
-            improvement = float(proposed_value) - float(original_value)
-        rows.append(
-            {
-                "Metric": label,
-                "Original model": original_value,
-                "MatchBalance model": proposed_value,
-                "Improvement": improvement,
-                "Unit": "rate" if "probability" in key else "goals",
-            }
-        )
-    return rows
+    specs = (
+        (
+            "Average goal margin",
+            observed["average_goal_differential"],
+            proposed.get("average_goal_differential"),
+            "goals",
+        ),
+        (
+            "4+ goal blowout rate",
+            observed["blowout_4plus_rate"],
+            proposed.get("blowout_4plus_probability"),
+            "rate",
+        ),
+    )
+    return [
+        {
+            "Metric": label,
+            "Actual tournament": actual,
+            "MatchBalance projection": matchbalance,
+            "Estimated reduction": (
+                float(actual) - float(matchbalance)
+                if actual is not None and matchbalance is not None
+                else None
+            ),
+            "Unit": unit,
+        }
+        for label, actual, matchbalance, unit in specs
+    ]
 
 
 def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
@@ -69,9 +71,19 @@ def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "MatchBalance division": str(item.get("recommended_division") or ""),
                 "Decision": labels.get(str(item.get("move") or ""), str(item.get("move") or "")),
                 "Historical PowerScore": item.get("power_score"),
+                "Rating evidence": _rating_evidence_label(item),
             }
         )
     return rows
+
+
+def _rating_evidence_label(item: dict[str, Any]) -> str:
+    basis = str(item.get("rating_basis") or "historical_snapshot")
+    if basis == "original_division_median_surrogate":
+        return "Division median fallback (team not found)"
+    if basis == "cohort_median_surrogate":
+        return "Cohort median fallback (team not found)"
+    return "PitchRank pre-event rating"
 
 
 def _format(value: Any, unit: str) -> str:
@@ -79,6 +91,14 @@ def _format(value: Any, unit: str) -> str:
         return "Unavailable"
     number = float(value)
     return f"{number * 100:.1f}%" if unit == "rate" else f"{number:.2f}"
+
+
+def _format_reduction(value: Any, unit: str) -> str:
+    if value is None:
+        return "Unavailable"
+    number = float(value)
+    direction = "lower" if number >= 0 else "higher"
+    return f"{_format(abs(number), unit)} {direction}"
 
 
 def render_reviewed_backtest_html(
@@ -96,18 +116,15 @@ def render_reviewed_backtest_html(
             if part
         )
     )
-    comparison = summary.get("seeding_comparison") or {}
-    status = html.escape(str(comparison.get("status") or "unavailable"))
-    status_class = "good" if comparison.get("status") == "comparable" else "warn"
     observed = observed_result_values(summary)
     model_rows = "".join(
         "<tr>"
         f"<td>{html.escape(str(row['Metric']))}</td>"
-        f"<td>{_format(row['Original model'], str(row['Unit']))}</td>"
-        f"<td>{_format(row['MatchBalance model'], str(row['Unit']))}</td>"
-        f"<td>{_format(row['Improvement'], str(row['Unit']))}</td>"
+        f"<td>{_format(row['Actual tournament'], str(row['Unit']))}</td>"
+        f"<td>{_format(row['MatchBalance projection'], str(row['Unit']))}</td>"
+        f"<td>{_format_reduction(row['Estimated reduction'], str(row['Unit']))}</td>"
         "</tr>"
-        for row in model_comparison_rows(summary)
+        for row in actual_vs_matchbalance_rows(summary)
     )
     moves = movement_rows(summary)
     movement_rows_html = "".join(
@@ -116,6 +133,7 @@ def render_reviewed_backtest_html(
         f"<td>{html.escape(str(row['Original division']))}</td>"
         f"<td>{html.escape(str(row['MatchBalance division']))}</td>"
         f"<td>{html.escape(str(row['Decision']))}</td>"
+        f"<td>{html.escape(str(row['Rating evidence']))}</td>"
         "</tr>"
         for row in moves
     )
@@ -132,12 +150,11 @@ h1{{margin-bottom:4px}} .muted{{color:#667085}}
 .value{{font-size:28px;font-weight:700;margin-top:6px}}
 table{{border-collapse:collapse;width:100%;margin:12px 0 28px}}
 th,td{{border-bottom:1px solid #eaecf0;padding:9px;text-align:left}}
-th{{background:#f9fafb}} .good{{color:#067647;font-weight:700}}
-.warn{{color:#b54708;font-weight:700}} code{{font-size:11px;word-break:break-all}}
+th{{background:#f9fafb}} code{{font-size:11px;word-break:break-all}}
 @media(max-width:760px){{.cards{{grid-template-columns:1fr 1fr}}}}
 </style></head><body>
 <p class="muted">MatchBalance completed-tournament Backtest</p><h1>{event_name}</h1>
-<p>{cohort_label} · comparison status <strong class="{status_class}">{status}</strong></p>
+<p>{cohort_label}</p>
 <div class="cards">
 <div class="card">Observed games<div class="value">{observed['game_count']}</div></div>
 <div class="card">Observed average margin
@@ -147,13 +164,14 @@ th{{background:#f9fafb}} .good{{color:#067647;font-weight:700}}
 <div class="value">{_format(observed['blowout_4plus_rate'], 'rate')}</div></div>
 <div class="card">Teams reseeded<div class="value">{sum(1 for row in moves if row['Decision'] != 'Stayed')}</div></div>
 </div>
-<p class="muted">Observed results describe what happened. The fair improvement below evaluates the
-original and proposed matchup sets with the same frozen historical model.</p>
-<h2>Modeled original versus MatchBalance</h2>
-<table><thead><tr><th>Metric</th><th>Original</th><th>MatchBalance</th><th>Improvement</th></tr></thead><tbody>{model_rows}</tbody></table>
+<p class="muted">The tournament column comes directly from captured results. The MatchBalance
+column estimates the reseeded pool assignments using only pre-event evidence.</p>
+<h2>Actual tournament versus MatchBalance</h2>
+<table><thead><tr><th>Metric</th><th>Actual tournament</th><th>MatchBalance projection</th>
+<th>Estimated reduction</th></tr></thead><tbody>{model_rows}</tbody></table>
 <h2>Team placement</h2>
 <table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
-<th>Decision</th></tr></thead><tbody>{movement_rows_html}</tbody></table>
+<th>Decision</th><th>Rating evidence</th></tr></thead><tbody>{movement_rows_html}</tbody></table>
 <h2>Historical evidence</h2><p>Exclusive event cutoff: <strong>{cutoff or 'Unavailable'}</strong></p>
 <p>Model artifact SHA-256: <code>{artifact_hash or 'Unavailable'}</code></p>
 </body></html>"""

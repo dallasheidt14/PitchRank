@@ -227,12 +227,13 @@ def test_build_request_canonicalizes_saved_links_after_team_merge():
     assert request["actual_games_override"][0]["home_team_master_id"] == "survivor-a"
 
 
-def test_build_request_blocks_unreviewed_format():
+def test_build_request_infers_an_unambiguous_replay_format():
     snapshot = _snapshot()
     snapshot = replace(snapshot, reviews=(replace(snapshot.reviews[0], format_code=""),))
 
-    with pytest.raises(BacktestRequestError, match="verified replay format"):
-        build_cohort_backtest_requests(snapshot, event_links=_links())
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["advancement"] == "ROUND_ROBIN"
 
 
 def test_build_request_requires_normalized_event_start_date():
@@ -452,7 +453,7 @@ def test_downloaded_intake_restores_embedded_link_decisions():
     assert links.removed_registration_ids == ("reg-b",)
 
 
-def test_build_request_rejects_unconfirmed_and_not_found_decisions():
+def test_build_request_rejects_unconfirmed_and_keeps_reviewed_not_found_entrant():
     with pytest.raises(BacktestRequestError, match="unconfirmed exact_name"):
         build_cohort_backtest_requests(
             _snapshot(),
@@ -464,8 +465,11 @@ def test_build_request_rejects_unconfirmed_and_not_found_decisions():
         links=(_links().links[0],),
         not_found_registration_ids=("reg-b",),
     )
-    with pytest.raises(BacktestRequestError, match="marked not found"):
-        build_cohort_backtest_requests(_snapshot(), event_links=not_found)
+    request = build_cohort_backtest_requests(_snapshot(), event_links=not_found)[0]
+    bravo = next(item for item in request["entrants"] if item["registration_id"] == "reg-b")
+    assert bravo["canonical_team_id"] == "not-found:51783:reg-b"
+    assert bravo["ranking_source_team_id"] == ""
+    assert bravo["rating_fallback"] == "division_then_cohort_median_surrogate"
 
 
 def test_build_request_preserves_combined_tournament_cohort():

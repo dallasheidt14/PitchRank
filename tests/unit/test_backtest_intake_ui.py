@@ -168,7 +168,7 @@ def test_distinct_registrations_sharing_a_canonical_team_require_explicit_acknow
     assert [row["Status"] for row in match_table(snapshot, confirmed, details)[:2]] == ["Matched", "Matched"]
 
 
-def test_not_found_is_reviewed_but_remains_a_matching_gap():
+def test_not_found_is_a_completed_review_with_no_pitchrank_id():
     snapshot = sample_snapshot()
     links = EventLinks(event_id="51783", not_found_registration_ids=("101",))
     rows = match_table(snapshot, links, {})
@@ -299,15 +299,15 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert any("Spring Invitational" in item.value for item in test.markdown)
     metrics = {item.label: item.value for item in test.metric}
     assert {label: metrics[label] for label in (
-        "Total teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
+        "U10-U18 teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
         "Total goal margin", "Blowout games (4+ goals)", "Blowout rate",
     )} == {
-        "Total teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
+        "U10-U18 teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
     assert metrics["Capture verification"] == "Needs review"
-    assert metrics["Team matching"] == "1 / 3"
+    assert metrics["Team review"] == "1 / 3"
     overview_labels = {button.label for button in test.button}
     assert "Run selected cohort" in overview_labels
     assert "Run all ready cohorts (0)" in overview_labels
@@ -323,9 +323,17 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert test.session_state["_seeding_result"] == "seeding-must-survive"
 
 
-def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monkeypatch):
+def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, monkeypatch):
+    import hashlib
+
     import tournament_intake as app
     from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_historical_preflight import (
+        HistoricalCohortCheck,
+        HistoricalEntrantCheck,
+        HistoricalPreflight,
+        preflight_input_sha256,
+    )
     from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
     from src.tournaments.backtest_link_store import update_links
     from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
@@ -369,6 +377,11 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
             "cohort_gender": "Male",
             "event_name": "Spring Cup",
             "ended_at": "2026-09-12T01:00:00+00:00",
+            "source_capture_generation": snapshot.generation,
+            "request_sha256": hashlib.sha256(
+                json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "model_artifact_sha256": ui.model_artifact_sha256(model_artifact),
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
         (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
@@ -385,11 +398,44 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     )
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
     monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", str(artifact))
+
+    def fake_preflight(requests, _client, *, model_artifact):
+        request_list = list(requests)
+        entrants = tuple(
+            HistoricalEntrantCheck(
+                entrant["entrant_id"],
+                entrant["event_team_name"],
+                entrant["canonical_team_id"],
+                entrant["ranking_source_team_id"],
+                True,
+                snapshot_date="2025-05-09",
+                source_age_group="u14",
+                source_gender="Male",
+                power_score=0.5,
+            )
+            for entrant in request_list[0]["entrants"]
+        )
+        return HistoricalPreflight(
+            preflight_input_sha256(
+                request_list,
+                model_artifact,
+                merge_map_version="ok",
+            ),
+            "2026-09-12T00:00:00+00:00",
+            "2025-05-10",
+            ui.model_artifact_sha256(model_artifact),
+            "2025-05-09",
+            "merge-v1",
+            (HistoricalCohortCheck("u14", "Male", len(entrants), len(entrants), entrants),),
+        )
+
+    monkeypatch.setattr(ui, "run_historical_preflight", fake_preflight)
     test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
     test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
     test.run()
 
     assert not test.exception, [error.message for error in test.exception]
+    next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
     run_button.click().run()
@@ -400,13 +446,18 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     assert metrics["Observed games"] == "1"
     assert metrics["Observed average margin"] == "1.00"
     comparison = next(
-        item.value for item in test.dataframe if "MatchBalance model" in item.value.columns
+        item.value for item in test.dataframe if "MatchBalance projection" in item.value.columns
     )
-    assert comparison["Metric"].tolist()[0] == "Average expected goal margin"
+    assert comparison["Metric"].tolist()[0] == "Average goal margin"
+    assert comparison["Actual tournament"].tolist()[0] == "1.00"
+    assert comparison["MatchBalance projection"].tolist()[0] == "1.50"
+    assert comparison["Estimated reduction"].tolist()[0] == "0.50 higher"
     movements = next(
         item.value for item in test.dataframe if "MatchBalance division" in item.value.columns
     )
     assert movements["Decision"].tolist() == ["Stayed"]
+    assert metrics["Cohorts completed"] == "1"
+    assert metrics["Teams unchanged"] == "1"
 
 
 def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
@@ -523,7 +574,8 @@ def test_actual_results_weight_games_follow_entered_cohorts_and_survive_saved_re
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if kwargs.get("mime") == "application/json":
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     monkeypatch.setattr(ui.st, "download_button", record_download)
@@ -629,6 +681,7 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
 def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     test.selectbox(key="bt_division_capture-one_10_format_code").select("ROUND_ROBIN").run()
     test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
     test.checkbox(key="bt_division_capture-one_10_checked").check()
@@ -667,8 +720,11 @@ def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_int
 
 
 def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
+    import tournament_intake as app
+
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     snapshot = sample_snapshot()
     review = DivisionReview(
         "10",
@@ -684,14 +740,20 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
     test.button(key="bt_save_capture-one").click().run()
 
     assert not test.exception, [error.message for error in test.exception]
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
     assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
     assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
 
-    # After seeing the actual merged result, an intentional clear remains valid.
-    test.text_area(key="bt_division_capture-one_10_1_notes").set_value("")
-    test.checkbox(key="bt_division_capture-one_10_1_checked").uncheck()
+    # A fresh form opened after seeing the merged result can intentionally clear it.
+    test = AppTest.from_function(_render_fixture_app, default_timeout=10)
+    test.session_state[app._BACKTEST_KEYS.snapshot] = read_snapshot(
+        "gotsport__51783__unknown", base_dir=tmp_path
+    )
+    test.run()
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
+    test.text_area(key="bt_division_capture-one_10_notes").set_value("").run()
+    test.checkbox(key="bt_division_capture-one_10_checked").uncheck().run()
     test.button(key="bt_save_capture-one").click().run()
     assert not test.exception, [error.message for error in test.exception]
     saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0]
@@ -702,6 +764,7 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
 def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     snapshot = sample_snapshot()
     review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
     path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
@@ -766,9 +829,10 @@ def test_sync_coalesces_same_registration_after_canonical_merge_resolution(tmp_p
     ))
     client = ReadOnlyTeams()
 
-    links, details, conflicts = _sync_matches(snapshot, client, tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(snapshot, client, tmp_path)
 
     assert conflicts == {}
+    assert merge_map_version == "ok"
     assert len(links.links) == 1
     assert links.links[0].registration_id == "100"
     assert links.links[0].team_id_master == "canonical-a"
@@ -792,10 +856,13 @@ def test_conflicting_automatic_ids_never_choose_a_team_or_discard_operator_decis
         update_links("gotsport__51783__unknown", event_id="51783", base_dir=tmp_path,
                      changed_links=(TeamLink("100", "Alpha", "saved-choice", saved_method, "now"),))
 
-    links, details, conflicts = _sync_matches(snapshot, ReadOnlyTeams(), tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(
+        snapshot, ReadOnlyTeams(), tmp_path
+    )
     rows = match_table(snapshot, links, details, conflicts=conflicts)
 
     assert conflicts == {"100": ("canonical-a", "canonical-other")}
+    assert merge_map_version == "ok"
     assert links.removed_registration_ids == ()
     assert [link.team_id_master for link in links.links] == (["saved-choice"] if saved_method else [])
     assert [row["Status"] for row in rows if row["Registration ID"] == "100"] == (
@@ -868,7 +935,8 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if isinstance(data, str):
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     def unavailable(*args, **kwargs):
@@ -885,7 +953,7 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
     assert next(button for button in test.button if button.label == "Run selected cohort").disabled
     metrics = {item.label: item.value for item in test.metric}
-    assert metrics["Team matching"] == "Unavailable"
+    assert metrics["Team review"] == "Unavailable"
     assert any("team matching availability" in item.value for item in test.warning)
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
 

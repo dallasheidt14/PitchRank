@@ -44,6 +44,9 @@ from supabase import create_client  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+# httpx logs the complete PostgREST URL at INFO, including hundreds of team IDs.
+# Keep training output useful and bounded while the fetcher reports aggregate progress.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _write_json(path: Path, payload: dict):

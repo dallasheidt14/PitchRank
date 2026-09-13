@@ -60,6 +60,8 @@ DIRECT_DB_BATCH_SIZE = 5000
 REST_SNAPSHOT_BATCH_SIZE = 250
 REST_SNAPSHOT_CONCURRENCY = 8
 REST_PAGE_SIZE = 1000
+REST_SNAPSHOT_MAX_ATTEMPTS = 4
+REST_SNAPSHOT_RETRY_BASE_SECONDS = 1.0
 
 
 def _resolve_game_start_date(
@@ -314,10 +316,17 @@ async def _fetch_prediction_feature_snapshots_via_rest(
                     params.append(
                         ("created_at", f"lt.{pd.Timestamp(availability_cutoff).strftime('%Y-%m-%d')}")
                     )
-                async with semaphore:
-                    response = await client.get(endpoint, params=params, headers=headers)
-                    response.raise_for_status()
-                    page_rows = response.json()
+                for attempt in range(1, REST_SNAPSHOT_MAX_ATTEMPTS + 1):
+                    try:
+                        async with semaphore:
+                            response = await client.get(endpoint, params=params, headers=headers)
+                            response.raise_for_status()
+                            page_rows = response.json()
+                        break
+                    except httpx.HTTPError:
+                        if attempt == REST_SNAPSHOT_MAX_ATTEMPTS:
+                            raise
+                        await asyncio.sleep(REST_SNAPSHOT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
 
                 if not page_rows:
                     break
@@ -577,41 +586,51 @@ async def fetch_prediction_feature_snapshots(
 
     for index in range(0, len(team_ids), batch_size):
         batch = team_ids[index : index + batch_size]
-        try:
-            query = (
-                supabase.table("prediction_feature_history")
-                .select(fields)
-                .in_("team_id", batch)
-                .gte("snapshot_date", start_date)
-                .lte("snapshot_date", end_date)
-                .order("snapshot_date", desc=False)
-            )
-            if availability_cutoff:
-                query = query.lt(
-                    "created_at",
-                    pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"),
+        offset = 0
+        while True:
+            try:
+                query = (
+                    supabase.table("prediction_feature_history")
+                    .select(fields)
+                    .in_("team_id", batch)
+                    .gte("snapshot_date", start_date)
+                    .lte("snapshot_date", end_date)
+                    .order("team_id", desc=False)
+                    .order("snapshot_date", desc=False)
+                    .range(offset, offset + REST_PAGE_SIZE - 1)
                 )
-            response = query.execute()
-        except Exception as error:
-            error_message = str(error).lower()
-            if "prediction_feature_history" in error_message and (
-                "does not exist" in error_message or "relation" in error_message or "schema cache" in error_message
-            ):
+                if availability_cutoff:
+                    query = query.lt(
+                        "created_at",
+                        pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"),
+                    )
+                response = query.execute()
+            except Exception as error:
+                error_message = str(error).lower()
+                if "prediction_feature_history" in error_message and (
+                    "does not exist" in error_message
+                    or "relation" in error_message
+                    or "schema cache" in error_message
+                ):
+                    logger.warning(
+                        "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
+                    )
+                    return pd.DataFrame()
+
                 logger.warning(
-                    "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
+                    "Error fetching prediction snapshots for batch %s-%s at offset %s: %s",
+                    index,
+                    index + batch_size,
+                    offset,
+                    error,
                 )
-                return pd.DataFrame()
+                break
 
-            logger.warning(
-                "Error fetching prediction snapshots for batch %s-%s: %s",
-                index,
-                index + batch_size,
-                error,
-            )
-            continue
-
-        if response.data:
-            rows.extend(response.data)
+            page_rows = response.data or []
+            rows.extend(page_rows)
+            if len(page_rows) < REST_PAGE_SIZE:
+                break
+            offset += REST_PAGE_SIZE
 
     snapshots_df = pd.DataFrame(rows)
     logger.info("Fetched %s prediction snapshots", f"{len(snapshots_df):,}")

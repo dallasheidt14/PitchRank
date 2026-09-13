@@ -50,6 +50,9 @@ class MatchupCost:
     blowout_3plus_probability: float
     blowout_5plus_probability: float
     total_cost: float
+    # Reporting-only probability. Keeping this optional preserves older cost
+    # providers and artifacts; it is not part of the optimizer objective.
+    blowout_4plus_probability: float | None = None
 
 
 MatchupCostFn = Callable[["SeedableTeam", "SeedableTeam"], MatchupCost]

@@ -23,7 +23,7 @@ OUTCOME_ALIASES = {
     "team_b": "team_b",
     "team_b_win": "team_b",
 }
-BLOWOUT_THRESHOLDS = (3, 5)
+BLOWOUT_THRESHOLDS = (3, 4, 5)
 COMPETITIVE_MARGIN_MAX = 1.0
 
 
