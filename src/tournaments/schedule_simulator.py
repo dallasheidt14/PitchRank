@@ -31,9 +31,8 @@ DEFAULT_TIEBREAK_ORDER = (
     "goal_differential",
     "goals_for",
     "wins",
-    "power_score",
-    "team_name",
 )
+SUPPORTED_TIEBREAK_FIELDS = frozenset(DEFAULT_TIEBREAK_ORDER)
 
 
 @dataclass(frozen=True)
@@ -70,7 +69,7 @@ def captured_division_schedule_template(
     actual_division_name: str | None,
     pool_sizes: Sequence[int],
     fixture_slots: Sequence[dict[str, Any]],
-    tiebreak_order: Sequence[str] = DEFAULT_TIEBREAK_ORDER,
+    tiebreak_order: Sequence[str] = (),
     tiebreak_source_urls: Sequence[str] = (),
 ) -> DivisionScheduleTemplate:
     """Build a template from the captured match-slot graph rather than a canned format."""
@@ -94,10 +93,14 @@ def captured_division_schedule_template(
                     f"Division '{division_name}' fixture slot {index + 1} has a forward match reference"
                 )
     normalized_tiebreak = tuple(str(item) for item in tiebreak_order)
-    if set(normalized_tiebreak) != set(DEFAULT_TIEBREAK_ORDER) or len(normalized_tiebreak) != len(
-        DEFAULT_TIEBREAK_ORDER
+    if normalized_tiebreak and (
+        normalized_tiebreak[0] != "points"
+        or len(set(normalized_tiebreak)) != len(normalized_tiebreak)
+        or not set(normalized_tiebreak).issubset(SUPPORTED_TIEBREAK_FIELDS)
     ):
-        raise ValueError(f"Division '{division_name}' needs each supported tiebreak field exactly once")
+        raise ValueError(
+            f"Division '{division_name}' needs a unique supported tiebreak order beginning with points"
+        )
     return DivisionScheduleTemplate(
         division_name=division_name,
         actual_division_name=actual_division_name,
@@ -125,6 +128,9 @@ class SimulatedMatch:
     home_score: int
     away_score: int
     goal_differential: int
+    blowout_4plus_probability: float | None = None
+    advancing_team_id: str | None = None
+    advancement_basis: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +145,9 @@ class SimulatedMatch:
             "home_score": self.home_score,
             "away_score": self.away_score,
             "goal_differential": self.goal_differential,
+            "blowout_4plus_probability": self.blowout_4plus_probability,
+            "advancing_team_id": self.advancing_team_id,
+            "advancement_basis": self.advancement_basis,
         }
 
 
@@ -347,6 +356,46 @@ def _winner_consistent_score(predicted_winner: str, raw_score_a: float, raw_scor
     return score_a, score_b
 
 
+def _optional_probability(prediction: Any, field: str) -> float | None:
+    value = getattr(prediction, field, None)
+    if value is None:
+        return None
+    probability = float(value)
+    if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+        raise ValueError(f"{field} must be a finite probability between 0 and 1")
+    return probability
+
+
+def _advancement_decision(
+    prediction: Any,
+    home_team: SeedableTeam,
+    away_team: SeedableTeam,
+    home_score: int,
+    away_score: int,
+) -> tuple[str, str]:
+    """Resolve knockout draws without depending on captured home orientation."""
+
+    if home_score > away_score:
+        return home_team.team_id, "projected_score"
+    if away_score > home_score:
+        return away_team.team_id, "projected_score"
+    home_win = _optional_probability(prediction, "win_probability_a")
+    away_win = _optional_probability(prediction, "win_probability_b")
+    if home_win is not None and away_win is not None and home_win != away_win:
+        return (
+            (home_team.team_id, "regulation_win_probability")
+            if home_win > away_win
+            else (away_team.team_id, "regulation_win_probability")
+        )
+    if float(home_team.power_score) != float(away_team.power_score):
+        return (
+            (home_team.team_id, "pre_event_strength")
+            if float(home_team.power_score) > float(away_team.power_score)
+            else (away_team.team_id, "pre_event_strength")
+        )
+    return min(home_team.team_id, away_team.team_id), "stable_team_id"
+
+
 def _simulate_match(
     *,
     division_name: str,
@@ -360,6 +409,13 @@ def _simulate_match(
     raw_score_a = float(prediction.expected_score["teamA"])
     raw_score_b = float(prediction.expected_score["teamB"])
     home_score, away_score = _winner_consistent_score(prediction.predicted_winner, raw_score_a, raw_score_b)
+    advancing_team_id, advancement_basis = _advancement_decision(
+        prediction,
+        home_team,
+        away_team,
+        home_score,
+        away_score,
+    )
 
     return SimulatedMatch(
         division_name=division_name,
@@ -373,6 +429,11 @@ def _simulate_match(
         home_score=home_score,
         away_score=away_score,
         goal_differential=abs(home_score - away_score),
+        blowout_4plus_probability=_optional_probability(
+            prediction, "blowout_4plus_probability"
+        ),
+        advancing_team_id=advancing_team_id,
+        advancement_basis=advancement_basis,
     )
 
 
@@ -419,12 +480,70 @@ def _rank_pool_teams(
             "goal_differential": -float(row["gd"]),
             "goals_for": -float(row["gf"]),
             "wins": -float(row["wins"]),
-            "power_score": -float(team.power_score),
-            "team_name": team.team_name.lower(),
         }
         return tuple(values[item] for item in tiebreak_order) + (team.team_id,)
 
     return sorted(pool_teams, key=sort_key)
+
+
+def _rank_pool_teams_for_qualifier(
+    pool_teams: Sequence[SeedableTeam],
+    standings: dict[str, dict[str, Any]],
+    tiebreak_order: Sequence[str],
+    qualifier_rank: int,
+    *,
+    division_name: str,
+    tiebreak_source_urls: Sequence[str],
+) -> list[SeedableTeam]:
+    if tiebreak_order:
+        ranked = _rank_pool_teams(pool_teams, standings, tiebreak_order)
+        target = ranked[qualifier_rank]
+
+        def published_key(team: SeedableTeam) -> tuple[float, ...]:
+            row = standings[team.team_id]
+            values = {
+                "points": float(row["points"]),
+                "goal_differential": float(row["gd"]),
+                "goals_for": float(row["gf"]),
+                "wins": float(row["wins"]),
+            }
+            return tuple(values[item] for item in tiebreak_order)
+
+        if sum(published_key(team) == published_key(target) for team in ranked) > 1:
+            raise ValueError(
+                f"Division '{division_name}' still has a tie for pool rank {qualifier_rank + 1} "
+                "after every verified supported tiebreak"
+            )
+        return ranked
+    ranked = sorted(
+        pool_teams,
+        key=lambda team: (-float(standings[team.team_id]["points"]), team.team_id),
+    )
+    target_points = standings[ranked[qualifier_rank].team_id]["points"]
+    tied = [team for team in ranked if standings[team.team_id]["points"] == target_points]
+    if len(tied) > 1:
+        source_note = (
+            f" Published source: {tiebreak_source_urls[0]}"
+            if tiebreak_source_urls
+            else ""
+        )
+        raise ValueError(
+            f"Division '{division_name}' produced a tie for pool rank {qualifier_rank + 1}, "
+            f"but no verified tournament tiebreak order was captured.{source_note}"
+        )
+    return ranked
+
+
+def _winner_and_loser(
+    match: SimulatedMatch,
+    home_team: SeedableTeam,
+    away_team: SeedableTeam,
+) -> tuple[SeedableTeam, SeedableTeam]:
+    if match.advancing_team_id == home_team.team_id:
+        return home_team, away_team
+    if match.advancing_team_id == away_team.team_id:
+        return away_team, home_team
+    raise ValueError(f"Match in division '{match.division_name}' has no valid advancement decision")
 
 
 def _empty_standings(teams: Sequence[SeedableTeam]) -> dict[str, dict[str, int]]:
@@ -461,10 +580,17 @@ def _simulate_captured_division_schedule(
             if pool_index < 0 or pool_index >= len(pools):
                 raise ValueError(f"Division '{division.name}' captured fixture references a missing pool")
             candidates = pools[pool_index]
-            if kind == "pool_rank":
-                candidates = _rank_pool_teams(candidates, standings, template.tiebreak_order)
             if position < 0 or position >= len(candidates):
                 raise ValueError(f"Division '{division.name}' captured fixture references a missing pool position")
+            if kind == "pool_rank":
+                candidates = _rank_pool_teams_for_qualifier(
+                    candidates,
+                    standings,
+                    template.tiebreak_order,
+                    position,
+                    division_name=division.name,
+                    tiebreak_source_urls=template.tiebreak_source_urls,
+                )
             return candidates[position]
         match_index = int(ref["match_index"])
         if match_index not in prior_matches:
@@ -472,10 +598,10 @@ def _simulate_captured_division_schedule(
                 f"Division '{division.name}' captured fixture references match {match_index + 1} before it was played"
             )
         match, home_team, away_team = prior_matches[match_index]
-        home_won = match.home_score >= match.away_score
+        winner, loser = _winner_and_loser(match, home_team, away_team)
         if kind == "match_winner":
-            return home_team if home_won else away_team
-        return away_team if home_won else home_team
+            return winner
+        return loser
 
     for match_index, slot in enumerate(template.fixture_slots):
         home_team = resolve(dict(slot["home"]))
@@ -610,8 +736,12 @@ def simulate_division_schedule(
         )
         simulated_matches.extend([semi_a, semi_b])
 
-        final_home = pool_rankings[0][0] if semi_a.home_score >= semi_a.away_score else pool_rankings[1][1]
-        final_away = pool_rankings[1][0] if semi_b.home_score >= semi_b.away_score else pool_rankings[0][1]
+        final_home, third_home = _winner_and_loser(
+            semi_a, pool_rankings[0][0], pool_rankings[1][1]
+        )
+        final_away, third_away = _winner_and_loser(
+            semi_b, pool_rankings[1][0], pool_rankings[0][1]
+        )
         simulated_matches.append(
             _simulate_match(
                 division_name=division.name,
@@ -624,8 +754,6 @@ def simulate_division_schedule(
         )
 
         if template.playoff_format == "cross_semis_final_third":
-            third_home = pool_rankings[1][1] if semi_a.home_score >= semi_a.away_score else pool_rankings[0][0]
-            third_away = pool_rankings[0][1] if semi_b.home_score >= semi_b.away_score else pool_rankings[1][0]
             simulated_matches.append(
                 _simulate_match(
                     division_name=division.name,

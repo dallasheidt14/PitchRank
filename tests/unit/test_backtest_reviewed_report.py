@@ -1,3 +1,4 @@
+from src.tournaments.backtest_rating_fallback import DIVISION_AVERAGE_BASIS
 from src.tournaments.backtest_reviewed_report import (
     actual_vs_matchbalance_rows,
     movement_rows,
@@ -45,13 +46,23 @@ def test_movement_rows_include_staying_teams():
 
 def test_movement_rows_disclose_not_found_rating_fallback():
     summary = _summary()
-    summary["division_recommendations"][0]["rating_basis"] = "division_average_estimate"
+    summary["division_recommendations"][0]["rating_basis"] = DIVISION_AVERAGE_BASIS
 
     rows = movement_rows(summary)
     rendered = render_reviewed_backtest_html(summary, {})
 
     assert rows[0]["Rating evidence"] == "Division average estimate (team not found)"
     assert "Division average estimate (team not found)" in rendered
+
+
+def test_legacy_run_without_calibration_never_renders_a_sales_comparison():
+    summary = _summary()
+    summary.pop("model_validation")
+
+    rows = actual_vs_matchbalance_rows(summary)
+
+    assert all(row["MatchBalance projection"] is None for row in rows)
+    assert all(row["Estimated reduction"] is None for row in rows)
 
 
 def test_director_report_escapes_tournament_and_team_names():

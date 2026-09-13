@@ -7,6 +7,11 @@ import os
 from pathlib import Path
 from typing import Any
 
+from src.tournaments.backtest_rating_fallback import (
+    COHORT_AVERAGE_BASIS,
+    DIVISION_AVERAGE_BASIS,
+)
+
 
 def observed_result_values(summary: dict[str, Any]) -> dict[str, int | float | None]:
     """Return observed aggregates without treating missing scores as zero-margin games."""
@@ -33,7 +38,7 @@ def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]
     proposed = summary.get("proposed_schedule_projection") or summary.get(
         "proposed_model_projection"
     ) or {}
-    if validation and validation.get("status") != "passed":
+    if validation.get("status") != "passed":
         proposed = {}
     specs = (
         (
@@ -86,9 +91,9 @@ def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _rating_evidence_label(item: dict[str, Any]) -> str:
     basis = str(item.get("rating_basis") or "historical_snapshot")
-    if basis == "division_average_estimate":
+    if basis == DIVISION_AVERAGE_BASIS:
         return "Division average estimate (team not found)"
-    if basis == "cohort_average_estimate":
+    if basis == COHORT_AVERAGE_BASIS:
         return "Cohort average estimate (team not found)"
     if basis in {"original_division_median_surrogate", "cohort_median_surrogate"}:
         return "Legacy median fallback (team not found)"

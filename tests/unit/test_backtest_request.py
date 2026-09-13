@@ -101,6 +101,7 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert division["captured_fixture_count"] == 1
     assert len(division["captured_schedule"]["fixture_slots"]) == 1
     assert division["captured_schedule"]["fixture_slots"][0]["home"]["kind"] == "pool_slot"
+    assert division["captured_schedule"]["tiebreak_order"] == []
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}

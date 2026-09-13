@@ -1039,6 +1039,50 @@ def test_unchanged_fixture_validation_blocks_large_model_gap():
     assert len(validation["blockers"]) == 2
 
 
+def test_schedule_projection_averages_modelled_four_plus_probabilities():
+    simulation = SimpleNamespace(
+        average_goal_differential=1.0,
+        median_goal_differential=1.0,
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.25),
+                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.05),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["blowout_4plus_probability"] == pytest.approx(0.15)
+
+
+def test_schedule_projection_withholds_partial_four_plus_probabilities():
+    simulation = SimpleNamespace(
+        average_goal_differential=1.0,
+        median_goal_differential=1.0,
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.25),
+                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=None),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["blowout_4plus_probability"] is None
+
+
 def test_unchanged_fixture_validation_passes_close_replay():
     validation = cohort._validate_unchanged_fixture_projection(
         {

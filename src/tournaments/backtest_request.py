@@ -17,10 +17,7 @@ from src.tournaments.backtest_replay_format import (
 )
 from src.tournaments.backtest_result_summary import deduplicated_fixtures_by_group
 from src.tournaments.backtest_scope import backtest_scope_roster
-from src.tournaments.schedule_simulator import (
-    DEFAULT_TIEBREAK_ORDER,
-    captured_division_schedule_template,
-)
+from src.tournaments.schedule_simulator import captured_division_schedule_template
 
 
 class BacktestRequestError(ValueError):
@@ -174,7 +171,7 @@ def build_cohort_backtest_requests(
                     actual_division_name=division.division_label,
                     pool_sizes=pool_sizes,
                     fixture_slots=fixture_slots,
-                    tiebreak_order=DEFAULT_TIEBREAK_ORDER,
+                    tiebreak_order=(),
                     tiebreak_source_urls=tiebreak_source_urls,
                 )
             except ValueError as error:
