@@ -35,7 +35,10 @@ from src.tournaments.storage._io import append_jsonl, read_json, utc_now_iso, wr
 from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
-BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
+BACKTEST_PROBABILITY_STRATEGY = "score_distribution"
+COMPATIBLE_FITTED_PROBABILITY_STRATEGIES = frozenset(
+    {"poisson_draw_gate", BACKTEST_PROBABILITY_STRATEGY}
+)
 BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
@@ -50,6 +53,8 @@ def _cohort_simulation_seed(event_key: str, age_group: str, gender: str) -> int:
         f"{event_key}|{age_group.casefold()}|{gender.casefold()}".encode("utf-8")
     ).digest()
     return int.from_bytes(digest[:8], "big") % (2**31 - 1)
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (
@@ -231,7 +236,7 @@ def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
         if (
             data_end
             and data_end < cutoff
-            and model_probability_strategy(artifact) == BACKTEST_PROBABILITY_STRATEGY
+            and model_probability_strategy(artifact) in COMPATIBLE_FITTED_PROBABILITY_STRATEGIES
         ):
             eligible.append((data_end, artifact.resolve()))
     return max(eligible, default=("", None), key=lambda item: (item[0], str(item[1])))[1]

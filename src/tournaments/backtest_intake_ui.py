@@ -53,6 +53,7 @@ from src.tournaments.backtest_reviewed_report import (
 )
 from src.tournaments.backtest_reviewed_run import (
     BACKTEST_PROBABILITY_STRATEGY,
+    COMPATIBLE_FITTED_PROBABILITY_STRATEGIES,
     ReviewedCohortReadiness,
     build_reviewed_cohort_readiness,
     capture_verification_blockers,
@@ -1724,7 +1725,10 @@ def _render_backtest_runner(
             artifact_path = resolve_model_artifact(artifact_value)
             model_exists = artifact_path.is_file()
             artifact_strategy = model_probability_strategy(artifact_path) if model_exists else ""
-            model_ready = model_exists and artifact_strategy == BACKTEST_PROBABILITY_STRATEGY
+            model_ready = (
+                model_exists
+                and artifact_strategy in COMPATIBLE_FITTED_PROBABILITY_STRATEGIES
+            )
         except (OSError, ValueError):
             artifact_path = None
             model_exists = False
@@ -1742,8 +1746,8 @@ def _render_backtest_runner(
     elif model_exists:
         described_strategy = artifact_strategy or "no recorded strategy"
         model_blocker = (
-            f"Historical model uses {described_strategy}; Backtest requires "
-            f"{BACKTEST_PROBABILITY_STRATEGY}"
+            f"Historical model uses unsupported strategy {described_strategy}; "
+            f"Backtest requires a model compatible with {BACKTEST_PROBABILITY_STRATEGY}"
         )
     else:
         model_blocker = "Historical model artifact not found"

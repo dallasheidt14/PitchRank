@@ -124,7 +124,7 @@ def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path
     monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
     candidates = (
         ("older", "2026-07-01", "poisson_draw_gate"),
-        ("newest", "2026-08-08", "poisson_draw_gate"),
+        ("newest", "2026-08-08", "score_distribution"),
         ("newer-incompatible", "2026-08-20", "hybrid"),
         ("too-new", "2026-09-05", "poisson_draw_gate"),
     )
@@ -193,6 +193,8 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert metadata["merge_map_version"] == "merge-v1"
     version_index = commands[0].index("--expected-merge-map-version")
     assert commands[0][version_index + 1] == "merge-v1"
+    strategy_index = commands[0].index("--point-in-time-probability-strategy")
+    assert commands[0][strategy_index + 1] == "score_distribution"
     seed_index = commands[0].index("--simulation-random-seed")
     assert commands[0][seed_index + 1] == str(
         runner._cohort_simulation_seed("gotsport__51783__2025", "u14", "Male")

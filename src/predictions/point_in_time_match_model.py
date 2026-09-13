@@ -1534,6 +1534,31 @@ class PointInTimeMatchModel:
                     continue
                 for event_date in cluster[1:]:
                     union(cluster[0], event_date)
+
+        # Complete events can span across otherwise independent game dates. If
+        # those intervals overlap, they must become one indivisible time block;
+        # sorting separate groups by their end dates would otherwise allow a
+        # later result into training before an earlier event game in validation.
+        intervals_by_root: dict[pd.Timestamp, list[pd.Timestamp]] = {}
+        for game_date in unique_game_dates:
+            intervals_by_root.setdefault(find(game_date), []).append(game_date)
+        ordered_intervals = sorted(
+            (
+                (min(values), max(values), root)
+                for root, values in intervals_by_root.items()
+            ),
+            key=lambda item: (item[0], item[1]),
+        )
+        active_root: pd.Timestamp | None = None
+        active_end: pd.Timestamp | None = None
+        for interval_start, interval_end, root in ordered_intervals:
+            if active_root is not None and active_end is not None and interval_start <= active_end:
+                union(active_root, root)
+                active_root = find(active_root)
+                active_end = max(active_end, interval_end)
+            else:
+                active_root = root
+                active_end = interval_end
         return pd.Series(
             [f"date-block:{find(pd.Timestamp(value)).date().isoformat()}" for value in dates],
             index=dataset_df.index,

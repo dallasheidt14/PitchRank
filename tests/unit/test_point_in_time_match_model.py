@@ -300,6 +300,32 @@ def test_three_way_split_keeps_a_short_named_event_in_one_partition():
     )
 
 
+def test_three_way_split_coalesces_a_date_inside_an_event_span():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": f"g{day}",
+                "game_date": f"2026-09-0{day}",
+                "event_name": "Weekend Cup" if day in {2, 4} else "",
+                "example_orientation": "original",
+            }
+            for day in range(1, 7)
+        ]
+    )
+
+    train, calibration, test = model._chronological_train_calibration_test_split(
+        frame,
+        calibration_ratio=0.2,
+        test_ratio=0.2,
+    )
+
+    partitions = (set(train["game_id"]), set(calibration["game_id"]), set(test["game_id"]))
+    assert sum(bool(partition & {"g2", "g3", "g4"}) for partition in partitions) == 1
+    assert max(train["game_date"]) < min(calibration["game_date"])
+    assert max(calibration["game_date"]) < min(test["game_date"])
+
+
 def test_build_point_in_time_dataset_skips_games_without_snapshot():
     games_df = pd.DataFrame(
         [
