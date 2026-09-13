@@ -73,7 +73,7 @@ def select_compatible_runs(
         failed_reason = ""
         candidate_records = (
             records_by_cohort.get((item.age_group, item.gender), ())
-            if model_sha256 and merge_map_version
+            if model_sha256 and merge_map_version and not item.blockers
             else ()
         )
         for record in candidate_records:

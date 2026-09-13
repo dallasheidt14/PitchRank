@@ -423,6 +423,10 @@ def _balanced_strength_pools(
 
     _validate_flights(teams, pool_specs)
     ordered = list(sorted(teams, key=_team_sort_key))
+    seed_band_by_team_id = {
+        team.team_id: rank // len(pool_specs)
+        for rank, team in enumerate(ordered)
+    }
     working: list[list[SeedableTeam]] = [[] for _ in pool_specs]
     remaining = [int(spec.team_count) for spec in pool_specs]
     cursor = 0
@@ -448,6 +452,11 @@ def _balanced_strength_pools(
             for right_pool in range(left_pool + 1, len(working)):
                 for left_team in range(len(working[left_pool])):
                     for right_team in range(len(working[right_pool])):
+                        if (
+                            seed_band_by_team_id[working[left_pool][left_team].team_id]
+                            != seed_band_by_team_id[working[right_pool][right_team].team_id]
+                        ):
+                            continue
                         candidate = [list(pool) for pool in working]
                         candidate[left_pool][left_team], candidate[right_pool][right_team] = (
                             candidate[right_pool][right_team],

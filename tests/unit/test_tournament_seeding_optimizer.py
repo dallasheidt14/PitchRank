@@ -101,6 +101,25 @@ def test_backtest_pool_policy_splits_seed_bands_across_balanced_pools():
     assert result.pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH
 
 
+def test_backtest_pool_balancing_never_trades_teams_across_seed_bands():
+    powers = (0.953, 0.465, 0.460, 0.372, 0.317, 0.114, 0.101, 0.062)
+    teams = [_team(index, power, index) for index, power in enumerate(powers, start=1)]
+
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=8, pool_sizes=(4, 4))],
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    pool_team_ids = [
+        {team.team_id for team in pool.teams}
+        for pool in result.divisions[0].pools
+    ]
+    for left_seed, right_seed in ((1, 2), (3, 4), (5, 6), (7, 8)):
+        seed_band = {f"team-{left_seed}", f"team-{right_seed}"}
+        assert [len(seed_band & pool) for pool in pool_team_ids] == [1, 1]
+
+
 def test_optimize_tournament_format_validates_pool_sizes():
     teams = [_team(1, 0.70, 10), _team(2, 0.68, 11), _team(3, 0.66, 12), _team(4, 0.64, 13)]
     divisions = [DivisionSpec(name="Gold", team_count=4, pool_sizes=(3,), advancement="final_only")]

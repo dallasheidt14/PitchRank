@@ -231,6 +231,35 @@ def test_event_rollup_rejects_stale_capture_or_different_model(tmp_path):
     assert rollup["selected_runs"] == []
 
 
+def test_event_rollup_withholds_old_runs_when_current_verification_is_blocked(tmp_path):
+    verified = _verified_snapshot()
+    verified_readiness = build_reviewed_cohort_readiness(verified, _links())
+    record = _record(tmp_path, verified_readiness[0])
+    unstable = replace(
+        verified,
+        verification=CaptureVerification(
+            ("group-1",),
+            (1, 2),
+            "2026-09-13T00:00:00+00:00",
+            False,
+        ),
+    )
+    current_readiness = build_reviewed_cohort_readiness(unstable, _links())
+
+    rollup = build_event_rollup(
+        unstable,
+        current_readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+    assert rollup["selected_runs"] == []
+    assert rollup["coverage"]["completed"] == 0
+    assert rollup["coverage"]["awaiting_review"] == 1
+    assert rollup["actual_vs_matchbalance"]["comparison_ready"] is False
+
+
 def test_event_rollup_rejects_run_from_an_older_merge_map(tmp_path):
     snapshot = _verified_snapshot()
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
