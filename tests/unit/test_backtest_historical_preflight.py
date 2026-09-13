@@ -114,7 +114,9 @@ def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkey
     assert HistoricalPreflight.from_dict(result.to_dict()) == result
 
 
-def test_preflight_reports_missing_snapshot_as_team_evidence_gap(tmp_path, monkeypatch):
+def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(
+    tmp_path, monkeypatch
+):
     from src.tournaments import backtest_historical_preflight as preflight
 
     artifact = tmp_path / "model.pkl"
@@ -137,9 +139,16 @@ def test_preflight_reports_missing_snapshot_as_team_evidence_gap(tmp_path, monke
 
     result = run_historical_preflight((_request(),), object(), model_artifact=artifact)
 
-    assert result.ready is False
-    assert result.cohorts[0].eligible == 1
-    assert "No prediction_feature_history snapshot" in result.cohorts[0].entrants[1].reason
+    missing_history = result.cohorts[0].entrants[1]
+    assert result.ready is True
+    assert result.cohorts[0].eligible == 2
+    assert missing_history.canonical_team_id == "canonical-b"
+    assert missing_history.rating_fallback == "missing_pre_event_history_average_estimate"
+    assert missing_history.rating_basis == (
+        "original_division_average_estimate_missing_pre_event_history"
+    )
+    assert missing_history.power_score == 0.7
+    assert "No eligible pre-event PitchRank history" in missing_history.reason
 
 
 def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(

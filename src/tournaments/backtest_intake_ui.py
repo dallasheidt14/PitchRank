@@ -41,6 +41,10 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
+from src.tournaments.backtest_rating_fallback import (
+    MISSING_HISTORY_FALLBACK_POLICY,
+    RATING_FALLBACK_POLICY,
+)
 from src.tournaments.backtest_replay_format import assess_replay_format
 from src.tournaments.backtest_reviewed_report import (
     actual_vs_matchbalance_rows,
@@ -68,6 +72,9 @@ from src.tournaments.roster_resolver import make_team_details_lookup, resolve_ma
 from src.tournaments.schedule_simulator import (
     DEFAULT_TIEBREAK_ORDER,
     STANDARD_SCORING_POLICY,
+    SUPPORTED_SCORING_POLICIES,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
     normalize_tiebreak_order,
 )
 from src.tournaments.storage._io import utc_now_iso
@@ -80,12 +87,17 @@ def _set_session_value(key: str, value: Any) -> None:
 
 _TIEBREAK_NOT_VERIFIED = "Not verified"
 _TIEBREAK_COMMON = "Points → goal differential → goals scored → wins"
+_TIEBREAK_TIGER = "Tiger Tournaments published order"
 _TIEBREAK_CUSTOM = "Custom supported order"
 _SCORING_NOT_VERIFIED = "Not verified"
 _SCORING_STANDARD = "Standard: 3 win / 1 draw / 0 loss; uncapped goal differential"
+_SCORING_TIGER = "Tiger: 3/1/0 points; goal differential and goals scored capped at 5 per game"
 _SCORING_UNSUPPORTED = "Other scoring or standings modifiers"
 _TIEBREAK_ALIASES = {
     "points": "points",
+    "head to head": "head_to_head",
+    "head-to-head": "head_to_head",
+    "head_to_head": "head_to_head",
     "goal differential": "goal_differential",
     "goal difference": "goal_differential",
     "goal diff": "goal_differential",
@@ -93,6 +105,10 @@ _TIEBREAK_ALIASES = {
     "goals scored": "goals_for",
     "goals for": "goals_for",
     "goals_for": "goals_for",
+    "fewest goals conceded": "goals_against",
+    "goals conceded": "goals_against",
+    "goals against": "goals_against",
+    "goals_against": "goals_against",
     "wins": "wins",
 }
 
@@ -100,8 +116,10 @@ _TIEBREAK_ALIASES = {
 def _format_tiebreak_order(order: tuple[str, ...]) -> str:
     labels = {
         "points": "points",
+        "head_to_head": "head-to-head",
         "goal_differential": "goal differential",
         "goals_for": "goals scored",
+        "goals_against": "fewest goals conceded",
         "wins": "wins",
     }
     return ", ".join(labels.get(item, item) for item in order)
@@ -138,13 +156,20 @@ def _decision_to_tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
             "note": "",
             "source_url": _first_tiebreak_source(snapshot),
         }
-    mode = _TIEBREAK_COMMON if decision.order == DEFAULT_TIEBREAK_ORDER else _TIEBREAK_CUSTOM
+    if decision.order == DEFAULT_TIEBREAK_ORDER:
+        mode = _TIEBREAK_COMMON
+    elif decision.order == TIGER_TOURNAMENTS_TIEBREAK_ORDER:
+        mode = _TIEBREAK_TIGER
+    else:
+        mode = _TIEBREAK_CUSTOM
     return {
         "mode": mode,
         "custom_order": _format_tiebreak_order(decision.order),
         "scoring_mode": (
             _SCORING_STANDARD
             if decision.scoring_policy == STANDARD_SCORING_POLICY
+            else _SCORING_TIGER
+            if decision.scoring_policy == TIGER_TOURNAMENTS_SCORING_POLICY
             else _SCORING_NOT_VERIFIED
         ),
         "note": decision.note,
@@ -155,7 +180,7 @@ def _decision_to_tiebreak_draft(snapshot: BacktestSnapshot) -> dict[str, str]:
 def _tiebreak_ready(decision: EventTiebreakDecision | None) -> bool:
     return bool(
         decision is not None
-        and decision.scoring_policy == STANDARD_SCORING_POLICY
+        and decision.scoring_policy in SUPPORTED_SCORING_POLICIES
     )
 
 
@@ -186,7 +211,8 @@ def match_table(
     removed = set(links.removed_registration_ids)
     not_found = set(links.not_found_registration_ids)
     conflicts = conflicts or {}
-    collisions = _canonical_collisions(links)
+    scoped_match_keys = {entrant_key(team) for team in snapshot.roster.teams}
+    collisions = _canonical_collisions(links, registration_ids=scoped_match_keys)
     rows = []
     for team in snapshot.roster.teams:
         match_key = entrant_key(team)
@@ -237,12 +263,19 @@ def match_table(
     return rows
 
 
-def _canonical_collisions(links: EventLinks) -> dict[str, tuple[str, ...]]:
+def _canonical_collisions(
+    links: EventLinks,
+    *,
+    registration_ids: set[str] | None = None,
+) -> dict[str, tuple[str, ...]]:
     """Map each distinct entrant in an unacknowledged reverse collision to its peers."""
     excluded = set(links.removed_registration_ids) | set(links.not_found_registration_ids)
     by_team: dict[str, set[str]] = {}
     for link in links.links:
-        if link.registration_id not in excluded:
+        if (
+            link.registration_id not in excluded
+            and (registration_ids is None or link.registration_id in registration_ids)
+        ):
             by_team.setdefault(link.team_id_master, set()).add(link.registration_id)
     acknowledged = {
         (item.team_id_master, tuple(sorted(item.registration_ids)))
@@ -763,7 +796,7 @@ def _current_tiebreak_decision(
             None,
             "This event uses scoring or standings modifiers that Backtest cannot replay yet",
         )
-    if scoring_mode != _SCORING_STANDARD:
+    if scoring_mode not in {_SCORING_STANDARD, _SCORING_TIGER}:
         return (
             None,
             "Confirm the published points and goal-differential scoring policy",
@@ -779,13 +812,20 @@ def _current_tiebreak_decision(
         order = (
             DEFAULT_TIEBREAK_ORDER
             if mode == _TIEBREAK_COMMON
+            else TIGER_TOURNAMENTS_TIEBREAK_ORDER
+            if mode == _TIEBREAK_TIGER
             else _parse_tiebreak_order(str(draft.get("custom_order") or ""))
+        )
+        scoring_policy = (
+            STANDARD_SCORING_POLICY
+            if scoring_mode == _SCORING_STANDARD
+            else TIGER_TOURNAMENTS_SCORING_POLICY
         )
         decision = EventTiebreakDecision(
             order=normalize_tiebreak_order(order, allow_empty=False),
             note=note,
             source_url=source_url,
-            scoring_policy=STANDARD_SCORING_POLICY,
+            scoring_policy=scoring_policy,
         )
     except ValueError as exc:
         return None, str(exc)
@@ -806,7 +846,12 @@ def _render_tiebreak_editor(snapshot: BacktestSnapshot) -> None:
         if source:
             st.link_button("Open a captured tiebreak source", source)
         mode_key = f"bt_tiebreak_mode_{snapshot.generation}{suffix}"
-        mode_options = (_TIEBREAK_NOT_VERIFIED, _TIEBREAK_COMMON, _TIEBREAK_CUSTOM)
+        mode_options = (
+            _TIEBREAK_NOT_VERIFIED,
+            _TIEBREAK_COMMON,
+            _TIEBREAK_TIGER,
+            _TIEBREAK_CUSTOM,
+        )
         mode = str(draft.get("mode") or _TIEBREAK_NOT_VERIFIED)
         if mode not in mode_options:
             mode = _TIEBREAK_NOT_VERIFIED
@@ -841,6 +886,7 @@ def _render_tiebreak_editor(snapshot: BacktestSnapshot) -> None:
         scoring_options = (
             _SCORING_NOT_VERIFIED,
             _SCORING_STANDARD,
+            _SCORING_TIGER,
             _SCORING_UNSUPPORTED,
         )
         scoring_mode = str(draft.get("scoring_mode") or _SCORING_NOT_VERIFIED)
@@ -1421,12 +1467,20 @@ def _render_event_rollup(
         )
         return
     st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
+    validation = rollup.get("model_validation") or {}
+    event_validation = validation.get("event_validation") or {}
+    if event_validation.get("status") == "passed":
+        st.caption(
+            "Model check passed across "
+            f"{event_validation.get('actual_scored_game_count', 0)} scored games "
+            f"({float(event_validation.get('fixture_count_coverage') or 0):.0%} fixture coverage)."
+        )
     if not comparison["comparison_ready"]:
-        validation = rollup.get("model_validation") or {}
-        if validation.get("failed_cohorts"):
+        if event_validation.get("status") == "failed":
             st.warning(
                 "The completed runs are saved, but MatchBalance is withholding the sales comparison "
-                "because the model did not reproduce the unchanged tournament closely enough."
+                "because the model did not reproduce the unchanged tournament closely enough "
+                "across the whole event."
             )
         else:
             st.info("Complete every cohort before producing the tournament-wide comparison.")
@@ -1457,10 +1511,46 @@ def _render_event_rollup(
         ),
         delta_color="off",
     )
-    move_columns = st.columns(3)
+    move_columns = st.columns(4)
     move_columns[0].metric("Teams moved up", movements["moved_up"])
     move_columns[1].metric("Teams moved down", movements["moved_down"])
-    move_columns[2].metric("Teams unchanged", movements["unchanged"])
+    move_columns[2].metric("Division unchanged", movements["unchanged"])
+    move_columns[3].metric(
+        "Pool changed within division",
+        movements.get("pool_changed_within_division", 0),
+    )
+    with st.expander("Review team placements"):
+        placement_filter = st.radio(
+            "Team placement rows",
+            ("Placement changes", "All teams"),
+            horizontal=True,
+            key=f"bt_event_placement_filter_{snapshot.generation}",
+        )
+        placement_rows = list(movements.get("rows") or ())
+        if placement_filter == "Placement changes":
+            placement_rows = [
+                row
+                for row in placement_rows
+                if str(row.get("move") or "stay") != "stay"
+                or str(row.get("actual_pool") or "")
+                != str(row.get("recommended_pool") or "")
+            ]
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Team": row.get("event_team_name") or row.get("canonical_team_name") or "",
+                    "Cohort": f"{_display_gender(row.get('gender'))} {str(row.get('age_group') or '').upper()}",
+                    "Original division": row.get("actual_division") or "",
+                    "MatchBalance division": row.get("recommended_division") or "",
+                    "Original pool": row.get("actual_pool") or "",
+                    "MatchBalance pool": row.get("recommended_pool") or "",
+                    "Division decision": str(row.get("move") or "stay").replace("_", " ").title(),
+                }
+                for row in placement_rows
+            ),
+            hide_index=True,
+            width="stretch",
+        )
     st.download_button(
         "Download tournament-director report",
         event_rollup_export(rollup),
@@ -1677,9 +1767,17 @@ def _render_backtest_runner(
                 f"{preflight.cutoff_exclusive}."
             )
             if fallbacks:
+                not_found_fallbacks = sum(
+                    entrant.rating_fallback == RATING_FALLBACK_POLICY for entrant in fallbacks
+                )
+                missing_history_fallbacks = sum(
+                    entrant.rating_fallback == MISSING_HISTORY_FALLBACK_POLICY
+                    for entrant in fallbacks
+                )
                 st.info(
-                    f"{len(fallbacks)} reviewed not-found entrant(s) will use an average "
-                    "pre-event strength estimate. This limitation is included in the saved Backtest evidence."
+                    f"Average estimates: {not_found_fallbacks} team(s) marked Not Found and "
+                    f"{missing_history_fallbacks} matched team(s) without eligible pre-event "
+                    "history. These limitations are saved with the Backtest evidence."
                 )
         else:
             st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
@@ -1806,7 +1904,8 @@ def _render_backtest_runner(
             model_sha256=selected_model_sha,
             merge_map_version=merge_map_version or None,
         )
-        _render_reviewed_result(event_key, base_dir)
+        with st.expander("Cohort diagnostics (optional)"):
+            _render_reviewed_result(event_key, base_dir)
         return
     selected_index = st.selectbox(
         "Cohort to run",
@@ -1856,7 +1955,8 @@ def _render_backtest_runner(
         model_sha256=selected_model_sha,
         merge_map_version=merge_map_version or None,
     )
-    _render_reviewed_result(event_key, base_dir)
+    with st.expander("Cohort diagnostics (optional)"):
+        _render_reviewed_result(event_key, base_dir)
 
 
 def render_intake(supabase_client: Any) -> None:

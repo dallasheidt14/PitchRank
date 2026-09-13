@@ -3,6 +3,8 @@ import pytest
 from src.tournaments.backtest_rating_fallback import (
     COHORT_AVERAGE_BASIS,
     DIVISION_AVERAGE_BASIS,
+    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
+    MISSING_HISTORY_FALLBACK_POLICY,
     build_average_rating_estimate,
 )
 
@@ -45,8 +47,22 @@ def test_fallback_uses_cohort_average_when_no_division_peer_is_rated():
 
 
 def test_fallback_refuses_to_invent_a_rating_without_any_rated_peer():
-    with pytest.raises(ValueError, match="No eligible rated team"):
+    with pytest.raises(ValueError, match="No eligible pre-event rating"):
         build_average_rating_estimate(
             {"entrant_id": "missing", "event_team_name": "Unknown FC"},
             (),
         )
+
+
+def test_missing_history_fallback_has_a_distinct_evidence_basis():
+    estimate, basis = build_average_rating_estimate(
+        {
+            "entrant_id": "known-without-history",
+            "actual_division_key": "silver",
+            "rating_fallback": MISSING_HISTORY_FALLBACK_POLICY,
+        },
+        (_row("rated", "silver", 0.64),),
+    )
+
+    assert estimate["power_score"] == pytest.approx(0.64)
+    assert basis == DIVISION_MISSING_HISTORY_AVERAGE_BASIS

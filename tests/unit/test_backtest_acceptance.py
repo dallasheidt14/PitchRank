@@ -63,7 +63,11 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         "build_event_rollup",
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 1},
-            "model_validation": {"passed_cohorts": 1, "failures": []},
+            "model_validation": {
+                "passed_cohorts": 1,
+                "failures": [],
+                "event_validation": {"status": "passed", "blockers": []},
+            },
             "team_movements": {"evaluated": 2, "duplicate_entry_ids_skipped": []},
             "actual_vs_matchbalance": {
                 "comparison_ready": True,
@@ -108,7 +112,14 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
         "build_event_rollup",
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 0},
-            "model_validation": {"passed_cohorts": 0, "failures": []},
+            "model_validation": {
+                "passed_cohorts": 0,
+                "failures": [],
+                "event_validation": {
+                    "status": "failed",
+                    "blockers": ["No completed event replay"],
+                },
+            },
             "team_movements": {"evaluated": 0, "duplicate_entry_ids_skipped": []},
             "actual_vs_matchbalance": {
                 "comparison_ready": False,

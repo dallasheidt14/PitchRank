@@ -24,7 +24,11 @@ from src.tournaments.backtest_intake_state import (
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+)
 
 
 def sample_snapshot(event_id="51783", *, generation="capture-one"):
@@ -114,6 +118,22 @@ def test_sourced_event_tiebreak_decision_round_trip_and_legacy_default(tmp_path)
     assert BacktestSnapshot.from_dict(without_decision).tiebreak_decision is None
 
 
+def test_tiger_tournament_rule_round_trip(tmp_path):
+    decision = EventTiebreakDecision(
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        "Tiger Tournaments published event rules",
+        "https://tigertournaments.com/resources-2/",
+        TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=decision)
+
+    write_snapshot("gotsport__51783__2025", snapshot, base_dir=tmp_path)
+
+    assert read_snapshot(
+        "gotsport__51783__2025", base_dir=tmp_path
+    ).tiebreak_decision == decision
+
+
 def test_stale_event_tiebreak_edit_cannot_overwrite_another_session(tmp_path):
     key = "gotsport__51783__2025"
     baseline = sample_snapshot()
@@ -151,7 +171,7 @@ def test_event_tiebreak_decision_rejects_unsupported_or_unsourced_rules():
         replace(
             sample_snapshot(),
             tiebreak_decision=EventTiebreakDecision(
-                ("points", "head_to_head"),
+                ("points", "coin_toss"),
                 "Published source",
                 "https://example.test/tiebreaks",
             ),

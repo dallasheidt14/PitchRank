@@ -24,7 +24,10 @@ from src.tournaments.gotsport_event_roster import (
     event_roster_to_dict,
 )
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY, normalize_tiebreak_order
+from src.tournaments.schedule_simulator import (
+    SUPPORTED_SCORING_POLICIES,
+    normalize_tiebreak_order,
+)
 from src.tournaments.storage._file_lock import _acquire_file_lock
 from src.tournaments.storage._io import read_versioned_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir, parse_event_key
@@ -173,7 +176,7 @@ class BacktestSnapshot:
                 raise ValueError("The event tiebreak order must use normalized criterion names")
             if not decision.note.strip() or not decision.source_url.strip():
                 raise ValueError("The event tiebreak decision needs a note and source URL")
-            if decision.scoring_policy not in {"", STANDARD_SCORING_POLICY}:
+            if decision.scoring_policy and decision.scoring_policy not in SUPPORTED_SCORING_POLICIES:
                 raise ValueError("The event tiebreak decision has an unsupported scoring policy")
         if self.verification is not None:
             verification = self.verification

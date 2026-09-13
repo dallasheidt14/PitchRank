@@ -14,7 +14,11 @@ from src.tournaments.backtest_request import BacktestRequestError, build_cohort_
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+)
 
 
 def _snapshot() -> BacktestSnapshot:
@@ -146,11 +150,29 @@ def test_build_request_requires_a_sourced_event_tiebreak_decision():
 def test_build_request_requires_a_verified_supported_scoring_policy():
     legacy_decision = replace(_snapshot().tiebreak_decision, scoring_policy="")
 
-    with pytest.raises(BacktestRequestError, match="standard 3/1/0"):
+    with pytest.raises(BacktestRequestError, match="published points and standings modifiers"):
         build_cohort_backtest_requests(
             replace(_snapshot(), tiebreak_decision=legacy_decision),
             event_links=_links(),
         )
+
+
+def test_build_request_preserves_supported_tiger_tournament_rules():
+    tiger_decision = EventTiebreakDecision(
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        "Published Tiger Tournaments rules",
+        "https://tigertournaments.com/resources-2/",
+        TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    request = build_cohort_backtest_requests(
+        replace(_snapshot(), tiebreak_decision=tiger_decision),
+        event_links=_links(),
+    )[0]
+
+    schedule = request["divisions"][0]["captured_schedule"]
+    assert schedule["tiebreak_order"] == list(TIGER_TOURNAMENTS_TIEBREAK_ORDER)
+    assert schedule["scoring_policy"] == TIGER_TOURNAMENTS_SCORING_POLICY
 
 
 def test_build_request_can_select_one_reviewed_cohort():

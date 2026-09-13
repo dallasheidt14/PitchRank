@@ -26,7 +26,7 @@ import math
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,7 @@ from src.predictions.point_in_time_match_model import (  # noqa: E402
     build_point_in_time_matchup_row,
 )
 from src.tournaments.backtest_rating_fallback import (  # noqa: E402
+    MISSING_HISTORY_FALLBACK_POLICY,
     build_average_rating_estimate,
     needs_rating_fallback,
 )
@@ -925,6 +926,59 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
     )
 
 
+def _apply_backtest_projection_calibration(
+    prediction: TournamentMatchPrediction,
+    calibration: dict[str, Any] | None,
+) -> TournamentMatchPrediction:
+    """Apply a model artifact's frozen pre-event holdout calibration."""
+
+    calibration = calibration or {}
+    raw_margin_scale = calibration.get("margin_absolute_scale", 1.0)
+    if raw_margin_scale is None:
+        raw_margin_scale = 1.0
+    try:
+        margin_scale = float(raw_margin_scale)
+    except (TypeError, ValueError):
+        margin_scale = 1.0
+    if not math.isfinite(margin_scale) or margin_scale <= 0:
+        raise ValueError("Backtest margin calibration scale must be finite and positive")
+    raw_probability_scales = calibration.get("blowout_probability_scales") or {}
+
+    def scaled_probability(value: float | None, threshold: int) -> float | None:
+        if value is None:
+            return None
+        raw_scale = raw_probability_scales.get(str(threshold), 1.0)
+        if raw_scale is None:
+            raw_scale = 1.0
+        try:
+            scale = float(raw_scale)
+        except (TypeError, ValueError):
+            scale = 1.0
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError(
+                f"Backtest {threshold}+ blowout calibration scale must be finite and positive"
+            )
+        return min(1.0, max(0.0, float(value) * scale))
+
+    expected_margin = math.copysign(
+        abs(float(prediction.expected_margin)) * margin_scale,
+        float(prediction.expected_margin),
+    )
+    return replace(
+        prediction,
+        expected_margin=expected_margin,
+        blowout_3plus_probability=scaled_probability(
+            prediction.blowout_3plus_probability, 3
+        ),
+        blowout_4plus_probability=scaled_probability(
+            prediction.blowout_4plus_probability, 4
+        ),
+        blowout_5plus_probability=scaled_probability(
+            prediction.blowout_5plus_probability, 5
+        ),
+    )
+
+
 def _override_point_in_time_probability_strategy(
     model: PointInTimeMatchModel,
     probability_strategy: str | None,
@@ -1051,6 +1105,12 @@ def _build_point_in_time_prediction_and_cost_functions(
     snapshot_index = _filter_snapshot_index_for_cutoff(snapshot_index, prediction_date)
     model = PointInTimeMatchModel.load(str(model_artifact))
     _override_point_in_time_probability_strategy(model, probability_strategy_override)
+    projection_calibration = dict(
+        getattr(model, "backtest_projection_calibration", {})
+        or (getattr(model, "training_metadata", {}) or {}).get(
+            "backtest_projection_calibration", {}
+        )
+    )
     entrant_by_id = {str(row["entrant_id"]): row for row in entrant_rows}
     team_names = {
         str(row["ranking_source_team_id"]): str(row["event_team_name"])
@@ -1116,6 +1176,10 @@ def _build_point_in_time_prediction_and_cost_functions(
         prediction = _point_in_time_prediction_from_row(
             prediction_row,
             source=f"{PREDICTOR_SOURCE_POINT_IN_TIME}:{model_artifact.stem}",
+        )
+        prediction = _apply_backtest_projection_calibration(
+            prediction,
+            projection_calibration,
         )
         prediction_cache[cache_key] = prediction
         return prediction
@@ -1668,9 +1732,11 @@ def main() -> int:
     )
     resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
     entrant_rows_by_id: dict[str, dict[str, Any]] = {}
+    fallback_entrants: list[dict[str, Any]] = []
     notes: list[str] = []
     for entrant in entrants_payload:
         if needs_rating_fallback(entrant):
+            fallback_entrants.append(entrant)
             continue
         canonical_team_id = str(entrant["canonical_team_id"])
         ranking_source_team_id = str(entrant["ranking_source_team_id"])
@@ -1678,9 +1744,18 @@ def main() -> int:
             "event_team_name": entrant.get("event_team_name"),
             "ranking_source_team_id": ranking_source_team_id,
         }
+        snapshot_entries = entrant_snapshot_index.get(ranking_source_team_id)
+        if not snapshot_entries:
+            fallback_entrants.append(
+                {
+                    **entrant,
+                    "rating_fallback": MISSING_HISTORY_FALLBACK_POLICY,
+                }
+            )
+            continue
         resolved_snapshot, _resolution_mode = _resolve_prediction_snapshot(
             provisional,
-            entrant_snapshot_index.get(ranking_source_team_id),
+            snapshot_entries,
             prediction_date,
         )
         _verify_snapshot_provenance(
@@ -1700,9 +1775,7 @@ def main() -> int:
         entrant_rows_by_id[str(entrant["entrant_id"])] = entrant_row
 
     rated_rows = list(entrant_rows_by_id.values())
-    for entrant in entrants_payload:
-        if not needs_rating_fallback(entrant):
-            continue
+    for entrant in fallback_entrants:
         estimate, basis = build_average_rating_estimate(entrant, rated_rows)
         ranking_source_team_id = str(estimate["ranking_source_team_id"])
         fallback_entrant = {
@@ -1725,7 +1798,7 @@ def main() -> int:
         resolved_snapshots_by_source_id[ranking_source_team_id] = resolved_snapshot
         entrant_row = _build_entrant_row(
             fallback_entrant,
-            None,
+            team_by_id.get(str(entrant["canonical_team_id"])),
             _historical_ranking_row(resolved_snapshot),
             cohort_age_group=age_group,
             cohort_gender=gender,
@@ -1852,6 +1925,10 @@ def main() -> int:
                 "probability_strategy_default": DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
                 "selection_objective": point_in_time_model.selection_objective,
                 "model_data_end_date": model_data_end_date,
+                "backtest_projection_calibration": dict(
+                    getattr(point_in_time_model, "backtest_projection_calibration", {})
+                    or model_training_metadata.get("backtest_projection_calibration", {})
+                ),
             }
         )
         matchup_proxy = f"point_in_time_match_model:{point_in_time_model.probability_strategy}"

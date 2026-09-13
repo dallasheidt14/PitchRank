@@ -1,4 +1,4 @@
-"""Transparent average-strength estimates for reviewed entrants absent from PitchRank."""
+"""Transparent average-strength estimates for entrants without pre-event ratings."""
 
 from __future__ import annotations
 
@@ -6,9 +6,14 @@ import math
 from typing import Any, Sequence
 
 RATING_FALLBACK_POLICY = "division_then_cohort_average_estimate"
+MISSING_HISTORY_FALLBACK_POLICY = "missing_pre_event_history_average_estimate"
 LEGACY_RATING_FALLBACK_POLICIES = frozenset({"division_then_cohort_median_surrogate"})
 DIVISION_AVERAGE_BASIS = "original_division_average_estimate"
 COHORT_AVERAGE_BASIS = "cohort_average_estimate"
+DIVISION_MISSING_HISTORY_AVERAGE_BASIS = (
+    "original_division_average_estimate_missing_pre_event_history"
+)
+COHORT_MISSING_HISTORY_AVERAGE_BASIS = "cohort_average_estimate_missing_pre_event_history"
 AVERAGE_ESTIMATE_SOURCE_PREFIX = "average-estimate:"
 
 _AVERAGED_FIELDS = (
@@ -26,7 +31,15 @@ _AVERAGED_FIELDS = (
 
 def needs_rating_fallback(entrant: dict[str, Any]) -> bool:
     policy = str(entrant.get("rating_fallback") or "")
-    return policy == RATING_FALLBACK_POLICY or policy in LEGACY_RATING_FALLBACK_POLICIES
+    return policy in {
+        RATING_FALLBACK_POLICY,
+        MISSING_HISTORY_FALLBACK_POLICY,
+        *LEGACY_RATING_FALLBACK_POLICIES,
+    }
+
+
+def missing_history_rating_fallback(entrant: dict[str, Any]) -> bool:
+    return str(entrant.get("rating_fallback") or "") == MISSING_HISTORY_FALLBACK_POLICY
 
 
 def _finite_average(rows: Sequence[dict[str, Any]], field: str) -> float | None:
@@ -64,7 +77,7 @@ def build_average_rating_estimate(
     candidates = division_peers or eligible
     if not candidates:
         raise ValueError(
-            "No eligible rated team is available to calculate an average for not-found "
+            "No eligible pre-event rating is available to calculate an average for "
             f"'{entrant.get('event_team_name') or entrant.get('entrant_id')}'"
         )
 
@@ -90,7 +103,15 @@ def build_average_rating_estimate(
         estimate[field] = _finite_average(candidates, field)
     if estimate["power_score"] is None:
         raise ValueError(
-            "No eligible rated team is available to calculate an average for not-found "
+            "No eligible pre-event rating is available to calculate an average for "
             f"entrant '{entrant.get('event_team_name') or entrant_id}'"
         )
-    return estimate, DIVISION_AVERAGE_BASIS if division_peers else COHORT_AVERAGE_BASIS
+    if missing_history_rating_fallback(entrant):
+        basis = (
+            DIVISION_MISSING_HISTORY_AVERAGE_BASIS
+            if division_peers
+            else COHORT_MISSING_HISTORY_AVERAGE_BASIS
+        )
+    else:
+        basis = DIVISION_AVERAGE_BASIS if division_peers else COHORT_AVERAGE_BASIS
+    return estimate, basis

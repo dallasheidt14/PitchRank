@@ -257,14 +257,11 @@ def validate_backtest_acceptance(
     validation = rollup["model_validation"]
     checks.append(
         _check(
-            "unchanged fixture model calibration",
-            coverage["total_cohorts"],
-            validation["passed_cohorts"],
+            "event-wide unchanged fixture model calibration",
+            "passed",
+            (validation.get("event_validation") or {}).get("status"),
             detail=(
-                "; ".join(
-                    f"{item['gender']} {item['age_group']}: {', '.join(item['blockers'])}"
-                    for item in validation["failures"]
-                )
+                "; ".join((validation.get("event_validation") or {}).get("blockers") or ())
             ),
         )
     )

@@ -135,6 +135,7 @@ POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
 POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
 POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX = 0.45
 BLOWOUT_THRESHOLDS = (3, 5)
+BACKTEST_PROJECTION_CALIBRATION_VERSION = "chronological_holdout_rate_scale_v1"
 LOW_SCORE_CORRELATION_BASE = -0.035
 LOW_SCORE_CORRELATION_MAX = -0.18
 BLOWOUT_THRESHOLD_GRID = np.linspace(0.05, 0.85, 81)
@@ -1217,6 +1218,7 @@ class PointInTimeMatchModel:
         self.blowout_probability_thresholds: Dict[int, float] = {3: 0.5, 5: 0.5}
         self.blowout_probability_thresholds_by_age: Dict[int, Dict[int, float]] = {3: {}, 5: {}}
         self.training_metadata: Dict[str, object] = {}
+        self.backtest_projection_calibration: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         os.makedirs(model_dir, exist_ok=True)
 
@@ -2641,6 +2643,37 @@ class PointInTimeMatchModel:
             probability_strategy=self.probability_strategy,
         )
         summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
+        actual_average_abs_margin = _to_float(
+            summary_metrics.get("actual_average_abs_margin")
+        )
+        predicted_average_abs_margin = _to_float(
+            summary_metrics.get("predicted_average_abs_margin")
+        )
+        margin_scale = (
+            actual_average_abs_margin / predicted_average_abs_margin
+            if actual_average_abs_margin > 0 and predicted_average_abs_margin > 0
+            else 1.0
+        )
+        blowout_scales = {}
+        for threshold in (3, 4, 5):
+            actual_rate = _to_float(
+                summary_metrics.get(f"actual_blowout_{threshold}plus_rate")
+            )
+            average_probability = _to_float(
+                summary_metrics.get(f"avg_blowout_{threshold}plus_probability")
+            )
+            blowout_scales[str(threshold)] = (
+                actual_rate / average_probability
+                if actual_rate > 0 and average_probability > 0
+                else 1.0
+            )
+        self.backtest_projection_calibration = {
+            "version": BACKTEST_PROJECTION_CALIBRATION_VERSION,
+            "source": "chronological_pre_event_holdout",
+            "margin_absolute_scale": float(margin_scale),
+            "blowout_probability_scales": blowout_scales,
+            "examples": int(len(test_df)),
+        }
         metrics = {
             **summary_metrics,
             "actual_draw_rate": float(np.mean(y_test == OUTCOME_DRAW)),
@@ -2699,6 +2732,7 @@ class PointInTimeMatchModel:
             "selection_objective": self.selection_objective,
             "strategy_constraints": self.strategy_constraints,
             "auto_strategy_selection": self.auto_strategy_selection,
+            "backtest_projection_calibration": self.backtest_projection_calibration,
         }
         return metrics
 
@@ -2744,6 +2778,10 @@ class PointInTimeMatchModel:
         model.feature_names = payload["feature_names"]
         model.class_labels = payload["class_labels"]
         model.training_metadata = payload.get("training_metadata", {})
+        model.backtest_projection_calibration = payload.get(
+            "backtest_projection_calibration",
+            model.training_metadata.get("backtest_projection_calibration", {}),
+        )
         return model
 
     def predict_frame(self, dataset_df: pd.DataFrame) -> pd.DataFrame:
@@ -2863,6 +2901,7 @@ class PointInTimeMatchModel:
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,
+            "backtest_projection_calibration": self.backtest_projection_calibration,
         }
 
         with open(pickle_path, "wb") as handle:

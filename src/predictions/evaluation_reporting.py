@@ -174,6 +174,8 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
         "brier_score": _brier_score(probabilities, labels),
         "margin_mae": float(np.mean(np.abs(margin_errors))),
         "margin_rmse": float(np.sqrt(np.mean(margin_errors**2))),
+        "actual_average_abs_margin": float(standardized["actual_abs_margin"].mean()),
+        "predicted_average_abs_margin": float(standardized["predicted_abs_margin"].mean()),
     }
 
     if score_rows.any():

@@ -32,7 +32,11 @@ from src.tournaments.backtest_link_store import (
     update_links,
 )
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
-from src.tournaments.schedule_simulator import STANDARD_SCORING_POLICY
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+)
 from tests.unit.test_backtest_intake_state import sample_snapshot
 
 
@@ -171,6 +175,27 @@ def test_distinct_registrations_sharing_a_canonical_team_require_explicit_acknow
     assert [row["Status"] for row in match_table(snapshot, confirmed, details)[:2]] == ["Matched", "Matched"]
 
 
+def test_out_of_scope_registration_does_not_create_an_in_scope_collision():
+    snapshot = sample_snapshot()
+    scoped = replace(
+        snapshot,
+        roster=replace(snapshot.roster, teams=(snapshot.roster.teams[0],)),
+        resolved=(snapshot.resolved[0],),
+    )
+    links = EventLinks(
+        event_id="51783",
+        links=(
+            TeamLink("100", "Alpha", "canonical-a", "gotsport_id", "now"),
+            TeamLink("out-of-scope", "Youth Alpha", "canonical-a", "gotsport_id", "now"),
+        ),
+    )
+
+    rows = match_table(scoped, links, {"canonical-a": {"team_name": "Canonical A"}})
+
+    assert rows[0]["Status"] == "Matched"
+    assert rows[0]["Match issue"] == ""
+
+
 def test_not_found_is_a_completed_review_with_no_pitchrank_id():
     snapshot = sample_snapshot()
     links = EventLinks(event_id="51783", not_found_registration_ids=("101",))
@@ -223,6 +248,24 @@ def test_unsupported_scoring_draft_blocks_a_previously_saved_rule(monkeypatch):
 
     assert decision is None
     assert "cannot replay" in error
+
+
+def test_saved_tiger_tiebreak_draft_remains_runnable(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    saved = EventTiebreakDecision(
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        "Verified from the organizer's published rules",
+        "https://tigertournaments.com/resources-2/",
+        TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved)
+    monkeypatch.setattr(ui, "st", SimpleNamespace(session_state={}))
+
+    decision, error = ui._current_tiebreak_decision(snapshot)
+
+    assert error == ""
+    assert decision == saved
 
 
 def test_targeted_capture_carries_reviews_cohorts_and_tiebreak_rules():
@@ -537,7 +580,8 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     )
     assert movements["Decision"].tolist() == ["Stayed"]
     assert metrics["Cohorts completed"] == "1"
-    assert metrics["Teams unchanged"] == "1"
+    assert metrics["Division unchanged"] == "1"
+    assert metrics["Pool changed within division"] == "0"
 
 
 def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(

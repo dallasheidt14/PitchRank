@@ -10,6 +10,10 @@ import pytest
 
 from src.tournaments.backtest_event_rollup import build_event_rollup, event_rollup_export
 from src.tournaments.backtest_intake_state import CaptureVerification
+from src.tournaments.backtest_rating_fallback import (
+    DIVISION_AVERAGE_BASIS,
+    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
+)
 from src.tournaments.backtest_reviewed_run import (
     ReviewedCohortReadiness,
     ReviewedRunRecord,
@@ -43,12 +47,12 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
         "merge_map_version": "merge-v1",
     }
     original = {
-        "projected_matchup_count": 4,
-        "average_goal_differential": 2.5,
-        "blowout_4plus_probability": 0.30 if with_4plus else None,
+        "projected_matchup_count": 1,
+        "average_goal_differential": 1.0,
+        "blowout_4plus_probability": 0.0,
     }
     proposed = {
-        "projected_matchup_count": 4,
+        "projected_matchup_count": 1,
         "average_goal_differential": 1.5,
         "blowout_4plus_probability": 0.10 if with_4plus else None,
     }
@@ -65,14 +69,20 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
                 "event_team_name": "Alpha",
                 "actual_division": "Gold",
                 "recommended_division": "Silver",
+                "actual_pool": "Pool A",
+                "recommended_pool": "Pool A",
                 "move": "move_down",
+                "rating_basis": DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
             },
             {
                 "entrant_id": "reg-b",
                 "event_team_name": "Bravo",
                 "actual_division": "Gold",
                 "recommended_division": "Gold",
+                "actual_pool": "Pool A",
+                "recommended_pool": "Pool B",
                 "move": "stay",
+                "rating_basis": DIVISION_AVERAGE_BASIS,
             },
         ],
     }
@@ -106,6 +116,14 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
     assert comparison["estimated_blowout_4plus_rate_reduction"] == pytest.approx(-0.1)
     assert rollup["team_movements"]["moved_down"] == 1
     assert rollup["team_movements"]["unchanged"] == 1
+    assert rollup["team_movements"]["pool_changed_within_division"] == 1
+    assert rollup["team_movements"]["placement_changed"] == 2
+    assert rollup["model_validation"]["event_validation"]["status"] == "passed"
+    assert rollup["rating_evidence"] == {
+        "historical_snapshot": 0,
+        "not_found_average_estimate": 1,
+        "missing_history_average_estimate": 1,
+    }
     with zipfile.ZipFile(BytesIO(event_rollup_export(rollup))) as archive:
         assert set(archive.namelist()) == {
             "tournament-director-report.html",
@@ -114,6 +132,7 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
         report = archive.read("tournament-director-report.html").decode("utf-8")
         assert "Actual tournament versus MatchBalance" in report
         assert "Original projected" not in report
+        assert "matched teams without eligible pre-event history" in report
 
 
 def test_event_rollup_does_not_invent_4plus_rate_for_legacy_run(tmp_path):
@@ -136,7 +155,7 @@ def test_event_rollup_does_not_invent_4plus_rate_for_legacy_run(tmp_path):
     assert comparison["estimated_blowout_4plus_rate_reduction"] is None
 
 
-def test_event_rollup_withholds_sales_comparison_when_unchanged_replay_fails(tmp_path):
+def test_event_rollup_keeps_small_cohort_calibration_failures_as_warnings(tmp_path):
     snapshot = _verified_snapshot()
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0])
@@ -158,9 +177,32 @@ def test_event_rollup_withholds_sales_comparison_when_unchanged_replay_fails(tmp
 
     comparison = rollup["actual_vs_matchbalance"]
     assert rollup["coverage"]["completed"] == 1
-    assert comparison["comparison_ready"] is False
-    assert comparison["matchbalance_projected_average_goal_margin"] is None
+    assert comparison["comparison_ready"] is True
+    assert comparison["matchbalance_projected_average_goal_margin"] == 1.5
     assert rollup["model_validation"]["failed_cohorts"] == 1
+    assert len(rollup["model_validation"]["cohort_warnings"]) == 1
+
+
+def test_event_rollup_withholds_comparison_when_event_wide_replay_fails(tmp_path):
+    snapshot = _verified_snapshot()
+    readiness = build_reviewed_cohort_readiness(snapshot, _links())
+    record = _record(tmp_path, readiness[0])
+    summary_path = record.run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["original_schedule_projection"]["average_goal_differential"] = 4.0
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+    assert rollup["model_validation"]["event_validation"]["status"] == "failed"
+    assert rollup["actual_vs_matchbalance"]["comparison_ready"] is False
+    assert rollup["actual_vs_matchbalance"]["matchbalance_projected_average_goal_margin"] is None
 
 
 def test_event_rollup_actual_baseline_always_uses_the_whole_scraped_tournament(tmp_path):

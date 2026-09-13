@@ -1,4 +1,7 @@
-from src.tournaments.backtest_rating_fallback import DIVISION_AVERAGE_BASIS
+from src.tournaments.backtest_rating_fallback import (
+    DIVISION_AVERAGE_BASIS,
+    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
+)
 from src.tournaments.backtest_reviewed_report import (
     actual_vs_matchbalance_rows,
     movement_rows,
@@ -53,6 +56,19 @@ def test_movement_rows_disclose_not_found_rating_fallback():
 
     assert rows[0]["Rating evidence"] == "Division average estimate (team not found)"
     assert "Division average estimate (team not found)" in rendered
+
+
+def test_movement_rows_disclose_missing_history_without_erasing_identity():
+    summary = _summary()
+    summary["division_recommendations"][0][
+        "rating_basis"
+    ] = DIVISION_MISSING_HISTORY_AVERAGE_BASIS
+
+    rows = movement_rows(summary)
+    rendered = render_reviewed_backtest_html(summary, {})
+
+    assert rows[0]["Rating evidence"] == "Division average estimate (no pre-event history)"
+    assert "Division average estimate (no pre-event history)" in rendered
 
 
 def test_legacy_run_without_calibration_never_renders_a_sales_comparison():

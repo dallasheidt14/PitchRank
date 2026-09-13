@@ -5,6 +5,10 @@ import pytest
 from src.tournaments.schedule_simulator import (
     DEFAULT_TIEBREAK_ORDER,
     STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+    _empty_standings,
+    _rank_pool_teams,
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
@@ -175,6 +179,75 @@ def test_simulate_tournament_schedule_replays_two_pools_of_three_with_semis():
     assert simulation.divisions[0].match_count == 10
 
 
+def test_tiger_tiebreak_uses_head_to_head_before_goal_differential():
+    teams = [_team(1, 0.7, 1), _team(2, 0.8, 2), _team(3, 0.6, 3)]
+    standings = _empty_standings(teams)
+    standings["team-1"].update(points=6, gd=1, gd_capped=1, head_to_head={"team-2": 3})
+    standings["team-2"].update(points=6, gd=8, gd_capped=5, head_to_head={"team-1": 0})
+    standings["team-3"].update(points=0)
+
+    ranked = _rank_pool_teams(
+        teams,
+        standings,
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        division_name="U12 Gold",
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    assert [team.team_id for team in ranked[:2]] == ["team-1", "team-2"]
+
+
+def test_tiger_tiebreak_skips_head_to_head_for_three_way_non_crossover_tie():
+    teams = [_team(1, 0.7, 1), _team(2, 0.8, 2), _team(3, 0.6, 3)]
+    standings = _empty_standings(teams)
+    standings["team-1"].update(points=3, gd_capped=1, head_to_head={"team-2": 3})
+    standings["team-2"].update(points=3, gd_capped=4, head_to_head={"team-3": 3})
+    standings["team-3"].update(points=3, gd_capped=2, head_to_head={"team-1": 3})
+
+    ranked = _rank_pool_teams(
+        teams,
+        standings,
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        division_name="U12 Gold",
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    assert [team.team_id for team in ranked] == ["team-2", "team-3", "team-1"]
+
+
+def test_tiger_tiebreak_uses_capped_goal_metrics_then_fewest_goals_conceded():
+    teams = [_team(1, 0.7, 1), _team(2, 0.8, 2)]
+    standings = _empty_standings(teams)
+    standings["team-1"].update(
+        points=6,
+        gd=11,
+        gd_capped=8,
+        gf=14,
+        gf_capped=10,
+        ga=3,
+        head_to_head={"team-2": 1},
+    )
+    standings["team-2"].update(
+        points=6,
+        gd=9,
+        gd_capped=8,
+        gf=12,
+        gf_capped=10,
+        ga=2,
+        head_to_head={"team-1": 1},
+    )
+
+    ranked = _rank_pool_teams(
+        teams,
+        standings,
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        division_name="U12 Gold",
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    assert [team.team_id for team in ranked] == ["team-2", "team-1"]
+
+
 def test_captured_graph_replays_cross_pool_games_and_actual_advancement_path():
     teams = [_team(index, 0.95 - index * 0.08, index) for index in range(1, 7)]
     result = optimize_tournament_format(
@@ -336,6 +409,69 @@ def test_captured_graph_blocks_a_tied_qualifier_without_verified_tiebreaks():
 
     with pytest.raises(ValueError, match="no verified tournament tiebreak order"):
         simulate_tournament_schedule(result.divisions, {"Gold": template}, _prediction)
+
+
+def test_tiger_captured_graph_projects_the_published_penalty_tiebreak():
+    teams = [_team(1, 0.8, 1), _team(2, 0.4, 2), _team(3, 0.6, 3)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=3, pool_sizes=(3,))],
+        matchup_cost_fn=_cost,
+    )
+    pool_teams = result.divisions[0].pools[0].teams
+    fixtures = [
+        {
+            "stage": "Pool",
+            "counts_for_standings": True,
+            "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+            "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+        },
+        {
+            "stage": "Final",
+            "home": {"kind": "pool_rank", "pool_index": 0, "rank": 0},
+            "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 2},
+        },
+    ]
+
+    def draw_prediction(home, away):
+        home_stronger = home.power_score > away.power_score
+        return SimpleNamespace(
+            predicted_winner="draw",
+            expected_score={"teamA": 1, "teamB": 1},
+            win_probability_a=0.4 if home_stronger else 0.2,
+            win_probability_b=0.2 if home_stronger else 0.4,
+        )
+
+    template = captured_division_schedule_template(
+        division_name="Gold",
+        actual_division_name="U17 Boys Gold",
+        pool_sizes=(3,),
+        fixture_slots=fixtures,
+        tiebreak_order=TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        tiebreak_source_urls=("https://tigertournaments.com/resources-2/",),
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    simulation = simulate_tournament_schedule(
+        result.divisions,
+        {"Gold": template},
+        draw_prediction,
+    )
+
+    tied = pool_teams[:2]
+    expected_qualifier = max(tied, key=lambda team: team.power_score)
+    final = simulation.divisions[0].matches[-1]
+    assert final.home_team_id == expected_qualifier.team_id
+    assert simulation.divisions[0].qualification_tiebreaks == (
+        {
+            "qualifier_rank": 1,
+            "basis": "published_penalty_kicks_projected_from_pre_event_model",
+            "tied_team_ids": sorted(team.team_id for team in tied),
+            "projected_order": [
+                team.team_id for team in sorted(tied, key=lambda team: -team.power_score)
+            ],
+        },
+    )
 
 
 def test_captured_graph_resolves_knockout_draws_without_home_side_bias():

@@ -9,7 +9,9 @@ from typing import Any
 
 from src.tournaments.backtest_rating_fallback import (
     COHORT_AVERAGE_BASIS,
+    COHORT_MISSING_HISTORY_AVERAGE_BASIS,
     DIVISION_AVERAGE_BASIS,
+    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
 )
 
 
@@ -97,6 +99,10 @@ def _rating_evidence_label(item: dict[str, Any]) -> str:
         return "Division average estimate (team not found)"
     if basis == COHORT_AVERAGE_BASIS:
         return "Cohort average estimate (team not found)"
+    if basis == DIVISION_MISSING_HISTORY_AVERAGE_BASIS:
+        return "Division average estimate (no pre-event history)"
+    if basis == COHORT_MISSING_HISTORY_AVERAGE_BASIS:
+        return "Cohort average estimate (no pre-event history)"
     if basis in {"original_division_median_surrogate", "cohort_median_surrogate"}:
         return "Legacy median fallback (team not found)"
     return "PitchRank pre-event rating"

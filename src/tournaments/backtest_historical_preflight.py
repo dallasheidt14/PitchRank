@@ -28,8 +28,10 @@ from scripts.backtest_tournament_cohort import (
 )
 from src.predictions.point_in_time_match_model import PointInTimeMatchModel
 from src.tournaments.backtest_rating_fallback import (
+    MISSING_HISTORY_FALLBACK_POLICY,
     RATING_FALLBACK_POLICY,
     build_average_rating_estimate,
+    missing_history_rating_fallback,
     needs_rating_fallback,
 )
 from src.tournaments.backtest_reviewed_run import model_artifact_sha256, resolve_model_artifact
@@ -56,6 +58,7 @@ class HistoricalEntrantCheck:
     reason: str = ""
     rating_basis: str = "historical_snapshot"
     rating_source_count: int = 0
+    rating_fallback: str = ""
 
 
 @dataclass(frozen=True)
@@ -125,7 +128,7 @@ def preflight_input_sha256(
         "requests": list(requests),
         "model_artifact_sha256": model_artifact_sha256(model_artifact),
         "merge_map_version": merge_map_version,
-        "policy": "strict-pre-event-snapshot-with-average-estimate-v3",
+        "policy": "strict-pre-event-snapshot-with-transparent-average-estimate-v4",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -259,16 +262,27 @@ def run_historical_preflight(
     for request, entrants in prepared:
         checks_by_entrant: dict[str, HistoricalEntrantCheck] = {}
         rated_rows: list[dict[str, Any]] = []
+        fallback_entrants: list[dict[str, Any]] = []
         for entrant in entrants:
             if needs_rating_fallback(entrant):
+                fallback_entrants.append(entrant)
                 continue
             canonical = str(entrant["canonical_team_id"])
             ranking_source = str(entrant["ranking_source_team_id"])
             name = str(entrant.get("event_team_name") or ranking_source)
             try:
+                snapshot_entries = snapshot_index.get(ranking_source)
+                if not snapshot_entries:
+                    fallback_entrants.append(
+                        {
+                            **entrant,
+                            "rating_fallback": MISSING_HISTORY_FALLBACK_POLICY,
+                        }
+                    )
+                    continue
                 snapshot, _mode = _resolve_prediction_snapshot(
                     {"event_team_name": name, "ranking_source_team_id": ranking_source},
-                    snapshot_index.get(ranking_source),
+                    snapshot_entries,
                     cutoff,
                 )
                 _verify_snapshot_provenance(snapshot, prediction_date=cutoff, team_name=name)
@@ -307,9 +321,7 @@ def run_historical_preflight(
                 source_gender=str(row["source_gender"]),
                 power_score=float(row["power_score"]),
             )
-        for entrant in entrants:
-            if not needs_rating_fallback(entrant):
-                continue
+        for entrant in fallback_entrants:
             entrant_id = str(entrant["entrant_id"])
             name = str(entrant.get("event_team_name") or entrant_id)
             try:
@@ -322,7 +334,8 @@ def run_historical_preflight(
                     "",
                     False,
                     reason=str(exc),
-                    rating_basis=RATING_FALLBACK_POLICY,
+                    rating_basis=str(entrant.get("rating_fallback") or RATING_FALLBACK_POLICY),
+                    rating_fallback=str(entrant.get("rating_fallback") or ""),
                 )
                 continue
             source_checks = [
@@ -340,13 +353,19 @@ def run_historical_preflight(
                 source_gender=str(request["gender"]),
                 power_score=float(estimate["power_score"]),
                 reason=(
-                    f"No PitchRank identity; Backtest will use the arithmetic average of "
+                    (
+                        "No eligible pre-event PitchRank history; "
+                        if missing_history_rating_fallback(entrant)
+                        else "No PitchRank identity; "
+                    )
+                    + f"Backtest will use the arithmetic average of "
                     f"{len(source_checks)} pre-event "
                     + ("teams from the original division." if basis.startswith("original_division")
                        else "teams from the tournament cohort.")
                 ),
                 rating_basis=basis,
                 rating_source_count=len(source_checks),
+                rating_fallback=str(entrant.get("rating_fallback") or ""),
             )
         checks = tuple(checks_by_entrant[str(entrant["entrant_id"])] for entrant in entrants)
         cohort_results.append(

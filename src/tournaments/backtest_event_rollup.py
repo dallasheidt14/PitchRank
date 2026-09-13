@@ -15,12 +15,22 @@ from src.tournaments.backtest_intake_state import (
     effective_roster,
     tournament_totals,
 )
+from src.tournaments.backtest_rating_fallback import (
+    COHORT_AVERAGE_BASIS,
+    COHORT_MISSING_HISTORY_AVERAGE_BASIS,
+    DIVISION_AVERAGE_BASIS,
+    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
+)
 from src.tournaments.backtest_reviewed_run import (
     ReviewedCohortReadiness,
     ReviewedRunRecord,
     load_reviewed_run,
 )
 from src.tournaments.backtest_scope import backtest_scope_roster
+
+UNCHANGED_FIXTURE_MIN_COVERAGE = 0.95
+UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR = 1.0
+UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR = 0.10
 
 
 @dataclass(frozen=True)
@@ -166,6 +176,71 @@ def _weighted_probability(
     return (total / matchups if matchups else None), matchups
 
 
+def _event_model_validation(
+    actual_results: dict[str, Any],
+    selected: tuple[SelectedCohortRun, ...],
+) -> dict[str, Any]:
+    """Validate one model across the event; cohort checks remain diagnostics."""
+
+    projected_margin, projected_count = _weighted_projection(
+        selected, "original_schedule_projection"
+    )
+    projected_blowout, projected_blowout_count = _weighted_probability(
+        selected, "original_schedule_projection"
+    )
+    actual_count = int(actual_results.get("scored_games") or 0)
+    coverage = min(actual_count, projected_count) / max(actual_count, projected_count, 1)
+    actual_margin = actual_results.get("average_goal_margin")
+    actual_blowout = (
+        float(actual_results["blowout_percentage"]) / 100.0
+        if actual_results.get("blowout_percentage") is not None
+        else None
+    )
+    margin_error = (
+        abs(float(actual_margin) - float(projected_margin))
+        if actual_count and actual_margin is not None and projected_margin is not None
+        else None
+    )
+    blowout_error = (
+        abs(float(actual_blowout) - float(projected_blowout))
+        if actual_count
+        and projected_blowout_count == projected_count
+        and actual_blowout is not None
+        and projected_blowout is not None
+        else None
+    )
+    blockers: list[str] = []
+    if actual_count == 0:
+        blockers.append("No scored captured fixtures are available for event validation")
+    if coverage < UNCHANGED_FIXTURE_MIN_COVERAGE:
+        blockers.append(
+            f"Unchanged event replay covers {coverage:.1%} of the captured scored fixture count"
+        )
+    if margin_error is None or margin_error > UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR:
+        blockers.append("Event-wide unchanged average-margin prediction is outside the accepted tolerance")
+    if blowout_error is None or blowout_error > UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR:
+        blockers.append("Event-wide unchanged 4+ blowout-rate prediction is outside the accepted tolerance")
+    return {
+        "status": "passed" if not blockers else "failed",
+        "basis": "same_model_replay_of_every_captured_original_fixture_graph",
+        "actual_scored_game_count": actual_count,
+        "unchanged_projected_game_count": projected_count,
+        "fixture_count_coverage": coverage,
+        "actual_average_goal_margin": actual_margin,
+        "unchanged_projected_average_goal_margin": projected_margin,
+        "average_goal_margin_absolute_error": margin_error,
+        "actual_blowout_4plus_rate": actual_blowout,
+        "unchanged_projected_blowout_4plus_rate": projected_blowout,
+        "blowout_4plus_rate_absolute_error": blowout_error,
+        "thresholds": {
+            "minimum_fixture_count_coverage": UNCHANGED_FIXTURE_MIN_COVERAGE,
+            "maximum_average_goal_margin_absolute_error": UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR,
+            "maximum_blowout_4plus_rate_absolute_error": UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR,
+        },
+        "blockers": blockers,
+    }
+
+
 def build_event_rollup(
     snapshot: BacktestSnapshot,
     readiness: Iterable[ReviewedCohortReadiness],
@@ -198,8 +273,17 @@ def build_event_rollup(
                 duplicate_entries.add(identity)
                 continue
             seen_entries.add(identity)
-            movements.append(dict(row))
+            movements.append(
+                {
+                    "age_group": run.readiness.age_group,
+                    "gender": run.readiness.gender,
+                    **dict(row),
+                }
+            )
     move_counts = Counter(str(row.get("move") or "stay") for row in movements)
+    rating_basis_counts = Counter(
+        str(row.get("rating_basis") or "historical_snapshot") for row in movements
+    )
     coverage_counts = Counter(row["status"] for row in coverage)
     totals = tournament_totals(backtest_scope_roster(effective_roster(snapshot)))
     actual = totals["results"]
@@ -213,7 +297,8 @@ def build_event_rollup(
         for run in selected
         if (run.summary.get("model_validation") or {}).get("status") != "passed"
     ]
-    comparison_ready = all_cohorts_complete and not validation_failures
+    event_validation = _event_model_validation(actual, selected)
+    comparison_ready = all_cohorts_complete and event_validation["status"] == "passed"
     complete_4plus = (
         comparison_ready
         and proposed_blowout_matchups == proposed_matchups
@@ -272,9 +357,11 @@ def build_event_rollup(
             ),
         },
         "model_validation": {
-            "ready": bool(selected) and not validation_failures,
+            "ready": comparison_ready,
+            "event_validation": event_validation,
             "passed_cohorts": len(selected) - len(validation_failures),
             "failed_cohorts": len(validation_failures),
+            "cohort_warnings": validation_failures,
             "failures": validation_failures,
         },
         "team_movements": {
@@ -282,8 +369,36 @@ def build_event_rollup(
             "moved_up": move_counts["move_up"],
             "moved_down": move_counts["move_down"],
             "unchanged": move_counts["stay"],
+            "pool_changed_within_division": sum(
+                1
+                for row in movements
+                if str(row.get("move") or "stay") == "stay"
+                and str(row.get("actual_pool") or "")
+                != str(row.get("recommended_pool") or "")
+            ),
+            "placement_changed": sum(
+                1
+                for row in movements
+                if str(row.get("move") or "stay") != "stay"
+                or str(row.get("actual_pool") or "")
+                != str(row.get("recommended_pool") or "")
+            ),
             "duplicate_entry_ids_skipped": sorted(duplicate_entries),
             "rows": movements,
+        },
+        "rating_evidence": {
+            "historical_snapshot": rating_basis_counts["historical_snapshot"],
+            "not_found_average_estimate": sum(
+                rating_basis_counts[basis]
+                for basis in (DIVISION_AVERAGE_BASIS, COHORT_AVERAGE_BASIS)
+            ),
+            "missing_history_average_estimate": sum(
+                rating_basis_counts[basis]
+                for basis in (
+                    DIVISION_MISSING_HISTORY_AVERAGE_BASIS,
+                    COHORT_MISSING_HISTORY_AVERAGE_BASIS,
+                )
+            ),
         },
         "coverage": {
             "total_cohorts": len(coverage),
@@ -313,6 +428,7 @@ def render_event_rollup_html(rollup: dict[str, Any]) -> str:
     comparison = rollup["actual_vs_matchbalance"]
     coverage = rollup["coverage"]
     movements = rollup["team_movements"]
+    rating_evidence = rollup.get("rating_evidence") or {}
     coverage_rows = "".join(
         f"<tr><td>{html.escape(str(row['gender']))} {html.escape(str(row['age_group']).upper())}</td>"
         f"<td>{row['team_count']}</td><td>{html.escape(str(row['status']).replace('_', ' ').title())}</td>"
@@ -365,7 +481,13 @@ th{{background:#f9fafb}}.muted{{color:#667085}}</style></head><body>
 <h2>Team movement</h2><div class="cards">
 <div class="card">Moved up<div class="value">{movements['moved_up']}</div></div>
 <div class="card">Moved down<div class="value">{movements['moved_down']}</div></div>
-<div class="card">Unchanged<div class="value">{movements['unchanged']}</div></div></div>
+<div class="card">Division unchanged<div class="value">{movements['unchanged']}</div></div>
+<div class="card">Pool changed within division
+<div class="value">{movements['pool_changed_within_division']}</div></div></div>
+<p class="muted">Rating evidence: {rating_evidence.get('historical_snapshot', 0)} PitchRank
+pre-event ratings, {rating_evidence.get('not_found_average_estimate', 0)} average estimates for
+teams marked Not Found, and {rating_evidence.get('missing_history_average_estimate', 0)} average
+estimates for matched teams without eligible pre-event history.</p>
 <table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
 <th>Original pool</th><th>MatchBalance pool</th><th>Decision</th></tr></thead>
 <tbody>{movement_rows}</tbody></table>

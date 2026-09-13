@@ -44,6 +44,55 @@ def test_subprocess_rejects_a_changed_merge_map_version():
         cohort._verify_merge_map_version(actual="merge-v2", expected="merge-v1")
 
 
+def test_backtest_projection_calibration_scales_margin_and_blowout_probabilities():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=1.25,
+        win_probability_a=0.6,
+        draw_probability=0.2,
+        win_probability_b=0.2,
+        blowout_3plus_probability=0.2,
+        blowout_4plus_probability=0.15,
+        blowout_5plus_probability=0.1,
+        probability_strategy="poisson_draw_gate",
+        source="fixture",
+    )
+
+    calibrated = cohort._apply_backtest_projection_calibration(
+        prediction,
+        {
+            "margin_absolute_scale": 2.0,
+            "blowout_probability_scales": {"3": 2.0, "4": 3.0, "5": 12.0},
+        },
+    )
+
+    assert calibrated.expected_margin == pytest.approx(2.5)
+    assert calibrated.blowout_3plus_probability == pytest.approx(0.4)
+    assert calibrated.blowout_4plus_probability == pytest.approx(0.45)
+    assert calibrated.blowout_5plus_probability == 1.0
+    assert calibrated.expected_score == prediction.expected_score
+
+
+@pytest.mark.parametrize(
+    "calibration",
+    (
+        {"margin_absolute_scale": 0},
+        {"blowout_probability_scales": {"4": -1}},
+    ),
+)
+def test_backtest_projection_calibration_rejects_invalid_scales(calibration):
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="draw",
+        expected_score={"teamA": 1, "teamB": 1},
+        expected_margin=0.0,
+        blowout_4plus_probability=0.1,
+    )
+
+    with pytest.raises(ValueError, match="calibration scale"):
+        cohort._apply_backtest_projection_calibration(prediction, calibration)
+
+
 def test_legacy_captured_schedule_without_scoring_policy_is_rejected():
     division = DivisionSpec("Gold", 2, (2,), "CAPTURED_GRAPH")
     payload = {

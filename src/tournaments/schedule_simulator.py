@@ -32,8 +32,21 @@ DEFAULT_TIEBREAK_ORDER = (
     "goals_for",
     "wins",
 )
-SUPPORTED_TIEBREAK_FIELDS = frozenset(DEFAULT_TIEBREAK_ORDER)
+TIGER_TOURNAMENTS_TIEBREAK_ORDER = (
+    "points",
+    "head_to_head",
+    "goal_differential",
+    "goals_for",
+    "goals_against",
+)
+SUPPORTED_TIEBREAK_FIELDS = frozenset(
+    {*DEFAULT_TIEBREAK_ORDER, *TIGER_TOURNAMENTS_TIEBREAK_ORDER}
+)
 STANDARD_SCORING_POLICY = "standard_3_1_0_uncapped_goal_differential"
+TIGER_TOURNAMENTS_SCORING_POLICY = "tiger_3_1_0_cap_5_goal_differential_and_goals_for"
+SUPPORTED_SCORING_POLICIES = frozenset(
+    {STANDARD_SCORING_POLICY, TIGER_TOURNAMENTS_SCORING_POLICY}
+)
 
 
 def normalize_tiebreak_order(
@@ -137,7 +150,7 @@ def captured_division_schedule_template(
         raise ValueError(
             f"Division '{division_name}' needs a unique supported tiebreak order beginning with points"
         ) from error
-    if scoring_policy != STANDARD_SCORING_POLICY:
+    if scoring_policy not in SUPPORTED_SCORING_POLICIES:
         raise ValueError(
             f"Division '{division_name}' uses an unsupported scoring or standings modifier"
         )
@@ -206,6 +219,7 @@ class DivisionSimulation:
     blowout_5plus_rate: float
     draw_rate: float
     matches: tuple[SimulatedMatch, ...]
+    qualification_tiebreaks: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -219,6 +233,7 @@ class DivisionSimulation:
             "blowout_5plus_rate": self.blowout_5plus_rate,
             "draw_rate": self.draw_rate,
             "matches": [match.to_dict() for match in self.matches],
+            "qualification_tiebreaks": [dict(item) for item in self.qualification_tiebreaks],
         }
 
 
@@ -491,6 +506,7 @@ def _update_pool_standings(
     match: SimulatedMatch,
     home_team: SeedableTeam,
     away_team: SeedableTeam,
+    scoring_policy: str = STANDARD_SCORING_POLICY,
 ) -> None:
     home_row = standings[home_team.team_id]
     away_row = standings[away_team.team_id]
@@ -502,35 +518,104 @@ def _update_pool_standings(
     away_row["ga"] += int(match.home_score)
     away_row["gd"] += int(match.away_score) - int(match.home_score)
 
+    if scoring_policy == TIGER_TOURNAMENTS_SCORING_POLICY:
+        margin = int(match.home_score) - int(match.away_score)
+        home_row["gd_capped"] += max(-5, min(5, margin))
+        away_row["gd_capped"] += max(-5, min(5, -margin))
+        home_row["gf_capped"] += min(5, int(match.home_score))
+        away_row["gf_capped"] += min(5, int(match.away_score))
+    else:
+        home_row["gd_capped"] = home_row["gd"]
+        away_row["gd_capped"] = away_row["gd"]
+        home_row["gf_capped"] = home_row["gf"]
+        away_row["gf_capped"] = away_row["gf"]
+
     if match.home_score > match.away_score:
         home_row["points"] += 3
         home_row["wins"] += 1
         away_row["losses"] += 1
+        home_row["head_to_head"][away_team.team_id] = (
+            home_row["head_to_head"].get(away_team.team_id, 0) + 3
+        )
+        away_row["head_to_head"].setdefault(home_team.team_id, 0)
     elif match.home_score < match.away_score:
         away_row["points"] += 3
         away_row["wins"] += 1
         home_row["losses"] += 1
+        home_row["head_to_head"].setdefault(away_team.team_id, 0)
+        away_row["head_to_head"][home_team.team_id] = (
+            away_row["head_to_head"].get(home_team.team_id, 0) + 3
+        )
     else:
         home_row["points"] += 1
         away_row["points"] += 1
         home_row["draws"] += 1
         away_row["draws"] += 1
+        home_row["head_to_head"][away_team.team_id] = (
+            home_row["head_to_head"].get(away_team.team_id, 0) + 1
+        )
+        away_row["head_to_head"][home_team.team_id] = (
+            away_row["head_to_head"].get(home_team.team_id, 0) + 1
+        )
+
+
+def _tiebreak_values(
+    team: SeedableTeam,
+    pool_teams: Sequence[SeedableTeam],
+    standings: dict[str, dict[str, Any]],
+    tiebreak_order: Sequence[str],
+    *,
+    division_name: str,
+    scoring_policy: str,
+) -> tuple[float, ...]:
+    row = standings[team.team_id]
+    teams_tied_on_points = {
+        candidate.team_id
+        for candidate in pool_teams
+        if standings[candidate.team_id]["points"] == row["points"]
+    }
+    use_head_to_head = len(teams_tied_on_points) == 2 or (
+        len(teams_tied_on_points) == 3 and "crossover" in division_name.casefold()
+    )
+    head_to_head = (
+        sum(
+            int(points)
+            for opponent, points in row["head_to_head"].items()
+            if opponent in teams_tied_on_points
+        )
+        if use_head_to_head
+        else 0
+    )
+    tiger_policy = scoring_policy == TIGER_TOURNAMENTS_SCORING_POLICY
+    values = {
+        "points": float(row["points"]),
+        "head_to_head": float(head_to_head),
+        "goal_differential": float(row["gd_capped"] if tiger_policy else row["gd"]),
+        "goals_for": float(row["gf_capped"] if tiger_policy else row["gf"]),
+        "goals_against": -float(row["ga"]),
+        "wins": float(row["wins"]),
+    }
+    return tuple(values[item] for item in tiebreak_order)
 
 
 def _rank_pool_teams(
     pool_teams: Sequence[SeedableTeam],
     standings: dict[str, dict[str, Any]],
     tiebreak_order: Sequence[str] = DEFAULT_TIEBREAK_ORDER,
+    *,
+    division_name: str = "",
+    scoring_policy: str = STANDARD_SCORING_POLICY,
 ) -> list[SeedableTeam]:
     def sort_key(team: SeedableTeam) -> tuple[Any, ...]:
-        row = standings[team.team_id]
-        values = {
-            "points": -float(row["points"]),
-            "goal_differential": -float(row["gd"]),
-            "goals_for": -float(row["gf"]),
-            "wins": -float(row["wins"]),
-        }
-        return tuple(values[item] for item in tiebreak_order) + (team.team_id,)
+        values = _tiebreak_values(
+            team,
+            pool_teams,
+            standings,
+            tiebreak_order,
+            division_name=division_name,
+            scoring_policy=scoring_policy,
+        )
+        return tuple(-value for value in values) + (team.team_id,)
 
     return sorted(pool_teams, key=sort_key)
 
@@ -543,22 +628,81 @@ def _rank_pool_teams_for_qualifier(
     *,
     division_name: str,
     tiebreak_source_urls: Sequence[str],
+    scoring_policy: str = STANDARD_SCORING_POLICY,
+    predict_fn: PredictionFn | None = None,
+    qualification_tiebreaks: list[dict[str, Any]] | None = None,
 ) -> list[SeedableTeam]:
     if tiebreak_order:
-        ranked = _rank_pool_teams(pool_teams, standings, tiebreak_order)
+        ranked = _rank_pool_teams(
+            pool_teams,
+            standings,
+            tiebreak_order,
+            division_name=division_name,
+            scoring_policy=scoring_policy,
+        )
         target = ranked[qualifier_rank]
 
         def published_key(team: SeedableTeam) -> tuple[float, ...]:
-            row = standings[team.team_id]
-            values = {
-                "points": float(row["points"]),
-                "goal_differential": float(row["gd"]),
-                "goals_for": float(row["gf"]),
-                "wins": float(row["wins"]),
-            }
-            return tuple(values[item] for item in tiebreak_order)
+            return _tiebreak_values(
+                team,
+                pool_teams,
+                standings,
+                tiebreak_order,
+                division_name=division_name,
+                scoring_policy=scoring_policy,
+            )
 
-        if sum(published_key(team) == published_key(target) for team in ranked) > 1:
+        tied = [team for team in ranked if published_key(team) == published_key(target)]
+        if len(tied) > 1 and scoring_policy == TIGER_TOURNAMENTS_SCORING_POLICY and predict_fn:
+            penalty_scores = {team.team_id: 0.0 for team in tied}
+            for left_index, left in enumerate(tied):
+                for right in tied[left_index + 1 :]:
+                    prediction = predict_fn(left, right)
+                    left_win = getattr(prediction, "win_probability_a", None)
+                    right_win = getattr(prediction, "win_probability_b", None)
+                    decisive_total = (
+                        float(left_win) + float(right_win)
+                        if left_win is not None and right_win is not None
+                        else 0.0
+                    )
+                    if decisive_total > 0:
+                        left_share = float(left_win) / decisive_total
+                    elif left.power_score != right.power_score:
+                        left_share = 1.0 if left.power_score > right.power_score else 0.0
+                    else:
+                        left_share = 0.5
+                    penalty_scores[left.team_id] += left_share
+                    penalty_scores[right.team_id] += 1.0 - left_share
+            projected_penalty_order = sorted(
+                tied,
+                key=lambda team: (
+                    -penalty_scores[team.team_id],
+                    -float(team.power_score),
+                    team.team_id,
+                ),
+            )
+            tied_ids = {team.team_id for team in tied}
+            ranked = [
+                team
+                for team in ranked
+                if team.team_id not in tied_ids
+                or team is projected_penalty_order[0]
+            ]
+            insertion_index = min(
+                index for index, team in enumerate(ranked) if team is projected_penalty_order[0]
+            )
+            ranked[insertion_index : insertion_index + 1] = projected_penalty_order
+            if qualification_tiebreaks is not None:
+                qualification_tiebreaks.append(
+                    {
+                        "qualifier_rank": qualifier_rank + 1,
+                        "basis": "published_penalty_kicks_projected_from_pre_event_model",
+                        "tied_team_ids": sorted(tied_ids),
+                        "projected_order": [team.team_id for team in projected_penalty_order],
+                    }
+                )
+            return ranked
+        if len(tied) > 1:
             raise ValueError(
                 f"Division '{division_name}' still has a tie for pool rank {qualifier_rank + 1} "
                 "after every verified supported tiebreak"
@@ -595,16 +739,19 @@ def _winner_and_loser(
     raise ValueError(f"Match in division '{match.division_name}' has no valid advancement decision")
 
 
-def _empty_standings(teams: Sequence[SeedableTeam]) -> dict[str, dict[str, int]]:
+def _empty_standings(teams: Sequence[SeedableTeam]) -> dict[str, dict[str, Any]]:
     return {
         team.team_id: {
             "points": 0,
             "gd": 0,
+            "gd_capped": 0,
             "gf": 0,
+            "gf_capped": 0,
             "ga": 0,
             "wins": 0,
             "draws": 0,
             "losses": 0,
+            "head_to_head": {},
         }
         for team in teams
     }
@@ -620,6 +767,7 @@ def _simulate_captured_division_schedule(
     standings = _empty_standings(all_teams)
     prior_matches: dict[int, tuple[SimulatedMatch, SeedableTeam, SeedableTeam]] = {}
     simulated_matches: list[SimulatedMatch] = []
+    qualification_tiebreaks: list[dict[str, Any]] = []
 
     def resolve(ref: dict[str, Any]) -> SeedableTeam:
         kind = str(ref["kind"])
@@ -637,6 +785,9 @@ def _simulate_captured_division_schedule(
                 position,
                 division_name=division.name,
                 tiebreak_source_urls=template.tiebreak_source_urls,
+                scoring_policy=template.scoring_policy,
+                predict_fn=predict_fn,
+                qualification_tiebreaks=qualification_tiebreaks,
             )
             return ranked[position]
         if kind in {"pool_slot", "pool_rank"}:
@@ -655,6 +806,9 @@ def _simulate_captured_division_schedule(
                     position,
                     division_name=division.name,
                     tiebreak_source_urls=template.tiebreak_source_urls,
+                    scoring_policy=template.scoring_policy,
+                    predict_fn=predict_fn,
+                    qualification_tiebreaks=qualification_tiebreaks,
                 )
             return candidates[position]
         match_index = int(ref["match_index"])
@@ -686,7 +840,13 @@ def _simulate_captured_division_schedule(
         simulated_matches.append(match)
         prior_matches[match_index] = (match, home_team, away_team)
         if bool(slot.get("counts_for_standings")):
-            _update_pool_standings(standings, match, home_team, away_team)
+            _update_pool_standings(
+                standings,
+                match,
+                home_team,
+                away_team,
+                template.scoring_policy,
+            )
 
     (
         match_count,
@@ -708,6 +868,7 @@ def _simulate_captured_division_schedule(
         blowout_5plus_rate=blowout_5plus_rate,
         draw_rate=draw_rate,
         matches=tuple(simulated_matches),
+        qualification_tiebreaks=tuple(qualification_tiebreaks),
     )
 
 
@@ -744,11 +905,14 @@ def simulate_division_schedule(
             team.team_id: {
                 "points": 0,
                 "gd": 0,
+                "gd_capped": 0,
                 "gf": 0,
+                "gf_capped": 0,
                 "ga": 0,
                 "wins": 0,
                 "draws": 0,
                 "losses": 0,
+                "head_to_head": {},
             }
             for team in pool.teams
         }
@@ -767,9 +931,23 @@ def simulate_division_schedule(
                     predict_fn=predict_fn,
                 )
                 simulated_matches.append(match)
-                _update_pool_standings(standings, match, home_team, away_team)
+                _update_pool_standings(
+                    standings,
+                    match,
+                    home_team,
+                    away_team,
+                    template.scoring_policy,
+                )
 
-        pool_rankings.append(_rank_pool_teams(pool_teams, standings))
+        pool_rankings.append(
+            _rank_pool_teams(
+                pool_teams,
+                standings,
+                template.tiebreak_order,
+                division_name=division.name,
+                scoring_policy=template.scoring_policy,
+            )
+        )
 
     if template.playoff_format == "pool_winners_final" and len(pool_rankings) >= 2:
         simulated_matches.append(

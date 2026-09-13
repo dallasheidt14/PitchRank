@@ -76,6 +76,8 @@ credentials/
 /reports/gotsport__*/intake/historical_preflight.json
 /reports/gotsport__*/intake/*.lock
 /reports/gotsport__*/scenarios/reviewed-backtest/runs/
+/reports/gotsport__*/scenarios/reviewed-backtest/*.lock
+/reports/gotsport__*/*acceptance*.json
 
 # Event-specific point-in-time Backtest models are local generated evidence.
 /models/matchbalance_*_pre_event/
