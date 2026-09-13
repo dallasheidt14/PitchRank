@@ -133,6 +133,7 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
         "https://example.test/tiebreaks"
     )
     assert division["captured_schedule"]["scoring_policy"] == STANDARD_SCORING_POLICY
+    assert division["captured_schedule"]["three_team_head_to_head"] is False
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
@@ -165,14 +166,26 @@ def test_build_request_preserves_supported_tiger_tournament_rules():
         TIGER_TOURNAMENTS_SCORING_POLICY,
     )
 
+    snapshot = _snapshot()
+    division = snapshot.roster.divisions[0]
+    crossover_pool = replace(division.pools[0], label="Cross-Bracket A")
+    division = replace(division, pools=(crossover_pool,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+        tiebreak_decision=tiger_decision,
+    )
+
     request = build_cohort_backtest_requests(
-        replace(_snapshot(), tiebreak_decision=tiger_decision),
+        snapshot,
         event_links=_links(),
     )[0]
 
     schedule = request["divisions"][0]["captured_schedule"]
     assert schedule["tiebreak_order"] == list(TIGER_TOURNAMENTS_TIEBREAK_ORDER)
     assert schedule["scoring_policy"] == TIGER_TOURNAMENTS_SCORING_POLICY
+    assert schedule["three_team_head_to_head"] is True
 
 
 def test_build_request_can_select_one_reviewed_cohort():

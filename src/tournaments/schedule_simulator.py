@@ -84,6 +84,7 @@ class DivisionScheduleTemplate:
     tiebreak_order: tuple[str, ...] = DEFAULT_TIEBREAK_ORDER
     tiebreak_source_urls: tuple[str, ...] = ()
     scoring_policy: str = STANDARD_SCORING_POLICY
+    three_team_head_to_head: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +99,7 @@ class DivisionScheduleTemplate:
             "tiebreak_order": list(self.tiebreak_order),
             "tiebreak_source_urls": list(self.tiebreak_source_urls),
             "scoring_policy": self.scoring_policy,
+            "three_team_head_to_head": self.three_team_head_to_head,
         }
 
 
@@ -110,6 +112,7 @@ def captured_division_schedule_template(
     tiebreak_order: Sequence[str] = (),
     tiebreak_source_urls: Sequence[str] = (),
     scoring_policy: str = "",
+    three_team_head_to_head: bool = False,
 ) -> DivisionScheduleTemplate:
     """Build a template from the captured match-slot graph rather than a canned format."""
 
@@ -166,6 +169,7 @@ def captured_division_schedule_template(
         tiebreak_order=normalized_tiebreak,
         tiebreak_source_urls=tuple(str(url) for url in tiebreak_source_urls if str(url)),
         scoring_policy=scoring_policy,
+        three_team_head_to_head=bool(three_team_head_to_head),
     )
 
 
@@ -398,11 +402,25 @@ def _round_half_up(value: float) -> int:
     return max(0, int(math.floor(value + 0.5)))
 
 
-def _winner_consistent_score(predicted_winner: str, raw_score_a: float, raw_score_b: float) -> tuple[int, int]:
+def _winner_consistent_score(
+    predicted_winner: str,
+    raw_score_a: float,
+    raw_score_b: float,
+    *,
+    expected_margin: float | None = None,
+) -> tuple[int, int]:
     score_a = _round_half_up(float(raw_score_a))
     score_b = _round_half_up(float(raw_score_b))
 
-    if predicted_winner == "team_a" and score_a <= score_b:
+    if expected_margin is not None and predicted_winner in {"team_a", "team_b"}:
+        calibrated_gap = max(1, _round_half_up(abs(float(expected_margin))))
+        if predicted_winner == "team_a":
+            score_b = _round_half_up(float(raw_score_b))
+            score_a = score_b + calibrated_gap
+        else:
+            score_a = _round_half_up(float(raw_score_a))
+            score_b = score_a + calibrated_gap
+    elif predicted_winner == "team_a" and score_a <= score_b:
         score_a = score_b + 1
     elif predicted_winner == "team_b" and score_b <= score_a:
         score_b = score_a + 1
@@ -471,7 +489,12 @@ def _simulate_match(
     )
     if not math.isfinite(expected_margin):
         raise ValueError("expected_margin must be finite")
-    home_score, away_score = _winner_consistent_score(prediction.predicted_winner, raw_score_a, raw_score_b)
+    home_score, away_score = _winner_consistent_score(
+        prediction.predicted_winner,
+        raw_score_a,
+        raw_score_b,
+        expected_margin=expected_margin,
+    )
     advancing_team_id, advancement_basis = _advancement_decision(
         prediction,
         home_team,
@@ -565,8 +588,8 @@ def _tiebreak_values(
     standings: dict[str, dict[str, Any]],
     tiebreak_order: Sequence[str],
     *,
-    division_name: str,
     scoring_policy: str,
+    three_team_head_to_head: bool = False,
 ) -> tuple[float, ...]:
     row = standings[team.team_id]
     teams_tied_on_points = {
@@ -575,7 +598,7 @@ def _tiebreak_values(
         if standings[candidate.team_id]["points"] == row["points"]
     }
     use_head_to_head = len(teams_tied_on_points) == 2 or (
-        len(teams_tied_on_points) == 3 and "crossover" in division_name.casefold()
+        len(teams_tied_on_points) == 3 and three_team_head_to_head
     )
     head_to_head = (
         sum(
@@ -605,6 +628,7 @@ def _rank_pool_teams(
     *,
     division_name: str = "",
     scoring_policy: str = STANDARD_SCORING_POLICY,
+    three_team_head_to_head: bool = False,
 ) -> list[SeedableTeam]:
     def sort_key(team: SeedableTeam) -> tuple[Any, ...]:
         values = _tiebreak_values(
@@ -612,8 +636,8 @@ def _rank_pool_teams(
             pool_teams,
             standings,
             tiebreak_order,
-            division_name=division_name,
             scoring_policy=scoring_policy,
+            three_team_head_to_head=three_team_head_to_head,
         )
         return tuple(-value for value in values) + (team.team_id,)
 
@@ -629,6 +653,7 @@ def _rank_pool_teams_for_qualifier(
     division_name: str,
     tiebreak_source_urls: Sequence[str],
     scoring_policy: str = STANDARD_SCORING_POLICY,
+    three_team_head_to_head: bool = False,
     predict_fn: PredictionFn | None = None,
     qualification_tiebreaks: list[dict[str, Any]] | None = None,
 ) -> list[SeedableTeam]:
@@ -639,6 +664,7 @@ def _rank_pool_teams_for_qualifier(
             tiebreak_order,
             division_name=division_name,
             scoring_policy=scoring_policy,
+            three_team_head_to_head=three_team_head_to_head,
         )
         target = ranked[qualifier_rank]
 
@@ -648,8 +674,8 @@ def _rank_pool_teams_for_qualifier(
                 pool_teams,
                 standings,
                 tiebreak_order,
-                division_name=division_name,
                 scoring_policy=scoring_policy,
+                three_team_head_to_head=three_team_head_to_head,
             )
 
         tied = [team for team in ranked if published_key(team) == published_key(target)]
@@ -786,6 +812,7 @@ def _simulate_captured_division_schedule(
                 division_name=division.name,
                 tiebreak_source_urls=template.tiebreak_source_urls,
                 scoring_policy=template.scoring_policy,
+                three_team_head_to_head=template.three_team_head_to_head,
                 predict_fn=predict_fn,
                 qualification_tiebreaks=qualification_tiebreaks,
             )
@@ -807,6 +834,7 @@ def _simulate_captured_division_schedule(
                     division_name=division.name,
                     tiebreak_source_urls=template.tiebreak_source_urls,
                     scoring_policy=template.scoring_policy,
+                    three_team_head_to_head=template.three_team_head_to_head,
                     predict_fn=predict_fn,
                     qualification_tiebreaks=qualification_tiebreaks,
                 )
@@ -946,6 +974,7 @@ def simulate_division_schedule(
                 template.tiebreak_order,
                 division_name=division.name,
                 scoring_policy=template.scoring_policy,
+                three_team_head_to_head=template.three_team_head_to_head,
             )
         )
 

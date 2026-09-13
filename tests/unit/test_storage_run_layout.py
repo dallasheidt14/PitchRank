@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from src.tournaments.storage import run_layout
 from src.tournaments.storage.event_key import scenario_dir
 from src.tournaments.storage.run_layout import (
     RunLockError,
@@ -59,6 +60,30 @@ def test_promote_writes_done_then_renames(tmp_path: Path):
     assert done_payload["run_id"] == "run_001"
     assert done_payload["schema_version"] == 1
     assert "promoted_at" in done_payload
+
+
+def test_promote_retries_a_transient_directory_permission_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ensure_scenario(EVENT_KEY, SCENARIO, base_dir=tmp_path)
+    create_staging_run(EVENT_KEY, SCENARIO, "run_retry", base_dir=tmp_path)
+    replace_attempts: list[int] = []
+    real_replace = run_layout._replace_directory_once
+
+    def flaky_replace(source: Path, destination: Path) -> None:
+        replace_attempts.append(1)
+        if len(replace_attempts) < 3:
+            raise PermissionError(13, "Access is denied")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(run_layout, "_replace_directory_once", flaky_replace)
+    monkeypatch.setattr(run_layout.time, "sleep", lambda _seconds: None)
+
+    final_dir = promote_run(EVENT_KEY, SCENARIO, "run_retry", base_dir=tmp_path)
+
+    assert final_dir.exists()
+    assert len(replace_attempts) == 3
 
 
 def test_fail_writes_error_and_renames(tmp_path: Path):

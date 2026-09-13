@@ -9,6 +9,8 @@ from src.tournaments.schedule_simulator import (
     TIGER_TOURNAMENTS_TIEBREAK_ORDER,
     _empty_standings,
     _rank_pool_teams,
+    _simulate_match,
+    _update_pool_standings,
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
@@ -213,6 +215,65 @@ def test_tiger_tiebreak_skips_head_to_head_for_three_way_non_crossover_tie():
     )
 
     assert [team.team_id for team in ranked] == ["team-2", "team-3", "team-1"]
+
+
+def test_tiger_tiebreak_uses_head_to_head_for_three_way_crossover_tie():
+    teams = [_team(1, 0.7, 1), _team(2, 0.8, 2), _team(3, 0.6, 3)]
+    standings = _empty_standings(teams)
+    standings["team-1"].update(
+        points=6,
+        gd_capped=1,
+        head_to_head={"team-2": 3, "team-3": 3},
+    )
+    standings["team-2"].update(
+        points=6,
+        gd_capped=4,
+        head_to_head={"team-1": 0, "team-3": 3},
+    )
+    standings["team-3"].update(
+        points=6,
+        gd_capped=8,
+        head_to_head={"team-1": 0, "team-2": 0},
+    )
+
+    ranked = _rank_pool_teams(
+        teams,
+        standings,
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        division_name="opaque-group-id",
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+        three_team_head_to_head=True,
+    )
+
+    assert [team.team_id for team in ranked] == ["team-1", "team-2", "team-3"]
+
+
+def test_calibrated_expected_margin_drives_the_standings_score():
+    home = _team(1, 0.8, 1)
+    away = _team(2, 0.4, 2)
+
+    def calibrated_prediction(_home, _away):
+        return SimpleNamespace(
+            predicted_winner="team_a",
+            expected_score={"teamA": 5, "teamB": 1},
+            expected_margin=1.2,
+        )
+
+    match = _simulate_match(
+        division_name="Gold",
+        stage="Pool",
+        pool_name="A",
+        home_team=home,
+        away_team=away,
+        predict_fn=calibrated_prediction,
+    )
+    standings = _empty_standings((home, away))
+    _update_pool_standings(standings, match, home, away)
+
+    assert (match.home_score, match.away_score) == (2, 1)
+    assert match.expected_goal_differential == pytest.approx(1.2)
+    assert standings[home.team_id]["gd"] == 1
+    assert standings[away.team_id]["gd"] == -1
 
 
 def test_tiger_tiebreak_uses_capped_goal_metrics_then_fewest_goals_conceded():

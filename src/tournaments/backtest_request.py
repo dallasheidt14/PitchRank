@@ -194,6 +194,12 @@ def build_cohort_backtest_requests(
                 (tiebreak_decision.source_url,)
                 + tuple(link.url for link in division.rules_links if link.url)
             ))
+            pool_format_labels = " ".join(pool.label or "" for pool in division.pools)
+            normalized_pool_format = pool_format_labels.casefold().replace("-", " ")
+            three_team_head_to_head = (
+                "cross bracket" in normalized_pool_format
+                or "crossover" in normalized_pool_format
+            )
             try:
                 template = captured_division_schedule_template(
                     division_name=division.group_id,
@@ -203,6 +209,7 @@ def build_cohort_backtest_requests(
                     tiebreak_order=tiebreak_decision.order,
                     tiebreak_source_urls=tiebreak_source_urls,
                     scoring_policy=tiebreak_decision.scoring_policy,
+                    three_team_head_to_head=three_team_head_to_head,
                 )
             except ValueError as error:
                 raise BacktestRequestError(str(error)) from error

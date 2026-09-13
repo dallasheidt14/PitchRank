@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -61,6 +62,24 @@ class RunStateError(RuntimeError):
 
 class RunLockError(RuntimeError):
     """Raised when ``acquire_run_lock`` cannot acquire within ``timeout``."""
+
+
+_replace_directory_once = os.replace
+_REPLACE_ATTEMPTS = 6
+_REPLACE_RETRY_SECONDS = 0.05
+
+
+def _replace_run_directory(source: Path, destination: Path) -> None:
+    """Retry a transient Windows file lock without weakening atomic promotion."""
+
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            _replace_directory_once(source, destination)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_RETRY_SECONDS * (2**attempt))
 
 
 def _runs_root(event_key: str, scenario: str, base_dir: Path | str) -> Path:
@@ -118,7 +137,7 @@ def promote_run(
         staging_dir / "done.json",
         stamp_schema_version({"run_id": run_id, "promoted_at": utc_now_iso()}),
     )
-    os.replace(staging_dir, final_dir)
+    _replace_run_directory(staging_dir, final_dir)
     return final_dir
 
 
@@ -142,7 +161,7 @@ def fail_run(
         staging_dir / "error.json",
         stamp_schema_version({"run_id": run_id, "failed_at": utc_now_iso(), "error": error}),
     )
-    os.replace(staging_dir, failed_dir)
+    _replace_run_directory(staging_dir, failed_dir)
     return failed_dir
 
 
@@ -165,7 +184,7 @@ def cancel_run(
         staging_dir / "cancelled.json",
         stamp_schema_version({"run_id": run_id, "cancelled_at": utc_now_iso()}),
     )
-    os.replace(staging_dir, cancelled_dir)
+    _replace_run_directory(staging_dir, cancelled_dir)
     return cancelled_dir
 
 

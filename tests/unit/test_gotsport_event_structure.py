@@ -51,6 +51,15 @@ def test_parse_pools_keeps_a_label_that_is_not_a_bracket_letter():
     assert [pool.label for pool in pools] == ["U-12 GOLD"]
 
 
+def test_parse_pools_preserves_cross_bracket_tiebreak_evidence():
+    pools = parse_pools(_html("event_49407__group_436891.html"))
+
+    assert [pool.label for pool in pools] == [
+        "Cross-Bracket Group A (Top 2 Teams In Points Advance Regardless Of Group)",
+        "Cross-Bracket Group B (Top 2 Teams In Points Advance Regardless Of Group)",
+    ]
+
+
 def test_parse_pools_returns_nothing_when_there_is_no_standings_table():
     assert parse_pools("<html><body><p>no tables here</p></body></html>") == ()
 
