@@ -222,16 +222,50 @@ Four things follow, and three of them correct earlier guidance:
    local league and share opponents constantly; one squad recorded twice plays two different
    circuits and its opponent pools barely intersect. **High overlap is a red flag, not
    confirmation.** Reject above ~0.20.
-4. **The identical-name tier is clean; containment is not.** Replaying the detector over all
-   history: of 1,082 identical-name candidates, **0** had ever played each other (≈4.7 expected by
-   base rate). Of 2,444 containment candidates, **10** had — exactly the base rate, i.e. no
-   discriminating power at all. Containment also mismatches Roman numerals and ordinals
-   (`WIUFC 2015 Elite I` is a substring of `WIUFC 2015 Elite II`). **Never auto-apply the
-   containment tier.**
+4. **The identical-name tier is clean. Containment is not one tier — classify it by the delta.**
+   Replaying the detector over all history: of 1,082 identical-name candidates, **0** had ever
+   played each other (≈4.7 expected by base rate). Of 2,444 containment candidates, **10** had —
+   exactly the base rate. But that average hides two opposite populations, and the tier is only
+   worthless when you refuse to split it. See the delta classes below before parking it again.
 
 One caution on "zero shared dates": it describes true duplicates well, but on a pair whose thin
 side holds 2–5 games it is satisfied by chance and proves little. Only 5 of 187 identical-name
 candidates had 10+ games on *both* sides.
+
+### Containment: classify by the delta, never apply the tier whole
+
+When one normalised name contains the other, the **delta** — what the longer name has that the
+shorter does not — decides whether the pair is one squad or two. Measured 2026-09-13 by replaying
+every historical containment pair and asking how each was actually resolved:
+
+| Delta | Pairs | Merged by owner | Played each other | Use |
+|---|---|---|---|---|
+| **Club prefix** — the delta is a substring of the club name, ≥4 chars | 980 | 64 | **0** | **Safe.** As clean as the identical-name tier |
+| Gender token (`g`, `b`, `girls`, `boys`) | 85 | 7 | 0 | Allow, with the gender screen below |
+| **`rl`** — ECNL vs ECNL-RL | 29 | **0** | 0 | **Hard reject.** Never merged by hand, ever |
+| Colour | 216 | 3 | 4 | **Reject** — worse than a coin flip |
+| Roman numeral | 79 | 1 | 2 | **Reject** — `Elite I` nests inside `Elite II` |
+| Bare number | 35 | 1 | 1 | **Reject** — tier numbers (`RCL 1` / `RCL 2`) |
+| Residual | 1,707 | 59 | **11** | Review-required; holds every negative |
+
+The club-prefix class is simply one provider writing the club name into the team name
+("Seattle United G16 Copa") while the other does not ("G16 Copa"). It carries **zero** known-
+distinct pairs in 980 historical examples. 139 were applied on 2026-09-13 after a 12-pair random
+review returned 12 for 12.
+
+The `rl` delta deserves its own line because it is a documented never-merge boundary — ECNL and
+ECNL-RL are different competitions — and the history agrees: not one of those 29 pairs has ever
+been merged by hand. A detector that ignores the delta proposes all of them.
+
+**Screens that still apply on top**, all of which caught something in the 2026-09-13 run: reject
+when a name's gender token contradicts the row's stored `gender`; reject self-play rows; reject
+when the pair sits in a club-cohort cluster larger than two without an unambiguous best partner;
+and re-derive game counts from `games` rather than `teams.game_row_count`.
+
+**The cheapest confirming evidence in this shape is not the fixture list.** With a thin side there
+are rarely any shared fixtures to find. What settles it is the club's **adjacent-cohort sibling**
+appearing in *both* providers at the same event with a disjoint opponent set — that shows the club
+registers one row per squad per provider, which is exactly the claim the merge rests on.
 
 ## Step 3: Decide every candidate from evidence
 
