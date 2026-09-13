@@ -57,6 +57,7 @@ def select_compatible_runs(
     records: Iterable[ReviewedRunRecord],
     *,
     model_sha256: str | None,
+    merge_map_version: str | None,
 ) -> tuple[tuple[SelectedCohortRun, ...], tuple[dict[str, Any], ...]]:
     """Select the newest current run for each cohort without mixing evidence."""
 
@@ -71,7 +72,9 @@ def select_compatible_runs(
         match: SelectedCohortRun | None = None
         failed_reason = ""
         candidate_records = (
-            records_by_cohort.get((item.age_group, item.gender), ()) if model_sha256 else ()
+            records_by_cohort.get((item.age_group, item.gender), ())
+            if model_sha256 and merge_map_version
+            else ()
         )
         for record in candidate_records:
             try:
@@ -83,6 +86,8 @@ def select_compatible_runs(
             if metadata.get("request_sha256") != _request_sha(item.request):
                 continue
             if metadata.get("model_artifact_sha256") != model_sha256:
+                continue
+            if metadata.get("merge_map_version") != merge_map_version:
                 continue
             if record.state == "failed":
                 failed_reason = record.error or "The latest compatible run failed"
@@ -101,9 +106,13 @@ def select_compatible_runs(
         elif failed_reason:
             status = "failed"
             what_remains = failed_reason
-        elif not model_sha256:
+        elif not model_sha256 or not merge_map_version:
             status = "awaiting_history"
-            what_remains = "Select a valid historical model artifact"
+            what_remains = (
+                "Select a valid historical model artifact"
+                if not model_sha256
+                else "Refresh the current team merge map"
+            )
         else:
             status = _remaining_status(item)
             what_remains = "; ".join(item.blockers)
@@ -163,6 +172,7 @@ def build_event_rollup(
     records: Iterable[ReviewedRunRecord],
     *,
     model_sha256: str | None = None,
+    merge_map_version: str | None = None,
 ) -> dict[str, Any]:
     """Combine compatible cohort outputs into one honest tournament summary."""
 
@@ -171,10 +181,11 @@ def build_event_rollup(
         readiness,
         records,
         model_sha256=model_sha256,
+        merge_map_version=merge_map_version,
     )
-    proposed_margin, proposed_matchups = _weighted_projection(selected, "proposed_model_projection")
+    proposed_margin, proposed_matchups = _weighted_projection(selected, "proposed_schedule_projection")
     proposed_blowout, proposed_blowout_matchups = _weighted_probability(
-        selected, "proposed_model_projection"
+        selected, "proposed_schedule_projection"
     )
     movements: list[dict[str, Any]] = []
     seen_entries: set[str] = set()
@@ -193,8 +204,18 @@ def build_event_rollup(
     totals = tournament_totals(backtest_scope_roster(effective_roster(snapshot)))
     actual = totals["results"]
     all_cohorts_complete = bool(coverage) and coverage_counts["completed"] == len(coverage)
+    validation_failures = [
+        {
+            "age_group": run.readiness.age_group,
+            "gender": run.readiness.gender,
+            "blockers": list((run.summary.get("model_validation") or {}).get("blockers") or ()),
+        }
+        for run in selected
+        if (run.summary.get("model_validation") or {}).get("status") != "passed"
+    ]
+    comparison_ready = all_cohorts_complete and not validation_failures
     complete_4plus = (
-        all_cohorts_complete
+        comparison_ready
         and proposed_blowout_matchups == proposed_matchups
         and proposed_matchups > 0
     )
@@ -204,7 +225,7 @@ def build_event_rollup(
         if actual["blowout_percentage"] is not None
         else None
     )
-    comparison_proposed_margin = proposed_margin if all_cohorts_complete else None
+    comparison_proposed_margin = proposed_margin if comparison_ready else None
     return {
         "schema_version": 2,
         "event": {
@@ -226,7 +247,7 @@ def build_event_rollup(
             ),
         },
         "actual_vs_matchbalance": {
-            "comparison_ready": all_cohorts_complete,
+            "comparison_ready": comparison_ready,
             "actual_game_count": int(actual["scored_games"]),
             "matchbalance_projected_matchup_count": proposed_matchups,
             "actual_average_goal_margin": actual_margin,
@@ -246,8 +267,15 @@ def build_event_rollup(
             ),
             "scope_note": (
                 "All observed games from the captured tournament compared with frozen-model "
-                "projections for the MatchBalance pool assignments after every cohort finishes"
+                "projections for the MatchBalance division and pool assignments after every cohort "
+                "finishes and unchanged-fixture calibration passes"
             ),
+        },
+        "model_validation": {
+            "ready": bool(selected) and not validation_failures,
+            "passed_cohorts": len(selected) - len(validation_failures),
+            "failed_cohorts": len(validation_failures),
+            "failures": validation_failures,
         },
         "team_movements": {
             "evaluated": len(movements),
@@ -269,6 +297,7 @@ def build_event_rollup(
         },
         "selected_runs": [run.record.run_id for run in selected],
         "model_artifact_sha256": model_sha256,
+        "merge_map_version": merge_map_version,
     }
 
 
@@ -294,6 +323,8 @@ def render_event_rollup_html(rollup: dict[str, Any]) -> str:
         f"<tr><td>{html.escape(str(row.get('event_team_name') or ''))}</td>"
         f"<td>{html.escape(str(row.get('actual_division') or ''))}</td>"
         f"<td>{html.escape(str(row.get('recommended_division') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('actual_pool') or ''))}</td>"
+        f"<td>{html.escape(str(row.get('recommended_pool') or ''))}</td>"
         f"<td>{html.escape(str(row.get('move') or '').replace('_', ' ').title())}</td></tr>"
         for row in movements["rows"]
     )
@@ -335,8 +366,9 @@ th{{background:#f9fafb}}.muted{{color:#667085}}</style></head><body>
 <div class="card">Moved up<div class="value">{movements['moved_up']}</div></div>
 <div class="card">Moved down<div class="value">{movements['moved_down']}</div></div>
 <div class="card">Unchanged<div class="value">{movements['unchanged']}</div></div></div>
-<table><thead><tr><th>Team</th><th>Original division</th>
-<th>MatchBalance division</th><th>Decision</th></tr></thead><tbody>{movement_rows}</tbody></table>
+<table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
+<th>Original pool</th><th>MatchBalance pool</th><th>Decision</th></tr></thead>
+<tbody>{movement_rows}</tbody></table>
 <h2>Cohort coverage</h2><p>{coverage['completed']} of {coverage['total_cohorts']} cohorts complete.</p>
 <table><thead><tr><th>Cohort</th><th>Teams</th><th>Status</th><th>What remains</th></tr></thead>
 <tbody>{coverage_rows}</tbody></table>

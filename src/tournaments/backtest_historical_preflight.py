@@ -27,8 +27,8 @@ from scripts.backtest_tournament_cohort import (
 from src.predictions.point_in_time_match_model import PointInTimeMatchModel
 from src.tournaments.backtest_rating_fallback import (
     RATING_FALLBACK_POLICY,
+    build_average_rating_estimate,
     needs_rating_fallback,
-    select_rating_surrogate,
 )
 from src.tournaments.backtest_reviewed_run import model_artifact_sha256, resolve_model_artifact
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
@@ -53,6 +53,7 @@ class HistoricalEntrantCheck:
     power_score: float | None = None
     reason: str = ""
     rating_basis: str = "historical_snapshot"
+    rating_source_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -122,7 +123,7 @@ def preflight_input_sha256(
         "requests": list(requests),
         "model_artifact_sha256": model_artifact_sha256(model_artifact),
         "merge_map_version": merge_map_version,
-        "policy": "strict-pre-event-snapshot-with-reviewed-fallback-v2",
+        "policy": "strict-pre-event-snapshot-with-average-estimate-v3",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -305,7 +306,7 @@ def run_historical_preflight(
             entrant_id = str(entrant["entrant_id"])
             name = str(entrant.get("event_team_name") or entrant_id)
             try:
-                surrogate, basis = select_rating_surrogate(entrant, rated_rows)
+                estimate, basis = build_average_rating_estimate(entrant, rated_rows)
             except ValueError as exc:
                 checks_by_entrant[entrant_id] = HistoricalEntrantCheck(
                     entrant_id,
@@ -317,23 +318,28 @@ def run_historical_preflight(
                     rating_basis=RATING_FALLBACK_POLICY,
                 )
                 continue
-            source_check = checks_by_entrant[str(surrogate["entrant_id"])]
+            source_checks = [
+                checks_by_entrant[source_id]
+                for source_id in estimate["average_source_entrant_ids"]
+            ]
             checks_by_entrant[entrant_id] = HistoricalEntrantCheck(
                 entrant_id,
                 name,
                 str(entrant["canonical_team_id"]),
-                str(surrogate["ranking_source_team_id"]),
+                str(estimate["ranking_source_team_id"]),
                 True,
-                snapshot_date=source_check.snapshot_date,
-                source_age_group=source_check.source_age_group,
-                source_gender=source_check.source_gender,
-                power_score=float(surrogate["power_score"]),
+                snapshot_date=max(check.snapshot_date for check in source_checks),
+                source_age_group=str(request["age_group"]),
+                source_gender=str(request["gender"]),
+                power_score=float(estimate["power_score"]),
                 reason=(
-                    "No PitchRank identity; Backtest will use the median-rated historical "
-                    + ("peer from the original division." if basis.startswith("original_division")
-                       else "peer from the tournament cohort.")
+                    f"No PitchRank identity; Backtest will use the arithmetic average of "
+                    f"{len(source_checks)} pre-event "
+                    + ("teams from the original division." if basis.startswith("original_division")
+                       else "teams from the tournament cohort.")
                 ),
                 rating_basis=basis,
+                rating_source_count=len(source_checks),
             )
         checks = tuple(checks_by_entrant[str(entrant["entrant_id"])] for entrant in entrants)
         cohort_results.append(

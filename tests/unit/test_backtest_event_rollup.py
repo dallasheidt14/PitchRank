@@ -40,6 +40,7 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
         "source_capture_generation": "generation-1",
         "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
         "model_artifact_sha256": "model-sha",
+        "merge_map_version": "merge-v1",
     }
     original = {
         "projected_matchup_count": 4,
@@ -55,6 +56,9 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
         "seeding_comparison": {"status": "comparable"},
         "original_model_projection": original,
         "proposed_model_projection": proposed,
+        "original_schedule_projection": original,
+        "proposed_schedule_projection": proposed,
+        "model_validation": {"status": "passed", "blockers": []},
         "division_recommendations": [
             {
                 "entrant_id": "reg-a",
@@ -84,7 +88,13 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0])
 
-    rollup = build_event_rollup(snapshot, readiness, (record,), model_sha256="model-sha")
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
 
     assert rollup["coverage"]["completed"] == 1
     comparison = rollup["actual_vs_matchbalance"]
@@ -111,13 +121,46 @@ def test_event_rollup_does_not_invent_4plus_rate_for_legacy_run(tmp_path):
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0], with_4plus=False)
 
-    rollup = build_event_rollup(snapshot, readiness, (record,), model_sha256="model-sha")
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
 
     assert rollup["coverage"]["completed"] == 1
     comparison = rollup["actual_vs_matchbalance"]
     assert comparison["actual_blowout_4plus_rate"] == 0.0
     assert comparison["matchbalance_projected_blowout_4plus_rate"] is None
     assert comparison["estimated_blowout_4plus_rate_reduction"] is None
+
+
+def test_event_rollup_withholds_sales_comparison_when_unchanged_replay_fails(tmp_path):
+    snapshot = _verified_snapshot()
+    readiness = build_reviewed_cohort_readiness(snapshot, _links())
+    record = _record(tmp_path, readiness[0])
+    summary_path = record.run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["model_validation"] = {
+        "status": "failed",
+        "blockers": ["Unchanged 4+ blowout-rate prediction is outside the accepted tolerance"],
+    }
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+    comparison = rollup["actual_vs_matchbalance"]
+    assert rollup["coverage"]["completed"] == 1
+    assert comparison["comparison_ready"] is False
+    assert comparison["matchbalance_projected_average_goal_margin"] is None
+    assert rollup["model_validation"]["failed_cohorts"] == 1
 
 
 def test_event_rollup_actual_baseline_always_uses_the_whole_scraped_tournament(tmp_path):
@@ -159,6 +202,7 @@ def test_event_rollup_actual_baseline_always_uses_the_whole_scraped_tournament(t
         (*readiness, waiting),
         (record,),
         model_sha256="model-sha",
+        merge_map_version="merge-v1",
     )
 
     comparison = rollup["actual_vs_matchbalance"]
@@ -174,10 +218,33 @@ def test_event_rollup_rejects_stale_capture_or_different_model(tmp_path):
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0])
 
-    rollup = build_event_rollup(snapshot, readiness, (record,), model_sha256="different")
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="different",
+        merge_map_version="merge-v1",
+    )
 
     assert rollup["coverage"]["completed"] == 0
     assert rollup["coverage"]["ready"] == 1
+    assert rollup["selected_runs"] == []
+
+
+def test_event_rollup_rejects_run_from_an_older_merge_map(tmp_path):
+    snapshot = _verified_snapshot()
+    readiness = build_reviewed_cohort_readiness(snapshot, _links())
+    record = _record(tmp_path, readiness[0])
+
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256="model-sha",
+        merge_map_version="merge-v2",
+    )
+
+    assert rollup["coverage"]["completed"] == 0
     assert rollup["selected_runs"] == []
 
 
@@ -186,7 +253,13 @@ def test_event_rollup_requires_explicit_model_hash(tmp_path):
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0])
 
-    rollup = build_event_rollup(snapshot, readiness, (record,), model_sha256=None)
+    rollup = build_event_rollup(
+        snapshot,
+        readiness,
+        (record,),
+        model_sha256=None,
+        merge_map_version="merge-v1",
+    )
 
     assert rollup["coverage"]["completed"] == 0
     assert rollup["coverage"]["awaiting_history"] == 1

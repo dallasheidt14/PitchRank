@@ -90,18 +90,17 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert request["age_group"] == "u14"
     assert request["assignment_policy"] == "competitive_balance_only"
     assert "constraints" not in request
-    assert request["divisions"] == [
-        {
-            "name": "group-1",
-            "actual_division_name": "Gold",
-            "group_id": "group-1",
-            "team_count": 2,
-            "pool_sizes": [2],
-            "advancement": "ROUND_ROBIN",
-            "playoff_format": "none",
-            "captured_fixture_count": 1,
-        }
-    ]
+    division = request["divisions"][0]
+    assert division["name"] == "group-1"
+    assert division["actual_division_name"] == "Gold"
+    assert division["team_count"] == 2
+    assert division["pool_sizes"] == [2]
+    assert division["pool_names"] == ["Bracket A"]
+    assert division["advancement"] == "CAPTURED_GRAPH"
+    assert division["playoff_format"] == "captured_fixture_graph"
+    assert division["captured_fixture_count"] == 1
+    assert len(division["captured_schedule"]["fixture_slots"]) == 1
+    assert division["captured_schedule"]["fixture_slots"][0]["home"]["kind"] == "pool_slot"
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
@@ -233,7 +232,7 @@ def test_build_request_infers_an_unambiguous_replay_format():
 
     request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
 
-    assert request["divisions"][0]["advancement"] == "ROUND_ROBIN"
+    assert request["divisions"][0]["advancement"] == "CAPTURED_GRAPH"
 
 
 def test_build_request_requires_normalized_event_start_date():
@@ -338,13 +337,12 @@ def test_build_request_validates_duplicate_mapping_across_cohorts():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=links)
-    requests = build_cohort_backtest_requests(
-        snapshot,
-        event_links=links,
-        cohort_filter={("u14", "Male")},
-    )
-    assert len(requests) == 1
-    assert requests[0]["age_group"] == "u14"
+    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
+        build_cohort_backtest_requests(
+            snapshot,
+            event_links=links,
+            cohort_filter={("u14", "Male")},
+        )
 
 
 def test_build_request_rejects_repeated_registration_within_cohort():
@@ -469,7 +467,7 @@ def test_build_request_rejects_unconfirmed_and_keeps_reviewed_not_found_entrant(
     bravo = next(item for item in request["entrants"] if item["registration_id"] == "reg-b")
     assert bravo["canonical_team_id"] == "not-found:51783:reg-b"
     assert bravo["ranking_source_team_id"] == ""
-    assert bravo["rating_fallback"] == "division_then_cohort_median_surrogate"
+    assert bravo["rating_fallback"] == "division_then_cohort_average_estimate"
 
 
 def test_build_request_preserves_combined_tournament_cohort():

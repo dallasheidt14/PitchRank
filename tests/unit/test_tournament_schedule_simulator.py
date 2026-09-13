@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.tournaments.schedule_simulator import (
+    captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
     simulate_tournament_schedule,
@@ -170,3 +171,62 @@ def test_simulate_tournament_schedule_replays_two_pools_of_three_with_semis():
     assert simulation.match_count == 10
     assert len(simulation.divisions) == 1
     assert simulation.divisions[0].match_count == 10
+
+
+def test_captured_graph_replays_cross_pool_games_and_actual_advancement_path():
+    teams = [_team(index, 0.95 - index * 0.08, index) for index in range(1, 7)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Crossover", team_count=6, pool_sizes=(3, 3))],
+        matchup_cost_fn=_cost,
+    )
+    fixtures = []
+    for home_slot in range(3):
+        for away_slot in range(3):
+            fixtures.append(
+                {
+                    "stage": "Cross-pool",
+                    "counts_for_standings": True,
+                    "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": home_slot},
+                    "away": {"kind": "pool_slot", "pool_index": 1, "slot_index": away_slot},
+                }
+            )
+    fixtures.extend(
+        [
+            {
+                "stage": "Semi-Finals A",
+                "home": {"kind": "pool_rank", "pool_index": 0, "rank": 0},
+                "away": {"kind": "pool_rank", "pool_index": 1, "rank": 1},
+            },
+            {
+                "stage": "Semi-Finals B",
+                "home": {"kind": "pool_rank", "pool_index": 1, "rank": 0},
+                "away": {"kind": "pool_rank", "pool_index": 0, "rank": 1},
+            },
+            {
+                "stage": "Final",
+                "home": {"kind": "match_winner", "match_index": 9},
+                "away": {"kind": "match_winner", "match_index": 10},
+            },
+        ]
+    )
+    template = captured_division_schedule_template(
+        division_name="Crossover",
+        actual_division_name="U14 Crossover",
+        pool_sizes=(3, 3),
+        fixture_slots=fixtures,
+        tiebreak_source_urls=("https://example.test/tiebreak",),
+    )
+
+    simulation = simulate_tournament_schedule(
+        result.divisions,
+        {"Crossover": template},
+        _prediction,
+    )
+
+    assert simulation.match_count == 12
+    assert [match.stage for match in simulation.divisions[0].matches].count("Cross-pool") == 9
+    assert simulation.divisions[0].matches[-1].stage == "Final"
+    assert simulation.divisions[0].template.tiebreak_source_urls == (
+        "https://example.test/tiebreak",
+    )

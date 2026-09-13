@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -18,10 +19,9 @@ from src.tournaments.backtest_intake_state import (
     effective_roster,
     entrant_key,
     read_snapshot,
-    structure_hash,
     tournament_totals,
 )
-from src.tournaments.backtest_link_store import load_links
+from src.tournaments.backtest_link_store import canonicalize_event_links, load_links
 from src.tournaments.backtest_replay_format import assess_replay_format
 from src.tournaments.backtest_reviewed_run import (
     build_reviewed_cohort_readiness,
@@ -88,9 +88,12 @@ def validate_backtest_acceptance(
     model_artifact: str | Path,
     base_dir: str | Path = "reports",
     merge_map_version: str = "",
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> dict:
     snapshot = read_snapshot(event_key, base_dir=base_dir)
     links = load_links(event_key, base_dir=base_dir)
+    if resolve_team_id is not None:
+        links = canonicalize_event_links(links, resolve_team_id)
     totals = tournament_totals(snapshot.roster)
     scoped_roster = backtest_scope_roster(effective_roster(snapshot))
     actual = totals["results"]
@@ -112,18 +115,9 @@ def validate_backtest_acceptance(
             list(capture_verification_blockers(snapshot)),
         )
     )
-    reviews = {review.group_id: review for review in snapshot.reviews}
     unsupported_divisions = []
     for division in scoped_roster.divisions:
-        review = reviews.get(division.group_id)
-        manual_format = (
-            review.format_code
-            if review is not None
-            and review.checked
-            and review.structure_hash == structure_hash(division)
-            else ""
-        )
-        if not assess_replay_format(division, manual_format=manual_format).ready:
+        if not assess_replay_format(division).ready:
             unsupported_divisions.append(division.group_id)
     checks.append(_check("division replay readiness", [], unsupported_divisions))
 
@@ -161,7 +155,11 @@ def validate_backtest_acceptance(
     )
     checks.append(_check("duplicate mapping acknowledgements", [], unresolved_collisions))
 
-    readiness = build_reviewed_cohort_readiness(snapshot, links)
+    readiness = build_reviewed_cohort_readiness(
+        snapshot,
+        links,
+        resolve_team_id=resolve_team_id,
+    )
     readiness_blockers = {
         f"{item.gender} {item.age_group}": list(item.blockers)
         for item in readiness
@@ -229,6 +227,7 @@ def validate_backtest_acceptance(
         readiness,
         attempts,
         model_sha256=model_sha or None,
+        merge_map_version=merge_map_version or None,
     )
     coverage = rollup["coverage"]
     checks.append(_check("completed cohort outputs", coverage["total_cohorts"], coverage["completed"]))
@@ -246,6 +245,20 @@ def validate_backtest_acceptance(
         )
     )
     comparison = rollup["actual_vs_matchbalance"]
+    validation = rollup["model_validation"]
+    checks.append(
+        _check(
+            "unchanged fixture model calibration",
+            coverage["total_cohorts"],
+            validation["passed_cohorts"],
+            detail=(
+                "; ".join(
+                    f"{item['gender']} {item['age_group']}: {', '.join(item['blockers'])}"
+                    for item in validation["failures"]
+                )
+            ),
+        )
+    )
     rollup_reconciled = bool(
         coverage["completed"] == coverage["total_cohorts"]
         and comparison["comparison_ready"]

@@ -53,8 +53,8 @@ from src.predictions.point_in_time_match_model import (  # noqa: E402
     build_point_in_time_matchup_row,
 )
 from src.tournaments.backtest_rating_fallback import (  # noqa: E402
+    build_average_rating_estimate,
     needs_rating_fallback,
-    select_rating_surrogate,
 )
 from src.tournaments.modelled_comparison import (  # noqa: E402
     compare_modelled_arrangements,
@@ -62,11 +62,15 @@ from src.tournaments.modelled_comparison import (  # noqa: E402
     summarize_modelled_matchups,
 )
 from src.tournaments.schedule_simulator import (  # noqa: E402
+    captured_division_schedule_template,
     explicit_division_schedule_template,
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
+    POOL_POLICY_BALANCED_STRENGTH,
+    DivisionAssignment,
     DivisionSpec,
+    FlightAssignment,
     MatchupCost,
     SeedableTeam,
     normalize_age_group,
@@ -80,6 +84,9 @@ TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id
 PREDICTOR_SOURCE_PYTHON = "python"
 PREDICTOR_SOURCE_POINT_IN_TIME = "point_in_time"
 DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = "poisson_draw_gate"
+UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR = 1.0
+UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR = 0.10
+UNCHANGED_FIXTURE_MIN_COVERAGE = 0.95
 
 
 @dataclass(frozen=True)
@@ -222,6 +229,34 @@ def _actual_division_name(division_payload: dict[str, Any], fallback_name: str) 
     if "actual_division_name" in division_payload:
         return str(division_payload.get("actual_division_name") or "")
     return str(fallback_name)
+
+
+def _schedule_template_from_payload(
+    division_payload: dict[str, Any],
+    division_spec: DivisionSpec,
+    actual_game_counts: dict[str, int],
+):
+    captured = division_payload.get("captured_schedule")
+    if captured:
+        return captured_division_schedule_template(
+            division_name=division_spec.name,
+            actual_division_name=_actual_division_name(division_payload, division_spec.name),
+            pool_sizes=division_spec.pool_sizes,
+            fixture_slots=captured.get("fixture_slots") or (),
+            tiebreak_order=captured.get("tiebreak_order") or (),
+            tiebreak_source_urls=captured.get("tiebreak_source_urls") or (),
+        )
+    return explicit_division_schedule_template(
+        division_name=division_spec.name,
+        actual_division_name=_actual_division_name(division_payload, division_spec.name),
+        pool_sizes=division_spec.pool_sizes,
+        format_code=division_spec.advancement,
+        actual_game_count=_captured_fixture_count(
+            division_payload,
+            actual_game_counts,
+            fallback_division_name=division_spec.name,
+        ),
+    )
 
 
 def _fetch_rows_by_ids(client, table: str, columns: str, id_column: str, ids: list[str]) -> list[dict[str, Any]]:
@@ -495,6 +530,13 @@ def _freeze_historical_inputs(
                 "event_gender": str(entrant["gender"]),
                 "rating_fallback": str(entrant.get("rating_fallback") or ""),
                 "rating_basis": str(entrant.get("rating_basis") or "historical_snapshot"),
+                "average_source_count": int(entrant.get("average_source_count") or 0),
+                "average_source_entrant_ids": list(
+                    entrant.get("average_source_entrant_ids") or ()
+                ),
+                "average_source_team_ids": list(
+                    entrant.get("average_source_team_ids") or ()
+                ),
                 "power_score": float(entrant["power_score"]),
                 "rank_in_cohort": entrant.get("rank_in_cohort"),
                 "games_played": int(entrant.get("games_played") or 0),
@@ -728,9 +770,14 @@ def _synthesize_snapshot_from_entrant_row(entrant_row: dict[str, Any], predictio
     offense_norm = float(entrant_row.get("off_norm") or 0.5)
     defense_norm = float(entrant_row.get("def_norm") or 0.5)
 
+    snapshot_ts = pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=1)
+    snapshot_date = snapshot_ts.strftime("%Y-%m-%d")
     return {
-        "snapshot_date": prediction_date,
-        "snapshot_ts": pd.Timestamp(prediction_date).normalize(),
+        "snapshot_date": snapshot_date,
+        "snapshot_ts": snapshot_ts,
+        "created_at": snapshot_date,
+        "last_calculated": snapshot_date,
+        "snapshot_source_team_id": str(entrant_row["ranking_source_team_id"]),
         "team_id": str(entrant_row["ranking_source_team_id"]),
         "age_group": str(entrant_row.get("source_age_group") or entrant_row.get("age_group") or ""),
         "gender": str(entrant_row.get("source_gender") or entrant_row.get("gender") or ""),
@@ -752,6 +799,10 @@ def _synthesize_snapshot_from_entrant_row(entrant_row: dict[str, Any], predictio
         "exp_win_rate": float(min(max(0.20 + power_score * 0.60, 0.05), 0.95)),
         "exp_goals_for": float(min(max(1.10 + (offense_norm - 0.5) * 1.8, 0.35), 4.25)),
         "exp_goals_against": float(min(max(1.10 - (defense_norm - 0.5) * 1.5, 0.35), 4.25)),
+        "is_average_estimate": True,
+        "average_source_count": int(entrant_row.get("average_source_count") or 0),
+        "average_source_entrant_ids": list(entrant_row.get("average_source_entrant_ids") or ()),
+        "average_source_team_ids": list(entrant_row.get("average_source_team_ids") or ()),
     }
 
 
@@ -1130,6 +1181,7 @@ def _build_division_specs(payload: dict[str, Any]) -> list[DivisionSpec]:
                 team_count=team_count,
                 pool_sizes=pool_sizes,
                 advancement=str(division["advancement"]) if division.get("advancement") else None,
+                pool_names=tuple(str(name) for name in (division.get("pool_names") or ())),
             )
         )
     if not divisions:
@@ -1240,6 +1292,138 @@ def _project_optimized_pool_arrangement(
     return projection
 
 
+def _captured_original_assignments(
+    entrant_rows: list[dict[str, Any]],
+    teams: list[SeedableTeam],
+    divisions: list[DivisionSpec],
+) -> tuple[DivisionAssignment, ...]:
+    """Rebuild the captured division and pool placement for an unchanged replay."""
+
+    teams_by_id = {team.team_id: team for team in teams}
+    assignments: list[DivisionAssignment] = []
+    for division in divisions:
+        division_rows = [
+            row for row in entrant_rows if str(row.get("actual_division_key") or "") == division.name
+        ]
+        pools: dict[str, list[SeedableTeam]] = {}
+        pool_labels: dict[str, str] = {}
+        for row in division_rows:
+            pool_key = str(row.get("actual_pool_key") or "").strip()
+            if not pool_key:
+                raise ValueError(
+                    f"Entrant {row.get('entrant_id')} is missing its captured original pool"
+                )
+            pool_labels.setdefault(pool_key, str(row.get("actual_pool_name") or pool_key))
+            pools.setdefault(pool_key, []).append(teams_by_id[str(row["entrant_id"])])
+        pool_teams = tuple(tuple(items) for items in pools.values())
+        if tuple(len(items) for items in pool_teams) != division.pool_sizes:
+            raise ValueError(
+                f"Division '{division.name}' captured pool membership does not match its pool capacities"
+            )
+        flights = tuple(
+            FlightAssignment(
+                name=pool_labels[pool_key],
+                teams=tuple(items),
+                total_pair_cost=0.0,
+                average_pair_cost=0.0,
+                average_projected_margin=0.0,
+                competitive_probability=0.0,
+                blowout_3plus_probability=0.0,
+                blowout_5plus_probability=0.0,
+            )
+            for pool_key, items in pools.items()
+        )
+        captured_teams = tuple(team for items in pool_teams for team in items)
+        if len(captured_teams) != division.team_count:
+            raise ValueError(
+                f"Division '{division.name}' captured {len(captured_teams)} teams; "
+                f"expected {division.team_count}"
+            )
+        assignments.append(
+            DivisionAssignment(
+                name=division.name,
+                teams=captured_teams,
+                total_pair_cost=0.0,
+                average_pair_cost=0.0,
+                average_projected_margin=0.0,
+                competitive_probability=0.0,
+                blowout_3plus_probability=0.0,
+                blowout_5plus_probability=0.0,
+                pool_sizes=division.pool_sizes,
+                advancement=division.advancement,
+                pools=flights,
+            )
+        )
+    return tuple(assignments)
+
+
+def _schedule_projection(simulation, *, projection_basis: str) -> dict[str, Any]:
+    margins = [match.goal_differential for division in simulation.divisions for match in division.matches]
+    return {
+        "projection_basis": projection_basis,
+        "projected_matchup_count": len(margins),
+        "average_goal_differential": simulation.average_goal_differential if margins else None,
+        "median_goal_differential": simulation.median_goal_differential if margins else None,
+        "close_game_probability": simulation.close_game_rate if margins else None,
+        "blowout_3plus_probability": simulation.blowout_3plus_rate if margins else None,
+        "blowout_4plus_probability": (
+            sum(1 for margin in margins if margin >= 4) / len(margins) if margins else None
+        ),
+        "blowout_5plus_probability": simulation.blowout_5plus_rate if margins else None,
+    }
+
+
+def _validate_unchanged_fixture_projection(
+    actual_summary: dict[str, Any],
+    original_projection: dict[str, Any],
+) -> dict[str, Any]:
+    """Gate sales comparisons on the model's replay of the unchanged tournament."""
+
+    actual_count = int(actual_summary.get("actual_game_count") or 0)
+    projected_count = int(original_projection.get("projected_matchup_count") or 0)
+    coverage = min(actual_count, projected_count) / max(actual_count, projected_count, 1)
+    actual_margin = actual_summary.get("average_goal_differential")
+    projected_margin = original_projection.get("average_goal_differential")
+    actual_blowout = actual_summary.get("blowout_4plus_rate")
+    projected_blowout = original_projection.get("blowout_4plus_probability")
+    margin_error = (
+        abs(float(actual_margin) - float(projected_margin))
+        if actual_count and actual_margin is not None and projected_margin is not None
+        else None
+    )
+    blowout_error = (
+        abs(float(actual_blowout) - float(projected_blowout))
+        if actual_count and actual_blowout is not None and projected_blowout is not None
+        else None
+    )
+    blockers = []
+    if actual_count == 0:
+        blockers.append("No scored captured fixtures are available for calibration")
+    if coverage < UNCHANGED_FIXTURE_MIN_COVERAGE:
+        blockers.append(
+            f"Unchanged replay covers {coverage:.1%} of the captured scored fixture count"
+        )
+    if margin_error is None or margin_error > UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR:
+        blockers.append("Unchanged average-margin prediction is outside the accepted tolerance")
+    if blowout_error is None or blowout_error > UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR:
+        blockers.append("Unchanged 4+ blowout-rate prediction is outside the accepted tolerance")
+    return {
+        "status": "passed" if not blockers else "failed",
+        "basis": "same_model_replay_of_captured_original_fixture_graph",
+        "actual_scored_game_count": actual_count,
+        "unchanged_projected_game_count": projected_count,
+        "fixture_count_coverage": coverage,
+        "average_goal_margin_absolute_error": margin_error,
+        "blowout_4plus_rate_absolute_error": blowout_error,
+        "thresholds": {
+            "minimum_fixture_count_coverage": UNCHANGED_FIXTURE_MIN_COVERAGE,
+            "maximum_average_goal_margin_absolute_error": UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR,
+            "maximum_blowout_4plus_rate_absolute_error": UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR,
+        },
+        "blockers": blockers,
+    }
+
+
 def _build_division_recommendations(
     entrant_rows: list[dict[str, Any]],
     optimized_divisions: list[dict[str, Any]],
@@ -1250,9 +1434,13 @@ def _build_division_recommendations(
         for division in optimized_divisions
     }
     recommended_by_entrant: dict[str, str] = {}
+    recommended_pool_by_entrant: dict[str, str] = {}
     for division in optimized_divisions:
         for team in division["teams"]:
             recommended_by_entrant[str(team["team_id"])] = str(division["name"])
+        for pool in division.get("pools") or ():
+            for team in pool.get("teams") or ():
+                recommended_pool_by_entrant[str(team["team_id"])] = str(pool.get("name") or "")
 
     recommendations: list[dict[str, Any]] = []
     for entrant in entrant_rows:
@@ -1279,6 +1467,8 @@ def _build_division_recommendations(
                 "actual_division": actual_division,
                 "recommended_division_key": recommended_division_key,
                 "recommended_division": recommended_division,
+                "actual_pool": str(entrant.get("actual_pool_name") or ""),
+                "recommended_pool": recommended_pool_by_entrant.get(str(entrant["entrant_id"]), ""),
                 "move": move,
                 "power_score": entrant["power_score"],
                 "ranking_source_team_id": entrant["ranking_source_team_id"],
@@ -1484,15 +1674,27 @@ def main() -> int:
     for entrant in entrants_payload:
         if not needs_rating_fallback(entrant):
             continue
-        surrogate, basis = select_rating_surrogate(entrant, rated_rows)
-        ranking_source_team_id = str(surrogate["ranking_source_team_id"])
-        resolved_snapshot = resolved_snapshots_by_source_id[ranking_source_team_id]
+        estimate, basis = build_average_rating_estimate(entrant, rated_rows)
+        ranking_source_team_id = str(estimate["ranking_source_team_id"])
         fallback_entrant = {
             **entrant,
+            **estimate,
             "ranking_source_team_id": ranking_source_team_id,
             "rating_basis": basis,
         }
-        entrant_rows_by_id[str(entrant["entrant_id"])] = _build_entrant_row(
+        resolved_snapshot = _synthesize_snapshot_from_entrant_row(
+            {
+                **fallback_entrant,
+                "source_age_group": age_group,
+                "source_gender": gender,
+                "age_group": age_group,
+                "gender": gender,
+                "ranking_status": "Estimated",
+            },
+            prediction_date,
+        )
+        resolved_snapshots_by_source_id[ranking_source_team_id] = resolved_snapshot
+        entrant_row = _build_entrant_row(
             fallback_entrant,
             None,
             _historical_ranking_row(resolved_snapshot),
@@ -1500,6 +1702,12 @@ def main() -> int:
             cohort_gender=gender,
             notes=notes,
         )
+        entrant_rows_by_id[str(entrant["entrant_id"])] = {
+            **entrant_row,
+            "average_source_count": int(estimate["average_source_count"]),
+            "average_source_entrant_ids": list(estimate["average_source_entrant_ids"]),
+            "average_source_team_ids": list(estimate["average_source_team_ids"]),
+        }
 
     entrant_rows = [entrant_rows_by_id[str(entrant["entrant_id"])] for entrant in entrants_payload]
     seedable_teams: list[SeedableTeam] = []
@@ -1639,6 +1847,7 @@ def main() -> int:
         divisions,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
     )
 
     actual_game_counts = {
@@ -1646,16 +1855,10 @@ def main() -> int:
         for division_name, summary in actual_summary["divisions"].items()
     }
     templates = {
-        division_spec.name: explicit_division_schedule_template(
-            division_name=division_spec.name,
-            actual_division_name=_actual_division_name(division_payload, division_spec.name),
-            pool_sizes=division_spec.pool_sizes,
-            format_code=division_spec.advancement,
-            actual_game_count=_captured_fixture_count(
-                division_payload,
-                actual_game_counts,
-                fallback_division_name=division_spec.name,
-            ),
+        division_spec.name: _schedule_template_from_payload(
+            division_payload,
+            division_spec,
+            actual_game_counts,
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }
@@ -1663,6 +1866,28 @@ def main() -> int:
         optimization_result.divisions,
         templates,
         predict_fn,
+    )
+    captured_original_assignments = _captured_original_assignments(
+        entrant_rows,
+        seedable_teams,
+        divisions,
+    )
+    original_simulated_tournament = simulate_tournament_schedule(
+        captured_original_assignments,
+        templates,
+        predict_fn,
+    )
+    original_schedule_projection = _schedule_projection(
+        original_simulated_tournament,
+        projection_basis="captured_original_fixture_graph",
+    )
+    proposed_schedule_projection = _schedule_projection(
+        simulated_tournament,
+        projection_basis="matchbalance_reseeded_fixture_graph",
+    )
+    model_validation = _validate_unchanged_fixture_projection(
+        actual_summary,
+        original_schedule_projection,
     )
     original_model_projection, comparison_issues = _project_original_pool_arrangement(
         entrant_rows,
@@ -1711,8 +1936,12 @@ def main() -> int:
         "notes": sorted(set(notes)),
         "actual_results": actual_summary,
         "original_model_projection": original_model_projection,
+        "original_schedule_projection": original_schedule_projection,
+        "original_simulated_schedule": original_simulated_tournament.to_dict(),
         "optimized_projection": optimized_payload,
         "proposed_model_projection": proposed_model_projection,
+        "proposed_schedule_projection": proposed_schedule_projection,
+        "model_validation": model_validation,
         "seeding_comparison": seeding_comparison,
         "comparison_issues": list(comparison_issues),
         "comparison_to_actual": None,

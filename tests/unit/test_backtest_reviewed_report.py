@@ -34,6 +34,8 @@ def test_movement_rows_include_staying_teams():
             "Team": "Alpha",
             "Original division": "Gold",
             "MatchBalance division": "Gold",
+            "Original pool": "",
+            "MatchBalance pool": "",
             "Decision": "Stayed",
             "Historical PowerScore": 0.6,
             "Rating evidence": "PitchRank pre-event rating",
@@ -43,15 +45,13 @@ def test_movement_rows_include_staying_teams():
 
 def test_movement_rows_disclose_not_found_rating_fallback():
     summary = _summary()
-    summary["division_recommendations"][0]["rating_basis"] = (
-        "original_division_median_surrogate"
-    )
+    summary["division_recommendations"][0]["rating_basis"] = "division_average_estimate"
 
     rows = movement_rows(summary)
     rendered = render_reviewed_backtest_html(summary, {})
 
-    assert rows[0]["Rating evidence"] == "Division median fallback (team not found)"
-    assert "Division median fallback (team not found)" in rendered
+    assert rows[0]["Rating evidence"] == "Division average estimate (team not found)"
+    assert "Division average estimate (team not found)" in rendered
 
 
 def test_director_report_escapes_tournament_and_team_names():

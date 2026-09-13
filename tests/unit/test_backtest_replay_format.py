@@ -16,7 +16,7 @@ def _division(*, fixture_kind: str = "pool", fixture_count: int = 1) -> ScrapedD
             Pool(
                 "pool-a",
                 "Pool A",
-                (PoolMember("reg-a", "Alpha", None), PoolMember("reg-b", "Bravo", None)),
+                (PoolMember("reg-a", "Alpha", 1), PoolMember("reg-b", "Bravo", 2)),
             ),
         ),
         fixtures=fixtures,
@@ -32,22 +32,22 @@ def test_unique_captured_shape_is_replay_ready_without_manual_review():
     assessment = assess_replay_format(_division())
 
     assert assessment.ready is True
-    assert assessment.format_code == "ROUND_ROBIN"
+    assert assessment.format_code == "CAPTURED_GRAPH"
 
 
-def test_cross_pool_schedule_is_an_engineering_gap():
+def test_cross_pool_schedule_is_replay_ready():
     assessment = assess_replay_format(_division(fixture_kind="cross_pool"))
 
-    assert assessment.ready is False
-    assert "dedicated replay template" in assessment.reason
+    assert assessment.ready is True
+    assert assessment.format_code == "CAPTURED_GRAPH"
 
 
-def test_incomplete_round_robin_is_not_cleared_by_game_count_guessing():
+def test_empty_captured_schedule_is_not_replay_ready():
     division = _division(fixture_count=0)
     assessment = assess_replay_format(division)
 
     assert assessment.ready is False
-    assert "full round robin" in assessment.reason
+    assert "No fixture rows" in assessment.reason
 
 
 def test_unreadable_source_evidence_is_never_automatically_ready():

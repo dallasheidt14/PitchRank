@@ -19,7 +19,7 @@ from src.tournaments.storage._io import write_json
 from src.utils.merge_resolver import MergeResolver
 
 
-def _current_merge_map_version() -> str:
+def _current_merge_resolver() -> MergeResolver:
     from dotenv import load_dotenv
 
     from supabase import create_client
@@ -39,7 +39,7 @@ def _current_merge_map_version() -> str:
     resolver.load_merge_map()
     if resolver.version == "error":
         raise RuntimeError("Team merge information could not be loaded")
-    return str(resolver.version)
+    return resolver
 
 
 def main() -> int:
@@ -50,12 +50,14 @@ def main() -> int:
     parser.add_argument("--reports-dir", default="reports")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
+    resolver = _current_merge_resolver()
     report = validate_backtest_acceptance(
         args.event_key,
         ACCEPTANCE_PROFILES[args.profile],
         model_artifact=args.model_artifact,
         base_dir=args.reports_dir,
-        merge_map_version=_current_merge_map_version(),
+        merge_map_version=str(resolver.version),
+        resolve_team_id=resolver.resolve,
     )
     if args.output:
         write_json(Path(args.output), report)

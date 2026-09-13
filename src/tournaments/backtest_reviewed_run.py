@@ -122,6 +122,8 @@ def capture_verification_blockers(snapshot: BacktestSnapshot) -> tuple[str, ...]
 def build_reviewed_cohort_readiness(
     snapshot: BacktestSnapshot,
     links: EventLinks,
+    *,
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> tuple[ReviewedCohortReadiness, ...]:
     """Evaluate each tournament cohort independently against strict evidence."""
 
@@ -145,20 +147,23 @@ def build_reviewed_cohort_readiness(
         }
         request: dict[str, Any] | None = None
         blockers = list(global_blockers)
-        if not blockers:
-            try:
-                requests = build_cohort_backtest_requests(
-                    snapshot,
-                    event_links=links,
-                    cohort_filter={(age_group, gender)},
-                )
-            except BacktestRequestError as exc:
-                blockers.append(str(exc))
+        # Build each request even when capture verification is still pending. This
+        # lets the operator see independent team, schedule, and history readiness
+        # in one place while the global verification blocker still prevents a run.
+        try:
+            requests = build_cohort_backtest_requests(
+                snapshot,
+                event_links=links,
+                resolve_team_id=resolve_team_id,
+                cohort_filter={(age_group, gender)},
+            )
+        except BacktestRequestError as exc:
+            blockers.append(str(exc))
+        else:
+            if len(requests) != 1:
+                blockers.append("The saved cohort could not be converted into one backtest request")
             else:
-                if len(requests) != 1:
-                    blockers.append("The saved cohort could not be converted into one backtest request")
-                else:
-                    request = requests[0]
+                request = requests[0]
         rows.append(
             ReviewedCohortReadiness(
                 age_group=age_group,
@@ -179,8 +184,42 @@ def resolve_model_artifact(value: str | Path) -> Path:
     return path.resolve()
 
 
-def default_model_artifact() -> str:
-    return os.getenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", DEFAULT_MODEL_ARTIFACT)
+def _model_data_end_date(artifact: Path) -> str:
+    metadata_path = artifact.with_name(f"{artifact.stem}_metadata.json")
+    if not metadata_path.is_file():
+        return ""
+    try:
+        metadata = read_json(metadata_path)
+    except (OSError, ValueError, TypeError):
+        return ""
+    return str(metadata.get("model_data_end_date") or "")
+
+
+def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
+    """Choose the newest local model whose data ends before the event."""
+
+    cutoff = str(cutoff_exclusive or "").strip()[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff):
+        return None
+    eligible = []
+    for artifact in (_REPO_ROOT / "models").glob("**/point_in_time_match_model.pkl"):
+        data_end = _model_data_end_date(artifact)
+        if data_end and data_end < cutoff:
+            eligible.append((data_end, artifact.resolve()))
+    return max(eligible, default=("", None), key=lambda item: (item[0], str(item[1])))[1]
+
+
+def default_model_artifact(cutoff_exclusive: str = "") -> str:
+    configured = os.getenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT")
+    if configured:
+        return configured
+    eligible = find_eligible_model_artifact(cutoff_exclusive)
+    if eligible is not None:
+        try:
+            return str(eligible.relative_to(_REPO_ROOT))
+        except ValueError:
+            return str(eligible)
+    return DEFAULT_MODEL_ARTIFACT
 
 
 def _safe_part(value: str) -> str:
@@ -306,6 +345,7 @@ def execute_reviewed_run(
     request: dict[str, Any],
     *,
     model_artifact: str | Path,
+    merge_map_version: str,
     base_dir: Path | str = "reports",
     on_progress: Callable[[ReviewedRunProgress], None] = lambda _event: None,
 ) -> ReviewedRunOutcome:
@@ -318,6 +358,8 @@ def execute_reviewed_run(
     gender = str(request.get("gender") or "")
     if not age_group or not gender:
         raise ValueError("Backtest request needs a cohort age and gender")
+    if not str(merge_map_version).strip() or merge_map_version == "error":
+        raise ValueError("Backtest run needs the current team merge-map version")
     artifact = resolve_model_artifact(model_artifact)
     if not artifact.is_file():
         raise FileNotFoundError(f"Historical model artifact not found: {artifact}")
@@ -362,6 +404,7 @@ def execute_reviewed_run(
                 "cohort_age_group": age_group,
                 "cohort_gender": gender,
                 "source_capture_generation": str(request.get("source_capture_generation") or ""),
+                "merge_map_version": str(merge_map_version),
                 "started_at": started_at,
                 "ended_at": None,
                 "state": "running",

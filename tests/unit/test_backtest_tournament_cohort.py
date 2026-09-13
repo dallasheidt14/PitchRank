@@ -990,3 +990,67 @@ def test_original_pool_projection_uses_stable_keys_when_labels_repeat_or_are_bla
     assert issues == ()
     assert projection is not None
     assert projection["projected_matchup_count"] == 2
+
+
+def test_captured_original_assignment_preserves_division_and_pool_membership():
+    teams = [
+        SeedableTeam("a", "A", "u14", "Male", 0.9),
+        SeedableTeam("b", "B", "u14", "Male", 0.8),
+        SeedableTeam("c", "C", "u14", "Male", 0.7),
+        SeedableTeam("d", "D", "u14", "Male", 0.6),
+    ]
+    entrants = [
+        {
+            "entrant_id": team.team_id,
+            "actual_division_key": "gold",
+            "actual_pool_key": "gold:a" if team.team_id in {"a", "b"} else "gold:b",
+            "actual_pool_name": "Pool A" if team.team_id in {"a", "b"} else "Pool B",
+        }
+        for team in teams
+    ]
+
+    assignments = cohort._captured_original_assignments(
+        entrants,
+        teams,
+        [cohort.DivisionSpec("gold", 4, pool_sizes=(2, 2))],
+    )
+
+    assert [[team.team_id for team in pool.teams] for pool in assignments[0].pools] == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
+
+
+def test_unchanged_fixture_validation_blocks_large_model_gap():
+    validation = cohort._validate_unchanged_fixture_projection(
+        {
+            "actual_game_count": 100,
+            "average_goal_differential": 3.0,
+            "blowout_4plus_rate": 0.30,
+        },
+        {
+            "projected_matchup_count": 100,
+            "average_goal_differential": 1.5,
+            "blowout_4plus_probability": 0.10,
+        },
+    )
+
+    assert validation["status"] == "failed"
+    assert len(validation["blockers"]) == 2
+
+
+def test_unchanged_fixture_validation_passes_close_replay():
+    validation = cohort._validate_unchanged_fixture_projection(
+        {
+            "actual_game_count": 99,
+            "average_goal_differential": 2.0,
+            "blowout_4plus_rate": 0.20,
+        },
+        {
+            "projected_matchup_count": 100,
+            "average_goal_differential": 1.8,
+            "blowout_4plus_probability": 0.16,
+        },
+    )
+
+    assert validation["status"] == "passed"

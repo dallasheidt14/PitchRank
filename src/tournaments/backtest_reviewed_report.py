@@ -29,7 +29,12 @@ def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]
     """Compare captured results with the proposed MatchBalance projection."""
 
     observed = observed_result_values(summary)
-    proposed = summary.get("proposed_model_projection") or {}
+    validation = summary.get("model_validation") or {}
+    proposed = summary.get("proposed_schedule_projection") or summary.get(
+        "proposed_model_projection"
+    ) or {}
+    if validation and validation.get("status") != "passed":
+        proposed = {}
     specs = (
         (
             "Average goal margin",
@@ -69,6 +74,8 @@ def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "Team": str(item.get("event_team_name") or item.get("canonical_team_name") or ""),
                 "Original division": str(item.get("actual_division") or ""),
                 "MatchBalance division": str(item.get("recommended_division") or ""),
+                "Original pool": str(item.get("actual_pool") or ""),
+                "MatchBalance pool": str(item.get("recommended_pool") or ""),
                 "Decision": labels.get(str(item.get("move") or ""), str(item.get("move") or "")),
                 "Historical PowerScore": item.get("power_score"),
                 "Rating evidence": _rating_evidence_label(item),
@@ -79,10 +86,12 @@ def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _rating_evidence_label(item: dict[str, Any]) -> str:
     basis = str(item.get("rating_basis") or "historical_snapshot")
-    if basis == "original_division_median_surrogate":
-        return "Division median fallback (team not found)"
-    if basis == "cohort_median_surrogate":
-        return "Cohort median fallback (team not found)"
+    if basis == "division_average_estimate":
+        return "Division average estimate (team not found)"
+    if basis == "cohort_average_estimate":
+        return "Cohort average estimate (team not found)"
+    if basis in {"original_division_median_surrogate", "cohort_median_surrogate"}:
+        return "Legacy median fallback (team not found)"
     return "PitchRank pre-event rating"
 
 
@@ -132,6 +141,8 @@ def render_reviewed_backtest_html(
         f"<td>{html.escape(str(row['Team']))}</td>"
         f"<td>{html.escape(str(row['Original division']))}</td>"
         f"<td>{html.escape(str(row['MatchBalance division']))}</td>"
+        f"<td>{html.escape(str(row['Original pool']))}</td>"
+        f"<td>{html.escape(str(row['MatchBalance pool']))}</td>"
         f"<td>{html.escape(str(row['Decision']))}</td>"
         f"<td>{html.escape(str(row['Rating evidence']))}</td>"
         "</tr>"
@@ -165,13 +176,14 @@ th{{background:#f9fafb}} code{{font-size:11px;word-break:break-all}}
 <div class="card">Teams reseeded<div class="value">{sum(1 for row in moves if row['Decision'] != 'Stayed')}</div></div>
 </div>
 <p class="muted">The tournament column comes directly from captured results. The MatchBalance
-column estimates the reseeded pool assignments using only pre-event evidence.</p>
+column estimates the reseeded division and pool assignments using only pre-event evidence.</p>
 <h2>Actual tournament versus MatchBalance</h2>
 <table><thead><tr><th>Metric</th><th>Actual tournament</th><th>MatchBalance projection</th>
 <th>Estimated reduction</th></tr></thead><tbody>{model_rows}</tbody></table>
 <h2>Team placement</h2>
 <table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
-<th>Decision</th><th>Rating evidence</th></tr></thead><tbody>{movement_rows_html}</tbody></table>
+<th>Original pool</th><th>MatchBalance pool</th><th>Decision</th><th>Rating evidence</th></tr></thead>
+<tbody>{movement_rows_html}</tbody></table>
 <h2>Historical evidence</h2><p>Exclusive event cutoff: <strong>{cutoff or 'Unavailable'}</strong></p>
 <p>Model artifact SHA-256: <code>{artifact_hash or 'Unavailable'}</code></p>
 </body></html>"""

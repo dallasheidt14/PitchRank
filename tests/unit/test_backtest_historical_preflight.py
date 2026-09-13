@@ -135,7 +135,7 @@ def test_preflight_reports_missing_snapshot_as_team_evidence_gap(tmp_path, monke
     assert "No prediction_feature_history snapshot" in result.cohorts[0].entrants[1].reason
 
 
-def test_preflight_accepts_reviewed_not_found_with_division_median_fallback(
+def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(
     tmp_path, monkeypatch
 ):
     from src.tournaments import backtest_historical_preflight as preflight
@@ -177,8 +177,9 @@ def test_preflight_accepts_reviewed_not_found_with_division_median_fallback(
     assert result.ready is True
     assert fallback.eligible is True
     assert fallback.power_score == 0.7
-    assert fallback.ranking_source_team_id == "canonical-a"
-    assert fallback.rating_basis == "original_division_median_surrogate"
+    assert fallback.ranking_source_team_id == "average-estimate:group-1:reg-b"
+    assert fallback.rating_basis == "original_division_average_estimate"
+    assert fallback.rating_source_count == 1
     assert "No PitchRank identity" in fallback.reason
 
 

@@ -47,7 +47,9 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
     )
     monkeypatch.setattr(acceptance, "read_snapshot", lambda *_args, **_kwargs: snapshot)
     monkeypatch.setattr(acceptance, "load_links", lambda *_args, **_kwargs: links)
-    monkeypatch.setattr(acceptance, "build_reviewed_cohort_readiness", lambda *_args: readiness)
+    monkeypatch.setattr(
+        acceptance, "build_reviewed_cohort_readiness", lambda *_args, **_kwargs: readiness
+    )
     monkeypatch.setattr(acceptance, "model_artifact_sha256", lambda *_args: "model-sha")
     monkeypatch.setattr(acceptance, "_model_data_end", lambda *_args: "2025-05-09")
     monkeypatch.setattr(
@@ -61,6 +63,7 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         "build_event_rollup",
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 1},
+            "model_validation": {"passed_cohorts": 1, "failures": []},
             "team_movements": {"evaluated": 2, "duplicate_entry_ids_skipped": []},
             "actual_vs_matchbalance": {
                 "comparison_ready": True,
@@ -94,7 +97,9 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
     )
     monkeypatch.setattr(acceptance, "read_snapshot", lambda *_args, **_kwargs: snapshot)
     monkeypatch.setattr(acceptance, "load_links", lambda *_args, **_kwargs: links)
-    monkeypatch.setattr(acceptance, "build_reviewed_cohort_readiness", lambda *_args: ())
+    monkeypatch.setattr(
+        acceptance, "build_reviewed_cohort_readiness", lambda *_args, **_kwargs: ()
+    )
     monkeypatch.setattr(acceptance, "load_historical_preflight", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(acceptance, "list_reviewed_runs", lambda *_args, **_kwargs: ())
     monkeypatch.setattr(acceptance, "list_failed_reviewed_runs", lambda *_args, **_kwargs: ())
@@ -103,6 +108,7 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
         "build_event_rollup",
         lambda *_args, **_kwargs: {
             "coverage": {"total_cohorts": 1, "completed": 0},
+            "model_validation": {"passed_cohorts": 0, "failures": []},
             "team_movements": {"evaluated": 0, "duplicate_entry_ids_skipped": []},
             "actual_vs_matchbalance": {
                 "comparison_ready": False,

@@ -61,6 +61,16 @@ def _summary() -> dict:
             "blowout_4plus_probability": 0.1,
             "blowout_5plus_probability": 0.05,
         },
+        "proposed_schedule_projection": {
+            "projected_matchup_count": 1,
+            "average_goal_differential": 1.5,
+            "median_goal_differential": 1.0,
+            "close_game_probability": 0.6,
+            "blowout_3plus_probability": 0.2,
+            "blowout_4plus_probability": 0.1,
+            "blowout_5plus_probability": 0.05,
+        },
+        "model_validation": {"status": "passed", "blockers": []},
         "seeding_comparison": {"status": "comparable"},
         "division_recommendations": [
             {
@@ -98,6 +108,24 @@ def test_default_model_artifact_can_be_configured(monkeypatch):
     assert default_model_artifact() == "C:/models/history.pkl"
 
 
+def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path, monkeypatch):
+    from src.tournaments import backtest_reviewed_run as runner
+
+    monkeypatch.delenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", raising=False)
+    monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
+    for folder, data_end in (("older", "2026-07-01"), ("newest", "2026-08-08"), ("too-new", "2026-09-05")):
+        model_dir = tmp_path / "models" / folder
+        model_dir.mkdir(parents=True)
+        (model_dir / "point_in_time_match_model.pkl").write_bytes(b"model")
+        (model_dir / "point_in_time_match_model_metadata.json").write_text(
+            json.dumps({"model_data_end_date": data_end}),
+            encoding="utf-8",
+        )
+
+    expected = (tmp_path / "models" / "newest" / "point_in_time_match_model.pkl").relative_to(tmp_path)
+    assert runner.default_model_artifact("2026-09-05") == str(expected)
+
+
 def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
@@ -122,6 +150,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
         on_progress=events.append,
     )
@@ -133,6 +162,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert metadata["state"] == "completed"
     assert metadata["source_capture_generation"] == "generation-1"
     assert metadata["model_artifact_sha256"]
+    assert metadata["merge_map_version"] == "merge-v1"
     assert events[-1].phase == "running-optimizer"
 
     records = list_reviewed_runs("gotsport__51783__2025", base_dir=tmp_path)
@@ -166,6 +196,7 @@ def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
@@ -210,6 +241,7 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
             "gotsport__51783__2025",
             request,
             model_artifact=artifact,
+            merge_map_version="merge-v1",
             base_dir=tmp_path,
         )
     except KeyboardInterrupt:
@@ -246,6 +278,7 @@ def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypa
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
@@ -266,6 +299,7 @@ def test_execute_reviewed_run_rejects_an_event_directory_mismatch(tmp_path):
             "gotsport__51783__2025",
             request,
             model_artifact=artifact,
+            merge_map_version="merge-v1",
             base_dir=tmp_path,
         )
     except ValueError as exc:

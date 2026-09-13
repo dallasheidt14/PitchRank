@@ -25,6 +25,15 @@ from src.tournaments.seeding_optimizer import DivisionAssignment, SeedableTeam
 PredictionFn = Callable[[SeedableTeam, SeedableTeam], Any]
 
 SUPPORTED_PLAYOFF_FORMATS = frozenset({"ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P"})
+CAPTURED_GRAPH_FORMAT = "CAPTURED_GRAPH"
+DEFAULT_TIEBREAK_ORDER = (
+    "points",
+    "goal_differential",
+    "goals_for",
+    "wins",
+    "power_score",
+    "team_name",
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +45,9 @@ class DivisionScheduleTemplate:
     playoff_format: str
     actual_game_count: int | None = None
     inference_notes: tuple[str, ...] = ()
+    fixture_slots: tuple[dict[str, Any], ...] = ()
+    tiebreak_order: tuple[str, ...] = DEFAULT_TIEBREAK_ORDER
+    tiebreak_source_urls: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,7 +58,58 @@ class DivisionScheduleTemplate:
             "playoff_format": self.playoff_format,
             "actual_game_count": self.actual_game_count,
             "inference_notes": list(self.inference_notes),
+            "fixture_slots": [dict(item) for item in self.fixture_slots],
+            "tiebreak_order": list(self.tiebreak_order),
+            "tiebreak_source_urls": list(self.tiebreak_source_urls),
         }
+
+
+def captured_division_schedule_template(
+    *,
+    division_name: str,
+    actual_division_name: str | None,
+    pool_sizes: Sequence[int],
+    fixture_slots: Sequence[dict[str, Any]],
+    tiebreak_order: Sequence[str] = DEFAULT_TIEBREAK_ORDER,
+    tiebreak_source_urls: Sequence[str] = (),
+) -> DivisionScheduleTemplate:
+    """Build a template from the captured match-slot graph rather than a canned format."""
+
+    normalized_pool_sizes = tuple(int(size) for size in pool_sizes)
+    if not normalized_pool_sizes or any(size <= 0 for size in normalized_pool_sizes):
+        raise ValueError(f"Division '{division_name}' needs positive captured pool sizes")
+    slots = tuple(dict(item) for item in fixture_slots)
+    if not slots:
+        raise ValueError(f"Division '{division_name}' needs at least one captured fixture slot")
+    allowed_refs = {"pool_slot", "pool_rank", "match_winner", "match_loser"}
+    for index, fixture in enumerate(slots):
+        for side in ("home", "away"):
+            ref = fixture.get(side)
+            if not isinstance(ref, dict) or str(ref.get("kind") or "") not in allowed_refs:
+                raise ValueError(
+                    f"Division '{division_name}' fixture slot {index + 1} has an invalid {side} reference"
+                )
+            if ref["kind"] in {"match_winner", "match_loser"} and int(ref["match_index"]) >= index:
+                raise ValueError(
+                    f"Division '{division_name}' fixture slot {index + 1} has a forward match reference"
+                )
+    normalized_tiebreak = tuple(str(item) for item in tiebreak_order)
+    if set(normalized_tiebreak) != set(DEFAULT_TIEBREAK_ORDER) or len(normalized_tiebreak) != len(
+        DEFAULT_TIEBREAK_ORDER
+    ):
+        raise ValueError(f"Division '{division_name}' needs each supported tiebreak field exactly once")
+    return DivisionScheduleTemplate(
+        division_name=division_name,
+        actual_division_name=actual_division_name,
+        pool_sizes=normalized_pool_sizes,
+        pool_play_format="captured_fixture_graph",
+        playoff_format="captured_fixture_graph",
+        actual_game_count=len(slots),
+        inference_notes=(),
+        fixture_slots=slots,
+        tiebreak_order=normalized_tiebreak,
+        tiebreak_source_urls=tuple(str(url) for url in tiebreak_source_urls if str(url)),
+    )
 
 
 @dataclass(frozen=True)
@@ -344,18 +407,117 @@ def _update_pool_standings(
         away_row["draws"] += 1
 
 
-def _rank_pool_teams(pool_teams: Sequence[SeedableTeam], standings: dict[str, dict[str, Any]]) -> list[SeedableTeam]:
-    def sort_key(team: SeedableTeam) -> tuple[float, float, float, float, str]:
+def _rank_pool_teams(
+    pool_teams: Sequence[SeedableTeam],
+    standings: dict[str, dict[str, Any]],
+    tiebreak_order: Sequence[str] = DEFAULT_TIEBREAK_ORDER,
+) -> list[SeedableTeam]:
+    def sort_key(team: SeedableTeam) -> tuple[Any, ...]:
         row = standings[team.team_id]
-        return (
-            -float(row["points"]),
-            -float(row["gd"]),
-            -float(row["gf"]),
-            -float(team.power_score),
-            team.team_name.lower(),
-        )
+        values = {
+            "points": -float(row["points"]),
+            "goal_differential": -float(row["gd"]),
+            "goals_for": -float(row["gf"]),
+            "wins": -float(row["wins"]),
+            "power_score": -float(team.power_score),
+            "team_name": team.team_name.lower(),
+        }
+        return tuple(values[item] for item in tiebreak_order) + (team.team_id,)
 
     return sorted(pool_teams, key=sort_key)
+
+
+def _empty_standings(teams: Sequence[SeedableTeam]) -> dict[str, dict[str, int]]:
+    return {
+        team.team_id: {
+            "points": 0,
+            "gd": 0,
+            "gf": 0,
+            "ga": 0,
+            "wins": 0,
+            "draws": 0,
+            "losses": 0,
+        }
+        for team in teams
+    }
+
+
+def _simulate_captured_division_schedule(
+    division: DivisionAssignment,
+    template: DivisionScheduleTemplate,
+    predict_fn: PredictionFn,
+) -> DivisionSimulation:
+    pools = [list(pool.teams) for pool in division.pools]
+    all_teams = [team for pool in pools for team in pool]
+    standings = _empty_standings(all_teams)
+    prior_matches: dict[int, tuple[SimulatedMatch, SeedableTeam, SeedableTeam]] = {}
+    simulated_matches: list[SimulatedMatch] = []
+
+    def resolve(ref: dict[str, Any]) -> SeedableTeam:
+        kind = str(ref["kind"])
+        if kind in {"pool_slot", "pool_rank"}:
+            pool_index = int(ref["pool_index"])
+            position = int(ref["slot_index"] if kind == "pool_slot" else ref["rank"])
+            if pool_index < 0 or pool_index >= len(pools):
+                raise ValueError(f"Division '{division.name}' captured fixture references a missing pool")
+            candidates = pools[pool_index]
+            if kind == "pool_rank":
+                candidates = _rank_pool_teams(candidates, standings, template.tiebreak_order)
+            if position < 0 or position >= len(candidates):
+                raise ValueError(f"Division '{division.name}' captured fixture references a missing pool position")
+            return candidates[position]
+        match_index = int(ref["match_index"])
+        if match_index not in prior_matches:
+            raise ValueError(
+                f"Division '{division.name}' captured fixture references match {match_index + 1} before it was played"
+            )
+        match, home_team, away_team = prior_matches[match_index]
+        home_won = match.home_score >= match.away_score
+        if kind == "match_winner":
+            return home_team if home_won else away_team
+        return away_team if home_won else home_team
+
+    for match_index, slot in enumerate(template.fixture_slots):
+        home_team = resolve(dict(slot["home"]))
+        away_team = resolve(dict(slot["away"]))
+        if home_team.team_id == away_team.team_id:
+            raise ValueError(
+                f"Division '{division.name}' captured fixture {match_index + 1} resolves both sides to one team"
+            )
+        match = _simulate_match(
+            division_name=division.name,
+            stage=str(slot.get("stage") or "Scheduled"),
+            pool_name=str(slot.get("pool_name") or "") or None,
+            home_team=home_team,
+            away_team=away_team,
+            predict_fn=predict_fn,
+        )
+        simulated_matches.append(match)
+        prior_matches[match_index] = (match, home_team, away_team)
+        if bool(slot.get("counts_for_standings")):
+            _update_pool_standings(standings, match, home_team, away_team)
+
+    (
+        match_count,
+        average_goal_differential,
+        median_goal_differential,
+        close_game_rate,
+        blowout_3plus_rate,
+        blowout_5plus_rate,
+        draw_rate,
+    ) = _summarize_matches(simulated_matches)
+    return DivisionSimulation(
+        division_name=division.name,
+        template=template,
+        match_count=match_count,
+        average_goal_differential=average_goal_differential,
+        median_goal_differential=median_goal_differential,
+        close_game_rate=close_game_rate,
+        blowout_3plus_rate=blowout_3plus_rate,
+        blowout_5plus_rate=blowout_5plus_rate,
+        draw_rate=draw_rate,
+        matches=tuple(simulated_matches),
+    )
 
 
 def _summarize_matches(matches: Sequence[SimulatedMatch]) -> tuple[int, float, float, float, float, float, float]:
@@ -380,6 +542,9 @@ def simulate_division_schedule(
     template: DivisionScheduleTemplate,
     predict_fn: PredictionFn,
 ) -> DivisionSimulation:
+    if template.fixture_slots:
+        return _simulate_captured_division_schedule(division, template, predict_fn)
+
     pool_rankings: list[list[SeedableTeam]] = []
     simulated_matches: list[SimulatedMatch] = []
 
