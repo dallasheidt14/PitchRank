@@ -49,6 +49,7 @@ from scripts.backtest_predictor import (  # noqa: E402
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
+    COHERENT_SCORE_DISTRIBUTION_STRATEGY,
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
 )
@@ -85,7 +86,7 @@ from src.utils.merge_resolver import MergeResolver  # noqa: E402
 TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id,provider_id,is_deprecated"
 PREDICTOR_SOURCE_PYTHON = "python"
 PREDICTOR_SOURCE_POINT_IN_TIME = "point_in_time"
-DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = "poisson_draw_gate"
+DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = COHERENT_SCORE_DISTRIBUTION_STRATEGY
 UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR = 1.0
 UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR = 0.10
 UNCHANGED_FIXTURE_MIN_COVERAGE = 0.95
@@ -96,6 +97,7 @@ class TournamentMatchPrediction:
     predicted_winner: str
     expected_score: dict[str, int]
     expected_margin: float
+    expected_absolute_margin: float | None = None
     win_probability_a: float | None = None
     draw_probability: float | None = None
     win_probability_b: float | None = None
@@ -841,6 +843,12 @@ def _point_in_time_prediction_from_row(
     expected_goals_b = float(row.get("expected_goals_b", row.get("predicted_score_b", 0.0)) or 0.0)
     expected_score = _winner_consistent_expected_score(predicted_winner, expected_goals_a, expected_goals_b)
     expected_margin = float(row.get("predicted_margin", expected_goals_a - expected_goals_b) or 0.0)
+    raw_expected_absolute_margin = row.get("predicted_absolute_margin")
+    expected_absolute_margin = (
+        None
+        if raw_expected_absolute_margin is None or pd.isna(raw_expected_absolute_margin)
+        else float(raw_expected_absolute_margin)
+    )
 
     def optional_probability(column: str) -> float | None:
         value = row.get(column)
@@ -852,6 +860,7 @@ def _point_in_time_prediction_from_row(
         predicted_winner=predicted_winner,
         expected_score=expected_score,
         expected_margin=expected_margin,
+        expected_absolute_margin=expected_absolute_margin,
         win_probability_a=optional_probability("prob_team_a_win"),
         draw_probability=optional_probability("prob_draw"),
         win_probability_b=optional_probability("prob_team_b_win"),
@@ -861,6 +870,71 @@ def _point_in_time_prediction_from_row(
         probability_strategy=str(row.get("probability_strategy") or ""),
         source=source,
     )
+
+
+def _symmetrize_point_in_time_prediction_rows(
+    forward: pd.Series,
+    reverse: pd.Series,
+) -> pd.Series:
+    """Average two orientations into one neutral-site prediction."""
+
+    def number(row: pd.Series, column: str, default: float = 0.0) -> float:
+        value = row.get(column, default)
+        return default if value is None or pd.isna(value) else float(value)
+
+    team_a_win = 0.5 * (
+        number(forward, "prob_team_a_win") + number(reverse, "prob_team_b_win")
+    )
+    draw = 0.5 * (number(forward, "prob_draw") + number(reverse, "prob_draw"))
+    team_b_win = 0.5 * (
+        number(forward, "prob_team_b_win") + number(reverse, "prob_team_a_win")
+    )
+    total_probability = team_a_win + draw + team_b_win
+    if total_probability <= 0:
+        team_a_win = draw = team_b_win = 1.0 / 3.0
+    else:
+        team_a_win /= total_probability
+        draw /= total_probability
+        team_b_win /= total_probability
+    outcome = ("team_a", "draw", "team_b")[
+        max(range(3), key=(team_a_win, draw, team_b_win).__getitem__)
+    ]
+
+    expected_goals_a = 0.5 * (
+        number(forward, "expected_goals_a", number(forward, "predicted_score_a"))
+        + number(reverse, "expected_goals_b", number(reverse, "predicted_score_b"))
+    )
+    expected_goals_b = 0.5 * (
+        number(forward, "expected_goals_b", number(forward, "predicted_score_b"))
+        + number(reverse, "expected_goals_a", number(reverse, "predicted_score_a"))
+    )
+    expected_absolute_margin = 0.5 * (
+        number(forward, "predicted_absolute_margin", abs(number(forward, "predicted_margin")))
+        + number(reverse, "predicted_absolute_margin", abs(number(reverse, "predicted_margin")))
+    )
+
+    result = forward.copy()
+    result["predicted_outcome"] = outcome
+    result["prob_team_a_win"] = team_a_win
+    result["prob_draw"] = draw
+    result["prob_team_b_win"] = team_b_win
+    result["expected_goals_a"] = expected_goals_a
+    result["expected_goals_b"] = expected_goals_b
+    result["predicted_score_a"] = expected_goals_a
+    result["predicted_score_b"] = expected_goals_b
+    result["predicted_margin"] = 0.5 * (
+        number(forward, "predicted_margin") - number(reverse, "predicted_margin")
+    )
+    result["predicted_absolute_margin"] = expected_absolute_margin
+    for threshold in (3, 4, 5):
+        column = f"blowout_{threshold}plus_probability"
+        tail_values = [
+            float(value)
+            for value in (forward.get(column), reverse.get(column))
+            if value is not None and not pd.isna(value)
+        ]
+        result[column] = sum(tail_values) / len(tail_values) if tail_values else float("nan")
+    return result
 
 
 def _validate_optional_probability(value: float | None, *, name: str) -> float | None:
@@ -963,20 +1037,40 @@ def _apply_backtest_projection_calibration(
             )
         return min(1.0, max(0.0, float(value) * scale))
 
-    unscaled_margin = prediction_expected_margin(prediction)
-    expected_margin = math.copysign(abs(unscaled_margin) * margin_scale, unscaled_margin)
+    if prediction.probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY:
+        return prediction
+
+    expected_margin = (
+        0.0
+        if prediction.predicted_winner == "draw"
+        else float(prediction.expected_margin) * margin_scale
+    )
+    expected_absolute_margin = prediction_expected_margin(prediction) * margin_scale
+    blowout_3plus_probability = scaled_probability(prediction.blowout_3plus_probability, 3)
+    blowout_4plus_probability = scaled_probability(prediction.blowout_4plus_probability, 4)
+    blowout_5plus_probability = scaled_probability(prediction.blowout_5plus_probability, 5)
+    if blowout_3plus_probability is not None and blowout_4plus_probability is not None:
+        blowout_4plus_probability = min(blowout_3plus_probability, blowout_4plus_probability)
+    if blowout_4plus_probability is not None and blowout_5plus_probability is not None:
+        blowout_5plus_probability = min(blowout_4plus_probability, blowout_5plus_probability)
+    tail_lower_bounds = [
+        threshold * probability
+        for threshold, probability in (
+            (3, blowout_3plus_probability),
+            (4, blowout_4plus_probability),
+            (5, blowout_5plus_probability),
+        )
+        if probability is not None
+    ]
+    if tail_lower_bounds:
+        expected_absolute_margin = max(expected_absolute_margin, *tail_lower_bounds)
     return replace(
         prediction,
         expected_margin=expected_margin,
-        blowout_3plus_probability=scaled_probability(
-            prediction.blowout_3plus_probability, 3
-        ),
-        blowout_4plus_probability=scaled_probability(
-            prediction.blowout_4plus_probability, 4
-        ),
-        blowout_5plus_probability=scaled_probability(
-            prediction.blowout_5plus_probability, 5
-        ),
+        expected_absolute_margin=expected_absolute_margin,
+        blowout_3plus_probability=blowout_3plus_probability,
+        blowout_4plus_probability=blowout_4plus_probability,
+        blowout_5plus_probability=blowout_5plus_probability,
     )
 
 
@@ -992,6 +1086,9 @@ def _override_point_in_time_probability_strategy(
     fitted = str(model.probability_strategy).strip().lower()
     if requested == fitted:
         return None
+    if requested == COHERENT_SCORE_DISTRIBUTION_STRATEGY:
+        model.probability_strategy = requested
+        return fitted or None
     raise ValueError(
         f"Point-in-time model was fitted for probability strategy '{fitted or 'unknown'}'; "
         f"this Backtest requires '{requested}'"
@@ -1153,13 +1250,17 @@ def _build_point_in_time_prediction_and_cost_functions(
                 f"Missing point-in-time snapshot for {team_b_row['event_team_name']} as of {prediction_date}"
             )  # noqa: E501
 
-        matchup_frame = pd.DataFrame(
-            [
+        matchup_rows = []
+        for first_id, second_id, first_snapshot, second_snapshot, orientation in (
+            (team_a_source_id, team_b_source_id, team_a_snapshot, team_b_snapshot, "forward"),
+            (team_b_source_id, team_a_source_id, team_b_snapshot, team_a_snapshot, "reverse"),
+        ):
+            matchup_rows.append(
                 build_point_in_time_matchup_row(
-                    team_a_id=team_a_source_id,
-                    team_b_id=team_b_source_id,
-                    team_a_snapshot=team_a_snapshot,
-                    team_b_snapshot=team_b_snapshot,
+                    team_a_id=first_id,
+                    team_b_id=second_id,
+                    team_a_snapshot=first_snapshot,
+                    team_b_snapshot=second_snapshot,
                     all_games=list(prior_games),
                     game_date=prediction_date,
                     snapshot_index=snapshot_index,
@@ -1168,12 +1269,15 @@ def _build_point_in_time_prediction_and_cost_functions(
                         team_b_source_id: team_names.get(team_b_source_id) or team_b.team_name,
                     },
                     game_id=f"tournament:{team_a.team_id}:{team_b.team_id}:{prediction_date}",
-                    example_orientation="tournament_backtest",
+                    example_orientation=f"tournament_backtest_{orientation}",
                 )
-            ]
-        )
+            )
+        matchup_frame = pd.DataFrame(matchup_rows)
         prediction_frame = model.relabel_evaluation_frame(model.predict_frame(matchup_frame))
-        prediction_row = prediction_frame.iloc[0]
+        prediction_row = _symmetrize_point_in_time_prediction_rows(
+            prediction_frame.iloc[0],
+            prediction_frame.iloc[1],
+        )
         prediction = _point_in_time_prediction_from_row(
             prediction_row,
             source=f"{PREDICTOR_SOURCE_POINT_IN_TIME}:{model_artifact.stem}",
@@ -1183,6 +1287,21 @@ def _build_point_in_time_prediction_and_cost_functions(
             projection_calibration,
         )
         prediction_cache[cache_key] = prediction
+        reverse_prediction = replace(
+            prediction,
+            predicted_winner={"team_a": "team_b", "team_b": "team_a"}.get(
+                prediction.predicted_winner,
+                prediction.predicted_winner,
+            ),
+            expected_score={
+                "teamA": prediction.expected_score["teamB"],
+                "teamB": prediction.expected_score["teamA"],
+            },
+            expected_margin=-prediction.expected_margin,
+            win_probability_a=prediction.win_probability_b,
+            win_probability_b=prediction.win_probability_a,
+        )
+        prediction_cache[(team_b.team_id, team_a.team_id)] = reverse_prediction
         return prediction
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam) -> TournamentMatchPrediction:
@@ -1592,7 +1711,12 @@ def main() -> int:
     )
     parser.add_argument(
         "--point-in-time-probability-strategy",
-        choices=["hybrid", "poisson_primary", "poisson_draw_gate"],
+        choices=[
+            COHERENT_SCORE_DISTRIBUTION_STRATEGY,
+            "hybrid",
+            "poisson_primary",
+            "poisson_draw_gate",
+        ],
         default=None,
         help=(
             "Probability engine for point-in-time tournament replay. Defaults to "

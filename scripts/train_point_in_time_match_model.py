@@ -83,12 +83,18 @@ async def main():
         metavar=("STATE", "AGE_GROUP"),
         help="Optional slice for smoke tests, e.g. --test-slice AZ u12",
     )
-    parser.add_argument("--test-ratio", type=float, default=0.2, help="Chronological holdout ratio")
+    parser.add_argument("--test-ratio", type=float, default=0.2, help="Untouched chronological test ratio")
+    parser.add_argument(
+        "--calibration-ratio",
+        type=float,
+        default=0.2,
+        help="Chronological calibration and model-selection ratio",
+    )
     parser.add_argument("--min-examples", type=int, default=100, help="Minimum dataset size required to train")
     parser.add_argument(
         "--probability-strategy",
         default="auto",
-        choices=["auto", "hybrid", "poisson_primary", "poisson_draw_gate"],
+        choices=["auto", "score_distribution", "hybrid", "poisson_primary", "poisson_draw_gate"],
         help="Outcome probability engine to use after fitting the offline model",
     )
     parser.add_argument(
@@ -240,6 +246,7 @@ async def main():
     metrics = model.train(
         dataset_result.dataset,
         test_ratio=args.test_ratio,
+        calibration_ratio=args.calibration_ratio,
         min_examples=args.min_examples,
         probability_strategy=args.probability_strategy,
         selection_objective=args.selection_objective,

@@ -85,8 +85,12 @@ def build_standardized_evaluation_frame(frame: pd.DataFrame) -> pd.DataFrame:
     standardized["actual_margin"] = actual_margin
     standardized["margin_error"] = predicted_margin - actual_margin
     standardized["abs_margin_error"] = standardized["margin_error"].abs()
-    standardized["predicted_abs_margin"] = predicted_margin.abs()
+    predicted_absolute_margin = _numeric_column(standardized, "predicted_absolute_margin")
+    standardized["predicted_abs_margin"] = predicted_absolute_margin.fillna(predicted_margin.abs())
     standardized["actual_abs_margin"] = actual_margin.abs()
+    standardized["absolute_margin_error"] = (
+        standardized["predicted_abs_margin"] - standardized["actual_abs_margin"]
+    )
 
     predicted_score_a = _numeric_column(standardized, "predicted_score_a")
     predicted_score_b = _numeric_column(standardized, "predicted_score_b")
@@ -151,7 +155,7 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
 
     draw_mask = standardized["actual_outcome"] == "draw"
     predicted_draw_mask = standardized["predicted_outcome"] == "draw"
-    margin_errors = standardized["margin_error"].to_numpy(dtype=float)
+    margin_errors = standardized["absolute_margin_error"].to_numpy(dtype=float)
     actual_draw_rate = float(draw_mask.mean())
     predicted_draw_rate = float(predicted_draw_mask.mean())
     score_rows = standardized[

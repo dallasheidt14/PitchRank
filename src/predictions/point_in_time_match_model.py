@@ -124,6 +124,7 @@ DRAW_MODEL_SHRINK_FACTOR = 0.3
 BLOWOUT_CLASS_WEIGHT_CAP = 5.0
 DEFAULT_PROBABILITY_STRATEGY = "auto"
 AUTO_PROBABILITY_STRATEGY = "auto"
+COHERENT_SCORE_DISTRIBUTION_STRATEGY = "score_distribution"
 DEFAULT_SELECTION_OBJECTIVE = "balanced"
 COMPETITIVE_MATCH_SELECTION_OBJECTIVE = "competitive_match_quality"
 SELECTION_OBJECTIVES = {
@@ -135,7 +136,7 @@ POISSON_DRAW_GATE_TOTAL_GOALS_MAX = 2.2
 POISSON_DRAW_GATE_STALEMATE_MIN = 0.60
 POISSON_DRAW_GATE_EXPECTED_GOAL_GAP_MAX = 0.45
 BLOWOUT_THRESHOLDS = (3, 5)
-BACKTEST_PROJECTION_CALIBRATION_VERSION = "chronological_holdout_rate_scale_v1"
+BACKTEST_PROJECTION_CALIBRATION_VERSION = "chronological_calibration_rate_scale_v2"
 LOW_SCORE_CORRELATION_BASE = -0.035
 LOW_SCORE_CORRELATION_MAX = -0.18
 BLOWOUT_THRESHOLD_GRID = np.linspace(0.05, 0.85, 81)
@@ -155,7 +156,12 @@ DRAW_POLICY_OVERSHOOT_PENALTY = 0.9
 DRAW_POLICY_UNDERSHOOT_PENALTY = 0.4
 DRAW_POLICY_RATE_GAP_PENALTY = 0.35
 COHORT_POSTPROCESSING_MIN_SAMPLES = 750
-PROBABILITY_STRATEGIES = {"hybrid", "poisson_primary", "poisson_draw_gate"}
+PROBABILITY_STRATEGIES = {
+    "hybrid",
+    "poisson_primary",
+    "poisson_draw_gate",
+    COHERENT_SCORE_DISTRIBUTION_STRATEGY,
+}
 TRAINING_PROBABILITY_STRATEGIES = PROBABILITY_STRATEGIES | {AUTO_PROBABILITY_STRATEGY}
 SELECTION_OBJECTIVE_PROFILES = {
     DEFAULT_SELECTION_OBJECTIVE: {
@@ -241,6 +247,7 @@ class StrategyOutputs:
     draw_model_probability: np.ndarray
     expected_goals_a: np.ndarray
     expected_goals_b: np.ndarray
+    expected_absolute_margin: np.ndarray
     predicted_score_a: np.ndarray
     predicted_score_b: np.ndarray
     blowout_3plus_probability: np.ndarray
@@ -597,6 +604,7 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
     predicted_score_b = (flat_indices % score_matrix.shape[2]).astype(float)
 
     goal_margin_abs = np.abs(np.arange(score_matrix.shape[1])[:, None] - np.arange(score_matrix.shape[2])[None, :])
+    expected_absolute_margin = np.sum(score_matrix * goal_margin_abs[None, :, :], axis=(1, 2))
     blowout_3plus_probability = score_matrix[:, goal_margin_abs >= 3].sum(axis=1)
     blowout_4plus_probability = score_matrix[:, goal_margin_abs >= 4].sum(axis=1)
     blowout_5plus_probability = score_matrix[:, goal_margin_abs >= 5].sum(axis=1)
@@ -604,6 +612,7 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
     return {
         "expected_goals_a": expected_goals_a,
         "expected_goals_b": expected_goals_b,
+        "expected_absolute_margin": expected_absolute_margin,
         "draw_probability": draw_probability,
         "predicted_score_a": predicted_score_a,
         "predicted_score_b": predicted_score_b,
@@ -611,6 +620,28 @@ def _score_matrix_summary(score_matrix: np.ndarray) -> Dict[str, np.ndarray]:
         "blowout_4plus_probability": blowout_4plus_probability,
         "blowout_5plus_probability": blowout_5plus_probability,
     }
+
+
+def _assert_coherent_score_distribution(
+    probabilities: np.ndarray,
+    summary: Dict[str, np.ndarray],
+) -> None:
+    """Reject score-derived metrics that cannot describe one probability distribution."""
+
+    tolerance = 1e-9
+    if not np.all(np.isfinite(probabilities)) or not np.allclose(probabilities.sum(axis=1), 1.0):
+        raise ValueError("Score-distribution outcome probabilities must be finite and sum to one")
+    p3 = np.asarray(summary["blowout_3plus_probability"], dtype=float)
+    p4 = np.asarray(summary["blowout_4plus_probability"], dtype=float)
+    p5 = np.asarray(summary["blowout_5plus_probability"], dtype=float)
+    expected_absolute_margin = np.asarray(summary["expected_absolute_margin"], dtype=float)
+    if np.any(p5 > p4 + tolerance) or np.any(p4 > p3 + tolerance):
+        raise ValueError("Score-distribution blowout probabilities must satisfy P(5+) <= P(4+) <= P(3+)")
+    for threshold, tail_probability in ((3, p3), (4, p4), (5, p5)):
+        if np.any(expected_absolute_margin + tolerance < threshold * tail_probability):
+            raise ValueError(
+                "Expected absolute margin is inconsistent with score-distribution tail probability"
+            )
 
 
 def _poisson_draw_gate_mask(
@@ -848,6 +879,26 @@ def _dedupe_games(games: Iterable[PredictorGame]) -> List[PredictorGame]:
     return sorted(deduped.values(), key=lambda item: item.game_date, reverse=True)
 
 
+def _game_was_available_before(game: PredictorGame, target_date: str) -> bool:
+    """Return whether a result was both played and available before a date cutoff."""
+
+    try:
+        cutoff = pd.Timestamp(target_date).date()
+        played_on = pd.Timestamp(game.game_date).date()
+    except (TypeError, ValueError):
+        return False
+    if played_on >= cutoff:
+        return False
+
+    created_at = getattr(game, "created_at", None)
+    if created_at is None or pd.isna(created_at) or not str(created_at).strip():
+        return True
+    try:
+        return pd.Timestamp(created_at).date() < cutoff
+    except (TypeError, ValueError):
+        return False
+
+
 def _outcome_label(score_a: int, score_b: int) -> Tuple[int, str]:
     if score_a > score_b:
         return OUTCOME_TEAM_A_WIN, OUTCOME_LABELS[OUTCOME_TEAM_A_WIN]
@@ -879,7 +930,11 @@ def build_point_in_time_matchup_row(
     """
     snapshot_index = snapshot_index or {}
     team_names = team_names or {}
-    combined_prior_games = _dedupe_games(all_games)
+    combined_prior_games = [
+        game
+        for game in _dedupe_games(all_games)
+        if _game_was_available_before(game, game_date)
+    ]
     team_a_prior_games = [
         game
         for game in combined_prior_games
@@ -1050,7 +1105,7 @@ def build_point_in_time_dataset(
         )
 
     team_names = team_names or {}
-    games_df = games_df.sort_values("game_date").reset_index(drop=True)
+    games_df = games_df.sort_values(["game_date", "id"]).reset_index(drop=True)
     per_team_history: Dict[str, List[PredictorGame]] = defaultdict(list)
     rows: List[Dict[str, object]] = []
     snapshot_dates_used: set[str] = set()
@@ -1144,6 +1199,11 @@ def build_point_in_time_dataset(
             home_score=home_score,
             away_score=away_score,
             game_date=game_date,
+            created_at=(
+                None
+                if pd.isna(game_row.get("created_at"))
+                else str(game_row.get("created_at"))
+            ),
         )
         per_team_history[home_id].append(predictor_game)
         per_team_history[away_id].append(predictor_game)
@@ -1340,13 +1400,61 @@ class PointInTimeMatchModel:
         dataset_df: pd.DataFrame,
         test_ratio: float,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        if not 0.0 < test_ratio < 1.0:
+            raise ValueError("test_ratio must be between 0 and 1")
         ordered_df = dataset_df.sort_values(["game_date", "game_id", "example_orientation"]).reset_index(drop=True)
-        if len(ordered_df) < 2:
-            raise ValueError("Need at least 2 examples to split train/test chronologically")
+        unique_dates = sorted(ordered_df["game_date"].astype(str).unique())
+        if len(unique_dates) < 2:
+            raise ValueError("Need at least 2 distinct game dates to split train/test chronologically")
 
-        split_index = int(len(ordered_df) * (1.0 - test_ratio))
-        split_index = min(max(split_index, 1), len(ordered_df) - 1)
-        return ordered_df.iloc[:split_index].copy(), ordered_df.iloc[split_index:].copy()
+        test_date_count = min(
+            max(1, int(math.ceil(len(unique_dates) * test_ratio))),
+            len(unique_dates) - 1,
+        )
+        first_test_date = unique_dates[-test_date_count]
+        train_df = ordered_df[ordered_df["game_date"].astype(str) < first_test_date].copy()
+        test_df = ordered_df[ordered_df["game_date"].astype(str) >= first_test_date].copy()
+        if train_df.empty or test_df.empty:
+            raise ValueError("Chronological split produced an empty train or test partition")
+        return train_df, test_df
+
+    def _chronological_train_calibration_test_split(
+        self,
+        dataset_df: pd.DataFrame,
+        *,
+        calibration_ratio: float,
+        test_ratio: float,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Split complete dates into train, calibration, and untouched test sets."""
+
+        if calibration_ratio <= 0.0 or test_ratio <= 0.0 or calibration_ratio + test_ratio >= 1.0:
+            raise ValueError("calibration_ratio and test_ratio must be positive and sum to less than 1")
+        ordered_df = dataset_df.sort_values(["game_date", "game_id", "example_orientation"]).reset_index(drop=True)
+        unique_dates = sorted(ordered_df["game_date"].astype(str).unique())
+        if len(unique_dates) < 3:
+            raise ValueError(
+                "Need at least 3 distinct game dates for train, calibration, and test partitions"
+            )
+
+        test_date_count = max(1, int(math.ceil(len(unique_dates) * test_ratio)))
+        calibration_date_count = max(1, int(math.ceil(len(unique_dates) * calibration_ratio)))
+        while test_date_count + calibration_date_count >= len(unique_dates):
+            if calibration_date_count > 1:
+                calibration_date_count -= 1
+            elif test_date_count > 1:
+                test_date_count -= 1
+            else:
+                raise ValueError("Chronological partitioning requires at least one date per partition")
+
+        first_test_date = unique_dates[-test_date_count]
+        first_calibration_date = unique_dates[-(test_date_count + calibration_date_count)]
+        dates = ordered_df["game_date"].astype(str)
+        train_df = ordered_df[dates < first_calibration_date].copy()
+        calibration_df = ordered_df[(dates >= first_calibration_date) & (dates < first_test_date)].copy()
+        test_df = ordered_df[dates >= first_test_date].copy()
+        if train_df.empty or calibration_df.empty or test_df.empty:
+            raise ValueError("Chronological partitioning produced an empty partition")
+        return train_df, calibration_df, test_df
 
     def _expand_class_probabilities(self, encoded_probabilities: np.ndarray) -> np.ndarray:
         if encoded_probabilities.ndim == 1:
@@ -2163,6 +2271,7 @@ class PointInTimeMatchModel:
             draw_model_probability=draw_model_probability,
             expected_goals_a=expected_goals_a,
             expected_goals_b=expected_goals_b,
+            expected_absolute_margin=score_matrix_summary["expected_absolute_margin"],
             predicted_score_a=score_matrix_summary["predicted_score_a"],
             predicted_score_b=score_matrix_summary["predicted_score_b"],
             blowout_3plus_probability=blowout_3plus_probability,
@@ -2259,11 +2368,59 @@ class PointInTimeMatchModel:
             draw_model_probability=draw_model_probability,
             expected_goals_a=expected_goals_a,
             expected_goals_b=expected_goals_b,
+            expected_absolute_margin=score_matrix_summary["expected_absolute_margin"],
             predicted_score_a=score_matrix_summary["predicted_score_a"],
             predicted_score_b=score_matrix_summary["predicted_score_b"],
             blowout_3plus_probability=blowout_3plus_probability,
             blowout_4plus_probability=score_matrix_summary["blowout_4plus_probability"],
             blowout_5plus_probability=blowout_5plus_probability,
+        )
+
+    def _compose_coherent_score_distribution(
+        self,
+        dataset_df: pd.DataFrame,
+        matrix: pd.DataFrame,
+        predicted_score_a: np.ndarray,
+        predicted_score_b: np.ndarray,
+    ) -> StrategyOutputs:
+        """Derive every probability and margin measure from one score matrix."""
+
+        expected_goals_a, expected_goals_b = self._expected_goals_from_predictions(
+            dataset_df,
+            predicted_score_a,
+            predicted_score_b,
+            score_weight=0.72,
+        )
+        (
+            draw_model_probability,
+            stalemate_signal,
+            _expected_draw_environment,
+            projected_total_goals,
+        ) = self._draw_context(
+            dataset_df,
+            matrix,
+            fallback_draw_probability=np.full(len(matrix), self.draw_rate_prior, dtype=float),
+        )
+        _score_matrix, probabilities, summary = self._score_matrix_context(
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            draw_model_probability=draw_model_probability,
+            stalemate_signal=stalemate_signal,
+            projected_total_goals=projected_total_goals,
+        )
+        _assert_coherent_score_distribution(probabilities, summary)
+        return StrategyOutputs(
+            probabilities=probabilities,
+            poisson_probabilities=probabilities,
+            draw_model_probability=draw_model_probability,
+            expected_goals_a=expected_goals_a,
+            expected_goals_b=expected_goals_b,
+            expected_absolute_margin=summary["expected_absolute_margin"],
+            predicted_score_a=summary["predicted_score_a"],
+            predicted_score_b=summary["predicted_score_b"],
+            blowout_3plus_probability=summary["blowout_3plus_probability"],
+            blowout_4plus_probability=summary["blowout_4plus_probability"],
+            blowout_5plus_probability=summary["blowout_5plus_probability"],
         )
 
     def _compose_poisson_draw_gate_probabilities(
@@ -2312,6 +2469,13 @@ class PointInTimeMatchModel:
         predicted_score_a: np.ndarray,
         predicted_score_b: np.ndarray,
     ) -> StrategyOutputs:
+        if probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY:
+            return self._compose_coherent_score_distribution(
+                dataset_df,
+                matrix,
+                predicted_score_a,
+                predicted_score_b,
+            )
         if probability_strategy == "hybrid":
             return self._compose_outcome_probabilities(
                 dataset_df,
@@ -2348,6 +2512,7 @@ class PointInTimeMatchModel:
         draw_model_probability: np.ndarray,
         expected_goals_a: np.ndarray,
         expected_goals_b: np.ndarray,
+        expected_absolute_margin: np.ndarray,
         blowout_3plus_probability: np.ndarray,
         blowout_4plus_probability: np.ndarray,
         blowout_5plus_probability: np.ndarray,
@@ -2390,6 +2555,7 @@ class PointInTimeMatchModel:
                 "predicted_score_b": predicted_score_b,
                 "expected_goals_a": expected_goals_a,
                 "expected_goals_b": expected_goals_b,
+                "predicted_absolute_margin": expected_absolute_margin,
                 "actual_score_a": test_df["actual_score_a"].astype(float).to_numpy(),
                 "actual_score_b": test_df["actual_score_b"].astype(float).to_numpy(),
             }
@@ -2406,6 +2572,7 @@ class PointInTimeMatchModel:
         self,
         dataset_df: pd.DataFrame,
         test_ratio: float = 0.2,
+        calibration_ratio: float = 0.2,
         random_state: int = 42,
         min_examples: int = 100,
         probability_strategy: str = DEFAULT_PROBABILITY_STRATEGY,
@@ -2429,7 +2596,11 @@ class PointInTimeMatchModel:
                 f"Expected one of {sorted(SELECTION_OBJECTIVES)}"
             )
 
-        train_df, test_df = self._chronological_split(dataset_df, test_ratio=test_ratio)
+        train_df, calibration_df, test_df = self._chronological_train_calibration_test_split(
+            dataset_df,
+            calibration_ratio=calibration_ratio,
+            test_ratio=test_ratio,
+        )
         self.feature_names = self._feature_columns(train_df)
         requested_probability_strategy = probability_strategy
         self.requested_probability_strategy = requested_probability_strategy
@@ -2444,9 +2615,11 @@ class PointInTimeMatchModel:
         )
 
         X_train = train_df[self.feature_names].fillna(0.0).astype(float)
+        X_calibration = calibration_df[self.feature_names].fillna(0.0).astype(float)
         X_test = test_df[self.feature_names].fillna(0.0).astype(float)
 
         y_train = train_df["actual_outcome_label"].astype(int).to_numpy()
+        y_calibration = calibration_df["actual_outcome_label"].astype(int).to_numpy()
         y_test = test_df["actual_outcome_label"].astype(int).to_numpy()
         class_balance = self._class_balance_summary(y_train)
         self.draw_rate_prior = float(np.mean(y_train == OUTCOME_DRAW))
@@ -2512,38 +2685,42 @@ class PointInTimeMatchModel:
         self.score_a_regressor.fit(X_train, train_df["actual_score_a"].astype(float))
         self.score_b_regressor.fit(X_train, train_df["actual_score_b"].astype(float))
 
+        calibration_base_probabilities = self._normalize_probabilities(
+            self._expand_class_probabilities(self.classifier.predict_proba(X_calibration))
+        )
+        calibration_predicted_margin = self.margin_regressor.predict(X_calibration)
+        calibration_predicted_score_a = self.score_a_regressor.predict(X_calibration)
+        calibration_predicted_score_b = self.score_b_regressor.predict(X_calibration)
         encoded_probabilities = self.classifier.predict_proba(X_test)
-        base_probabilities = self._normalize_probabilities(self._expand_class_probabilities(encoded_probabilities))
+        base_probabilities = self._normalize_probabilities(
+            self._expand_class_probabilities(encoded_probabilities)
+        )
         predicted_margin = self.margin_regressor.predict(X_test)
         predicted_score_a = self.score_a_regressor.predict(X_test)
         predicted_score_b = self.score_b_regressor.predict(X_test)
-        train_base_probabilities = self._normalize_probabilities(
-            self._expand_class_probabilities(self.classifier.predict_proba(X_train))
-        )
-        train_predicted_score_a = self.score_a_regressor.predict(X_train)
-        train_predicted_score_b = self.score_b_regressor.predict(X_train)
         strategy_metrics: Dict[str, Dict[str, object]] = {}
-        strategy_outputs: Dict[str, StrategyOutputs] = {}
         strategy_draw_postprocessing: Dict[str, Dict[str, object]] = {}
         strategy_blowout_postprocessing: Dict[str, BlowoutPostprocessing] = {}
         test_age_group_numeric = _age_group_numeric_array(test_df)
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
-            train_outputs = self._strategy_outputs(
+            self.blowout_calibrator_3plus = None
+            self.blowout_calibrator_5plus = None
+            raw_calibration_outputs = self._strategy_outputs(
                 strategy_name,
-                dataset_df=train_df,
-                matrix=X_train,
-                base_probabilities=train_base_probabilities,
-                predicted_score_a=train_predicted_score_a,
-                predicted_score_b=train_predicted_score_b,
+                dataset_df=calibration_df,
+                matrix=X_calibration,
+                base_probabilities=calibration_base_probabilities,
+                predicted_score_a=calibration_predicted_score_a,
+                predicted_score_b=calibration_predicted_score_b,
             )
             draw_policy = self._fit_draw_postprocessing(
-                train_df=train_df,
-                probabilities=train_outputs.probabilities,
+                train_df=calibration_df,
+                probabilities=raw_calibration_outputs.probabilities,
             )
             strategy_draw_postprocessing[strategy_name] = draw_policy
             blowout_postprocessing = self._fit_blowout_postprocessing(
-                train_df=train_df,
-                calibration_outputs=train_outputs,
+                train_df=calibration_df,
+                calibration_outputs=raw_calibration_outputs,
             )
             strategy_blowout_postprocessing[strategy_name] = blowout_postprocessing
             self.draw_decision_policy = draw_policy
@@ -2553,37 +2730,37 @@ class PointInTimeMatchModel:
             self.blowout_probability_thresholds_by_age = blowout_postprocessing.thresholds_by_age
             outputs = self._strategy_outputs(
                 strategy_name,
-                dataset_df=test_df,
-                matrix=X_test,
-                base_probabilities=base_probabilities,
-                predicted_score_a=predicted_score_a,
-                predicted_score_b=predicted_score_b,
+                dataset_df=calibration_df,
+                matrix=X_calibration,
+                base_probabilities=calibration_base_probabilities,
+                predicted_score_a=calibration_predicted_score_a,
+                predicted_score_b=calibration_predicted_score_b,
             )
-            strategy_outputs[strategy_name] = outputs
             probabilities_for_strategy = outputs.probabilities
             predicted_labels_for_strategy = self._draw_prediction_labels(
                 probabilities_for_strategy,
-                dataset_df=test_df,
+                dataset_df=calibration_df,
                 policy=draw_policy,
             )
             predicted_blowout_3plus, predicted_blowout_5plus = self._blowout_prediction_labels(
                 outputs.blowout_3plus_probability,
                 outputs.blowout_5plus_probability,
                 thresholds=blowout_postprocessing.thresholds,
-                age_group_numeric=test_age_group_numeric,
+                age_group_numeric=_age_group_numeric_array(calibration_df),
                 thresholds_by_age=blowout_postprocessing.thresholds_by_age,
             )
             strategy_evaluation_frame = self._build_evaluation_frame(
-                test_df=test_df,
+                test_df=calibration_df,
                 probabilities=probabilities_for_strategy,
                 predicted_labels=predicted_labels_for_strategy,
-                predicted_margin=predicted_margin,
+                predicted_margin=calibration_predicted_margin,
                 predicted_score_a=outputs.predicted_score_a,
                 predicted_score_b=outputs.predicted_score_b,
                 poisson_probabilities=outputs.poisson_probabilities,
                 draw_model_probability=outputs.draw_model_probability,
                 expected_goals_a=outputs.expected_goals_a,
                 expected_goals_b=outputs.expected_goals_b,
+                expected_absolute_margin=outputs.expected_absolute_margin,
                 blowout_3plus_probability=outputs.blowout_3plus_probability,
                 blowout_4plus_probability=outputs.blowout_4plus_probability,
                 blowout_5plus_probability=outputs.blowout_5plus_probability,
@@ -2599,7 +2776,7 @@ class PointInTimeMatchModel:
         if requested_probability_strategy == AUTO_PROBABILITY_STRATEGY:
             selected_probability_strategy, auto_strategy_selection = self._select_probability_strategy(
                 strategy_metrics=strategy_metrics,
-                actual_draw_rate=float(np.mean(y_test == OUTCOME_DRAW)),
+                actual_draw_rate=float(np.mean(y_calibration == OUTCOME_DRAW)),
                 constraints=self.strategy_constraints,
             )
             self.probability_strategy = selected_probability_strategy
@@ -2611,7 +2788,14 @@ class PointInTimeMatchModel:
         self.blowout_calibrator_5plus = selected_blowout_postprocessing.calibrator_5plus
         self.blowout_probability_thresholds = selected_blowout_postprocessing.thresholds
         self.blowout_probability_thresholds_by_age = selected_blowout_postprocessing.thresholds_by_age
-        selected_outputs = strategy_outputs[self.probability_strategy]
+        selected_outputs = self._strategy_outputs(
+            self.probability_strategy,
+            dataset_df=test_df,
+            matrix=X_test,
+            base_probabilities=base_probabilities,
+            predicted_score_a=predicted_score_a,
+            predicted_score_b=predicted_score_b,
+        )
         probabilities = selected_outputs.probabilities
         predicted_labels = self._draw_prediction_labels(
             probabilities,
@@ -2635,6 +2819,7 @@ class PointInTimeMatchModel:
             draw_model_probability=selected_outputs.draw_model_probability,
             expected_goals_a=selected_outputs.expected_goals_a,
             expected_goals_b=selected_outputs.expected_goals_b,
+            expected_absolute_margin=selected_outputs.expected_absolute_margin,
             blowout_3plus_probability=selected_outputs.blowout_3plus_probability,
             blowout_4plus_probability=selected_outputs.blowout_4plus_probability,
             blowout_5plus_probability=selected_outputs.blowout_5plus_probability,
@@ -2643,11 +2828,12 @@ class PointInTimeMatchModel:
             probability_strategy=self.probability_strategy,
         )
         summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
+        calibration_summary = strategy_metrics[self.probability_strategy]
         actual_average_abs_margin = _to_float(
-            summary_metrics.get("actual_average_abs_margin")
+            calibration_summary.get("actual_average_abs_margin")
         )
         predicted_average_abs_margin = _to_float(
-            summary_metrics.get("predicted_average_abs_margin")
+            calibration_summary.get("predicted_average_abs_margin")
         )
         margin_scale = (
             actual_average_abs_margin / predicted_average_abs_margin
@@ -2657,28 +2843,32 @@ class PointInTimeMatchModel:
         blowout_scales = {}
         for threshold in (3, 4, 5):
             actual_rate = _to_float(
-                summary_metrics.get(f"actual_blowout_{threshold}plus_rate")
+                calibration_summary.get(f"actual_blowout_{threshold}plus_rate")
             )
             average_probability = _to_float(
-                summary_metrics.get(f"avg_blowout_{threshold}plus_probability")
+                calibration_summary.get(f"avg_blowout_{threshold}plus_probability")
             )
             blowout_scales[str(threshold)] = (
                 actual_rate / average_probability
                 if actual_rate > 0 and average_probability > 0
                 else 1.0
             )
+        if self.probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY:
+            margin_scale = 1.0
+            blowout_scales = {str(threshold): 1.0 for threshold in (3, 4, 5)}
         self.backtest_projection_calibration = {
             "version": BACKTEST_PROJECTION_CALIBRATION_VERSION,
-            "source": "chronological_pre_event_holdout",
+            "source": "chronological_pre_event_calibration",
             "margin_absolute_scale": float(margin_scale),
             "blowout_probability_scales": blowout_scales,
-            "examples": int(len(test_df)),
+            "examples": int(len(calibration_df)),
         }
         metrics = {
             **summary_metrics,
             "actual_draw_rate": float(np.mean(y_test == OUTCOME_DRAW)),
             "predicted_draw_rate": float(np.mean(predicted_labels == OUTCOME_DRAW)),
             "train_examples": int(len(train_df)),
+            "calibration_examples": int(len(calibration_df)),
             "test_examples": int(len(test_df)),
             "requested_probability_strategy": requested_probability_strategy,
             "probability_strategy": self.probability_strategy,
@@ -2713,6 +2903,7 @@ class PointInTimeMatchModel:
                 },
             },
             "strategy_metrics": strategy_metrics,
+            "strategy_metrics_partition": "calibration",
         }
         if auto_strategy_selection is not None:
             metrics["auto_strategy_selection"] = auto_strategy_selection
@@ -2720,10 +2911,13 @@ class PointInTimeMatchModel:
         self.training_metadata = {
             "metrics": metrics,
             "train_examples": int(len(train_df)),
+            "calibration_examples": int(len(calibration_df)),
             "test_examples": int(len(test_df)),
             "model_data_start_date": str(pd.Timestamp(dataset_df["game_date"].min()).date()),
             "model_data_end_date": str(pd.Timestamp(dataset_df["game_date"].max()).date()),
             "training_partition_end_date": str(pd.Timestamp(train_df["game_date"].max()).date()),
+            "calibration_partition_start_date": str(pd.Timestamp(calibration_df["game_date"].min()).date()),
+            "calibration_partition_end_date": str(pd.Timestamp(calibration_df["game_date"].max()).date()),
             "holdout_partition_start_date": str(pd.Timestamp(test_df["game_date"].min()).date()),
             "feature_names": self.feature_names,
             "class_labels": self.class_labels,
@@ -2822,6 +3016,7 @@ class PointInTimeMatchModel:
             draw_model_probability=strategy_outputs.draw_model_probability,
             expected_goals_a=strategy_outputs.expected_goals_a,
             expected_goals_b=strategy_outputs.expected_goals_b,
+            expected_absolute_margin=strategy_outputs.expected_absolute_margin,
             blowout_3plus_probability=strategy_outputs.blowout_3plus_probability,
             blowout_4plus_probability=strategy_outputs.blowout_4plus_probability,
             blowout_5plus_probability=strategy_outputs.blowout_5plus_probability,

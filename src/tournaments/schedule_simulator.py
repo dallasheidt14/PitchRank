@@ -453,16 +453,21 @@ def _optional_probability(prediction: Any, field: str) -> float | None:
 
 
 def prediction_expected_margin(prediction: Any) -> float:
-    """Return the one signed margin used by optimization, reporting, and replay."""
+    """Return the expected absolute score margin used by optimization and reporting."""
 
     scores = getattr(prediction, "expected_score", {}) or {}
     fallback = float(scores.get("teamA", 0.0)) - float(scores.get("teamB", 0.0))
-    expected_margin = float(getattr(prediction, "expected_margin", fallback))
+    expected_absolute_margin = getattr(prediction, "expected_absolute_margin", None)
+    expected_margin = float(
+        abs(getattr(prediction, "expected_margin", fallback))
+        if expected_absolute_margin is None
+        else expected_absolute_margin
+    )
     if not math.isfinite(expected_margin):
-        raise ValueError("expected_margin must be finite")
-    if str(getattr(prediction, "predicted_winner", "")) == "draw":
-        return 0.0
-    return expected_margin
+        raise ValueError("expected absolute margin must be finite")
+    if expected_margin < 0:
+        raise ValueError("expected absolute margin cannot be negative")
+    return float(expected_margin)
 
 
 def _advancement_decision(

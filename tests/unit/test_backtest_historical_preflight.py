@@ -226,27 +226,32 @@ def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path,
         run_historical_preflight((_request(),), object(), model_artifact=artifact)
 
 
-def test_preflight_rejects_an_incompatible_model_before_database_reads(tmp_path, monkeypatch):
+def test_preflight_upgrades_a_legacy_probability_strategy_before_database_reads(
+    tmp_path, monkeypatch
+):
     from src.tournaments import backtest_historical_preflight as preflight
 
     artifact = tmp_path / "model.pkl"
     artifact.write_bytes(b"model")
+    model = SimpleNamespace(
+        training_metadata={"model_data_end_date": "2025-05-08"},
+        probability_strategy="hybrid",
+    )
     monkeypatch.setattr(
         preflight.PointInTimeMatchModel,
         "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="hybrid",
-        ),
+        lambda _path: model,
     )
     monkeypatch.setattr(
         preflight,
         "MergeResolver",
-        lambda *_args, **_kwargs: pytest.fail("database access should not start"),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ConnectionError("offline")),
     )
 
-    with pytest.raises(HistoricalPreflightUnavailable, match="Backtest requires 'poisson_draw_gate'"):
+    with pytest.raises(HistoricalPreflightUnavailable, match="offline"):
         run_historical_preflight((_request(),), object(), model_artifact=artifact)
+
+    assert model.probability_strategy == "score_distribution"
 
 
 def test_preflight_cache_key_changes_with_merge_map_version(tmp_path, monkeypatch):

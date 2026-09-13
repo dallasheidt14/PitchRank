@@ -73,7 +73,6 @@ def test_point_in_time_prediction_cache_preserves_requested_orientation(monkeypa
         selection_objective = "competitive_match_quality"
 
         def predict_frame(self, frame):
-            alpha_is_a = frame.iloc[0]["team_a_id"] == "source-a"
             return pd.DataFrame(
                 [
                     {
@@ -84,9 +83,12 @@ def test_point_in_time_prediction_cache_preserves_requested_orientation(monkeypa
                         "expected_goals_a": 4.0 if alpha_is_a else 0.0,
                         "expected_goals_b": 0.0 if alpha_is_a else 4.0,
                         "predicted_margin": 4.0 if alpha_is_a else -4.0,
+                        "predicted_absolute_margin": 4.0,
                         "blowout_3plus_probability": 0.8,
+                        "blowout_4plus_probability": 0.6,
                         "blowout_5plus_probability": 0.2,
                     }
+                    for alpha_is_a in (row["team_a_id"] == "source-a" for _, row in frame.iterrows())
                 ]
             )
 

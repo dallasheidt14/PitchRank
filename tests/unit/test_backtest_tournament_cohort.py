@@ -69,12 +69,13 @@ def test_backtest_projection_calibration_scales_margin_and_blowout_probabilities
 
     assert calibrated.expected_margin == pytest.approx(2.5)
     assert calibrated.blowout_3plus_probability == pytest.approx(0.4)
-    assert calibrated.blowout_4plus_probability == pytest.approx(0.45)
-    assert calibrated.blowout_5plus_probability == 1.0
+    assert calibrated.blowout_4plus_probability == pytest.approx(0.4)
+    assert calibrated.blowout_5plus_probability == pytest.approx(0.4)
+    assert calibrated.expected_absolute_margin == pytest.approx(2.5)
     assert calibrated.expected_score == prediction.expected_score
 
 
-def test_predicted_draw_uses_zero_margin_for_optimizer_and_report():
+def test_predicted_draw_retains_expected_absolute_margin_for_optimizer_and_report():
     prediction = cohort.TournamentMatchPrediction(
         predicted_winner="draw",
         expected_score={"teamA": 1, "teamB": 1},
@@ -94,7 +95,8 @@ def test_predicted_draw_uses_zero_margin_for_optimizer_and_report():
     cost = cohort._point_in_time_matchup_cost(calibrated)
 
     assert calibrated.expected_margin == 0.0
-    assert cost.projected_margin == 0.0
+    assert calibrated.expected_absolute_margin == pytest.approx(2.5)
+    assert cost.projected_margin == pytest.approx(2.5)
 
 
 def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
@@ -744,10 +746,11 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
     captured: dict[str, object] = {}
 
     def fake_build_point_in_time_matchup_row(**kwargs):
-        captured["team_a_snapshot_date"] = kwargs["team_a_snapshot"]["snapshot_date"]
-        captured["team_b_snapshot_date"] = kwargs["team_b_snapshot"]["snapshot_date"]
-        captured["prior_game_ids"] = [game.id for game in kwargs["all_games"]]
-        captured["game_date"] = kwargs["game_date"]
+        if "team_a_snapshot_date" not in captured:
+            captured["team_a_snapshot_date"] = kwargs["team_a_snapshot"]["snapshot_date"]
+            captured["team_b_snapshot_date"] = kwargs["team_b_snapshot"]["snapshot_date"]
+            captured["prior_game_ids"] = [game.id for game in kwargs["all_games"]]
+            captured["game_date"] = kwargs["game_date"]
         return {"dummy_feature": 1.0}
 
     class FakeModel:
@@ -769,7 +772,19 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
                         "blowout_3plus_probability": 0.18,
                         "blowout_5plus_probability": 0.04,
                         "probability_strategy": "poisson_draw_gate",
-                    }
+                    },
+                    {
+                        "predicted_outcome": "team_b_win",
+                        "prob_team_a_win": 0.22,
+                        "prob_draw": 0.21,
+                        "prob_team_b_win": 0.57,
+                        "expected_goals_a": 0.9,
+                        "expected_goals_b": 1.8,
+                        "predicted_margin": -0.9,
+                        "blowout_3plus_probability": 0.18,
+                        "blowout_5plus_probability": 0.04,
+                        "probability_strategy": "poisson_draw_gate",
+                    },
                 ]
             )
 
@@ -849,10 +864,60 @@ def test_point_in_time_probability_strategy_rejects_an_incompatible_artifact():
     assert model.draw_decision_policy["by_age"] == {14: {"min_draw_probability": 0.2}}
 
 
-def test_resolve_point_in_time_probability_strategy_override_defaults_to_draw_gate():
+def test_point_in_time_probability_strategy_can_use_coherent_score_distribution():
+    model = SimpleNamespace(probability_strategy="poisson_draw_gate")
+
+    previous = cohort._override_point_in_time_probability_strategy(model, "score_distribution")
+
+    assert previous == "poisson_draw_gate"
+    assert model.probability_strategy == "score_distribution"
+
+
+def test_symmetrized_prediction_reverses_exactly_when_team_order_changes():
+    forward = pd.Series(
+        {
+            "prob_team_a_win": 0.60,
+            "prob_draw": 0.20,
+            "prob_team_b_win": 0.20,
+            "expected_goals_a": 2.4,
+            "expected_goals_b": 1.1,
+            "predicted_margin": 1.3,
+            "predicted_absolute_margin": 1.8,
+            "blowout_3plus_probability": 0.22,
+            "blowout_4plus_probability": 0.12,
+            "blowout_5plus_probability": 0.05,
+        }
+    )
+    reverse = pd.Series(
+        {
+            "prob_team_a_win": 0.25,
+            "prob_draw": 0.22,
+            "prob_team_b_win": 0.53,
+            "expected_goals_a": 1.0,
+            "expected_goals_b": 2.2,
+            "predicted_margin": -1.1,
+            "predicted_absolute_margin": 1.6,
+            "blowout_3plus_probability": 0.20,
+            "blowout_4plus_probability": 0.10,
+            "blowout_5plus_probability": 0.04,
+        }
+    )
+
+    ab = cohort._symmetrize_point_in_time_prediction_rows(forward, reverse)
+    ba = cohort._symmetrize_point_in_time_prediction_rows(reverse, forward)
+
+    assert ab["prob_team_a_win"] == pytest.approx(ba["prob_team_b_win"])
+    assert ab["prob_team_b_win"] == pytest.approx(ba["prob_team_a_win"])
+    assert ab["prob_draw"] == pytest.approx(ba["prob_draw"])
+    assert ab["predicted_margin"] == pytest.approx(-ba["predicted_margin"])
+    assert ab["predicted_absolute_margin"] == pytest.approx(ba["predicted_absolute_margin"])
+    assert ab["blowout_4plus_probability"] == pytest.approx(ba["blowout_4plus_probability"])
+
+
+def test_resolve_point_in_time_probability_strategy_override_defaults_to_coherent_distribution():
     override = cohort._resolve_point_in_time_probability_strategy_override(None, None)
 
-    assert override == "poisson_draw_gate"
+    assert override == "score_distribution"
 
 
 def test_resolve_point_in_time_probability_strategy_override_prefers_cli_then_payload():

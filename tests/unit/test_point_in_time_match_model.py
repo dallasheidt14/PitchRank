@@ -3,9 +3,11 @@ import pickle
 import numpy as np
 import pandas as pd
 
+from scripts.predictor_python import Game as PredictorGame
 from src.predictions.point_in_time_match_model import (
     COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
     PointInTimeMatchModel,
+    _assert_coherent_score_distribution,
     _dixon_coles_rho,
     _poisson_draw_gate_mask,
     _poisson_outcome_probabilities,
@@ -155,6 +157,112 @@ def test_build_point_in_time_dataset_is_chronological_and_mirrored():
     assert g3_original["actual_outcome"] == "team_a_win"
     assert g3_mirrored["actual_outcome"] == "team_b_win"
     assert g3_original["power_score_final_diff"] == -g3_mirrored["power_score_final_diff"]
+
+
+def test_matchup_history_excludes_same_day_and_late_imported_results():
+    prior_games = [
+        PredictorGame("same-day", "a", "c", 9, 0, "2026-04-02", "2026-04-02T08:00:00Z"),
+        PredictorGame("late-import", "a", "c", 8, 0, "2026-04-01", "2026-04-05T08:00:00Z"),
+        PredictorGame("eligible", "a", "c", 2, 1, "2026-03-31", "2026-04-01T08:00:00Z"),
+    ]
+
+    row = build_point_in_time_matchup_row(
+        team_a_id="a",
+        team_b_id="b",
+        team_a_snapshot=_snapshot("2026-04-01", "a"),
+        team_b_snapshot=_snapshot("2026-04-01", "b"),
+        all_games=prior_games,
+        game_date="2026-04-02",
+    )
+
+    assert row["team_a_prior_game_count"] == 1.0
+    assert row["head_to_head_games"] == 0.0
+
+
+def test_dataset_preserves_created_at_for_per_example_history_cutoff():
+    games_df = pd.DataFrame(
+        [
+            {
+                "id": "late-import",
+                "game_date": "2026-04-01",
+                "created_at": "2026-04-05T08:00:00Z",
+                "home_team_master_id": "a",
+                "away_team_master_id": "c",
+                "home_score": 8,
+                "away_score": 0,
+            },
+            {
+                "id": "target",
+                "game_date": "2026-04-02",
+                "created_at": "2026-04-02T20:00:00Z",
+                "home_team_master_id": "a",
+                "away_team_master_id": "b",
+                "home_score": 1,
+                "away_score": 1,
+            },
+        ]
+    )
+    snapshots = {
+        team_id: [_snapshot("2026-03-31", team_id)]
+        for team_id in ("a", "b", "c")
+    }
+
+    result = build_point_in_time_dataset(
+        games_df,
+        snapshot_index=snapshots,
+        include_mirrored_examples=False,
+    )
+    target = result.dataset[result.dataset["game_id"] == "target"].iloc[0]
+
+    assert target["team_a_prior_game_count"] == 0.0
+
+
+def test_chronological_split_keeps_dates_and_mirrored_games_together():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    frame = pd.DataFrame(
+        [
+            {"game_date": date, "game_id": game_id, "example_orientation": orientation}
+            for date, game_id in (
+                ("2026-04-01", "g1"),
+                ("2026-04-02", "g2"),
+                ("2026-04-03", "g3"),
+                ("2026-04-04", "g4"),
+            )
+            for orientation in ("original", "mirrored")
+        ]
+    )
+
+    train, test = model._chronological_split(frame, test_ratio=0.25)
+
+    assert set(train["game_date"]).isdisjoint(test["game_date"])
+    assert set(train["game_id"]).isdisjoint(test["game_id"])
+    assert set(test["game_id"]) == {"g4"}
+
+
+def test_three_way_split_uses_disjoint_complete_dates_and_games():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    frame = pd.DataFrame(
+        [
+            {"game_date": f"2026-04-{day:02d}", "game_id": f"g{day}", "example_orientation": orientation}
+            for day in range(1, 11)
+            for orientation in ("original", "mirrored")
+        ]
+    )
+
+    train, calibration, test = model._chronological_train_calibration_test_split(
+        frame,
+        calibration_ratio=0.2,
+        test_ratio=0.2,
+    )
+
+    assert set(train["game_date"]).isdisjoint(calibration["game_date"])
+    assert set(train["game_date"]).isdisjoint(test["game_date"])
+    assert set(calibration["game_date"]).isdisjoint(test["game_date"])
+    assert set(train["game_id"]).isdisjoint(calibration["game_id"])
+    assert set(train["game_id"]).isdisjoint(test["game_id"])
+    assert set(calibration["game_id"]).isdisjoint(test["game_id"])
+    assert max(train["game_date"]) < min(calibration["game_date"])
+    assert max(calibration["game_date"]) < min(test["game_date"])
 
 
 def test_build_point_in_time_dataset_skips_games_without_snapshot():
@@ -389,6 +497,37 @@ def test_score_matrix_summary_tracks_blowout_risk_for_lopsided_matchups():
     assert lopsided_summary["blowout_3plus_probability"][0] > balanced_summary["blowout_3plus_probability"][0]
     assert lopsided_summary["blowout_4plus_probability"][0] > balanced_summary["blowout_4plus_probability"][0]
     assert lopsided_summary["blowout_5plus_probability"][0] > balanced_summary["blowout_5plus_probability"][0]
+
+
+def test_score_matrix_summary_has_coherent_margin_and_nested_tails():
+    summary = _score_matrix_summary(
+        _poisson_score_matrix(np.array([2.0]), np.array([2.0]), rho=np.array([0.0]))
+    )
+    expected_absolute_margin = summary["expected_absolute_margin"][0]
+    p3 = summary["blowout_3plus_probability"][0]
+    p4 = summary["blowout_4plus_probability"][0]
+    p5 = summary["blowout_5plus_probability"][0]
+
+    assert expected_absolute_margin > 0.0
+    assert p5 <= p4 <= p3
+    assert expected_absolute_margin >= 4.0 * p4
+    _assert_coherent_score_distribution(
+        _poisson_outcome_probabilities(np.array([2.0]), np.array([2.0])),
+        summary,
+    )
+
+
+def test_score_distribution_contract_rejects_non_nested_tail_probabilities():
+    summary = _score_matrix_summary(
+        _poisson_score_matrix(np.array([2.0]), np.array([2.0]), rho=np.array([0.0]))
+    )
+    summary["blowout_5plus_probability"] = summary["blowout_4plus_probability"] + 0.01
+
+    with np.testing.assert_raises_regex(ValueError, r"P\(5\+\)"):
+        _assert_coherent_score_distribution(
+            _poisson_outcome_probabilities(np.array([2.0]), np.array([2.0])),
+            summary,
+        )
 
 
 def test_blowout_threshold_selection_and_label_nesting():

@@ -276,7 +276,7 @@ def test_calibrated_expected_margin_drives_the_standings_score():
     assert standings[away.team_id]["gd"] == -1
 
 
-def test_predicted_draw_uses_zero_margin_for_score_and_projection():
+def test_predicted_draw_uses_tied_score_but_retains_expected_margin_projection():
     home = _team(1, 0.8, 1)
     away = _team(2, 0.4, 2)
 
@@ -295,7 +295,7 @@ def test_predicted_draw_uses_zero_margin_for_score_and_projection():
 
     assert match.home_score == match.away_score == 2
     assert match.goal_differential == 0
-    assert match.expected_goal_differential == 0.0
+    assert match.expected_goal_differential == pytest.approx(2.4)
 
 
 def test_tiger_tiebreak_uses_capped_goal_metrics_then_fewest_goals_conceded():
