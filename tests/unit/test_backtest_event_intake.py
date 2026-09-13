@@ -157,6 +157,8 @@ _READ_ONLY_MODULES = (
     "src/tournaments/backtest_intake_ui.py",
     "src/tournaments/backtest_link_store.py",
     "src/tournaments/backtest_request.py",
+    "src/tournaments/backtest_rating_fallback.py",
+    "src/tournaments/backtest_replay_format.py",
     "src/tournaments/backtest_result_summary.py",
     "src/tournaments/backtest_reviewed_report.py",
     "src/tournaments/backtest_reviewed_run.py",

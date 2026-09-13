@@ -22,6 +22,7 @@ from src.tournaments.backtest_intake_state import (
     tournament_totals,
 )
 from src.tournaments.backtest_link_store import load_links
+from src.tournaments.backtest_replay_format import assess_replay_format
 from src.tournaments.backtest_reviewed_run import (
     build_reviewed_cohort_readiness,
     capture_verification_blockers,
@@ -30,7 +31,7 @@ from src.tournaments.backtest_reviewed_run import (
     model_artifact_sha256,
     resolve_model_artifact,
 )
-from src.tournaments.backtest_scope import backtest_group_ids, backtest_scope_roster
+from src.tournaments.backtest_scope import backtest_scope_roster
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,6 @@ def validate_backtest_acceptance(
     links = load_links(event_key, base_dir=base_dir)
     totals = tournament_totals(snapshot.roster)
     scoped_roster = backtest_scope_roster(effective_roster(snapshot))
-    scoped_groups = backtest_group_ids(scoped_roster)
     actual = totals["results"]
     checks = [
         _check("event id", profile.event_id, snapshot.roster.event_id),
@@ -113,15 +113,19 @@ def validate_backtest_acceptance(
         )
     )
     reviews = {review.group_id: review for review in snapshot.reviews}
-    invalid_reviews = [
-        division.group_id
-        for division in snapshot.roster.divisions
-        if division.group_id in scoped_groups
-        if division.group_id not in reviews
-        or not reviews[division.group_id].checked
-        or reviews[division.group_id].structure_hash != structure_hash(division)
-    ]
-    checks.append(_check("division reviews", [], invalid_reviews))
+    unsupported_divisions = []
+    for division in scoped_roster.divisions:
+        review = reviews.get(division.group_id)
+        manual_format = (
+            review.format_code
+            if review is not None
+            and review.checked
+            and review.structure_hash == structure_hash(division)
+            else ""
+        )
+        if not assess_replay_format(division, manual_format=manual_format).ready:
+            unsupported_divisions.append(division.group_id)
+    checks.append(_check("division replay readiness", [], unsupported_divisions))
 
     registrations = {entrant_key(team) for team in scoped_roster.teams}
     accepted_links = {
@@ -132,12 +136,13 @@ def validate_backtest_acceptance(
         and link.registration_id not in links.removed_registration_ids
         and link.registration_id not in links.not_found_registration_ids
     }
-    unmatched = sorted(registrations - set(accepted_links))
+    reviewed_not_found = registrations.intersection(links.not_found_registration_ids)
+    unmatched = sorted(registrations - set(accepted_links) - reviewed_not_found)
     checks.append(
         _check(
-            "matched teams",
+            "reviewed team identities",
             len(registrations),
-            len(registrations) - len(unmatched),
+            len(accepted_links) + len(reviewed_not_found),
             detail="; ".join(unmatched[:10]),
         )
     )

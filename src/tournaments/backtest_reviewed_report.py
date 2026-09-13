@@ -71,9 +71,19 @@ def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
                 "MatchBalance division": str(item.get("recommended_division") or ""),
                 "Decision": labels.get(str(item.get("move") or ""), str(item.get("move") or "")),
                 "Historical PowerScore": item.get("power_score"),
+                "Rating evidence": _rating_evidence_label(item),
             }
         )
     return rows
+
+
+def _rating_evidence_label(item: dict[str, Any]) -> str:
+    basis = str(item.get("rating_basis") or "historical_snapshot")
+    if basis == "original_division_median_surrogate":
+        return "Division median fallback (team not found)"
+    if basis == "cohort_median_surrogate":
+        return "Cohort median fallback (team not found)"
+    return "PitchRank pre-event rating"
 
 
 def _format(value: Any, unit: str) -> str:
@@ -123,6 +133,7 @@ def render_reviewed_backtest_html(
         f"<td>{html.escape(str(row['Original division']))}</td>"
         f"<td>{html.escape(str(row['MatchBalance division']))}</td>"
         f"<td>{html.escape(str(row['Decision']))}</td>"
+        f"<td>{html.escape(str(row['Rating evidence']))}</td>"
         "</tr>"
         for row in moves
     )
@@ -160,7 +171,7 @@ column estimates the reseeded pool assignments using only pre-event evidence.</p
 <th>Estimated reduction</th></tr></thead><tbody>{model_rows}</tbody></table>
 <h2>Team placement</h2>
 <table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
-<th>Decision</th></tr></thead><tbody>{movement_rows_html}</tbody></table>
+<th>Decision</th><th>Rating evidence</th></tr></thead><tbody>{movement_rows_html}</tbody></table>
 <h2>Historical evidence</h2><p>Exclusive event cutoff: <strong>{cutoff or 'Unavailable'}</strong></p>
 <p>Model artifact SHA-256: <code>{artifact_hash or 'Unavailable'}</code></p>
 </body></html>"""

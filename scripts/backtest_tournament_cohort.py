@@ -52,6 +52,10 @@ from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
 )
+from src.tournaments.backtest_rating_fallback import (  # noqa: E402
+    needs_rating_fallback,
+    select_rating_surrogate,
+)
 from src.tournaments.modelled_comparison import (  # noqa: E402
     compare_modelled_arrangements,
     project_matchup_pairs,
@@ -489,6 +493,8 @@ def _freeze_historical_inputs(
                 "source_gender": str(entrant["source_gender"]),
                 "event_age_group": str(entrant["age_group"]),
                 "event_gender": str(entrant["gender"]),
+                "rating_fallback": str(entrant.get("rating_fallback") or ""),
+                "rating_basis": str(entrant.get("rating_basis") or "historical_snapshot"),
                 "power_score": float(entrant["power_score"]),
                 "rank_in_cohort": entrant.get("rank_in_cohort"),
                 "games_played": int(entrant.get("games_played") or 0),
@@ -632,6 +638,8 @@ def _build_entrant_row(
         "source_age_group": source_age_group,
         "source_gender": source_gender,
         "ranking_status": str(ranking_row.get("status") or ""),
+        "rating_fallback": str(entrant.get("rating_fallback") or ""),
+        "rating_basis": str(entrant.get("rating_basis") or "historical_snapshot"),
         "games_played": int(ranking_row.get("games_played") or 0),
         "power_score": float(power_score),
         "rank_in_cohort": ranking_row.get("rank_in_cohort_final"),
@@ -1274,6 +1282,8 @@ def _build_division_recommendations(
                 "move": move,
                 "power_score": entrant["power_score"],
                 "ranking_source_team_id": entrant["ranking_source_team_id"],
+                "rating_fallback": entrant.get("rating_fallback", ""),
+                "rating_basis": entrant.get("rating_basis", "historical_snapshot"),
                 "canonical_team_id": entrant["canonical_team_id"],
                 "ranking_status": entrant["ranking_status"],
             }
@@ -1348,27 +1358,35 @@ def main() -> int:
     merge_resolver.load_merge_map()
     if merge_resolver.version == "error":
         raise RuntimeError("Team merge information could not be loaded for the historical backtest")
-    entrants_payload = [
-        {
-            **entrant,
-            "canonical_team_id": str(
-                merge_resolver.resolve(str(entrant["canonical_team_id"]))
-                or entrant["canonical_team_id"]
-            ),
-            "ranking_source_team_id": str(
-                merge_resolver.resolve(
-                    str(entrant.get("ranking_source_team_id") or entrant["canonical_team_id"])
-                )
-                or entrant.get("ranking_source_team_id")
-                or entrant["canonical_team_id"]
-            ),
-        }
-        for entrant in entrants_payload
-    ]
+    normalized_entrants = []
+    for entrant in entrants_payload:
+        if needs_rating_fallback(entrant):
+            normalized_entrants.append(
+                {**entrant, "canonical_team_id": str(entrant["canonical_team_id"]),
+                 "ranking_source_team_id": ""}
+            )
+            continue
+        canonical = str(
+            merge_resolver.resolve(str(entrant["canonical_team_id"]))
+            or entrant["canonical_team_id"]
+        )
+        ranking_source = str(
+            merge_resolver.resolve(str(entrant.get("ranking_source_team_id") or canonical))
+            or entrant.get("ranking_source_team_id")
+            or canonical
+        )
+        normalized_entrants.append(
+            {**entrant, "canonical_team_id": canonical, "ranking_source_team_id": ranking_source}
+        )
+    entrants_payload = normalized_entrants
     print("PHASE: loading-actual-games", flush=True)
-    canonical_team_ids = sorted({str(entrant["canonical_team_id"]) for entrant in entrants_payload})
+    canonical_team_ids = sorted(
+        {str(entrant["canonical_team_id"]) for entrant in entrants_payload
+         if not needs_rating_fallback(entrant)}
+    )
     ranking_source_ids = sorted(
-        {str(entrant.get("ranking_source_team_id") or entrant["canonical_team_id"]) for entrant in entrants_payload}
+        {str(entrant.get("ranking_source_team_id") or entrant["canonical_team_id"])
+         for entrant in entrants_payload if not needs_rating_fallback(entrant)}
     )
 
     team_rows = _fetch_rows_by_ids(client, "teams", TEAM_META_COLS, "team_id_master", canonical_team_ids)
@@ -1430,12 +1448,13 @@ def main() -> int:
         ),
     )
     resolved_snapshots_by_source_id: dict[str, dict[str, Any]] = {}
-    entrant_rows: list[dict[str, Any]] = []
-    seedable_teams: list[SeedableTeam] = []
+    entrant_rows_by_id: dict[str, dict[str, Any]] = {}
     notes: list[str] = []
-    for index, entrant in enumerate(entrants_payload):
+    for entrant in entrants_payload:
+        if needs_rating_fallback(entrant):
+            continue
         canonical_team_id = str(entrant["canonical_team_id"])
-        ranking_source_team_id = str(entrant.get("ranking_source_team_id") or canonical_team_id)
+        ranking_source_team_id = str(entrant["ranking_source_team_id"])
         provisional = {
             "event_team_name": entrant.get("event_team_name"),
             "ranking_source_team_id": ranking_source_team_id,
@@ -1459,7 +1478,32 @@ def main() -> int:
             cohort_gender=gender,
             notes=notes,
         )
-        entrant_rows.append(entrant_row)
+        entrant_rows_by_id[str(entrant["entrant_id"])] = entrant_row
+
+    rated_rows = list(entrant_rows_by_id.values())
+    for entrant in entrants_payload:
+        if not needs_rating_fallback(entrant):
+            continue
+        surrogate, basis = select_rating_surrogate(entrant, rated_rows)
+        ranking_source_team_id = str(surrogate["ranking_source_team_id"])
+        resolved_snapshot = resolved_snapshots_by_source_id[ranking_source_team_id]
+        fallback_entrant = {
+            **entrant,
+            "ranking_source_team_id": ranking_source_team_id,
+            "rating_basis": basis,
+        }
+        entrant_rows_by_id[str(entrant["entrant_id"])] = _build_entrant_row(
+            fallback_entrant,
+            None,
+            _historical_ranking_row(resolved_snapshot),
+            cohort_age_group=age_group,
+            cohort_gender=gender,
+            notes=notes,
+        )
+
+    entrant_rows = [entrant_rows_by_id[str(entrant["entrant_id"])] for entrant in entrants_payload]
+    seedable_teams: list[SeedableTeam] = []
+    for index, entrant_row in enumerate(entrant_rows):
         seedable_teams.append(
             SeedableTeam(
                 team_id=entrant_row["entrant_id"],

@@ -13,6 +13,7 @@ from src.tournaments.backtest_historical_preflight import (
     run_historical_preflight,
 )
 from src.tournaments.backtest_intake_state import CaptureVerification
+from src.tournaments.backtest_link_store import EventLinks, TeamLink
 from src.tournaments.backtest_reviewed_run import build_reviewed_cohort_readiness
 from tests.unit.test_backtest_request import _links, _snapshot
 
@@ -132,6 +133,53 @@ def test_preflight_reports_missing_snapshot_as_team_evidence_gap(tmp_path, monke
     assert result.ready is False
     assert result.cohorts[0].eligible == 1
     assert "No prediction_feature_history snapshot" in result.cohorts[0].entrants[1].reason
+
+
+def test_preflight_accepts_reviewed_not_found_with_division_median_fallback(
+    tmp_path, monkeypatch
+):
+    from src.tournaments import backtest_historical_preflight as preflight
+
+    artifact = tmp_path / "model.pkl"
+    artifact.write_bytes(b"model")
+    monkeypatch.setattr(preflight, "MergeResolver", _Resolver)
+    monkeypatch.setattr(
+        preflight.PointInTimeMatchModel,
+        "load",
+        lambda _path: SimpleNamespace(training_metadata={"model_data_end_date": "2025-05-08"}),
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_fetch_rows_by_ids",
+        lambda *_args, **_kwargs: [{"team_id_master": "canonical-a", "team_name": "Alpha"}],
+    )
+
+    async def snapshots(*_args, **_kwargs):
+        return _snapshot_rows().iloc[:1]
+
+    monkeypatch.setattr(preflight, "fetch_prediction_feature_snapshots", snapshots)
+    reviewed_links = EventLinks(
+        event_id="51783",
+        links=(TeamLink("reg-a", "Alpha", "canonical-a", "gotsport_id", "2026-09-11"),),
+        not_found_registration_ids=("reg-b",),
+    )
+    snapshot = replace(
+        _snapshot(),
+        verification=CaptureVerification(
+            ("group-1",), (1, 1), "2026-09-12T00:00:00+00:00", True
+        ),
+    )
+    request = build_reviewed_cohort_readiness(snapshot, reviewed_links)[0].request
+
+    result = run_historical_preflight((request,), object(), model_artifact=artifact)
+
+    fallback = result.cohorts[0].entrants[1]
+    assert result.ready is True
+    assert fallback.eligible is True
+    assert fallback.power_score == 0.7
+    assert fallback.ranking_source_team_id == "canonical-a"
+    assert fallback.rating_basis == "original_division_median_surrogate"
+    assert "No PitchRank identity" in fallback.reason
 
 
 def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path, monkeypatch):

@@ -168,7 +168,7 @@ def test_distinct_registrations_sharing_a_canonical_team_require_explicit_acknow
     assert [row["Status"] for row in match_table(snapshot, confirmed, details)[:2]] == ["Matched", "Matched"]
 
 
-def test_not_found_is_reviewed_but_remains_a_matching_gap():
+def test_not_found_is_a_completed_review_with_no_pitchrank_id():
     snapshot = sample_snapshot()
     links = EventLinks(event_id="51783", not_found_registration_ids=("101",))
     rows = match_table(snapshot, links, {})
@@ -307,7 +307,7 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
     assert metrics["Capture verification"] == "Needs review"
-    assert metrics["Team matching"] == "1 / 3"
+    assert metrics["Team review"] == "1 / 3"
     overview_labels = {button.label for button in test.button}
     assert "Run selected cohort" in overview_labels
     assert "Run all ready cohorts (0)" in overview_labels
@@ -681,6 +681,7 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
 def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     test.selectbox(key="bt_division_capture-one_10_format_code").select("ROUND_ROBIN").run()
     test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
     test.checkbox(key="bt_division_capture-one_10_checked").check()
@@ -719,8 +720,11 @@ def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_int
 
 
 def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
+    import tournament_intake as app
+
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     snapshot = sample_snapshot()
     review = DivisionReview(
         "10",
@@ -736,14 +740,20 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
     test.button(key="bt_save_capture-one").click().run()
 
     assert not test.exception, [error.message for error in test.exception]
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
     assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
     assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
 
-    # After seeing the actual merged result, an intentional clear remains valid.
-    test.text_area(key="bt_division_capture-one_10_1_notes").set_value("")
-    test.checkbox(key="bt_division_capture-one_10_1_checked").uncheck()
+    # A fresh form opened after seeing the merged result can intentionally clear it.
+    test = AppTest.from_function(_render_fixture_app, default_timeout=10)
+    test.session_state[app._BACKTEST_KEYS.snapshot] = read_snapshot(
+        "gotsport__51783__unknown", base_dir=tmp_path
+    )
+    test.run()
+    test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
+    test.text_area(key="bt_division_capture-one_10_notes").set_value("").run()
+    test.checkbox(key="bt_division_capture-one_10_checked").uncheck().run()
     test.button(key="bt_save_capture-one").click().run()
     assert not test.exception, [error.message for error in test.exception]
     saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0]
@@ -754,6 +764,7 @@ def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendere
 def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
     test, tmp_path = rendered_intake
     test.radio(key="bt_section_capture-one").set_value("Structure").run()
+    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
     snapshot = sample_snapshot()
     review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
     path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
@@ -924,7 +935,8 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if isinstance(data, str):
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     def unavailable(*args, **kwargs):
@@ -941,7 +953,7 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
     assert next(button for button in test.button if button.label == "Run selected cohort").disabled
     metrics = {item.label: item.value for item in test.metric}
-    assert metrics["Team matching"] == "Unavailable"
+    assert metrics["Team review"] == "Unavailable"
     assert any("team matching availability" in item.value for item in test.warning)
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
 

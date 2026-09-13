@@ -25,6 +25,11 @@ from scripts.backtest_tournament_cohort import (
     _verify_snapshot_provenance,
 )
 from src.predictions.point_in_time_match_model import PointInTimeMatchModel
+from src.tournaments.backtest_rating_fallback import (
+    RATING_FALLBACK_POLICY,
+    needs_rating_fallback,
+    select_rating_surrogate,
+)
 from src.tournaments.backtest_reviewed_run import model_artifact_sha256, resolve_model_artifact
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir
@@ -47,6 +52,7 @@ class HistoricalEntrantCheck:
     source_gender: str = ""
     power_score: float | None = None
     reason: str = ""
+    rating_basis: str = "historical_snapshot"
 
 
 @dataclass(frozen=True)
@@ -116,7 +122,7 @@ def preflight_input_sha256(
         "requests": list(requests),
         "model_artifact_sha256": model_artifact_sha256(model_artifact),
         "merge_map_version": merge_map_version,
-        "policy": "strict-pre-event-snapshot-v1",
+        "policy": "strict-pre-event-snapshot-with-reviewed-fallback-v2",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -182,52 +188,72 @@ def run_historical_preflight(
     for request in request_list:
         entrants = []
         for source in request.get("entrants") or ():
-            canonical = str(
-                resolver.resolve(str(source["canonical_team_id"])) or source["canonical_team_id"]
-            )
-            ranking_source = str(
-                resolver.resolve(str(source.get("ranking_source_team_id") or canonical))
-                or source.get("ranking_source_team_id")
-                or canonical
-            )
+            if needs_rating_fallback(source):
+                canonical = str(source["canonical_team_id"])
+                ranking_source = ""
+            else:
+                canonical = str(
+                    resolver.resolve(str(source["canonical_team_id"])) or source["canonical_team_id"]
+                )
+                ranking_source = str(
+                    resolver.resolve(str(source.get("ranking_source_team_id") or canonical))
+                    or source.get("ranking_source_team_id")
+                    or canonical
+                )
             entrant = {
                 **source,
                 "canonical_team_id": canonical,
                 "ranking_source_team_id": ranking_source,
             }
             entrants.append(entrant)
-            canonical_ids.add(canonical)
-            ranking_ids.add(ranking_source)
+            if not needs_rating_fallback(entrant):
+                canonical_ids.add(canonical)
+                ranking_ids.add(ranking_source)
         prepared.append((request, entrants))
 
     snapshot_start = (pd.Timestamp(cutoff).normalize() - pd.Timedelta(days=365)).strftime("%Y-%m-%d")
     try:
-        team_rows = _fetch_rows_by_ids(
-            client, "teams", TEAM_META_COLS, "team_id_master", sorted(canonical_ids)
+        team_rows = (
+            _fetch_rows_by_ids(
+                client, "teams", TEAM_META_COLS, "team_id_master", sorted(canonical_ids)
+            )
+            if canonical_ids
+            else []
         )
         snapshot_ids = _expand_merged_team_ids(resolver, sorted(ranking_ids))
-        snapshots_df = asyncio.run(
-            fetch_prediction_feature_snapshots(
-                client,
-                snapshot_ids,
-                snapshot_start,
-                cutoff,
-                availability_cutoff=cutoff,
+        snapshots_df = (
+            asyncio.run(
+                fetch_prediction_feature_snapshots(
+                    client,
+                    snapshot_ids,
+                    snapshot_start,
+                    cutoff,
+                    availability_cutoff=cutoff,
+                )
             )
+            if snapshot_ids
+            else pd.DataFrame()
         )
     except Exception as exc:
         raise HistoricalPreflightUnavailable(
             f"Historical data service could not be read: {exc}"
         ) from exc
-    snapshot_index = _canonicalize_snapshot_index(
-        resolver,
-        _filter_snapshot_index_for_cutoff(build_snapshot_index(snapshots_df), cutoff),
+    snapshot_index = (
+        _canonicalize_snapshot_index(
+            resolver,
+            _filter_snapshot_index_for_cutoff(build_snapshot_index(snapshots_df), cutoff),
+        )
+        if not snapshots_df.empty
+        else {}
     )
     team_by_id = {str(row["team_id_master"]): row for row in team_rows}
     cohort_results: list[HistoricalCohortCheck] = []
     for request, entrants in prepared:
-        checks: list[HistoricalEntrantCheck] = []
+        checks_by_entrant: dict[str, HistoricalEntrantCheck] = {}
+        rated_rows: list[dict[str, Any]] = []
         for entrant in entrants:
+            if needs_rating_fallback(entrant):
+                continue
             canonical = str(entrant["canonical_team_id"])
             ranking_source = str(entrant["ranking_source_team_id"])
             name = str(entrant.get("event_team_name") or ranking_source)
@@ -246,37 +272,77 @@ def run_historical_preflight(
                     cohort_gender=str(request["gender"]),
                 )
             except (KeyError, TypeError, ValueError) as exc:
-                checks.append(
-                    HistoricalEntrantCheck(
-                        str(entrant["entrant_id"]),
-                        name,
-                        canonical,
-                        ranking_source,
-                        False,
-                        reason=str(exc),
-                    )
-                )
-                continue
-            checks.append(
-                HistoricalEntrantCheck(
+                checks_by_entrant[str(entrant["entrant_id"])] = HistoricalEntrantCheck(
                     str(entrant["entrant_id"]),
                     name,
                     canonical,
                     ranking_source,
-                    True,
-                    snapshot_date=str(snapshot["snapshot_date"]),
-                    source_age_group=str(row["source_age_group"]),
-                    source_gender=str(row["source_gender"]),
-                    power_score=float(row["power_score"]),
+                    False,
+                    reason=str(exc),
                 )
+                continue
+            rated_row = {
+                **row,
+                "entrant_id": str(entrant["entrant_id"]),
+                "ranking_source_team_id": ranking_source,
+                "actual_division_key": str(entrant.get("actual_division_key") or ""),
+            }
+            rated_rows.append(rated_row)
+            checks_by_entrant[str(entrant["entrant_id"])] = HistoricalEntrantCheck(
+                str(entrant["entrant_id"]),
+                name,
+                canonical,
+                ranking_source,
+                True,
+                snapshot_date=str(snapshot["snapshot_date"]),
+                source_age_group=str(row["source_age_group"]),
+                source_gender=str(row["source_gender"]),
+                power_score=float(row["power_score"]),
             )
+        for entrant in entrants:
+            if not needs_rating_fallback(entrant):
+                continue
+            entrant_id = str(entrant["entrant_id"])
+            name = str(entrant.get("event_team_name") or entrant_id)
+            try:
+                surrogate, basis = select_rating_surrogate(entrant, rated_rows)
+            except ValueError as exc:
+                checks_by_entrant[entrant_id] = HistoricalEntrantCheck(
+                    entrant_id,
+                    name,
+                    str(entrant["canonical_team_id"]),
+                    "",
+                    False,
+                    reason=str(exc),
+                    rating_basis=RATING_FALLBACK_POLICY,
+                )
+                continue
+            source_check = checks_by_entrant[str(surrogate["entrant_id"])]
+            checks_by_entrant[entrant_id] = HistoricalEntrantCheck(
+                entrant_id,
+                name,
+                str(entrant["canonical_team_id"]),
+                str(surrogate["ranking_source_team_id"]),
+                True,
+                snapshot_date=source_check.snapshot_date,
+                source_age_group=source_check.source_age_group,
+                source_gender=source_check.source_gender,
+                power_score=float(surrogate["power_score"]),
+                reason=(
+                    "No PitchRank identity; Backtest will use the median-rated historical "
+                    + ("peer from the original division." if basis.startswith("original_division")
+                       else "peer from the tournament cohort.")
+                ),
+                rating_basis=basis,
+            )
+        checks = tuple(checks_by_entrant[str(entrant["entrant_id"])] for entrant in entrants)
         cohort_results.append(
             HistoricalCohortCheck(
                 str(request["age_group"]),
                 str(request["gender"]),
                 sum(check.eligible for check in checks),
                 len(checks),
-                tuple(checks),
+                checks,
             )
         )
     return HistoricalPreflight(

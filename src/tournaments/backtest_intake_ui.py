@@ -40,6 +40,7 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
+from src.tournaments.backtest_replay_format import assess_replay_format
 from src.tournaments.backtest_reviewed_report import (
     actual_vs_matchbalance_rows,
     movement_rows,
@@ -328,7 +329,10 @@ def _render_match_editor(
         return
     generation = snapshot.generation
     mode = st.radio("Show teams", ("Needs review", "All teams"), horizontal=True, key=f"bt_filter_{generation}")
-    candidates = rows if mode == "All teams" else [row for row in rows if row["Status"] != "Matched"]
+    completed_statuses = {"Matched", "Not found"}
+    candidates = (
+        rows if mode == "All teams" else [row for row in rows if row["Status"] not in completed_statuses]
+    )
     filters = st.columns(4)
     division = filters[0].selectbox(
         "Division", ("All",) + tuple(sorted({row["Division"] for row in candidates})),
@@ -420,7 +424,10 @@ def _render_match_editor(
                 rerun_after_link_change()
 
     if display["Status"] == "Not found":
-        st.info("Reviewed and marked as not found in PitchRank. The entrant and its results are preserved.")
+        st.info(
+            "Reviewed and marked as not found in PitchRank. The entrant and its results are preserved; "
+            "Backtest uses a clearly labeled median-rated peer as its rating fallback."
+        )
         if st.button("Reopen review", key=f"bt_reopen_{generation}_{selected}"):
             update_links(event_key, event_id=snapshot.roster.event_id,
                          reopened_registration_ids=(registration,),
@@ -532,14 +539,21 @@ def _render_match_editor(
 
 def _review_drafts(snapshot: BacktestSnapshot) -> dict[str, dict[str, Any]]:
     key = f"bt_review_drafts_{snapshot.generation}"
-    if key not in st.session_state:
-        previous = {review.group_id: review for review in reviews_for_capture(snapshot.roster, snapshot.reviews)}
-        st.session_state[key] = {
-            division.group_id: asdict(previous.get(
-                division.group_id, DivisionReview(division.group_id, structure_hash(division))
-            ))
-            for division in snapshot.roster.divisions
-        }
+    previous = {
+        review.group_id: review for review in reviews_for_capture(snapshot.roster, snapshot.reviews)
+    }
+    drafts = dict(st.session_state.get(key, {}))
+    for division in snapshot.roster.divisions:
+        drafts.setdefault(
+            division.group_id,
+            asdict(
+                previous.get(
+                    division.group_id,
+                    DivisionReview(division.group_id, structure_hash(division)),
+                )
+            ),
+        )
+    st.session_state[key] = drafts
     return st.session_state[key]
 
 
@@ -607,47 +621,89 @@ def _current_cohort_decisions(snapshot: BacktestSnapshot) -> tuple[CohortDecisio
 
 
 def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview, ...], tuple[CohortDecision, ...]]:
-    from src.tournaments.backtest_event_intake import summarize_structure
     from tournament_intake import _as_plain_text
 
     display_divisions = effective_roster(snapshot).divisions
-    st.markdown("#### Tournament structure")
-    st.dataframe(pd.DataFrame(summarize_structure(display_divisions)), hide_index=True, width="stretch")
+    st.markdown("#### Tournament replay coverage")
     review_key = f"bt_review_drafts_{snapshot.generation}"
     cohort_key = f"bt_cohort_drafts_{snapshot.generation}"
     reviews = _review_drafts(snapshot)
     cohorts = _cohort_drafts(snapshot)
     by_group = {division.group_id: division for division in display_divisions}
+    assessments = {
+        group: assess_replay_format(
+            division,
+            manual_format=(reviews[group]["format_code"] if reviews[group]["checked"] else ""),
+        )
+        for group, division in by_group.items()
+    }
+    ready_groups = {group for group, assessment in assessments.items() if assessment.ready}
+    attention_groups = [group for group in by_group if group not in ready_groups]
+    summary_columns = st.columns(3)
+    summary_columns[0].metric("Replay ready", f"{len(ready_groups)} / {len(by_group)}")
+    summary_columns[1].metric("Replay formats to build", len(attention_groups))
+    summary_columns[2].metric("Source divisions", len(by_group))
+    st.caption(
+        "MatchBalance validates routine pool and playoff shapes automatically. You do not need to "
+        "check every division. The remaining list is software work needed to reproduce unusual schedules."
+    )
+    with st.expander("All division statuses"):
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Division": division.division_label,
+                    "Cohort": division.age_group.upper(),
+                    "Gender": _display_gender(division.gender),
+                    "Teams": sum(len(pool.members) for pool in division.pools),
+                    "Pools": len(division.pools),
+                    "Fixtures": len(division.fixtures),
+                    "Replay status": "Ready" if assessments[group].ready else "Software needed",
+                    "Replay format": assessments[group].format_code,
+                    "Reason": assessments[group].reason,
+                }
+                for group, division in by_group.items()
+            ]),
+            hide_index=True,
+            width="stretch",
+        )
     filter_mode = st.radio(
-        "Show divisions", ("Unchecked", "Needs attention", "All divisions"), horizontal=True,
+        "Show divisions", ("Software needed", "Ready", "All divisions"), horizontal=True,
         key=f"bt_structure_filter_{snapshot.generation}",
     )
-    if filter_mode == "Unchecked":
-        options = [group for group in by_group if not reviews[group]["checked"]]
-    elif filter_mode == "Needs attention":
-        options = [group for group, division in by_group.items() if (
-            division.warnings or not division.pools_readable or not division.fixtures_readable
-            or not division.published_age_group or not division.gender
-        )]
+    if filter_mode == "Software needed":
+        options = attention_groups
+    elif filter_mode == "Ready":
+        options = [group for group in by_group if group in ready_groups]
     else:
         options = list(by_group)
     if not options:
         st.success("No divisions match this filter.")
         return _current_reviews(snapshot), _current_cohort_decisions(snapshot)
     select_key = f"bt_structure_selected_{snapshot.generation}_{filter_mode}"
-    if st.button("Next unchecked", disabled=not any(not reviews[group]["checked"] for group in by_group),
-                 key=f"bt_next_unchecked_{snapshot.generation}"):
-        unchecked = [group for group in by_group if not reviews[group]["checked"]]
-        if unchecked:
-            st.session_state[select_key] = unchecked[0]
+    if st.button(
+        "Next unsupported division",
+        disabled=not attention_groups,
+        key=f"bt_next_attention_{snapshot.generation}",
+    ):
+        st.session_state[select_key] = attention_groups[0]
     selected = st.selectbox(
-        "Division to review", options,
+        "Division", options,
         format_func=lambda group: by_group[group].division_label or f"Division {group}", key=select_key,
     )
     division = by_group[selected]
     saved = reviews[selected]
+    assessment = assessments[selected]
     epoch = st.session_state.get(f"bt_review_epoch_{snapshot.generation}", 0)
     widget = f"bt_division_{snapshot.generation}_{selected}" + (f"_{epoch}" if epoch else "")
+    detail_columns = st.columns(4)
+    detail_columns[0].metric("Teams", sum(len(pool.members) for pool in division.pools))
+    detail_columns[1].metric("Pools", len(division.pools))
+    detail_columns[2].metric("Fixtures", len(division.fixtures))
+    detail_columns[3].metric("Cohort", division.age_group.upper())
+    if assessment.ready:
+        st.success(f"Replay format ready: {assessment.format_code}. No manual confirmation is required.")
+    else:
+        st.warning(f"MatchBalance cannot replay this schedule yet: {assessment.reason}")
     if division.source_url:
         st.link_button("Open published division", division.source_url)
     memberships = [
@@ -655,37 +711,46 @@ def _render_structure(snapshot: BacktestSnapshot) -> tuple[tuple[DivisionReview,
          "Final standing (not seed)": member.standings_position}
         for pool in division.pools for member in pool.members
     ]
-    st.dataframe(pd.DataFrame(memberships), hide_index=True, width="stretch")
-    st.dataframe(pd.DataFrame([asdict(fixture) for fixture in division.fixtures]), hide_index=True, width="stretch")
-    for warning in division.warnings:
-        st.warning(_as_plain_text(warning))
-    if division.rules_links:
-        st.dataframe(pd.DataFrame([asdict(link) for link in division.rules_links]), hide_index=True)
-    format_options = ("", "ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P")
-    format_key = f"{widget}_format_code"
-    current_format = saved.get("format_code", "")
-    st.selectbox(
-        "Verified replay format",
-        format_options,
-        index=format_options.index(current_format) if current_format in format_options else 0,
-        format_func=lambda value: value or "Select a supported format",
-        key=format_key,
-        on_change=_save_review_format,
-        args=(review_key, selected, format_key),
-        help="Choose only after confirming the published pool and playoff structure.",
-    )
-    for field, label in (("notes", "Published format / advancement / tiebreaker notes"),
-                         ("source_url", "Rules source URL")):
-        widget_key = f"{widget}_{field}"
-        render = st.text_area if field == "notes" else st.text_input
-        render(label, value=saved[field], key=widget_key, on_change=_save_review_field,
-               args=(review_key, selected, field, widget_key))
-    checked_key = f"{widget}_checked"
-    st.checkbox(
-        "I checked this division's teams, pools and fixtures against the source",
-        value=saved["checked"], disabled=not saved.get("format_code"), key=checked_key, on_change=_save_review_field,
-        args=(review_key, selected, "checked", checked_key),
-    )
+    with st.expander("Teams and pools"):
+        st.dataframe(pd.DataFrame(memberships), hide_index=True, width="stretch")
+    with st.expander("Fixtures and results"):
+        st.dataframe(
+            pd.DataFrame([asdict(fixture) for fixture in division.fixtures]),
+            hide_index=True,
+            width="stretch",
+        )
+    if division.warnings or division.rules_links:
+        with st.expander("Source evidence and warnings"):
+            for warning in division.warnings:
+                st.warning(_as_plain_text(warning))
+            if division.rules_links:
+                st.dataframe(pd.DataFrame([asdict(link) for link in division.rules_links]), hide_index=True)
+    with st.expander("Published rules or manual format override", expanded=False):
+        format_options = ("", "ROUND_ROBIN", "F_ONLY", "SF_F", "SF_F_3P")
+        format_key = f"{widget}_format_code"
+        current_format = saved.get("format_code", "")
+        st.selectbox(
+            "Manual replay format",
+            format_options,
+            index=format_options.index(current_format) if current_format in format_options else 0,
+            format_func=lambda value: value or "No manual override",
+            key=format_key,
+            on_change=_save_review_format,
+            args=(review_key, selected, format_key),
+            help="Use only when the published rules clarify an otherwise ambiguous captured schedule.",
+        )
+        for field, label in (("notes", "Published format / advancement / tiebreaker notes"),
+                             ("source_url", "Rules source URL")):
+            widget_key = f"{widget}_{field}"
+            render = st.text_area if field == "notes" else st.text_input
+            render(label, value=saved[field], key=widget_key, on_change=_save_review_field,
+                   args=(review_key, selected, field, widget_key))
+        checked_key = f"{widget}_checked"
+        st.checkbox(
+            "Use this manual format after checking the published source",
+            value=saved["checked"], disabled=not saved.get("format_code"), key=checked_key,
+            on_change=_save_review_field, args=(review_key, selected, "checked", checked_key),
+        )
 
     with st.expander("Correct tournament cohort interpretation"):
         captured_age = division.published_age_group or ""
@@ -1271,10 +1336,10 @@ def _render_backtest_runner(
     if st.button(
         "Check historical ratings",
         disabled=not (model_ready and request_items),
-        help=model_blocker or "Read-only check of every matched entrant before any cohort runs.",
+        help=model_blocker or "Read-only check of historical evidence and any reviewed rating fallbacks.",
         key=f"bt_historical_preflight_{snapshot.generation}",
     ):
-        with st.spinner("Checking pre-event rating snapshots for every matched team..."):
+        with st.spinner("Checking pre-event rating snapshots and reviewed fallbacks..."):
             try:
                 preflight = run_historical_preflight(
                     (item.request for item in request_items if item.request is not None),
@@ -1292,11 +1357,22 @@ def _render_backtest_runner(
     if preflight:
         eligible = sum(item.eligible for item in preflight.cohorts)
         total = sum(item.total for item in preflight.cohorts)
+        fallbacks = [
+            entrant
+            for cohort in preflight.cohorts
+            for entrant in cohort.entrants
+            if entrant.rating_basis != "historical_snapshot" and entrant.eligible
+        ]
         if preflight.ready:
             st.success(
-                f"Historical ratings ready: {eligible} of {total} entrants have eligible "
-                f"pre-event snapshots before {preflight.cutoff_exclusive}."
+                f"Historical evidence ready for {eligible} of {total} entrants before "
+                f"{preflight.cutoff_exclusive}."
             )
+            if fallbacks:
+                st.info(
+                    f"{len(fallbacks)} reviewed not-found entrant(s) will use a median-rated "
+                    "historical peer. This limitation is included in the saved Backtest evidence."
+                )
         else:
             st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
             with st.expander("Missing historical evidence"):
@@ -1435,18 +1511,37 @@ def render_intake(supabase_client: Any) -> None:
         links = load_links(event_key, base_dir=base_dir)
     rows = match_table(display_snapshot, links, details, conflicts=conflicts)
     matched = len({row["Match key"] for row in rows if row["Status"] == "Matched"})
+    not_found = len({row["Match key"] for row in rows if row["Status"] == "Not found"})
+    identity_reviewed = matched + not_found
     scoped_groups = backtest_group_ids(scoped_roster)
+    reviews_by_group = {
+        review.group_id: review
+        for review in _current_reviews(snapshot)
+        if review.group_id in scoped_groups
+    }
     reviewed = sum(
-        review.checked for review in _current_reviews(snapshot) if review.group_id in scoped_groups
+        assess_replay_format(
+            division,
+            manual_format=(
+                reviews_by_group[division.group_id].format_code
+                if division.group_id in reviews_by_group and reviews_by_group[division.group_id].checked
+                else ""
+            ),
+        ).ready
+        for division in scoped_roster.divisions
     )
     status_columns = st.columns(3)
     capture_verified = not capture_verification_blockers(snapshot)
     status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
     status_columns[1].metric(
-        "Team matching",
-        "Unavailable" if matching_blocker else f"{matched} / {totals['total_teams']}",
+        "Team review",
+        "Unavailable" if matching_blocker else f"{identity_reviewed} / {totals['total_teams']}",
+        help=(
+            f"{matched} matched to PitchRank; {not_found} reviewed as not found."
+            if not matching_blocker else None
+        ),
     )
-    status_columns[2].metric("Division review", f"{reviewed} / {len(scoped_roster.divisions)}")
+    status_columns[2].metric("Structure ready", f"{reviewed} / {len(scoped_roster.divisions)}")
     excluded_teams = raw_totals["total_teams"] - totals["total_teams"]
     excluded_divisions = raw_totals["divisions"] - totals["divisions"]
     if excluded_teams or excluded_divisions:
@@ -1476,7 +1571,9 @@ def render_intake(supabase_client: Any) -> None:
         if totals["unidentified_teams"]:
             st.warning(f"{totals['unidentified_teams']} source team entries have no registration ID and need review.")
         _render_results(totals["results"])
-        outstanding = len({row["Match key"] for row in rows if row["Status"] != "Matched"})
+        outstanding = len({
+            row["Match key"] for row in rows if row["Status"] not in {"Matched", "Not found"}
+        })
         issue_parts = []
         if not capture_verified:
             issue_parts.append("capture verification")
@@ -1485,11 +1582,13 @@ def render_intake(supabase_client: Any) -> None:
         if matching_blocker:
             issue_parts.append("team matching availability")
         if reviewed < len(scoped_roster.divisions):
-            issue_parts.append(f"{len(scoped_roster.divisions) - reviewed} division reviews")
+            issue_parts.append(
+                f"{len(scoped_roster.divisions) - reviewed} division replay formats need software support"
+            )
         if issue_parts:
             st.warning("Remaining work: " + ", ".join(issue_parts) + ".")
         else:
-            st.success("This intake is fully captured, matched, and reviewed.")
+            st.success("This intake is fully captured, matched, and replay-ready.")
         _render_backtest_runner(
             snapshot,
             links,
@@ -1501,7 +1600,10 @@ def render_intake(supabase_client: Any) -> None:
         )
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")
-        st.caption(f"{matched} of {totals['total_teams']} teams matched")
+        st.caption(
+            f"{identity_reviewed} of {totals['total_teams']} team identities reviewed · "
+            f"{matched} matched · {not_found} not found with a Backtest rating fallback"
+        )
         _render_match_editor(display_snapshot, rows, links, supabase_client, base_dir)
     elif section == "Structure":
         reviews, decisions = _render_structure(display_snapshot)
