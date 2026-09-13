@@ -38,7 +38,22 @@ def test_projected_matchup_cost_increases_with_strength_gap():
 
     assert distant_cost.projected_margin > close_cost.projected_margin
     assert distant_cost.blowout_3plus_probability > close_cost.blowout_3plus_probability
+    assert distant_cost.blowout_4plus_probability > close_cost.blowout_4plus_probability
     assert distant_cost.total_cost > close_cost.total_cost
+
+
+def test_optimizer_uses_multiple_deterministic_starting_assignments():
+    teams = [_team(index, 1.0 - index / 12.0, index) for index in range(1, 9)]
+    flights = [FlightSpec("Gold", 4), FlightSpec("Silver", 4)]
+
+    single = optimize_division_assignments(teams, flights, restart_count=1)
+    first = optimize_division_assignments(teams, flights, restart_count=5, random_seed=17)
+    second = optimize_division_assignments(teams, flights, restart_count=5, random_seed=17)
+
+    assert first.total_cost <= single.total_cost
+    assert first.optimizer_restarts == 5
+    assert first.selected_restart in range(5)
+    assert first.to_dict() == second.to_dict()
 
 
 def test_optimize_tournament_format_assigns_divisions_and_pools():

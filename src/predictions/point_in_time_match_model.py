@@ -253,6 +253,7 @@ class StrategyOutputs:
     blowout_3plus_probability: np.ndarray
     blowout_4plus_probability: np.ndarray
     blowout_5plus_probability: np.ndarray
+    score_matrix: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -2401,7 +2402,7 @@ class PointInTimeMatchModel:
             matrix,
             fallback_draw_probability=np.full(len(matrix), self.draw_rate_prior, dtype=float),
         )
-        _score_matrix, probabilities, summary = self._score_matrix_context(
+        score_matrix, probabilities, summary = self._score_matrix_context(
             expected_goals_a=expected_goals_a,
             expected_goals_b=expected_goals_b,
             draw_model_probability=draw_model_probability,
@@ -2421,6 +2422,7 @@ class PointInTimeMatchModel:
             blowout_3plus_probability=summary["blowout_3plus_probability"],
             blowout_4plus_probability=summary["blowout_4plus_probability"],
             blowout_5plus_probability=summary["blowout_5plus_probability"],
+            score_matrix=score_matrix,
         )
 
     def _compose_poisson_draw_gate_probabilities(
@@ -3005,7 +3007,7 @@ class PointInTimeMatchModel:
             strategy_outputs.blowout_5plus_probability,
             age_group_numeric=_age_group_numeric_array(dataset_df),
         )
-        return self._build_evaluation_frame(
+        result = self._build_evaluation_frame(
             test_df=dataset_df,
             probabilities=probabilities,
             predicted_labels=predicted_labels,
@@ -3024,6 +3026,14 @@ class PointInTimeMatchModel:
             predicted_blowout_5plus=predicted_blowout_5plus,
             probability_strategy=self.probability_strategy,
         )
+        if strategy_outputs.score_matrix is not None:
+            result["scoreline_probability_matrix"] = pd.Series(
+                [matrix.tolist() for matrix in strategy_outputs.score_matrix],
+                index=result.index,
+                dtype=object,
+            )
+            result["scoreline_max_goals"] = int(strategy_outputs.score_matrix.shape[1] - 1)
+        return result
 
     def relabel_evaluation_frame(self, evaluation_frame: pd.DataFrame) -> pd.DataFrame:
         standardized = build_standardized_evaluation_frame(evaluation_frame)

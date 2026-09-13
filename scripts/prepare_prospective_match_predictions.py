@@ -323,6 +323,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _fixture_was_available_for_prospective_prediction(
+    game_date: str,
+    *,
+    predicted_at: str,
+) -> bool:
+    """Use a conservative date-only gate when an exact kickoff is unavailable."""
+
+    try:
+        fixture_date = pd.Timestamp(game_date).date()
+        prediction_date = pd.Timestamp(predicted_at).date()
+    except (TypeError, ValueError):
+        return False
+    return fixture_date > prediction_date
+
+
 def _fetch_provider_id(supabase: Client, provider_code: str) -> Optional[str]:
     response = supabase.table("providers").select("id").eq("code", provider_code).maybe_single().execute()
     data = response.data or {}
@@ -890,6 +905,8 @@ def prepare_prospective_match_predictions(
         "offline_completed": 0,
         "offline_errored": 0,
         "offline_skipped": 0,
+        "offline_skipped_not_future": 0,
+        "offline_preserved_completed": 0,
         "rows_to_upsert": 0,
         "fixtures_file": str(fixtures_file),
         "model_artifact": str(model_artifact) if model_artifact else None,
@@ -955,9 +972,18 @@ def prepare_prospective_match_predictions(
             "evaluation_notes": existing_row.get("evaluation_notes") or {},
         }
 
-        should_refresh_offline = bool(model is not None and resolution_status == "resolved")
-        if row_payload["offline_prediction_status"] == "completed" and not force_offline_refresh:
+        is_future_fixture = _fixture_was_available_for_prospective_prediction(
+            fixture.game_date,
+            predicted_at=now_iso,
+        )
+        should_refresh_offline = bool(
+            model is not None and resolution_status == "resolved" and is_future_fixture
+        )
+        if row_payload["offline_prediction_status"] == "completed":
             should_refresh_offline = False
+            summary["offline_preserved_completed"] += 1
+        elif not is_future_fixture:
+            summary["offline_skipped_not_future"] += 1
 
         if should_refresh_offline and model and resolved_model_version:
             try:
@@ -1040,7 +1066,9 @@ def main() -> None:
     parser.add_argument(
         "--force-offline-refresh",
         action="store_true",
-        help="Recompute offline predictions even when rows already have completed offline payloads",
+        help=(
+            "Retry unresolved or errored future fixtures. Completed prediction payloads remain immutable."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Build everything but skip database writes")
     parser.add_argument("--summary-path", default=None, help="Optional path to write JSON summary")

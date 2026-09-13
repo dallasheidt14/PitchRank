@@ -8,6 +8,7 @@ model can later be swapped to a calibrated point-in-time competitive model.
 from __future__ import annotations
 
 import math
+import random
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -27,6 +28,8 @@ class SeedableTeam:
     club_name: str | None = None
     state_code: str | None = None
     games_played: int | None = None
+    strength_uncertainty: float = 0.10
+    uncertainty_basis: str = "rated_team_default"
 
 
 @dataclass(frozen=True)
@@ -51,8 +54,8 @@ class MatchupCost:
     blowout_3plus_probability: float
     blowout_5plus_probability: float
     total_cost: float
-    # Reporting-only probability. Keeping this optional preserves older cost
-    # providers and artifacts; it is not part of the optimizer objective.
+    # Optional for compatibility with older injected cost providers. Current
+    # MatchBalance costs include this product-facing threshold in the objective.
     blowout_4plus_probability: float | None = None
 
 
@@ -75,6 +78,7 @@ class FlightAssignment:
     competitive_probability: float
     blowout_3plus_probability: float
     blowout_5plus_probability: float
+    blowout_4plus_probability: float | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,7 @@ class DivisionAssignment:
     pool_sizes: tuple[int, ...]
     advancement: str | None
     pools: tuple[FlightAssignment, ...]
+    blowout_4plus_probability: float | None = None
 
 
 @dataclass(frozen=True)
@@ -99,6 +104,8 @@ class TournamentOptimizationResult:
     optimizer_iterations: int
     matchup_proxy: str = "strength_gap_proxy_v1"
     pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS
+    optimizer_restarts: int = 1
+    selected_restart: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,6 +113,8 @@ class TournamentOptimizationResult:
             "total_cost": self.total_cost,
             "optimizer_iterations": self.optimizer_iterations,
             "pool_assignment_policy": self.pool_assignment_policy,
+            "optimizer_restarts": self.optimizer_restarts,
+            "selected_restart": self.selected_restart,
             "divisions": [
                 {
                     "name": division.name,
@@ -115,6 +124,7 @@ class TournamentOptimizationResult:
                     "average_projected_margin": division.average_projected_margin,
                     "competitive_probability": division.competitive_probability,
                     "blowout_3plus_probability": division.blowout_3plus_probability,
+                    "blowout_4plus_probability": division.blowout_4plus_probability,
                     "blowout_5plus_probability": division.blowout_5plus_probability,
                     "pool_sizes": list(division.pool_sizes),
                     "advancement": division.advancement,
@@ -127,6 +137,7 @@ class TournamentOptimizationResult:
                             "average_projected_margin": pool.average_projected_margin,
                             "competitive_probability": pool.competitive_probability,
                             "blowout_3plus_probability": pool.blowout_3plus_probability,
+                            "blowout_4plus_probability": pool.blowout_4plus_probability,
                             "blowout_5plus_probability": pool.blowout_5plus_probability,
                             "teams": [
                                 {
@@ -219,17 +230,20 @@ def projected_matchup_cost(team_a: SeedableTeam, team_b: SeedableTeam) -> Matchu
     projected_margin = min(6.0, 7.0 * power_gap + min(rank_gap / 32.0, 2.0))
     competitive_probability = _sigmoid((1.15 - projected_margin) / 0.45)
     blowout_3plus_probability = _sigmoid((projected_margin - 2.6) / 0.45)
+    blowout_4plus_probability = _sigmoid((projected_margin - 3.55) / 0.42)
     blowout_5plus_probability = _sigmoid((projected_margin - 4.5) / 0.40)
     total_cost = (
         projected_margin
         + (1.0 - competitive_probability)
         + (2.0 * blowout_3plus_probability)
+        + (3.0 * blowout_4plus_probability)
         + (3.5 * blowout_5plus_probability)
     )
     return MatchupCost(
         projected_margin=projected_margin,
         competitive_probability=competitive_probability,
         blowout_3plus_probability=blowout_3plus_probability,
+        blowout_4plus_probability=blowout_4plus_probability,
         blowout_5plus_probability=blowout_5plus_probability,
         total_cost=total_cost,
     )
@@ -269,6 +283,7 @@ def _build_flight_assignment(
             average_projected_margin=0.0,
             competitive_probability=1.0,
             blowout_3plus_probability=0.0,
+            blowout_4plus_probability=0.0,
             blowout_5plus_probability=0.0,
         )
 
@@ -283,6 +298,14 @@ def _build_flight_assignment(
         ),
         blowout_3plus_probability=float(
             sum(item.blowout_3plus_probability for item in pairwise_costs) / len(pairwise_costs)
+        ),
+        blowout_4plus_probability=(
+            float(
+                sum(float(item.blowout_4plus_probability) for item in pairwise_costs)
+                / len(pairwise_costs)
+            )
+            if all(item.blowout_4plus_probability is not None for item in pairwise_costs)
+            else None
         ),
         blowout_5plus_probability=float(
             sum(item.blowout_5plus_probability for item in pairwise_costs) / len(pairwise_costs)
@@ -331,6 +354,14 @@ def _validate_teams(teams: Sequence[SeedableTeam]) -> None:
         if not math.isfinite(power_score) or not 0.0 <= power_score <= 1.0:
             raise ValueError(
                 f"Team '{team_id}' needs a finite power_score between 0 and 1; got {team.power_score!r}"
+            )
+        if (
+            isinstance(team.strength_uncertainty, bool)
+            or not math.isfinite(float(team.strength_uncertainty))
+            or not 0.0 <= float(team.strength_uncertainty) <= 1.0
+        ):
+            raise ValueError(
+                f"Team '{team_id}' needs strength_uncertainty between 0 and 1"
             )
 
     duplicate_ids = sorted(team_id for team_id, count in Counter(team_ids).items() if count > 1)
@@ -515,70 +546,85 @@ def optimize_division_assignments(
     improvement_tolerance: float = 1e-9,
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
+    restart_count: int = 5,
+    random_seed: int = 42,
 ) -> TournamentOptimizationResult:
     """Assign teams to fixed-size flights to minimize matchup-model cost."""
 
     _validate_flights(teams, flights)
-    ordered_teams = sorted(teams, key=_team_sort_key)
+    if restart_count <= 0:
+        raise ValueError("restart_count must be positive")
+    ordered_teams = list(sorted(teams, key=_team_sort_key))
+    starting_orders = [ordered_teams]
+    for restart_index in range(1, restart_count):
+        shuffled = list(ordered_teams)
+        random.Random(random_seed + restart_index).shuffle(shuffled)
+        starting_orders.append(shuffled)
 
-    working_flights: list[list[SeedableTeam]] = []
-    start_index = 0
-    for flight in flights:
-        end_index = start_index + int(flight.team_count)
-        working_flights.append(list(ordered_teams[start_index:end_index]))
-        start_index = end_index
+    candidates: list[tuple[float, tuple[tuple[str, ...], ...], int, int, list[list[SeedableTeam]]]] = []
+    for restart_index, starting_order in enumerate(starting_orders):
+        working_flights: list[list[SeedableTeam]] = []
+        start_index = 0
+        for flight in flights:
+            end_index = start_index + int(flight.team_count)
+            working_flights.append(list(starting_order[start_index:end_index]))
+            start_index = end_index
 
-    current_cost = total_tournament_cost(working_flights, matchup_cost_fn=matchup_cost_fn)
-    iterations = 0
-
-    while iterations < max_iterations:
-        iterations += 1
-        best_swap: tuple[int, int, int, int] | None = None
-        best_new_cost = current_cost
-
-        for left_flight_index in range(len(working_flights)):
-            for right_flight_index in range(left_flight_index + 1, len(working_flights)):
-                left_flight = working_flights[left_flight_index]
-                right_flight = working_flights[right_flight_index]
-                base_cost = flight_total_cost(left_flight, matchup_cost_fn=matchup_cost_fn) + flight_total_cost(
-                    right_flight,
-                    matchup_cost_fn=matchup_cost_fn,
-                )
-
-                for left_team_index in range(len(left_flight)):
-                    for right_team_index in range(len(right_flight)):
-                        candidate_left = list(left_flight)
-                        candidate_right = list(right_flight)
-                        candidate_left[left_team_index], candidate_right[right_team_index] = (
-                            candidate_right[right_team_index],
-                            candidate_left[left_team_index],
-                        )
-                        candidate_cost = flight_total_cost(
-                            candidate_left,
-                            matchup_cost_fn=matchup_cost_fn,
-                        ) + flight_total_cost(
-                            candidate_right,
-                            matchup_cost_fn=matchup_cost_fn,
-                        )
-                        tournament_cost = current_cost - base_cost + candidate_cost
-                        if tournament_cost + improvement_tolerance < best_new_cost:
-                            best_new_cost = tournament_cost
-                            best_swap = (
-                                left_flight_index,
-                                right_flight_index,
-                                left_team_index,
-                                right_team_index,
+        current_cost = total_tournament_cost(working_flights, matchup_cost_fn=matchup_cost_fn)
+        iterations = 0
+        while iterations < max_iterations:
+            iterations += 1
+            best_swap: tuple[int, int, int, int] | None = None
+            best_new_cost = current_cost
+            for left_flight_index in range(len(working_flights)):
+                for right_flight_index in range(left_flight_index + 1, len(working_flights)):
+                    left_flight = working_flights[left_flight_index]
+                    right_flight = working_flights[right_flight_index]
+                    base_cost = flight_total_cost(
+                        left_flight, matchup_cost_fn=matchup_cost_fn
+                    ) + flight_total_cost(right_flight, matchup_cost_fn=matchup_cost_fn)
+                    for left_team_index in range(len(left_flight)):
+                        for right_team_index in range(len(right_flight)):
+                            candidate_left = list(left_flight)
+                            candidate_right = list(right_flight)
+                            candidate_left[left_team_index], candidate_right[right_team_index] = (
+                                candidate_right[right_team_index],
+                                candidate_left[left_team_index],
                             )
-
-        if best_swap is None:
-            break
-
-        left_flight_index, right_flight_index, left_team_index, right_team_index = best_swap
-        working_flights[left_flight_index][left_team_index], working_flights[right_flight_index][right_team_index] = (
-            working_flights[right_flight_index][right_team_index],
-            working_flights[left_flight_index][left_team_index],
+                            candidate_cost = flight_total_cost(
+                                candidate_left, matchup_cost_fn=matchup_cost_fn
+                            ) + flight_total_cost(candidate_right, matchup_cost_fn=matchup_cost_fn)
+                            tournament_cost = current_cost - base_cost + candidate_cost
+                            if tournament_cost + improvement_tolerance < best_new_cost:
+                                best_new_cost = tournament_cost
+                                best_swap = (
+                                    left_flight_index,
+                                    right_flight_index,
+                                    left_team_index,
+                                    right_team_index,
+                                )
+            if best_swap is None:
+                break
+            left_flight_index, right_flight_index, left_team_index, right_team_index = best_swap
+            (
+                working_flights[left_flight_index][left_team_index],
+                working_flights[right_flight_index][right_team_index],
+            ) = (
+                working_flights[right_flight_index][right_team_index],
+                working_flights[left_flight_index][left_team_index],
+            )
+            current_cost = best_new_cost
+        signature = tuple(
+            tuple(sorted(team.team_id for team in working_flight))
+            for working_flight in working_flights
         )
-        current_cost = best_new_cost
+        candidates.append(
+            (float(current_cost), signature, restart_index, iterations, working_flights)
+        )
+
+    current_cost, _signature, selected_restart, iterations, working_flights = min(
+        candidates, key=lambda candidate: (candidate[0], candidate[1])
+    )
 
     base_assignments = tuple(
         _build_flight_assignment(
@@ -597,6 +643,7 @@ def optimize_division_assignments(
             average_projected_margin=assignment.average_projected_margin,
             competitive_probability=assignment.competitive_probability,
             blowout_3plus_probability=assignment.blowout_3plus_probability,
+            blowout_4plus_probability=assignment.blowout_4plus_probability,
             blowout_5plus_probability=assignment.blowout_5plus_probability,
             pool_sizes=(len(assignment.teams),),
             advancement=None,
@@ -610,6 +657,8 @@ def optimize_division_assignments(
         total_cost=float(sum(division.total_pair_cost for division in divisions)),
         optimizer_iterations=iterations,
         matchup_proxy=matchup_proxy,
+        optimizer_restarts=restart_count,
+        selected_restart=selected_restart,
     )
 
 
@@ -769,6 +818,7 @@ def optimize_tournament_format(
                     average_projected_margin=pool.average_projected_margin,
                     competitive_probability=pool.competitive_probability,
                     blowout_3plus_probability=pool.blowout_3plus_probability,
+                    blowout_4plus_probability=pool.blowout_4plus_probability,
                     blowout_5plus_probability=pool.blowout_5plus_probability,
                 )
                 for pool in pool_result.divisions
@@ -787,6 +837,18 @@ def optimize_tournament_format(
             blowout_3plus_probability = float(
                 sum(pool.blowout_3plus_probability * _pair_count(len(pool.teams)) for pool in pools) / total_pool_pairs
             )
+            pool_blowout_4plus = [
+                (pool.blowout_4plus_probability, _pair_count(len(pool.teams)))
+                for pool in pools
+            ]
+            blowout_4plus_probability = (
+                float(
+                    sum(float(probability) * count for probability, count in pool_blowout_4plus)
+                    / total_pool_pairs
+                )
+                if all(probability is not None for probability, _count in pool_blowout_4plus)
+                else None
+            )
             blowout_5plus_probability = float(
                 sum(pool.blowout_5plus_probability * _pair_count(len(pool.teams)) for pool in pools) / total_pool_pairs
             )
@@ -796,6 +858,7 @@ def optimize_tournament_format(
             average_projected_margin = 0.0
             competitive_probability = 1.0
             blowout_3plus_probability = 0.0
+            blowout_4plus_probability = 0.0
             blowout_5plus_probability = 0.0
 
         division_assignments.append(
@@ -807,6 +870,7 @@ def optimize_tournament_format(
                 average_projected_margin=average_projected_margin,
                 competitive_probability=competitive_probability,
                 blowout_3plus_probability=blowout_3plus_probability,
+                blowout_4plus_probability=blowout_4plus_probability,
                 blowout_5plus_probability=blowout_5plus_probability,
                 pool_sizes=tuple(spec.team_count for spec in pool_specs),
                 advancement=division_spec.advancement,
@@ -820,6 +884,16 @@ def optimize_tournament_format(
         optimizer_iterations=total_iterations,
         matchup_proxy=matchup_proxy,
         pool_assignment_policy=pool_assignment_policy,
+        optimizer_restarts=(
+            division_result.optimizer_restarts
+            if pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH
+            else 1
+        ),
+        selected_restart=(
+            division_result.selected_restart
+            if pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH
+            else 0
+        ),
     )
     _assert_assignment_integrity(teams, result.divisions)
     return result
@@ -848,6 +922,8 @@ def build_seedable_teams(rows: Iterable[dict[str, Any]]) -> list[SeedableTeam]:
                 club_name=row.get("club_name"),
                 state_code=row.get("state_code"),
                 games_played=int(row["games_played"]) if row.get("games_played") is not None else None,
+                strength_uncertainty=float(row.get("strength_uncertainty", 0.10)),
+                uncertainty_basis=str(row.get("uncertainty_basis") or "rated_team_default"),
             )
         )
     return teams

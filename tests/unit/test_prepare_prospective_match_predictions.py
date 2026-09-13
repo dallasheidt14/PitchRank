@@ -53,6 +53,20 @@ def test_load_fixtures_from_jsonl_dedupes_home_and_away_rows(tmp_path):
     assert fixture.fixture_key.startswith("gotsport|555|2026-04-15")
 
 
+def test_prospective_date_gate_requires_a_later_fixture_date():
+    predicted_at = "2026-04-15T08:00:00Z"
+
+    assert prospective._fixture_was_available_for_prospective_prediction(
+        "2026-04-16", predicted_at=predicted_at
+    )
+    assert not prospective._fixture_was_available_for_prospective_prediction(
+        "2026-04-15", predicted_at=predicted_at
+    )
+    assert not prospective._fixture_was_available_for_prospective_prediction(
+        "2026-04-14", predicted_at=predicted_at
+    )
+
+
 def test_build_offline_prediction_uses_asof_snapshots_and_only_prior_games(monkeypatch):
     fixture = prospective.FixtureRecord(
         fixture_key="gotsport|555|2026-04-10|home|away|field-1|u12-gold",

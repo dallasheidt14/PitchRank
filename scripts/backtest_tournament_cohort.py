@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -67,6 +68,7 @@ from src.tournaments.schedule_simulator import (  # noqa: E402
     captured_division_schedule_template,
     explicit_division_schedule_template,
     prediction_expected_margin,
+    simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
@@ -98,6 +100,9 @@ class TournamentMatchPrediction:
     expected_score: dict[str, int]
     expected_margin: float
     expected_absolute_margin: float | None = None
+    expected_goals_a: float | None = None
+    expected_goals_b: float | None = None
+    scoreline_probability_matrix: tuple[tuple[float, ...], ...] | None = None
     win_probability_a: float | None = None
     draw_probability: float | None = None
     win_probability_b: float | None = None
@@ -700,6 +705,21 @@ def _build_entrant_row(
     }
 
 
+def _entrant_strength_uncertainty(entrant_row: dict[str, Any]) -> tuple[float, str]:
+    """Return a transparent latent-strength sensitivity for tournament simulation."""
+
+    if str(entrant_row.get("rating_basis") or "historical_snapshot") != "historical_snapshot":
+        return 0.35, "broad_average_estimate_sensitivity"
+    raw_rd = entrant_row.get("glicko_rd")
+    try:
+        glicko_rd = float(raw_rd)
+    except (TypeError, ValueError):
+        return 0.15, "rated_team_missing_glicko_rd"
+    if not math.isfinite(glicko_rd) or glicko_rd <= 0:
+        return 0.15, "rated_team_missing_glicko_rd"
+    return min(0.30, max(0.06, glicko_rd / 350.0 * 0.22)), "scaled_glicko_rd"
+
+
 def _round_half_up(value: Any) -> int:
     try:
         numeric_value = float(value)
@@ -849,6 +869,17 @@ def _point_in_time_prediction_from_row(
         if raw_expected_absolute_margin is None or pd.isna(raw_expected_absolute_margin)
         else float(raw_expected_absolute_margin)
     )
+    raw_matrix = row.get("scoreline_probability_matrix")
+    scoreline_probability_matrix = None
+    if raw_matrix is not None and not isinstance(raw_matrix, float):
+        matrix = tuple(tuple(float(value) for value in matrix_row) for matrix_row in raw_matrix)
+        if matrix and all(len(matrix_row) == len(matrix) for matrix_row in matrix):
+            total = sum(sum(matrix_row) for matrix_row in matrix)
+            if not math.isfinite(total) or total <= 0:
+                raise ValueError("scoreline_probability_matrix must contain positive finite mass")
+            scoreline_probability_matrix = tuple(
+                tuple(value / total for value in matrix_row) for matrix_row in matrix
+            )
 
     def optional_probability(column: str) -> float | None:
         value = row.get(column)
@@ -861,6 +892,9 @@ def _point_in_time_prediction_from_row(
         expected_score=expected_score,
         expected_margin=expected_margin,
         expected_absolute_margin=expected_absolute_margin,
+        expected_goals_a=expected_goals_a,
+        expected_goals_b=expected_goals_b,
+        scoreline_probability_matrix=scoreline_probability_matrix,
         win_probability_a=optional_probability("prob_team_a_win"),
         draw_probability=optional_probability("prob_draw"),
         win_probability_b=optional_probability("prob_team_b_win"),
@@ -926,6 +960,16 @@ def _symmetrize_point_in_time_prediction_rows(
         number(forward, "predicted_margin") - number(reverse, "predicted_margin")
     )
     result["predicted_absolute_margin"] = expected_absolute_margin
+    forward_matrix = forward.get("scoreline_probability_matrix")
+    reverse_matrix = reverse.get("scoreline_probability_matrix")
+    if forward_matrix is not None and reverse_matrix is not None:
+        forward_array = np.asarray(forward_matrix, dtype=float)
+        reverse_array = np.asarray(reverse_matrix, dtype=float)
+        if forward_array.shape != reverse_array.shape or forward_array.ndim != 2:
+            raise ValueError("Neutral-site score matrices must be matching square matrices")
+        score_matrix = 0.5 * (forward_array + reverse_array.T)
+        score_matrix /= score_matrix.sum()
+        result["scoreline_probability_matrix"] = score_matrix.tolist()
     for threshold in (3, 4, 5):
         column = f"blowout_{threshold}plus_probability"
         tail_values = [
@@ -982,6 +1026,11 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
         if supplied_blowout_3plus is not None
         else _sigmoid((projected_margin - 2.6) / 0.45)
     )
+    blowout_4plus_probability = (
+        supplied_blowout_4plus
+        if supplied_blowout_4plus is not None
+        else _sigmoid((projected_margin - 3.55) / 0.42)
+    )
     blowout_5plus_probability = (
         supplied_blowout_5plus
         if supplied_blowout_5plus is not None
@@ -991,6 +1040,7 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
         projected_margin
         + (1.0 - competitive_probability)
         + (2.0 * blowout_3plus_probability)
+        + (3.0 * blowout_4plus_probability)
         + (3.5 * blowout_5plus_probability)
     )
     return MatchupCost(
@@ -999,7 +1049,7 @@ def _point_in_time_matchup_cost(prediction: TournamentMatchPrediction) -> Matchu
         blowout_3plus_probability=blowout_3plus_probability,
         blowout_5plus_probability=blowout_5plus_probability,
         total_cost=total_cost,
-        blowout_4plus_probability=supplied_blowout_4plus,
+        blowout_4plus_probability=blowout_4plus_probability,
     )
 
 
@@ -1170,17 +1220,20 @@ def _build_python_prediction_and_cost_functions(
             competitive_probability = max(competitive_probability, 0.85)
 
         blowout_3plus_probability = _sigmoid((projected_margin - 2.6) / 0.45)
+        blowout_4plus_probability = _sigmoid((projected_margin - 3.55) / 0.42)
         blowout_5plus_probability = _sigmoid((projected_margin - 4.5) / 0.40)
         total_cost = (
             projected_margin
             + (1.0 - competitive_probability)
             + (2.0 * blowout_3plus_probability)
+            + (3.0 * blowout_4plus_probability)
             + (3.5 * blowout_5plus_probability)
         )
         result = MatchupCost(
             projected_margin=projected_margin,
             competitive_probability=competitive_probability,
             blowout_3plus_probability=blowout_3plus_probability,
+            blowout_4plus_probability=blowout_4plus_probability,
             blowout_5plus_probability=blowout_5plus_probability,
             total_cost=total_cost,
         )
@@ -1298,6 +1351,13 @@ def _build_point_in_time_prediction_and_cost_functions(
                 "teamB": prediction.expected_score["teamA"],
             },
             expected_margin=-prediction.expected_margin,
+            expected_goals_a=prediction.expected_goals_b,
+            expected_goals_b=prediction.expected_goals_a,
+            scoreline_probability_matrix=(
+                tuple(tuple(row) for row in zip(*prediction.scoreline_probability_matrix))
+                if prediction.scoreline_probability_matrix is not None
+                else None
+            ),
             win_probability_a=prediction.win_probability_b,
             win_probability_b=prediction.win_probability_a,
         )
@@ -1547,6 +1607,24 @@ def _schedule_projection(simulation, *, projection_basis: str) -> dict[str, Any]
         for match in division.matches
         if match.blowout_4plus_probability is not None
     ]
+    close_probabilities = [
+        getattr(match, "close_game_probability", None)
+        for division in simulation.divisions
+        for match in division.matches
+        if getattr(match, "close_game_probability", None) is not None
+    ]
+    blowout_3plus_probabilities = [
+        getattr(match, "blowout_3plus_probability", None)
+        for division in simulation.divisions
+        for match in division.matches
+        if getattr(match, "blowout_3plus_probability", None) is not None
+    ]
+    blowout_5plus_probabilities = [
+        getattr(match, "blowout_5plus_probability", None)
+        for division in simulation.divisions
+        for match in division.matches
+        if getattr(match, "blowout_5plus_probability", None) is not None
+    ]
     return {
         "projection_basis": projection_basis,
         "projected_matchup_count": len(margins),
@@ -1556,15 +1634,54 @@ def _schedule_projection(simulation, *, projection_basis: str) -> dict[str, Any]
         "median_goal_differential": (
             float(pd.Series(margins).median()) if margins else None
         ),
-        "close_game_probability": simulation.close_game_rate if margins else None,
-        "blowout_3plus_probability": simulation.blowout_3plus_rate if margins else None,
+        "close_game_probability": (
+            sum(close_probabilities) / len(close_probabilities)
+            if margins and len(close_probabilities) == len(margins)
+            else None
+        ),
+        "blowout_3plus_probability": (
+            sum(blowout_3plus_probabilities) / len(blowout_3plus_probabilities)
+            if margins and len(blowout_3plus_probabilities) == len(margins)
+            else None
+        ),
         "blowout_4plus_probability": (
             sum(blowout_4plus_probabilities) / len(blowout_4plus_probabilities)
             if margins and len(blowout_4plus_probabilities) == len(margins)
             else None
         ),
-        "blowout_5plus_probability": simulation.blowout_5plus_rate if margins else None,
+        "blowout_5plus_probability": (
+            sum(blowout_5plus_probabilities) / len(blowout_5plus_probabilities)
+            if margins and len(blowout_5plus_probabilities) == len(margins)
+            else None
+        ),
     }
+
+
+def _projection_with_ensemble(
+    projection: dict[str, Any],
+    ensemble_summary: dict[str, Any],
+) -> dict[str, Any]:
+    result = dict(projection)
+    metric_map = {
+        "average_goal_differential": "average_goal_differential",
+        "close_game_probability": "close_game_rate",
+        "blowout_3plus_probability": "blowout_3plus_rate",
+        "blowout_4plus_probability": "blowout_4plus_rate",
+        "blowout_5plus_probability": "blowout_5plus_rate",
+    }
+    uncertainty = {}
+    for output_name, ensemble_name in metric_map.items():
+        interval = ensemble_summary.get(ensemble_name)
+        if not interval:
+            continue
+        result[output_name] = float(interval["mean"])
+        uncertainty[output_name] = dict(interval)
+    result["uncertainty"] = {
+        "method": "paired_scoreline_monte_carlo",
+        "simulation_count": int(ensemble_summary.get("simulation_count") or 0),
+        "metrics": uncertainty,
+    }
+    return result
 
 
 def _validate_unchanged_fixture_projection(
@@ -1740,6 +1857,18 @@ def main() -> int:
         "--expected-merge-map-version",
         default="",
         help="Fail if the subprocess reads a different team merge-map version",
+    )
+    parser.add_argument(
+        "--simulation-count",
+        type=int,
+        default=500,
+        help="Paired scoreline simulations used for tournament-level uncertainty",
+    )
+    parser.add_argument(
+        "--simulation-random-seed",
+        type=int,
+        default=20260905,
+        help="Deterministic random seed for paired tournament simulations",
     )
     args = parser.parse_args()
 
@@ -1939,6 +2068,7 @@ def main() -> int:
     entrant_rows = [entrant_rows_by_id[str(entrant["entrant_id"])] for entrant in entrants_payload]
     seedable_teams: list[SeedableTeam] = []
     for index, entrant_row in enumerate(entrant_rows):
+        strength_uncertainty, uncertainty_basis = _entrant_strength_uncertainty(entrant_row)
         seedable_teams.append(
             SeedableTeam(
                 team_id=entrant_row["entrant_id"],
@@ -1952,6 +2082,8 @@ def main() -> int:
                 club_name=entrant_row["club_name"],
                 state_code=entrant_row["state_code"],
                 games_played=entrant_row["games_played"],
+                strength_uncertainty=strength_uncertainty,
+                uncertainty_basis=uncertainty_basis,
             )
         )
         print(f"PROGRESS: entrant-snapshots {index + 1}/{len(entrants_payload)}", flush=True)
@@ -2117,6 +2249,39 @@ def main() -> int:
         simulated_tournament,
         projection_basis="matchbalance_reseeded_fixture_graph",
     )
+    if (
+        args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME
+        and resolved_probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY
+    ):
+        print("PHASE: simulating-tournament-uncertainty", flush=True)
+        simulation_ensemble = simulate_paired_tournament_ensemble(
+            captured_original_assignments,
+            optimization_result.divisions,
+            templates,
+            predict_fn,
+            simulation_count=args.simulation_count,
+            random_seed=args.simulation_random_seed,
+        )
+        original_schedule_projection = _projection_with_ensemble(
+            original_schedule_projection,
+            {
+                **simulation_ensemble["original"],
+                "simulation_count": simulation_ensemble["simulation_count"],
+            },
+        )
+        proposed_schedule_projection = _projection_with_ensemble(
+            proposed_schedule_projection,
+            {
+                **simulation_ensemble["proposed"],
+                "simulation_count": simulation_ensemble["simulation_count"],
+            },
+        )
+    else:
+        simulation_ensemble = {
+            "status": "unavailable",
+            "reason": "A coherent point-in-time score distribution is required",
+            "simulation_count": 0,
+        }
     model_validation = _validate_unchanged_fixture_projection(
         actual_summary,
         original_schedule_projection,
@@ -2173,6 +2338,7 @@ def main() -> int:
         "optimized_projection": optimized_payload,
         "proposed_model_projection": proposed_model_projection,
         "proposed_schedule_projection": proposed_schedule_projection,
+        "simulation_ensemble": simulation_ensemble,
         "model_validation": model_validation,
         "seeding_comparison": seeding_comparison,
         "comparison_issues": list(comparison_issues),

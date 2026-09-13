@@ -8,6 +8,7 @@ type ProspectiveFixtureRow = {
   fixture_key: string;
   home_team_master_id: string | null;
   away_team_master_id: string | null;
+  game_date: string;
 };
 
 type ScriptOptions = {
@@ -81,6 +82,9 @@ function parseArgs(argv: string[]): ScriptOptions {
   if (!Number.isFinite(options.limit) || options.limit <= 0) {
     throw new Error(`Invalid --limit value: ${options.limit}`);
   }
+  if (!['pending', 'error'].includes(options.status)) {
+    throw new Error('--status must be pending or error; completed predictions are immutable');
+  }
   return options;
 }
 
@@ -111,9 +115,11 @@ async function fetchPendingRows(
 ): Promise<ProspectiveFixtureRow[]> {
   const { data, error } = await supabase
     .from('prospective_match_predictions')
-    .select('id, fixture_key, home_team_master_id, away_team_master_id')
+    .select('id, fixture_key, home_team_master_id, away_team_master_id, game_date')
     .eq('resolution_status', 'resolved')
     .eq('heuristic_prediction_status', status)
+    .neq('heuristic_prediction_status', 'completed')
+    .gt('game_date', new Date().toISOString().slice(0, 10))
     .order('game_date', { ascending: true })
     .limit(limit);
 
@@ -128,11 +134,23 @@ async function fetchPendingRows(
   return (data ?? []) as ProspectiveFixtureRow[];
 }
 
-async function updateRow(supabase: SupabaseClient, rowId: string, payload: Record<string, unknown>): Promise<void> {
-  const { error } = await supabase.from('prospective_match_predictions').update(payload).eq('id', rowId);
+async function updateRow(
+  supabase: SupabaseClient,
+  rowId: string,
+  expectedStatus: string,
+  payload: Record<string, unknown>
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('prospective_match_predictions')
+    .update(payload)
+    .eq('id', rowId)
+    .eq('heuristic_prediction_status', expectedStatus)
+    .neq('heuristic_prediction_status', 'completed')
+    .select('id');
   if (error) {
     throw error;
   }
+  return (data ?? []).length === 1;
 }
 
 async function processRows(options: ScriptOptions) {
@@ -154,6 +172,7 @@ async function processRows(options: ScriptOptions) {
     processed: 0,
     completed: 0,
     errored: 0,
+    staleSkipped: 0,
     rowIds: [] as string[],
   };
 
@@ -172,7 +191,7 @@ async function processRows(options: ScriptOptions) {
         row.away_team_master_id
       );
 
-      await updateRow(supabase, row.id, {
+      const saved = await updateRow(supabase, row.id, options.status, {
         heuristic_prediction_status: 'completed',
         heuristic_model_version: modelVersion,
         heuristic_prediction: {
@@ -182,16 +201,17 @@ async function processRows(options: ScriptOptions) {
         },
         heuristic_predicted_at: new Date().toISOString(),
       });
-
-      summary.completed += 1;
+      if (saved) summary.completed += 1;
+      else summary.staleSkipped += 1;
     } catch (error) {
-      await updateRow(supabase, row.id, {
+      const saved = await updateRow(supabase, row.id, options.status, {
         heuristic_prediction_status: 'error',
         heuristic_model_version: modelVersion,
         heuristic_prediction: errorPayload(error, modelVersion),
         heuristic_predicted_at: new Date().toISOString(),
       });
-      summary.errored += 1;
+      if (saved) summary.errored += 1;
+      else summary.staleSkipped += 1;
     }
   }
 

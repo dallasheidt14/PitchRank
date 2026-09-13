@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -94,6 +95,7 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
         "age_group": home_row.get("age_group"),
         "feature_source": model_name,
         "model_version": model_version,
+        "predicted_at": row.get(f"{model_name}_predicted_at"),
         "actual_score_a": actual_home_score,
         "actual_score_b": actual_away_score,
         "actual_margin": (actual_home_score - actual_away_score)
@@ -114,11 +116,25 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
     }
 
 
+def _prediction_is_strictly_prospective(row: Dict[str, Any], model_name: str) -> bool:
+    """Date-only fixtures require a prediction on an earlier UTC date."""
+
+    predicted_at = row.get(f"{model_name}_predicted_at")
+    game_date = row.get("game_date")
+    if not predicted_at or not game_date:
+        return False
+    try:
+        return pd.Timestamp(predicted_at).date() < pd.Timestamp(game_date).date()
+    except (TypeError, ValueError):
+        return False
+
+
 def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
     select_fields = (
         "fixture_key, game_date, competition, division_name, fixture_payload, "
         "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, "
-        "offline_prediction_status, offline_model_version, offline_prediction, "
+        "heuristic_predicted_at, offline_prediction_status, offline_model_version, "
+        "offline_prediction, offline_predicted_at, "
         "actual_home_score, actual_away_score, evaluation_status"
     )
     page_size = 1000
@@ -159,37 +175,72 @@ def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
 
 
 def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any]:
-    heuristic_rows: List[Dict[str, Any]] = []
-    offline_rows: List[Dict[str, Any]] = []
+    paired_predictions: List[tuple[Dict[str, Any], Dict[str, Any]]] = []
     comparison_rows: List[Dict[str, Any]] = []
+    exclusions = Counter()
 
     for row in rows:
         heuristic_prediction = _extract_prediction_payload(row, "heuristic")
         offline_prediction = _extract_prediction_payload(row, "offline")
+        heuristic_eligible = bool(
+            heuristic_prediction
+            and row.get("heuristic_prediction_status") == "completed"
+            and _prediction_is_strictly_prospective(row, "heuristic")
+        )
+        offline_eligible = bool(
+            offline_prediction
+            and row.get("offline_prediction_status") == "completed"
+            and _prediction_is_strictly_prospective(row, "offline")
+        )
+        if not heuristic_eligible:
+            exclusions["heuristic_missing_incomplete_or_post_match"] += 1
+        if not offline_eligible:
+            exclusions["offline_missing_incomplete_or_post_match"] += 1
+        if heuristic_eligible and offline_eligible:
+            paired_predictions.append((heuristic_prediction, offline_prediction))
 
-        if heuristic_prediction and row.get("heuristic_prediction_status") == "completed":
-            heuristic_rows.append(heuristic_prediction)
-        if offline_prediction and row.get("offline_prediction_status") == "completed":
-            offline_rows.append(offline_prediction)
+    pair_counts = Counter(
+        (
+            str(heuristic.get("model_version") or ""),
+            str(offline.get("model_version") or ""),
+        )
+        for heuristic, offline in paired_predictions
+    )
+    selected_pair = (
+        min(pair_counts, key=lambda pair: (-pair_counts[pair], pair))
+        if pair_counts
+        else None
+    )
+    selected_predictions = [
+        (heuristic, offline)
+        for heuristic, offline in paired_predictions
+        if (
+            str(heuristic.get("model_version") or ""),
+            str(offline.get("model_version") or ""),
+        )
+        == selected_pair
+    ]
+    heuristic_rows = [heuristic for heuristic, _offline in selected_predictions]
+    offline_rows = [offline for _heuristic, offline in selected_predictions]
 
-        if heuristic_prediction and offline_prediction:
-            comparison_rows.append(
-                {
-                    "fixture_key": row.get("fixture_key"),
-                    "game_date": row.get("game_date"),
-                    "competition": row.get("competition"),
-                    "division_name": row.get("division_name"),
-                    "actual_outcome": heuristic_prediction.get("actual_outcome"),
-                    "heuristic_predicted_outcome": heuristic_prediction.get("predicted_outcome"),
-                    "offline_predicted_outcome": offline_prediction.get("predicted_outcome"),
-                    "heuristic_draw_probability": heuristic_prediction.get("prob_draw"),
-                    "offline_draw_probability": offline_prediction.get("prob_draw"),
-                    "heuristic_expected_score_a": heuristic_prediction.get("predicted_score_a"),
-                    "heuristic_expected_score_b": heuristic_prediction.get("predicted_score_b"),
-                    "offline_expected_score_a": offline_prediction.get("predicted_score_a"),
-                    "offline_expected_score_b": offline_prediction.get("predicted_score_b"),
-                }
-            )
+    for heuristic_prediction, offline_prediction in selected_predictions:
+        comparison_rows.append(
+            {
+                "fixture_key": heuristic_prediction.get("fixture_key"),
+                "game_date": heuristic_prediction.get("game_date"),
+                "competition": heuristic_prediction.get("competition"),
+                "division_name": heuristic_prediction.get("division_name"),
+                "actual_outcome": heuristic_prediction.get("actual_outcome"),
+                "heuristic_predicted_outcome": heuristic_prediction.get("predicted_outcome"),
+                "offline_predicted_outcome": offline_prediction.get("predicted_outcome"),
+                "heuristic_draw_probability": heuristic_prediction.get("prob_draw"),
+                "offline_draw_probability": offline_prediction.get("prob_draw"),
+                "heuristic_expected_score_a": heuristic_prediction.get("predicted_score_a"),
+                "heuristic_expected_score_b": heuristic_prediction.get("predicted_score_b"),
+                "offline_expected_score_a": offline_prediction.get("predicted_score_a"),
+                "offline_expected_score_b": offline_prediction.get("predicted_score_b"),
+            }
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -229,6 +280,14 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
         if not comparison_frame.empty
         else None,
     }
+    for metric_name in ("winner_accuracy", "log_loss", "brier_score", "margin_mae"):
+        heuristic_value = heuristic_summary.get(metric_name)
+        offline_value = offline_summary.get(metric_name)
+        head_to_head[f"offline_minus_heuristic_{metric_name}"] = (
+            float(offline_value) - float(heuristic_value)
+            if heuristic_value is not None and offline_value is not None
+            else None
+        )
 
     summary = {
         "settled_rows": len(rows),
@@ -237,6 +296,17 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
         "heuristic_summary": heuristic_summary,
         "offline_summary": offline_summary,
         "head_to_head": head_to_head,
+        "eligibility_policy": "prediction_timestamp_date_strictly_before_game_date",
+        "selected_version_pair": (
+            {"heuristic": selected_pair[0], "offline": selected_pair[1]}
+            if selected_pair
+            else None
+        ),
+        "eligible_version_pair_counts": {
+            f"{heuristic}|{offline}": count
+            for (heuristic, offline), count in sorted(pair_counts.items())
+        },
+        "excluded": dict(exclusions),
     }
     (output_dir / "prospective_head_to_head_summary.json").write_text(
         json.dumps(summary, indent=2),

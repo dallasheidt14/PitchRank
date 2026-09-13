@@ -14,6 +14,7 @@ from src.tournaments.schedule_simulator import (
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
+    simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import DivisionSpec, MatchupCost, SeedableTeam, optimize_tournament_format
@@ -48,6 +49,26 @@ def _prediction(team_a: SeedableTeam, team_b: SeedableTeam):
     return SimpleNamespace(
         predicted_winner=winner,
         expected_score={"teamA": score_a, "teamB": score_b},
+    )
+
+
+def _distribution_prediction(_team_a: SeedableTeam, _team_b: SeedableTeam):
+    return SimpleNamespace(
+        predicted_winner="draw",
+        expected_score={"teamA": 1, "teamB": 1},
+        expected_margin=0.0,
+        expected_absolute_margin=1.2,
+        win_probability_a=0.30,
+        draw_probability=0.40,
+        win_probability_b=0.30,
+        blowout_3plus_probability=0.10,
+        blowout_4plus_probability=0.05,
+        blowout_5plus_probability=0.02,
+        scoreline_probability_matrix=(
+            (0.10, 0.10, 0.05),
+            (0.10, 0.30, 0.10),
+            (0.05, 0.10, 0.10),
+        ),
     )
 
 
@@ -156,6 +177,44 @@ def test_simulate_tournament_schedule_replays_two_pools_of_four_with_final():
     assert simulation.match_count == 13
     assert len(simulation.divisions) == 1
     assert simulation.divisions[0].match_count == 13
+
+
+def test_paired_ensemble_is_reproducible_and_identical_arrangements_have_zero_delta():
+    teams = [_team(1, 0.6, 1), _team(2, 0.5, 2)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=2, pool_sizes=(2,))],
+        matchup_cost_fn=_cost,
+    )
+    templates = {
+        "Gold": infer_division_schedule_template(
+            division_name="Gold",
+            pool_sizes=(2,),
+            actual_game_count=1,
+        )
+    }
+
+    first = simulate_paired_tournament_ensemble(
+        result.divisions,
+        result.divisions,
+        templates,
+        _distribution_prediction,
+        simulation_count=100,
+        random_seed=19,
+    )
+    second = simulate_paired_tournament_ensemble(
+        result.divisions,
+        result.divisions,
+        templates,
+        _distribution_prediction,
+        simulation_count=100,
+        random_seed=19,
+    )
+
+    assert first == second
+    assert first["original"] == first["proposed"]
+    assert first["comparison"]["average_goal_differential_reduction"]["mean"] == 0.0
+    assert first["comparison"]["blowout_4plus_rate_reduction"]["mean"] == 0.0
 
 
 def test_simulate_tournament_schedule_replays_two_pools_of_three_with_semis():
