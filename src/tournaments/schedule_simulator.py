@@ -169,6 +169,7 @@ class SimulatedMatch:
     home_score: int
     away_score: int
     goal_differential: int
+    expected_goal_differential: float
     blowout_4plus_probability: float | None = None
     advancing_team_id: str | None = None
     advancement_basis: str | None = None
@@ -186,6 +187,7 @@ class SimulatedMatch:
             "home_score": self.home_score,
             "away_score": self.away_score,
             "goal_differential": self.goal_differential,
+            "expected_goal_differential": self.expected_goal_differential,
             "blowout_4plus_probability": self.blowout_4plus_probability,
             "advancing_team_id": self.advancing_team_id,
             "advancement_basis": self.advancement_basis,
@@ -449,6 +451,11 @@ def _simulate_match(
     prediction = predict_fn(home_team, away_team)
     raw_score_a = float(prediction.expected_score["teamA"])
     raw_score_b = float(prediction.expected_score["teamB"])
+    expected_margin = float(
+        getattr(prediction, "expected_margin", raw_score_a - raw_score_b)
+    )
+    if not math.isfinite(expected_margin):
+        raise ValueError("expected_margin must be finite")
     home_score, away_score = _winner_consistent_score(prediction.predicted_winner, raw_score_a, raw_score_b)
     advancing_team_id, advancement_basis = _advancement_decision(
         prediction,
@@ -470,6 +477,7 @@ def _simulate_match(
         home_score=home_score,
         away_score=away_score,
         goal_differential=abs(home_score - away_score),
+        expected_goal_differential=abs(expected_margin),
         blowout_4plus_probability=_optional_probability(
             prediction, "blowout_4plus_probability"
         ),

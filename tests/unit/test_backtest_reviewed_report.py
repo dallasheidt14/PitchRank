@@ -65,6 +65,17 @@ def test_legacy_run_without_calibration_never_renders_a_sales_comparison():
     assert all(row["Estimated reduction"] is None for row in rows)
 
 
+def test_failed_calibration_withholds_team_placement_recommendations():
+    summary = _summary()
+    summary["model_validation"] = {"status": "failed", "blockers": ["Margin mismatch"]}
+
+    rendered = render_reviewed_backtest_html(summary, {})
+
+    assert movement_rows(summary) == []
+    assert "Placement recommendations withheld" in rendered
+    assert "<td>Alpha</td>" not in rendered
+
+
 def test_director_report_escapes_tournament_and_team_names():
     summary = _summary()
     summary["event_name"] = "<script>alert(1)</script>"

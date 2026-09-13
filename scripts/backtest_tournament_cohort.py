@@ -1352,7 +1352,11 @@ def _captured_original_assignments(
 
 
 def _schedule_projection(simulation, *, projection_basis: str) -> dict[str, Any]:
-    margins = [match.goal_differential for division in simulation.divisions for match in division.matches]
+    margins = [
+        match.expected_goal_differential
+        for division in simulation.divisions
+        for match in division.matches
+    ]
     blowout_4plus_probabilities = [
         match.blowout_4plus_probability
         for division in simulation.divisions
@@ -1362,8 +1366,12 @@ def _schedule_projection(simulation, *, projection_basis: str) -> dict[str, Any]
     return {
         "projection_basis": projection_basis,
         "projected_matchup_count": len(margins),
-        "average_goal_differential": simulation.average_goal_differential if margins else None,
-        "median_goal_differential": simulation.median_goal_differential if margins else None,
+        "average_goal_differential": (
+            float(sum(margins) / len(margins)) if margins else None
+        ),
+        "median_goal_differential": (
+            float(pd.Series(margins).median()) if margins else None
+        ),
         "close_game_probability": simulation.close_game_rate if margins else None,
         "blowout_3plus_probability": simulation.blowout_3plus_rate if margins else None,
         "blowout_4plus_probability": (

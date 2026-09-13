@@ -174,3 +174,20 @@ def test_bracket_slot_cannot_reference_a_later_published_match():
 
     assert assessment.ready is False
     assert "references a missing or later published match" in assessment.reason
+
+
+def test_team_name_ending_in_a_year_is_not_a_match_reference():
+    division = _division(fixture_kind="bracket")
+    division = replace(
+        division,
+        fixtures=(replace(division.fixtures[0], home_label="Winner Soccer Academy 2014"),),
+    )
+
+    slots = build_captured_fixture_slots(division)
+
+    assert slots[0]["home"] == {
+        "kind": "pool_rank",
+        "pool_index": 0,
+        "rank": 0,
+        "evidence": "captured_final_standings_position",
+    }

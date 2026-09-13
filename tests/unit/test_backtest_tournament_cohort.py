@@ -1098,8 +1098,8 @@ def test_schedule_projection_averages_modelled_four_plus_probabilities():
         divisions=(
             SimpleNamespace(
                 matches=(
-                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.25),
-                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.05),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.25),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.05),
                 )
             ),
         ),
@@ -1108,6 +1108,27 @@ def test_schedule_projection_averages_modelled_four_plus_probabilities():
     projection = cohort._schedule_projection(simulation, projection_basis="test")
 
     assert projection["blowout_4plus_probability"] == pytest.approx(0.15)
+
+
+def test_schedule_projection_averages_the_models_fractional_expected_margins():
+    simulation = SimpleNamespace(
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(expected_goal_differential=0.4, blowout_4plus_probability=0.01),
+                    SimpleNamespace(expected_goal_differential=0.8, blowout_4plus_probability=0.02),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["average_goal_differential"] == pytest.approx(0.6)
+    assert projection["median_goal_differential"] == pytest.approx(0.6)
 
 
 def test_schedule_projection_withholds_partial_four_plus_probabilities():
@@ -1120,8 +1141,8 @@ def test_schedule_projection_withholds_partial_four_plus_probabilities():
         divisions=(
             SimpleNamespace(
                 matches=(
-                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=0.25),
-                    SimpleNamespace(goal_differential=1, blowout_4plus_probability=None),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.25),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=None),
                 )
             ),
         ),

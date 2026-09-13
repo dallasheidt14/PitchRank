@@ -71,6 +71,8 @@ def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    if (summary.get("model_validation") or {}).get("status") != "passed":
+        return []
     labels = {"move_up": "Moved up", "move_down": "Moved down", "stay": "Stayed"}
     rows: list[dict[str, Any]] = []
     for item in summary.get("division_recommendations") or ():
@@ -141,6 +143,18 @@ def render_reviewed_backtest_html(
         for row in actual_vs_matchbalance_rows(summary)
     )
     moves = movement_rows(summary)
+    placement_section = (
+        "<h2>Team placement</h2>"
+        "<table><thead><tr><th>Team</th><th>Original division</th>"
+        "<th>MatchBalance division</th><th>Original pool</th>"
+        "<th>MatchBalance pool</th><th>Decision</th><th>Rating evidence</th></tr></thead>"
+        "<tbody>{movement_rows_html}</tbody></table>"
+        if (summary.get("model_validation") or {}).get("status") == "passed"
+        else (
+            "<h2>Team placement</h2><p><strong>Placement recommendations withheld.</strong> "
+            "The historical model did not pass unchanged-tournament calibration.</p>"
+        )
+    )
     movement_rows_html = "".join(
         "<tr>"
         f"<td>{html.escape(str(row['Team']))}</td>"
@@ -185,10 +199,7 @@ column estimates the reseeded division and pool assignments using only pre-event
 <h2>Actual tournament versus MatchBalance</h2>
 <table><thead><tr><th>Metric</th><th>Actual tournament</th><th>MatchBalance projection</th>
 <th>Estimated reduction</th></tr></thead><tbody>{model_rows}</tbody></table>
-<h2>Team placement</h2>
-<table><thead><tr><th>Team</th><th>Original division</th><th>MatchBalance division</th>
-<th>Original pool</th><th>MatchBalance pool</th><th>Decision</th><th>Rating evidence</th></tr></thead>
-<tbody>{movement_rows_html}</tbody></table>
+{placement_section.format(movement_rows_html=movement_rows_html)}
 <h2>Historical evidence</h2><p>Exclusive event cutoff: <strong>{cutoff or 'Unavailable'}</strong></p>
 <p>Model artifact SHA-256: <code>{artifact_hash or 'Unavailable'}</code></p>
 </body></html>"""

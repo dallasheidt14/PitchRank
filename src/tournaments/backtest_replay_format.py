@@ -8,7 +8,10 @@ from typing import Any, Sequence
 
 from src.tournaments.schedule_simulator import CAPTURED_GRAPH_FORMAT
 
-_MATCH_REFERENCE = re.compile(r"\b(winner|loser)\b.*?\b(?:match|game)?\s*#?\s*(\d+)\b", re.IGNORECASE)
+_MATCH_REFERENCE = re.compile(
+    r"\b(winner|loser)\b\s+(?:of\s+)?(?:match|game)\s*#?\s*(\d+)\b",
+    re.IGNORECASE,
+)
 _WILDCARD_REFERENCE = re.compile(r"\bwild\s*card\s*#?\s*(\d+)\b", re.IGNORECASE)
 _CROSS_POOL_QUALIFICATION = re.compile(
     r"\badvance\b.*\bregardless\s+of\s+(?:group|pool)\b",
