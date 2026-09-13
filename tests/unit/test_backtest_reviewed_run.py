@@ -44,22 +44,37 @@ def _summary() -> dict:
             "blowout_4plus_rate": 0.0,
         },
         "original_model_projection": {
+            "projected_matchup_count": 1,
             "average_goal_differential": 2.0,
             "median_goal_differential": 2.0,
             "close_game_probability": 0.4,
             "blowout_3plus_probability": 0.3,
+            "blowout_4plus_probability": 0.2,
             "blowout_5plus_probability": 0.1,
         },
         "proposed_model_projection": {
+            "projected_matchup_count": 1,
             "average_goal_differential": 1.5,
             "median_goal_differential": 1.0,
             "close_game_probability": 0.6,
             "blowout_3plus_probability": 0.2,
+            "blowout_4plus_probability": 0.1,
             "blowout_5plus_probability": 0.05,
         },
+        "proposed_schedule_projection": {
+            "projected_matchup_count": 1,
+            "average_goal_differential": 1.5,
+            "median_goal_differential": 1.0,
+            "close_game_probability": 0.6,
+            "blowout_3plus_probability": 0.2,
+            "blowout_4plus_probability": 0.1,
+            "blowout_5plus_probability": 0.05,
+        },
+        "model_validation": {"status": "passed", "blockers": []},
         "seeding_comparison": {"status": "comparable"},
         "division_recommendations": [
             {
+                "entrant_id": "reg-a",
                 "event_team_name": "Alpha",
                 "actual_division": "Gold",
                 "recommended_division": "Gold",
@@ -93,13 +108,49 @@ def test_default_model_artifact_can_be_configured(monkeypatch):
     assert default_model_artifact() == "C:/models/history.pkl"
 
 
+def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path, monkeypatch):
+    from src.tournaments import backtest_reviewed_run as runner
+
+    monkeypatch.delenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", raising=False)
+    monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
+    candidates = (
+        ("older", "2026-07-01", "poisson_draw_gate"),
+        ("newest", "2026-08-08", "poisson_draw_gate"),
+        ("newer-incompatible", "2026-08-20", "hybrid"),
+        ("too-new", "2026-09-05", "poisson_draw_gate"),
+    )
+    for folder, data_end, strategy in candidates:
+        model_dir = tmp_path / "models" / folder
+        model_dir.mkdir(parents=True)
+        (model_dir / "point_in_time_match_model.pkl").write_bytes(b"model")
+        (model_dir / "point_in_time_match_model_metadata.json").write_text(
+            json.dumps(
+                {
+                    "model_data_end_date": data_end,
+                    "probability_strategy": strategy,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    expected = (tmp_path / "models" / "newest" / "point_in_time_match_model.pkl").relative_to(tmp_path)
+    assert runner.default_model_artifact("2026-09-05") == str(expected)
+
+
 def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
     artifact = tmp_path / "model.pkl"
     artifact.write_bytes(b"historical model")
     process = SimpleNamespace(returncode=0)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
+    commands = []
+
+    def fake_popen(command, **kwargs):
+        del kwargs
+        commands.append(command)
+        return process
+
+    monkeypatch.setattr(runner.subprocess, "Popen", fake_popen)
 
     def stream(_process, staging_dir, on_progress):
         (staging_dir / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
@@ -117,6 +168,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
         on_progress=events.append,
     )
@@ -126,8 +178,12 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert (outcome.run_dir / "comparison.html").is_file()
     metadata = json.loads((outcome.run_dir / "run_metadata.json").read_text(encoding="utf-8"))
     assert metadata["state"] == "completed"
+    assert metadata["backtest_engine_version"] == runner.BACKTEST_ENGINE_VERSION
     assert metadata["source_capture_generation"] == "generation-1"
     assert metadata["model_artifact_sha256"]
+    assert metadata["merge_map_version"] == "merge-v1"
+    version_index = commands[0].index("--expected-merge-map-version")
+    assert commands[0][version_index + 1] == "merge-v1"
     assert events[-1].phase == "running-optimizer"
 
     records = list_reviewed_runs("gotsport__51783__2025", base_dir=tmp_path)
@@ -161,6 +217,7 @@ def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
@@ -205,6 +262,7 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
             "gotsport__51783__2025",
             request,
             model_artifact=artifact,
+            merge_map_version="merge-v1",
             base_dir=tmp_path,
         )
     except KeyboardInterrupt:
@@ -213,13 +271,14 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
         raise AssertionError("Streamlit control-flow interruption should be re-raised")
 
     assert process.terminated is True
-    failed = list(
+    cancelled = list(
         (tmp_path / "gotsport__51783__2025" / "scenarios" / "reviewed-backtest" / "runs").glob(
-            "*.failed"
+            "*.cancelled"
         )
     )
-    assert len(failed) == 1
-    assert (failed[0] / "error.json").is_file()
+    assert len(cancelled) == 1
+    assert (cancelled[0] / "cancelled.json").is_file()
+    assert json.loads((cancelled[0] / "run_metadata.json").read_text(encoding="utf-8"))["state"] == "cancelled"
 
 
 def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypatch):
@@ -241,6 +300,7 @@ def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypa
         "gotsport__51783__2025",
         request,
         model_artifact=artifact,
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
@@ -261,6 +321,7 @@ def test_execute_reviewed_run_rejects_an_event_directory_mismatch(tmp_path):
             "gotsport__51783__2025",
             request,
             model_artifact=artifact,
+            merge_map_version="merge-v1",
             base_dir=tmp_path,
         )
     except ValueError as exc:

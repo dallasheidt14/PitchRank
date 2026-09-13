@@ -4,13 +4,26 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection
+from dataclasses import replace
 from datetime import date
 from typing import Any, Mapping
 
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster, entrant_key
-from src.tournaments.backtest_link_store import EventLinks
-from src.tournaments.backtest_result_summary import deduplicated_fixtures_by_group
-from src.tournaments.schedule_simulator import explicit_division_schedule_template
+from src.tournaments.backtest_link_store import EventLinks, canonicalize_event_links
+from src.tournaments.backtest_rating_fallback import RATING_FALLBACK_POLICY
+from src.tournaments.backtest_replay_format import (
+    assess_replay_format,
+    build_captured_fixture_slots,
+)
+from src.tournaments.backtest_result_summary import (
+    UNSAFE_REPLAY_FIXTURE_EXCLUSIONS,
+    deduplicated_fixtures_by_group,
+)
+from src.tournaments.backtest_scope import backtest_scope_roster
+from src.tournaments.schedule_simulator import (
+    SUPPORTED_SCORING_POLICIES,
+    captured_division_schedule_template,
+)
 
 
 class BacktestRequestError(ValueError):
@@ -61,7 +74,7 @@ def build_cohort_backtest_requests(
     unfinished cohort elsewhere in the same event hiding its readiness.
     """
 
-    roster = effective_roster(snapshot)
+    roster = backtest_scope_roster(effective_roster(snapshot))
     if not roster.event_start_date:
         raise BacktestRequestError(
             "The reviewed event needs a normalized event start date before a historical backtest can run"
@@ -74,6 +87,23 @@ def build_cohort_backtest_requests(
         ) from error
     if event_links is None or event_links.event_id != roster.event_id:
         raise BacktestRequestError("The reviewed event needs its matching EventLinks decision record")
+    if snapshot.tiebreak_decision is None:
+        raise BacktestRequestError(
+            "Verify the tournament's published tiebreak order before running a Backtest"
+        )
+    tiebreak_decision = snapshot.tiebreak_decision
+    if tiebreak_decision.scoring_policy not in SUPPORTED_SCORING_POLICIES:
+        raise BacktestRequestError(
+            "Verify the event's published points and standings modifiers; this rule is not supported yet"
+        )
+
+    def canonicalize(team_id: str) -> str:
+        if resolve_team_id is None:
+            return str(team_id)
+        return str(resolve_team_id(str(team_id)) or team_id)
+
+    if resolve_team_id is not None:
+        event_links = canonicalize_event_links(event_links, resolve_team_id)
     confirmed_links = {
         link.registration_id: link
         for link in event_links.links
@@ -83,20 +113,11 @@ def build_cohort_backtest_requests(
     removed_registrations = set(event_links.removed_registration_ids)
     not_found_registrations = set(event_links.not_found_registration_ids)
 
-    def canonicalize(team_id: str) -> str:
-        if resolve_team_id is None:
-            return str(team_id)
-        return str(resolve_team_id(str(team_id)) or team_id)
-
     collision_acknowledgements = {
         canonicalize(item.team_id_master): frozenset(item.registration_ids)
         for item in event_links.collision_acknowledgements
     }
-    selected_group_ids = {
-        division.group_id
-        for division in roster.divisions
-        if cohort_filter is None or (division.age_group, division.gender) in cohort_filter
-    }
+    selected_group_ids = {division.group_id for division in roster.divisions}
     roster_participants = {
         entrant_key(team) for team in roster.teams if team.group_id in selected_group_ids
     }
@@ -112,8 +133,6 @@ def build_cohort_backtest_requests(
         if len(registrations) < 2:
             continue
         acknowledged = collision_acknowledgements.get(canonical_id, frozenset())
-        if cohort_filter is not None:
-            acknowledged = frozenset(acknowledged.intersection(roster_participants))
         if acknowledged != frozenset(registrations):
             raise BacktestRequestError(
                 f"Canonical team {canonical_id} is linked to distinct registrations without "
@@ -144,34 +163,56 @@ def build_cohort_backtest_requests(
 
         for division in cohorts[cohort_key]:
             fixture_evidence = fixtures_by_group.get(division.group_id, ())
+            fixture_conflicts = tuple(
+                item.exclusion
+                for item in fixture_evidence
+                if item.exclusion in UNSAFE_REPLAY_FIXTURE_EXCLUSIONS
+            )
+            if fixture_conflicts:
+                reasons = ", ".join(sorted(set(fixture_conflicts)))
+                raise BacktestRequestError(
+                    f"Division '{division.division_label}' has unsafe fixture evidence "
+                    f"({reasons}); verify or recapture the source before replay"
+                )
             division_fixtures = tuple(item.fixture for item in fixture_evidence)
             review = reviews.get(division.group_id)
-            if review is None or not review.checked or not review.format_code:
+            manual_format = review.format_code if review is not None and review.checked else ""
+            assessment = assess_replay_format(
+                replace(division, fixtures=division_fixtures),
+                manual_format=manual_format,
+            )
+            if not assessment.ready:
                 raise BacktestRequestError(
-                    f"Division '{division.division_label}' needs a checked review and verified replay format"
+                    f"Division '{division.division_label}' needs replay support: {assessment.reason}"
                 )
+            format_code = assessment.format_code
             pool_sizes = tuple(len(pool.members) for pool in division.pools)
             if not pool_sizes or any(size <= 0 for size in pool_sizes):
                 raise BacktestRequestError(f"Division '{division.division_label}' has no readable pool membership")
+            fixture_slots = build_captured_fixture_slots(division, division_fixtures)
+            tiebreak_source_urls = tuple(dict.fromkeys(
+                (tiebreak_decision.source_url,)
+                + tuple(link.url for link in division.rules_links if link.url)
+            ))
+            pool_format_labels = " ".join(pool.label or "" for pool in division.pools)
+            normalized_pool_format = pool_format_labels.casefold().replace("-", " ")
+            three_team_head_to_head = (
+                "cross bracket" in normalized_pool_format
+                or "crossover" in normalized_pool_format
+            )
             try:
-                template = explicit_division_schedule_template(
-                    division_name=division.division_label,
-                    pool_sizes=pool_sizes,
-                    format_code=review.format_code,
-                    actual_game_count=len(division_fixtures),
+                template = captured_division_schedule_template(
+                    division_name=division.group_id,
                     actual_division_name=division.division_label,
+                    pool_sizes=pool_sizes,
+                    fixture_slots=fixture_slots,
+                    tiebreak_order=tiebreak_decision.order,
+                    tiebreak_source_urls=tiebreak_source_urls,
+                    scoring_policy=tiebreak_decision.scoring_policy,
+                    three_team_head_to_head=three_team_head_to_head,
                 )
             except ValueError as error:
                 raise BacktestRequestError(str(error)) from error
-            expected_pool_games = sum(size * (size - 1) // 2 for size in pool_sizes)
-            captured_pool_games = sum(1 for fixture in division_fixtures if fixture.kind == "pool")
-            expected_bracket_games = len(division_fixtures) - expected_pool_games
-            captured_bracket_games = sum(1 for fixture in division_fixtures if fixture.kind == "bracket")
-            if captured_pool_games != expected_pool_games or captured_bracket_games != expected_bracket_games:
-                raise BacktestRequestError(
-                    f"Division '{division.division_label}' fixture stages disagree with verified format "
-                    f"{review.format_code}"
-                )
             divisions_payload.append(
                 {
                     "name": division.group_id,
@@ -179,9 +220,11 @@ def build_cohort_backtest_requests(
                     "group_id": division.group_id,
                     "team_count": sum(pool_sizes),
                     "pool_sizes": list(pool_sizes),
-                    "advancement": review.format_code,
+                    "pool_names": [pool.label or f"Pool {index + 1}" for index, pool in enumerate(division.pools)],
+                    "advancement": format_code,
                     "playoff_format": template.playoff_format,
                     "captured_fixture_count": len(division_fixtures),
+                    "captured_schedule": template.to_dict(),
                 }
             )
             normalized_names = Counter(
@@ -214,23 +257,26 @@ def build_cohort_backtest_requests(
                         raise BacktestRequestError(
                             f"Team '{member.team_name}' in '{division.division_label}' has a cleared match"
                         )
-                    if participant_key in not_found_registrations:
-                        raise BacktestRequestError(
-                            f"Team '{member.team_name}' in '{division.division_label}' is marked not found in PitchRank"
-                        )
-                    link = confirmed_links.get(participant_key)
-                    if link is None:
-                        unconfirmed = all_links.get(participant_key)
-                        detail = (
-                            f" has an unconfirmed {unconfirmed.matched_by} suggestion"
-                            if unconfirmed is not None
-                            else " has no saved match decision"
-                        )
-                        raise BacktestRequestError(
-                            f"Team '{member.team_name}' in '{division.division_label}'{detail}"
-                        )
                     resolved = resolved_by_source.get(roster_team.source_index)
-                    canonical_id = canonicalize(link.team_id_master)
+                    rating_fallback = ""
+                    if participant_key in not_found_registrations:
+                        canonical_id = f"not-found:{roster.event_id}:{participant_key}"
+                        ranking_source_id = ""
+                        rating_fallback = RATING_FALLBACK_POLICY
+                    else:
+                        link = confirmed_links.get(participant_key)
+                        if link is None:
+                            unconfirmed = all_links.get(participant_key)
+                            detail = (
+                                f" has an unconfirmed {unconfirmed.matched_by} suggestion"
+                                if unconfirmed is not None
+                                else " has no saved match decision"
+                            )
+                            raise BacktestRequestError(
+                                f"Team '{member.team_name}' in '{division.division_label}'{detail}"
+                            )
+                        canonical_id = canonicalize(link.team_id_master)
+                        ranking_source_id = canonical_id
                     if registration:
                         canonical_by_participant[f"registration:{registration}"] = canonical_id
                     normalized_name = " ".join(member.team_name.split()).casefold()
@@ -242,7 +288,8 @@ def build_cohort_backtest_requests(
                             "registration_id": registration,
                             "source_entry_key": participant_key if not registration else "",
                             "canonical_team_id": canonical_id,
-                            "ranking_source_team_id": canonical_id,
+                            "ranking_source_team_id": ranking_source_id,
+                            "rating_fallback": rating_fallback,
                             "provider_team_id": str(
                                 (resolved.provider_team_id if resolved is not None else None)
                                 or roster_team.provider_team_id

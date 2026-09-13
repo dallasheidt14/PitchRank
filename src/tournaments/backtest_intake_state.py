@@ -24,6 +24,10 @@ from src.tournaments.gotsport_event_roster import (
     event_roster_to_dict,
 )
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.schedule_simulator import (
+    SUPPORTED_SCORING_POLICIES,
+    normalize_tiebreak_order,
+)
 from src.tournaments.storage._file_lock import _acquire_file_lock
 from src.tournaments.storage._io import read_versioned_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir, parse_event_key
@@ -57,6 +61,16 @@ class CohortDecision:
     gender: str
     note: str
     source_url: str
+
+
+@dataclass(frozen=True)
+class EventTiebreakDecision:
+    """Sourced event-wide standings rules used by simulated pools."""
+
+    order: tuple[str, ...]
+    note: str
+    source_url: str
+    scoring_policy: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +149,7 @@ class BacktestSnapshot:
     reviews: tuple[DivisionReview, ...] = ()
     cohort_decisions: tuple[CohortDecision, ...] = ()
     verification: CaptureVerification | None = None
+    tiebreak_decision: EventTiebreakDecision | None = None
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -155,6 +170,14 @@ class BacktestSnapshot:
                 raise ValueError("Cohort decisions need a gender")
             if not decision.note.strip() or not decision.source_url.strip():
                 raise ValueError("Cohort decisions need a note and source URL")
+        if self.tiebreak_decision is not None:
+            decision = self.tiebreak_decision
+            if normalize_tiebreak_order(decision.order, allow_empty=False) != decision.order:
+                raise ValueError("The event tiebreak order must use normalized criterion names")
+            if not decision.note.strip() or not decision.source_url.strip():
+                raise ValueError("The event tiebreak decision needs a note and source URL")
+            if decision.scoring_policy and decision.scoring_policy not in SUPPORTED_SCORING_POLICIES:
+                raise ValueError("The event tiebreak decision has an unsupported scoring policy")
         if self.verification is not None:
             verification = self.verification
             if (
@@ -190,6 +213,15 @@ class BacktestSnapshot:
             "division_reviews": [asdict(review) for review in self.reviews],
             "cohort_decisions": [asdict(decision) for decision in self.cohort_decisions],
             "capture_verification": asdict(self.verification) if self.verification else None,
+            "event_tiebreak_decision": (
+                {
+                    "order": list(self.tiebreak_decision.order),
+                    "note": self.tiebreak_decision.note,
+                    "source_url": self.tiebreak_decision.source_url,
+                    "scoring_policy": self.tiebreak_decision.scoring_policy,
+                }
+                if self.tiebreak_decision else None
+            ),
         })
 
     @classmethod
@@ -216,6 +248,15 @@ class BacktestSnapshot:
                     stable=payload["capture_verification"]["stable"],
                 )
                 if payload.get("capture_verification") else None
+            ),
+            tiebreak_decision=(
+                EventTiebreakDecision(
+                    order=tuple(payload["event_tiebreak_decision"].get("order", ())),
+                    note=payload["event_tiebreak_decision"].get("note", ""),
+                    source_url=payload["event_tiebreak_decision"].get("source_url", ""),
+                    scoring_policy=payload["event_tiebreak_decision"].get("scoring_policy", ""),
+                )
+                if payload.get("event_tiebreak_decision") else None
             ),
         )
 
@@ -361,6 +402,38 @@ def _merge_cohort_decisions(
                 "Open the saved intake before applying this edit."
             )
     return tuple(sorted(merged, key=lambda item: item.group_id))
+
+
+_TIEBREAK_BASELINE_UNSET = object()
+
+
+def _merge_tiebreak_decision(
+    previous: BacktestSnapshot,
+    incoming: BacktestSnapshot,
+    baseline: EventTiebreakDecision | None | object,
+) -> EventTiebreakDecision | None:
+    """Merge one event-wide decision without allowing a stale silent overwrite."""
+
+    latest = previous.tiebreak_decision
+    desired = incoming.tiebreak_decision
+    if baseline is _TIEBREAK_BASELINE_UNSET:
+        if desired is None:
+            return latest
+        if latest is None or latest == desired:
+            return desired
+        raise ReviewConflict(
+            "Tournament tiebreak rules changed in another session. "
+            "Open the saved intake before applying this edit."
+        )
+    original = baseline
+    if desired == original:
+        return latest
+    if latest == original or latest == desired:
+        return desired
+    raise ReviewConflict(
+        "Tournament tiebreak rules changed in another session. "
+        "Open the saved intake before applying this edit."
+    )
 
 
 def _fixture_source_identity(fixture: Any) -> tuple[str, str, str] | None:
@@ -543,6 +616,7 @@ def write_snapshot(
     event_key: str, snapshot: BacktestSnapshot, *, base_dir: Path | str = "reports", dry_run: bool = False,
     review_baseline: tuple[DivisionReview, ...] | None = None,
     cohort_baseline: tuple[CohortDecision, ...] | None = None,
+    tiebreak_baseline: EventTiebreakDecision | None | object = _TIEBREAK_BASELINE_UNSET,
 ) -> Path:
     """Save atomically and merge review edits against the caller's loaded baseline.
 
@@ -563,6 +637,9 @@ def write_snapshot(
                 snapshot,
                 reviews=_merge_reviews(previous, snapshot, review_baseline),
                 cohort_decisions=_merge_cohort_decisions(previous, snapshot, cohort_baseline),
+                tiebreak_decision=_merge_tiebreak_decision(
+                    previous, snapshot, tiebreak_baseline
+                ),
             )
         else:
             snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, snapshot.reviews))

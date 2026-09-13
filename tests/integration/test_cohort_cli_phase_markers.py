@@ -27,3 +27,4 @@ def test_cohort_cli_help_runs_clean():
     assert result.returncode == 0, result.stderr
     assert "--input" in result.stdout
     assert "--output-dir" in result.stdout
+    assert "--expected-merge-map-version" in result.stdout

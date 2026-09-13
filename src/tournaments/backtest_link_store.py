@@ -49,6 +49,7 @@ __all__ = [
     "CollisionAcknowledgement",
     "TeamLink",
     "build_links",
+    "canonicalize_event_links",
     "event_links_path",
     "link_decision_state",
     "generations_agree",
@@ -126,6 +127,57 @@ def link_decision_state(links: EventLinks, registration_id: str) -> str | None:
     if registration_id in links.removed_registration_ids:
         return _REMOVED_STATE
     return None
+
+
+def canonicalize_event_links(
+    links: EventLinks,
+    resolve_team_id: Callable[[str], str | None],
+) -> EventLinks:
+    """Resolve saved IDs and retain only collision acknowledgements still exact."""
+
+    canonical_links = tuple(
+        TeamLink(
+            registration_id=link.registration_id,
+            event_team_name=link.event_team_name,
+            team_id_master=str(resolve_team_id(link.team_id_master) or link.team_id_master),
+            matched_by=link.matched_by,
+            linked_at=link.linked_at,
+        )
+        for link in links.links
+    )
+    registrations_by_team: dict[str, set[str]] = {}
+    removed = set(links.removed_registration_ids) | set(links.not_found_registration_ids)
+    for link in canonical_links:
+        if link.registration_id in removed:
+            continue
+        registrations_by_team.setdefault(link.team_id_master, set()).add(link.registration_id)
+
+    valid_acknowledgements: dict[str, CollisionAcknowledgement] = {}
+    for acknowledgement in links.collision_acknowledgements:
+        canonical_id = str(
+            resolve_team_id(acknowledgement.team_id_master)
+            or acknowledgement.team_id_master
+        )
+        registration_ids = tuple(sorted(set(acknowledgement.registration_ids)))
+        if (
+            len(registration_ids) >= 2
+            and set(registration_ids) == registrations_by_team.get(canonical_id, set())
+            and acknowledgement.note.strip()
+        ):
+            valid_acknowledgements[canonical_id] = CollisionAcknowledgement(
+                team_id_master=canonical_id,
+                registration_ids=registration_ids,
+                note=acknowledgement.note,
+                acknowledged_at=acknowledgement.acknowledged_at,
+            )
+    return EventLinks(
+        event_id=links.event_id,
+        links=canonical_links,
+        saved_at=links.saved_at,
+        removed_registration_ids=links.removed_registration_ids,
+        not_found_registration_ids=links.not_found_registration_ids,
+        collision_acknowledgements=tuple(valid_acknowledgements.values()),
+    )
 
 
 def event_links_path(event_key: str, *, base_dir: Path | str = "reports") -> Path:

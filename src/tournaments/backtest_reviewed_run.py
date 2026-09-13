@@ -19,8 +19,10 @@ from typing import Any, Literal
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster
 from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
+from src.tournaments.backtest_scope import backtest_scope_roster
 from src.tournaments.storage import (
     acquire_scenario_lock,
+    cancel_run,
     create_staging_run,
     ensure_scenario,
     fail_run,
@@ -33,6 +35,8 @@ from src.tournaments.storage._io import append_jsonl, read_json, utc_now_iso, wr
 from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
+BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v2"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
     "point_in_time_match_model.pkl"
@@ -78,7 +82,7 @@ class ReviewedRunProgress:
 
 @dataclass(frozen=True)
 class ReviewedRunOutcome:
-    state: Literal["completed", "failed"]
+    state: Literal["completed", "failed", "cancelled"]
     run_dir: Path
     error: str | None = None
 
@@ -91,6 +95,8 @@ class ReviewedRunRecord:
     gender: str
     event_name: str
     ended_at: str
+    state: Literal["completed", "failed"] = "completed"
+    error: str | None = None
 
 
 def _cohort_sort_key(item: tuple[str, str]) -> tuple[int, str, str]:
@@ -119,10 +125,12 @@ def capture_verification_blockers(snapshot: BacktestSnapshot) -> tuple[str, ...]
 def build_reviewed_cohort_readiness(
     snapshot: BacktestSnapshot,
     links: EventLinks,
+    *,
+    resolve_team_id: Callable[[str], str | None] | None = None,
 ) -> tuple[ReviewedCohortReadiness, ...]:
     """Evaluate each tournament cohort independently against strict evidence."""
 
-    roster = effective_roster(snapshot)
+    roster = backtest_scope_roster(effective_roster(snapshot))
     cohort_keys = sorted(
         {(division.age_group, division.gender) for division in roster.divisions},
         key=_cohort_sort_key,
@@ -142,20 +150,23 @@ def build_reviewed_cohort_readiness(
         }
         request: dict[str, Any] | None = None
         blockers = list(global_blockers)
-        if not blockers:
-            try:
-                requests = build_cohort_backtest_requests(
-                    snapshot,
-                    event_links=links,
-                    cohort_filter={(age_group, gender)},
-                )
-            except BacktestRequestError as exc:
-                blockers.append(str(exc))
+        # Build each request even when capture verification is still pending. This
+        # lets the operator see independent team, schedule, and history readiness
+        # in one place while the global verification blocker still prevents a run.
+        try:
+            requests = build_cohort_backtest_requests(
+                snapshot,
+                event_links=links,
+                resolve_team_id=resolve_team_id,
+                cohort_filter={(age_group, gender)},
+            )
+        except BacktestRequestError as exc:
+            blockers.append(str(exc))
+        else:
+            if len(requests) != 1:
+                blockers.append("The saved cohort could not be converted into one backtest request")
             else:
-                if len(requests) != 1:
-                    blockers.append("The saved cohort could not be converted into one backtest request")
-                else:
-                    request = requests[0]
+                request = requests[0]
         rows.append(
             ReviewedCohortReadiness(
                 age_group=age_group,
@@ -176,8 +187,58 @@ def resolve_model_artifact(value: str | Path) -> Path:
     return path.resolve()
 
 
-def default_model_artifact() -> str:
-    return os.getenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", DEFAULT_MODEL_ARTIFACT)
+def _model_metadata(artifact: Path) -> dict[str, Any]:
+    metadata_path = artifact.with_name(f"{artifact.stem}_metadata.json")
+    if not metadata_path.is_file():
+        return {}
+    try:
+        metadata = read_json(metadata_path)
+    except (OSError, ValueError, TypeError):
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _model_data_end_date(artifact: Path) -> str:
+    return str(_model_metadata(artifact).get("model_data_end_date") or "")
+
+
+def model_probability_strategy(artifact: str | Path) -> str:
+    """Return the fitted strategy recorded beside a point-in-time artifact."""
+
+    return str(
+        _model_metadata(resolve_model_artifact(artifact)).get("probability_strategy") or ""
+    ).strip().lower()
+
+
+def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
+    """Choose the newest compatible local model trained before the event."""
+
+    cutoff = str(cutoff_exclusive or "").strip()[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff):
+        return None
+    eligible = []
+    for artifact in (_REPO_ROOT / "models").glob("**/point_in_time_match_model.pkl"):
+        data_end = _model_data_end_date(artifact)
+        if (
+            data_end
+            and data_end < cutoff
+            and model_probability_strategy(artifact) == BACKTEST_PROBABILITY_STRATEGY
+        ):
+            eligible.append((data_end, artifact.resolve()))
+    return max(eligible, default=("", None), key=lambda item: (item[0], str(item[1])))[1]
+
+
+def default_model_artifact(cutoff_exclusive: str = "") -> str:
+    configured = os.getenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT")
+    if configured:
+        return configured
+    eligible = find_eligible_model_artifact(cutoff_exclusive)
+    if eligible is not None:
+        try:
+            return str(eligible.relative_to(_REPO_ROOT))
+        except ValueError:
+            return str(eligible)
+    return DEFAULT_MODEL_ARTIFACT
 
 
 def _safe_part(value: str) -> str:
@@ -196,6 +257,12 @@ def _sha256_bytes(value: bytes) -> str:
 
 def _sha256_file(path: Path) -> str:
     return _sha256_bytes(path.read_bytes())
+
+
+def model_artifact_sha256(path: str | Path) -> str:
+    """Return the stable identity used to select compatible cohort runs."""
+
+    return _sha256_file(resolve_model_artifact(path))
 
 
 def _finalize_failure(
@@ -220,6 +287,28 @@ def _finalize_failure(
         base_dir=base_dir,
     )
     return ReviewedRunOutcome("failed", failed, error)
+
+
+def _finalize_cancellation(
+    event_key: str,
+    run_id: str,
+    staging_dir: Path,
+    *,
+    base_dir: Path | str,
+) -> ReviewedRunOutcome:
+    metadata_path = staging_dir / "run_metadata.json"
+    if metadata_path.exists():
+        metadata = read_json(metadata_path)
+        metadata["ended_at"] = utc_now_iso()
+        metadata["state"] = "cancelled"
+        write_json(metadata_path, metadata)
+    cancelled = cancel_run(
+        event_key,
+        BACKTEST_SCENARIO,
+        run_id,
+        base_dir=base_dir,
+    )
+    return ReviewedRunOutcome("cancelled", cancelled, "Stopped by the operator")
 
 
 def _terminate_process(process: subprocess.Popen) -> None:
@@ -297,6 +386,7 @@ def execute_reviewed_run(
     request: dict[str, Any],
     *,
     model_artifact: str | Path,
+    merge_map_version: str,
     base_dir: Path | str = "reports",
     on_progress: Callable[[ReviewedRunProgress], None] = lambda _event: None,
 ) -> ReviewedRunOutcome:
@@ -309,6 +399,8 @@ def execute_reviewed_run(
     gender = str(request.get("gender") or "")
     if not age_group or not gender:
         raise ValueError("Backtest request needs a cohort age and gender")
+    if not str(merge_map_version).strip() or merge_map_version == "error":
+        raise ValueError("Backtest run needs the current team merge-map version")
     artifact = resolve_model_artifact(model_artifact)
     if not artifact.is_file():
         raise FileNotFoundError(f"Historical model artifact not found: {artifact}")
@@ -336,11 +428,13 @@ def execute_reviewed_run(
             "--point-in-time-model-artifact",
             str(artifact),
             "--point-in-time-probability-strategy",
-            "poisson_draw_gate",
+            BACKTEST_PROBABILITY_STRATEGY,
             "--history-lookback-days",
             "365",
             "--snapshot-buffer-days",
             "30",
+            "--expected-merge-map-version",
+            str(merge_map_version),
         ]
         started_at = utc_now_iso()
         request_bytes = json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -349,15 +443,17 @@ def execute_reviewed_run(
                 "run_id": run_id,
                 "event_key": event_key,
                 "scenario": BACKTEST_SCENARIO,
+                "backtest_engine_version": BACKTEST_ENGINE_VERSION,
                 "event_name": str(request.get("event_name") or ""),
                 "cohort_age_group": age_group,
                 "cohort_gender": gender,
                 "source_capture_generation": str(request.get("source_capture_generation") or ""),
+                "merge_map_version": str(merge_map_version),
                 "started_at": started_at,
                 "ended_at": None,
                 "state": "running",
                 "predictor_source": "point_in_time",
-                "probability_strategy": "poisson_draw_gate",
+                "probability_strategy": BACKTEST_PROBABILITY_STRATEGY,
                 "model_artifact": str(artifact),
                 "model_artifact_sha256": _sha256_file(artifact),
                 "request_sha256": _sha256_bytes(request_bytes),
@@ -381,16 +477,21 @@ def execute_reviewed_run(
         except BaseException as exc:
             if process is not None:
                 _terminate_process(process)
-            outcome = _finalize_failure(
+            if not isinstance(exc, Exception):
+                _finalize_cancellation(
+                    event_key,
+                    run_id,
+                    staging_dir,
+                    base_dir=base_dir,
+                )
+                raise
+            return _finalize_failure(
                 event_key,
                 run_id,
                 staging_dir,
                 f"Could not run historical backtest: {exc!r}",
                 base_dir=base_dir,
             )
-            if not isinstance(exc, Exception):
-                raise
-            return outcome
         assert process is not None
         if process.returncode != 0:
             tail = "\n".join(stderr_lines[-20:])
@@ -456,6 +557,43 @@ def list_reviewed_runs(
                 gender=str(metadata.get("cohort_gender") or ""),
                 event_name=str(metadata.get("event_name") or ""),
                 ended_at=str(metadata.get("ended_at") or ""),
+            )
+        )
+    return tuple(sorted(records, key=lambda item: (item.ended_at, item.run_id), reverse=True))
+
+
+def list_failed_reviewed_runs(
+    event_key: str,
+    *,
+    base_dir: Path | str = "reports",
+) -> tuple[ReviewedRunRecord, ...]:
+    """List retained failed attempts so event coverage does not hide failures."""
+
+    runs_root = run_dir(
+        event_key,
+        BACKTEST_SCENARIO,
+        "placeholder",
+        base_dir=base_dir,
+    ).parent
+    records: list[ReviewedRunRecord] = []
+    if not runs_root.is_dir():
+        return ()
+    for path in runs_root.glob("*.failed"):
+        try:
+            metadata = read_json(path / "run_metadata.json")
+            error_payload = read_json(path / "error.json")
+        except (OSError, ValueError, TypeError):
+            continue
+        records.append(
+            ReviewedRunRecord(
+                run_id=path.name.removesuffix(".failed"),
+                run_dir=path,
+                age_group=str(metadata.get("cohort_age_group") or ""),
+                gender=str(metadata.get("cohort_gender") or ""),
+                event_name=str(metadata.get("event_name") or ""),
+                ended_at=str(metadata.get("ended_at") or error_payload.get("failed_at") or ""),
+                state="failed",
+                error=str(error_payload.get("error") or "The run failed"),
             )
         )
     return tuple(sorted(records, key=lambda item: (item.ended_at, item.run_id), reverse=True))

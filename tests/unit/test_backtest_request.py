@@ -3,12 +3,22 @@ from dataclasses import replace
 import pytest
 
 from scripts.backtest_reviewed_intake import _embedded_links
-from src.tournaments.backtest_intake_state import BacktestSnapshot, DivisionReview, structure_hash
+from src.tournaments.backtest_intake_state import (
+    BacktestSnapshot,
+    DivisionReview,
+    EventTiebreakDecision,
+    structure_hash,
+)
 from src.tournaments.backtest_link_store import CollisionAcknowledgement, EventLinks, TeamLink
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
 from src.tournaments.gotsport_event_roster import EventRoster, EventRosterTeam
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+)
 
 
 def _snapshot() -> BacktestSnapshot:
@@ -71,7 +81,19 @@ def _snapshot() -> BacktestSnapshot:
         checked=True,
         format_code="ROUND_ROBIN",
     )
-    return BacktestSnapshot(roster, resolved, "generation-1", "2026-09-11T00:00:00+00:00", reviews=(review,))
+    return BacktestSnapshot(
+        roster,
+        resolved,
+        "generation-1",
+        "2026-09-11T00:00:00+00:00",
+        reviews=(review,),
+        tiebreak_decision=EventTiebreakDecision(
+            ("points", "goal_differential", "goals_for", "wins"),
+            "Verified in the published event rules",
+            "https://example.test/tiebreaks",
+            STANDARD_SCORING_POLICY,
+        ),
+    )
 
 
 def _links(*, second_team_id: str = "canonical-b", second_method: str = "gotsport_id") -> EventLinks:
@@ -90,22 +112,80 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     assert request["age_group"] == "u14"
     assert request["assignment_policy"] == "competitive_balance_only"
     assert "constraints" not in request
-    assert request["divisions"] == [
-        {
-            "name": "group-1",
-            "actual_division_name": "Gold",
-            "group_id": "group-1",
-            "team_count": 2,
-            "pool_sizes": [2],
-            "advancement": "ROUND_ROBIN",
-            "playoff_format": "none",
-            "captured_fixture_count": 1,
-        }
+    division = request["divisions"][0]
+    assert division["name"] == "group-1"
+    assert division["actual_division_name"] == "Gold"
+    assert division["team_count"] == 2
+    assert division["pool_sizes"] == [2]
+    assert division["pool_names"] == ["Bracket A"]
+    assert division["advancement"] == "CAPTURED_GRAPH"
+    assert division["playoff_format"] == "captured_fixture_graph"
+    assert division["captured_fixture_count"] == 1
+    assert len(division["captured_schedule"]["fixture_slots"]) == 1
+    assert division["captured_schedule"]["fixture_slots"][0]["home"]["kind"] == "pool_slot"
+    assert division["captured_schedule"]["tiebreak_order"] == [
+        "points",
+        "goal_differential",
+        "goals_for",
+        "wins",
     ]
+    assert division["captured_schedule"]["tiebreak_source_urls"][0] == (
+        "https://example.test/tiebreaks"
+    )
+    assert division["captured_schedule"]["scoring_policy"] == STANDARD_SCORING_POLICY
+    assert division["captured_schedule"]["three_team_head_to_head"] is False
     assert {entrant["actual_pool_name"] for entrant in request["entrants"]} == {"Bracket A"}
     assert {entrant["actual_division_key"] for entrant in request["entrants"]} == {"group-1"}
     assert {entrant["actual_pool_key"] for entrant in request["entrants"]} == {"group-1:pool-a"}
     assert request["actual_games_override"][0]["home_team_master_id"] == "canonical-a"
+
+
+def test_build_request_requires_a_sourced_event_tiebreak_decision():
+    with pytest.raises(BacktestRequestError, match="published tiebreak order"):
+        build_cohort_backtest_requests(
+            replace(_snapshot(), tiebreak_decision=None),
+            event_links=_links(),
+        )
+
+
+def test_build_request_requires_a_verified_supported_scoring_policy():
+    legacy_decision = replace(_snapshot().tiebreak_decision, scoring_policy="")
+
+    with pytest.raises(BacktestRequestError, match="published points and standings modifiers"):
+        build_cohort_backtest_requests(
+            replace(_snapshot(), tiebreak_decision=legacy_decision),
+            event_links=_links(),
+        )
+
+
+def test_build_request_preserves_supported_tiger_tournament_rules():
+    tiger_decision = EventTiebreakDecision(
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        "Published Tiger Tournaments rules",
+        "https://tigertournaments.com/resources-2/",
+        TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    snapshot = _snapshot()
+    division = snapshot.roster.divisions[0]
+    crossover_pool = replace(division.pools[0], label="Cross-Bracket A")
+    division = replace(division, pools=(crossover_pool,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+        tiebreak_decision=tiger_decision,
+    )
+
+    request = build_cohort_backtest_requests(
+        snapshot,
+        event_links=_links(),
+    )[0]
+
+    schedule = request["divisions"][0]["captured_schedule"]
+    assert schedule["tiebreak_order"] == list(TIGER_TOURNAMENTS_TIEBREAK_ORDER)
+    assert schedule["scoring_policy"] == TIGER_TOURNAMENTS_SCORING_POLICY
+    assert schedule["three_team_head_to_head"] is True
 
 
 def test_build_request_can_select_one_reviewed_cohort():
@@ -142,6 +222,66 @@ def test_build_request_deduplicates_repeated_identified_fixture_rows():
     assert len(request["actual_games_override"]) == 1
 
 
+def test_build_request_rejects_conflicting_duplicate_fixture_evidence():
+    snapshot = _snapshot()
+    conflicting = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        away_registration_id="reg-other",
+        away_label="Other team",
+    )
+    division = replace(
+        snapshot.roster.divisions[0],
+        fixtures=(snapshot.roster.divisions[0].fixtures[0], conflicting),
+    )
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    with pytest.raises(BacktestRequestError, match="unsafe fixture evidence"):
+        build_cohort_backtest_requests(snapshot, event_links=_links())
+
+
+def test_build_request_rejects_fixture_without_a_stable_game_identity():
+    snapshot = _snapshot()
+    unidentified = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        match_number="",
+        source_url="https://example.test/group/1",
+    )
+    division = replace(snapshot.roster.divisions[0], fixtures=(unidentified,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    with pytest.raises(BacktestRequestError, match="missing_identity"):
+        build_cohort_backtest_requests(snapshot, event_links=_links())
+
+
+def test_build_request_keeps_unnumbered_fixture_with_provider_match_identity():
+    snapshot = _snapshot()
+    identified = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        match_number="",
+        source_url="https://example.test/schedule?match=9001",
+    )
+    division = replace(snapshot.roster.divisions[0], fixtures=(identified,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["captured_schedule"]["fixture_slots"][0][
+        "match_number"
+    ] == ""
+
+
 def test_build_request_uses_group_id_when_division_label_is_blank():
     snapshot = _snapshot()
     division = replace(snapshot.roster.divisions[0], division_label="")
@@ -173,6 +313,9 @@ def test_build_request_keeps_excluded_fixture_for_format_but_not_results():
     request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
 
     assert request["divisions"][0]["captured_fixture_count"] == 1
+    slot = request["divisions"][0]["captured_schedule"]["fixture_slots"][0]
+    assert slot["include_in_projection"] is False
+    assert slot["counts_for_standings"] is False
     assert request["actual_games_override"] == []
 
 
@@ -227,12 +370,13 @@ def test_build_request_canonicalizes_saved_links_after_team_merge():
     assert request["actual_games_override"][0]["home_team_master_id"] == "survivor-a"
 
 
-def test_build_request_blocks_unreviewed_format():
+def test_build_request_infers_an_unambiguous_replay_format():
     snapshot = _snapshot()
     snapshot = replace(snapshot, reviews=(replace(snapshot.reviews[0], format_code=""),))
 
-    with pytest.raises(BacktestRequestError, match="verified replay format"):
-        build_cohort_backtest_requests(snapshot, event_links=_links())
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["advancement"] == "CAPTURED_GRAPH"
 
 
 def test_build_request_requires_normalized_event_start_date():
@@ -337,13 +481,12 @@ def test_build_request_validates_duplicate_mapping_across_cohorts():
 
     with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
         build_cohort_backtest_requests(snapshot, event_links=links)
-    requests = build_cohort_backtest_requests(
-        snapshot,
-        event_links=links,
-        cohort_filter={("u14", "Male")},
-    )
-    assert len(requests) == 1
-    assert requests[0]["age_group"] == "u14"
+    with pytest.raises(BacktestRequestError, match="without an acknowledgement"):
+        build_cohort_backtest_requests(
+            snapshot,
+            event_links=links,
+            cohort_filter={("u14", "Male")},
+        )
 
 
 def test_build_request_rejects_repeated_registration_within_cohort():
@@ -452,7 +595,7 @@ def test_downloaded_intake_restores_embedded_link_decisions():
     assert links.removed_registration_ids == ("reg-b",)
 
 
-def test_build_request_rejects_unconfirmed_and_not_found_decisions():
+def test_build_request_rejects_unconfirmed_and_keeps_reviewed_not_found_entrant():
     with pytest.raises(BacktestRequestError, match="unconfirmed exact_name"):
         build_cohort_backtest_requests(
             _snapshot(),
@@ -464,8 +607,11 @@ def test_build_request_rejects_unconfirmed_and_not_found_decisions():
         links=(_links().links[0],),
         not_found_registration_ids=("reg-b",),
     )
-    with pytest.raises(BacktestRequestError, match="marked not found"):
-        build_cohort_backtest_requests(_snapshot(), event_links=not_found)
+    request = build_cohort_backtest_requests(_snapshot(), event_links=not_found)[0]
+    bravo = next(item for item in request["entrants"] if item["registration_id"] == "reg-b")
+    assert bravo["canonical_team_id"] == "not-found:51783:reg-b"
+    assert bravo["ranking_source_team_id"] == ""
+    assert bravo["rating_fallback"] == "division_then_cohort_average_estimate"
 
 
 def test_build_request_preserves_combined_tournament_cohort():

@@ -15,9 +15,9 @@ from src.tournaments.backtest_intake_state import (
     CaptureVerification,
     CohortDecision,
     DivisionReview,
+    EventTiebreakDecision,
     read_snapshot,
     structure_hash,
-    write_snapshot,
 )
 from src.tournaments.backtest_intake_ui import (
     _preserve_review_state_after_capture,
@@ -31,7 +31,13 @@ from src.tournaments.backtest_link_store import (
     load_links,
     update_links,
 )
+from src.tournaments.backtest_reviewed_run import BACKTEST_ENGINE_VERSION
 from src.tournaments.gotsport_event_structure import Pool, PoolMember
+from src.tournaments.schedule_simulator import (
+    STANDARD_SCORING_POLICY,
+    TIGER_TOURNAMENTS_SCORING_POLICY,
+    TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+)
 from tests.unit.test_backtest_intake_state import sample_snapshot
 
 
@@ -68,7 +74,9 @@ def test_direct_apptest_restores_process_entrypoint_and_streamlit_globals():
     original_runtime = Runtime._instance
     original_secrets = st.secrets
 
-    test = AppTest.from_string("import streamlit as st\nst.write('isolated')").run()
+    test = AppTest.from_string(
+        "import streamlit as st\nst.write('isolated')", default_timeout=10
+    ).run()
 
     assert not test.exception
     assert sys.modules["__main__"] is original_main
@@ -168,7 +176,28 @@ def test_distinct_registrations_sharing_a_canonical_team_require_explicit_acknow
     assert [row["Status"] for row in match_table(snapshot, confirmed, details)[:2]] == ["Matched", "Matched"]
 
 
-def test_not_found_is_reviewed_but_remains_a_matching_gap():
+def test_out_of_scope_registration_does_not_create_an_in_scope_collision():
+    snapshot = sample_snapshot()
+    scoped = replace(
+        snapshot,
+        roster=replace(snapshot.roster, teams=(snapshot.roster.teams[0],)),
+        resolved=(snapshot.resolved[0],),
+    )
+    links = EventLinks(
+        event_id="51783",
+        links=(
+            TeamLink("100", "Alpha", "canonical-a", "gotsport_id", "now"),
+            TeamLink("out-of-scope", "Youth Alpha", "canonical-a", "gotsport_id", "now"),
+        ),
+    )
+
+    rows = match_table(scoped, links, {"canonical-a": {"team_name": "Canonical A"}})
+
+    assert rows[0]["Status"] == "Matched"
+    assert rows[0]["Match issue"] == ""
+
+
+def test_not_found_is_a_completed_review_with_no_pitchrank_id():
     snapshot = sample_snapshot()
     links = EventLinks(event_id="51783", not_found_registration_ids=("101",))
     rows = match_table(snapshot, links, {})
@@ -191,11 +220,71 @@ def test_an_invalid_cohort_draft_keeps_the_last_saved_correction(monkeypatch):
     assert ui._current_cohort_decisions(snapshot) == (decision,)
 
 
-def test_targeted_capture_carries_reviews_and_cohort_decisions():
+def test_unsupported_scoring_draft_blocks_a_previously_saved_rule(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    saved = EventTiebreakDecision(
+        ("points", "goal_differential"),
+        "Published source",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved)
+    draft = {
+        "mode": "Points → goal differential → goals scored → wins",
+        "custom_order": "points, goal differential",
+        "scoring_mode": "Other scoring or standings modifiers",
+        "note": saved.note,
+        "source_url": saved.source_url,
+    }
+    monkeypatch.setattr(
+        ui,
+        "st",
+        SimpleNamespace(
+            session_state={f"bt_tiebreak_draft_{snapshot.generation}": draft}
+        ),
+    )
+
+    decision, error = ui._current_tiebreak_decision(snapshot)
+
+    assert decision is None
+    assert "cannot replay" in error
+
+
+def test_saved_tiger_tiebreak_draft_remains_runnable(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    saved = EventTiebreakDecision(
+        TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        "Verified from the organizer's published rules",
+        "https://tigertournaments.com/resources-2/",
+        TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved)
+    monkeypatch.setattr(ui, "st", SimpleNamespace(session_state={}))
+
+    decision, error = ui._current_tiebreak_decision(snapshot)
+
+    assert error == ""
+    assert decision == saved
+
+
+def test_targeted_capture_carries_reviews_cohorts_and_tiebreak_rules():
     original = sample_snapshot()
     review = DivisionReview("10", structure_hash(original.roster.divisions[0]), "Checked", True)
     decision = CohortDecision("10", "u12", "Male", "Published source", "https://example.test")
-    original = replace(original, reviews=(review,), cohort_decisions=(decision,))
+    tiebreak = EventTiebreakDecision(
+        ("points", "goal_differential"),
+        "Published source",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
+    )
+    original = replace(
+        original,
+        reviews=(review,),
+        cohort_decisions=(decision,),
+        tiebreak_decision=tiebreak,
+    )
     current = replace(sample_snapshot(generation="targeted"), reviews=(), cohort_decisions=())
     verification = CaptureVerification(("10", "20"), (2, 2), "now", True)
 
@@ -203,6 +292,7 @@ def test_targeted_capture_carries_reviews_and_cohort_decisions():
 
     assert carried.reviews == (review,)
     assert carried.cohort_decisions == (decision,)
+    assert carried.tiebreak_decision == tiebreak
     assert carried.verification == verification
 
 
@@ -280,6 +370,40 @@ def _render_fixture_app():
     render_intake(ReadOnlyTeams())
 
 
+def _render_failed_rollup_app():
+    from pathlib import Path
+
+    from src.tournaments.backtest_intake_ui import _render_event_rollup
+    from src.tournaments.backtest_reviewed_run import ReviewedCohortReadiness
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    _render_event_rollup(
+        sample_snapshot(),
+        [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
+        "gotsport__51783__2025",
+        Path("."),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+
+def _render_unvalidated_rollup_app():
+    from pathlib import Path
+
+    from src.tournaments.backtest_intake_ui import _render_event_rollup
+    from src.tournaments.backtest_reviewed_run import ReviewedCohortReadiness
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    _render_event_rollup(
+        sample_snapshot(),
+        [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
+        "gotsport__51783__2025",
+        Path("."),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+
 @pytest.fixture
 def rendered_intake(tmp_path, monkeypatch):
     import tournament_intake as app
@@ -299,18 +423,21 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert any("Spring Invitational" in item.value for item in test.markdown)
     metrics = {item.label: item.value for item in test.metric}
     assert {label: metrics[label] for label in (
-        "Total teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
+        "U10-U18 teams", "Divisions", "Pools", "Fixtures", "Games counted", "Average goal margin",
         "Total goal margin", "Blowout games (4+ goals)", "Blowout rate",
     )} == {
-        "Total teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
+        "U10-U18 teams": "3", "Divisions": "2", "Pools": "2", "Fixtures": "1",
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
     assert metrics["Capture verification"] == "Needs review"
-    assert metrics["Team matching"] == "1 / 3"
+    assert metrics["Team review"] == "1 / 3"
     overview_labels = {button.label for button in test.button}
-    assert "Run selected cohort" in overview_labels
-    assert "Run all ready cohorts (0)" in overview_labels
+    assert "Run selected cohort" not in overview_labels
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
+    run_labels = {button.label for button in test.button}
+    assert "Run selected cohort" in run_labels
+    assert "Run all ready cohorts (0)" in run_labels
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
     test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     tables = [item.value for item in test.dataframe]
@@ -323,9 +450,17 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert test.session_state["_seeding_result"] == "seeding-must-survive"
 
 
-def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monkeypatch):
+def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, monkeypatch):
+    import hashlib
+
     import tournament_intake as app
     from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_historical_preflight import (
+        HistoricalCohortCheck,
+        HistoricalEntrantCheck,
+        HistoricalPreflight,
+        preflight_input_sha256,
+    )
     from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
     from src.tournaments.backtest_link_store import update_links
     from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
@@ -335,6 +470,10 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     event_key = "gotsport__51783__2025"
     artifact = tmp_path / "historical-model.pkl"
     artifact.write_bytes(b"model")
+    artifact.with_name("historical-model_metadata.json").write_text(
+        json.dumps({"probability_strategy": "poisson_draw_gate"}),
+        encoding="utf-8",
+    )
     snapshot = replace(
         _snapshot(),
         verification=CaptureVerification(
@@ -353,7 +492,15 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     )
     calls = []
 
-    def fake_execute(event_key_value, request, *, model_artifact, base_dir, on_progress):
+    def fake_execute(
+        event_key_value,
+        request,
+        *,
+        model_artifact,
+        merge_map_version,
+        base_dir,
+        on_progress,
+    ):
         calls.append((event_key_value, request["age_group"], str(model_artifact)))
         run_path = (
             Path(base_dir)
@@ -365,13 +512,28 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
         )
         run_path.mkdir(parents=True)
         metadata = {
+            "backtest_engine_version": BACKTEST_ENGINE_VERSION,
             "cohort_age_group": "u14",
             "cohort_gender": "Male",
             "event_name": "Spring Cup",
             "ended_at": "2026-09-12T01:00:00+00:00",
+            "source_capture_generation": snapshot.generation,
+            "request_sha256": hashlib.sha256(
+                json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+            "model_artifact_sha256": ui.model_artifact_sha256(model_artifact),
+            "merge_map_version": merge_map_version,
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
-        (run_path / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
+        summary = _summary()
+        summary["original_model_projection"]["average_goal_differential"] = 1.0
+        summary["original_model_projection"]["blowout_4plus_probability"] = 0.0
+        summary["original_schedule_projection"] = {
+            **summary["original_model_projection"],
+            "average_goal_differential": 1.0,
+            "blowout_4plus_probability": 0.0,
+        }
+        (run_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
         (run_path / "comparison.html").write_text("<html>report</html>", encoding="utf-8")
         (run_path / "done.json").write_text("{}", encoding="utf-8")
         return ReviewedRunOutcome("completed", run_path)
@@ -385,11 +547,53 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     )
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
     monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", str(artifact))
+
+    def fake_preflight(requests, _client, *, model_artifact):
+        request_list = list(requests)
+        entrants = tuple(
+            HistoricalEntrantCheck(
+                entrant["entrant_id"],
+                entrant["event_team_name"],
+                entrant["canonical_team_id"],
+                entrant["ranking_source_team_id"],
+                True,
+                snapshot_date="2025-05-09",
+                source_age_group="u14",
+                source_gender="Male",
+                power_score=0.5,
+            )
+            for entrant in request_list[0]["entrants"]
+        )
+        return HistoricalPreflight(
+            preflight_input_sha256(
+                request_list,
+                model_artifact,
+                merge_map_version="ok",
+            ),
+            "2026-09-12T00:00:00+00:00",
+            "2025-05-10",
+            ui.model_artifact_sha256(model_artifact),
+            "2025-05-09",
+            "merge-v1",
+            (HistoricalCohortCheck("u14", "Male", len(entrants), len(entrants), entrants),),
+        )
+
+    monkeypatch.setattr(ui, "run_historical_preflight", fake_preflight)
     test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
     test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
     test.run()
 
     assert not test.exception, [error.message for error in test.exception]
+    test.radio(key="bt_section_generation-1").set_value("Backtest").run()
+    assert any(item.label == "Advanced model settings" for item in test.expander)
+    assert any(item.label == "Historical model artifact override" for item in test.text_input)
+    readiness_table = next(
+        item.value for item in test.dataframe if {"Check", "Owner", "Action"}.issubset(item.value.columns)
+    )
+    model_row = readiness_table.loc[readiness_table["Check"] == "Historical model"].iloc[0]
+    assert model_row["Action"] == "Eligible pre-event model selected"
+    assert str(artifact.resolve()) not in readiness_table["Action"].tolist()
+    next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
     run_button.click().run()
@@ -400,13 +604,148 @@ def test_ready_saved_cohort_runs_and_renders_original_vs_proposed(tmp_path, monk
     assert metrics["Observed games"] == "1"
     assert metrics["Observed average margin"] == "1.00"
     comparison = next(
-        item.value for item in test.dataframe if "MatchBalance model" in item.value.columns
+        item.value for item in test.dataframe if "MatchBalance projection" in item.value.columns
     )
-    assert comparison["Metric"].tolist()[0] == "Average expected goal margin"
+    assert comparison["Metric"].tolist()[0] == "Average goal margin"
+    assert comparison["Actual tournament"].tolist()[0] == "1.00"
+    assert comparison["MatchBalance projection"].tolist()[0] == "1.50"
+    assert comparison["Estimated reduction"].tolist()[0] == "0.50 higher"
     movements = next(
         item.value for item in test.dataframe if "MatchBalance division" in item.value.columns
     )
     assert movements["Decision"].tolist() == ["Stayed"]
+    assert metrics["Cohorts completed"] == "1"
+    assert metrics["Division unchanged"] == "1"
+    assert metrics["Pool changed within division"] == "0"
+
+
+def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+
+    from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_reviewed_run import ReviewedRunRecord
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    request = {"age_group": "u12"}
+    failed_dir = tmp_path / "u12_male_failed.failed"
+    failed_dir.mkdir()
+    (failed_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "backtest_engine_version": BACKTEST_ENGINE_VERSION,
+                "source_capture_generation": sample_snapshot().generation,
+                "request_sha256": hashlib.sha256(
+                    json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+                "model_artifact_sha256": "model-sha",
+                "merge_map_version": "merge-v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    failed = ReviewedRunRecord(
+        "u12_male_failed",
+        failed_dir,
+        "u12",
+        "Male",
+        "Spring Invitational",
+        "2026-09-13T08:00:00+00:00",
+        "failed",
+        "Historical rating lookup timed out",
+    )
+    monkeypatch.setattr(ui, "list_reviewed_runs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(ui, "list_failed_reviewed_runs", lambda *_args, **_kwargs: (failed,))
+
+    test = AppTest.from_function(_render_failed_rollup_app, default_timeout=10).run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    metrics = {item.label: item.value for item in test.metric}
+    assert metrics["Cohorts completed"] == "0"
+    assert metrics["Failed"] == "1"
+    coverage = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert coverage["Status"].tolist() == ["Failed"]
+    assert coverage["What remains"].tolist() == ["Historical rating lookup timed out"]
+    assert any("No compatible cohort results exist yet" in item.value for item in test.info)
+
+
+def test_event_placements_stay_hidden_until_event_comparison_is_validated(monkeypatch):
+    from src.tournaments import backtest_intake_ui as ui
+
+    rollup = {
+        "selected_runs": ["run-1"],
+        "coverage": {
+            "completed": 1,
+            "failed": 0,
+            "awaiting_matches": 0,
+            "awaiting_review": 0,
+            "awaiting_history": 0,
+            "ready": 1,
+            "rows": [
+                {
+                    "gender": "Male",
+                    "age_group": "u12",
+                    "team_count": 2,
+                    "status": "completed",
+                    "what_remains": "",
+                }
+            ],
+        },
+        "actual_vs_matchbalance": {
+            "scope_note": "Completed compatible cohorts",
+            "comparison_ready": False,
+            "actual_average_goal_margin": 2.0,
+            "matchbalance_projected_average_goal_margin": None,
+            "estimated_goal_margin_reduction": None,
+            "actual_blowout_4plus_rate": 0.25,
+            "matchbalance_projected_blowout_4plus_rate": None,
+            "estimated_blowout_4plus_rate_reduction": None,
+        },
+        "team_movements": {
+            "moved_up": 1,
+            "moved_down": 0,
+            "unchanged": 1,
+            "pool_changed_within_division": 1,
+            "rows": [
+                {
+                    "event_team_name": "Alpha",
+                    "gender": "Male",
+                    "age_group": "u12",
+                    "actual_division": "Silver",
+                    "recommended_division": "Gold",
+                    "actual_pool": "A",
+                    "recommended_pool": "B",
+                    "move": "up",
+                }
+            ],
+        },
+        "model_validation": {
+            "event_validation": {
+                "status": "failed",
+                "actual_scored_game_count": 1,
+                "fixture_count_coverage": 1.0,
+            }
+        },
+    }
+    monkeypatch.setattr(ui, "list_reviewed_runs", lambda *_args, **_kwargs: (object(),))
+    monkeypatch.setattr(ui, "list_failed_reviewed_runs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(ui, "build_event_rollup", lambda *_args, **_kwargs: rollup)
+    monkeypatch.setattr(ui, "event_rollup_export", lambda _rollup: b"report")
+
+    test = AppTest.from_function(_render_unvalidated_rollup_app, default_timeout=10).run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    metric_labels = {item.label for item in test.metric}
+    assert "Teams moved up" not in metric_labels
+    assert not any(
+        "MatchBalance division" in item.value.columns for item in test.dataframe
+    )
+    assert any(
+        "placement recommendations remain hidden" in item.value.lower()
+        for item in test.caption
+    )
 
 
 def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
@@ -442,9 +781,16 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
 
     errors = []
     reruns = []
+    button_labels = []
+
+    def button(label, *_args, **_kwargs):
+        button_labels.append(label)
+        return False
+
     fake_st = SimpleNamespace(
         session_state={},
         status=lambda *_args, **_kwargs: Status(),
+        button=button,
         progress=lambda *_args, **_kwargs: Element(),
         empty=Element,
         error=errors.append,
@@ -462,11 +808,13 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         readiness,
         model_artifact="model.pkl",
+        merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
 
     assert calls == ["u12", "u13"]
     assert errors == ["U12 failed"]
+    assert button_labels == ["Stop current run", "Stop current run"]
     assert fake_st.session_state["bt_completed_run_gotsport__51783__2025"] == "u13-completed"
     assert reruns == []
 
@@ -499,7 +847,7 @@ def test_overview_keeps_unverified_complete_capture_in_remaining_work(tmp_path, 
 
     assert not test.exception, [error.message for error in test.exception]
     warnings = [item.value for item in test.warning]
-    assert any("Remaining work: capture verification" in item for item in warnings), warnings
+    assert any("Verify the published division list once" in item for item in warnings), warnings
     assert not any("fully captured, matched, and reviewed" in item.value for item in test.success)
 
 
@@ -523,7 +871,8 @@ def test_actual_results_weight_games_follow_entered_cohorts_and_survive_saved_re
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if kwargs.get("mime") == "application/json":
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     monkeypatch.setattr(ui.st, "download_button", record_download)
@@ -626,99 +975,92 @@ def test_streamlit_clear_stays_unresolved_after_rerender_and_can_be_saved(render
     assert saved.roster.event_name == "Spring Invitational"
 
 
-def test_structure_review_notes_and_check_survive_save_and_reload(rendered_intake):
-    test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.selectbox(key="bt_division_capture-one_10_format_code").select("ROUND_ROBIN").run()
-    test.text_area(key="bt_division_capture-one_10_notes").set_value("Top two advance; head-to-head first")
-    test.checkbox(key="bt_division_capture-one_10_checked").check()
-    test.button(key="bt_save_capture-one").click().run()
+def test_structure_is_supporting_detail_and_needs_no_manual_division_review(rendered_intake):
+    test, _ = rendered_intake
+
+    assert test.radio(key="bt_section_capture-one").options == ["Overview", "Teams", "Backtest"]
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+
     assert not test.exception, [error.message for error in test.exception]
-
-    loaded = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path)
-    review = next(item for item in loaded.reviews if item.group_id == "10")
-    assert review.checked is True
-    assert review.format_code == "ROUND_ROBIN"
-    assert review.notes == "Top two advance; head-to-head first"
+    assert any("Captured 2 divisions" in item.value for item in test.success)
+    assert not any(item.label == "Manual replay format" for item in test.selectbox)
+    assert not any("manual format" in item.label.lower() for item in test.checkbox)
 
 
-def test_refreshed_capture_loads_saved_review_work_before_rendering(rendered_intake):
+def test_optional_cohort_correction_survives_explicit_save(rendered_intake):
+    test, tmp_path = rendered_intake
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.text_input(key="bt_division_capture-one_10_cohort_age").set_value("U13").run()
+    test.text_input(key="bt_division_capture-one_10_cohort_note").set_value(
+        "Published bracket is U13"
+    ).run()
+    test.text_input(key="bt_division_capture-one_10_cohort_source_url").set_value(
+        "https://example.test/division/10"
+    ).run()
+    test.button(key="bt_save_capture-one").click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path)
+    decision = next(item for item in saved.cohort_decisions if item.group_id == "10")
+    assert decision.age_group == "u13"
+    assert decision.note == "Published bracket is U13"
+
+
+def test_event_tiebreak_draft_survives_navigation_and_explicit_save(rendered_intake):
+    test, tmp_path = rendered_intake
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.selectbox(key="bt_tiebreak_mode_capture-one").set_value(
+        "Points → goal differential → goals scored → wins"
+    ).run()
+    test.selectbox(key="bt_tiebreak_scoring_capture-one").set_value(
+        "Standard: 3 win / 1 draw / 0 loss; uncapped goal differential"
+    ).run()
+    test.text_input(key="bt_tiebreak_note_capture-one").set_value(
+        "Confirmed on the published event page"
+    ).run()
+    test.text_input(key="bt_tiebreak_source_capture-one").set_value(
+        "https://example.test/tiebreaks"
+    ).run()
+
+    test.radio(key="bt_section_capture-one").set_value("Teams").run()
+    test.radio(key="bt_section_capture-one").set_value("Overview").run()
+    test.button(key="bt_save_capture-one").click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    decision = read_snapshot(
+        "gotsport__51783__unknown", base_dir=tmp_path
+    ).tiebreak_decision
+    assert decision == EventTiebreakDecision(
+        ("points", "goal_differential", "goals_for", "wins"),
+        "Confirmed on the published event page",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
+    )
+
+
+def test_unsaved_tiebreak_edit_blocks_backtest_from_using_the_saved_rule(rendered_intake):
     import tournament_intake as app
+    from src.tournaments.backtest_intake_state import write_snapshot
 
     test, tmp_path = rendered_intake
-    snapshot = sample_snapshot()
-    review = DivisionReview(
-        "10", structure_hash(snapshot.roster.divisions[0]), "Two advance", checked=True, format_code="ROUND_ROBIN"
+    saved_rule = EventTiebreakDecision(
+        ("points", "goal_differential", "goals_for", "wins"),
+        "Published source",
+        "https://example.test/tiebreaks",
+        STANDARD_SCORING_POLICY,
     )
-    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-    refreshed = replace(snapshot, generation="fresh-capture")
-    test.session_state[app._BACKTEST_KEYS.snapshot] = refreshed
-
+    snapshot = replace(sample_snapshot(), tiebreak_decision=saved_rule)
+    write_snapshot("gotsport__51783__unknown", snapshot, base_dir=tmp_path)
+    test.session_state[app._BACKTEST_KEYS.snapshot] = snapshot
     test.run()
-    test.radio(key="bt_section_fresh-capture").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_fresh-capture").set_value("All divisions").run()
 
-    assert not test.exception, [error.message for error in test.exception]
-    assert test.text_area(key="bt_division_fresh-capture_10_notes").value == "Two advance"
-    assert test.checkbox(key="bt_division_fresh-capture_10_checked").value is True
-    test.button(key="bt_save_fresh-capture").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
+    test.checkbox(key="bt_show_structure_capture-one").check().run()
+    test.selectbox(key="bt_tiebreak_mode_capture-one").set_value("Not verified").run()
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
 
-
-def test_stale_form_preserves_new_notes_and_refreshes_widgets_after_save(rendered_intake):
-    test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    snapshot = sample_snapshot()
-    review = DivisionReview(
-        "10",
-        structure_hash(snapshot.roster.divisions[0]),
-        "Saved in another session",
-        checked=True,
-        format_code="ROUND_ROBIN",
-    )
-    write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-
-    # This form was opened before the other session saved. Its unchanged blanks
-    # must not be mistaken for a request to erase that newer work.
-    test.button(key="bt_save_capture-one").click().run()
-
-    assert not test.exception, [error.message for error in test.exception]
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
-    assert test.checkbox(key="bt_division_capture-one_10_1_checked").value is True
-    assert read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0] == review
-
-    # After seeing the actual merged result, an intentional clear remains valid.
-    test.text_area(key="bt_division_capture-one_10_1_notes").set_value("")
-    test.checkbox(key="bt_division_capture-one_10_1_checked").uncheck()
-    test.button(key="bt_save_capture-one").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    saved = read_snapshot("gotsport__51783__unknown", base_dir=tmp_path).reviews[0]
-    assert saved.notes == ""
-    assert saved.checked is False
-
-
-def test_conflicting_review_save_keeps_disk_and_can_reload_latest_notes(rendered_intake):
-    test, tmp_path = rendered_intake
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    snapshot = sample_snapshot()
-    review = DivisionReview("10", structure_hash(snapshot.roster.divisions[0]), "Other session's notes")
-    path = write_snapshot("gotsport__51783__unknown", replace(snapshot, reviews=(review,)), base_dir=tmp_path)
-    before = path.read_bytes()
-    test.text_area(key="bt_division_capture-one_10_notes").set_value("My competing notes")
-
-    test.button(key="bt_save_capture-one").click().run()
-
-    assert not test.exception, [error.message for error in test.exception]
-    assert any("changed in another session" in error.value for error in test.error)
-    assert path.read_bytes() == before
-    assert test.text_area(key="bt_division_capture-one_10_notes").value == "My competing notes"
-    test.button(key="_backtest_open_saved").click().run()
-    assert not test.exception, [error.message for error in test.exception]
-    test.radio(key="bt_section_capture-one").set_value("Structure").run()
-    test.radio(key="bt_structure_filter_capture-one").set_value("All divisions").run()
-    assert test.text_area(key="bt_division_capture-one_10_1_notes").value == review.notes
+    readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert readiness["What remains"].str.contains("Save the current review").all()
+    assert next(button for button in test.button if button.label == "Run selected cohort").disabled
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):
@@ -766,9 +1108,10 @@ def test_sync_coalesces_same_registration_after_canonical_merge_resolution(tmp_p
     ))
     client = ReadOnlyTeams()
 
-    links, details, conflicts = _sync_matches(snapshot, client, tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(snapshot, client, tmp_path)
 
     assert conflicts == {}
+    assert merge_map_version == "ok"
     assert len(links.links) == 1
     assert links.links[0].registration_id == "100"
     assert links.links[0].team_id_master == "canonical-a"
@@ -792,10 +1135,13 @@ def test_conflicting_automatic_ids_never_choose_a_team_or_discard_operator_decis
         update_links("gotsport__51783__unknown", event_id="51783", base_dir=tmp_path,
                      changed_links=(TeamLink("100", "Alpha", "saved-choice", saved_method, "now"),))
 
-    links, details, conflicts = _sync_matches(snapshot, ReadOnlyTeams(), tmp_path)
+    links, details, conflicts, merge_map_version = _sync_matches(
+        snapshot, ReadOnlyTeams(), tmp_path
+    )
     rows = match_table(snapshot, links, details, conflicts=conflicts)
 
     assert conflicts == {"100": ("canonical-a", "canonical-other")}
+    assert merge_map_version == "ok"
     assert links.removed_registration_ids == ()
     assert [link.team_id_master for link in links.links] == (["saved-choice"] if saved_method else [])
     assert [row["Status"] for row in rows if row["Registration ID"] == "100"] == (
@@ -868,7 +1214,8 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     real_download = ui.st.download_button
 
     def record_download(label, data, **kwargs):
-        exported.append(json.loads(data))
+        if isinstance(data, str):
+            exported.append(json.loads(data))
         return real_download(label, data, **kwargs)
 
     def unavailable(*args, **kwargs):
@@ -880,13 +1227,13 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
     else:
         monkeypatch.setattr(ReadOnlyTeams.Query, "execute", unavailable)
     test.run()
+    test.radio(key="bt_section_capture-one").set_value("Backtest").run()
 
     readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
     assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
     assert next(button for button in test.button if button.label == "Run selected cohort").disabled
     metrics = {item.label: item.value for item in test.metric}
-    assert metrics["Team matching"] == "Unavailable"
-    assert any("team matching availability" in item.value for item in test.warning)
+    assert metrics["Team review"] == "Unavailable"
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
 
     assert not test.exception, [error.message for error in test.exception]

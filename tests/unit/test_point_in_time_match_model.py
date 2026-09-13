@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import pandas as pd
 
@@ -48,6 +50,38 @@ def _snapshot(snapshot_date: str, team_id: str, age_group: str = "14", gender: s
     }
     base.update(overrides)
     return base
+
+
+def test_model_artifact_round_trip_preserves_backtest_projection_calibration(tmp_path):
+    model = PointInTimeMatchModel(model_dir=str(tmp_path))
+    model.classifier = {"fixture": True}
+    model.feature_names = []
+    model.class_labels = [0, 1, 2]
+    calibration = {
+        "version": "chronological_holdout_rate_scale_v1",
+        "source": "chronological_pre_event_holdout",
+        "margin_absolute_scale": 2.1,
+        "blowout_probability_scales": {"3": 1.8, "4": 2.9, "5": 1.9},
+        "examples": 792,
+    }
+    model.backtest_projection_calibration = calibration
+    model.training_metadata = {"backtest_projection_calibration": calibration}
+
+    paths = model.save("fixture")
+    loaded = PointInTimeMatchModel.load(paths["pickle_path"])
+
+    assert loaded.backtest_projection_calibration == calibration
+
+    legacy_path = tmp_path / "fixture-legacy.pkl"
+    with open(paths["pickle_path"], "rb") as handle:
+        legacy_payload = pickle.load(handle)
+    legacy_payload.pop("backtest_projection_calibration")
+    with legacy_path.open("wb") as handle:
+        pickle.dump(legacy_payload, handle)
+
+    legacy_loaded = PointInTimeMatchModel.load(str(legacy_path))
+
+    assert legacy_loaded.backtest_projection_calibration == calibration
 
 
 def test_build_point_in_time_dataset_is_chronological_and_mirrored():
@@ -353,6 +387,7 @@ def test_score_matrix_summary_tracks_blowout_risk_for_lopsided_matchups():
     )
 
     assert lopsided_summary["blowout_3plus_probability"][0] > balanced_summary["blowout_3plus_probability"][0]
+    assert lopsided_summary["blowout_4plus_probability"][0] > balanced_summary["blowout_4plus_probability"][0]
     assert lopsided_summary["blowout_5plus_probability"][0] > balanced_summary["blowout_5plus_probability"][0]
 
 

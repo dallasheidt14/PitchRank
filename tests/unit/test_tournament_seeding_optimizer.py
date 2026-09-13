@@ -3,6 +3,7 @@ import math
 import pytest
 
 from src.tournaments.seeding_optimizer import (
+    POOL_POLICY_BALANCED_STRENGTH,
     DivisionSpec,
     FlightSpec,
     MatchupCost,
@@ -73,6 +74,50 @@ def test_optimize_tournament_format_assigns_divisions_and_pools():
     assert sum(len(pool.teams) for pool in gold.pools) == 4
     assert sum(len(pool.teams) for pool in silver.pools) == 4
     assert gold.advancement == "pool_winners_to_final"
+
+
+def test_backtest_pool_policy_splits_seed_bands_across_balanced_pools():
+    teams = [_team(index, 0.9 - (index - 1) * 0.1, index) for index in range(1, 9)]
+
+    result = optimize_tournament_format(
+        teams,
+        [
+            DivisionSpec(
+                name="Gold",
+                team_count=8,
+                pool_sizes=(4, 4),
+                pool_names=("Bracket A", "Bracket B"),
+            )
+        ],
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    division = result.divisions[0]
+    strongest_half = {"team-1", "team-2", "team-3", "team-4"}
+    assert [len(strongest_half & {team.team_id for team in pool.teams}) for pool in division.pools] == [2, 2]
+    pool_averages = [sum(team.power_score for team in pool.teams) / len(pool.teams) for pool in division.pools]
+    assert pool_averages[0] == pytest.approx(pool_averages[1])
+    assert [pool.name for pool in division.pools] == ["Bracket A", "Bracket B"]
+    assert result.pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH
+
+
+def test_backtest_pool_balancing_never_trades_teams_across_seed_bands():
+    powers = (0.953, 0.465, 0.460, 0.372, 0.317, 0.114, 0.101, 0.062)
+    teams = [_team(index, power, index) for index, power in enumerate(powers, start=1)]
+
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=8, pool_sizes=(4, 4))],
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    pool_team_ids = [
+        {team.team_id for team in pool.teams}
+        for pool in result.divisions[0].pools
+    ]
+    for left_seed, right_seed in ((1, 2), (3, 4), (5, 6), (7, 8)):
+        seed_band = {f"team-{left_seed}", f"team-{right_seed}"}
+        assert [len(seed_band & pool) for pool in pool_team_ids] == [1, 1]
 
 
 def test_optimize_tournament_format_validates_pool_sizes():

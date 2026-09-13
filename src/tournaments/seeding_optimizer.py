@@ -41,6 +41,7 @@ class DivisionSpec:
     team_count: int
     pool_sizes: tuple[int, ...] = ()
     advancement: str | None = None
+    pool_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -50,9 +51,18 @@ class MatchupCost:
     blowout_3plus_probability: float
     blowout_5plus_probability: float
     total_cost: float
+    # Reporting-only probability. Keeping this optional preserves older cost
+    # providers and artifacts; it is not part of the optimizer objective.
+    blowout_4plus_probability: float | None = None
 
 
 MatchupCostFn = Callable[["SeedableTeam", "SeedableTeam"], MatchupCost]
+
+POOL_POLICY_COMPETITIVE_MATCHUPS = "competitive_matchups"
+POOL_POLICY_BALANCED_STRENGTH = "balanced_strength"
+POOL_ASSIGNMENT_POLICIES = frozenset(
+    {POOL_POLICY_COMPETITIVE_MATCHUPS, POOL_POLICY_BALANCED_STRENGTH}
+)
 
 
 @dataclass(frozen=True)
@@ -88,12 +98,14 @@ class TournamentOptimizationResult:
     total_cost: float
     optimizer_iterations: int
     matchup_proxy: str = "strength_gap_proxy_v1"
+    pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "matchup_proxy": self.matchup_proxy,
             "total_cost": self.total_cost,
             "optimizer_iterations": self.optimizer_iterations,
+            "pool_assignment_policy": self.pool_assignment_policy,
             "divisions": [
                 {
                     "name": division.name,
@@ -367,7 +379,114 @@ def _pool_specs_from_division(division: DivisionSpec) -> list[FlightSpec]:
             f"Division '{division.name}' pool sizes sum to {sum(pool_sizes)}, "
             f"but division team_count is {division_count}."
         )
-    return [FlightSpec(name=f"Pool {chr(65 + index)}", team_count=size) for index, size in enumerate(pool_sizes)]
+    if division.pool_names and len(division.pool_names) != len(pool_sizes):
+        raise ValueError(
+            f"Division '{division.name}' has {len(division.pool_names)} pool names for "
+            f"{len(pool_sizes)} pools"
+        )
+    names = division.pool_names or tuple(
+        f"Pool {chr(65 + index)}" for index in range(len(pool_sizes))
+    )
+    if any(not str(name).strip() for name in names) or len(set(names)) != len(names):
+        raise ValueError(f"Division '{division.name}' pool names must be unique and non-empty")
+    return [FlightSpec(name=str(name), team_count=size) for name, size in zip(names, pool_sizes, strict=True)]
+
+
+def _pool_balance_objective(pools: Sequence[Sequence[SeedableTeam]]) -> float:
+    """Measure how far pool average strengths are from the division average."""
+
+    teams = [team for pool in pools for team in pool]
+    if not teams:
+        return 0.0
+    division_average = sum(float(team.power_score) for team in teams) / len(teams)
+    return float(
+        sum(
+            (
+                sum(float(team.power_score) for team in pool) / len(pool)
+                - division_average
+            )
+            ** 2
+            for pool in pools
+            if pool
+        )
+    )
+
+
+def _balanced_strength_pools(
+    teams: Sequence[SeedableTeam],
+    pool_specs: Sequence[FlightSpec],
+    *,
+    matchup_cost_fn: MatchupCostFn,
+    improvement_tolerance: float,
+) -> tuple[tuple[FlightAssignment, ...], int]:
+    """Distribute seed bands across pools, then minimize pool-strength imbalance."""
+
+    _validate_flights(teams, pool_specs)
+    ordered = list(sorted(teams, key=_team_sort_key))
+    seed_band_by_team_id = {
+        team.team_id: rank // len(pool_specs)
+        for rank, team in enumerate(ordered)
+    }
+    working: list[list[SeedableTeam]] = [[] for _ in pool_specs]
+    remaining = [int(spec.team_count) for spec in pool_specs]
+    cursor = 0
+    reverse = False
+    while cursor < len(ordered):
+        available = [index for index, count in enumerate(remaining) if count]
+        if reverse:
+            available.reverse()
+        for pool_index in available:
+            if cursor >= len(ordered):
+                break
+            working[pool_index].append(ordered[cursor])
+            remaining[pool_index] -= 1
+            cursor += 1
+        reverse = not reverse
+
+    current_balance = _pool_balance_objective(working)
+    iterations = 0
+    while True:
+        best_swap: tuple[int, int, int, int] | None = None
+        best_balance = current_balance
+        for left_pool in range(len(working)):
+            for right_pool in range(left_pool + 1, len(working)):
+                for left_team in range(len(working[left_pool])):
+                    for right_team in range(len(working[right_pool])):
+                        if (
+                            seed_band_by_team_id[working[left_pool][left_team].team_id]
+                            != seed_band_by_team_id[working[right_pool][right_team].team_id]
+                        ):
+                            continue
+                        candidate = [list(pool) for pool in working]
+                        candidate[left_pool][left_team], candidate[right_pool][right_team] = (
+                            candidate[right_pool][right_team],
+                            candidate[left_pool][left_team],
+                        )
+                        balance = _pool_balance_objective(candidate)
+                        if balance + improvement_tolerance < best_balance:
+                            best_balance = balance
+                            best_swap = (left_pool, right_pool, left_team, right_team)
+        if best_swap is None:
+            break
+        left_pool, right_pool, left_team, right_team = best_swap
+        working[left_pool][left_team], working[right_pool][right_team] = (
+            working[right_pool][right_team],
+            working[left_pool][left_team],
+        )
+        current_balance = best_balance
+        iterations += 1
+
+    return (
+        tuple(
+            _build_flight_assignment(
+                spec.name,
+                working[index],
+                matchup_cost_fn=matchup_cost_fn,
+            )
+            for index, spec in enumerate(pool_specs)
+        ),
+        iterations,
+    )
 
 
 def _assert_assignment_integrity(
@@ -586,6 +705,7 @@ def optimize_tournament_format(
     improvement_tolerance: float = 1e-9,
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
+    pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS,
 ) -> TournamentOptimizationResult:
     """Assign teams into the provided tournament format.
 
@@ -595,37 +715,64 @@ def optimize_tournament_format(
 
     if not divisions:
         raise ValueError("At least one division format is required")
+    if pool_assignment_policy not in POOL_ASSIGNMENT_POLICIES:
+        raise ValueError(
+            "pool_assignment_policy must be one of: "
+            + ", ".join(sorted(POOL_ASSIGNMENT_POLICIES))
+        )
 
-    division_memberships, total_iterations, pool_result_cache = _optimize_division_memberships_by_pool_cost(
-        teams,
-        divisions,
-        max_iterations=max_iterations,
-        improvement_tolerance=improvement_tolerance,
-        matchup_cost_fn=matchup_cost_fn,
-        matchup_proxy=matchup_proxy,
-    )
+    if pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH:
+        division_result = optimize_division_assignments(
+            teams,
+            [FlightSpec(division.name, division.team_count) for division in divisions],
+            max_iterations=max_iterations,
+            improvement_tolerance=improvement_tolerance,
+            matchup_cost_fn=matchup_cost_fn,
+            matchup_proxy=matchup_proxy,
+        )
+        division_memberships = tuple(division.teams for division in division_result.divisions)
+        total_iterations = division_result.optimizer_iterations
+        pool_result_cache = {}
+    else:
+        division_memberships, total_iterations, pool_result_cache = _optimize_division_memberships_by_pool_cost(
+            teams,
+            divisions,
+            max_iterations=max_iterations,
+            improvement_tolerance=improvement_tolerance,
+            matchup_cost_fn=matchup_cost_fn,
+            matchup_proxy=matchup_proxy,
+        )
 
     division_assignments: list[DivisionAssignment] = []
     for division_index, (division_spec, division_teams) in enumerate(
         zip(divisions, division_memberships, strict=True)
     ):
         pool_specs = _pool_specs_from_division(division_spec)
-        cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
-        pool_result = pool_result_cache[cache_key]
-        total_iterations += int(pool_result.optimizer_iterations)
-        pools = tuple(
-            FlightAssignment(
-                name=pool.name,
-                teams=pool.teams,
-                total_pair_cost=pool.total_pair_cost,
-                average_pair_cost=pool.average_pair_cost,
-                average_projected_margin=pool.average_projected_margin,
-                competitive_probability=pool.competitive_probability,
-                blowout_3plus_probability=pool.blowout_3plus_probability,
-                blowout_5plus_probability=pool.blowout_5plus_probability,
+        if pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH:
+            pools, pool_iterations = _balanced_strength_pools(
+                division_teams,
+                pool_specs,
+                matchup_cost_fn=matchup_cost_fn,
+                improvement_tolerance=improvement_tolerance,
             )
-            for pool in pool_result.divisions
-        )
+            total_iterations += pool_iterations
+        else:
+            cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
+            pool_result = pool_result_cache[cache_key]
+            total_iterations += int(pool_result.optimizer_iterations)
+            pools = tuple(
+                FlightAssignment(
+                    name=pool.name,
+                    teams=pool.teams,
+                    total_pair_cost=pool.total_pair_cost,
+                    average_pair_cost=pool.average_pair_cost,
+                    average_projected_margin=pool.average_projected_margin,
+                    competitive_probability=pool.competitive_probability,
+                    blowout_3plus_probability=pool.blowout_3plus_probability,
+                    blowout_5plus_probability=pool.blowout_5plus_probability,
+                )
+                for pool in pool_result.divisions
+            )
 
         total_pool_pairs = sum(_pair_count(len(pool.teams)) for pool in pools)
         if total_pool_pairs > 0:
@@ -672,6 +819,7 @@ def optimize_tournament_format(
         total_cost=float(sum(division.total_pair_cost for division in division_assignments)),
         optimizer_iterations=total_iterations,
         matchup_proxy=matchup_proxy,
+        pool_assignment_policy=pool_assignment_policy,
     )
     _assert_assignment_integrity(teams, result.divisions)
     return result

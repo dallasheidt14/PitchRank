@@ -5,7 +5,154 @@ import pytest
 
 from scripts import backtest_tournament_cohort as cohort
 from scripts.predictor_python import Game as PredictorGame
-from src.tournaments.seeding_optimizer import MatchupCost, SeedableTeam
+from src.tournaments.seeding_optimizer import DivisionSpec, MatchupCost, SeedableTeam
+
+
+def test_team_metadata_queries_use_at_most_one_hundred_ids():
+    batches = []
+
+    class Query:
+        def select(self, _columns):
+            return self
+
+        def in_(self, _column, values):
+            batches.append(tuple(values))
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    class Client:
+        def table(self, _name):
+            return Query()
+
+    cohort._fetch_rows_by_ids(
+        Client(),
+        "teams",
+        "team_id_master",
+        "team_id_master",
+        [f"team-{index}" for index in range(205)],
+    )
+
+    assert [len(batch) for batch in batches] == [100, 100, 5]
+
+
+def test_subprocess_rejects_a_changed_merge_map_version():
+    cohort._verify_merge_map_version(actual="merge-v1", expected="merge-v1")
+
+    with pytest.raises(RuntimeError, match="changed after Backtest readiness"):
+        cohort._verify_merge_map_version(actual="merge-v2", expected="merge-v1")
+
+
+def test_backtest_projection_calibration_scales_margin_and_blowout_probabilities():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=1.25,
+        win_probability_a=0.6,
+        draw_probability=0.2,
+        win_probability_b=0.2,
+        blowout_3plus_probability=0.2,
+        blowout_4plus_probability=0.15,
+        blowout_5plus_probability=0.1,
+        probability_strategy="poisson_draw_gate",
+        source="fixture",
+    )
+
+    calibrated = cohort._apply_backtest_projection_calibration(
+        prediction,
+        {
+            "margin_absolute_scale": 2.0,
+            "blowout_probability_scales": {"3": 2.0, "4": 3.0, "5": 12.0},
+        },
+    )
+
+    assert calibrated.expected_margin == pytest.approx(2.5)
+    assert calibrated.blowout_3plus_probability == pytest.approx(0.4)
+    assert calibrated.blowout_4plus_probability == pytest.approx(0.45)
+    assert calibrated.blowout_5plus_probability == 1.0
+    assert calibrated.expected_score == prediction.expected_score
+
+
+def test_predicted_draw_uses_zero_margin_for_optimizer_and_report():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="draw",
+        expected_score={"teamA": 1, "teamB": 1},
+        expected_margin=1.25,
+        win_probability_a=0.2,
+        draw_probability=0.6,
+        win_probability_b=0.2,
+        blowout_3plus_probability=0.1,
+        blowout_4plus_probability=0.05,
+        blowout_5plus_probability=0.02,
+    )
+
+    calibrated = cohort._apply_backtest_projection_calibration(
+        prediction,
+        {"margin_absolute_scale": 2.0},
+    )
+    cost = cohort._point_in_time_matchup_cost(calibrated)
+
+    assert calibrated.expected_margin == 0.0
+    assert cost.projected_margin == 0.0
+
+
+def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="team_a",
+        expected_score={"teamA": 3, "teamB": 1},
+        expected_margin=0.75,
+        win_probability_a=0.55,
+        draw_probability=0.25,
+        win_probability_b=0.20,
+        blowout_3plus_probability=0.10,
+        blowout_4plus_probability=0.05,
+        blowout_5plus_probability=0.02,
+    )
+
+    cost = cohort._point_in_time_matchup_cost(prediction)
+
+    assert cost.projected_margin == pytest.approx(0.75)
+
+
+@pytest.mark.parametrize(
+    "calibration",
+    (
+        {"margin_absolute_scale": 0},
+        {"blowout_probability_scales": {"4": -1}},
+    ),
+)
+def test_backtest_projection_calibration_rejects_invalid_scales(calibration):
+    prediction = cohort.TournamentMatchPrediction(
+        predicted_winner="draw",
+        expected_score={"teamA": 1, "teamB": 1},
+        expected_margin=0.0,
+        blowout_4plus_probability=0.1,
+    )
+
+    with pytest.raises(ValueError, match="calibration scale"):
+        cohort._apply_backtest_projection_calibration(prediction, calibration)
+
+
+def test_legacy_captured_schedule_without_scoring_policy_is_rejected():
+    division = DivisionSpec("Gold", 2, (2,), "CAPTURED_GRAPH")
+    payload = {
+        "captured_schedule": {
+            "fixture_slots": (
+                {
+                    "stage": "Pool",
+                    "counts_for_standings": True,
+                    "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+                    "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+                },
+            ),
+            "tiebreak_order": ("points", "goal_differential"),
+            "tiebreak_source_urls": ("https://example.test/tiebreaks",),
+        }
+    }
+
+    with pytest.raises(ValueError, match="unsupported scoring or standings modifier"):
+        cohort._schedule_template_from_payload(payload, division, {})
 
 
 def test_snapshot_as_of_date_returns_latest_prior_snapshot():
@@ -669,12 +816,12 @@ def test_build_point_in_time_prediction_and_cost_functions_uses_asof_snapshots(m
     assert prediction.predicted_winner == "team_a"
     assert prediction.expected_score == {"teamA": 2, "teamB": 1}
     assert prediction.source == "point_in_time:fake_point_in_time_match_model"
-    assert round(cost.projected_margin, 2) == 1.0
+    assert round(cost.projected_margin, 2) == 0.9
     assert round(cost.blowout_3plus_probability, 2) == 0.18
     assert round(cost.blowout_5plus_probability, 2) == 0.04
 
 
-def test_override_point_in_time_probability_strategy_swaps_policy():
+def test_point_in_time_probability_strategy_rejects_an_incompatible_artifact():
     class FakeModel:
         probability_strategy = "hybrid"
         requested_probability_strategy = "auto"
@@ -694,20 +841,12 @@ def test_override_point_in_time_probability_strategy_swaps_policy():
 
     model = FakeModel()
 
-    overridden = cohort._override_point_in_time_probability_strategy(model, "poisson_draw_gate")
+    with pytest.raises(ValueError, match="fitted for probability strategy 'hybrid'"):
+        cohort._override_point_in_time_probability_strategy(model, "poisson_draw_gate")
 
-    assert overridden == "poisson_draw_gate"
-    assert model.requested_probability_strategy == "poisson_draw_gate"
-    assert model.probability_strategy == "poisson_draw_gate"
-    assert model.draw_decision_policy == {
-        "default": {
-            "min_draw_probability": 0.25,
-            "max_draw_gap": 0.02,
-            "max_total_goals": 2.2,
-            "min_stalemate_signal": 0.6,
-        },
-        "by_age": {},
-    }
+    assert model.requested_probability_strategy == "auto"
+    assert model.probability_strategy == "hybrid"
+    assert model.draw_decision_policy["by_age"] == {14: {"min_draw_probability": 0.2}}
 
 
 def test_resolve_point_in_time_probability_strategy_override_defaults_to_draw_gate():
@@ -990,3 +1129,132 @@ def test_original_pool_projection_uses_stable_keys_when_labels_repeat_or_are_bla
     assert issues == ()
     assert projection is not None
     assert projection["projected_matchup_count"] == 2
+
+
+def test_captured_original_assignment_preserves_division_and_pool_membership():
+    teams = [
+        SeedableTeam("a", "A", "u14", "Male", 0.9),
+        SeedableTeam("b", "B", "u14", "Male", 0.8),
+        SeedableTeam("c", "C", "u14", "Male", 0.7),
+        SeedableTeam("d", "D", "u14", "Male", 0.6),
+    ]
+    entrants = [
+        {
+            "entrant_id": team.team_id,
+            "actual_division_key": "gold",
+            "actual_pool_key": "gold:a" if team.team_id in {"a", "b"} else "gold:b",
+            "actual_pool_name": "Pool A" if team.team_id in {"a", "b"} else "Pool B",
+        }
+        for team in teams
+    ]
+
+    assignments = cohort._captured_original_assignments(
+        entrants,
+        teams,
+        [cohort.DivisionSpec("gold", 4, pool_sizes=(2, 2))],
+    )
+
+    assert [[team.team_id for team in pool.teams] for pool in assignments[0].pools] == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
+
+
+def test_unchanged_fixture_validation_blocks_large_model_gap():
+    validation = cohort._validate_unchanged_fixture_projection(
+        {
+            "actual_game_count": 100,
+            "average_goal_differential": 3.0,
+            "blowout_4plus_rate": 0.30,
+        },
+        {
+            "projected_matchup_count": 100,
+            "average_goal_differential": 1.5,
+            "blowout_4plus_probability": 0.10,
+        },
+    )
+
+    assert validation["status"] == "failed"
+    assert len(validation["blockers"]) == 2
+
+
+def test_schedule_projection_averages_modelled_four_plus_probabilities():
+    simulation = SimpleNamespace(
+        average_goal_differential=1.0,
+        median_goal_differential=1.0,
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.25),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.05),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["blowout_4plus_probability"] == pytest.approx(0.15)
+
+
+def test_schedule_projection_averages_the_models_fractional_expected_margins():
+    simulation = SimpleNamespace(
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(expected_goal_differential=0.4, blowout_4plus_probability=0.01),
+                    SimpleNamespace(expected_goal_differential=0.8, blowout_4plus_probability=0.02),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["average_goal_differential"] == pytest.approx(0.6)
+    assert projection["median_goal_differential"] == pytest.approx(0.6)
+
+
+def test_schedule_projection_withholds_partial_four_plus_probabilities():
+    simulation = SimpleNamespace(
+        average_goal_differential=1.0,
+        median_goal_differential=1.0,
+        close_game_rate=1.0,
+        blowout_3plus_rate=0.0,
+        blowout_5plus_rate=0.0,
+        divisions=(
+            SimpleNamespace(
+                matches=(
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=0.25),
+                    SimpleNamespace(expected_goal_differential=1.0, blowout_4plus_probability=None),
+                )
+            ),
+        ),
+    )
+
+    projection = cohort._schedule_projection(simulation, projection_basis="test")
+
+    assert projection["blowout_4plus_probability"] is None
+
+
+def test_unchanged_fixture_validation_passes_close_replay():
+    validation = cohort._validate_unchanged_fixture_projection(
+        {
+            "actual_game_count": 99,
+            "average_goal_differential": 2.0,
+            "blowout_4plus_rate": 0.20,
+        },
+        {
+            "projected_matchup_count": 100,
+            "average_goal_differential": 1.8,
+            "blowout_4plus_probability": 0.16,
+        },
+    )
+
+    assert validation["status"] == "passed"
