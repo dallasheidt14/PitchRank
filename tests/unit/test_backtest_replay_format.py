@@ -135,3 +135,16 @@ def test_cross_pool_qualification_without_published_wildcard_slots_is_blocked():
 
     assert assessment.ready is False
     assert "needs its published wildcard slot labels" in assessment.reason
+
+
+def test_wildcard_slots_without_division_wide_eligibility_are_blocked():
+    division = _division(fixture_kind="bracket")
+    division = replace(
+        division,
+        fixtures=(replace(division.fixtures[0], bracket_label="Final- Wildcard 1 v Wildcard 2"),),
+    )
+
+    assessment = assess_replay_format(division)
+
+    assert assessment.ready is False
+    assert "do not establish that every team is ranked together" in assessment.reason

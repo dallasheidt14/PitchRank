@@ -326,6 +326,23 @@ def _render_fixture_app():
     render_intake(ReadOnlyTeams())
 
 
+def _render_failed_rollup_app():
+    from pathlib import Path
+
+    from src.tournaments.backtest_intake_ui import _render_event_rollup
+    from src.tournaments.backtest_reviewed_run import ReviewedCohortReadiness
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    _render_event_rollup(
+        sample_snapshot(),
+        [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
+        "gotsport__51783__2025",
+        Path("."),
+        model_sha256="model-sha",
+        merge_map_version="merge-v1",
+    )
+
+
 @pytest.fixture
 def rendered_intake(tmp_path, monkeypatch):
     import tournament_intake as app
@@ -521,6 +538,57 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     assert movements["Decision"].tolist() == ["Stayed"]
     assert metrics["Cohorts completed"] == "1"
     assert metrics["Teams unchanged"] == "1"
+
+
+def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+
+    from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_reviewed_run import ReviewedRunRecord
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    request = {"age_group": "u12"}
+    failed_dir = tmp_path / "u12_male_failed.failed"
+    failed_dir.mkdir()
+    (failed_dir / "run_metadata.json").write_text(
+        json.dumps(
+            {
+                "source_capture_generation": sample_snapshot().generation,
+                "request_sha256": hashlib.sha256(
+                    json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+                "model_artifact_sha256": "model-sha",
+                "merge_map_version": "merge-v1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    failed = ReviewedRunRecord(
+        "u12_male_failed",
+        failed_dir,
+        "u12",
+        "Male",
+        "Spring Invitational",
+        "2026-09-13T08:00:00+00:00",
+        "failed",
+        "Historical rating lookup timed out",
+    )
+    monkeypatch.setattr(ui, "list_reviewed_runs", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(ui, "list_failed_reviewed_runs", lambda *_args, **_kwargs: (failed,))
+
+    test = AppTest.from_function(_render_failed_rollup_app, default_timeout=10).run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    metrics = {item.label: item.value for item in test.metric}
+    assert metrics["Cohorts completed"] == "0"
+    assert metrics["Failed"] == "1"
+    coverage = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert coverage["Status"].tolist() == ["Failed"]
+    assert coverage["What remains"].tolist() == ["Historical rating lookup timed out"]
+    assert any("No compatible cohort results exist yet" in item.value for item in test.info)
 
 
 def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):

@@ -1393,6 +1393,27 @@ def _render_event_rollup(
     movements = rollup["team_movements"]
     coverage = rollup["coverage"]
     st.markdown("#### Tournament-wide Backtest result")
+    coverage_columns = st.columns(4)
+    coverage_columns[0].metric("Cohorts completed", coverage["completed"])
+    coverage_columns[1].metric("Failed", coverage["failed"])
+    coverage_columns[2].metric("Awaiting matches", coverage["awaiting_matches"])
+    coverage_columns[3].metric(
+        "Other remaining",
+        coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
+    )
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                "Teams": row["team_count"],
+                "Status": row["status"].replace("_", " ").title(),
+                "What remains": row["what_remains"],
+            }
+            for row in coverage["rows"]
+        ),
+        hide_index=True,
+        width="stretch",
+    )
     if not rollup["selected_runs"]:
         st.info(
             "No compatible cohort results exist yet. Complete the readiness checks, then run one "
@@ -1440,27 +1461,6 @@ def _render_event_rollup(
     move_columns[0].metric("Teams moved up", movements["moved_up"])
     move_columns[1].metric("Teams moved down", movements["moved_down"])
     move_columns[2].metric("Teams unchanged", movements["unchanged"])
-    coverage_columns = st.columns(4)
-    coverage_columns[0].metric("Cohorts completed", coverage["completed"])
-    coverage_columns[1].metric("Failed", coverage["failed"])
-    coverage_columns[2].metric("Awaiting matches", coverage["awaiting_matches"])
-    coverage_columns[3].metric(
-        "Other remaining",
-        coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
-    )
-    st.dataframe(
-        pd.DataFrame(
-            {
-                "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
-                "Teams": row["team_count"],
-                "Status": row["status"].replace("_", " ").title(),
-                "What remains": row["what_remains"],
-            }
-            for row in coverage["rows"]
-        ),
-        hide_index=True,
-        width="stretch",
-    )
     st.download_button(
         "Download tournament-director report",
         event_rollup_export(rollup),

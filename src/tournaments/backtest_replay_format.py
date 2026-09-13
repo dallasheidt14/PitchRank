@@ -102,6 +102,12 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
         ranks = [int(value) - 1 for value in _WILDCARD_REFERENCE.findall(fixture.bracket_label)]
         if not ranks:
             return {}
+        if not division_wide_qualification:
+            raise ValueError(
+                f"Fixture {fixture.match_number or fixture.source_url} uses wildcard slots, "
+                "but the captured rules do not establish that every team is ranked together "
+                "regardless of pool"
+            )
         if len(ranks) != 2 or any(rank < 0 for rank in ranks):
             raise ValueError(
                 f"Fixture {fixture.match_number or fixture.source_url} has an unsupported "
