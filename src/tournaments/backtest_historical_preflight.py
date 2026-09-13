@@ -230,6 +230,7 @@ def run_historical_preflight(
                     snapshot_start,
                     cutoff,
                     availability_cutoff=cutoff,
+                    strict=True,
                 )
             )
             if snapshot_ids

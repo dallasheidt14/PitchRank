@@ -261,8 +261,8 @@ def _schedule_template_from_payload(
 
 def _fetch_rows_by_ids(client, table: str, columns: str, id_column: str, ids: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for start in range(0, len(ids), 200):
-        batch = ids[start : start + 200]
+    for start in range(0, len(ids), 100):
+        batch = ids[start : start + 100]
         if not batch:
             continue
         rows.extend((client.table(table).select(columns).in_(id_column, batch).execute().data) or [])
@@ -1635,6 +1635,7 @@ def main() -> int:
             snapshot_start,
             snapshot_end,
             availability_cutoff=prediction_date,
+            strict=True,
         )
     )
     entrant_snapshot_index = build_snapshot_index(entrant_snapshots_df)
@@ -1782,6 +1783,7 @@ def main() -> int:
                 snapshot_start,
                 snapshot_end,
                 availability_cutoff=prediction_date,
+                strict=True,
             )
         )
         if snapshots_df.empty:

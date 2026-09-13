@@ -8,6 +8,35 @@ from scripts.predictor_python import Game as PredictorGame
 from src.tournaments.seeding_optimizer import MatchupCost, SeedableTeam
 
 
+def test_team_metadata_queries_use_at_most_one_hundred_ids():
+    batches = []
+
+    class Query:
+        def select(self, _columns):
+            return self
+
+        def in_(self, _column, values):
+            batches.append(tuple(values))
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    class Client:
+        def table(self, _name):
+            return Query()
+
+    cohort._fetch_rows_by_ids(
+        Client(),
+        "teams",
+        "team_id_master",
+        "team_id_master",
+        [f"team-{index}" for index in range(205)],
+    )
+
+    assert [len(batch) for batch in batches] == [100, 100, 5]
+
+
 def test_snapshot_as_of_date_returns_latest_prior_snapshot():
     snapshots = [
         {"snapshot_date": "2026-04-08", "snapshot_ts": pd.Timestamp("2026-04-08"), "power_score_final": 0.51},

@@ -81,6 +81,12 @@ def _model_data_end(model_path: Path) -> str:
     return str((model.training_metadata or {}).get("model_data_end_date") or "")[:10]
 
 
+def _scoped_entry_count(roster) -> int:
+    """Count the division-qualified entrant rows emitted by cohort requests."""
+
+    return len({(team.group_id, entrant_key(team)) for team in roster.teams})
+
+
 def validate_backtest_acceptance(
     event_key: str,
     profile: AcceptanceProfile,
@@ -232,8 +238,9 @@ def validate_backtest_acceptance(
     coverage = rollup["coverage"]
     checks.append(_check("completed cohort outputs", coverage["total_cohorts"], coverage["completed"]))
     movements = rollup["team_movements"]
+    expected_movement_rows = _scoped_entry_count(scoped_roster)
     movement_rows_complete = bool(
-        movements["evaluated"] == len(registrations)
+        movements["evaluated"] == expected_movement_rows
         and not movements["duplicate_entry_ids_skipped"]
     )
     checks.append(
@@ -241,7 +248,9 @@ def validate_backtest_acceptance(
             "tournament team movements",
             True,
             movement_rows_complete,
-            detail=f"{movements['evaluated']} unique movement rows",
+            detail=(
+                f"{movements['evaluated']} of {expected_movement_rows} scoped cohort entries"
+            ),
         )
     )
     comparison = rollup["actual_vs_matchbalance"]

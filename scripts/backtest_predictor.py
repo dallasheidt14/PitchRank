@@ -539,6 +539,8 @@ async def fetch_prediction_feature_snapshots(
     start_date: str,
     end_date: str,
     availability_cutoff: Optional[str] = None,
+    *,
+    strict: bool = False,
 ) -> pd.DataFrame:
     """
     Fetch point-in-time predictor snapshots for the requested teams and date range.
@@ -612,6 +614,10 @@ async def fetch_prediction_feature_snapshots(
                     or "relation" in error_message
                     or "schema cache" in error_message
                 ):
+                    if strict:
+                        raise RuntimeError(
+                            "prediction_feature_history is unavailable"
+                        ) from error
                     logger.warning(
                         "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
                     )
@@ -624,6 +630,10 @@ async def fetch_prediction_feature_snapshots(
                     offset,
                     error,
                 )
+                if strict:
+                    raise RuntimeError(
+                        f"Serial prediction snapshot read failed for IDs {index}-{index + len(batch)}"
+                    ) from error
                 break
 
             page_rows = response.data or []

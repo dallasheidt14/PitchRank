@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pandas as pd
+import pytest
 
 from scripts import backtest_predictor
 
@@ -267,6 +268,40 @@ def test_serial_prediction_snapshots_paginate_past_row_cap(monkeypatch):
 
     assert len(result) == 1001
     assert ranges == [(0, 999), (1000, 1999)]
+
+
+def test_strict_serial_prediction_snapshot_failure_is_propagated(monkeypatch):
+    class FailedQuery:
+        def __getattr__(self, _name):
+            return lambda *_args, **_kwargs: self
+
+        def execute(self):
+            raise ConnectionError("database offline")
+
+    class Client:
+        def table(self, _name):
+            return FailedQuery()
+
+    async def failed_concurrent_fetch(*_args, **_kwargs):
+        raise RuntimeError("use serial fallback")
+
+    monkeypatch.setattr(backtest_predictor, "_can_use_direct_db", lambda: False)
+    monkeypatch.setattr(
+        backtest_predictor,
+        "_fetch_prediction_feature_snapshots_via_rest",
+        failed_concurrent_fetch,
+    )
+
+    with pytest.raises(RuntimeError, match="Serial prediction snapshot read failed"):
+        asyncio.run(
+            backtest_predictor.fetch_prediction_feature_snapshots(
+                Client(),
+                ["team-a"],
+                "2025-04-10",
+                "2026-04-09",
+                strict=True,
+            )
+        )
 
 
 def test_concurrent_rest_prediction_snapshots_enforce_availability_cutoff(monkeypatch):

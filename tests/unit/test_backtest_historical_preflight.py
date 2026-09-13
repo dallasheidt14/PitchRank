@@ -96,7 +96,8 @@ def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkey
         ],
     )
 
-    async def snapshots(*_args, **_kwargs):
+    async def snapshots(*_args, **kwargs):
+        assert kwargs["strict"] is True
         return _snapshot_rows()
 
     monkeypatch.setattr(preflight, "fetch_prediction_feature_snapshots", snapshots)

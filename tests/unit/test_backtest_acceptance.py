@@ -135,3 +135,25 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
     assert "completed cohort outputs" in failed_names
     assert "tournament team movements" in failed_names
     assert "tournament rollup reconciliation" in failed_names
+
+
+def test_movement_entry_count_keeps_one_registration_in_each_entered_division():
+    snapshot = _snapshot()
+    second_division = replace(
+        snapshot.roster.divisions[0],
+        group_id="group-2",
+        division_label="Silver",
+    )
+    repeated_registration = replace(
+        snapshot.roster.teams[0],
+        source_index=2,
+        group_id="group-2",
+        division_label="Silver",
+    )
+    roster = replace(
+        snapshot.roster,
+        divisions=snapshot.roster.divisions + (second_division,),
+        teams=snapshot.roster.teams + (repeated_registration,),
+    )
+
+    assert acceptance._scoped_entry_count(roster) == 3
