@@ -68,6 +68,7 @@ from src.tournaments.schedule_simulator import (  # noqa: E402
     captured_division_schedule_template,
     explicit_division_schedule_template,
     prediction_expected_margin,
+    refine_tournament_assignments_for_schedule,
     simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
@@ -871,7 +872,9 @@ def _point_in_time_prediction_from_row(
     )
     raw_matrix = row.get("scoreline_probability_matrix")
     scoreline_probability_matrix = None
-    if raw_matrix is not None and not isinstance(raw_matrix, float):
+    if raw_matrix is not None and not (
+        np.isscalar(raw_matrix) and bool(pd.isna(raw_matrix))
+    ):
         matrix = tuple(tuple(float(value) for value in matrix_row) for matrix_row in raw_matrix)
         if matrix and all(len(matrix_row) == len(matrix) for matrix_row in matrix):
             total = sum(sum(matrix_row) for matrix_row in matrix)
@@ -1870,6 +1873,21 @@ def main() -> int:
         default=20260905,
         help="Deterministic random seed for paired tournament simulations",
     )
+    parser.add_argument(
+        "--schedule-refinement-iterations",
+        type=int,
+        default=5,
+        help="Whole-schedule swap passes after the fast pairwise optimizer",
+    )
+    parser.add_argument(
+        "--optimization-scenario-count",
+        type=int,
+        default=7,
+        help=(
+            "Persistent team-strength scenarios included in schedule-aware optimization "
+            "when the predictor supplies a coherent score distribution"
+        ),
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -2226,6 +2244,24 @@ def main() -> int:
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }
+    if args.schedule_refinement_iterations > 0:
+        print("PHASE: refining-scheduled-matchups", flush=True)
+        optimization_result = refine_tournament_assignments_for_schedule(
+            optimization_result,
+            templates,
+            predict_fn,
+            matchup_cost_fn=matchup_cost_fn,
+            max_iterations=args.schedule_refinement_iterations,
+            scenario_count=(
+                args.optimization_scenario_count
+                if (
+                    args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME
+                    and resolved_probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY
+                )
+                else 0
+            ),
+            random_seed=args.simulation_random_seed,
+        )
     simulated_tournament = simulate_tournament_schedule(
         optimization_result.divisions,
         templates,

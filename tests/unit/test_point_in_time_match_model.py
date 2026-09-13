@@ -265,6 +265,41 @@ def test_three_way_split_uses_disjoint_complete_dates_and_games():
     assert max(calibration["game_date"]) < min(test["game_date"])
 
 
+def test_three_way_split_keeps_a_short_named_event_in_one_partition():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": f"g{index}",
+                "game_date": f"2026-01-0{index}",
+                "event_name": "Weekend Cup" if index in {4, 5} else "",
+                "example_orientation": "original",
+            }
+            for index in range(1, 7)
+        ]
+    )
+
+    train, calibration, test = model._chronological_train_calibration_test_split(
+        frame,
+        calibration_ratio=0.2,
+        test_ratio=0.2,
+    )
+
+    partitions = {
+        "train": set(train["game_id"]),
+        "calibration": set(calibration["game_id"]),
+        "test": set(test["game_id"]),
+    }
+    event_partitions = [
+        name for name, game_ids in partitions.items() if game_ids & {"g4", "g5"}
+    ]
+    assert len(event_partitions) == 1
+    assert {"g4", "g5"}.issubset(partitions[event_partitions[0]])
+    assert model.training_partitioning["strategy"] == (
+        "complete_short_event_else_complete_game_date"
+    )
+
+
 def test_build_point_in_time_dataset_skips_games_without_snapshot():
     games_df = pd.DataFrame(
         [

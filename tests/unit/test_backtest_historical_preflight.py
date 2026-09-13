@@ -111,6 +111,7 @@ def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkey
     assert result.cutoff_exclusive == "2025-05-10"
     assert result.model_data_end_date == "2025-05-08"
     assert result.cohorts[0].eligible == result.cohorts[0].total == 2
+    assert all(check.uncertainty_basis == "scaled_glicko_rd" for check in result.cohorts[0].entrants)
     assert HistoricalPreflight.from_dict(result.to_dict()) == result
 
 
@@ -148,6 +149,8 @@ def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(
         "original_division_average_estimate_missing_pre_event_history"
     )
     assert missing_history.power_score == 0.7
+    assert missing_history.strength_uncertainty == 0.35
+    assert missing_history.uncertainty_basis == "broad_average_estimate_sensitivity"
     assert "No eligible pre-event PitchRank history" in missing_history.reason
 
 

@@ -8,12 +8,15 @@ from src.tournaments.schedule_simulator import (
     TIGER_TOURNAMENTS_SCORING_POLICY,
     TIGER_TOURNAMENTS_TIEBREAK_ORDER,
     _empty_standings,
+    _latent_strength_prediction_function,
     _rank_pool_teams,
     _simulate_match,
     _update_pool_standings,
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
+    refine_tournament_assignments_for_schedule,
+    schedule_competitiveness_objective,
     simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
@@ -177,6 +180,74 @@ def test_simulate_tournament_schedule_replays_two_pools_of_four_with_final():
     assert simulation.match_count == 13
     assert len(simulation.divisions) == 1
     assert simulation.divisions[0].match_count == 13
+
+
+def test_schedule_refinement_optimizes_the_games_that_are_actually_played():
+    teams = [
+        _team(1, 0.90, 1),
+        _team(2, 0.80, 2),
+        _team(3, 0.30, 3),
+        _team(4, 0.20, 4),
+    ]
+    initial = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=4, pool_sizes=(2, 2))],
+        matchup_cost_fn=_cost,
+        pool_assignment_policy="balanced_strength",
+    )
+    templates = {
+        "Gold": explicit_division_schedule_template(
+            division_name="Gold",
+            pool_sizes=(2, 2),
+            format_code="ROUND_ROBIN",
+            actual_game_count=2,
+        )
+    }
+
+    def gap_prediction(team_a: SeedableTeam, team_b: SeedableTeam):
+        gap = abs(team_a.power_score - team_b.power_score)
+        return SimpleNamespace(
+            predicted_winner="team_a" if team_a.power_score > team_b.power_score else "team_b",
+            expected_score={"teamA": 2, "teamB": 1},
+            expected_absolute_margin=gap * 8.0,
+            close_game_probability=max(0.0, 1.0 - gap),
+            blowout_4plus_probability=min(1.0, gap * 1.5),
+        )
+
+    before = simulate_tournament_schedule(initial.divisions, templates, gap_prediction)
+    refined = refine_tournament_assignments_for_schedule(
+        initial,
+        templates,
+        gap_prediction,
+        matchup_cost_fn=_cost,
+        max_iterations=3,
+    )
+    after = simulate_tournament_schedule(refined.divisions, templates, gap_prediction)
+
+    assert schedule_competitiveness_objective(after) < schedule_competitiveness_objective(before)
+    assert refined.schedule_refinement_iterations > 0
+    assert refined.schedule_objective_after < refined.schedule_objective_before
+    assert {
+        frozenset(team.team_id for team in pool.teams)
+        for pool in refined.divisions[0].pools
+    } == {frozenset({"team-1", "team-2"}), frozenset({"team-3", "team-4"})}
+
+
+def test_latent_team_strength_tilts_one_coherent_distribution():
+    strong = _team(1, 0.9, 1)
+    weak = _team(2, 0.3, 20)
+    predict = _latent_strength_prediction_function(
+        _distribution_prediction,
+        team_strength_offsets={strong.team_id: 0.4, weak.team_id: -0.4},
+    )
+
+    tilted = predict(strong, weak)
+
+    assert tilted.expected_margin > 0
+    assert tilted.win_probability_a > tilted.win_probability_b
+    assert tilted.blowout_3plus_probability >= tilted.blowout_4plus_probability
+    assert tilted.blowout_4plus_probability >= tilted.blowout_5plus_probability
+    assert sum(sum(row) for row in tilted.scoreline_probability_matrix) == pytest.approx(1.0)
 
 
 def test_paired_ensemble_is_reproducible_and_identical_arrangements_have_zero_delta():

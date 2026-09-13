@@ -108,6 +108,15 @@ def test_default_model_artifact_can_be_configured(monkeypatch):
     assert default_model_artifact() == "C:/models/history.pkl"
 
 
+def test_cohorts_receive_stable_independent_simulation_streams():
+    from src.tournaments import backtest_reviewed_run as runner
+
+    first = runner._cohort_simulation_seed("event-1", "u14", "Male")
+    assert first == runner._cohort_simulation_seed("event-1", "u14", "Male")
+    assert first != runner._cohort_simulation_seed("event-1", "u15", "Male")
+    assert first != runner._cohort_simulation_seed("event-1", "u14", "Female")
+
+
 def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
@@ -184,6 +193,10 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert metadata["merge_map_version"] == "merge-v1"
     version_index = commands[0].index("--expected-merge-map-version")
     assert commands[0][version_index + 1] == "merge-v1"
+    seed_index = commands[0].index("--simulation-random-seed")
+    assert commands[0][seed_index + 1] == str(
+        runner._cohort_simulation_seed("gotsport__51783__2025", "u14", "Male")
+    )
     assert events[-1].phase == "running-optimizer"
 
     records = list_reviewed_runs("gotsport__51783__2025", base_dir=tmp_path)

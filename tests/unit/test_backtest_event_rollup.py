@@ -5,10 +5,16 @@ import json
 import zipfile
 from dataclasses import replace
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 
-from src.tournaments.backtest_event_rollup import build_event_rollup, event_rollup_export
+from src.tournaments.backtest_event_rollup import (
+    SelectedCohortRun,
+    _event_projection_uncertainty,
+    build_event_rollup,
+    event_rollup_export,
+)
 from src.tournaments.backtest_intake_state import CaptureVerification
 from src.tournaments.backtest_rating_fallback import (
     DIVISION_AVERAGE_BASIS,
@@ -88,6 +94,15 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
             },
         ],
     }
+    if with_4plus:
+        summary["simulation_ensemble"] = {
+            "samples": {
+                "proposed": {
+                    "average_goal_differential": [1.0, 2.0],
+                    "blowout_4plus_rate": [0.0, 0.2],
+                }
+            }
+        }
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     (run_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
     return ReviewedRunRecord(
@@ -116,6 +131,11 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
     assert comparison["estimated_goal_margin_reduction"] == -0.5
     assert comparison["actual_blowout_4plus_rate"] == 0.0
     assert comparison["estimated_blowout_4plus_rate_reduction"] == pytest.approx(-0.1)
+    uncertainty = comparison["projection_uncertainty"]
+    assert uncertainty["status"] == "available"
+    assert uncertainty["simulation_count"] == 2
+    assert uncertainty["matchbalance_average_goal_margin"]["mean"] == 1.5
+    assert uncertainty["matchbalance_blowout_4plus_rate"]["mean"] == 0.1
     assert rollup["team_movements"]["moved_down"] == 1
     assert rollup["team_movements"]["unchanged"] == 1
     assert rollup["team_movements"]["pool_changed_within_division"] == 1
@@ -135,6 +155,43 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
         assert "Actual tournament versus MatchBalance" in report
         assert "Original projected" not in report
         assert "matched teams without eligible pre-event history" in report
+
+
+def test_event_uncertainty_combines_cohorts_by_scheduled_match_count():
+    readiness = ReviewedCohortReadiness("u14", "Male", 4, 1)
+    record = ReviewedRunRecord("run", Path("."), "u14", "Male", "Cup", "now")
+
+    def selected(match_count, margins, blowouts):
+        return SelectedCohortRun(
+            readiness,
+            record,
+            {
+                "proposed_schedule_projection": {"projected_matchup_count": match_count},
+                "simulation_ensemble": {
+                    "samples": {
+                        "proposed": {
+                            "average_goal_differential": margins,
+                            "blowout_4plus_rate": blowouts,
+                        }
+                    }
+                },
+            },
+            {},
+        )
+
+    uncertainty = _event_projection_uncertainty(
+        (
+            selected(3, [1.0, 3.0], [0.0, 1.0]),
+            selected(1, [5.0, 1.0], [1.0, 0.0]),
+        ),
+        actual_margin=2.0,
+        actual_blowout_rate=0.5,
+    )
+
+    assert uncertainty["status"] == "available"
+    assert uncertainty["match_count"] == 4
+    assert uncertainty["matchbalance_average_goal_margin"]["mean"] == 2.25
+    assert uncertainty["matchbalance_blowout_4plus_rate"]["mean"] == 0.5
 
 
 def test_event_rollup_does_not_invent_4plus_rate_for_legacy_run(tmp_path):

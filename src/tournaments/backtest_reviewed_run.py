@@ -36,11 +36,20 @@ from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
 BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
-BACKTEST_ENGINE_VERSION = "reviewed-backtest-v2"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
     "point_in_time_match_model.pkl"
 )
+
+
+def _cohort_simulation_seed(event_key: str, age_group: str, gender: str) -> int:
+    """Give each cohort a stable independent Monte Carlo stream."""
+
+    digest = hashlib.sha256(
+        f"{event_key}|{age_group.casefold()}|{gender.casefold()}".encode("utf-8")
+    ).digest()
+    return int.from_bytes(digest[:8], "big") % (2**31 - 1)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (
@@ -431,6 +440,8 @@ def execute_reviewed_run(
             BACKTEST_PROBABILITY_STRATEGY,
             "--history-lookback-days",
             "365",
+            "--simulation-random-seed",
+            str(_cohort_simulation_seed(event_key, age_group, gender)),
             "--snapshot-buffer-days",
             "30",
             "--expected-merge-map-version",

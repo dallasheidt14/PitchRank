@@ -49,6 +49,10 @@ from src.predictions.evaluation_reporting import (
     compute_evaluation_summary,
     write_evaluation_bundle,
 )
+from src.predictions.match_model_benchmarks import (
+    build_frozen_holdout_benchmark,
+    build_historical_poisson_benchmark,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +70,7 @@ OUTCOME_LABELS = {
 FEATURE_EXCLUDE_COLUMNS = {
     "game_id",
     "game_date",
+    "event_name",
     "team_a_id",
     "team_b_id",
     "team_a_name",
@@ -1126,7 +1131,7 @@ def build_point_in_time_dataset(
         team_a_prior_games = list(per_team_history.get(team_a_id, []))
         team_b_prior_games = list(per_team_history.get(team_b_id, []))
         combined_prior_games = _dedupe_games(team_a_prior_games + team_b_prior_games)
-        return build_point_in_time_matchup_row(
+        example = build_point_in_time_matchup_row(
             team_a_id=team_a_id,
             team_b_id=team_b_id,
             team_a_snapshot=team_a_snapshot,
@@ -1140,6 +1145,9 @@ def build_point_in_time_dataset(
             actual_score_a=score_a,
             actual_score_b=score_b,
         )
+        if pd.notna(game_row.get("event_name")) and str(game_row.get("event_name") or "").strip():
+            example["event_name"] = str(game_row["event_name"]).strip()
+        return example
 
     total_games = len(games_df)
 
@@ -1281,6 +1289,8 @@ class PointInTimeMatchModel:
         self.training_metadata: Dict[str, object] = {}
         self.backtest_projection_calibration: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
+        self.last_benchmark_table = pd.DataFrame()
+        self.training_partitioning: Dict[str, object] = {}
         os.makedirs(model_dir, exist_ok=True)
 
     def _feature_columns(self, dataset_df: pd.DataFrame) -> List[str]:
@@ -1431,31 +1441,104 @@ class PointInTimeMatchModel:
         if calibration_ratio <= 0.0 or test_ratio <= 0.0 or calibration_ratio + test_ratio >= 1.0:
             raise ValueError("calibration_ratio and test_ratio must be positive and sum to less than 1")
         ordered_df = dataset_df.sort_values(["game_date", "game_id", "example_orientation"]).reset_index(drop=True)
-        unique_dates = sorted(ordered_df["game_date"].astype(str).unique())
-        if len(unique_dates) < 3:
+        partition_groups = self._chronological_partition_groups(ordered_df)
+        group_order = (
+            pd.DataFrame(
+                {
+                    "group": partition_groups,
+                    "game_date": pd.to_datetime(ordered_df["game_date"], errors="raise"),
+                }
+            )
+            .groupby("group", sort=False)["game_date"]
+            .max()
+            .sort_values(kind="stable")
+            .index.astype(str)
+            .tolist()
+        )
+        if len(group_order) < 3:
             raise ValueError(
-                "Need at least 3 distinct game dates for train, calibration, and test partitions"
+                "Need at least 3 chronological event/date groups for train, calibration, and test partitions"
             )
 
-        test_date_count = max(1, int(math.ceil(len(unique_dates) * test_ratio)))
-        calibration_date_count = max(1, int(math.ceil(len(unique_dates) * calibration_ratio)))
-        while test_date_count + calibration_date_count >= len(unique_dates):
-            if calibration_date_count > 1:
-                calibration_date_count -= 1
-            elif test_date_count > 1:
-                test_date_count -= 1
+        test_group_count = max(1, int(math.ceil(len(group_order) * test_ratio)))
+        calibration_group_count = max(1, int(math.ceil(len(group_order) * calibration_ratio)))
+        while test_group_count + calibration_group_count >= len(group_order):
+            if calibration_group_count > 1:
+                calibration_group_count -= 1
+            elif test_group_count > 1:
+                test_group_count -= 1
             else:
                 raise ValueError("Chronological partitioning requires at least one date per partition")
 
-        first_test_date = unique_dates[-test_date_count]
-        first_calibration_date = unique_dates[-(test_date_count + calibration_date_count)]
-        dates = ordered_df["game_date"].astype(str)
-        train_df = ordered_df[dates < first_calibration_date].copy()
-        calibration_df = ordered_df[(dates >= first_calibration_date) & (dates < first_test_date)].copy()
-        test_df = ordered_df[dates >= first_test_date].copy()
+        test_groups = set(group_order[-test_group_count:])
+        calibration_groups = set(
+            group_order[-(test_group_count + calibration_group_count) : -test_group_count]
+        )
+        train_groups = set(group_order) - calibration_groups - test_groups
+        train_df = ordered_df[partition_groups.isin(train_groups)].copy()
+        calibration_df = ordered_df[partition_groups.isin(calibration_groups)].copy()
+        test_df = ordered_df[partition_groups.isin(test_groups)].copy()
         if train_df.empty or calibration_df.empty or test_df.empty:
             raise ValueError("Chronological partitioning produced an empty partition")
+        self.training_partitioning = {
+            "strategy": "complete_short_event_else_complete_game_date",
+            "event_max_span_days": 14,
+            "train_group_count": len(train_groups),
+            "calibration_group_count": len(calibration_groups),
+            "test_group_count": len(test_groups),
+        }
         return train_df, calibration_df, test_df
+
+    @staticmethod
+    def _chronological_partition_groups(dataset_df: pd.DataFrame) -> pd.Series:
+        """Keep short named events intact while treating long competitions by date."""
+
+        dates = pd.to_datetime(dataset_df["game_date"], errors="raise").dt.normalize()
+        unique_game_dates = [pd.Timestamp(value) for value in sorted(dates.unique())]
+        parent = {value: value for value in unique_game_dates}
+
+        def find(value: pd.Timestamp) -> pd.Timestamp:
+            while parent[value] != value:
+                parent[value] = parent[parent[value]]
+                value = parent[value]
+            return value
+
+        def union(left: pd.Timestamp, right: pd.Timestamp) -> None:
+            left_root = find(left)
+            right_root = find(right)
+            if left_root == right_root:
+                return
+            earlier, later = sorted((left_root, right_root))
+            parent[later] = earlier
+
+        if "event_name" not in dataset_df.columns:
+            return pd.Series(
+                [f"date:{value.date().isoformat()}" for value in dates],
+                index=dataset_df.index,
+                dtype="object",
+            )
+
+        event_names = dataset_df["event_name"].fillna("").astype(str).str.strip()
+        for event_name in sorted(name for name in event_names.unique() if name):
+            event_mask = event_names.eq(event_name)
+            unique_dates = sorted(dates[event_mask].unique())
+            clusters: list[list[pd.Timestamp]] = []
+            for event_date in unique_dates:
+                normalized_date = pd.Timestamp(event_date)
+                if not clusters or (normalized_date - clusters[-1][-1]).days > 14:
+                    clusters.append([normalized_date])
+                else:
+                    clusters[-1].append(normalized_date)
+            for cluster in clusters:
+                if (cluster[-1] - cluster[0]).days > 14:
+                    continue
+                for event_date in cluster[1:]:
+                    union(cluster[0], event_date)
+        return pd.Series(
+            [f"date-block:{find(pd.Timestamp(value)).date().isoformat()}" for value in dates],
+            index=dataset_df.index,
+            dtype="object",
+        )
 
     def _expand_class_probabilities(self, encoded_probabilities: np.ndarray) -> np.ndarray:
         if encoded_probabilities.ndim == 1:
@@ -2829,6 +2912,23 @@ class PointInTimeMatchModel:
             predicted_blowout_5plus=predicted_blowout_5plus,
             probability_strategy=self.probability_strategy,
         )
+        cohort_baseline = build_historical_poisson_benchmark(
+            train_df,
+            test_df,
+            hierarchical=False,
+        )
+        hierarchical_baseline = build_historical_poisson_benchmark(
+            train_df,
+            test_df,
+            hierarchical=True,
+        )
+        self.last_benchmark_table = build_frozen_holdout_benchmark(
+            {
+                "matchbalance_learned": self.last_evaluation_frame,
+                "historical_hierarchical_poisson": hierarchical_baseline,
+                "cohort_average_poisson": cohort_baseline,
+            }
+        )
         summary_metrics = compute_evaluation_summary(self.last_evaluation_frame)
         calibration_summary = strategy_metrics[self.probability_strategy]
         actual_average_abs_margin = _to_float(
@@ -2906,6 +3006,13 @@ class PointInTimeMatchModel:
             },
             "strategy_metrics": strategy_metrics,
             "strategy_metrics_partition": "calibration",
+            "training_partitioning": self.training_partitioning,
+            "frozen_holdout_benchmarks": self.last_benchmark_table.to_dict(orient="records"),
+            "frozen_holdout_benchmark_policy": (
+                "All candidates use the same untouched chronological test examples. "
+                "Benchmark rank is the mean rank across probability, margin, blowout, "
+                "and competitive-game metrics; it does not auto-promote a model."
+            ),
         }
         if auto_strategy_selection is not None:
             metrics["auto_strategy_selection"] = auto_strategy_selection
@@ -2929,6 +3036,7 @@ class PointInTimeMatchModel:
             "strategy_constraints": self.strategy_constraints,
             "auto_strategy_selection": self.auto_strategy_selection,
             "backtest_projection_calibration": self.backtest_projection_calibration,
+            "training_partitioning": self.training_partitioning,
         }
         return metrics
 
@@ -3070,9 +3178,15 @@ class PointInTimeMatchModel:
         output_path.mkdir(parents=True, exist_ok=True)
         evaluation_csv_path = output_path / f"{prefix}_evaluation.csv"
         self.last_evaluation_frame.to_csv(evaluation_csv_path, index=False)
+        benchmark_path = output_path / f"{prefix}_frozen_holdout_benchmarks.csv"
+        if not self.last_benchmark_table.empty:
+            self.last_benchmark_table.to_csv(benchmark_path, index=False)
         summary = write_evaluation_bundle(self.last_evaluation_frame, output_path, prefix=prefix)
         return {
             "evaluation_csv_path": str(evaluation_csv_path),
+            "frozen_holdout_benchmarks_path": (
+                str(benchmark_path) if benchmark_path.exists() else None
+            ),
             "summary": summary,
         }
 

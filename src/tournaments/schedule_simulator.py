@@ -18,11 +18,18 @@ from __future__ import annotations
 import math
 import random
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from statistics import median
 from typing import Any, Callable, Sequence
 
-from src.tournaments.seeding_optimizer import DivisionAssignment, SeedableTeam
+from src.tournaments.seeding_optimizer import (
+    DivisionAssignment,
+    MatchupCostFn,
+    SeedableTeam,
+    TournamentOptimizationResult,
+    projected_matchup_cost,
+    refine_assignments_for_objective,
+)
 
 PredictionFn = Callable[[SeedableTeam, SeedableTeam], Any]
 
@@ -542,6 +549,63 @@ class _SampledPrediction:
         return getattr(self._base, name)
 
 
+class _TiltedPrediction:
+    """Coherent expected prediction after one persistent team-strength scenario."""
+
+    def __init__(self, base: Any, matrix: tuple[tuple[float, ...], ...]) -> None:
+        self._base = base
+        self.scoreline_probability_matrix = matrix
+        margin_probability: dict[int, float] = {}
+        for home_goals, row in enumerate(matrix):
+            for away_goals, probability in enumerate(row):
+                margin = home_goals - away_goals
+                margin_probability[margin] = margin_probability.get(margin, 0.0) + probability
+        self.win_probability_a = float(
+            sum(probability for margin, probability in margin_probability.items() if margin > 0)
+        )
+        self.draw_probability = float(margin_probability.get(0, 0.0))
+        self.win_probability_b = float(
+            sum(probability for margin, probability in margin_probability.items() if margin < 0)
+        )
+        self.expected_margin = float(
+            sum(margin * probability for margin, probability in margin_probability.items())
+        )
+        self.expected_absolute_margin = float(
+            sum(abs(margin) * probability for margin, probability in margin_probability.items())
+        )
+        self.close_game_probability = float(
+            sum(probability for margin, probability in margin_probability.items() if abs(margin) <= 1)
+        )
+        self.blowout_3plus_probability = float(
+            sum(probability for margin, probability in margin_probability.items() if abs(margin) >= 3)
+        )
+        self.blowout_4plus_probability = float(
+            sum(probability for margin, probability in margin_probability.items() if abs(margin) >= 4)
+        )
+        self.blowout_5plus_probability = float(
+            sum(probability for margin, probability in margin_probability.items() if abs(margin) >= 5)
+        )
+        flat_mode = max(
+            (
+                (probability, -home_goals, -away_goals, home_goals, away_goals)
+                for home_goals, row in enumerate(matrix)
+                for away_goals, probability in enumerate(row)
+            )
+        )
+        self.expected_score = {"teamA": flat_mode[3], "teamB": flat_mode[4]}
+        if self.draw_probability >= max(self.win_probability_a, self.win_probability_b):
+            self.predicted_winner = "draw"
+        elif abs(self.win_probability_a - self.win_probability_b) <= 1e-12:
+            self.predicted_winner = "draw"
+        elif self.win_probability_a > self.win_probability_b:
+            self.predicted_winner = "team_a"
+        else:
+            self.predicted_winner = "team_b"
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+
 def _scoreline_matrix(prediction: Any) -> tuple[tuple[float, ...], ...]:
     raw_matrix = getattr(prediction, "scoreline_probability_matrix", None)
     if raw_matrix is None:
@@ -624,6 +688,43 @@ def _stochastic_prediction_function(
         )
 
     return sampled
+
+
+def _latent_strength_prediction_function(
+    predict_fn: PredictionFn,
+    *,
+    team_strength_offsets: dict[str, float],
+) -> PredictionFn:
+    """Tilt a coherent score distribution using one shared offset per team."""
+
+    def tilted(team_a: SeedableTeam, team_b: SeedableTeam) -> Any:
+        prediction = predict_fn(team_a, team_b)
+        try:
+            matrix = _scoreline_matrix(prediction)
+        except ValueError:
+            return prediction
+        strength_offset = float(team_strength_offsets.get(team_a.team_id, 0.0)) - float(
+            team_strength_offsets.get(team_b.team_id, 0.0)
+        )
+        weighted = []
+        total = 0.0
+        for home_goals, row in enumerate(matrix):
+            weighted_row = []
+            for away_goals, probability in enumerate(row):
+                tilt = math.exp(
+                    max(-6.0, min(6.0, strength_offset * (home_goals - away_goals)))
+                )
+                mass = probability * tilt
+                weighted_row.append(mass)
+                total += mass
+            weighted.append(weighted_row)
+        normalized = tuple(
+            tuple(value / total for value in row)
+            for row in weighted
+        )
+        return _TiltedPrediction(prediction, normalized)
+
+    return tilted
 
 
 def _simulate_match(
@@ -1290,6 +1391,104 @@ def simulate_tournament_schedule(
     )
 
 
+def schedule_competitiveness_objective(
+    simulation: TournamentScheduleSimulation,
+) -> float:
+    """Score the exact played edges, including advancement-dependent games."""
+
+    matches = [match for division in simulation.divisions for match in division.matches]
+    if not matches:
+        return 0.0
+    costs = []
+    for match in matches:
+        close_probability = (
+            match.close_game_probability
+            if match.close_game_probability is not None
+            else float(match.goal_differential <= 1)
+        )
+        blowout_4plus_probability = (
+            match.blowout_4plus_probability
+            if match.blowout_4plus_probability is not None
+            else float(match.goal_differential >= 4)
+        )
+        costs.append(
+            float(match.expected_goal_differential)
+            + (1.0 - float(close_probability))
+            + 3.0 * float(blowout_4plus_probability)
+        )
+    return float(sum(costs) / len(costs))
+
+
+def refine_tournament_assignments_for_schedule(
+    initial: TournamentOptimizationResult,
+    templates: dict[str, DivisionScheduleTemplate],
+    predict_fn: PredictionFn,
+    *,
+    matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
+    max_iterations: int = 8,
+    improvement_tolerance: float = 1e-9,
+    scenario_count: int = 0,
+    random_seed: int = 20260905,
+) -> TournamentOptimizationResult:
+    """Refine an initial seeding against the tournament's captured schedule graph."""
+
+    missing_templates = sorted(
+        division.name for division in initial.divisions if division.name not in templates
+    )
+    if missing_templates:
+        raise ValueError(
+            "Missing schedule templates for divisions: " + ", ".join(missing_templates)
+        )
+
+    if scenario_count < 0:
+        raise ValueError("scenario_count must be non-negative")
+    teams_by_id = {
+        team.team_id: team for division in initial.divisions for team in division.teams
+    }
+    scenario_rng = random.Random(random_seed)
+    scenarios = [
+        {
+            team_id: scenario_rng.gauss(0.0, float(team.strength_uncertainty))
+            for team_id, team in teams_by_id.items()
+        }
+        for _ in range(scenario_count)
+    ]
+
+    def objective(divisions: Sequence[DivisionAssignment]) -> float:
+        values = [
+            schedule_competitiveness_objective(
+                simulate_tournament_schedule(divisions, templates, predict_fn)
+            )
+        ]
+        values.extend(
+            schedule_competitiveness_objective(
+                simulate_tournament_schedule(
+                    divisions,
+                    templates,
+                    _latent_strength_prediction_function(
+                        predict_fn,
+                        team_strength_offsets=offsets,
+                    ),
+                )
+            )
+            for offsets in scenarios
+        )
+        return float(sum(values) / len(values))
+
+    refined = refine_assignments_for_objective(
+        initial,
+        objective,
+        matchup_cost_fn=matchup_cost_fn,
+        max_iterations=max_iterations,
+        improvement_tolerance=improvement_tolerance,
+    )
+    return replace(
+        refined,
+        schedule_scenario_count=scenario_count,
+        schedule_random_seed=random_seed if scenario_count else None,
+    )
+
+
 def _empirical_interval(values: Sequence[float]) -> dict[str, float]:
     if not values:
         raise ValueError("At least one simulation value is required")
@@ -1409,6 +1608,10 @@ def simulate_paired_tournament_ensemble(
         },
         "proposed": {
             key: _empirical_interval(values) for key, values in proposed_values.items()
+        },
+        "samples": {
+            "original": original_values,
+            "proposed": proposed_values,
         },
         "comparison": {
             "average_goal_differential_reduction": _empirical_interval(margin_reductions),

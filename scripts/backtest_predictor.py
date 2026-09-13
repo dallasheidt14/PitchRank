@@ -139,6 +139,7 @@ def _fetch_historical_games_via_db(
             g.id,
             g.game_date,
             g.created_at,
+            g.event_name,
             g.home_team_master_id,
             g.away_team_master_id,
             g.home_score,
@@ -406,7 +407,10 @@ async def fetch_historical_games(
     def build_base_query():
         query = (
             supabase.table("games")
-            .select("id, game_date, created_at, home_team_master_id, away_team_master_id, home_score, away_score")
+            .select(
+                "id, game_date, created_at, event_name, home_team_master_id, "
+                "away_team_master_id, home_score, away_score"
+            )
             .not_.is_("home_team_master_id", "null")
             .not_.is_("away_team_master_id", "null")
             .not_.is_("home_score", "null")

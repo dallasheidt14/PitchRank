@@ -8,6 +8,7 @@ from src.predictions.evaluation_reporting import (
     build_margin_band_metrics,
     build_standardized_evaluation_frame,
     compute_evaluation_summary,
+    write_evaluation_bundle,
 )
 
 
@@ -274,3 +275,46 @@ def test_blowout_metrics_use_explicit_probability_labels_when_present():
     blowout_row = margin_bands.loc[margin_bands["band"] == "blowout_3plus"].iloc[0]
     assert blowout_row["predicted_rate"] == 0.5
     assert blowout_row["precision"] == 1.0
+
+
+def test_evaluation_bundle_reports_gender_and_history_coverage(tmp_path):
+    frame = pd.DataFrame(
+        [
+            {
+                "game_id": "g1",
+                "game_date": "2026-04-01",
+                "actual_outcome": "team_a",
+                "prob_team_a_win": 0.70,
+                "prob_draw": 0.16,
+                "prob_team_b_win": 0.14,
+                "predicted_margin": 1.2,
+                "actual_margin": 1,
+                "team_a_is_female": 1.0,
+                "team_b_is_female": 1.0,
+                "team_a_games_played": 12,
+                "team_b_games_played": 8,
+            },
+            {
+                "game_id": "g2",
+                "game_date": "2026-04-02",
+                "actual_outcome": "team_b",
+                "prob_team_a_win": 0.18,
+                "prob_draw": 0.17,
+                "prob_team_b_win": 0.65,
+                "predicted_margin": -1.0,
+                "actual_margin": -2,
+                "team_a_is_female": 0.0,
+                "team_b_is_female": 0.0,
+                "team_a_games_played": 2,
+                "team_b_games_played": 20,
+            },
+        ]
+    )
+
+    standardized = build_standardized_evaluation_frame(frame)
+    write_evaluation_bundle(frame, tmp_path, prefix="segmented")
+
+    assert standardized["matchup_gender"].tolist() == ["girls", "boys"]
+    assert standardized["history_coverage_band"].astype(str).tolist() == ["6-10", "0-2"]
+    assert (tmp_path / "segmented_by_gender.csv").exists()
+    assert (tmp_path / "segmented_by_history_coverage.csv").exists()

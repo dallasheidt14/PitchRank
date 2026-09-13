@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import math
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
@@ -179,6 +180,90 @@ def _weighted_probability(
     return (total / matchups if matchups else None), matchups
 
 
+def _empirical_interval(values: list[float]) -> dict[str, float] | None:
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+
+    def quantile(probability: float) -> float:
+        position = (len(ordered) - 1) * probability
+        lower = int(math.floor(position))
+        upper = int(math.ceil(position))
+        if lower == upper:
+            return ordered[lower]
+        fraction = position - lower
+        return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+    return {
+        "mean": float(sum(ordered) / len(ordered)),
+        "median": quantile(0.5),
+        "confidence_95_lower": quantile(0.025),
+        "confidence_95_upper": quantile(0.975),
+    }
+
+
+def _event_projection_uncertainty(
+    selected: tuple[SelectedCohortRun, ...],
+    *,
+    actual_margin: float | None,
+    actual_blowout_rate: float | None,
+) -> dict[str, Any]:
+    """Combine aligned cohort simulation draws into tournament-level ranges."""
+
+    cohort_samples: list[tuple[int, list[float], list[float]]] = []
+    sample_counts: set[int] = set()
+    for run in selected:
+        projection = run.summary.get("proposed_schedule_projection") or {}
+        match_count = int(projection.get("projected_matchup_count") or 0)
+        samples = ((run.summary.get("simulation_ensemble") or {}).get("samples") or {}).get(
+            "proposed"
+        ) or {}
+        margin_samples = [float(value) for value in samples.get("average_goal_differential") or ()]
+        blowout_samples = [float(value) for value in samples.get("blowout_4plus_rate") or ()]
+        if match_count <= 0 or not margin_samples or len(margin_samples) != len(blowout_samples):
+            return {
+                "status": "unavailable",
+                "reason": "Every completed cohort needs aligned scoreline simulation samples",
+            }
+        sample_counts.add(len(margin_samples))
+        cohort_samples.append((match_count, margin_samples, blowout_samples))
+    if not cohort_samples or len(sample_counts) != 1:
+        return {
+            "status": "unavailable",
+            "reason": "Completed cohorts do not share one simulation count",
+        }
+    simulation_count = next(iter(sample_counts))
+    total_matches = sum(item[0] for item in cohort_samples)
+    event_margins = [
+        sum(count * margins[index] for count, margins, _blowouts in cohort_samples)
+        / total_matches
+        for index in range(simulation_count)
+    ]
+    event_blowouts = [
+        sum(count * blowouts[index] for count, _margins, blowouts in cohort_samples)
+        / total_matches
+        for index in range(simulation_count)
+    ]
+    return {
+        "status": "available",
+        "method": "aligned_cohort_scoreline_monte_carlo",
+        "simulation_count": simulation_count,
+        "match_count": total_matches,
+        "matchbalance_average_goal_margin": _empirical_interval(event_margins),
+        "matchbalance_blowout_4plus_rate": _empirical_interval(event_blowouts),
+        "probability_matchbalance_average_margin_below_actual": (
+            float(sum(value < actual_margin for value in event_margins) / simulation_count)
+            if actual_margin is not None
+            else None
+        ),
+        "probability_matchbalance_blowout_rate_below_actual": (
+            float(sum(value < actual_blowout_rate for value in event_blowouts) / simulation_count)
+            if actual_blowout_rate is not None
+            else None
+        ),
+    }
+
+
 def _event_model_validation(
     actual_results: dict[str, Any],
     selected: tuple[SelectedCohortRun, ...],
@@ -313,9 +398,21 @@ def build_event_rollup(
         if actual["blowout_percentage"] is not None
         else None
     )
+    projection_uncertainty = (
+        _event_projection_uncertainty(
+            selected,
+            actual_margin=actual_margin,
+            actual_blowout_rate=actual_blowout,
+        )
+        if comparison_ready
+        else {
+            "status": "unavailable",
+            "reason": "Complete and validate every cohort before combining uncertainty",
+        }
+    )
     comparison_proposed_margin = proposed_margin if comparison_ready else None
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "event": {
             "event_id": snapshot.roster.event_id,
             "event_name": totals["event_name"],
@@ -353,6 +450,7 @@ def build_event_rollup(
                 if complete_4plus and actual_blowout is not None and proposed_blowout is not None
                 else None
             ),
+            "projection_uncertainty": projection_uncertainty,
             "scope_note": (
                 "All observed games from the captured tournament compared with frozen-model "
                 "projections for the MatchBalance division and pool assignments after every cohort "
@@ -457,6 +555,23 @@ def render_event_rollup_html(rollup: dict[str, Any]) -> str:
     blowout_reduction = _format(
         comparison["estimated_blowout_4plus_rate_reduction"], rate=True
     )
+    uncertainty = comparison.get("projection_uncertainty") or {}
+    uncertainty_html = ""
+    if uncertainty.get("status") == "available":
+        margin_interval = uncertainty["matchbalance_average_goal_margin"]
+        blowout_interval = uncertainty["matchbalance_blowout_4plus_rate"]
+        uncertainty_html = f"""
+<h3>Projection range</h3><p class="muted">Across {uncertainty['simulation_count']} complete
+tournament simulations, MatchBalance's average goal margin was between
+{_format(margin_interval['confidence_95_lower'])} and
+{_format(margin_interval['confidence_95_upper'])} in the middle 95% of runs. Its 4+ blowout
+rate was between {_format(blowout_interval['confidence_95_lower'], rate=True)} and
+{_format(blowout_interval['confidence_95_upper'], rate=True)}. The simulated chance of beating
+the observed tournament was
+{_format(uncertainty['probability_matchbalance_average_margin_below_actual'], rate=True)} on
+average margin and
+{_format(uncertainty['probability_matchbalance_blowout_rate_below_actual'], rate=True)} on 4+
+blowout rate.</p>"""
     model_sha = html.escape(str(rollup.get("model_artifact_sha256") or "Unavailable"))
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>{html.escape(str(event['event_name']))} MatchBalance Backtest</title><style>
@@ -480,7 +595,7 @@ th{{background:#f9fafb}}.muted{{color:#667085}}</style></head><body>
 <tr><td>Average goal margin</td><td>{comparison_actual_margin}</td><td>{matchbalance_margin}</td>
 <td>{margin_reduction}</td></tr>
 <tr><td>4+ blowout rate</td><td>{comparison_actual_blowout}</td><td>{matchbalance_blowout}</td>
-<td>{blowout_reduction}</td></tr></tbody></table>
+<td>{blowout_reduction}</td></tr></tbody></table>{uncertainty_html}
 <h2>Team movement</h2><div class="cards">
 <div class="card">Moved up<div class="value">{movements['moved_up']}</div></div>
 <div class="card">Moved down<div class="value">{movements['moved_down']}</div></div>

@@ -60,6 +60,7 @@ class MatchupCost:
 
 
 MatchupCostFn = Callable[["SeedableTeam", "SeedableTeam"], MatchupCost]
+AssignmentObjectiveFn = Callable[[Sequence["DivisionAssignment"]], float]
 
 POOL_POLICY_COMPETITIVE_MATCHUPS = "competitive_matchups"
 POOL_POLICY_BALANCED_STRENGTH = "balanced_strength"
@@ -106,6 +107,11 @@ class TournamentOptimizationResult:
     pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS
     optimizer_restarts: int = 1
     selected_restart: int = 0
+    schedule_refinement_iterations: int = 0
+    schedule_objective_before: float | None = None
+    schedule_objective_after: float | None = None
+    schedule_scenario_count: int = 0
+    schedule_random_seed: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -115,6 +121,11 @@ class TournamentOptimizationResult:
             "pool_assignment_policy": self.pool_assignment_policy,
             "optimizer_restarts": self.optimizer_restarts,
             "selected_restart": self.selected_restart,
+            "schedule_refinement_iterations": self.schedule_refinement_iterations,
+            "schedule_objective_before": self.schedule_objective_before,
+            "schedule_objective_after": self.schedule_objective_after,
+            "schedule_scenario_count": self.schedule_scenario_count,
+            "schedule_random_seed": self.schedule_random_seed,
             "divisions": [
                 {
                     "name": division.name,
@@ -536,6 +547,155 @@ def _assert_assignment_integrity(
             raise RuntimeError(f"Division '{division.name}' pool membership does not match its entrants")
         if tuple(len(pool.teams) for pool in division.pools) != division.pool_sizes:
             raise RuntimeError(f"Division '{division.name}' pool capacities changed during optimization")
+
+
+def _rebuild_division_from_pools(
+    division: DivisionAssignment,
+    pool_teams: Sequence[Sequence[SeedableTeam]],
+    *,
+    matchup_cost_fn: MatchupCostFn,
+) -> DivisionAssignment:
+    pools = tuple(
+        _build_flight_assignment(
+            division.pools[index].name,
+            teams,
+            matchup_cost_fn=matchup_cost_fn,
+        )
+        for index, teams in enumerate(pool_teams)
+    )
+    pair_counts = [_pair_count(len(pool.teams)) for pool in pools]
+    total_pairs = sum(pair_counts)
+    if total_pairs:
+        total_cost = float(sum(pool.total_pair_cost for pool in pools))
+
+        def weighted(field: str) -> float:
+            return float(
+                sum(float(getattr(pool, field)) * count for pool, count in zip(pools, pair_counts, strict=True))
+                / total_pairs
+            )
+
+        p4_values = [pool.blowout_4plus_probability for pool in pools]
+        p4 = (
+            float(
+                sum(float(value) * count for value, count in zip(p4_values, pair_counts, strict=True))
+                / total_pairs
+            )
+            if all(value is not None for value in p4_values)
+            else None
+        )
+    else:
+        total_cost = 0.0
+        p4 = 0.0
+
+        def weighted(field: str) -> float:
+            return 1.0 if field == "competitive_probability" else 0.0
+
+    teams = tuple(team for pool in pools for team in pool.teams)
+    return DivisionAssignment(
+        name=division.name,
+        teams=tuple(sorted(teams, key=_team_sort_key)),
+        total_pair_cost=total_cost,
+        average_pair_cost=float(total_cost / total_pairs) if total_pairs else 0.0,
+        average_projected_margin=weighted("average_projected_margin"),
+        competitive_probability=weighted("competitive_probability"),
+        blowout_3plus_probability=weighted("blowout_3plus_probability"),
+        blowout_4plus_probability=p4,
+        blowout_5plus_probability=weighted("blowout_5plus_probability"),
+        pool_sizes=division.pool_sizes,
+        advancement=division.advancement,
+        pools=pools,
+    )
+
+
+def refine_assignments_for_objective(
+    initial: TournamentOptimizationResult,
+    objective_fn: AssignmentObjectiveFn,
+    *,
+    matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
+    max_iterations: int = 8,
+    improvement_tolerance: float = 1e-9,
+) -> TournamentOptimizationResult:
+    """Improve fixed-capacity assignments against a whole-tournament objective.
+
+    The first optimizer uses fast pair costs. This second deterministic pass can
+    score actual scheduled edges and advancement paths supplied by the caller.
+    """
+
+    if max_iterations < 0:
+        raise ValueError("max_iterations must be non-negative")
+    divisions = tuple(initial.divisions)
+    all_teams = tuple(team for division in divisions for team in division.teams)
+    initial_objective = float(objective_fn(divisions))
+    current_objective = initial_objective
+    completed_iterations = 0
+
+    while completed_iterations < max_iterations:
+        slots = [
+            (division_index, pool_index, team_index)
+            for division_index, division in enumerate(divisions)
+            for pool_index, pool in enumerate(division.pools)
+            for team_index in range(len(pool.teams))
+        ]
+        best_divisions: tuple[DivisionAssignment, ...] | None = None
+        best_objective = current_objective
+        best_signature: tuple[str, str] | None = None
+        for left_position, left_slot in enumerate(slots):
+            for right_slot in slots[left_position + 1 :]:
+                left_division, left_pool, left_team = left_slot
+                right_division, right_pool, right_team = right_slot
+                if (left_division, left_pool) == (right_division, right_pool):
+                    continue
+                left_value = divisions[left_division].pools[left_pool].teams[left_team]
+                right_value = divisions[right_division].pools[right_pool].teams[right_team]
+                candidate_pool_teams = [
+                    [list(pool.teams) for pool in division.pools]
+                    for division in divisions
+                ]
+                candidate_pool_teams[left_division][left_pool][left_team] = right_value
+                candidate_pool_teams[right_division][right_pool][right_team] = left_value
+                affected = {left_division, right_division}
+                candidate_divisions = tuple(
+                    _rebuild_division_from_pools(
+                        division,
+                        candidate_pool_teams[index],
+                        matchup_cost_fn=matchup_cost_fn,
+                    )
+                    if index in affected
+                    else division
+                    for index, division in enumerate(divisions)
+                )
+                candidate_objective = float(objective_fn(candidate_divisions))
+                signature = tuple(sorted((left_value.team_id, right_value.team_id)))
+                if (
+                    candidate_objective + improvement_tolerance < best_objective
+                    or (
+                        abs(candidate_objective - best_objective) <= improvement_tolerance
+                        and best_divisions is not None
+                        and signature < (best_signature or signature)
+                    )
+                ):
+                    best_divisions = candidate_divisions
+                    best_objective = candidate_objective
+                    best_signature = signature
+        if best_divisions is None:
+            break
+        divisions = best_divisions
+        current_objective = best_objective
+        completed_iterations += 1
+
+    _assert_assignment_integrity(all_teams, divisions)
+    return TournamentOptimizationResult(
+        divisions=divisions,
+        total_cost=float(sum(division.total_pair_cost for division in divisions)),
+        optimizer_iterations=initial.optimizer_iterations + completed_iterations,
+        matchup_proxy=initial.matchup_proxy,
+        pool_assignment_policy=initial.pool_assignment_policy,
+        optimizer_restarts=initial.optimizer_restarts,
+        selected_restart=initial.selected_restart,
+        schedule_refinement_iterations=completed_iterations,
+        schedule_objective_before=initial_objective,
+        schedule_objective_after=current_objective,
+    )
 
 
 def optimize_division_assignments(

@@ -133,6 +133,37 @@ def build_standardized_evaluation_frame(frame: pd.DataFrame) -> pd.DataFrame:
         else:
             standardized[predicted_label_column] = standardized["predicted_abs_margin"] >= float(threshold)
         standardized[f"actual_blowout_{threshold}plus"] = standardized["actual_abs_margin"] >= float(threshold)
+
+    if {"team_a_is_female", "team_b_is_female"}.issubset(standardized.columns):
+        team_a_female = _numeric_column(standardized, "team_a_is_female")
+        team_b_female = _numeric_column(standardized, "team_b_is_female")
+        standardized["matchup_gender"] = np.select(
+            [
+                team_a_female.ge(0.5) & team_b_female.ge(0.5),
+                team_a_female.lt(0.5) & team_b_female.lt(0.5),
+            ],
+            ["girls", "boys"],
+            default="mixed_or_unknown",
+        )
+
+    if {"team_a_games_played", "team_b_games_played"}.issubset(standardized.columns):
+        minimum_history = pd.concat(
+            [
+                _numeric_column(standardized, "team_a_games_played"),
+                _numeric_column(standardized, "team_b_games_played"),
+            ],
+            axis=1,
+        ).min(axis=1)
+        standardized["minimum_team_history_games"] = minimum_history
+        standardized["history_coverage_band"] = (
+            pd.cut(
+                minimum_history,
+                bins=[-np.inf, 2, 5, 10, 20, np.inf],
+                labels=["0-2", "3-5", "6-10", "11-20", "21+"],
+            )
+            .astype("string")
+            .fillna("unknown")
+        )
     return standardized
 
 
@@ -263,8 +294,11 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
         summary["feature_source_counts"] = (
             standardized["feature_source"].value_counts(dropna=False).sort_index().to_dict()
         )
-    if "age_group" in standardized.columns:
-        summary["age_group_counts"] = standardized["age_group"].value_counts(dropna=False).sort_index().to_dict()
+    age_column = "age_group" if "age_group" in standardized.columns else "age_group_numeric"
+    if age_column in standardized.columns:
+        summary["age_group_counts"] = (
+            standardized[age_column].value_counts(dropna=False).sort_index().to_dict()
+        )
 
     return summary
 
@@ -333,6 +367,13 @@ def build_group_metrics(frame: pd.DataFrame, group_column: str) -> pd.DataFrame:
                 "competitive_game_precision": summary.get("competitive_game_precision"),
                 "blowout_3plus_recall": summary.get("blowout_3plus_recall"),
                 "blowout_3plus_precision": summary.get("blowout_3plus_precision"),
+                "blowout_3plus_brier": summary.get("blowout_3plus_brier"),
+                "blowout_4plus_recall": summary.get("blowout_4plus_recall"),
+                "blowout_4plus_precision": summary.get("blowout_4plus_precision"),
+                "blowout_4plus_brier": summary.get("blowout_4plus_brier"),
+                "blowout_5plus_recall": summary.get("blowout_5plus_recall"),
+                "blowout_5plus_precision": summary.get("blowout_5plus_precision"),
+                "blowout_5plus_brier": summary.get("blowout_5plus_brier"),
             }
         )
 
@@ -436,8 +477,11 @@ def write_evaluation_bundle(frame: pd.DataFrame, output_dir: Path, prefix: str =
     calibration_table = build_calibration_table(standardized)
     outcome_metrics = build_outcome_metrics(standardized)
     margin_band_metrics = build_margin_band_metrics(standardized)
-    age_metrics = build_group_metrics(standardized, "age_group")
+    age_column = "age_group" if "age_group" in standardized.columns else "age_group_numeric"
+    age_metrics = build_group_metrics(standardized, age_column)
     feature_source_metrics = build_group_metrics(standardized, "feature_source")
+    gender_metrics = build_group_metrics(standardized, "matchup_gender")
+    history_coverage_metrics = build_group_metrics(standardized, "history_coverage_band")
 
     summary_path = output_dir / f"{prefix}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -494,5 +538,12 @@ def write_evaluation_bundle(frame: pd.DataFrame, output_dir: Path, prefix: str =
         age_metrics.to_csv(output_dir / f"{prefix}_by_age.csv", index=False)
     if not feature_source_metrics.empty:
         feature_source_metrics.to_csv(output_dir / f"{prefix}_by_feature_source.csv", index=False)
+    if not gender_metrics.empty:
+        gender_metrics.to_csv(output_dir / f"{prefix}_by_gender.csv", index=False)
+    if not history_coverage_metrics.empty:
+        history_coverage_metrics.to_csv(
+            output_dir / f"{prefix}_by_history_coverage.csv",
+            index=False,
+        )
 
     return summary

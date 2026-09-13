@@ -1511,6 +1511,17 @@ def _render_event_rollup(
         ),
         delta_color="off",
     )
+    uncertainty = comparison.get("projection_uncertainty") or {}
+    if uncertainty.get("status") == "available":
+        margin_interval = uncertainty["matchbalance_average_goal_margin"]
+        blowout_interval = uncertainty["matchbalance_blowout_4plus_rate"]
+        st.caption(
+            f"{uncertainty['simulation_count']} tournament simulations: projected margin "
+            f"95% range {_format_model_value(margin_interval['confidence_95_lower'], 'goals')}–"
+            f"{_format_model_value(margin_interval['confidence_95_upper'], 'goals')}; projected "
+            f"4+ rate 95% range {_format_model_value(blowout_interval['confidence_95_lower'], 'rate')}–"
+            f"{_format_model_value(blowout_interval['confidence_95_upper'], 'rate')}."
+        )
     if comparison["comparison_ready"]:
         move_columns = st.columns(4)
         move_columns[0].metric("Teams moved up", movements["moved_up"])
@@ -1811,6 +1822,30 @@ def _render_backtest_runner(
                     f"{missing_history_fallbacks} matched team(s) without eligible pre-event "
                     "history. These limitations are saved with the Backtest evidence."
                 )
+                with st.expander("Average estimates and uncertainty"):
+                    st.dataframe(
+                        pd.DataFrame(
+                            [
+                                {
+                                    "Cohort": (
+                                        f"{_display_gender(cohort.gender)} "
+                                        f"{cohort.age_group.upper()}"
+                                    ),
+                                    "Team": entrant.event_team_name,
+                                    "Estimate": entrant.rating_basis,
+                                    "Source teams": entrant.rating_source_count,
+                                    "Uncertainty": entrant.strength_uncertainty,
+                                    "Reason": entrant.reason,
+                                }
+                                for cohort in preflight.cohorts
+                                for entrant in cohort.entrants
+                                if entrant.rating_basis != "historical_snapshot"
+                                and entrant.eligible
+                            ]
+                        ),
+                        hide_index=True,
+                        width="stretch",
+                    )
         else:
             st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
             with st.expander("Missing historical evidence"):

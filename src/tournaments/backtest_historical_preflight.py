@@ -17,6 +17,7 @@ from scripts.backtest_tournament_cohort import (
     TEAM_META_COLS,
     _build_entrant_row,
     _canonicalize_snapshot_index,
+    _entrant_strength_uncertainty,
     _expand_merged_team_ids,
     _fetch_rows_by_ids,
     _filter_snapshot_index_for_cutoff,
@@ -59,6 +60,8 @@ class HistoricalEntrantCheck:
     rating_basis: str = "historical_snapshot"
     rating_source_count: int = 0
     rating_fallback: str = ""
+    strength_uncertainty: float = 0.0
+    uncertainty_basis: str = ""
 
 
 @dataclass(frozen=True)
@@ -310,6 +313,7 @@ def run_historical_preflight(
                 "actual_division_key": str(entrant.get("actual_division_key") or ""),
             }
             rated_rows.append(rated_row)
+            strength_uncertainty, uncertainty_basis = _entrant_strength_uncertainty(row)
             checks_by_entrant[str(entrant["entrant_id"])] = HistoricalEntrantCheck(
                 str(entrant["entrant_id"]),
                 name,
@@ -320,6 +324,8 @@ def run_historical_preflight(
                 source_age_group=str(row["source_age_group"]),
                 source_gender=str(row["source_gender"]),
                 power_score=float(row["power_score"]),
+                strength_uncertainty=strength_uncertainty,
+                uncertainty_basis=uncertainty_basis,
             )
         for entrant in fallback_entrants:
             entrant_id = str(entrant["entrant_id"])
@@ -342,6 +348,10 @@ def run_historical_preflight(
                 checks_by_entrant[source_id]
                 for source_id in estimate["average_source_entrant_ids"]
             ]
+            fallback_row = {**estimate, "rating_basis": basis}
+            strength_uncertainty, uncertainty_basis = _entrant_strength_uncertainty(
+                fallback_row
+            )
             checks_by_entrant[entrant_id] = HistoricalEntrantCheck(
                 entrant_id,
                 name,
@@ -366,6 +376,8 @@ def run_historical_preflight(
                 rating_basis=basis,
                 rating_source_count=len(source_checks),
                 rating_fallback=str(entrant.get("rating_fallback") or ""),
+                strength_uncertainty=strength_uncertainty,
+                uncertainty_basis=uncertainty_basis,
             )
         checks = tuple(checks_by_entrant[str(entrant["entrant_id"])] for entrant in entrants)
         cohort_results.append(
