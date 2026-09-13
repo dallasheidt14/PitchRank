@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 DIRECT_DB_BATCH_SIZE = 5000
 # Batch team ids, then paginate within each batch so we don't truncate at the PostgREST row cap.
-REST_SNAPSHOT_BATCH_SIZE = 250
+REST_SNAPSHOT_BATCH_SIZE = 100
 REST_SNAPSHOT_CONCURRENCY = 8
 REST_PAGE_SIZE = 1000
 REST_SNAPSHOT_MAX_ATTEMPTS = 4

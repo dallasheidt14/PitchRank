@@ -204,8 +204,47 @@ def test_build_request_rejects_conflicting_duplicate_fixture_evidence():
         reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
     )
 
-    with pytest.raises(BacktestRequestError, match="conflicting fixture evidence"):
+    with pytest.raises(BacktestRequestError, match="unsafe fixture evidence"):
         build_cohort_backtest_requests(snapshot, event_links=_links())
+
+
+def test_build_request_rejects_fixture_without_a_stable_game_identity():
+    snapshot = _snapshot()
+    unidentified = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        match_number="",
+        source_url="https://example.test/group/1",
+    )
+    division = replace(snapshot.roster.divisions[0], fixtures=(unidentified,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    with pytest.raises(BacktestRequestError, match="missing_identity"):
+        build_cohort_backtest_requests(snapshot, event_links=_links())
+
+
+def test_build_request_keeps_unnumbered_fixture_with_provider_match_identity():
+    snapshot = _snapshot()
+    identified = replace(
+        snapshot.roster.divisions[0].fixtures[0],
+        match_number="",
+        source_url="https://example.test/schedule?match=9001",
+    )
+    division = replace(snapshot.roster.divisions[0], fixtures=(identified,))
+    snapshot = replace(
+        snapshot,
+        roster=replace(snapshot.roster, divisions=(division,)),
+        reviews=(replace(snapshot.reviews[0], structure_hash=structure_hash(division)),),
+    )
+
+    request = build_cohort_backtest_requests(snapshot, event_links=_links())[0]
+
+    assert request["divisions"][0]["captured_schedule"]["fixture_slots"][0][
+        "match_number"
+    ] == ""
 
 
 def test_build_request_uses_group_id_when_division_label_is_blank():

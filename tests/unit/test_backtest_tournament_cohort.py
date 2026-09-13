@@ -37,6 +37,13 @@ def test_team_metadata_queries_use_at_most_one_hundred_ids():
     assert [len(batch) for batch in batches] == [100, 100, 5]
 
 
+def test_subprocess_rejects_a_changed_merge_map_version():
+    cohort._verify_merge_map_version(actual="merge-v1", expected="merge-v1")
+
+    with pytest.raises(RuntimeError, match="changed after Backtest readiness"):
+        cohort._verify_merge_map_version(actual="merge-v2", expected="merge-v1")
+
+
 def test_legacy_captured_schedule_without_scoring_policy_is_rejected():
     division = DivisionSpec("Gold", 2, (2,), "CAPTURED_GRAPH")
     payload = {

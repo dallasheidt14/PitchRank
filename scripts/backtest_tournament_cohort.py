@@ -1494,6 +1494,15 @@ def _build_division_recommendations(
     return recommendations
 
 
+def _verify_merge_map_version(*, actual: str, expected: str) -> None:
+    expected = str(expected or "").strip()
+    if expected and str(actual) != expected:
+        raise RuntimeError(
+            "Team merge information changed after Backtest readiness was checked "
+            f"(expected {expected}, loaded {actual}); refresh the intake before running"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Backtest one completed tournament cohort against an optimized reseeding"
@@ -1537,6 +1546,11 @@ def main() -> int:
         default=30,
         help="Extra days to include before the tournament start when fetching point-in-time snapshots",
     )
+    parser.add_argument(
+        "--expected-merge-map-version",
+        default="",
+        help="Fail if the subprocess reads a different team merge-map version",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1557,6 +1571,10 @@ def main() -> int:
     merge_resolver.load_merge_map()
     if merge_resolver.version == "error":
         raise RuntimeError("Team merge information could not be loaded for the historical backtest")
+    _verify_merge_map_version(
+        actual=merge_resolver.version,
+        expected=args.expected_merge_map_version,
+    )
     normalized_entrants = []
     for entrant in entrants_payload:
         if needs_rating_fallback(entrant):

@@ -392,6 +392,8 @@ def execute_reviewed_run(
             "365",
             "--snapshot-buffer-days",
             "30",
+            "--expected-merge-map-version",
+            str(merge_map_version),
         ]
         started_at = utc_now_iso()
         request_bytes = json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")

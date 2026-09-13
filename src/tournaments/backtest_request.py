@@ -16,7 +16,7 @@ from src.tournaments.backtest_replay_format import (
     build_captured_fixture_slots,
 )
 from src.tournaments.backtest_result_summary import (
-    CONFLICTING_FIXTURE_EXCLUSIONS,
+    UNSAFE_REPLAY_FIXTURE_EXCLUSIONS,
     deduplicated_fixtures_by_group,
 )
 from src.tournaments.backtest_scope import backtest_scope_roster
@@ -167,12 +167,12 @@ def build_cohort_backtest_requests(
             fixture_conflicts = tuple(
                 item.exclusion
                 for item in fixture_evidence
-                if item.exclusion in CONFLICTING_FIXTURE_EXCLUSIONS
+                if item.exclusion in UNSAFE_REPLAY_FIXTURE_EXCLUSIONS
             )
             if fixture_conflicts:
                 reasons = ", ".join(sorted(set(fixture_conflicts)))
                 raise BacktestRequestError(
-                    f"Division '{division.division_label}' has conflicting fixture evidence "
+                    f"Division '{division.division_label}' has unsafe fixture evidence "
                     f"({reasons}); verify or recapture the source before replay"
                 )
             division_fixtures = tuple(item.fixture for item in fixture_evidence)

@@ -348,6 +348,51 @@ def test_concurrent_rest_prediction_snapshots_enforce_availability_cutoff(monkey
     assert ("created_at", "lt.2026-04-10") in captured_params
 
 
+def test_concurrent_rest_prediction_snapshot_ids_are_batched_at_one_hundred(monkeypatch):
+    batches = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    class AsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def get(self, _endpoint, *, params, headers):
+            del headers
+            team_filter = next(value for key, value in params if key == "team_id")
+            batches.append(tuple(team_filter.removeprefix("in.(").removesuffix(")").split(",")))
+            return Response()
+
+    monkeypatch.setattr(
+        backtest_predictor,
+        "_supabase_rest_credentials",
+        lambda: ("https://example.test", "key"),
+    )
+    monkeypatch.setattr(backtest_predictor.httpx, "AsyncClient", AsyncClient)
+
+    result = asyncio.run(
+        backtest_predictor._fetch_prediction_feature_snapshots_via_rest(
+            [f"team-{index}" for index in range(205)],
+            "2025-04-10",
+            "2026-04-09",
+        )
+    )
+
+    assert result.empty
+    assert sorted(len(batch) for batch in batches) == [5, 100, 100]
+
+
 def test_concurrent_rest_prediction_snapshots_retry_transient_page_failure(monkeypatch):
     attempts = 0
 
