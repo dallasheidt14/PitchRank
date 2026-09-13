@@ -151,6 +151,10 @@ def build_captured_fixture_slots(division, fixtures: Sequence[Any] | None = None
                         "match_index": referenced,
                         "evidence": "published_slot_label",
                     }
+                raise ValueError(
+                    f"Fixture {fixture.match_number or fixture.source_url} {side} side "
+                    f"'{label}' references a missing or later published match"
+                )
             registration = str(registration_id or "")
             if registration:
                 for prior_index in range(match_index - 1, -1, -1):

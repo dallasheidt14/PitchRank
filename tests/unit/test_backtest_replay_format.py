@@ -148,3 +148,29 @@ def test_wildcard_slots_without_division_wide_eligibility_are_blocked():
 
     assert assessment.ready is False
     assert "do not establish that every team is ranked together" in assessment.reason
+
+
+def test_bracket_slot_with_missing_published_match_reference_is_blocked():
+    division = _division(fixture_kind="bracket")
+    division = replace(
+        division,
+        fixtures=(replace(division.fixtures[0], home_label="Winner Match #5"),),
+    )
+
+    assessment = assess_replay_format(division)
+
+    assert assessment.ready is False
+    assert "references a missing or later published match" in assessment.reason
+
+
+def test_bracket_slot_cannot_reference_a_later_published_match():
+    division = _division(fixture_kind="bracket", fixture_count=2)
+    division = replace(
+        division,
+        fixtures=(replace(division.fixtures[0], home_label="Winner Match #2"), division.fixtures[1]),
+    )
+
+    assessment = assess_replay_format(division)
+
+    assert assessment.ready is False
+    assert "references a missing or later published match" in assessment.reason
