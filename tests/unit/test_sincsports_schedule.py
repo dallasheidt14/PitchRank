@@ -459,6 +459,12 @@ class TestLoadBundle:
         assert len(games) == 50
         assert problems == ["CARCHLES U12M01: pages [2] hold no games (a challenge or error page was captured)"]
 
+    def test_rec_division_is_skipped(self, tmp_path):
+        """An old-layout division named "Rec" parses fine but never imports, even from a bundle."""
+        rec = _fixture("schedule_puri_u14f01.html").replace("bigOnly'>Under 14 Girls", "bigOnly'>Under 14 Girls Rec")
+        games, problems = driver.load_bundle(_bundle(tmp_path, rec))
+        assert (games, problems) == ([], [])
+
     def test_old_layout_page_counts_as_holding_games(self, tmp_path):
         _, problems = driver.load_bundle(_bundle(tmp_path, _fixture("schedule_puri_u14f01.html")))
         assert problems == []
@@ -476,6 +482,50 @@ class TestLoadBundle:
             [],
             ["leagues.json is a 'leagues' capture; --from-bundle needs a 'divisions' capture"],
         )
+
+
+class TestIsExcludedPlay:
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Under 10 Boys Rec First Division",
+            "Recreation League",
+            "Small-Sided Cup",
+            "Triangle Adult Soccer League",
+            "U10 3v3",
+            "6 v 6 Shootout",
+        ],
+    )
+    def test_rec_small_sided_and_adult_are_excluded(self, label):
+        assert driver.is_excluded_play(label)
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Under 12 Boys Dev Red",
+            "Carolina Champions League - Fall",
+            "Under 13 B Div Precision",
+            "7v7 Boys",
+            "9v9 Boys",
+            "",
+            None,
+        ],
+    )
+    def test_competitive_names_are_kept(self, label):
+        assert not driver.is_excluded_play(label)
+
+    def test_live_tournament_drops_rec_divisions(self, monkeypatch, tmp_path):
+        game = parse_division(_sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game())), "T", "U12M01")[0]
+        rec = parse_division(_sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game(num="8"))), "T", "U12M02")[0]
+        game.division_name, rec.division_name = "Under 12 Boys", "Under 12 Boys Rec"
+        monkeypatch.setattr(driver.SincSportsScheduleScraper, "fetch_tournament", lambda self, tid, year: [game, rec])
+        monkeypatch.setattr(driver, "RAW_DIR", tmp_path / "raw")
+        monkeypatch.setattr(sys, "argv", ["scrape_sincsports_tournament_schedule.py", "--tid", "T"])
+        assert driver.main() == 0
+        (out,) = (tmp_path / "raw").glob("*.jsonl")
+        assert [json.loads(line)["competition"] for line in out.read_text(encoding="utf-8").splitlines()] == [
+            "Under 12 Boys"
+        ]
 
 
 class _FakeResult:

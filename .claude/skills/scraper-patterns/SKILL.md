@@ -372,6 +372,15 @@ folder that already exists. Per-team game histories are gated behind SincVIP.
   the event year's own weekday, and it can carry a score (a 0-0 marked played).
   `parse_division_pages` leaves every 1 January game undated so none of them import.
 
+### Rec, small-sided and adult play
+
+PitchRank never imports rec, small-sided (3v3–6v6) or adult play; 7v7 and 9v9 are standard U9–U12
+formats and stay in. SincSports' own tags are not enough: a league tagged Competitive can still run
+divisions named "Rec First Division". The capture script searches with Recreation and Small Sided
+unticked and skips excluded league and division names, and the import command skips any division
+or event whose name matches the same pattern (`is_excluded_play`), so an older capture cannot
+bring them in either. Keep the two patterns identical.
+
 ### Finding leagues
 
 Each league season has its own tid (a spring and a fall tid per league). The Leagues list

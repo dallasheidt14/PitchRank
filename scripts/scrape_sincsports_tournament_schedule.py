@@ -44,6 +44,10 @@ from typing import Dict, List, Optional, Tuple
 # contributing to a ranking. Filtered before JSONL emit by default;
 # --include-sub-u10 opts in for future use.
 _SUB_U10_CODE_RE = re.compile(r"^U0[89]", re.IGNORECASE)
+# Mirrors EXCLUDED_PLAY in scripts/sincsports_capture_bundle.js.
+_EXCLUDED_PLAY_RE = re.compile(
+    r"\b(rec|recreation|recreational|small[\s-]*sided|adults?|[3-6]\s*v\s*[3-6])\b", re.IGNORECASE
+)
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -156,6 +160,12 @@ def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
 
     games: List[TournamentGame] = []
     for (tid, div), pages in sorted(pages_by_division.items()):
+        division_games = parse_division_pages([pages[page] for page in sorted(pages)], tid, div)
+        site_label = next((g.division_name for g in division_games if g.division_name), "")
+        if is_excluded_play(event_names.get(tid, ""), site_label):
+            label = site_label or event_names.get(tid)
+            logger.warning(f"Skipping {tid} {div} ({label}): rec, small-sided or adult play")
+            continue
         page_count = parse_page_count(pages.get(1, ""))
         missing = [page for page in range(1, page_count + 1) if page not in pages]
         if missing:
@@ -163,10 +173,15 @@ def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
         empty = [page for page in sorted(pages) if not has_game_cards(pages[page])]
         if empty:
             problems.append(f"{tid} {div}: pages {empty} hold no games (a challenge or error page was captured)")
-        for g in parse_division_pages([pages[page] for page in sorted(pages)], tid, div):
+        for g in division_games:
             g.division_name = f"{event_names.get(tid, tid)} - {div}"
             games.append(g)
     return games, problems
+
+
+def is_excluded_play(*labels: Optional[str]) -> bool:
+    """Whether an event or division name marks rec, small-sided or adult play, which PitchRank never imports."""
+    return any(_EXCLUDED_PLAY_RE.search(label or "") for label in labels)
 
 
 def find_unlinked_team_ids(team_ids: List[str]) -> set:
@@ -286,6 +301,7 @@ def main() -> int:
             console.print(f"[red]Failed to scrape tournament {args.tid}: {e}[/red]")
             return 1
         output_label = f"tournament_{args.tid}"
+        all_games = [g for g in all_games if not is_excluded_play(g.division_name)]
 
         by_status = Counter(g.status for g in all_games)
         console.print(
