@@ -135,6 +135,9 @@ describe('predictMatch', () => {
       (prediction.winProbabilityA + prediction.winProbabilityB + (prediction.drawProbability ?? 0)).toFixed(6)
     ).toBe('1.000000');
     expect(prediction.expectedMargin).toBeGreaterThan(0);
+    expect(prediction.expectedAbsoluteGoalDifference ?? 0).toBeGreaterThan(
+      Math.abs(prediction.expectedMargin)
+    );
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(prediction.expectedScore.teamB);
     expect(prediction.blowout4PlusProbability).toBeGreaterThan(0);
     expect(prediction.blowout4PlusProbability).toBeLessThanOrEqual(1);
@@ -179,6 +182,7 @@ describe('predictMatch', () => {
     expect(prediction.winProbabilityA).toBeLessThan(1);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
     expect(prediction.expectedScore.teamB).toBeGreaterThanOrEqual(0);
+    expect(prediction.expectedAbsoluteGoalDifference ?? 0).toBeGreaterThan(0);
   });
 
   it('predicts draw for symmetric inputs even with non-sparse history', () => {
@@ -239,6 +243,10 @@ describe('predictMatch', () => {
     const reversed = predictMatch(younger, older, []);
 
     expect(forward.expectedMargin).toBeCloseTo(-reversed.expectedMargin, 10);
+    expect(forward.expectedAbsoluteGoalDifference).toBeCloseTo(
+      reversed.expectedAbsoluteGoalDifference ?? 0,
+      10
+    );
     expect(forward.blowout4PlusProbability).toBeCloseTo(reversed.blowout4PlusProbability, 10);
   });
 

@@ -1038,6 +1038,7 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   let winA = 0;
   let draw = 0;
   let winB = 0;
+  let expectedAbsoluteGoalDifference = 0;
   let bestWinA = { teamA: 1, teamB: 0, probability: 0 };
   let bestDraw = { teamA: 1, teamB: 1, probability: 0 };
   let bestWinB = { teamA: 0, teamB: 1, probability: 0 };
@@ -1045,6 +1046,7 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   for (let scoreA = 0; scoreA <= POISSON_MAX_GOALS; scoreA++) {
     for (let scoreB = 0; scoreB <= POISSON_MAX_GOALS; scoreB++) {
       const probability = probsA[scoreA] * probsB[scoreB];
+      expectedAbsoluteGoalDifference += Math.abs(scoreA - scoreB) * probability;
       if (scoreA > scoreB) {
         winA += probability;
         if (probability > bestWinA.probability) bestWinA = { teamA: scoreA, teamB: scoreB, probability };
@@ -1064,6 +1066,8 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
     draw: total > 0 ? draw / total : DEFAULT_DRAW_RATE,
     winB: total > 0 ? winB / total : 0.5,
     blowout4Plus: poissonBlowout4PlusProbability(lambdaA, lambdaB),
+    expectedAbsoluteGoalDifference:
+      total > 0 ? expectedAbsoluteGoalDifference / total : 0,
     bestWinA,
     bestDraw,
     bestWinB,
@@ -1092,6 +1096,7 @@ export interface MatchPrediction {
     teamB: number;
   };
   expectedMargin: number;
+  expectedAbsoluteGoalDifference?: number;
   blowout4PlusProbability: number;
   confidence: 'high' | 'medium' | 'low';
   confidence_score?: number; // Optional: include confidence score for debugging
@@ -1400,6 +1405,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       teamB: expectedScore.teamB,
     },
     expectedMargin,
+    expectedAbsoluteGoalDifference: distribution.expectedAbsoluteGoalDifference,
     blowout4PlusProbability: distribution.blowout4Plus,
     confidence,
     confidence_score: confidenceScore,

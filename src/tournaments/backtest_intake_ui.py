@@ -1318,17 +1318,31 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     proposed = summary.get("proposed_schedule_projection") or summary.get(
         "proposed_model_projection"
     ) or {}
+    observed = observed_result_values(summary)
     validation = summary.get("model_validation") or {}
     if validation and validation.get("status") != "passed":
         st.warning(
-            "This run is saved, but its sales comparison is withheld because the model did not "
-            "reproduce the unchanged tournament closely enough."
+            "This cohort is available for internal review, but it is not ready for the "
+            "tournament-director report because the model check needs attention."
         )
+        original = summary.get("original_schedule_projection") or {}
+        with st.expander("Why this cohort needs model review"):
+            st.write(
+                "Original schedule check: actual average margin "
+                f"{_format_model_value(observed['average_goal_differential'], 'goals')} versus "
+                "model expectation "
+                f"{_format_model_value(original.get('average_goal_differential'), 'goals')}; "
+                "actual 4+ blowout rate "
+                f"{_format_model_value(observed['blowout_4plus_rate'], 'rate')} versus "
+                "model expectation "
+                f"{_format_model_value(original.get('blowout_4plus_probability'), 'rate')}."
+            )
+            for blocker in validation.get("blockers") or ():
+                st.write(f"• {blocker}")
     if proposed.get("average_goal_differential") is None:
         st.warning(
             "The MatchBalance projection is unavailable because its modeled matchup evidence is incomplete."
         )
-    observed = observed_result_values(summary)
     actual_columns = st.columns(4)
     actual_columns[0].metric("Observed games", observed["game_count"])
     actual_columns[1].metric(
@@ -1347,7 +1361,10 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         "The tournament values come directly from the captured results. The MatchBalance values "
         "project the reseeded division and pool assignments using only pre-event evidence."
     )
-    comparison_rows = actual_vs_matchbalance_rows(summary)
+    comparison_rows = actual_vs_matchbalance_rows(
+        summary,
+        require_validated_model=False,
+    )
     comparison_display = [
         {
             "Metric": row["Metric"],
@@ -1362,7 +1379,7 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     st.markdown("##### Actual tournament versus MatchBalance")
     st.dataframe(pd.DataFrame(comparison_display), hide_index=True, width="stretch")
 
-    moves = movement_rows(summary)
+    moves = movement_rows(summary, require_validated_model=False)
     changed = sum(row["Decision"] != "Stayed" for row in moves)
     move_columns = st.columns(3)
     move_columns[0].metric("Teams evaluated", len(moves))
@@ -1478,7 +1495,8 @@ def _render_event_rollup(
             f"({float(event_validation.get('fixture_count_coverage') or 0):.0%} fixture coverage)."
         )
     if not comparison["comparison_ready"]:
-        if event_validation.get("status") == "failed":
+        all_cohorts_complete = coverage["completed"] == len(coverage["rows"])
+        if all_cohorts_complete and event_validation.get("status") == "failed":
             st.warning(
                 "The completed runs are saved, but MatchBalance is withholding the sales comparison "
                 "because the model did not reproduce the unchanged tournament closely enough "
@@ -1637,6 +1655,7 @@ def _run_reviewed_requests(
             status.update(label=f"{label}: completed", state="complete")
             st.success(f"{label}: completed")
             st.session_state[f"bt_completed_run_{event_key}"] = outcome.run_dir.name
+            st.session_state[f"bt_show_completed_{event_key}"] = True
     if not had_failure:
         st.rerun()
 
@@ -1944,6 +1963,12 @@ def _render_backtest_runner(
             merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
+    completed_records = list_reviewed_runs(event_key, base_dir=base_dir)
+    with st.expander(
+        f"Completed cohort results ({len(completed_records)})",
+        expanded=bool(st.session_state.pop(f"bt_show_completed_{event_key}", False)),
+    ):
+        _render_reviewed_result(event_key, base_dir)
     _render_event_rollup(
         saved_snapshot,
         readiness,
@@ -1952,8 +1977,6 @@ def _render_backtest_runner(
         predictor_sha256=selected_predictor_sha,
         merge_map_version=merge_map_version or None,
     )
-    with st.expander("Cohort diagnostics (optional)"):
-        _render_reviewed_result(event_key, base_dir)
 
 
 def render_intake(supabase_client: Any) -> None:

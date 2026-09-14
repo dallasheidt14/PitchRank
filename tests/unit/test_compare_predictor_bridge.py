@@ -99,6 +99,10 @@ def test_batch_runs_the_compare_predictor_for_both_orientations():
     forward = predictions[("entrant-a", "entrant-b")]
     reversed_order = predictions[("entrant-b", "entrant-a")]
     assert forward.expected_margin == pytest.approx(-reversed_order.expected_margin)
+    assert forward.expected_absolute_goal_difference == pytest.approx(
+        reversed_order.expected_absolute_goal_difference
+    )
+    assert forward.expected_absolute_goal_difference >= abs(forward.expected_margin)
     assert forward.win_probability_a == pytest.approx(reversed_order.win_probability_b)
     assert forward.win_probability_b == pytest.approx(reversed_order.win_probability_a)
     assert forward.draw_probability == pytest.approx(reversed_order.draw_probability)
