@@ -1,6 +1,6 @@
 ---
 name: supabase-pitchrank
-description: Safe Supabase patterns for PitchRank - table schemas, query limits, timeouts, grants, and what NOT to do. Use when writing or reviewing a Supabase query, RPC or migration, tracing where a team_alias_map row came from, reading quarantine_games, bulk-updating games (including is_excluded), or diagnosing a statement timeout.
+description: Safe Supabase patterns for PitchRank - table schemas, query limits, timeouts, grants, and what NOT to do. Use when writing or reviewing a Supabase query, RPC, migration or a test double for supabase-py, tracing where a team_alias_map row came from, reading quarantine_games, bulk-updating games (including is_excluded), or diagnosing a statement timeout.
 ---
 
 # Supabase Safety Skill for PitchRank
@@ -101,6 +101,12 @@ Treat `''`, `'None'` and `'null'` (any case, any padding; `src/utils/provider_id
 set) in `provider_team_id` and `games.home_provider_id`/`away_provider_id` as placeholders, never
 teams, and exclude them from joins and counts.
 
+A `provider_team_id` means nothing without its `provider_id`: the table is unique on the pair, and
+one canonical team holds games from several providers. When acting on the games an alias attached,
+filter `games.provider_id` to the alias's provider as well as the side's provider team id and master
+id. Leave unfiltered any check that must see every copy of a fixture — `trg_propagate_game_exclusion`
+matches date, team pair and scores whatever the provider.
+
 ### `team_merge_map`
 ```sql
 deprecated_team_id UUID UNIQUE      -- Team that was merged away
@@ -175,6 +181,14 @@ and checks live: `information_schema.columns.is_nullable` and `pg_get_constraint
 `constraint_column_usage` below.
 
 ## Safe Query Patterns
+
+### Testing against PostgREST
+
+A Python double for supabase-py must return only the columns `select()` asked for, and record
+calls at `execute()`. A double that hands back whole fixture rows lets a column missing from the
+select list pass every test while production raises `KeyError`, or reads `None` through `.get()`.
+The frontend's `filteringClientMock` (`frontend/test/supabase-mock.ts`) applies the filters it
+models but does not project columns either, so do not treat it as covering this.
 
 ### Pagination (REQUIRED for large tables)
 ```python

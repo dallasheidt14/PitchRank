@@ -4,8 +4,9 @@
 A blank provider id ("", "None", "null") names no team, so an approved alias keyed on one
 attaches every game carrying it to a single team.
 
-A game is a candidate when the side carrying a blank provider id is the side the alias attached
-to the sink team. The team's real games, where its own provider id is set, are kept.
+A game is a candidate when it comes from the alias's provider and the side carrying a blank
+provider id is the side the alias attached to the sink team. The team's real games, where its own
+provider id is set, and games from other providers are kept.
 
 Games are immutable, so this sets is_excluded, which the team page and the ranking loader skip,
 rather than deleting or unlinking. The alias is rejected rather than deleted, so its history
@@ -42,7 +43,7 @@ from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 GAME_FIELDS = (
-    "id,game_date,home_team_master_id,away_team_master_id,home_provider_id,away_provider_id,"
+    "id,provider_id,game_date,home_team_master_id,away_team_master_id,home_provider_id,away_provider_id,"
     "home_score,away_score,is_excluded"
 )
 ALIAS_FIELDS = "id,provider_team_id,team_id_master,review_status,match_method"
@@ -92,12 +93,18 @@ def fetch_team_games(sb, team_id: str) -> list[dict]:
                   .order("id", desc=False))
 
 
-def select_candidates(games: list[dict], sink_team_id: str) -> list[dict]:
-    """Games the blank-id alias attached to the sink team, on either side."""
+def select_candidates(games: list[dict], sink_team_id: str, provider_id: str) -> list[dict]:
+    """Games the blank-id alias attached to the sink team, on either side.
+
+    Provider team ids are scoped to their provider, so only the alias's provider's games count.
+    """
     return [
         g for g in games
-        if (is_blank_provider_id(g["home_provider_id"]) and g["home_team_master_id"] == sink_team_id)
-        or (is_blank_provider_id(g["away_provider_id"]) and g["away_team_master_id"] == sink_team_id)
+        if g["provider_id"] == provider_id
+        and (
+            (is_blank_provider_id(g["home_provider_id"]) and g["home_team_master_id"] == sink_team_id)
+            or (is_blank_provider_id(g["away_provider_id"]) and g["away_team_master_id"] == sink_team_id)
+        )
     ]
 
 
@@ -155,7 +162,7 @@ def main() -> int:
     collisions: list[dict] = []
     for team_id in sink_ids:
         games = fetch_team_games(sb, team_id)
-        team_candidates = select_candidates(games, team_id)
+        team_candidates = select_candidates(games, team_id, provider["id"])
         candidate_ids = {g["id"] for g in team_candidates}
         candidates.extend(team_candidates)
         kept.extend(g for g in games if g["id"] not in candidate_ids)

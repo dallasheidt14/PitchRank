@@ -7,17 +7,33 @@ not a candidate.
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 import scripts.exclude_none_opponent_games as cleanup
 from scripts.exclude_none_opponent_games import cascade_collisions, cascade_key, select_candidates
 
 SINK = "45ad3ebf-0000-0000-0000-000000000000"
 OTHER = "9b000000-0000-0000-0000-000000000000"
 THIRD = "c1000000-0000-0000-0000-000000000000"
+GOTSPORT_ID = "prov-gotsport"
+OTHER_PROVIDER_ID = "prov-tgs"
 
 
-def _game(gid, home, away, home_pid, away_pid, home_score=1, away_score=0, excluded=False, date="2026-09-01"):
+def _game(
+    gid,
+    home,
+    away,
+    home_pid,
+    away_pid,
+    home_score=1,
+    away_score=0,
+    excluded=False,
+    date="2026-09-01",
+    provider=GOTSPORT_ID,
+):
     return {
         "id": gid,
+        "provider_id": provider,
         "game_date": date,
         "home_team_master_id": home,
         "away_team_master_id": away,
@@ -32,25 +48,35 @@ def _game(gid, home, away, home_pid, away_pid, home_score=1, away_score=0, exclu
 def test_sink_on_the_blank_home_side_is_a_candidate():
     game = _game("g1", SINK, OTHER, "None", "601000")
 
-    assert [g["id"] for g in select_candidates([game], SINK)] == ["g1"]
+    assert [g["id"] for g in select_candidates([game], SINK, GOTSPORT_ID)] == ["g1"]
 
 
 def test_sink_on_the_blank_away_side_is_a_candidate():
     game = _game("g2", OTHER, SINK, "601000", "None")
 
-    assert [g["id"] for g in select_candidates([game], SINK)] == ["g2"]
+    assert [g["id"] for g in select_candidates([game], SINK, GOTSPORT_ID)] == ["g2"]
 
 
 def test_sink_on_its_real_id_side_is_not_a_candidate():
     game = _game("g3", SINK, None, "601496", "None")
 
-    assert select_candidates([game], SINK) == []
+    assert select_candidates([game], SINK, GOTSPORT_ID) == []
 
 
 def test_a_blank_side_belonging_to_another_team_is_not_a_candidate():
     game = _game("g4", OTHER, SINK, "", "601496")
 
-    assert select_candidates([game], SINK) == []
+    assert select_candidates([game], SINK, GOTSPORT_ID) == []
+
+
+@pytest.mark.parametrize(
+    ("home", "away", "home_pid", "away_pid"),
+    [(SINK, OTHER, "None", "601000"), (OTHER, SINK, "601000", "None")],
+)
+def test_a_blank_side_game_from_another_provider_is_not_a_candidate(home, away, home_pid, away_pid):
+    game = _game("g12", home, away, home_pid, away_pid, provider=OTHER_PROVIDER_ID)
+
+    assert select_candidates([game], SINK, GOTSPORT_ID) == []
 
 
 def test_cascade_key_ignores_orientation_but_not_score():
@@ -74,7 +100,7 @@ def test_cascade_collisions_returns_a_live_twin_and_ignores_an_excluded_one():
 
 
 class _Query:
-    """PostgREST builder double: applies the filters main() sends, records only at execute()."""
+    """PostgREST builder double: applies the filters and column list main() sends, records only at execute()."""
 
     def __init__(self, db, table):
         self._db = db
@@ -85,9 +111,14 @@ class _Query:
         self._window = None
         self._order = None
         self._payload = None
+        self._columns = None
 
-    def select(self, *_a, **_k):
+    def select(self, columns):
+        self._columns = columns.split(",")
         return self
+
+    def _project(self, row):
+        return {c: row[c] for c in self._columns}
 
     def update(self, payload):
         self._op = "update"
@@ -145,8 +176,8 @@ class _Query:
         if self._single:
             if len(rows) != 1:
                 raise AssertionError("PGRST116: JSON object requested, multiple (or no) rows returned")
-            return SimpleNamespace(data=dict(rows[0]))
-        return SimpleNamespace(data=[dict(r) for r in rows])
+            return SimpleNamespace(data=self._project(rows[0]))
+        return SimpleNamespace(data=[self._project(r) for r in rows])
 
 
 class _DB:
@@ -161,11 +192,11 @@ class _DB:
 def _sink_db(games):
     return _DB(
         {
-            "providers": [{"id": "gp", "code": "gotsport"}],
+            "providers": [{"id": GOTSPORT_ID, "code": "gotsport"}],
             "team_alias_map": [
                 {
                     "id": "a1",
-                    "provider_id": "gp",
+                    "provider_id": GOTSPORT_ID,
                     "provider_team_id": "None",
                     "team_id_master": SINK,
                     "review_status": "approved",
@@ -184,9 +215,10 @@ def _run_main(monkeypatch, db, argv):
     return cleanup.main()
 
 
-def test_execute_refuses_and_writes_nothing_when_a_twin_would_cascade(monkeypatch, tmp_path):
+@pytest.mark.parametrize("twin_provider", [GOTSPORT_ID, OTHER_PROVIDER_ID])
+def test_execute_refuses_and_writes_nothing_when_a_twin_would_cascade(monkeypatch, tmp_path, twin_provider):
     candidate = _game("g1", SINK, OTHER, "None", "601000", home_score=2, away_score=2)
-    live_twin = _game("g2", OTHER, SINK, "601000", "601496", home_score=2, away_score=2)
+    live_twin = _game("g2", OTHER, SINK, "601000", "601496", home_score=2, away_score=2, provider=twin_provider)
     db = _sink_db([candidate, live_twin])
     log = tmp_path / "log.json"
 
