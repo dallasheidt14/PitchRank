@@ -477,10 +477,14 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         HistoricalEntrantCheck,
         HistoricalPreflight,
         preflight_input_sha256,
+        write_historical_preflight,
     )
     from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
     from src.tournaments.backtest_link_store import update_links
-    from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
+    from src.tournaments.backtest_reviewed_run import (
+        ReviewedRunOutcome,
+        build_reviewed_cohort_readiness,
+    )
     from tests.unit.test_backtest_request import _links, _snapshot
     from tests.unit.test_backtest_reviewed_run import _summary
 
@@ -501,6 +505,34 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         changed_links=_links().links,
         base_dir=tmp_path,
     )
+    request = build_reviewed_cohort_readiness(snapshot, _links())[0].request
+    assert request is not None
+    failed_preflight = HistoricalPreflight(
+        preflight_input_sha256(
+            [request],
+            merge_map_version="ok",
+            predictor_sha256=ui.canonical_predictor_sha256(),
+        ),
+        "2026-09-12T00:00:00+00:00",
+        "2025-05-10",
+        ui.canonical_predictor_sha256(),
+        "ok",
+        (
+            HistoricalCohortCheck(
+                "u14",
+                "Male",
+                0,
+                1,
+                (
+                    HistoricalEntrantCheck(
+                        "entrant-1", "Alpha", "team-1", "team-1", False,
+                        reason="Historical rating was not available",
+                    ),
+                ),
+            ),
+        ),
+    )
+    write_historical_preflight(event_key, failed_preflight, base_dir=tmp_path)
     calls = []
 
     def fake_execute(
@@ -600,7 +632,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     run_button = next(
         button
         for button in test.button
-        if button.label == "Prepare and run full tournament Backtest (1 cohort)"
+        if button.label == "Retry ratings and run full tournament Backtest (1 cohort)"
     )
     assert run_button.disabled is False
     run_button.click().run()
@@ -671,6 +703,9 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
     assert not test.exception, [error.message for error in test.exception]
     assert any("1 cohort run(s) failed" in item.value for item in test.warning)
     assert not any(item.label == "Cohorts completed" for item in test.metric)
+    failed_details = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert failed_details["Status"].tolist() == ["Failed"]
+    assert failed_details["What remains"].tolist() == ["Historical rating lookup timed out"]
 
 
 def test_event_placements_stay_hidden_until_event_comparison_is_validated(monkeypatch):

@@ -1471,8 +1471,23 @@ def _render_event_rollup(
     if not rollup["selected_runs"]:
         if coverage["failed"]:
             st.warning(
-                f"{coverage['failed']} cohort run(s) failed. Open advanced run details to inspect or retry them."
+                f"{coverage['failed']} cohort run(s) failed. Open the details below to inspect or retry them."
             )
+            with st.expander("Failed cohort details"):
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                            "Teams": row["team_count"],
+                            "Status": row["status"].replace("_", " ").title(),
+                            "What remains": row["what_remains"],
+                        }
+                        for row in coverage["rows"]
+                        if row["status"] == "failed"
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                )
         else:
             st.caption(
                 "No current Backtest result yet. Run the full tournament to build the comparison."
@@ -1885,19 +1900,20 @@ def _render_backtest_runner(
         blocked = len(readiness) - len(ready)
         st.warning(f"{blocked} cohort(s) need historical evidence before the Backtest can run.")
 
-    primary_label = (
-        f"Run full tournament Backtest ({cohort_count_label})"
-        if preflight
-        else f"Prepare and run full tournament Backtest ({cohort_count_label})"
-    )
+    if preflight is None:
+        primary_label = f"Prepare and run full tournament Backtest ({cohort_count_label})"
+    elif preflight.ready:
+        primary_label = f"Run full tournament Backtest ({cohort_count_label})"
+    else:
+        primary_label = f"Retry ratings and run full tournament Backtest ({cohort_count_label})"
     run_full = st.button(
         primary_label,
         type="primary",
-        disabled=not event_ready_for_history or bool(preflight and not event_ready),
+        disabled=not event_ready_for_history,
         key=f"bt_run_full_{snapshot.generation}",
     )
     if run_full and event_ready_for_history:
-        active_preflight = preflight or prepare_history()
+        active_preflight = preflight if preflight and preflight.ready else prepare_history()
         if active_preflight is not None:
             targets = apply_history(base_ready, active_preflight)
             runnable = [item for item in targets if item.ready]
@@ -1971,8 +1987,14 @@ def _render_backtest_runner(
             selected = readiness[selected_index]
             selected_base = base_readiness[selected_index]
             run_selected = st.button(
-                "Run only this cohort" if preflight else "Prepare ratings and run only this cohort",
-                disabled=not selected_base.ready or bool(preflight and not selected.ready),
+                (
+                    "Run only this cohort"
+                    if preflight and preflight.ready
+                    else "Retry ratings and run only this cohort"
+                    if preflight
+                    else "Prepare ratings and run only this cohort"
+                ),
+                disabled=not selected_base.ready,
                 help="\n".join(selected.blockers) or None,
                 key=f"bt_run_selected_{snapshot.generation}",
             )
@@ -1990,7 +2012,7 @@ def _render_backtest_runner(
             _render_reviewed_result(event_key, base_dir)
         return
     if run_selected and selected_base is not None and selected_base.ready:
-        active_preflight = preflight or prepare_history()
+        active_preflight = preflight if preflight and preflight.ready else prepare_history()
         if active_preflight is not None:
             target = apply_history([selected_base], active_preflight)[0]
             if target.ready:
