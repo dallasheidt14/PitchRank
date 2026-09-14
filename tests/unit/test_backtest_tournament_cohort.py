@@ -220,6 +220,39 @@ def test_historical_ranking_row_uses_frozen_prediction_features():
     assert row["publication_cap_score"] == 0.59
 
 
+def test_average_snapshot_preserves_the_averaged_compare_profile():
+    snapshot = cohort._synthesize_snapshot_from_entrant_row(
+        {
+            "ranking_source_team_id": "average-estimate:missing",
+            "average_source_count": 2,
+            "source_age_group": "u14",
+            "source_gender": "Male",
+            "games_played": 12,
+            "power_score": 0.5,
+            "off_norm": 0.52,
+            "def_norm": 0.48,
+            "wins": 6,
+            "losses": 4,
+            "draws": 2,
+            "win_percentage": 58.3,
+            "exp_margin": 0.12,
+            "exp_win_rate": 0.54,
+            "exp_goals_for": 1.7,
+            "exp_goals_against": 1.4,
+            "same_age_games": 9,
+            "same_age_game_share": 0.75,
+            "publication_cap_score": 0.49,
+        },
+        "2026-09-05",
+    )
+
+    assert snapshot["wins"] == 6
+    assert snapshot["win_percentage"] == 58.3
+    assert snapshot["exp_margin"] == 0.12
+    assert snapshot["same_age_games"] == 9
+    assert snapshot["publication_cap_score"] == 0.49
+
+
 def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
     with pytest.raises(ValueError, match="reconstructed input"):
         cohort._verify_snapshot_provenance(

@@ -852,6 +852,21 @@ def _synthesize_snapshot_from_entrant_row(entrant_row: dict[str, Any], predictio
 
     snapshot_ts = pd.Timestamp(prediction_date).normalize() - pd.Timedelta(days=1)
     snapshot_date = snapshot_ts.strftime("%Y-%m-%d")
+    wins = entrant_row.get("wins")
+    losses = entrant_row.get("losses")
+    draws = entrant_row.get("draws")
+    win_percentage = entrant_row.get("win_percentage")
+    exp_margin = entrant_row.get("exp_margin")
+    exp_win_rate = entrant_row.get("exp_win_rate")
+    exp_goals_for = entrant_row.get("exp_goals_for")
+    exp_goals_against = entrant_row.get("exp_goals_against")
+    is_average_estimate = int(entrant_row.get("average_source_count") or 0) > 0
+
+    def supplied_or_derived(value: Any, derived: float | int) -> Any:
+        if value is not None:
+            return value
+        return None if is_average_estimate else derived
+
     return {
         "snapshot_date": snapshot_date,
         "snapshot_ts": snapshot_ts,
@@ -870,15 +885,40 @@ def _synthesize_snapshot_from_entrant_row(entrant_row: dict[str, Any], predictio
         "glicko_rating": entrant_row.get("glicko_rating"),
         "glicko_rd": entrant_row.get("glicko_rd"),
         "glicko_volatility": entrant_row.get("glicko_volatility"),
-        "wins": win_guess,
-        "losses": loss_guess,
-        "draws": draw_guess,
+        "wins": supplied_or_derived(wins, win_guess),
+        "losses": supplied_or_derived(losses, loss_guess),
+        "draws": supplied_or_derived(draws, draw_guess),
         "games_played": games_played,
-        "win_percentage": (float(win_guess) / games_played * 100.0) if games_played else 0.0,
-        "exp_margin": float((power_score - 0.5) * 2.2),
-        "exp_win_rate": float(min(max(0.20 + power_score * 0.60, 0.05), 0.95)),
-        "exp_goals_for": float(min(max(1.10 + (offense_norm - 0.5) * 1.8, 0.35), 4.25)),
-        "exp_goals_against": float(min(max(1.10 - (defense_norm - 0.5) * 1.5, 0.35), 4.25)),
+        "win_percentage": supplied_or_derived(
+            win_percentage,
+            (float(win_guess) / games_played * 100.0) if games_played else 0.0,
+        ),
+        "exp_margin": supplied_or_derived(
+            exp_margin,
+            float((power_score - 0.5) * 2.2),
+        ),
+        "exp_win_rate": supplied_or_derived(
+            exp_win_rate,
+            float(min(max(0.20 + power_score * 0.60, 0.05), 0.95)),
+        ),
+        "exp_goals_for": supplied_or_derived(
+            exp_goals_for,
+            float(min(max(1.10 + (offense_norm - 0.5) * 1.8, 0.35), 4.25)),
+        ),
+        "exp_goals_against": supplied_or_derived(
+            exp_goals_against,
+            float(min(max(1.10 - (defense_norm - 0.5) * 1.5, 0.35), 4.25)),
+        ),
+        "same_age_games": entrant_row.get("same_age_games"),
+        "same_age_game_share": entrant_row.get("same_age_game_share"),
+        "same_age_unique_opponents": entrant_row.get("same_age_unique_opponents"),
+        "same_age_top100_opp_count": entrant_row.get("same_age_top100_opp_count"),
+        "same_age_top500_opp_count": entrant_row.get("same_age_top500_opp_count"),
+        "same_age_avg_opp_power_adj": entrant_row.get("same_age_avg_opp_power_adj"),
+        "repeat_opponent_share": entrant_row.get("repeat_opponent_share"),
+        "positive_ml_evidence_scale": entrant_row.get("positive_ml_evidence_scale"),
+        "publication_cap_rank": entrant_row.get("publication_cap_rank"),
+        "publication_cap_score": entrant_row.get("publication_cap_score"),
         "is_average_estimate": True,
         "average_source_count": int(entrant_row.get("average_source_count") or 0),
         "average_source_entrant_ids": list(entrant_row.get("average_source_entrant_ids") or ()),

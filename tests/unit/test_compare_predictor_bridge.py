@@ -43,11 +43,18 @@ def _team(team_id: str, age: int, power_score: float) -> dict:
     }
 
 
-def test_predictor_identity_and_cutoff_are_stable():
-    assert len(canonical_predictor_sha256()) == 64
+def test_predictor_identity_and_cutoff_are_stable(monkeypatch):
+    original_identity = canonical_predictor_sha256()
+    assert len(original_identity) == 64
     validate_predictor_cutoff("2026-09-05")
     with pytest.raises(ValueError, match="earliest supported cutoff is 2026-04-21"):
         validate_predictor_cutoff("2026-04-20")
+
+    monkeypatch.setattr(
+        "src.tournaments.compare_predictor_bridge.PREDICTOR_CALIBRATION_AVAILABLE_DATE",
+        "2026-04-21",
+    )
+    assert canonical_predictor_sha256() != original_identity
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")

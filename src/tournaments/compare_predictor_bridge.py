@@ -48,7 +48,16 @@ class ComparePrediction:
 def canonical_predictor_sha256() -> str:
     """Identify the exact Compare runtime and checked-in calibration files."""
 
-    digest_parts: list[bytes] = []
+    provenance = json.dumps(
+        {
+            "calibration_available_date": PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+            "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+            "cutoff_policy": "calibration_available_date_strictly_before_event_cutoff",
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest_parts: list[bytes] = [len(provenance).to_bytes(4, "big"), provenance]
     for path in PREDICTOR_IDENTITY_FILES:
         relative = path.relative_to(_REPO_ROOT).as_posix().encode("utf-8")
         digest_parts.append(len(relative).to_bytes(4, "big"))
