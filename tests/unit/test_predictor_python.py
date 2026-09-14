@@ -4,6 +4,8 @@ from scripts.predictor_python import (
     Game,
     TeamRanking,
     calculate_common_opponent_signal,
+    get_age_specific_margin_multiplier,
+    get_league_average_goals,
     predict_match,
     validate_predictor_cutoff,
 )
@@ -222,6 +224,42 @@ def test_predict_match_supplies_4plus_blowout_probability():
     assert (
         mismatch_prediction.blowout_4plus_probability
         > balanced_prediction.blowout_4plus_probability
+    )
+
+
+def test_u19_uses_the_existing_u18_prediction_calibration():
+    assert get_league_average_goals(19) == get_league_average_goals(18)
+    assert get_age_specific_margin_multiplier(19, 0.12, 0.3) == pytest.approx(
+        get_age_specific_margin_multiplier(18, 0.12, 0.3)
+    )
+
+
+def test_mixed_age_prediction_is_independent_of_team_order():
+    older = TeamRanking(
+        team_id_master="older",
+        power_score_final=0.67,
+        sos_norm=0.60,
+        offense_norm=0.68,
+        defense_norm=0.61,
+        age=19,
+        games_played=24,
+    )
+    younger = TeamRanking(
+        team_id_master="younger",
+        power_score_final=0.43,
+        sos_norm=0.46,
+        offense_norm=0.44,
+        defense_norm=0.45,
+        age=17,
+        games_played=24,
+    )
+
+    forward = predict_match(older, younger, [])
+    reversed_order = predict_match(younger, older, [])
+
+    assert forward.expected_margin == pytest.approx(-reversed_order.expected_margin)
+    assert forward.blowout_4plus_probability == pytest.approx(
+        reversed_order.blowout_4plus_probability
     )
 
 

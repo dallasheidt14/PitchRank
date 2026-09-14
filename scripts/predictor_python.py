@@ -527,7 +527,14 @@ def calibrate_probability(raw_prob: float) -> float:
     return max(0.01, min(0.99, calibrated))
 
 
+def _calibration_age(age: Optional[int]) -> Optional[int]:
+    # PitchRank stores the oldest supported cohort as U19, while the checked-in
+    # prediction calibration was trained under its U18 tournament label.
+    return 18 if age == 19 else age
+
+
 def get_league_average_goals(age: Optional[int]) -> float:
+    age = _calibration_age(age)
     if age is None:
         return 2.5
 
@@ -546,6 +553,7 @@ def get_league_average_goals(age: Optional[int]) -> float:
 
 
 def get_age_specific_margin_multiplier(age: Optional[int], abs_power_diff: float, mismatch_score: float = 0.0) -> float:
+    age = _calibration_age(age)
     margin_params = _load_calibration_payload()["margin_v2"]
     age_group_params = _load_calibration_payload()["age_group"]
     age_key = f"u{age}" if age is not None else None
@@ -760,12 +768,19 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
     # Historical ranking rows carry the age that was valid at the event cutoff.
     # Team names often retain an older age label after seasonal rollover, so the
     # stored value must win whenever it is available.
-    effective_age = (
-        team_a.age
-        or team_b.age
-        or extract_age_from_team_name(team_a.team_name)
-        or extract_age_from_team_name(team_b.team_name)
-    )
+    stored_ages = [_calibration_age(age) for age in (team_a.age, team_b.age) if age]
+    if stored_ages:
+        effective_age = max(stored_ages)
+    else:
+        name_ages = [
+            _calibration_age(age)
+            for age in (
+                extract_age_from_team_name(team_a.team_name),
+                extract_age_from_team_name(team_b.team_name),
+            )
+            if age
+        ]
+        effective_age = max(name_ages, default=None)
 
     abs_power_diff = abs(power_diff)
     margin_multiplier = get_age_specific_margin_multiplier(effective_age, abs_power_diff, mismatch_score)
