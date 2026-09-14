@@ -1,7 +1,16 @@
+import math
+
+import pytest
+
 from src.tournaments.seeding_optimizer import (
+    POOL_POLICY_BALANCED_STRENGTH,
     DivisionSpec,
+    FlightSpec,
     MatchupCost,
     SeedableTeam,
+    build_seedable_teams,
+    normalize_tournament_age_group,
+    optimize_division_assignments,
     optimize_tournament_format,
     projected_matchup_cost,
 )
@@ -67,6 +76,50 @@ def test_optimize_tournament_format_assigns_divisions_and_pools():
     assert gold.advancement == "pool_winners_to_final"
 
 
+def test_backtest_pool_policy_splits_seed_bands_across_balanced_pools():
+    teams = [_team(index, 0.9 - (index - 1) * 0.1, index) for index in range(1, 9)]
+
+    result = optimize_tournament_format(
+        teams,
+        [
+            DivisionSpec(
+                name="Gold",
+                team_count=8,
+                pool_sizes=(4, 4),
+                pool_names=("Bracket A", "Bracket B"),
+            )
+        ],
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    division = result.divisions[0]
+    strongest_half = {"team-1", "team-2", "team-3", "team-4"}
+    assert [len(strongest_half & {team.team_id for team in pool.teams}) for pool in division.pools] == [2, 2]
+    pool_averages = [sum(team.power_score for team in pool.teams) / len(pool.teams) for pool in division.pools]
+    assert pool_averages[0] == pytest.approx(pool_averages[1])
+    assert [pool.name for pool in division.pools] == ["Bracket A", "Bracket B"]
+    assert result.pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH
+
+
+def test_backtest_pool_balancing_never_trades_teams_across_seed_bands():
+    powers = (0.953, 0.465, 0.460, 0.372, 0.317, 0.114, 0.101, 0.062)
+    teams = [_team(index, power, index) for index, power in enumerate(powers, start=1)]
+
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=8, pool_sizes=(4, 4))],
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    pool_team_ids = [
+        {team.team_id for team in pool.teams}
+        for pool in result.divisions[0].pools
+    ]
+    for left_seed, right_seed in ((1, 2), (3, 4), (5, 6), (7, 8)):
+        seed_band = {f"team-{left_seed}", f"team-{right_seed}"}
+        assert [len(seed_band & pool) for pool in pool_team_ids] == [1, 1]
+
+
 def test_optimize_tournament_format_validates_pool_sizes():
     teams = [_team(1, 0.70, 10), _team(2, 0.68, 11), _team(3, 0.66, 12), _team(4, 0.64, 13)]
     divisions = [DivisionSpec(name="Gold", team_count=4, pool_sizes=(3,), advancement="final_only")]
@@ -111,3 +164,148 @@ def test_optimize_tournament_format_uses_injected_matchup_cost_function():
 
     assert division_team_sets == preferred_pairs
     assert result.matchup_proxy == "custom_predictor_v1"
+
+
+@pytest.mark.parametrize("invalid_count", [0, -1, 1.5, True, "2"])
+def test_optimize_division_assignments_rejects_invalid_core_capacities(invalid_count):
+    teams = [_team(1, 0.7, 1), _team(2, 0.6, 2)]
+
+    with pytest.raises(ValueError, match="positive integer"):
+        optimize_division_assignments(teams, [FlightSpec("Gold", invalid_count), FlightSpec("Silver", 2)])
+
+
+def test_optimize_tournament_format_rejects_duplicate_entrant_ids():
+    duplicate = _team(1, 0.7, 1)
+
+    with pytest.raises(ValueError, match="entrant IDs must be unique"):
+        optimize_tournament_format([duplicate, duplicate], [DivisionSpec("Gold", 2)])
+
+
+@pytest.mark.parametrize("invalid_score", [-0.01, 1.01, math.nan, math.inf, -math.inf, None, "unknown", True])
+def test_optimize_tournament_format_rejects_invalid_power_scores(invalid_score):
+    invalid_team = SeedableTeam("invalid", "Invalid", "u13", "Male", invalid_score)
+
+    with pytest.raises(ValueError, match="finite power_score between 0 and 1"):
+        optimize_tournament_format([invalid_team], [DivisionSpec("Gold", 1)])
+
+
+@pytest.mark.parametrize("invalid_id", ["", "  ", None, 42])
+def test_optimize_tournament_format_rejects_invalid_entrant_ids(invalid_id):
+    invalid_team = SeedableTeam(invalid_id, "Invalid", "u13", "Male", 0.5)
+
+    with pytest.raises(ValueError, match="non-empty"):
+        optimize_tournament_format([invalid_team], [DivisionSpec("Gold", 1)])
+
+
+def test_optimize_tournament_format_rejects_duplicate_and_empty_division_names():
+    teams = [_team(1, 0.7, 1), _team(2, 0.6, 2)]
+
+    with pytest.raises(ValueError, match="Flight names must be unique"):
+        optimize_tournament_format(teams, [DivisionSpec("Gold", 1), DivisionSpec("Gold", 1)])
+    with pytest.raises(ValueError, match="non-empty name"):
+        optimize_tournament_format(teams, [DivisionSpec("", 1), DivisionSpec("Silver", 1)])
+
+
+def test_optimize_tournament_format_preserves_each_entrant_once_across_uneven_pools():
+    teams = [_team(index, 0.9 - index * 0.03, index) for index in range(1, 8)]
+
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec("Gold", 7, pool_sizes=(4, 3))],
+    )
+
+    division = result.divisions[0]
+    assert [len(pool.teams) for pool in division.pools] == [4, 3]
+    assert sorted(team.team_id for pool in division.pools for team in pool.teams) == sorted(
+        team.team_id for team in teams
+    )
+
+
+def test_distinct_registrations_can_share_external_canonical_identity():
+    teams = [
+        SeedableTeam("registration-a", "Alpha First Entry", "u13", "Male", 0.7),
+        SeedableTeam("registration-b", "Alpha Second Entry", "u13", "Male", 0.7),
+    ]
+
+    result = optimize_tournament_format(teams, [DivisionSpec("Gold", 2)])
+
+    assert {team.team_id for team in result.divisions[0].teams} == {"registration-a", "registration-b"}
+
+
+def test_build_seedable_teams_rejects_missing_strength_instead_of_dropping_team():
+    with pytest.raises(ValueError, match="No power_score found"):
+        build_seedable_teams(
+            [
+                {
+                    "team_id": "team-1",
+                    "team_name": "Team 1",
+                    "age_group": "u13",
+                    "gender": "Male",
+                    "power_score": None,
+                }
+            ]
+        )
+
+
+def test_combined_tournament_cohort_is_preserved_without_u18_fold():
+    assert normalize_tournament_age_group("U10/U11 Girls") == "u10/u11"
+    assert normalize_tournament_age_group("U17/U18 Boys") == "u17/u18"
+    assert normalize_tournament_age_group("U10/11 Girls") == "u10/u11"
+    assert normalize_tournament_age_group("U18/19 Boys") == "u18/u19"
+
+
+def test_tournament_optimizer_uses_final_pool_matchups_for_division_moves():
+    teams = [
+        SeedableTeam(team_id, team_id.upper(), "u14", "Male", 1.0 - index / 10)
+        for index, team_id in enumerate("abcdefgh")
+    ]
+    ideal_pairs = {
+        frozenset(("a", "e")),
+        frozenset(("b", "f")),
+        frozenset(("c", "g")),
+        frozenset(("d", "h")),
+    }
+    initial_groups = (frozenset("abcd"), frozenset("efgh"))
+
+    def matchup_cost(team_a, team_b):
+        pair = frozenset((team_a.team_id, team_b.team_id))
+        if pair in ideal_pairs:
+            value = 0.0
+        elif any(pair <= group for group in initial_groups):
+            value = 1.0
+        else:
+            value = 100.0
+        return MatchupCost(value, 0.5, 0.2, 0.1, value)
+
+    result = optimize_tournament_format(
+        teams,
+        [
+            DivisionSpec("Gold", 4, pool_sizes=(2, 2)),
+            DivisionSpec("Silver", 4, pool_sizes=(2, 2)),
+        ],
+        matchup_cost_fn=matchup_cost,
+    )
+
+    scheduled_pairs = {
+        frozenset((pool.teams[0].team_id, pool.teams[1].team_id))
+        for division in result.divisions
+        for pool in division.pools
+    }
+    assert scheduled_pairs == ideal_pairs
+    assert result.total_cost == 0.0
+
+
+@pytest.mark.parametrize("invalid_id", [None, "", "  ", 42])
+def test_build_seedable_teams_rejects_invalid_entrant_ids(invalid_id):
+    with pytest.raises(ValueError, match="non-empty string team_id"):
+        build_seedable_teams(
+            [
+                {
+                    "team_id": invalid_id,
+                    "team_name": "Team 1",
+                    "age_group": "u13",
+                    "gender": "Male",
+                    "power_score": 0.5,
+                }
+            ]
+        )

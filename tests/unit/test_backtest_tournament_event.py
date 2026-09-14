@@ -1,3 +1,5 @@
+import pytest
+
 from scripts import backtest_tournament_event as event_backtest
 
 
@@ -21,12 +23,16 @@ def test_build_event_structure_filters_out_of_scope_ages():
             "group_title": "Male U9 - BU9 Super Elite",
             "team_count": "6",
             "bracket_count": "2",
+            "pool_sizes": "3|3",
+            "advancement": "ROUND_ROBIN",
             "group_url": "https://example.com/u9",
         },
         {
             "group_title": "Male U10 - BU10 Super Elite",
             "team_count": "4",
             "bracket_count": "1",
+            "pool_sizes": "4",
+            "advancement": "ROUND_ROBIN",
             "group_url": "https://example.com/u10",
         },
     ]
@@ -40,13 +46,13 @@ def test_build_event_structure_filters_out_of_scope_ages():
 def test_cohort_status_rows_marks_only_complete_cohorts_runnable():
     event_structure = {
         ("u14", "Male"): [
-            {"division_name": "BU14 Super Elite", "team_count": 8},
-            {"division_name": "BU14 Super Pro", "team_count": 6},
-            {"division_name": "BU14 Premier", "team_count": 6},
+            {"division_name": "BU14 Super Elite", "team_count": 8, "pool_sizes": [8], "advancement": "F_ONLY"},
+            {"division_name": "BU14 Super Pro", "team_count": 6, "pool_sizes": [6], "advancement": "F_ONLY"},
+            {"division_name": "BU14 Premier", "team_count": 6, "pool_sizes": [6], "advancement": "ROUND_ROBIN"},
         ],
         ("u15", "Male"): [
-            {"division_name": "BU15 Super Elite", "team_count": 6},
-            {"division_name": "BU15 Super Pro", "team_count": 6},
+            {"division_name": "BU15 Super Elite", "team_count": 6, "pool_sizes": [3, 3], "advancement": "SF_F_3P"},
+            {"division_name": "BU15 Super Pro", "team_count": 6, "pool_sizes": [3, 3], "advancement": "SF_F_3P"},
         ],
     }
     teams_by_division = {
@@ -115,6 +121,7 @@ def test_build_request_payload_marks_event_cohort_on_entrants():
                 "division_name": "BU11 Platinum",
                 "team_count": 6,
                 "pool_sizes": [6],
+                "advancement": "ROUND_ROBIN",
             }
         ],
         teams_by_division={"BU11 Platinum": {"team-a"}},
@@ -130,6 +137,86 @@ def test_build_request_payload_marks_event_cohort_on_entrants():
     assert payload["gender"] == "male"
     assert payload["entrants"][0]["event_age_group"] == "u11"
     assert payload["entrants"][0]["event_gender"] == "Male"
+    assert payload["entrants"][0]["actual_pool_name"] == "Pool A"
+    assert payload["divisions"][0]["advancement"] == "ROUND_ROBIN"
+
+
+def test_legacy_event_request_refuses_multi_pool_division_without_membership():
+    with pytest.raises(ValueError, match="does not preserve each team's original pool membership"):
+        event_backtest._build_request_payload(
+            age_group="u14",
+            gender="Male",
+            event_name="Spring Cup",
+            divisions=[
+                {
+                    "division_name": "BU14 Gold",
+                    "team_count": 8,
+                    "pool_sizes": [4, 4],
+                    "advancement": "F_ONLY",
+                }
+            ],
+            teams_by_division={"BU14 Gold": {f"team-{index}" for index in range(8)}},
+            teams_by_id={},
+        )
+
+
+def test_cohort_status_blocks_inferred_or_missing_structure():
+    statuses = event_backtest._cohort_status_rows(
+        {
+            ("u14", "Male"): [
+                {
+                    "division_name": "BU14 Super Elite",
+                    "team_count": 8,
+                    "pool_sizes": [],
+                    "advancement": "",
+                }
+            ]
+        },
+        {"BU14 Super Elite": {f"team-{index}" for index in range(8)}},
+    )
+
+    assert statuses[0]["runnable"] is False
+    assert statuses[0]["divisions"][0]["structure_explicit"] is False
+
+
+def test_cohort_status_blocks_multi_pool_structure_without_membership():
+    statuses = event_backtest._cohort_status_rows(
+        {
+            ("u14", "Male"): [
+                {
+                    "division_name": "BU14 Gold",
+                    "team_count": 8,
+                    "pool_sizes": [4, 4],
+                    "advancement": "F_ONLY",
+                }
+            ]
+        },
+        {"BU14 Gold": {f"team-{index}" for index in range(8)}},
+    )
+
+    assert statuses[0]["runnable"] is False
+    assert statuses[0]["divisions"][0]["structure_explicit"] is True
+    assert statuses[0]["divisions"][0]["exact_pool_membership"] is False
+
+
+@pytest.mark.parametrize("format_code", ["final_only", "SF_F"])
+def test_cohort_status_blocks_unsupported_or_incompatible_replay_format(format_code):
+    statuses = event_backtest._cohort_status_rows(
+        {
+            ("u14", "Male"): [
+                {
+                    "division_name": "BU14 Gold",
+                    "team_count": 6,
+                    "pool_sizes": [6],
+                    "advancement": format_code,
+                }
+            ]
+        },
+        {"BU14 Gold": {f"team-{index}" for index in range(6)}},
+    )
+
+    assert statuses[0]["runnable"] is False
+    assert statuses[0]["divisions"][0]["structure_explicit"] is False
 
 
 def test_enrich_registry_rows_with_matcher_promotes_high_confidence_match(monkeypatch):

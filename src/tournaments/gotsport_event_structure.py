@@ -188,6 +188,8 @@ _DATE = re.compile(
     re.IGNORECASE,
 )
 _FIXTURE_HEADINGS = ("match #", "home team", "away team")
+_WILDCARD_SLOT = re.compile(r"\bwild\s*card\s*#?\s*[0-9]+\b", re.IGNORECASE)
+_PUBLISHED_MATCH_NUMBER = re.compile(r"\bmatch\s*#\s*([0-9]+)\b", re.IGNORECASE)
 
 KIND_POOL = "pool"
 KIND_CROSS_POOL = "cross_pool"
@@ -329,6 +331,23 @@ def _table_date(table) -> str:
     return ""
 
 
+def _wildcard_bracket_labels(soup) -> dict[str, str]:
+    """Recover completed bracket slot labels that GotSport hides outside its fixture table."""
+
+    labels: dict[str, str] = {}
+    for panel in soup.select("div.panel"):
+        title_node = panel.select_one(".panel-heading .panel-title")
+        if title_node is None:
+            continue
+        title = _plain(title_node.get_text(" "))
+        if not _WILDCARD_SLOT.search(title):
+            continue
+        match_numbers = set(_PUBLISHED_MATCH_NUMBER.findall(panel.get_text(" ")))
+        if len(match_numbers) == 1:
+            labels[next(iter(match_numbers))] = title
+    return labels
+
+
 def parse_fixtures(html: str, *, source_url: str = "") -> tuple[Fixture, ...]:
     """Every fixture row on the page, in page order.
 
@@ -346,6 +365,7 @@ def parse_fixtures(html: str, *, source_url: str = "") -> tuple[Fixture, ...]:
     A spanning date/sub-heading row is table furniture, never a fixture.
     """
     soup = BeautifulSoup(html or "", "html.parser")
+    wildcard_bracket_labels = _wildcard_bracket_labels(soup)
     fixtures: list[Fixture] = []
     for table in soup.find_all("table"):
         columns: dict[str, int] | None = None
@@ -372,7 +392,10 @@ def parse_fixtures(html: str, *, source_url: str = "") -> tuple[Fixture, ...]:
             match = _MATCH_NUMBER.match(raw_number)
             if match:
                 match_number = match.group(1)
-                bracket_label = match.group(2).strip()
+                bracket_label = wildcard_bracket_labels.get(
+                    match_number,
+                    match.group(2).strip(),
+                )
             elif home_label or away_label:
                 match_number = ""
                 bracket_label = raw_number.strip()

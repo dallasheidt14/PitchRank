@@ -36,16 +36,17 @@ from src.tournaments.run_orchestrator import (
     generate_run_id,
 )
 from src.tournaments.storage import (
+    CohortConstraints,
     EventMetadata,
     RunStateError,
     TeamRegistryEntry,
     append_override,
     ensure_scenario,
+    write_constraints,
     write_event_metadata,
     write_registry,
     write_structure,
 )
-from src.tournaments.storage._io import write_json
 from src.tournaments.storage.event_key import scenario_dir
 from src.tournaments.storage.structure import CohortStructure, DivisionStructure
 
@@ -89,7 +90,9 @@ def _bootstrap_event(
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,), advancement=None),),
+                divisions=(
+                    DivisionStructure(name="A", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"),
+                ),
             )
         ],
         base_dir=base,
@@ -161,9 +164,6 @@ def test_collect_run_metadata_includes_cohort_and_hashes(tmp_path: Path):
             "balance_score_weights": {"preset_id": "default"},
         },
     )
-    # Constraints file presence drives one of the SHA hashes
-    write_json(_scenario(tmp_path) / "constraints.json", {"foo": "bar"})
-
     metadata = _collect_run_metadata(
         EVENT_KEY,
         SCENARIO,
@@ -192,7 +192,7 @@ def test_collect_run_metadata_includes_cohort_and_hashes(tmp_path: Path):
     assert metadata["hashes"]["registry"] is not None
     assert len(metadata["hashes"]["registry"]) == 64
     assert metadata["hashes"]["structure"] is not None
-    assert metadata["hashes"]["constraints"] is not None
+    assert "constraints" not in metadata["hashes"]
 
 
 def test_collect_run_metadata_handles_missing_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -244,7 +244,7 @@ def test_build_cli_args_raises_on_unknown_model_pin(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(tmp_path: Path):
+def test_build_cohort_request_payload_uses_event_start_as_prediction_date(tmp_path: Path):
     _bootstrap_event(tmp_path, extras={"ranking_snapshot_date": "2026-04-30"})
     payload, fallbacks, stale = _build_cohort_request_payload(
         EVENT_KEY,
@@ -254,17 +254,116 @@ def test_build_cohort_request_payload_includes_prediction_date_when_extras_set(t
         base_dir=tmp_path,
         extras={"ranking_snapshot_date": "2026-04-30"},
     )
-    assert payload["prediction_date"] == "2026-04-30"
+    assert payload["prediction_date"] == "2026-05-01"
     assert payload["age_group"] == "u14"
     assert payload["gender"] == "boys"
+    assert payload["divisions"][0]["advancement"] == "ROUND_ROBIN"
     assert len(payload["entrants"]) == 2
+    assert {entrant["actual_pool_name"] for entrant in payload["entrants"]} == {"Pool A"}
     # Fixture team names "A Alpha" / "A Bravo" both start with division "A"
     # so the resolver returns ``source="prefix"`` with no fallbacks.
     assert fallbacks == []
     assert stale == []
 
 
-def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path: Path):
+def test_build_cohort_request_payload_ignores_auto_seeding_constraints(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_constraints(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortConstraints(
+                cohort_age_group="u14",
+                cohort_gender="Boys",
+                avoid_same_club_early=False,
+                avoid_same_coach_early=True,
+                avoid_same_state_pool=True,
+                rematch_avoidance_scope="prior_weekend",
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    payload, _fallbacks, _stale = _build_cohort_request_payload(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        extras={},
+    )
+
+    assert payload["assignment_policy"] == "competitive_balance_only"
+    assert "constraints" not in payload
+
+
+def test_build_cohort_request_payload_refuses_unknown_multi_pool_membership(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(1, 1),
+                        advancement="ROUND_ROBIN",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="does not preserve exact original pool membership"):
+        _build_cohort_request_payload(
+            EVENT_KEY,
+            SCENARIO,
+            "u14",
+            "Boys",
+            base_dir=tmp_path,
+            extras={},
+        )
+
+
+def test_build_cohort_request_payload_refuses_missing_replay_format(tmp_path: Path):
+    _bootstrap_event(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement=None,
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="has no explicit replay format"):
+        _build_cohort_request_payload(
+            EVENT_KEY,
+            SCENARIO,
+            "u14",
+            "Boys",
+            base_dir=tmp_path,
+            extras={},
+        )
+
+
+def test_build_cohort_request_payload_uses_event_start_without_snapshot_selection(tmp_path: Path):
     _bootstrap_event(tmp_path)
     payload, _fallbacks, _stale = _build_cohort_request_payload(
         EVENT_KEY,
@@ -274,7 +373,7 @@ def test_build_cohort_request_payload_omits_prediction_date_when_absent(tmp_path
         base_dir=tmp_path,
         extras={},
     )
-    assert "prediction_date" not in payload
+    assert payload["prediction_date"] == "2026-05-01"
 
 
 def _bootstrap_event_metadata_only(base: Path) -> None:
@@ -303,8 +402,12 @@ def _two_division_structure() -> CohortStructure:
         age_group="u14",
         gender="Boys",
         divisions=(
-            DivisionStructure(name="BU14 Premier", team_count=1, pool_sizes=(1,)),
-            DivisionStructure(name="BU14 Champions", team_count=1, pool_sizes=(1,)),
+            DivisionStructure(
+                name="BU14 Premier", team_count=1, pool_sizes=(1,), advancement="ROUND_ROBIN"
+            ),
+            DivisionStructure(
+                name="BU14 Champions", team_count=1, pool_sizes=(1,), advancement="ROUND_ROBIN"
+            ),
         ),
     )
 
@@ -313,7 +416,11 @@ def _single_premier_division_structure() -> CohortStructure:
     return CohortStructure(
         age_group="u14",
         gender="Boys",
-        divisions=(DivisionStructure(name="BU14 Premier", team_count=2, pool_sizes=(2,)),),
+        divisions=(
+            DivisionStructure(
+                name="BU14 Premier", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"
+            ),
+        ),
     )
 
 
@@ -1180,7 +1287,11 @@ def test_execute_run_emits_division_routing_fallback_warning(tmp_path: Path, mon
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,)),),
+                divisions=(
+                    DivisionStructure(
+                        name="A", team_count=2, pool_sizes=(2,), advancement="ROUND_ROBIN"
+                    ),
+                ),
             )
         ],
         base_dir=tmp_path,

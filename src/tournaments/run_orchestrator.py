@@ -58,6 +58,10 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
+from src.tournaments.schedule_simulator import (
+    SUPPORTED_PLAYOFF_FORMATS,
+    explicit_division_schedule_template,
+)
 from src.tournaments.storage import (
     ScenarioLockError,
     acquire_scenario_lock,
@@ -340,6 +344,67 @@ def preflight(
         return match is not None and not blocker.startswith(this_label)
 
     blockers_for_cohort = tuple(b for b in result.blockers if not is_other_cohort(b))
+    try:
+        structure = read_structure(event_key, scenario, base_dir=base_dir)
+        cohort_structure = next(
+            (item for item in structure if item.age_group == age and item.gender == gender),
+            None,
+        )
+    except (FileNotFoundError, ValueError):
+        cohort_structure = None
+    if cohort_structure is not None:
+        missing_formats = tuple(
+            division.name
+            for division in cohort_structure.divisions
+            if not str(division.advancement or "").strip()
+        )
+        if missing_formats:
+            blockers_for_cohort += (
+                f"{gender} {age}: explicit replay format missing for {', '.join(missing_formats)}; "
+                "review the division in Backtest intake",
+            )
+        unsupported_formats = tuple(
+            f"{division.name} ({division.advancement})"
+            for division in cohort_structure.divisions
+            if str(division.advancement or "").strip()
+            not in SUPPORTED_PLAYOFF_FORMATS
+        )
+        if unsupported_formats:
+            blockers_for_cohort += (
+                f"{gender} {age}: unsupported replay format for {', '.join(unsupported_formats)}; "
+                "review the division in Backtest intake",
+            )
+        incompatible_formats: list[str] = []
+        for division in cohort_structure.divisions:
+            format_code = str(division.advancement or "").strip()
+            if format_code not in SUPPORTED_PLAYOFF_FORMATS or not division.pool_sizes:
+                continue
+            try:
+                explicit_division_schedule_template(
+                    division_name=division.name,
+                    pool_sizes=division.pool_sizes,
+                    format_code=format_code,
+                    actual_game_count=None,
+                )
+            except ValueError:
+                incompatible_formats.append(f"{division.name} ({format_code})")
+        if incompatible_formats:
+            blockers_for_cohort += (
+                f"{gender} {age}: replay format does not support the captured pool shape for "
+                f"{', '.join(incompatible_formats)}; review the division in Backtest intake",
+            )
+        missing_pool_membership = tuple(
+            division.name
+            for division in cohort_structure.divisions
+            if len(division.pool_sizes) != 1
+            or not division.pool_sizes
+            or division.pool_sizes[0] != division.team_count
+        )
+        if missing_pool_membership:
+            blockers_for_cohort += (
+                f"{gender} {age}: exact original pool membership unavailable for "
+                f"{', '.join(missing_pool_membership)}; review the division in Backtest intake",
+            )
 
     warnings: list[str] = []
     try:
@@ -500,13 +565,31 @@ def _build_cohort_request_payload(
     divisions_payload: list[dict[str, Any]] = []
     for division in cohort_structure.divisions:
         actual_division_name = division.name
+        division_teams = sorted(
+            teams_by_division.get(actual_division_name, []),
+            key=lambda team: team["team_id_master"],
+        )
+        if division_teams and not str(division.advancement or "").strip():
+            raise ValueError(
+                f"Legacy scenario storage for division '{actual_division_name}' has no explicit replay format. "
+                "Run this event from the reviewed Backtest intake."
+            )
+        if division_teams and (
+            len(division.pool_sizes) != 1
+            or division.pool_sizes[0] != division.team_count
+        ):
+            raise ValueError(
+                f"Legacy scenario storage for division '{actual_division_name}' does not preserve "
+                "exact original pool membership. Run this event from the reviewed Backtest intake."
+            )
+        original_pool_name = "Pool A" if division_teams else ""
         # ``BU<n> `` strip mirrors event:403/414 for parity with the event CLI.
         normalized_name = (
             actual_division_name.removeprefix(bu_prefix).strip()
             if actual_division_name.startswith(bu_prefix)
             else actual_division_name
         )
-        for team in sorted(teams_by_division.get(actual_division_name, []), key=lambda t: t["team_id_master"]):
+        for team in division_teams:
             entrants.append(
                 {
                     "entrant_id": f"{_slugify(actual_division_name)}_{_slugify(team['event_team_name'])}",
@@ -516,6 +599,11 @@ def _build_cohort_request_payload(
                     "event_age_group": age,
                     "event_gender": gender,
                     "actual_division_name": normalized_name,
+                    # A one-pool division has exact membership by definition:
+                    # every division entrant belongs to that sole pool. Legacy
+                    # scenario storage has no per-team pool field, so multi-pool
+                    # divisions are refused above instead of inventing evidence.
+                    "actual_pool_name": original_pool_name,
                 }
             )
         divisions_payload.append(
@@ -524,6 +612,7 @@ def _build_cohort_request_payload(
                 "actual_division_name": actual_division_name,
                 "team_count": division.team_count,
                 "pool_sizes": list(division.pool_sizes),
+                "advancement": division.advancement,
             }
         )
 
@@ -533,10 +622,13 @@ def _build_cohort_request_payload(
         "gender": gender.lower(),
         "divisions": divisions_payload,
         "entrants": entrants,
+        "assignment_policy": "competitive_balance_only",
     }
-    snapshot_date = extras.get("ranking_snapshot_date")
-    if snapshot_date:
-        payload["prediction_date"] = snapshot_date
+    # The predictor cutoff is the event start. ``ranking_snapshot_date`` is
+    # evidence selected for the run, but using it as an exclusive cutoff
+    # would make that exact snapshot ineligible.
+    if meta.event_start_date:
+        payload["prediction_date"] = meta.event_start_date
     return payload, sorted(division_routing_fallbacks), sorted(division_routing_stale_assignments)
 
 
@@ -611,7 +703,6 @@ def _collect_run_metadata(
         "hashes": {
             "registry": _file_sha256(scenario_path / "event_team_registry.csv"),
             "structure": _file_sha256(scenario_path / "group_structure_summary.csv"),
-            "constraints": _file_sha256(scenario_path / "constraints.json"),
         },
         "cli_args": list(cli_args),
     }

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import math
+from types import SimpleNamespace
 
 import pandas as pd
 
 from src.rankings.prediction_feature_history import (
     LEAGUE_AVG_TOTAL_GOALS,
     build_prediction_feature_snapshot_records,
+    save_prediction_feature_snapshot,
 )
 
 
@@ -162,3 +165,67 @@ def test_build_prediction_feature_snapshot_records_derives_missing_predictive_pr
     assert record["exp_goals_for"] is not None
     assert record["exp_goals_against"] is not None
     assert record["exp_goals_for"] > record["exp_goals_against"]
+
+
+def test_save_prediction_feature_snapshot_preserves_first_team_date_row():
+    captured: dict[str, object] = {}
+
+    class Query:
+        def upsert(self, batch, **kwargs):
+            captured["batch"] = batch
+            captured["kwargs"] = kwargs
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[{"team_id": "team-1"}])
+
+    class Client:
+        def table(self, name):
+            assert name == "prediction_feature_history"
+            return Query()
+
+    saved = asyncio.run(
+        save_prediction_feature_snapshot(
+            Client(),
+            pd.DataFrame(
+                [
+                    {
+                        "team_id": "team-1",
+                        "age": 14,
+                        "gender": "Boys",
+                        "power_score_final": 0.7,
+                    }
+                ]
+            ),
+            snapshot_date=pd.Timestamp("2026-04-08").date(),
+        )
+    )
+
+    assert saved == 1
+    assert captured["kwargs"] == {
+        "on_conflict": "team_id,snapshot_date",
+        "ignore_duplicates": True,
+    }
+
+
+def test_save_prediction_feature_snapshot_reports_ignored_duplicates_as_zero():
+    class Query:
+        def upsert(self, _batch, **_kwargs):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    class Client:
+        def table(self, _name):
+            return Query()
+
+    saved = asyncio.run(
+        save_prediction_feature_snapshot(
+            Client(),
+            pd.DataFrame([{"team_id": "team-1", "age": 14, "gender": "Boys"}]),
+            snapshot_date=pd.Timestamp("2026-04-08").date(),
+        )
+    )
+
+    assert saved == 0

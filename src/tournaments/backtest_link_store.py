@@ -45,9 +45,13 @@ __all__ = [
     "EventLinks",
     "EventLinksError",
     "EventLinksLockError",
+    "EventLinksConflict",
+    "CollisionAcknowledgement",
     "TeamLink",
     "build_links",
+    "canonicalize_event_links",
     "event_links_path",
+    "link_decision_state",
     "generations_agree",
     "registration_map",
     "rows_fingerprint",
@@ -70,6 +74,10 @@ class EventLinksLockError(EventLinksError):
     """Another session is still changing this event's links."""
 
 
+class EventLinksConflict(EventLinksError):
+    """Another session changed a team link after this editor loaded it."""
+
+
 @dataclass(frozen=True)
 class TeamLink:
     """One event team tied to a team in our database."""
@@ -84,12 +92,92 @@ class TeamLink:
 
 
 @dataclass(frozen=True)
+class CollisionAcknowledgement:
+    """An operator confirmed several event entries intentionally name one squad."""
+
+    team_id_master: str
+    registration_ids: tuple[str, ...]
+    note: str
+    acknowledged_at: str
+
+
+@dataclass(frozen=True)
 class EventLinks:
     event_id: str = ""
     links: tuple[TeamLink, ...] = ()
     saved_at: str = ""
     removed_registration_ids: tuple[str, ...] = ()
     """Explicitly cleared registrations; only a new operator choice revives one."""
+    not_found_registration_ids: tuple[str, ...] = ()
+    """Entrants an operator checked and could not find in PitchRank."""
+    collision_acknowledgements: tuple[CollisionAcknowledgement, ...] = ()
+
+
+_NOT_FOUND_STATE = "decision:not-found"
+_REMOVED_STATE = "decision:removed"
+
+
+def link_decision_state(links: EventLinks, registration_id: str) -> str | None:
+    """Return the complete saved state used for stale-session checks."""
+    by_registration = {link.registration_id: link.team_id_master for link in links.links}
+    if registration_id in by_registration:
+        return by_registration[registration_id]
+    if registration_id in links.not_found_registration_ids:
+        return _NOT_FOUND_STATE
+    if registration_id in links.removed_registration_ids:
+        return _REMOVED_STATE
+    return None
+
+
+def canonicalize_event_links(
+    links: EventLinks,
+    resolve_team_id: Callable[[str], str | None],
+) -> EventLinks:
+    """Resolve saved IDs and retain only collision acknowledgements still exact."""
+
+    canonical_links = tuple(
+        TeamLink(
+            registration_id=link.registration_id,
+            event_team_name=link.event_team_name,
+            team_id_master=str(resolve_team_id(link.team_id_master) or link.team_id_master),
+            matched_by=link.matched_by,
+            linked_at=link.linked_at,
+        )
+        for link in links.links
+    )
+    registrations_by_team: dict[str, set[str]] = {}
+    removed = set(links.removed_registration_ids) | set(links.not_found_registration_ids)
+    for link in canonical_links:
+        if link.registration_id in removed:
+            continue
+        registrations_by_team.setdefault(link.team_id_master, set()).add(link.registration_id)
+
+    valid_acknowledgements: dict[str, CollisionAcknowledgement] = {}
+    for acknowledgement in links.collision_acknowledgements:
+        canonical_id = str(
+            resolve_team_id(acknowledgement.team_id_master)
+            or acknowledgement.team_id_master
+        )
+        registration_ids = tuple(sorted(set(acknowledgement.registration_ids)))
+        if (
+            len(registration_ids) >= 2
+            and set(registration_ids) == registrations_by_team.get(canonical_id, set())
+            and acknowledgement.note.strip()
+        ):
+            valid_acknowledgements[canonical_id] = CollisionAcknowledgement(
+                team_id_master=canonical_id,
+                registration_ids=registration_ids,
+                note=acknowledgement.note,
+                acknowledged_at=acknowledgement.acknowledged_at,
+            )
+    return EventLinks(
+        event_id=links.event_id,
+        links=canonical_links,
+        saved_at=links.saved_at,
+        removed_registration_ids=links.removed_registration_ids,
+        not_found_registration_ids=links.not_found_registration_ids,
+        collision_acknowledgements=tuple(valid_acknowledgements.values()),
+    )
 
 
 def event_links_path(event_key: str, *, base_dir: Path | str = "reports") -> Path:
@@ -109,6 +197,8 @@ def save_links(
         event_id=links.event_id,
         changed_links=links.links,
         removed_registration_ids=links.removed_registration_ids,
+        not_found_registration_ids=links.not_found_registration_ids,
+        collision_acknowledgements=links.collision_acknowledgements,
         base_dir=base_dir,
         allow_relink=False,
     )
@@ -124,8 +214,14 @@ def _merge_decisions(
     if saved.event_id and fresh.event_id and saved.event_id != fresh.event_id:
         raise EventLinksError("Cannot merge links from different events")
     removed = set(saved.removed_registration_ids) | set(fresh.removed_registration_ids)
+    not_found = set(saved.not_found_registration_ids) | set(fresh.not_found_registration_ids)
     explicit_removals = set(fresh.removed_registration_ids)
-    by_id = {link.registration_id: link for link in saved.links if link.registration_id not in removed}
+    explicit_not_found = set(fresh.not_found_registration_ids)
+    by_id = {
+        link.registration_id: link
+        for link in saved.links
+        if link.registration_id not in removed and link.registration_id not in explicit_not_found
+    }
     for link in fresh.links:
         if link.registration_id in explicit_removals:
             continue
@@ -133,6 +229,10 @@ def _merge_decisions(
             if not allow_relink or link.matched_by != MATCHED_BY_OPERATOR:
                 continue
             removed.remove(link.registration_id)
+        if link.registration_id in not_found:
+            if not allow_relink or link.matched_by != MATCHED_BY_OPERATOR:
+                continue
+            not_found.remove(link.registration_id)
         previous = by_id.get(link.registration_id)
         if previous is not None:
             if previous.matched_by == MATCHED_BY_OPERATOR and link.matched_by != MATCHED_BY_OPERATOR:
@@ -144,11 +244,18 @@ def _merge_decisions(
             ):
                 continue  # A rerender's new linked_at is not a new decision.
         by_id[link.registration_id] = link
+        not_found.discard(link.registration_id)
+    acknowledged = {
+        **{item.team_id_master: item for item in saved.collision_acknowledgements},
+        **{item.team_id_master: item for item in fresh.collision_acknowledgements},
+    }
     return EventLinks(
         event_id=fresh.event_id or saved.event_id,
         links=tuple(by_id.values()),
         saved_at=saved.saved_at,
         removed_registration_ids=tuple(sorted(removed)),
+        not_found_registration_ids=tuple(sorted(not_found - removed)),
+        collision_acknowledgements=tuple(acknowledged.values()),
     )
 
 
@@ -158,6 +265,10 @@ def update_links(
     event_id: str,
     changed_links: Sequence[TeamLink] = (),
     removed_registration_ids: Sequence[str] = (),
+    not_found_registration_ids: Sequence[str] = (),
+    reopened_registration_ids: Sequence[str] = (),
+    collision_acknowledgements: Sequence[CollisionAcknowledgement] = (),
+    expected_links: Mapping[str, str | None] | None = None,
     base_dir: Path | str = "reports",
     dry_run: bool = False,
 ) -> EventLinks:
@@ -175,6 +286,10 @@ def update_links(
         event_id=event_id,
         changed_links=changed_links,
         removed_registration_ids=removed_registration_ids,
+        not_found_registration_ids=not_found_registration_ids,
+        reopened_registration_ids=reopened_registration_ids,
+        collision_acknowledgements=collision_acknowledgements,
+        expected_links=expected_links,
         base_dir=base_dir,
         allow_relink=True,
         dry_run=dry_run,
@@ -187,6 +302,10 @@ def _update_links(
     event_id: str,
     changed_links: Sequence[TeamLink],
     removed_registration_ids: Sequence[str],
+    not_found_registration_ids: Sequence[str] = (),
+    reopened_registration_ids: Sequence[str] = (),
+    collision_acknowledgements: Sequence[CollisionAcknowledgement] = (),
+    expected_links: Mapping[str, str | None] | None = None,
     base_dir: Path | str,
     allow_relink: bool,
     dry_run: bool = False,
@@ -199,6 +318,8 @@ def _update_links(
         event_id=event_id,
         links=tuple(changed_links),
         removed_registration_ids=tuple(removed_registration_ids),
+        not_found_registration_ids=tuple(not_found_registration_ids),
+        collision_acknowledgements=tuple(collision_acknowledgements),
     )
     _validate_links(fresh)
 
@@ -207,6 +328,24 @@ def _update_links(
             saved = _load_links_strict(path, expected_id=expected_id)
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise EventLinksError(f"Refusing to overwrite unreadable links at {path}: {exc}") from exc
+        if expected_links is not None:
+            for registration_id, expected in expected_links.items():
+                if link_decision_state(saved, registration_id) != expected:
+                    raise EventLinksConflict(
+                        f"{registration_id} changed in another session; reopen the saved intake"
+                    )
+        reopened = set(reopened_registration_ids)
+        if reopened:
+            saved = EventLinks(
+                event_id=saved.event_id,
+                links=saved.links,
+                saved_at=saved.saved_at,
+                removed_registration_ids=saved.removed_registration_ids,
+                not_found_registration_ids=tuple(
+                    item for item in saved.not_found_registration_ids if item not in reopened
+                ),
+                collision_acknowledgements=saved.collision_acknowledgements,
+            )
         merged = _merge_decisions(saved, fresh, allow_relink=allow_relink)
         if dry_run or merged == saved:
             return merged
@@ -219,6 +358,8 @@ def _update_links(
                     "saved_at": saved_at,
                     "links": [asdict(link) for link in merged.links],
                     "removed_registration_ids": list(merged.removed_registration_ids),
+                    "not_found_registration_ids": list(merged.not_found_registration_ids),
+                    "collision_acknowledgements": [asdict(item) for item in merged.collision_acknowledgements],
                 }
             ),
         )
@@ -227,6 +368,8 @@ def _update_links(
             links=merged.links,
             saved_at=saved_at,
             removed_registration_ids=merged.removed_registration_ids,
+            not_found_registration_ids=merged.not_found_registration_ids,
+            collision_acknowledgements=merged.collision_acknowledgements,
         )
 
     if dry_run:
@@ -370,6 +513,20 @@ def _validate_links(links: EventLinks) -> None:
         if registration_id in removed or registration_id in registrations:
             raise ValueError(f"Conflicting registration id {registration_id!r}")
         removed.add(registration_id)
+    not_found: set[str] = set()
+    for registration_id in links.not_found_registration_ids:
+        if not isinstance(registration_id, str) or not registration_id.strip():
+            raise ValueError("Not-found registration ids must be nonempty strings")
+        if registration_id in not_found or registration_id in registrations or registration_id in removed:
+            raise ValueError(f"Conflicting registration id {registration_id!r}")
+        not_found.add(registration_id)
+    for acknowledgement in links.collision_acknowledgements:
+        if not isinstance(acknowledgement, CollisionAcknowledgement):
+            raise ValueError("Collision acknowledgements must be typed")
+        if not acknowledgement.team_id_master.strip() or not acknowledgement.note.strip():
+            raise ValueError("Collision acknowledgements need a team id and note")
+        if len(set(acknowledgement.registration_ids)) < 2:
+            raise ValueError("Collision acknowledgements need at least two distinct registrations")
 
 
 def _load_links_strict(path: Path, *, expected_id: str) -> EventLinks:
@@ -388,6 +545,10 @@ def _load_links_strict(path: Path, *, expected_id: str) -> EventLinks:
     removed = payload.get("removed_registration_ids", [])
     if not isinstance(removed, list):
         raise ValueError("Saved removed_registration_ids must be a list")
+    not_found = payload.get("not_found_registration_ids", [])
+    acknowledgements = payload.get("collision_acknowledgements", [])
+    if not isinstance(not_found, list) or not isinstance(acknowledgements, list):
+        raise ValueError("Saved review decisions must be lists")
     decoded: list[TeamLink] = []
     for item in payload["links"]:
         if not isinstance(item, Mapping):
@@ -406,6 +567,16 @@ def _load_links_strict(path: Path, *, expected_id: str) -> EventLinks:
         links=tuple(decoded),
         saved_at=str(payload.get("saved_at", "")),
         removed_registration_ids=tuple(removed),
+        not_found_registration_ids=tuple(not_found),
+        collision_acknowledgements=tuple(
+            CollisionAcknowledgement(
+                team_id_master=item["team_id_master"],
+                registration_ids=tuple(item["registration_ids"]),
+                note=item["note"],
+                acknowledged_at=item["acknowledged_at"],
+            )
+            for item in acknowledgements
+        ),
     )
     _validate_links(links)
     return links

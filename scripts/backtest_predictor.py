@@ -57,15 +57,23 @@ logger = logging.getLogger(__name__)
 
 DIRECT_DB_BATCH_SIZE = 5000
 # Batch team ids, then paginate within each batch so we don't truncate at the PostgREST row cap.
-REST_SNAPSHOT_BATCH_SIZE = 250
+REST_SNAPSHOT_BATCH_SIZE = 100
 REST_SNAPSHOT_CONCURRENCY = 8
 REST_PAGE_SIZE = 1000
+REST_SNAPSHOT_MAX_ATTEMPTS = 4
+REST_SNAPSHOT_RETRY_BASE_SECONDS = 1.0
 
 
-def _resolve_game_start_date(*, lookback_days: int, min_game_date: Optional[str] = None) -> str:
+def _resolve_game_start_date(
+    *,
+    lookback_days: int,
+    min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
+) -> str:
     if min_game_date:
         return pd.Timestamp(min_game_date).strftime("%Y-%m-%d")
-    return (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    anchor = pd.Timestamp(max_game_date).normalize() if max_game_date else pd.Timestamp(datetime.now()).normalize()
+    return (anchor - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
 
 def _database_url() -> Optional[str]:
@@ -88,13 +96,24 @@ def _fetch_historical_games_via_db(
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
     min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
-    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
+    cutoff_date = _resolve_game_start_date(
+        lookback_days=lookback_days,
+        min_game_date=min_game_date,
+        max_game_date=max_game_date,
+    )
     logger.info("Fetching historical games from %s via direct Postgres...", cutoff_date)
 
     params: List[object] = [cutoff_date]
     joins = ""
     filters = ""
+    date_ceiling_filter = ""
+
+    if max_game_date:
+        date_ceiling_filter = "AND g.game_date < %s AND g.created_at < %s"
+        cutoff = pd.Timestamp(max_game_date).strftime("%Y-%m-%d")
+        params.extend([cutoff, cutoff])
 
     if test_slice:
         state_code, age_group = test_slice
@@ -119,6 +138,7 @@ def _fetch_historical_games_via_db(
         SELECT
             g.id,
             g.game_date,
+            g.created_at,
             g.home_team_master_id,
             g.away_team_master_id,
             g.home_score,
@@ -130,6 +150,7 @@ def _fetch_historical_games_via_db(
           AND g.home_score IS NOT NULL
           AND g.away_score IS NOT NULL
           AND g.game_date >= %s
+          {date_ceiling_filter}
           {filters}
         ORDER BY g.game_date ASC
         {limit_clause}
@@ -146,6 +167,7 @@ def _fetch_prediction_feature_snapshots_via_db(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
 ) -> pd.DataFrame:
     logger.info(
         "Fetching prediction feature snapshots for %s teams between %s and %s via direct Postgres...",
@@ -154,7 +176,10 @@ def _fetch_prediction_feature_snapshots_via_db(
         end_date,
     )
 
-    sql = """
+    availability_filter = ""
+    if availability_cutoff:
+        availability_filter = "AND created_at < %s"
+    sql = f"""
         SELECT
             snapshot_date,
             team_id,
@@ -177,11 +202,14 @@ def _fetch_prediction_feature_snapshots_via_db(
             exp_margin,
             exp_win_rate,
             exp_goals_for,
-            exp_goals_against
+            exp_goals_against,
+            last_calculated,
+            created_at
         FROM prediction_feature_history
         WHERE snapshot_date >= %s
           AND snapshot_date <= %s
           AND team_id = ANY(%s::uuid[])
+          {availability_filter}
     """
 
     frames: List[pd.DataFrame] = []
@@ -190,7 +218,10 @@ def _fetch_prediction_feature_snapshots_via_db(
     with closing(_open_direct_db_connection()) as conn:
         for index in range(0, len(team_ids), DIRECT_DB_BATCH_SIZE):
             batch = team_ids[index : index + DIRECT_DB_BATCH_SIZE]
-            frame = pd.read_sql_query(sql, conn, params=[start_date, end_date, batch])
+            params: List[object] = [start_date, end_date, batch]
+            if availability_cutoff:
+                params.append(pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"))
+            frame = pd.read_sql_query(sql, conn, params=params)
             if not frame.empty:
                 frames.append(frame)
                 rows_fetched += len(frame)
@@ -238,6 +269,7 @@ async def _fetch_prediction_feature_snapshots_via_rest(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
 ) -> pd.DataFrame:
     supabase_url, supabase_key = _supabase_rest_credentials()
     if not supabase_url or not supabase_key:
@@ -254,7 +286,7 @@ async def _fetch_prediction_feature_snapshots_via_rest(
         "snapshot_date,team_id,age_group,gender,status,rank_in_cohort_final,"
         "power_score_final,sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
         "glicko_volatility,wins,losses,draws,games_played,win_percentage,exp_margin,"
-        "exp_win_rate,exp_goals_for,exp_goals_against"
+        "exp_win_rate,exp_goals_for,exp_goals_against,last_calculated,created_at"
     )
     endpoint = f"{supabase_url.rstrip('/')}/rest/v1/prediction_feature_history"
     headers = {
@@ -280,10 +312,21 @@ async def _fetch_prediction_feature_snapshots_via_rest(
                     ("limit", str(REST_PAGE_SIZE)),
                     ("offset", str(offset)),
                 ]
-                async with semaphore:
-                    response = await client.get(endpoint, params=params, headers=headers)
-                    response.raise_for_status()
-                    page_rows = response.json()
+                if availability_cutoff:
+                    params.append(
+                        ("created_at", f"lt.{pd.Timestamp(availability_cutoff).strftime('%Y-%m-%d')}")
+                    )
+                for attempt in range(1, REST_SNAPSHOT_MAX_ATTEMPTS + 1):
+                    try:
+                        async with semaphore:
+                            response = await client.get(endpoint, params=params, headers=headers)
+                            response.raise_for_status()
+                            page_rows = response.json()
+                        break
+                    except httpx.HTTPError:
+                        if attempt == REST_SNAPSHOT_MAX_ATTEMPTS:
+                            raise
+                        await asyncio.sleep(REST_SNAPSHOT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)))
 
                 if not page_rows:
                     break
@@ -327,6 +370,7 @@ async def fetch_historical_games(
     limit: Optional[int] = None,
     test_slice: Optional[Tuple[str, str]] = None,
     min_game_date: Optional[str] = None,
+    max_game_date: Optional[str] = None,
 ) -> pd.DataFrame:
     """
     Fetch historical games from database
@@ -337,6 +381,7 @@ async def fetch_historical_games(
         limit: Maximum number of games to fetch (None = all)
         test_slice: Optional tuple (state, age_group) for testing (e.g., ('AZ', 'u12'))
         min_game_date: Optional explicit floor in YYYY-MM-DD. Overrides lookback_days when provided.
+        max_game_date: Optional exclusive ceiling in YYYY-MM-DD.
     """
     if _can_use_direct_db():
         try:
@@ -345,18 +390,23 @@ async def fetch_historical_games(
                 limit=limit,
                 test_slice=test_slice,
                 min_game_date=min_game_date,
+                max_game_date=max_game_date,
             )
         except Exception as error:
             logger.warning("Direct Postgres historical-game fetch failed, falling back to Supabase REST: %s", error)
 
-    cutoff_date = _resolve_game_start_date(lookback_days=lookback_days, min_game_date=min_game_date)
+    cutoff_date = _resolve_game_start_date(
+        lookback_days=lookback_days,
+        min_game_date=min_game_date,
+        max_game_date=max_game_date,
+    )
 
     logger.info(f"Fetching historical games from {cutoff_date}...")
 
     def build_base_query():
-        return (
+        query = (
             supabase.table("games")
-            .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score")
+            .select("id, game_date, created_at, home_team_master_id, away_team_master_id, home_score, away_score")
             .not_.is_("home_team_master_id", "null")
             .not_.is_("away_team_master_id", "null")
             .not_.is_("home_score", "null")
@@ -364,6 +414,10 @@ async def fetch_historical_games(
             .gte("game_date", cutoff_date)
             .order("game_date", desc=False)  # Oldest first for consistent processing
         )
+        if max_game_date:
+            cutoff = pd.Timestamp(max_game_date).strftime("%Y-%m-%d")
+            query = query.lt("game_date", cutoff).lt("created_at", cutoff)
+        return query
 
     # If test slice specified, filter by state and age_group via teams table
     if test_slice:
@@ -484,6 +538,9 @@ async def fetch_prediction_feature_snapshots(
     team_ids: List[str],
     start_date: str,
     end_date: str,
+    availability_cutoff: Optional[str] = None,
+    *,
+    strict: bool = False,
 ) -> pd.DataFrame:
     """
     Fetch point-in-time predictor snapshots for the requested teams and date range.
@@ -497,6 +554,7 @@ async def fetch_prediction_feature_snapshots(
                 team_ids=team_ids,
                 start_date=start_date,
                 end_date=end_date,
+                availability_cutoff=availability_cutoff,
             )
         except Exception as error:
             logger.warning("Direct Postgres snapshot fetch failed, falling back to Supabase REST: %s", error)
@@ -506,6 +564,7 @@ async def fetch_prediction_feature_snapshots(
             team_ids=team_ids,
             start_date=start_date,
             end_date=end_date,
+            availability_cutoff=availability_cutoff,
         )
     except Exception as error:
         logger.warning("Concurrent Supabase REST snapshot fetch failed, falling back to serial client: %s", error)
@@ -521,7 +580,7 @@ async def fetch_prediction_feature_snapshots(
         "snapshot_date, team_id, age_group, gender, status, rank_in_cohort_final, "
         "power_score_final, sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
         "glicko_volatility, wins, losses, draws, games_played, win_percentage, exp_margin, "
-        "exp_win_rate, exp_goals_for, exp_goals_against"
+        "exp_win_rate, exp_goals_for, exp_goals_against, last_calculated, created_at"
     )
 
     rows = []
@@ -529,36 +588,59 @@ async def fetch_prediction_feature_snapshots(
 
     for index in range(0, len(team_ids), batch_size):
         batch = team_ids[index : index + batch_size]
-        try:
-            response = (
-                supabase.table("prediction_feature_history")
-                .select(fields)
-                .in_("team_id", batch)
-                .gte("snapshot_date", start_date)
-                .lte("snapshot_date", end_date)
-                .order("snapshot_date", desc=False)
-                .execute()
-            )
-        except Exception as error:
-            error_message = str(error).lower()
-            if "prediction_feature_history" in error_message and (
-                "does not exist" in error_message or "relation" in error_message or "schema cache" in error_message
-            ):
-                logger.warning(
-                    "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
+        offset = 0
+        while True:
+            try:
+                query = (
+                    supabase.table("prediction_feature_history")
+                    .select(fields)
+                    .in_("team_id", batch)
+                    .gte("snapshot_date", start_date)
+                    .lte("snapshot_date", end_date)
+                    .order("team_id", desc=False)
+                    .order("snapshot_date", desc=False)
+                    .range(offset, offset + REST_PAGE_SIZE - 1)
                 )
-                return pd.DataFrame()
+                if availability_cutoff:
+                    query = query.lt(
+                        "created_at",
+                        pd.Timestamp(availability_cutoff).strftime("%Y-%m-%d"),
+                    )
+                response = query.execute()
+            except Exception as error:
+                error_message = str(error).lower()
+                if "prediction_feature_history" in error_message and (
+                    "does not exist" in error_message
+                    or "relation" in error_message
+                    or "schema cache" in error_message
+                ):
+                    if strict:
+                        raise RuntimeError(
+                            "prediction_feature_history is unavailable"
+                        ) from error
+                    logger.warning(
+                        "prediction_feature_history is unavailable. Backtest will fall back to current rankings."
+                    )
+                    return pd.DataFrame()
 
-            logger.warning(
-                "Error fetching prediction snapshots for batch %s-%s: %s",
-                index,
-                index + batch_size,
-                error,
-            )
-            continue
+                logger.warning(
+                    "Error fetching prediction snapshots for batch %s-%s at offset %s: %s",
+                    index,
+                    index + batch_size,
+                    offset,
+                    error,
+                )
+                if strict:
+                    raise RuntimeError(
+                        f"Serial prediction snapshot read failed for IDs {index}-{index + len(batch)}"
+                    ) from error
+                break
 
-        if response.data:
-            rows.extend(response.data)
+            page_rows = response.data or []
+            rows.extend(page_rows)
+            if len(page_rows) < REST_PAGE_SIZE:
+                break
+            offset += REST_PAGE_SIZE
 
     snapshots_df = pd.DataFrame(rows)
     logger.info("Fetched %s prediction snapshots", f"{len(snapshots_df):,}")

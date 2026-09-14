@@ -11,12 +11,16 @@ from threading import Event
 import pytest
 
 from src.tournaments.backtest_link_store import (
+    CollisionAcknowledgement,
     EventLinks,
+    EventLinksConflict,
     EventLinksError,
     TeamLink,
     build_links,
+    canonicalize_event_links,
     event_links_path,
     generations_agree,
+    link_decision_state,
     load_links,
     plan_sync,
     restore_overrides,
@@ -75,6 +79,24 @@ def test_save_then_load_round_trips_every_field(tmp_path):
     assert back.event_id == "51783"
     assert back.links == _links().links
     assert back.saved_at != ""
+
+
+def test_canonicalization_invalidates_collision_acknowledgement_after_merge_membership_changes():
+    acknowledgement = CollisionAcknowledgement(
+        "aaaa-1111",
+        ("4411807", "extra-registration"),
+        "Same squad entered twice",
+        "2026-09-11T00:02:00+00:00",
+    )
+    links = replace(_links(), collision_acknowledgements=(acknowledgement,))
+
+    canonical = canonicalize_event_links(
+        links,
+        lambda team_id: "survivor" if team_id in {"aaaa-1111", "bbbb-2222"} else team_id,
+    )
+
+    assert {link.team_id_master for link in canonical.links} == {"survivor"}
+    assert canonical.collision_acknowledgements == ()
 
 
 def test_links_land_beside_the_other_intake_artifacts(tmp_path):
@@ -521,6 +543,75 @@ def test_dry_run_previews_changes_without_creating_files(tmp_path):
 
     assert preview.links == _links().links
     assert list(tmp_path.iterdir()) == []
+
+
+def test_not_found_is_a_persistent_local_decision_and_can_be_reopened(tmp_path):
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+
+    marked = update_links(
+        EVENT_KEY,
+        event_id="51783",
+        not_found_registration_ids=("4411807",),
+        expected_links={"4411807": "aaaa-1111"},
+        base_dir=tmp_path,
+    )
+    assert marked.not_found_registration_ids == ("4411807",)
+    assert {item.registration_id for item in marked.links} == {"4383677"}
+
+    reopened = update_links(
+        EVENT_KEY, event_id="51783", reopened_registration_ids=("4411807",), base_dir=tmp_path
+    )
+    assert reopened.not_found_registration_ids == ()
+
+
+def test_expected_link_refuses_a_stale_sessions_replacement(tmp_path):
+    save_links(EVENT_KEY, _links(), base_dir=tmp_path)
+    newer = TeamLink("4411807", "Barcelona", "newer-choice", "operator", "later")
+    update_links(EVENT_KEY, event_id="51783", changed_links=(newer,), base_dir=tmp_path)
+
+    with pytest.raises(EventLinksConflict, match="another session"):
+        update_links(
+            EVENT_KEY,
+            event_id="51783",
+            changed_links=(replace(newer, team_id_master="stale-choice"),),
+            expected_links={"4411807": "aaaa-1111"},
+            base_dir=tmp_path,
+        )
+
+
+def test_expected_state_detects_a_not_found_decision_from_another_session(tmp_path):
+    update_links(EVENT_KEY, event_id="51783", base_dir=tmp_path)
+    stale = load_links(EVENT_KEY, base_dir=tmp_path)
+    update_links(
+        EVENT_KEY,
+        event_id="51783",
+        not_found_registration_ids=("4411807",),
+        base_dir=tmp_path,
+    )
+
+    with pytest.raises(EventLinksConflict, match="another session"):
+        update_links(
+            EVENT_KEY,
+            event_id="51783",
+            changed_links=(_links().links[0],),
+            expected_links={"4411807": link_decision_state(stale, "4411807")},
+            base_dir=tmp_path,
+        )
+
+
+def test_collision_acknowledgement_round_trips_with_exact_membership(tmp_path):
+    acknowledgement = CollisionAcknowledgement(
+        "aaaa-1111", ("4411807", "4411808"), "Same squad entered twice", "now"
+    )
+    update_links(
+        EVENT_KEY,
+        event_id="51783",
+        changed_links=_links().links,
+        collision_acknowledgements=(acknowledgement,),
+        base_dir=tmp_path,
+    )
+
+    assert load_links(EVENT_KEY, base_dir=tmp_path).collision_acknowledgements == (acknowledgement,)
 
 
 def test_two_sessions_load_and_merge_under_the_same_event_lock(tmp_path, monkeypatch):

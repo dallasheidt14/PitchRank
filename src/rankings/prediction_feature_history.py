@@ -247,10 +247,17 @@ async def save_prediction_feature_snapshot(
             try:
                 response = (
                     supabase_client.table("prediction_feature_history")
-                    .upsert(batch, on_conflict="team_id,snapshot_date")
+                    # Historical features are evidence, not a mutable cache.
+                    # Keeping the first row for a team/date makes created_at
+                    # reliable proof that the values existed at that time.
+                    .upsert(
+                        batch,
+                        on_conflict="team_id,snapshot_date",
+                        ignore_duplicates=True,
+                    )
                     .execute()
                 )
-                batch_saved = len(response.data) if response.data else len(batch)
+                batch_saved = len(response.data) if response.data is not None else len(batch)
                 saved_count += batch_saved
                 if total_batches > 1:
                     label = f" (retry {attempt})" if attempt > 0 else ""

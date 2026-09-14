@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -23,6 +24,10 @@ from src.tournaments.gotsport_event_roster import (
     event_roster_to_dict,
 )
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.schedule_simulator import (
+    SUPPORTED_SCORING_POLICIES,
+    normalize_tiebreak_order,
+)
 from src.tournaments.storage._file_lock import _acquire_file_lock
 from src.tournaments.storage._io import read_versioned_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir, parse_event_key
@@ -44,6 +49,38 @@ class DivisionReview:
     notes: str = ""
     source_url: str = ""
     checked: bool = False
+    format_code: str = ""
+
+
+@dataclass(frozen=True)
+class CohortDecision:
+    """A sourced operator interpretation of one published division cohort."""
+
+    group_id: str
+    age_group: str
+    gender: str
+    note: str
+    source_url: str
+
+
+@dataclass(frozen=True)
+class EventTiebreakDecision:
+    """Sourced event-wide standings rules used by simulated pools."""
+
+    order: tuple[str, ...]
+    note: str
+    source_url: str
+    scoring_policy: str = ""
+
+
+@dataclass(frozen=True)
+class CaptureVerification:
+    """The most recent landing-only check of a saved capture's division list."""
+
+    group_ids: tuple[str, ...]
+    observed_counts: tuple[int, ...]
+    verified_at: str
+    stable: bool
 
 
 def structure_hash(division: Any) -> str:
@@ -110,6 +147,9 @@ class BacktestSnapshot:
     captured_at: str
     limit_groups: int | None = None
     reviews: tuple[DivisionReview, ...] = ()
+    cohort_decisions: tuple[CohortDecision, ...] = ()
+    verification: CaptureVerification | None = None
+    tiebreak_decision: EventTiebreakDecision | None = None
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -118,6 +158,37 @@ class BacktestSnapshot:
             raise ValueError("Every captured entrant must have exactly one matching outcome")
         if not self.generation or not self.captured_at:
             raise ValueError("An intake needs its capture identity and timestamp")
+        group_ids = {division.group_id for division in self.roster.divisions}
+        decided = set()
+        for decision in self.cohort_decisions:
+            if decision.group_id in decided or decision.group_id not in group_ids:
+                raise ValueError("Cohort decisions must identify one captured division")
+            decided.add(decision.group_id)
+            if not re.fullmatch(r"u[0-9]{1,2}(?:/u[0-9]{1,2})*", decision.age_group):
+                raise ValueError("Cohort decisions need a lowercase U-age or combined U-age")
+            if decision.gender not in {"Male", "Female"}:
+                raise ValueError("Cohort decisions need a gender")
+            if not decision.note.strip() or not decision.source_url.strip():
+                raise ValueError("Cohort decisions need a note and source URL")
+        if self.tiebreak_decision is not None:
+            decision = self.tiebreak_decision
+            if normalize_tiebreak_order(decision.order, allow_empty=False) != decision.order:
+                raise ValueError("The event tiebreak order must use normalized criterion names")
+            if not decision.note.strip() or not decision.source_url.strip():
+                raise ValueError("The event tiebreak decision needs a note and source URL")
+            if decision.scoring_policy and decision.scoring_policy not in SUPPORTED_SCORING_POLICIES:
+                raise ValueError("The event tiebreak decision has an unsupported scoring policy")
+        if self.verification is not None:
+            verification = self.verification
+            if (
+                type(verification.stable) is not bool
+                or not isinstance(verification.verified_at, str)
+                or not verification.verified_at.strip()
+                or len(set(verification.group_ids)) != len(verification.group_ids)
+                or any(not isinstance(group, str) or not group.strip() for group in verification.group_ids)
+                or any(type(count) is not int or count < 0 for count in verification.observed_counts)
+            ):
+                raise ValueError("Invalid capture verification metadata")
 
     @property
     def parsed(self):
@@ -140,6 +211,17 @@ class BacktestSnapshot:
             "roster": event_roster_to_dict(self.roster),
             "resolved": [asdict(item) for item in self.resolved],
             "division_reviews": [asdict(review) for review in self.reviews],
+            "cohort_decisions": [asdict(decision) for decision in self.cohort_decisions],
+            "capture_verification": asdict(self.verification) if self.verification else None,
+            "event_tiebreak_decision": (
+                {
+                    "order": list(self.tiebreak_decision.order),
+                    "note": self.tiebreak_decision.note,
+                    "source_url": self.tiebreak_decision.source_url,
+                    "scoring_policy": self.tiebreak_decision.scoring_policy,
+                }
+                if self.tiebreak_decision else None
+            ),
         })
 
     @classmethod
@@ -157,7 +239,53 @@ class BacktestSnapshot:
             captured_at=payload["captured_at"],
             limit_groups=limit,
             reviews=tuple(DivisionReview(**item) for item in payload.get("division_reviews", ())),
+            cohort_decisions=tuple(CohortDecision(**item) for item in payload.get("cohort_decisions", ())),
+            verification=(
+                CaptureVerification(
+                    group_ids=tuple(payload["capture_verification"].get("group_ids", ())),
+                    observed_counts=tuple(payload["capture_verification"].get("observed_counts", ())),
+                    verified_at=payload["capture_verification"]["verified_at"],
+                    stable=payload["capture_verification"]["stable"],
+                )
+                if payload.get("capture_verification") else None
+            ),
+            tiebreak_decision=(
+                EventTiebreakDecision(
+                    order=tuple(payload["event_tiebreak_decision"].get("order", ())),
+                    note=payload["event_tiebreak_decision"].get("note", ""),
+                    source_url=payload["event_tiebreak_decision"].get("source_url", ""),
+                    scoring_policy=payload["event_tiebreak_decision"].get("scoring_policy", ""),
+                )
+                if payload.get("event_tiebreak_decision") else None
+            ),
         )
+
+
+def effective_roster(snapshot: BacktestSnapshot) -> EventRoster:
+    """Apply review-time cohort interpretations without changing source evidence."""
+    decisions = {decision.group_id: decision for decision in snapshot.cohort_decisions}
+    if not decisions:
+        return snapshot.roster
+    divisions = tuple(
+        replace(
+            division,
+            age_group=decisions[division.group_id].age_group,
+            published_age_group=decisions[division.group_id].age_group,
+            gender=decisions[division.group_id].gender,
+        )
+        if division.group_id in decisions else division
+        for division in snapshot.roster.divisions
+    )
+    teams = tuple(
+        replace(
+            team,
+            published_age_group=decisions[team.group_id].age_group,
+            gender=decisions[team.group_id].gender,
+        )
+        if team.group_id in decisions else team
+        for team in snapshot.roster.teams
+    )
+    return replace(snapshot.roster, divisions=divisions, teams=teams)
 
 
 def snapshot_path(event_key: str, *, base_dir: Path | str = "reports") -> Path:
@@ -221,7 +349,7 @@ def _merge_reviews(
             continue
         original = before.get(group, empty)
         values = {}
-        for field in ("notes", "source_url", "checked"):
+        for field in ("format_code", "notes", "source_url", "checked"):
             wanted = getattr(desired, field)
             prior = getattr(original, field)
             saved = getattr(latest, field)
@@ -236,6 +364,76 @@ def _merge_reviews(
                 )
         merged.append(DivisionReview(group, empty.structure_hash, **values))
     return tuple(merged)
+
+
+def _merge_cohort_decisions(
+    previous: BacktestSnapshot,
+    incoming: BacktestSnapshot,
+    baseline: tuple[CohortDecision, ...] | None,
+) -> tuple[CohortDecision, ...]:
+    """Merge sourced cohort edits without letting stale omission erase work."""
+    valid_groups = {division.group_id for division in incoming.roster.divisions}
+    current = {item.group_id: item for item in previous.cohort_decisions if item.group_id in valid_groups}
+    proposed = {item.group_id: item for item in incoming.cohort_decisions if item.group_id in valid_groups}
+    before = {item.group_id: item for item in (baseline or ()) if item.group_id in valid_groups}
+    merged = []
+    for group in valid_groups:
+        latest = current.get(group)
+        desired = proposed.get(group)
+        if desired is None:
+            if latest is not None:
+                merged.append(latest)
+            continue
+        if baseline is None:
+            if latest is None or latest == desired:
+                merged.append(desired)
+            else:
+                merged.append(latest)
+            continue
+        original = before.get(group)
+        if desired == original:
+            if latest is not None:
+                merged.append(latest)
+        elif latest is None or latest == original or latest == desired:
+            merged.append(desired)
+        else:
+            raise ReviewConflict(
+                f"Division {group}: cohort decision changed in another session. "
+                "Open the saved intake before applying this edit."
+            )
+    return tuple(sorted(merged, key=lambda item: item.group_id))
+
+
+_TIEBREAK_BASELINE_UNSET = object()
+
+
+def _merge_tiebreak_decision(
+    previous: BacktestSnapshot,
+    incoming: BacktestSnapshot,
+    baseline: EventTiebreakDecision | None | object,
+) -> EventTiebreakDecision | None:
+    """Merge one event-wide decision without allowing a stale silent overwrite."""
+
+    latest = previous.tiebreak_decision
+    desired = incoming.tiebreak_decision
+    if baseline is _TIEBREAK_BASELINE_UNSET:
+        if desired is None:
+            return latest
+        if latest is None or latest == desired:
+            return desired
+        raise ReviewConflict(
+            "Tournament tiebreak rules changed in another session. "
+            "Open the saved intake before applying this edit."
+        )
+    original = baseline
+    if desired == original:
+        return latest
+    if latest == original or latest == desired:
+        return desired
+    raise ReviewConflict(
+        "Tournament tiebreak rules changed in another session. "
+        "Open the saved intake before applying this edit."
+    )
 
 
 def _fixture_source_identity(fixture: Any) -> tuple[str, str, str] | None:
@@ -417,6 +615,8 @@ def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
 def write_snapshot(
     event_key: str, snapshot: BacktestSnapshot, *, base_dir: Path | str = "reports", dry_run: bool = False,
     review_baseline: tuple[DivisionReview, ...] | None = None,
+    cohort_baseline: tuple[CohortDecision, ...] | None = None,
+    tiebreak_baseline: EventTiebreakDecision | None | object = _TIEBREAK_BASELINE_UNSET,
 ) -> Path:
     """Save atomically and merge review edits against the caller's loaded baseline.
 
@@ -433,7 +633,14 @@ def write_snapshot(
         if path.exists():
             previous = read_snapshot(event_key, base_dir=base_dir)
             assert_capture_preserved(previous.roster, snapshot.roster)
-            snapshot = replace(snapshot, reviews=_merge_reviews(previous, snapshot, review_baseline))
+            snapshot = replace(
+                snapshot,
+                reviews=_merge_reviews(previous, snapshot, review_baseline),
+                cohort_decisions=_merge_cohort_decisions(previous, snapshot, cohort_baseline),
+                tiebreak_decision=_merge_tiebreak_decision(
+                    previous, snapshot, tiebreak_baseline
+                ),
+            )
         else:
             snapshot = replace(snapshot, reviews=reviews_for_capture(snapshot.roster, snapshot.reviews))
         write_json(path, snapshot.to_dict())

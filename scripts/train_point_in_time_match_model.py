@@ -44,6 +44,9 @@ from supabase import create_client  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+# httpx logs the complete PostgREST URL at INFO, including hundreds of team IDs.
+# Keep training output useful and bounded while the fetcher reports aggregate progress.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _write_json(path: Path, payload: dict):
@@ -57,6 +60,10 @@ async def main():
     parser.add_argument(
         "--min-game-date",
         help="Optional explicit lower bound for training games in YYYY-MM-DD format. Overrides --lookback-days.",
+    )
+    parser.add_argument(
+        "--max-game-date",
+        help="Optional exclusive upper bound for training games in YYYY-MM-DD format.",
     )
     parser.add_argument(
         "--snapshot-buffer-days",
@@ -150,6 +157,7 @@ async def main():
         limit=args.limit,
         test_slice=test_slice,
         min_game_date=args.min_game_date,
+        max_game_date=args.max_game_date,
     )
     if games_df.empty:
         logger.error("No historical games found")
@@ -164,7 +172,13 @@ async def main():
         pd.Timestamp(games_df["game_date"].min()) - pd.Timedelta(days=max(0, args.snapshot_buffer_days))
     ).strftime("%Y-%m-%d")
     snapshot_end = pd.Timestamp(games_df["game_date"].max()).strftime("%Y-%m-%d")
-    snapshots_df = await fetch_prediction_feature_snapshots(supabase, team_ids, snapshot_start, snapshot_end)
+    snapshots_df = await fetch_prediction_feature_snapshots(
+        supabase,
+        team_ids,
+        snapshot_start,
+        snapshot_end,
+        availability_cutoff=args.max_game_date,
+    )
     if snapshots_df.empty:
         logger.error("No point-in-time snapshots found in prediction_feature_history")
         sys.exit(1)

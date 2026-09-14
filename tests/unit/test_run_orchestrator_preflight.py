@@ -58,7 +58,14 @@ def _bootstrap(
             CohortStructure(
                 age_group="u14",
                 gender="Boys",
-                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,)),),
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement="ROUND_ROBIN",
+                    ),
+                ),
             )
         ],
         base_dir=base,
@@ -109,6 +116,162 @@ def test_preflight_filters_blockers_to_requested_cohort(tmp_path: Path, monkeypa
     assert "Boys u10: ghost-team pending review" not in blockers
     assert "event metadata missing or unreadable: oops" in blockers
     assert "manual-add manual_x: cohort attribution missing (rewrite override)" in blockers
+
+
+def test_preflight_blocks_missing_explicit_replay_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _bootstrap(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(DivisionStructure(name="A", team_count=2, pool_sizes=(2,)),),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        run_orchestrator,
+        "is_ready",
+        lambda *a, **k: ReadinessResult(ready=True, blockers=()),
+    )
+
+    result = preflight(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        supabase_client=None,
+    )
+
+    assert result.ready is False
+    assert any("explicit replay format missing for A" in blocker for blocker in result.blockers)
+
+
+def test_preflight_blocks_unsupported_legacy_replay_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _bootstrap(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement="final_only",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        run_orchestrator,
+        "is_ready",
+        lambda *a, **k: ReadinessResult(ready=True, blockers=()),
+    )
+
+    result = preflight(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        supabase_client=None,
+    )
+
+    assert result.ready is False
+    assert any("unsupported replay format for A (final_only)" in blocker for blocker in result.blockers)
+
+
+def test_preflight_blocks_replay_format_incompatible_with_pool_shape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _bootstrap(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=2,
+                        pool_sizes=(2,),
+                        advancement="SF_F",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        run_orchestrator,
+        "is_ready",
+        lambda *a, **k: ReadinessResult(ready=True, blockers=()),
+    )
+
+    result = preflight(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        supabase_client=None,
+    )
+
+    assert result.ready is False
+    assert any("does not support the captured pool shape for A (SF_F)" in blocker for blocker in result.blockers)
+
+
+def test_preflight_blocks_multi_pool_legacy_structure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _bootstrap(tmp_path)
+    write_structure(
+        EVENT_KEY,
+        SCENARIO,
+        [
+            CohortStructure(
+                age_group="u14",
+                gender="Boys",
+                divisions=(
+                    DivisionStructure(
+                        name="A",
+                        team_count=4,
+                        pool_sizes=(2, 2),
+                        advancement="F_ONLY",
+                    ),
+                ),
+            )
+        ],
+        base_dir=tmp_path,
+    )
+    monkeypatch.setattr(
+        run_orchestrator,
+        "is_ready",
+        lambda *a, **k: ReadinessResult(ready=True, blockers=()),
+    )
+
+    result = preflight(
+        EVENT_KEY,
+        SCENARIO,
+        "u14",
+        "Boys",
+        base_dir=tmp_path,
+        supabase_client=None,
+    )
+
+    assert result.ready is False
+    assert any("exact original pool membership unavailable for A" in blocker for blocker in result.blockers)
 
 
 def test_preflight_warns_on_stale_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

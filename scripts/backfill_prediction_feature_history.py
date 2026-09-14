@@ -198,7 +198,10 @@ async def main() -> None:
     parser.add_argument(
         "--overwrite-existing",
         action="store_true",
-        help="Replay dates even if prediction_feature_history already has rows for that date",
+        help=(
+            "Replay dates even if prediction_feature_history already has rows for that date; "
+            "existing team/date rows remain immutable and only missing rows are inserted"
+        ),
     )
     parser.add_argument(
         "--skip-snapshots",

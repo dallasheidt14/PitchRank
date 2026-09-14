@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from src.predictions.evaluation_reporting import (
     build_calibration_table,
@@ -158,6 +159,7 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "actual_score_a": 4,
                 "actual_score_b": 0,
                 "blowout_3plus_probability": 0.81,
+                "blowout_4plus_probability": 0.63,
                 "blowout_5plus_probability": 0.34,
             },
             {
@@ -175,6 +177,7 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "actual_score_a": 1,
                 "actual_score_b": 1,
                 "blowout_3plus_probability": 0.08,
+                "blowout_4plus_probability": 0.03,
                 "blowout_5plus_probability": 0.02,
             },
             {
@@ -192,6 +195,7 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
                 "actual_score_a": 0,
                 "actual_score_b": 2,
                 "blowout_3plus_probability": 0.19,
+                "blowout_4plus_probability": 0.10,
                 "blowout_5plus_probability": 0.05,
             },
         ]
@@ -202,6 +206,8 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
 
     assert summary["score_a_mae"] is not None
     assert summary["score_b_mae"] is not None
+    assert summary["actual_average_abs_margin"] == pytest.approx(5 / 3)
+    assert summary["predicted_average_abs_margin"] == pytest.approx(1.4)
     assert summary["total_goals_mae"] is not None
     assert summary["exact_score_accuracy"] == 1 / 3
     assert summary["score_within_one_goal_rate"] == 1.0
@@ -209,9 +215,16 @@ def test_compute_evaluation_summary_tracks_score_and_blowout_metrics():
     assert summary["blowout_3plus_recall"] == 1.0
     assert summary["blowout_3plus_precision"] == 1.0
     assert summary["blowout_3plus_brier"] is not None
+    assert summary["actual_blowout_4plus_rate"] == pytest.approx(1 / 3)
+    assert summary["avg_blowout_4plus_probability"] is not None
     assert summary["blowout_5plus_brier"] is not None
     assert not margin_bands.empty
-    assert set(margin_bands["band"]) == {"competitive_1plus", "blowout_3plus", "blowout_5plus"}
+    assert set(margin_bands["band"]) == {
+        "competitive_1plus",
+        "blowout_3plus",
+        "blowout_4plus",
+        "blowout_5plus",
+    }
     assert "avg_probability" in margin_bands.columns
     assert "brier" in margin_bands.columns
 
