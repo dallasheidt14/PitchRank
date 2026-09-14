@@ -515,6 +515,7 @@ def _freeze_historical_inputs(
     *,
     prediction_date: str,
     history_start_date: str,
+    predictor_source: str,
     model_artifact: Path | None,
     model_training_metadata: dict[str, Any] | None,
     resolved_probability_strategy: str | None,
@@ -638,15 +639,18 @@ def _freeze_historical_inputs(
         "teams": teams,
         "model_artifact": str(model_artifact) if model_artifact is not None else None,
         "model_artifact_sha256": artifact_sha256,
+        "predictor_source": predictor_source,
         "predictor_sha256": (
-            canonical_predictor_sha256() if model_artifact is None else None
+            canonical_predictor_sha256()
+            if predictor_source == PREDICTOR_SOURCE_COMPARE
+            else None
         ),
         "model_training_metadata": model_training_metadata or {},
         "resolved_probability_strategy": resolved_probability_strategy,
         "recent_games": frozen_games,
         "related_snapshots": frozen_related_snapshots,
     }
-    if model_artifact is None:
+    if predictor_source == PREDICTOR_SOURCE_COMPARE:
         payload.update(
             {
                 "calibration_available_date": PREDICTOR_CALIBRATION_AVAILABLE_DATE,
@@ -1086,10 +1090,7 @@ def _sigmoid(value: float) -> float:
 
 
 def _matchup_cost_from_prediction(prediction: Any) -> MatchupCost:
-    projected_margin = max(
-        abs(float(prediction.expected_margin)),
-        abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
-    )
+    projected_margin = abs(float(prediction.expected_margin))
     probability_gap = abs(float(prediction.win_probability_a) - float(prediction.win_probability_b))
     competitive_probability = (
         _sigmoid((1.15 - projected_margin) / 0.45) * 0.7
@@ -2110,6 +2111,7 @@ def main() -> int:
         resolved_snapshots_by_source_id,
         prediction_date=prediction_date,
         history_start_date=snapshot_start,
+        predictor_source=args.predictor_source,
         model_artifact=model_artifact_for_manifest,
         model_training_metadata=model_training_metadata,
         resolved_probability_strategy=resolved_probability_strategy,

@@ -115,6 +115,21 @@ def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
     assert cost.projected_margin == pytest.approx(0.75)
 
 
+def test_compare_matchup_cost_uses_continuous_margin_instead_of_display_score():
+    prediction = SimpleNamespace(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=0.003,
+        win_probability_a=0.4,
+        win_probability_b=0.39,
+        blowout_4plus_probability=0.01,
+    )
+
+    cost = cohort._matchup_cost_from_prediction(prediction)
+
+    assert cost.projected_margin == pytest.approx(0.003)
+
+
 @pytest.mark.parametrize(
     "calibration",
     (
@@ -319,6 +334,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         snapshots,
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
         resolved_probability_strategy="poisson_draw_gate",
@@ -328,6 +344,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         snapshots,
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
         resolved_probability_strategy="poisson_draw_gate",
@@ -342,6 +359,21 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert len(first["calibration_source_commit"]) == 40
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
+
+    legacy = cohort._freeze_historical_inputs(
+        entrants,
+        snapshots,
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_PYTHON,
+        model_artifact=None,
+        model_training_metadata={},
+        resolved_probability_strategy=None,
+    )
+    assert legacy["predictor_source"] == cohort.PREDICTOR_SOURCE_PYTHON
+    assert legacy["predictor_sha256"] is None
+    assert "calibration_available_date" not in legacy
+    assert "calibration_source_commit" not in legacy
 
 
 def test_freeze_historical_inputs_covers_games_and_related_snapshots():
@@ -393,6 +425,7 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         {"source-a": entrant_snapshot},
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={},
         resolved_probability_strategy="poisson_draw_gate",
@@ -408,6 +441,7 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         {"source-a": entrant_snapshot},
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={},
         resolved_probability_strategy="poisson_draw_gate",
@@ -449,6 +483,7 @@ def test_freeze_historical_inputs_hashes_resolved_probability_strategy():
             snapshots,
             prediction_date="2026-04-10",
             history_start_date="2025-04-10",
+            predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
             model_artifact=None,
             model_training_metadata={},
             resolved_probability_strategy=strategy,
