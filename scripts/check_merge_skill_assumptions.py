@@ -322,7 +322,11 @@ def note_doorway_c_calibration_unverifiable(r: Result) -> None:
         "sides (positives) and 33,674 live same-club/cohort pairs that have played each other "
         "(negatives). Head-to-head base rate 0.43%; identical-name tier 0 provable false "
         "positives in 1,082 historical candidates against ~4.7 expected, containment tier 10 "
-        "against ~10.5 expected. Re-derive with a self-join on `teams` keyed on normalised "
+        "against ~10.5 expected. The containment delta classes (2026-09-13, scored in strict "
+        "order so the classes are mutually exclusive) are part of the same family, as "
+        "pairs / owner-merged / played-each-other: rl 29/0/0, roman 78/1/2, bare number 39/1/1, "
+        "colour 211/2/4, gender token 89/8/0, club prefix 884/53/1, residual 1,348/51/5, "
+        "total 2,678/116/13. Re-derive with a self-join on `teams` keyed on normalised "
         "club + age_group + gender + state_code, joined to per-team aggregates over `games`; "
         "PostgREST supports neither the self-join nor the aggregate, so this script cannot. "
         "`human_vetted_merges` below tracks the positive pool's size as a proxy.",
