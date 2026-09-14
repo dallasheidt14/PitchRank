@@ -56,6 +56,24 @@ def test_optimizer_uses_multiple_deterministic_starting_assignments():
     assert first.to_dict() == second.to_dict()
 
 
+def test_equal_cost_strength_bands_keep_gold_silver_bronze_order():
+    teams = [_team(index, 1.0 - index / 13.0, index) for index in range(1, 13)]
+
+    result = optimize_division_assignments(
+        teams,
+        [FlightSpec("Gold", 4), FlightSpec("Silver", 4), FlightSpec("Bronze", 4)],
+        restart_count=5,
+        random_seed=42,
+    )
+
+    division_ranks = [
+        [int(team.rank_in_cohort) for team in division.teams]
+        for division in result.divisions
+    ]
+    assert max(division_ranks[0]) < min(division_ranks[1])
+    assert max(division_ranks[1]) < min(division_ranks[2])
+
+
 def test_optimize_tournament_format_assigns_divisions_and_pools():
     teams = [
         _team(1, 0.95, 1),

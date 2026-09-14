@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pandas as pd
 
@@ -65,6 +66,77 @@ def test_prospective_date_gate_requires_a_later_fixture_date():
     assert not prospective._fixture_was_available_for_prospective_prediction(
         "2026-04-14", predicted_at=predicted_at
     )
+
+
+def test_metadata_refresh_omits_completed_prediction_columns():
+    row = {
+        "fixture_key": "fixture-1",
+        "venue": "Field 2",
+        "heuristic_prediction_status": "pending",
+        "heuristic_model_version": None,
+        "heuristic_prediction": None,
+        "heuristic_predicted_at": None,
+        "offline_prediction_status": "completed",
+        "offline_model_version": "stale",
+        "offline_prediction": {"stale": True},
+        "offline_predicted_at": "2026-01-01T00:00:00Z",
+    }
+
+    safe = prospective._omit_completed_prediction_columns(
+        row,
+        {
+            "heuristic_prediction_status": "pending",
+            "offline_prediction_status": "completed",
+        },
+    )
+
+    assert safe["venue"] == "Field 2"
+    assert safe["heuristic_prediction_status"] == "pending"
+    assert not any(key.startswith("offline_") for key in safe)
+
+
+def test_database_trigger_preserves_each_completed_prediction_family():
+    migration = (
+        Path(__file__).resolve().parents[2]
+        / "supabase/migrations/20260913190000_protect_completed_prospective_predictions.sql"
+    ).read_text(encoding="utf-8")
+
+    for prefix in ("heuristic", "offline"):
+        assert f"OLD.{prefix}_prediction_status = 'completed'" in migration
+        for suffix in ("prediction_status", "model_version", "prediction", "predicted_at"):
+            assert f"NEW.{prefix}_{suffix} := OLD.{prefix}_{suffix};" in migration
+
+
+def test_upsert_batches_rows_by_column_shape():
+    calls = []
+
+    class Query:
+        def upsert(self, rows, *, on_conflict):
+            calls.append((rows, on_conflict))
+            return self
+
+        def execute(self):
+            return None
+
+    class Supabase:
+        def table(self, name):
+            assert name == "prospective_match_predictions"
+            return Query()
+
+    prospective._upsert_rows(
+        Supabase(),
+        [
+            {"fixture_key": "one", "venue": "Field 1", "offline_prediction": {}},
+            {"fixture_key": "two", "venue": "Field 2"},
+        ],
+    )
+
+    assert len(calls) == 2
+    assert all(on_conflict == "fixture_key" for _rows, on_conflict in calls)
+    assert {tuple(sorted(rows[0])) for rows, _on_conflict in calls} == {
+        ("fixture_key", "offline_prediction", "venue"),
+        ("fixture_key", "venue"),
+    }
 
 
 def test_build_offline_prediction_uses_asof_snapshots_and_only_prior_games(monkeypatch):

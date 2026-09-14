@@ -331,6 +331,19 @@ def total_tournament_cost(
     return float(sum(flight_total_cost(flight, matchup_cost_fn=matchup_cost_fn) for flight in flights))
 
 
+def _flight_order_inversions(flights: Sequence[Sequence[SeedableTeam]]) -> int:
+    """Count teams placed below a weaker team in an earlier named flight."""
+
+    return sum(
+        1
+        for earlier_index, earlier in enumerate(flights)
+        for later in flights[earlier_index + 1 :]
+        for earlier_team in earlier
+        for later_team in later
+        if _team_sort_key(earlier_team) > _team_sort_key(later_team)
+    )
+
+
 def _positive_slot_count(value: Any, *, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, Integral):
         raise ValueError(f"{label} must be a positive integer; got {value!r}")
@@ -721,7 +734,9 @@ def optimize_division_assignments(
         random.Random(random_seed + restart_index).shuffle(shuffled)
         starting_orders.append(shuffled)
 
-    candidates: list[tuple[float, tuple[tuple[str, ...], ...], int, int, list[list[SeedableTeam]]]] = []
+    candidates: list[
+        tuple[float, int, tuple[tuple[str, ...], ...], int, int, list[list[SeedableTeam]]]
+    ] = []
     for restart_index, starting_order in enumerate(starting_orders):
         working_flights: list[list[SeedableTeam]] = []
         start_index = 0
@@ -779,11 +794,25 @@ def optimize_division_assignments(
             for working_flight in working_flights
         )
         candidates.append(
-            (float(current_cost), signature, restart_index, iterations, working_flights)
+            (
+                float(current_cost),
+                _flight_order_inversions(working_flights),
+                signature,
+                restart_index,
+                iterations,
+                working_flights,
+            )
         )
 
-    current_cost, _signature, selected_restart, iterations, working_flights = min(
-        candidates, key=lambda candidate: (candidate[0], candidate[1])
+    minimum_cost = min(candidate[0] for candidate in candidates)
+    cost_equivalent = [
+        candidate
+        for candidate in candidates
+        if candidate[0] <= minimum_cost + improvement_tolerance
+    ]
+    current_cost, _inversions, _signature, selected_restart, iterations, working_flights = min(
+        cost_equivalent,
+        key=lambda candidate: (candidate[1], candidate[2], candidate[0]),
     )
 
     base_assignments = tuple(

@@ -764,8 +764,30 @@ def _upsert_rows(
     supabase: Client,
     rows: List[Dict[str, Any]],
 ) -> None:
-    for batch in _chunked(rows, 100):
-        supabase.table("prospective_match_predictions").upsert(batch, on_conflict="fixture_key").execute()
+    rows_by_shape: Dict[tuple[str, ...], List[Dict[str, Any]]] = {}
+    for row in rows:
+        rows_by_shape.setdefault(tuple(sorted(row)), []).append(row)
+    for shaped_rows in rows_by_shape.values():
+        for batch in _chunked(shaped_rows, 100):
+            supabase.table("prospective_match_predictions").upsert(
+                batch,
+                on_conflict="fixture_key",
+            ).execute()
+
+
+def _omit_completed_prediction_columns(
+    row: Dict[str, Any],
+    existing_row: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Avoid sending stale immutable prediction values during metadata refreshes."""
+
+    result = dict(row)
+    for prefix in ("heuristic", "offline"):
+        if existing_row.get(f"{prefix}_prediction_status") != "completed":
+            continue
+        for suffix in ("prediction_status", "model_version", "prediction", "predicted_at"):
+            result.pop(f"{prefix}_{suffix}", None)
+    return result
 
 
 def prepare_prospective_match_predictions(
@@ -1018,7 +1040,7 @@ def prepare_prospective_match_predictions(
         else:
             summary["offline_skipped"] += 1
 
-        rows_to_upsert.append(row_payload)
+        rows_to_upsert.append(_omit_completed_prediction_columns(row_payload, existing_row))
 
     summary["rows_to_upsert"] = len(rows_to_upsert)
     if not dry_run and rows_to_upsert:
