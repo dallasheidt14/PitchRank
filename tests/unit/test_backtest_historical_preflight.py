@@ -17,6 +17,14 @@ from src.tournaments.backtest_reviewed_run import build_reviewed_cohort_readines
 from tests.unit.test_backtest_request import _links, _snapshot
 
 
+@pytest.fixture(autouse=True)
+def _allow_fixture_cutoff(monkeypatch):
+    monkeypatch.setattr(
+        "src.tournaments.backtest_historical_preflight.validate_predictor_cutoff",
+        lambda _cutoff: None,
+    )
+
+
 class _Resolver:
     version = "merge-v1"
 

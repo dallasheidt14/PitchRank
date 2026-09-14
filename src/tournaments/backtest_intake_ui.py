@@ -1386,6 +1386,10 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         st.write(f"Historical games used: {summary.get('historical_games_used_for_prediction', 0)}")
         st.write(f"Prediction engine: {predictor.get('source') or 'Unavailable'}")
         st.write(f"Predictor SHA-256: {historical.get('predictor_sha256') or 'Unavailable'}")
+        st.write(
+            "Calibration available: "
+            f"{historical.get('calibration_available_date') or 'Unavailable'}"
+        )
         st.write(f"Frozen input digest: {historical.get('input_digest_sha256') or 'Unavailable'}")
     downloads = st.columns(3)
     html_path = record.run_dir / "comparison.html"

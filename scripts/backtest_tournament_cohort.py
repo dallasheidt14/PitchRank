@@ -46,12 +46,15 @@ from scripts.backtest_predictor import (  # noqa: E402
     build_snapshot_index,
     fetch_prediction_feature_snapshots,
 )
-from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from scripts.predictor_python import (  # noqa: E402
+    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
     TeamRanking,
     canonical_predictor_sha256,
     predict_match,
+    validate_predictor_cutoff,
 )
+from scripts.predictor_python import Game as PredictorGame  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
@@ -606,6 +609,13 @@ def _freeze_historical_inputs(
         "recent_games": frozen_games,
         "related_snapshots": frozen_related_snapshots,
     }
+    if model_artifact is None:
+        payload.update(
+            {
+                "calibration_available_date": PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+                "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+            }
+        )
     digest_source = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     payload["input_digest_sha256"] = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()
     return payload
@@ -1093,6 +1103,7 @@ def _build_python_prediction_and_cost_functions(
             blowout_3plus_probability=blowout_3plus_probability,
             blowout_5plus_probability=blowout_5plus_probability,
             total_cost=total_cost,
+            blowout_4plus_probability=prediction.blowout_4plus_probability,
         )
         cost_cache[cache_key] = result
         return result
@@ -1941,6 +1952,14 @@ def main() -> int:
         )
         matchup_proxy = f"point_in_time_match_model:{point_in_time_model.probability_strategy}"
     else:
+        validate_predictor_cutoff(prediction_date)
+        predictor_details.update(
+            {
+                "predictor_sha256": canonical_predictor_sha256(),
+                "calibration_available_date": PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+                "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+            }
+        )
         predict_fn, matchup_cost_fn = _build_python_prediction_and_cost_functions(entrant_rows, recent_games)
         matchup_proxy = "python_match_predictor_v1"
 

@@ -183,6 +183,10 @@ def validate_backtest_acceptance(
         and preflight.merge_map_version == merge_map_version
         and preflight.input_sha256 == expected_preflight_sha
         and preflight.cutoff_exclusive == profile.cutoff_exclusive
+        and preflight.predictor_sha256 == predictor_sha
+        and bool(preflight.calibration_available_date)
+        and preflight.calibration_available_date < profile.cutoff_exclusive
+        and bool(preflight.calibration_source_commit)
         and preflight.ready
     )
     checks.append(

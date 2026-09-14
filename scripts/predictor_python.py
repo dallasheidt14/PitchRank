@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -34,6 +35,9 @@ PREDICTOR_IDENTITY_FILES = (
     CALIBRATION_DIR / "margin_parameters_v2.json",
     CALIBRATION_DIR / "confidence_parameters_v2.json",
 )
+PREDICTOR_CALIBRATION_AVAILABLE_DATE = "2026-04-01"
+PREDICTOR_CALIBRATION_SOURCE_COMMIT = "e60894cfbdf891b03b1a8cd3ff5e2e69b99cdcb9"
+POISSON_MAX_GOALS = 12
 
 
 def canonical_predictor_sha256() -> str:
@@ -48,6 +52,21 @@ def canonical_predictor_sha256() -> str:
         digest.update(len(contents).to_bytes(8, "big"))
         digest.update(contents)
     return digest.hexdigest()
+
+
+def validate_predictor_cutoff(cutoff_exclusive: str) -> None:
+    """Require calibration that was checked in before the event began."""
+
+    try:
+        cutoff = date.fromisoformat(str(cutoff_exclusive).strip()[:10])
+        available = date.fromisoformat(PREDICTOR_CALIBRATION_AVAILABLE_DATE)
+    except ValueError as exc:
+        raise ValueError(f"Invalid exclusive Backtest cutoff: {cutoff_exclusive!r}") from exc
+    if available >= cutoff:
+        raise ValueError(
+            "PitchRank predictor calibration was not available before the event cutoff "
+            f"{cutoff.isoformat()}; earliest supported cutoff is 2026-04-02"
+        )
 
 
 BASE_WEIGHTS = {
@@ -122,6 +141,7 @@ class MatchPrediction:
     win_probability_b: float
     expected_score: Dict[str, int]
     expected_margin: float
+    blowout_4plus_probability: float
     confidence: str
     confidence_score: Optional[float] = None
     components: Dict[str, float] = field(default_factory=dict)
@@ -664,6 +684,33 @@ def calculate_glicko_strength(team_a: TeamRanking, team_b: TeamRanking) -> Optio
     }
 
 
+def _poisson_mass(rate: float, max_goals: int = POISSON_MAX_GOALS) -> list[float]:
+    safe_rate = max(0.05, float(rate))
+    probabilities = [0.0] * (max_goals + 1)
+    probabilities[0] = math.exp(-safe_rate)
+    for goals in range(1, max_goals + 1):
+        probabilities[goals] = probabilities[goals - 1] * safe_rate / goals
+    probabilities[max_goals] += max(0.0, 1.0 - sum(probabilities))
+    return probabilities
+
+
+def _blowout_probability(rate_a: float, rate_b: float, threshold: int = 4) -> float:
+    probabilities_a = _poisson_mass(rate_a)
+    probabilities_b = _poisson_mass(rate_b)
+    return min(
+        1.0,
+        max(
+            0.0,
+            sum(
+                probability_a * probability_b
+                for score_a, probability_a in enumerate(probabilities_a)
+                for score_b, probability_b in enumerate(probabilities_b)
+                if abs(score_a - score_b) >= threshold
+            ),
+        ),
+    )
+
+
 def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game]) -> MatchPrediction:
     power_diff = (team_a.power_score_final or 0.5) - (team_b.power_score_final or 0.5)
     glicko_strength = calculate_glicko_strength(team_a, team_b)
@@ -766,6 +813,7 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         predicted_winner = "team_a" if win_prob_a >= 0.5 else "team_b"
 
     confidence_result = compute_confidence(team_a, team_b, composite_diff, all_games)
+    blowout_4plus_probability = _blowout_probability(raw_score_a, raw_score_b)
 
     components: Dict[str, float] = {
         "powerDiff": power_diff,
@@ -798,6 +846,7 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         win_probability_b=win_prob_b,
         expected_score={"teamA": expected_score_a, "teamB": expected_score_b},
         expected_margin=expected_margin,
+        blowout_4plus_probability=blowout_4plus_probability,
         confidence=str(confidence_result["confidence"]),
         confidence_score=float(confidence_result["confidence_score"]),
         components=components,

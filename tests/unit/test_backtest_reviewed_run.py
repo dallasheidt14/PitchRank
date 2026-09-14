@@ -121,8 +121,11 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.subprocess, "Popen", fake_popen)
 
     def stream(_process, staging_dir, on_progress):
-        (staging_dir / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
-        (staging_dir / "historical_inputs.json").write_text("{}", encoding="utf-8")
+        summary = _summary()
+        (staging_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (staging_dir / "historical_inputs.json").write_text(
+            json.dumps(summary["historical_inputs"]), encoding="utf-8"
+        )
         (staging_dir / "division_recommendations.json").write_text("[]", encoding="utf-8")
         (staging_dir / "division_recommendations.csv").write_text("team\nAlpha\n", encoding="utf-8")
         on_progress(runner.ReviewedRunProgress("running-optimizer", None, None, "PHASE: running-optimizer"))
@@ -148,6 +151,9 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert metadata["backtest_engine_version"] == runner.BACKTEST_ENGINE_VERSION
     assert metadata["source_capture_generation"] == "generation-1"
     assert metadata["predictor_sha256"] == canonical_predictor_sha256()
+    summary = json.loads((outcome.run_dir / "summary.json").read_text(encoding="utf-8"))
+    frozen = json.loads((outcome.run_dir / "historical_inputs.json").read_text(encoding="utf-8"))
+    assert summary["historical_inputs"] == frozen
     assert "--predictor-source" in commands[0]
     assert commands[0][commands[0].index("--predictor-source") + 1] == "python"
     assert "--point-in-time-model-artifact" not in commands[0]

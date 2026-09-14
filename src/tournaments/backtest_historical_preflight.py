@@ -23,6 +23,11 @@ from scripts.backtest_tournament_cohort import (
     _resolve_prediction_snapshot,
     _verify_snapshot_provenance,
 )
+from scripts.predictor_python import (
+    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+    validate_predictor_cutoff,
+)
 from src.tournaments.backtest_rating_fallback import (
     MISSING_HISTORY_FALLBACK_POLICY,
     RATING_FALLBACK_POLICY,
@@ -78,6 +83,8 @@ class HistoricalPreflight:
     predictor_sha256: str
     merge_map_version: str
     cohorts: tuple[HistoricalCohortCheck, ...]
+    calibration_available_date: str = ""
+    calibration_source_commit: str = ""
 
     @property
     def ready(self) -> bool:
@@ -111,6 +118,8 @@ class HistoricalPreflight:
                 or payload.get("model_artifact_sha256")
                 or ""
             ),
+            calibration_available_date=str(payload.get("calibration_available_date") or ""),
+            calibration_source_commit=str(payload.get("calibration_source_commit") or ""),
             merge_map_version=str(payload["merge_map_version"]),
             cohorts=cohorts,
         )
@@ -172,6 +181,7 @@ def run_historical_preflight(
     if "" in cutoffs or len(cutoffs) != 1:
         raise ValueError("All preflight cohorts need one explicit event cutoff")
     cutoff = next(iter(cutoffs))
+    validate_predictor_cutoff(cutoff)
     try:
         resolver = MergeResolver(client)
         resolver.load_merge_map()
@@ -373,6 +383,8 @@ def run_historical_preflight(
         checked_at=utc_now_iso(),
         cutoff_exclusive=cutoff,
         predictor_sha256=canonical_predictor_sha256(),
+        calibration_available_date=PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+        calibration_source_commit=PREDICTOR_CALIBRATION_SOURCE_COMMIT,
         merge_map_version=str(resolver.version),
         cohorts=tuple(cohort_results),
     )

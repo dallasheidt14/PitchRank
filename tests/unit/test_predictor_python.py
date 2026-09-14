@@ -1,4 +1,12 @@
-from scripts.predictor_python import Game, TeamRanking, calculate_common_opponent_signal, predict_match
+import pytest
+
+from scripts.predictor_python import (
+    Game,
+    TeamRanking,
+    calculate_common_opponent_signal,
+    predict_match,
+    validate_predictor_cutoff,
+)
 
 
 def test_predict_match_prefers_team_with_higher_glicko_rating():
@@ -180,3 +188,45 @@ def test_predict_match_prefers_stored_historical_age_over_team_name():
 
     assert misleading_names.expected_score == neutral_names.expected_score
     assert misleading_names.expected_margin == neutral_names.expected_margin
+
+
+def test_predict_match_supplies_4plus_blowout_probability():
+    balanced = TeamRanking(
+        team_id_master="balanced-a", power_score_final=0.5, age=14, games_played=20
+    )
+    balanced_opponent = TeamRanking(
+        team_id_master="balanced-b", power_score_final=0.5, age=14, games_played=20
+    )
+    strong = TeamRanking(
+        team_id_master="strong",
+        power_score_final=0.85,
+        offense_norm=0.85,
+        defense_norm=0.85,
+        age=14,
+        games_played=20,
+    )
+    weak = TeamRanking(
+        team_id_master="weak",
+        power_score_final=0.2,
+        offense_norm=0.2,
+        defense_norm=0.2,
+        age=14,
+        games_played=20,
+    )
+
+    balanced_prediction = predict_match(balanced, balanced_opponent, [])
+    mismatch_prediction = predict_match(strong, weak, [])
+
+    assert 0.0 <= balanced_prediction.blowout_4plus_probability <= 1.0
+    assert 0.0 <= mismatch_prediction.blowout_4plus_probability <= 1.0
+    assert (
+        mismatch_prediction.blowout_4plus_probability
+        > balanced_prediction.blowout_4plus_probability
+    )
+
+
+def test_predictor_cutoff_requires_calibration_available_before_event():
+    validate_predictor_cutoff("2026-09-05")
+
+    with pytest.raises(ValueError, match="earliest supported cutoff is 2026-04-02"):
+        validate_predictor_cutoff("2026-04-01")

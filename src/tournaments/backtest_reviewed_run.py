@@ -428,12 +428,6 @@ def execute_reviewed_run(
             from src.tournaments.backtest_reviewed_report import write_reviewed_backtest_html
 
             summary = read_json(staging_dir / "summary.json")
-            historical_inputs = dict(summary.get("historical_inputs") or {})
-            historical_inputs["predictor_sha256"] = predictor_sha256
-            historical_inputs.pop("model_artifact", None)
-            historical_inputs.pop("model_artifact_sha256", None)
-            summary["historical_inputs"] = historical_inputs
-            write_json(staging_dir / "summary.json", summary)
             write_reviewed_backtest_html(
                 staging_dir / "comparison.html",
                 summary,

@@ -334,6 +334,8 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert first["data_cutoff_exclusive"] == "2026-04-10"
     assert first["resolved_probability_strategy"] == "poisson_draw_gate"
     assert first["predictor_sha256"] == cohort.canonical_predictor_sha256()
+    assert first["calibration_available_date"] == "2026-04-01"
+    assert len(first["calibration_source_commit"]) == 40
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
 

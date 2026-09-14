@@ -39,6 +39,9 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
     preflight = SimpleNamespace(
         input_sha256="preflight-sha",
         cutoff_exclusive="2025-05-10",
+        predictor_sha256="predictor-sha",
+        calibration_available_date="2025-04-01",
+        calibration_source_commit="source-commit",
         ready=True,
         merge_map_version="merge-v1",
         cohorts=(SimpleNamespace(eligible=2, total=2),),
