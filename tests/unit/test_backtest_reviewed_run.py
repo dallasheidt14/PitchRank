@@ -4,6 +4,7 @@ import json
 import zipfile
 from dataclasses import replace
 from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 
 from src.tournaments.backtest_intake_state import CaptureVerification
@@ -110,6 +111,7 @@ def test_canonical_predictor_identity_is_stable():
 def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
+    monkeypatch.chdir(tmp_path)
     process = SimpleNamespace(returncode=0)
     commands = []
 
@@ -139,7 +141,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
         "gotsport__51783__2025",
         request,
         merge_map_version="merge-v1",
-        base_dir=tmp_path,
+        base_dir="reports",
         on_progress=events.append,
     )
 
@@ -156,13 +158,15 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert summary["historical_inputs"] == frozen
     assert "--predictor-source" in commands[0]
     assert commands[0][commands[0].index("--predictor-source") + 1] == "compare"
+    assert Path(commands[0][commands[0].index("--input") + 1]).is_absolute()
+    assert Path(commands[0][commands[0].index("--output-dir") + 1]).is_absolute()
     assert "--point-in-time-model-artifact" not in commands[0]
     assert metadata["merge_map_version"] == "merge-v1"
     version_index = commands[0].index("--expected-merge-map-version")
     assert commands[0][version_index + 1] == "merge-v1"
     assert events[-1].phase == "running-optimizer"
 
-    records = list_reviewed_runs("gotsport__51783__2025", base_dir=tmp_path)
+    records = list_reviewed_runs("gotsport__51783__2025", base_dir="reports")
     assert [record.run_id for record in records] == [outcome.run_dir.name]
     with zipfile.ZipFile(BytesIO(reviewed_run_export(records[0]))) as archive:
         assert set(archive.namelist()) >= {

@@ -335,7 +335,7 @@ def execute_reviewed_run(
             BACKTEST_SCENARIO,
             run_id,
             base_dir=base_dir,
-        )
+        ).resolve()
         request_path = staging_dir / "request.json"
         write_json(request_path, request)
         command = [
