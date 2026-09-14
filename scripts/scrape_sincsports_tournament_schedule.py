@@ -54,6 +54,7 @@ from src.etl.bulk_ops import RPC_RESULT_LIMIT  # noqa: E402
 from src.scrapers.sincsports_schedule import (  # noqa: E402
     SincSportsScheduleScraper,
     TournamentGame,
+    has_game_cards,
     parse_division_pages,
     parse_page_count,
 )
@@ -139,8 +140,9 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
 def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
     """Parse a browser capture bundle into games plus the capture problems it shows.
 
-    A division is incomplete when the capture recorded an error for it, or when
-    its pager spans pages the bundle does not hold.
+    A division is incomplete when the capture recorded an error for it, when its
+    pager spans pages the bundle does not hold, or when a captured page holds no
+    game cards (the site answered with something other than a schedule).
     """
     bundle = json.loads(path.read_text(encoding="utf-8"))
     if bundle.get("mode") != "divisions":
@@ -158,6 +160,9 @@ def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
         missing = [page for page in range(1, page_count + 1) if page not in pages]
         if missing:
             problems.append(f"{tid} {div}: pager spans {page_count} pages, bundle is missing {missing}")
+        empty = [page for page in sorted(pages) if not has_game_cards(pages[page])]
+        if empty:
+            problems.append(f"{tid} {div}: pages {empty} hold no games (a challenge or error page was captured)")
         for g in parse_division_pages([pages[page] for page in sorted(pages)], tid, div):
             g.division_name = f"{event_names.get(tid, tid)} - {div}"
             games.append(g)

@@ -452,6 +452,17 @@ class TestLoadBundle:
         assert len(games) == 50
         assert problems == ["CARCHLES U12M01: pager spans 2 pages, bundle is missing [2]"]
 
+    def test_page_without_games_is_reported(self, tmp_path):
+        """A challenge page served with a 200 in place of page 2 parses to nothing."""
+        challenge = "<html><title>Just a moment...</title><body>Checking your browser</body></html>"
+        games, problems = driver.load_bundle(_bundle(tmp_path, _fixture(CARCHLES_U12[0]), challenge))
+        assert len(games) == 50
+        assert problems == ["CARCHLES U12M01: pages [2] hold no games (a challenge or error page was captured)"]
+
+    def test_old_layout_page_counts_as_holding_games(self, tmp_path):
+        _, problems = driver.load_bundle(_bundle(tmp_path, _fixture("schedule_puri_u14f01.html")))
+        assert problems == []
+
     def test_capture_error_is_reported(self, tmp_path):
         errors = [{"tid": "CARCHLES", "div": "(event root)", "page": 1, "error": "HTTP 503"}]
         path = _bundle(tmp_path, _fixture("sched2_carchles_u17m01_forfeit.html"), errors=errors)

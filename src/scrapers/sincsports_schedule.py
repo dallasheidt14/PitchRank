@@ -331,6 +331,12 @@ def parse_page_count(html: str) -> int:
     return max([pages_by_total, *linked_pages])
 
 
+def has_game_cards(html: str) -> bool:
+    """Whether a captured page holds any game card, in either layout, filled or not."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    return bool(soup.find("div", class_="sched2-game") or soup.find("div", class_="game-row"))
+
+
 def parse_tournament_index(html: str) -> List[str]:
     """Return the deduped list of division codes referenced from the tournament root.
 
