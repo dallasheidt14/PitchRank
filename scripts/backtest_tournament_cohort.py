@@ -98,6 +98,7 @@ DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = "poisson_draw_gate"
 UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR = 1.0
 UNCHANGED_BLOWOUT_RATE_MAX_ABSOLUTE_ERROR = 0.10
 UNCHANGED_FIXTURE_MIN_COVERAGE = 0.95
+BLOWOUT_4PLUS_COST_WEIGHT = 2.75
 
 
 @dataclass(frozen=True)
@@ -1131,7 +1132,14 @@ def _sigmoid(value: float) -> float:
 
 
 def _matchup_cost_from_prediction(prediction: Any) -> MatchupCost:
-    projected_margin = abs(float(prediction.expected_margin))
+    signed_margin = abs(float(prediction.expected_margin))
+    distribution_margin = getattr(prediction, "expected_absolute_goal_difference", None)
+    projected_margin = signed_margin if distribution_margin is None else float(distribution_margin)
+    if not math.isfinite(projected_margin) or projected_margin < 0:
+        raise ValueError(
+            "expected_absolute_goal_difference must be finite and non-negative; "
+            f"got {distribution_margin!r}"
+        )
     probability_gap = abs(float(prediction.win_probability_a) - float(prediction.win_probability_b))
     competitive_probability = (
         _sigmoid((1.15 - projected_margin) / 0.45) * 0.7
@@ -1142,6 +1150,10 @@ def _matchup_cost_from_prediction(prediction: Any) -> MatchupCost:
 
     blowout_3plus_probability = _sigmoid((projected_margin - 2.6) / 0.45)
     blowout_5plus_probability = _sigmoid((projected_margin - 4.5) / 0.40)
+    blowout_4plus_probability = _validate_optional_probability(
+        getattr(prediction, "blowout_4plus_probability", None),
+        name="blowout_4plus_probability",
+    )
     return MatchupCost(
         projected_margin=projected_margin,
         competitive_probability=competitive_probability,
@@ -1151,9 +1163,10 @@ def _matchup_cost_from_prediction(prediction: Any) -> MatchupCost:
             projected_margin
             + (1.0 - competitive_probability)
             + (2.0 * blowout_3plus_probability)
+            + (BLOWOUT_4PLUS_COST_WEIGHT * (blowout_4plus_probability or 0.0))
             + (3.5 * blowout_5plus_probability)
         ),
-        blowout_4plus_probability=getattr(prediction, "blowout_4plus_probability", None),
+        blowout_4plus_probability=blowout_4plus_probability,
     )
 
 
