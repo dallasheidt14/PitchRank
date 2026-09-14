@@ -24,6 +24,7 @@ else:
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.predictions.evaluation_reporting import compute_evaluation_summary, write_evaluation_bundle  # noqa: E402
+from src.predictions.prospective_scorecard import build_prospective_scorecard  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
 
 
@@ -110,6 +111,7 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
         "predicted_score_b": expected_score.get("teamB"),
         "predicted_margin": prediction.get("expectedMargin"),
         "blowout_3plus_probability": prediction.get("blowoutProbability3Plus"),
+        "blowout_4plus_probability": prediction.get("blowoutProbability4Plus"),
         "blowout_5plus_probability": prediction.get("blowoutProbability5Plus"),
         "predicted_blowout_3plus": prediction.get("predictedBlowout3Plus"),
         "predicted_blowout_5plus": prediction.get("predictedBlowout5Plus"),
@@ -261,6 +263,16 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
     if not comparison_frame.empty:
         comparison_frame.to_csv(output_dir / "prospective_head_to_head.csv", index=False)
 
+    scorecard, monthly_scorecard, scorecard_report = build_prospective_scorecard(
+        paired_predictions
+    )
+    scorecard.to_csv(output_dir / "prospective_version_scorecard.csv", index=False)
+    monthly_scorecard.to_csv(output_dir / "prospective_monthly_scorecard.csv", index=False)
+    (output_dir / "prospective_scorecard.json").write_text(
+        json.dumps(scorecard_report, indent=2, allow_nan=False),
+        encoding="utf-8",
+    )
+
     head_to_head = {
         "fixtures_with_both_predictions": int(len(comparison_frame)),
         "winner_disagreement_rate": float(
@@ -307,6 +319,15 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
             for (heuristic, offline), count in sorted(pair_counts.items())
         },
         "excluded": dict(exclusions),
+        "long_run_scorecard": {
+            "version_pairs": int(len(scorecard)),
+            "eligible_for_review": int(
+                scorecard["decision"].eq("eligible_for_review").sum()
+            )
+            if not scorecard.empty
+            else 0,
+            "report_sha256": scorecard_report["report_sha256"],
+        },
     }
     (output_dir / "prospective_head_to_head_summary.json").write_text(
         json.dumps(summary, indent=2),

@@ -89,6 +89,34 @@ def _validate_laboratory_manifest(
     return manifest, calculated_digest
 
 
+def _validate_prospective_scorecard(
+    scorecard_path: Path,
+    *,
+    offline_version: str,
+) -> tuple[dict[str, Any], str]:
+    scorecard = _read_json(scorecard_path)
+    if scorecard.get("schema_version") != "matchbalance-prospective-scorecard-v1":
+        raise ValueError("Prospective scorecard has an unsupported schema version")
+    recorded_digest = str(scorecard.get("report_sha256") or "")
+    digest_payload = dict(scorecard)
+    digest_payload.pop("report_sha256", None)
+    calculated_digest = report_digest(digest_payload)
+    if not recorded_digest or recorded_digest != calculated_digest:
+        raise ValueError("Prospective scorecard digest does not match its contents")
+    matching = [
+        row
+        for row in scorecard.get("version_pairs", ())
+        if isinstance(row, dict) and str(row.get("offline_version") or "") == offline_version
+    ]
+    if not matching or not any(row.get("decision") == "eligible_for_review" for row in matching):
+        raise ValueError(
+            f"Prospective scorecard does not make '{offline_version}' eligible for review"
+        )
+    if scorecard.get("automatic_activation") is not False:
+        raise ValueError("Prospective evidence must prohibit automatic activation")
+    return scorecard, calculated_digest
+
+
 def register_model_version(
     *,
     registry_root: str | Path,
@@ -96,6 +124,8 @@ def register_model_version(
     artifact: str | Path,
     laboratory_manifest: str | Path,
     candidate: str,
+    prospective_scorecard: str | Path | None = None,
+    prospective_version: str = "",
 ) -> dict[str, Any]:
     """Copy a reviewed artifact into a new immutable registry version."""
 
@@ -133,6 +163,19 @@ def register_model_version(
             "Model metadata and laboratory manifest must reference the same training dataset SHA-256"
         )
 
+    if bool(prospective_scorecard) != bool(str(prospective_version).strip()):
+        raise ValueError("Prospective scorecard and prospective version must be supplied together")
+    prospective_path: Path | None = None
+    prospective_report_sha: str | None = None
+    prospective_file_sha: str | None = None
+    if prospective_scorecard:
+        prospective_path = Path(prospective_scorecard).resolve()
+        _scorecard, prospective_report_sha = _validate_prospective_scorecard(
+            prospective_path,
+            offline_version=str(prospective_version).strip(),
+        )
+        prospective_file_sha = _sha256(prospective_path)
+
     artifact_sha = _sha256(artifact_path)
     metadata_sha = _sha256(metadata_path)
     manifest_sha = _sha256(manifest_path)
@@ -154,6 +197,14 @@ def register_model_version(
         "selection_objective": str(metadata.get("selection_objective") or ""),
         "candidate": candidate,
         "promotion": manifest["promotion"][candidate],
+        "prospective_version": str(prospective_version).strip() or None,
+        "prospective_scorecard": (
+            f"{normalized_version}/prospective_scorecard.json"
+            if prospective_path is not None
+            else None
+        ),
+        "prospective_scorecard_sha256": prospective_file_sha,
+        "prospective_report_sha256": prospective_report_sha,
     }
 
     destination = root / normalized_version
@@ -162,6 +213,8 @@ def register_model_version(
         shutil.copy2(artifact_path, destination / "point_in_time_match_model.pkl")
         shutil.copy2(metadata_path, destination / "point_in_time_match_model_metadata.json")
         shutil.copy2(manifest_path, destination / "laboratory_manifest.json")
+        if prospective_path is not None:
+            shutil.copy2(prospective_path, destination / "prospective_scorecard.json")
         (destination / "version.json").write_text(
             json.dumps(entry, indent=2, sort_keys=True, allow_nan=False),
             encoding="utf-8",
@@ -228,6 +281,15 @@ def eligible_registry_artifacts(
             (metadata_path, entry.get("metadata_sha256")),
             (manifest_path, entry.get("laboratory_manifest_sha256")),
         )
+        prospective_relative = entry.get("prospective_scorecard")
+        if prospective_relative:
+            expected_files = (
+                *expected_files,
+                (
+                    root / str(prospective_relative),
+                    entry.get("prospective_scorecard_sha256"),
+                ),
+            )
         try:
             intact = all(
                 path.is_file() and expected_sha and _sha256(path) == expected_sha

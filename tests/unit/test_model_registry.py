@@ -45,6 +45,26 @@ def _write_candidate(tmp_path: Path) -> tuple[Path, Path]:
     return artifact, manifest_path
 
 
+def _write_prospective_scorecard(tmp_path: Path, *, decision: str) -> Path:
+    scorecard = {
+        "schema_version": "matchbalance-prospective-scorecard-v1",
+        "automatic_activation": False,
+        "version_pairs": [
+            {
+                "heuristic_version": "heuristic-v1",
+                "offline_version": "offline-v2",
+                "decision": decision,
+                "games": 800,
+                "months": 4,
+            }
+        ],
+    }
+    scorecard["report_sha256"] = report_digest(scorecard)
+    path = tmp_path / f"prospective-{decision}.json"
+    path.write_text(json.dumps(scorecard), encoding="utf-8")
+    return path
+
+
 def test_registration_is_immutable_and_does_not_activate(tmp_path):
     artifact, manifest = _write_candidate(tmp_path)
     registry_root = tmp_path / "registry"
@@ -131,4 +151,47 @@ def test_registration_rejects_unpromoted_or_mismatched_evidence(tmp_path, mutati
             artifact=artifact,
             laboratory_manifest=manifest_path,
             candidate="candidate-v2",
+        )
+
+
+def test_registration_can_bind_eligible_prospective_evidence(tmp_path):
+    artifact, manifest = _write_candidate(tmp_path)
+    scorecard = _write_prospective_scorecard(
+        tmp_path,
+        decision="eligible_for_review",
+    )
+
+    entry = register_model_version(
+        registry_root=tmp_path / "registry",
+        version="candidate-v2",
+        artifact=artifact,
+        laboratory_manifest=manifest,
+        candidate="candidate-v2",
+        prospective_scorecard=scorecard,
+        prospective_version="offline-v2",
+    )
+
+    assert entry["prospective_version"] == "offline-v2"
+    assert entry["prospective_scorecard_sha256"]
+    assert (
+        tmp_path
+        / "registry"
+        / "candidate-v2"
+        / "prospective_scorecard.json"
+    ).is_file()
+
+
+def test_registration_rejects_held_prospective_evidence(tmp_path):
+    artifact, manifest = _write_candidate(tmp_path)
+    scorecard = _write_prospective_scorecard(tmp_path, decision="hold")
+
+    with pytest.raises(ValueError, match="eligible for review"):
+        register_model_version(
+            registry_root=tmp_path / "registry",
+            version="candidate-v2",
+            artifact=artifact,
+            laboratory_manifest=manifest,
+            candidate="candidate-v2",
+            prospective_scorecard=scorecard,
+            prospective_version="offline-v2",
         )

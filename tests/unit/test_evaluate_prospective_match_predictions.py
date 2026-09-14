@@ -123,3 +123,7 @@ def test_prospective_evaluation_uses_one_version_pair_and_shared_fixtures(tmp_pa
     }
     assert summary["heuristic_rows"] == summary["offline_rows"] == 2
     assert summary["head_to_head"]["fixtures_with_both_predictions"] == 2
+    assert summary["long_run_scorecard"]["version_pairs"] == 2
+    assert (tmp_path / "prospective_version_scorecard.csv").is_file()
+    assert (tmp_path / "prospective_monthly_scorecard.csv").is_file()
+    assert (tmp_path / "prospective_scorecard.json").is_file()

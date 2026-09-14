@@ -30,6 +30,8 @@ def main() -> int:
     register.add_argument("--artifact", required=True)
     register.add_argument("--laboratory-manifest", required=True)
     register.add_argument("--candidate", required=True)
+    register.add_argument("--prospective-scorecard")
+    register.add_argument("--prospective-version")
 
     activate = commands.add_parser("activate", help="Activate a registered version")
     activate.add_argument("--version", required=True)
@@ -45,6 +47,8 @@ def main() -> int:
             artifact=args.artifact,
             laboratory_manifest=args.laboratory_manifest,
             candidate=args.candidate,
+            prospective_scorecard=args.prospective_scorecard,
+            prospective_version=args.prospective_version or "",
         )
     elif args.command == "activate":
         result = activate_model_version(
