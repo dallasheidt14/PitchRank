@@ -334,7 +334,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert first["data_cutoff_exclusive"] == "2026-04-10"
     assert first["resolved_probability_strategy"] == "poisson_draw_gate"
     assert first["predictor_sha256"] == cohort.canonical_predictor_sha256()
-    assert first["calibration_available_date"] == "2026-04-01"
+    assert first["calibration_available_date"] == "2026-04-20"
     assert len(first["calibration_source_commit"]) == 40
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
@@ -1045,6 +1045,75 @@ def test_python_predictor_receives_source_age_for_combined_cohort(monkeypatch):
 
     assert captured[0]["age_group"] == "u10/u11"
     assert captured[0]["source_age_group"] == "u10"
+
+
+def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkeypatch):
+    captured = {}
+    prediction = SimpleNamespace(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=0.8,
+        win_probability_a=0.6,
+        draw_probability=0.2,
+        win_probability_b=0.2,
+        blowout_4plus_probability=0.07,
+    )
+
+    def fake_batch(teams, games):
+        captured["teams"] = teams
+        captured["games"] = games
+        return {
+            ("entry-a", "entry-b"): prediction,
+            ("entry-b", "entry-a"): prediction,
+        }
+
+    monkeypatch.setattr(cohort, "run_compare_prediction_batch", fake_batch)
+    base_row = {
+        "event_team_name": "Alpha",
+        "club_name": "Example FC",
+        "state_code": "TX",
+        "source_gender": "Male",
+        "rank_in_cohort": 4,
+        "power_score": 0.61,
+        "glicko_rating": 1580,
+        "glicko_rd": 75,
+        "glicko_volatility": 0.05,
+        "sos_norm": 0.55,
+        "off_norm": 0.58,
+        "def_norm": 0.56,
+        "wins": 8,
+        "losses": 3,
+        "draws": 1,
+        "games_played": 12,
+        "win_percentage": 70.8,
+        "exp_margin": 0.7,
+        "exp_win_rate": 0.62,
+        "exp_goals_for": 2.1,
+        "exp_goals_against": 1.2,
+    }
+    rows = [
+        {**base_row, "entrant_id": "entry-a", "ranking_source_team_id": "source-a", "source_age_group": "u10"},
+        {**base_row, "entrant_id": "entry-b", "ranking_source_team_id": "source-b", "source_age_group": "u11"},
+    ]
+    game = PredictorGame(
+        "game-1",
+        "source-a",
+        "source-b",
+        2,
+        1,
+        "2026-08-01",
+        ml_overperformance=0.3,
+    )
+
+    predict_fn, cost_fn = cohort._build_compare_prediction_and_cost_functions(rows, [game])
+    team_a = SeedableTeam("entry-a", "Alpha", "u10/u11", "Male", 0.61)
+    team_b = SeedableTeam("entry-b", "Beta", "u10/u11", "Male", 0.61)
+
+    assert captured["teams"]["entry-a"]["age"] == 10
+    assert captured["teams"]["entry-a"]["exp_margin"] == 0.7
+    assert captured["games"][0]["ml_overperformance"] == 0.3
+    assert predict_fn(team_a, team_b) is prediction
+    assert cost_fn(team_a, team_b).blowout_4plus_probability == 0.07
 
 
 def test_pool_arrangement_comparison_matches_optimizer_objective_exactly():

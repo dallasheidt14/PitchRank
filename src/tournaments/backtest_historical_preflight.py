@@ -23,11 +23,6 @@ from scripts.backtest_tournament_cohort import (
     _resolve_prediction_snapshot,
     _verify_snapshot_provenance,
 )
-from scripts.predictor_python import (
-    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
-    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
-    validate_predictor_cutoff,
-)
 from src.tournaments.backtest_rating_fallback import (
     MISSING_HISTORY_FALLBACK_POLICY,
     RATING_FALLBACK_POLICY,
@@ -35,7 +30,12 @@ from src.tournaments.backtest_rating_fallback import (
     missing_history_rating_fallback,
     needs_rating_fallback,
 )
-from src.tournaments.backtest_reviewed_run import canonical_predictor_sha256
+from src.tournaments.compare_predictor_bridge import (
+    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+    canonical_predictor_sha256,
+    validate_predictor_cutoff,
+)
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir
 from src.utils.merge_resolver import MergeResolver

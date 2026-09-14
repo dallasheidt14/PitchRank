@@ -155,7 +155,7 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     frozen = json.loads((outcome.run_dir / "historical_inputs.json").read_text(encoding="utf-8"))
     assert summary["historical_inputs"] == frozen
     assert "--predictor-source" in commands[0]
-    assert commands[0][commands[0].index("--predictor-source") + 1] == "python"
+    assert commands[0][commands[0].index("--predictor-source") + 1] == "compare"
     assert "--point-in-time-model-artifact" not in commands[0]
     assert metadata["merge_map_version"] == "merge-v1"
     version_index = commands[0].index("--expected-merge-map-version")

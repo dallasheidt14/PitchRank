@@ -46,15 +46,8 @@ from scripts.backtest_predictor import (  # noqa: E402
     build_snapshot_index,
     fetch_prediction_feature_snapshots,
 )
-from scripts.predictor_python import (  # noqa: E402
-    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
-    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
-    TeamRanking,
-    canonical_predictor_sha256,
-    predict_match,
-    validate_predictor_cutoff,
-)
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
+from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
@@ -63,6 +56,13 @@ from src.tournaments.backtest_rating_fallback import (  # noqa: E402
     MISSING_HISTORY_FALLBACK_POLICY,
     build_average_rating_estimate,
     needs_rating_fallback,
+)
+from src.tournaments.compare_predictor_bridge import (  # noqa: E402
+    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+    canonical_predictor_sha256,
+    run_compare_prediction_batch,
+    validate_predictor_cutoff,
 )
 from src.tournaments.modelled_comparison import (  # noqa: E402
     compare_modelled_arrangements,
@@ -91,6 +91,7 @@ from src.utils.merge_resolver import MergeResolver  # noqa: E402
 
 TEAM_META_COLS = "team_id_master,team_name,club_name,state_code,provider_team_id,provider_id,is_deprecated"
 PREDICTOR_SOURCE_PYTHON = "python"
+PREDICTOR_SOURCE_COMPARE = "compare"
 PREDICTOR_SOURCE_POINT_IN_TIME = "point_in_time"
 DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY = "poisson_draw_gate"
 UNCHANGED_MARGIN_MAX_ABSOLUTE_ERROR = 1.0
@@ -156,6 +157,7 @@ def _canonicalize_historical_games(
                 away_score=game.away_score,
                 game_date=game.game_date,
                 created_at=game.created_at,
+                ml_overperformance=game.ml_overperformance,
             )
         )
     return canonical
@@ -309,7 +311,7 @@ def _fetch_recent_games_for_teams(
             response = (
                 client.table("games")
                 .select(
-                    "id,home_team_master_id,away_team_master_id,home_score,away_score,game_date,created_at"
+                    "id,home_team_master_id,away_team_master_id,home_score,away_score,game_date,created_at,ml_overperformance"
                 )
                 .gte("game_date", cutoff_date)
                 .lt("game_date", prediction_ts.strftime("%Y-%m-%d"))
@@ -343,6 +345,11 @@ def _fetch_recent_games_for_teams(
                         away_score=game_row.get("away_score"),
                         game_date=str(game_row["game_date"]),
                         created_at=str(game_row.get("created_at") or ""),
+                        ml_overperformance=(
+                            float(game_row["ml_overperformance"])
+                            if game_row.get("ml_overperformance") is not None
+                            else None
+                        ),
                     )
                 )
 
@@ -370,6 +377,14 @@ def _historical_ranking_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "glicko_rd": snapshot.get("glicko_rd"),
         "glicko_volatility": snapshot.get("glicko_volatility"),
         "rank_in_cohort_final": snapshot.get("rank_in_cohort_final"),
+        "wins": snapshot.get("wins"),
+        "losses": snapshot.get("losses"),
+        "draws": snapshot.get("draws"),
+        "win_percentage": snapshot.get("win_percentage"),
+        "exp_margin": snapshot.get("exp_margin"),
+        "exp_win_rate": snapshot.get("exp_win_rate"),
+        "exp_goals_for": snapshot.get("exp_goals_for"),
+        "exp_goals_against": snapshot.get("exp_goals_against"),
     }
 
 
@@ -557,6 +572,14 @@ def _freeze_historical_inputs(
                 "glicko_rating": entrant.get("glicko_rating"),
                 "glicko_rd": entrant.get("glicko_rd"),
                 "glicko_volatility": entrant.get("glicko_volatility"),
+                "wins": int(entrant.get("wins") or 0),
+                "losses": int(entrant.get("losses") or 0),
+                "draws": int(entrant.get("draws") or 0),
+                "win_percentage": entrant.get("win_percentage"),
+                "exp_margin": entrant.get("exp_margin"),
+                "exp_win_rate": entrant.get("exp_win_rate"),
+                "exp_goals_for": entrant.get("exp_goals_for"),
+                "exp_goals_against": entrant.get("exp_goals_against"),
             }
         )
 
@@ -572,6 +595,7 @@ def _freeze_historical_inputs(
             "away_score": game.away_score,
             "game_date": str(game.game_date),
             "created_at": str(game.created_at or ""),
+            "ml_overperformance": game.ml_overperformance,
         }
         for game in sorted(recent_games or [], key=lambda item: (str(item.game_date), str(item.id)))
     ]
@@ -712,6 +736,14 @@ def _build_entrant_row(
         "glicko_rating": ranking_row.get("glicko_rating"),
         "glicko_rd": ranking_row.get("glicko_rd"),
         "glicko_volatility": ranking_row.get("glicko_volatility"),
+        "wins": int(ranking_row.get("wins") or 0),
+        "losses": int(ranking_row.get("losses") or 0),
+        "draws": int(ranking_row.get("draws") or 0),
+        "win_percentage": ranking_row.get("win_percentage"),
+        "exp_margin": ranking_row.get("exp_margin"),
+        "exp_win_rate": ranking_row.get("exp_win_rate"),
+        "exp_goals_for": ranking_row.get("exp_goals_for"),
+        "exp_goals_against": ranking_row.get("exp_goals_against"),
     }
 
 
@@ -815,7 +847,7 @@ def _synthesize_snapshot_from_entrant_row(entrant_row: dict[str, Any], predictio
         "losses": loss_guess,
         "draws": draw_guess,
         "games_played": games_played,
-        "win_percentage": (float(win_guess) / games_played) if games_played else 0.0,
+        "win_percentage": (float(win_guess) / games_played * 100.0) if games_played else 0.0,
         "exp_margin": float((power_score - 0.5) * 2.2),
         "exp_win_rate": float(min(max(0.20 + power_score * 0.60, 0.05), 0.95)),
         "exp_goals_for": float(min(max(1.10 + (offense_norm - 0.5) * 1.8, 0.35), 4.25)),
@@ -1030,6 +1062,36 @@ def _sigmoid(value: float) -> float:
     return 1.0 / (1.0 + math.exp(-value))
 
 
+def _matchup_cost_from_prediction(prediction: Any) -> MatchupCost:
+    projected_margin = max(
+        abs(float(prediction.expected_margin)),
+        abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
+    )
+    probability_gap = abs(float(prediction.win_probability_a) - float(prediction.win_probability_b))
+    competitive_probability = (
+        _sigmoid((1.15 - projected_margin) / 0.45) * 0.7
+        + _sigmoid((0.10 - probability_gap) / 0.08) * 0.3
+    )
+    if prediction.predicted_winner == "draw":
+        competitive_probability = max(competitive_probability, 0.85)
+
+    blowout_3plus_probability = _sigmoid((projected_margin - 2.6) / 0.45)
+    blowout_5plus_probability = _sigmoid((projected_margin - 4.5) / 0.40)
+    return MatchupCost(
+        projected_margin=projected_margin,
+        competitive_probability=competitive_probability,
+        blowout_3plus_probability=blowout_3plus_probability,
+        blowout_5plus_probability=blowout_5plus_probability,
+        total_cost=(
+            projected_margin
+            + (1.0 - competitive_probability)
+            + (2.0 * blowout_3plus_probability)
+            + (3.5 * blowout_5plus_probability)
+        ),
+        blowout_4plus_probability=getattr(prediction, "blowout_4plus_probability", None),
+    )
+
+
 def _build_python_prediction_and_cost_functions(
     entrant_rows: list[dict[str, Any]],
     all_games: list[PredictorGame],
@@ -1078,37 +1140,80 @@ def _build_python_prediction_and_cost_functions(
 
         canonical_a, canonical_b = sorted((team_a, team_b), key=lambda team: team.team_id)
         prediction = predict_fn(canonical_a, canonical_b)
-        projected_margin = max(
-            abs(float(prediction.expected_margin)),
-            abs(int(prediction.expected_score["teamA"]) - int(prediction.expected_score["teamB"])),
-        )
-        probability_gap = abs(float(prediction.win_probability_a) - float(prediction.win_probability_b))
-        competitive_probability = (
-            _sigmoid((1.15 - projected_margin) / 0.45) * 0.7 + _sigmoid((0.10 - probability_gap) / 0.08) * 0.3
-        )
-        if prediction.predicted_winner == "draw":
-            competitive_probability = max(competitive_probability, 0.85)
-
-        blowout_3plus_probability = _sigmoid((projected_margin - 2.6) / 0.45)
-        blowout_5plus_probability = _sigmoid((projected_margin - 4.5) / 0.40)
-        total_cost = (
-            projected_margin
-            + (1.0 - competitive_probability)
-            + (2.0 * blowout_3plus_probability)
-            + (3.5 * blowout_5plus_probability)
-        )
-        result = MatchupCost(
-            projected_margin=projected_margin,
-            competitive_probability=competitive_probability,
-            blowout_3plus_probability=blowout_3plus_probability,
-            blowout_5plus_probability=blowout_5plus_probability,
-            total_cost=total_cost,
-            blowout_4plus_probability=getattr(
-                prediction, "blowout_4plus_probability", None
-            ),
-        )
+        result = _matchup_cost_from_prediction(prediction)
         cost_cache[cache_key] = result
         return result
+
+    return predict_fn, matchup_cost_fn
+
+
+def _build_compare_prediction_and_cost_functions(
+    entrant_rows: list[dict[str, Any]],
+    all_games: list[PredictorGame],
+):
+    teams_by_entrant_id: dict[str, dict[str, Any]] = {}
+    for row in entrant_rows:
+        source_age = int(normalize_age_group(row["source_age_group"]).removeprefix("u"))
+        source_gender = normalize_gender_label(row["source_gender"])
+        teams_by_entrant_id[str(row["entrant_id"])] = {
+            "team_id_master": str(row["ranking_source_team_id"]),
+            "team_name": str(row["event_team_name"]),
+            "club_name": row.get("club_name"),
+            "league": None,
+            "distinction": None,
+            "state": row.get("state_code"),
+            "age": source_age,
+            "gender": "F" if source_gender == "Female" else "M",
+            "rank_in_cohort_final": row.get("rank_in_cohort"),
+            "power_score_final": row.get("power_score"),
+            "glicko_rating": row.get("glicko_rating"),
+            "glicko_rd": row.get("glicko_rd"),
+            "glicko_volatility": row.get("glicko_volatility"),
+            "sos_norm": row.get("sos_norm"),
+            "offense_norm": row.get("off_norm"),
+            "defense_norm": row.get("def_norm"),
+            "wins": int(row.get("wins") or 0),
+            "losses": int(row.get("losses") or 0),
+            "draws": int(row.get("draws") or 0),
+            "games_played": int(row.get("games_played") or 0),
+            "last_scraped_at": None,
+            "win_percentage": row.get("win_percentage"),
+            "exp_margin": row.get("exp_margin"),
+            "exp_win_rate": row.get("exp_win_rate"),
+            "exp_goals_for": row.get("exp_goals_for"),
+            "exp_goals_against": row.get("exp_goals_against"),
+        }
+    game_payload = [
+        {
+            "id": str(game.id),
+            "home_team_master_id": game.home_team_master_id,
+            "away_team_master_id": game.away_team_master_id,
+            "home_score": game.home_score,
+            "away_score": game.away_score,
+            "game_date": str(game.game_date),
+            "created_at": str(game.created_at or ""),
+            "ml_overperformance": game.ml_overperformance,
+        }
+        for game in all_games
+    ]
+    predictions = run_compare_prediction_batch(teams_by_entrant_id, game_payload)
+    cost_cache: dict[tuple[str, str], MatchupCost] = {}
+
+    def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam):
+        try:
+            return predictions[(team_a.team_id, team_b.team_id)]
+        except KeyError as exc:
+            raise ValueError(
+                f"Canonical Compare predictor has no matchup for {team_a.team_id} vs {team_b.team_id}"
+            ) from exc
+
+    def matchup_cost_fn(team_a: SeedableTeam, team_b: SeedableTeam) -> MatchupCost:
+        cache_key = tuple(sorted((team_a.team_id, team_b.team_id)))
+        cached = cost_cache.get(cache_key)
+        if cached is None:
+            cached = _matchup_cost_from_prediction(predictions[cache_key])
+            cost_cache[cache_key] = cached
+        return cached
 
     return predict_fn, matchup_cost_fn
 
@@ -1601,8 +1706,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--predictor-source",
-        default=PREDICTOR_SOURCE_PYTHON,
-        choices=[PREDICTOR_SOURCE_PYTHON, PREDICTOR_SOURCE_POINT_IN_TIME],
+        default=PREDICTOR_SOURCE_COMPARE,
+        choices=[PREDICTOR_SOURCE_COMPARE, PREDICTOR_SOURCE_PYTHON, PREDICTOR_SOURCE_POINT_IN_TIME],
         help="Prediction engine for simulated tournament games and matchup costs",
     )
     parser.add_argument(
@@ -1953,7 +2058,7 @@ def main() -> int:
             }
         )
         matchup_proxy = f"point_in_time_match_model:{point_in_time_model.probability_strategy}"
-    else:
+    elif args.predictor_source == PREDICTOR_SOURCE_COMPARE:
         validate_predictor_cutoff(prediction_date)
         predictor_details.update(
             {
@@ -1962,8 +2067,11 @@ def main() -> int:
                 "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
             }
         )
+        predict_fn, matchup_cost_fn = _build_compare_prediction_and_cost_functions(entrant_rows, recent_games)
+        matchup_proxy = "canonical_compare_match_predictor_v4"
+    else:
         predict_fn, matchup_cost_fn = _build_python_prediction_and_cost_functions(entrant_rows, recent_games)
-        matchup_proxy = "python_match_predictor_v1"
+        matchup_proxy = "legacy_python_match_predictor_v1"
 
     historical_inputs = _freeze_historical_inputs(
         entrant_rows,

@@ -15,11 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from scripts.predictor_python import canonical_predictor_sha256
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster
 from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
 from src.tournaments.backtest_scope import backtest_scope_roster
+from src.tournaments.compare_predictor_bridge import canonical_predictor_sha256
 from src.tournaments.storage import (
     acquire_scenario_lock,
     cancel_run,
@@ -35,7 +35,7 @@ from src.tournaments.storage._io import append_jsonl, read_json, utc_now_iso, wr
 from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
-BACKTEST_PREDICTOR_SOURCE = "pitchrank_historical"
+BACKTEST_PREDICTOR_SOURCE = "canonical_compare_historical"
 BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
@@ -346,7 +346,7 @@ def execute_reviewed_run(
             "--output-dir",
             str(staging_dir),
             "--predictor-source",
-            "python",
+            "compare",
             "--history-lookback-days",
             "365",
             "--snapshot-buffer-days",

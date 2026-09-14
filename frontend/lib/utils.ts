@@ -2,6 +2,9 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import { formatGender } from './constants';
+import { extractAgeFromTeamName, soccerSeasonYear } from './teamAge';
+
+export { extractAgeFromTeamName } from './teamAge';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -246,76 +249,6 @@ export function composeTeamMeta(team: { state?: string | null; age?: number | nu
   if (team.state) parts.push(team.state.toUpperCase());
   if (team.age && team.gender) parts.push(`U${team.age} ${formatGender(team.gender)}`);
   return parts.join(' • ');
-}
-
-/**
- * Soccer season year: rolls over on Aug 1.
- * Before Aug 1, season year = previous calendar year.
- * On/after Aug 1, season year = current calendar year.
- */
-function soccerSeasonYear(): number {
-  const now = new Date();
-  return now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-}
-
-/**
- * Extract age GROUP from team name (fallback when age field is missing/wrong)
- *
- * IMPORTANT: In youth soccer, "14B" means BIRTH YEAR 2014, NOT age 14!
- * Formula: seasonYear - birthYear + 1 (season rolls over Aug 1)
- *
- * - "14B Engilman" → birth year 2014 → U12 (2025-26 season)
- * - "08G Excel" → birth year 2008 → U18 (2025-26 season)
- * - "U14 Phoenix" → directly specified as U14 → 14
- *
- * Birth year format: 2-digit year (08-19) followed by B (boys) or G (girls)
- * Direct age format: "U" followed by age (U10, U14, etc.)
- *
- * @param teamName - Team name string
- * @returns Integer age GROUP (e.g., 12 for U12) or null if not found
- */
-export function extractAgeFromTeamName(teamName: string | null | undefined): number | null {
-  if (!teamName) return null;
-
-  // Pattern 1: "U14", "u14" format - direct age specification (check first)
-  const uPattern = /\bU(\d{1,2})\b/i;
-  const uMatch = teamName.match(uPattern);
-  if (uMatch) {
-    const age = parseInt(uMatch[1], 10);
-    if (age >= 8 && age <= 19) {
-      return age;
-    }
-  }
-
-  const seasonYear = soccerSeasonYear();
-
-  // Pattern 2: "14B", "14G" format - this is BIRTH YEAR, not age!
-  // Valid birth years: 08-19 (2008-2019) for youth soccer
-  const birthYearPattern = /\b(0[89]|1[0-9])[BG]\b/i;
-  const birthYearMatch = teamName.match(birthYearPattern);
-  if (birthYearMatch) {
-    const birthYearSuffix = parseInt(birthYearMatch[1], 10);
-    const birthYear = 2000 + birthYearSuffix;
-    const ageGroup = seasonYear - birthYear + 1;
-    if (ageGroup >= 6 && ageGroup <= 19) {
-      return ageGroup;
-    }
-  }
-
-  // Pattern 3: Standalone 2-digit number that could be birth year (without B/G suffix)
-  // Be more conservative - only match if it looks like a birth year (08-19)
-  const standaloneYearPattern = /\b(0[89]|1[0-9])\b/;
-  const standaloneMatch = teamName.match(standaloneYearPattern);
-  if (standaloneMatch) {
-    const birthYearSuffix = parseInt(standaloneMatch[1], 10);
-    const birthYear = 2000 + birthYearSuffix;
-    const ageGroup = seasonYear - birthYear + 1;
-    if (ageGroup >= 6 && ageGroup <= 19) {
-      return ageGroup;
-    }
-  }
-
-  return null;
 }
 
 /**

@@ -1698,7 +1698,7 @@ def _render_backtest_runner(
 
     selected_predictor_sha = canonical_predictor_sha256()
     st.info(
-        "Prediction engine: PitchRank's existing match predictor, using only ratings and games "
+        "Prediction engine: the same predictor used by PitchRank Compare, using only ratings and games "
         "recorded before this tournament began."
     )
     request_items = [item for item in readiness if item.request is not None]
@@ -1832,7 +1832,7 @@ def _render_backtest_runner(
                     "Check": "Prediction engine",
                     "Owner": "MatchBalance",
                     "Status": "Ready",
-                    "Action": "PitchRank historical predictor",
+                    "Action": "PitchRank Compare predictor with historical inputs",
                 },
                 {
                     "Check": "Pre-event team ratings",

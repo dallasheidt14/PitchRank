@@ -14,11 +14,9 @@ scripts use the same prediction logic as the live compare UI:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -27,46 +25,6 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBRATION_DIR = REPO_ROOT / "frontend" / "public" / "data" / "calibration"
-
-PREDICTOR_IDENTITY_FILES = (
-    Path(__file__).resolve(),
-    CALIBRATION_DIR / "age_group_parameters.json",
-    CALIBRATION_DIR / "probability_parameters.json",
-    CALIBRATION_DIR / "margin_parameters_v2.json",
-    CALIBRATION_DIR / "confidence_parameters_v2.json",
-)
-PREDICTOR_CALIBRATION_AVAILABLE_DATE = "2026-04-01"
-PREDICTOR_CALIBRATION_SOURCE_COMMIT = "e60894cfbdf891b03b1a8cd3ff5e2e69b99cdcb9"
-POISSON_MAX_GOALS = 12
-
-
-def canonical_predictor_sha256() -> str:
-    """Identify the offline PitchRank predictor and its checked-in calibration."""
-
-    digest = hashlib.sha256()
-    for path in PREDICTOR_IDENTITY_FILES:
-        relative = path.relative_to(REPO_ROOT).as_posix().encode("utf-8")
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
-        contents = path.read_bytes()
-        digest.update(len(contents).to_bytes(8, "big"))
-        digest.update(contents)
-    return digest.hexdigest()
-
-
-def validate_predictor_cutoff(cutoff_exclusive: str) -> None:
-    """Require calibration that was checked in before the event began."""
-
-    try:
-        cutoff = date.fromisoformat(str(cutoff_exclusive).strip()[:10])
-        available = date.fromisoformat(PREDICTOR_CALIBRATION_AVAILABLE_DATE)
-    except ValueError as exc:
-        raise ValueError(f"Invalid exclusive Backtest cutoff: {cutoff_exclusive!r}") from exc
-    if available >= cutoff:
-        raise ValueError(
-            "PitchRank predictor calibration was not available before the event cutoff "
-            f"{cutoff.isoformat()}; earliest supported cutoff is 2026-04-02"
-        )
 
 
 BASE_WEIGHTS = {
@@ -130,6 +88,7 @@ class Game:
     away_score: Optional[int]
     game_date: str
     created_at: Optional[str] = None
+    ml_overperformance: Optional[float] = None
 
 
 @dataclass
@@ -141,7 +100,6 @@ class MatchPrediction:
     win_probability_b: float
     expected_score: Dict[str, int]
     expected_margin: float
-    blowout_4plus_probability: float
     confidence: str
     confidence_score: Optional[float] = None
     components: Dict[str, float] = field(default_factory=dict)
@@ -527,14 +485,7 @@ def calibrate_probability(raw_prob: float) -> float:
     return max(0.01, min(0.99, calibrated))
 
 
-def _calibration_age(age: Optional[int]) -> Optional[int]:
-    # PitchRank stores the oldest supported cohort as U19, while the checked-in
-    # prediction calibration was trained under its U18 tournament label.
-    return 18 if age == 19 else age
-
-
 def get_league_average_goals(age: Optional[int]) -> float:
-    age = _calibration_age(age)
     if age is None:
         return 2.5
 
@@ -553,7 +504,6 @@ def get_league_average_goals(age: Optional[int]) -> float:
 
 
 def get_age_specific_margin_multiplier(age: Optional[int], abs_power_diff: float, mismatch_score: float = 0.0) -> float:
-    age = _calibration_age(age)
     margin_params = _load_calibration_payload()["margin_v2"]
     age_group_params = _load_calibration_payload()["age_group"]
     age_key = f"u{age}" if age is not None else None
@@ -692,33 +642,6 @@ def calculate_glicko_strength(team_a: TeamRanking, team_b: TeamRanking) -> Optio
     }
 
 
-def _poisson_mass(rate: float, max_goals: int = POISSON_MAX_GOALS) -> list[float]:
-    safe_rate = max(0.05, float(rate))
-    probabilities = [0.0] * (max_goals + 1)
-    probabilities[0] = math.exp(-safe_rate)
-    for goals in range(1, max_goals + 1):
-        probabilities[goals] = probabilities[goals - 1] * safe_rate / goals
-    probabilities[max_goals] += max(0.0, 1.0 - sum(probabilities))
-    return probabilities
-
-
-def _blowout_probability(rate_a: float, rate_b: float, threshold: int = 4) -> float:
-    probabilities_a = _poisson_mass(rate_a)
-    probabilities_b = _poisson_mass(rate_b)
-    return min(
-        1.0,
-        max(
-            0.0,
-            sum(
-                probability_a * probability_b
-                for score_a, probability_a in enumerate(probabilities_a)
-                for score_b, probability_b in enumerate(probabilities_b)
-                if abs(score_a - score_b) >= threshold
-            ),
-        ),
-    )
-
-
 def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game]) -> MatchPrediction:
     power_diff = (team_a.power_score_final or 0.5) - (team_b.power_score_final or 0.5)
     glicko_strength = calculate_glicko_strength(team_a, team_b)
@@ -765,22 +688,12 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
     win_prob_a = calibrate_probability(raw_win_prob_a)
     win_prob_b = 1.0 - win_prob_a
 
-    # Historical ranking rows carry the age that was valid at the event cutoff.
-    # Team names often retain an older age label after seasonal rollover, so the
-    # stored value must win whenever it is available.
-    stored_ages = [_calibration_age(age) for age in (team_a.age, team_b.age) if age]
-    if stored_ages:
-        effective_age = max(stored_ages)
-    else:
-        name_ages = [
-            _calibration_age(age)
-            for age in (
-                extract_age_from_team_name(team_a.team_name),
-                extract_age_from_team_name(team_b.team_name),
-            )
-            if age
-        ]
-        effective_age = max(name_ages, default=None)
+    effective_age = (
+        extract_age_from_team_name(team_a.team_name)
+        or extract_age_from_team_name(team_b.team_name)
+        or team_a.age
+        or team_b.age
+    )
 
     abs_power_diff = abs(power_diff)
     margin_multiplier = get_age_specific_margin_multiplier(effective_age, abs_power_diff, mismatch_score)
@@ -828,7 +741,6 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         predicted_winner = "team_a" if win_prob_a >= 0.5 else "team_b"
 
     confidence_result = compute_confidence(team_a, team_b, composite_diff, all_games)
-    blowout_4plus_probability = _blowout_probability(raw_score_a, raw_score_b)
 
     components: Dict[str, float] = {
         "powerDiff": power_diff,
@@ -861,7 +773,6 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
         win_probability_b=win_prob_b,
         expected_score={"teamA": expected_score_a, "teamB": expected_score_b},
         expected_margin=expected_margin,
-        blowout_4plus_probability=blowout_4plus_probability,
         confidence=str(confidence_result["confidence"]),
         confidence_score=float(confidence_result["confidence_score"]),
         components=components,

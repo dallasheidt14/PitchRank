@@ -575,12 +575,12 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     assert not test.exception, [error.message for error in test.exception]
     test.radio(key="bt_section_generation-1").set_value("Backtest").run()
     assert not any(item.label == "Advanced model settings" for item in test.expander)
-    assert any("PitchRank's existing match predictor" in item.value for item in test.info)
+    assert any("same predictor used by PitchRank Compare" in item.value for item in test.info)
     readiness_table = next(
         item.value for item in test.dataframe if {"Check", "Owner", "Action"}.issubset(item.value.columns)
     )
     model_row = readiness_table.loc[readiness_table["Check"] == "Prediction engine"].iloc[0]
-    assert model_row["Action"] == "PitchRank historical predictor"
+    assert model_row["Action"] == "PitchRank Compare predictor with historical inputs"
     next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False

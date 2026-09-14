@@ -108,7 +108,7 @@ def main() -> int:
             "--output-dir",
             str(run_dir),
             "--predictor-source",
-            "python",
+            "compare",
             "--history-lookback-days",
             str(args.history_lookback_days),
             "--snapshot-buffer-days",

@@ -121,6 +121,8 @@ describe('predictMatch', () => {
     ).toBe('1.000000');
     expect(prediction.expectedMargin).toBeGreaterThan(0);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(prediction.expectedScore.teamB);
+    expect(prediction.blowout4PlusProbability).toBeGreaterThan(0);
+    expect(prediction.blowout4PlusProbability).toBeLessThanOrEqual(1);
   });
 
   it('returns a draw-leaning, low-confidence prediction for sparse evenly matched data', () => {
@@ -198,6 +200,42 @@ describe('predictMatch', () => {
     expect(
       (prediction.winProbabilityA + prediction.winProbabilityB + (prediction.drawProbability ?? 0)).toFixed(6)
     ).toBe('1.000000');
+  });
+
+  it('uses one calibrated age for a mixed-age matchup in either orientation', () => {
+    const older = makeTeam({
+      team_id_master: 'older',
+      team_name: 'Older',
+      age: 19,
+      power_score_final: 0.67,
+      offense_norm: 0.68,
+      defense_norm: 0.61,
+    });
+    const younger = makeTeam({
+      team_id_master: 'younger',
+      team_name: 'Younger',
+      age: 17,
+      power_score_final: 0.43,
+      offense_norm: 0.44,
+      defense_norm: 0.45,
+    });
+
+    const forward = predictMatch(older, younger, []);
+    const reversed = predictMatch(younger, older, []);
+
+    expect(forward.expectedMargin).toBeCloseTo(-reversed.expectedMargin, 10);
+    expect(forward.blowout4PlusProbability).toBeCloseTo(reversed.blowout4PlusProbability, 10);
+  });
+
+  it('uses the U18 calibration for PitchRank U19 storage', () => {
+    const strong = makeTeam({ team_id_master: 'strong', power_score_final: 0.68, offense_norm: 0.66 });
+    const weak = makeTeam({ team_id_master: 'weak', power_score_final: 0.44, offense_norm: 0.43 });
+
+    const u18 = predictMatch({ ...strong, age: 18 }, { ...weak, age: 18 }, []);
+    const u19 = predictMatch({ ...strong, age: 19 }, { ...weak, age: 19 }, []);
+
+    expect(u19.expectedMargin).toBeCloseTo(u18.expectedMargin, 10);
+    expect(u19.blowout4PlusProbability).toBeCloseTo(u18.blowout4PlusProbability, 10);
   });
 
   it('shrinks overconfident edges when same-age evidence is weak', () => {

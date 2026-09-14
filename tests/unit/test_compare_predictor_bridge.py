@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+import shutil
+
+import pytest
+
+from src.tournaments.compare_predictor_bridge import (
+    canonical_predictor_sha256,
+    run_compare_prediction_batch,
+    validate_predictor_cutoff,
+)
+
+
+def _team(team_id: str, age: int, power_score: float) -> dict:
+    return {
+        "team_id_master": team_id,
+        "team_name": team_id,
+        "club_name": None,
+        "league": None,
+        "distinction": None,
+        "state": "TX",
+        "age": age,
+        "gender": "M",
+        "rank_in_cohort_final": 10,
+        "power_score_final": power_score,
+        "glicko_rating": 1500 + (power_score - 0.5) * 500,
+        "glicko_rd": 80,
+        "glicko_volatility": 0.05,
+        "sos_norm": 0.5,
+        "offense_norm": power_score,
+        "defense_norm": power_score,
+        "wins": 10,
+        "losses": 5,
+        "draws": 2,
+        "games_played": 17,
+        "last_scraped_at": None,
+        "win_percentage": 64.7,
+        "exp_margin": (power_score - 0.5) * 2,
+        "exp_win_rate": power_score,
+        "exp_goals_for": 1.5 + power_score,
+        "exp_goals_against": 2.5 - power_score,
+    }
+
+
+def test_predictor_identity_and_cutoff_are_stable():
+    assert len(canonical_predictor_sha256()) == 64
+    validate_predictor_cutoff("2026-09-05")
+    with pytest.raises(ValueError, match="earliest supported cutoff is 2026-04-21"):
+        validate_predictor_cutoff("2026-04-20")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")
+def test_batch_runs_the_compare_predictor_for_both_orientations():
+    predictions = run_compare_prediction_batch(
+        {
+            "entrant-a": _team("team-a", 19, 0.67),
+            "entrant-b": _team("team-b", 17, 0.43),
+        },
+        [],
+    )
+
+    forward = predictions[("entrant-a", "entrant-b")]
+    reversed_order = predictions[("entrant-b", "entrant-a")]
+    assert forward.expected_margin == pytest.approx(-reversed_order.expected_margin)
+    assert forward.blowout_4plus_probability == pytest.approx(
+        reversed_order.blowout_4plus_probability
+    )
+    assert forward.win_probability_a + forward.draw_probability + forward.win_probability_b == pytest.approx(1.0)
