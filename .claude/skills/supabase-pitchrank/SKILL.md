@@ -1,6 +1,6 @@
 ---
 name: supabase-pitchrank
-description: Safe Supabase patterns for PitchRank - table schemas, query limits, what NOT to do
+description: Safe Supabase patterns for PitchRank - table schemas, query limits, timeouts, grants, and what NOT to do. Use when writing or reviewing a Supabase query, RPC, migration or a test double for supabase-py, tracing where a team_alias_map row came from, reading quarantine_games, bulk-updating games (including is_excluded), or diagnosing a statement timeout.
 ---
 
 # Supabase Safety Skill for PitchRank
@@ -76,8 +76,36 @@ so every threshold reads `sos_norm` instead.
 provider_team_id  TEXT              -- Provider's ID for the team
 team_id_master    UUID              -- Our canonical ID
 provider_id       UUID              -- FK to providers(id)
+match_method      TEXT              -- not provenance (see below)
+match_confidence  FLOAT             -- not provenance either
+review_status     TEXT              -- only 'approved' rows are matched
+created_at        TIMESTAMPTZ
 -- Multiple aliases can point to same master
 ```
+
+Infer nothing about an alias's origin from `match_method` or `match_confidence`.
+`scripts/maintain_gotsport_direct_id_aliases.py` rewrites every approved GotSport alias with a
+truthy `provider_team_id` to `direct_id` at confidence 1.0, the string `'None'` included, and
+`maintain_tgs_direct_id_aliases.py` does the same for TGS.
+
+Read provenance from `team_link_audit` instead:
+- link-opponent rows carry `notes` of `Home: n, Away: m`
+- create-team rows carry `Created new team "…" … Home: n, Away: m`
+- unlink rows have `reverted_at` set, and their `games_updated` counts games unlinked
+
+`linked_by` is `'frontend_user'` on every row and names no one. A link or create also fills every
+still-NULL master-id slot carrying that provider id under the same provider, so an alias's games
+can predate its `created_at`.
+
+Treat `''`, `'None'` and `'null'` (any case, any padding; `src/utils/provider_ids.py` defines the
+set) in `provider_team_id` and `games.home_provider_id`/`away_provider_id` as placeholders, never
+teams, and exclude them from joins and counts.
+
+A `provider_team_id` means nothing without its `provider_id`: the table is unique on the pair, and
+one canonical team holds games from several providers. When acting on the games an alias attached,
+filter `games.provider_id` to the alias's provider as well as the side's provider team id and master
+id. Leave unfiltered any check that must see every copy of a fixture — `trg_propagate_game_exclusion`
+matches date, team pair and scores whatever the provider.
 
 ### `team_merge_map`
 ```sql
@@ -113,7 +141,54 @@ One hop suffices, by design rather than by luck: `execute_team_merge` step 4
 `team_merge_map` rows at the new canonical, flattening chains as it goes. A chain can only
 appear from a direct insert that bypasses the RPC.
 
+### `quarantine_games`
+```sql
+id             UUID PRIMARY KEY
+raw_data       JSONB             -- the rejected source game, including its "provider"
+reason_code    TEXT              -- 'validation_failed' for validator rejections
+error_details  TEXT              -- validator messages joined with '; '
+created_at     TIMESTAMPTZ
+```
+
+Every provider's rejected games land here under the same messages. TGS logs
+`Missing required field: opponent_id` routinely, for instance. Filter
+`raw_data->>'provider'` before reading a count as evidence about one provider's import.
+
+### `team_match_review_queue`
+```sql
+id                        SERIAL PRIMARY KEY
+provider_id               VARCHAR(50) NOT NULL   -- provider CODE ('gotsport'), not the UUID
+provider_team_id          VARCHAR(255) NOT NULL
+provider_team_name        VARCHAR(255) NOT NULL
+suggested_master_team_id  UUID
+confidence_score          DECIMAL(3,2) NOT NULL  -- CHECK >= 0.75 AND < 0.90
+match_details             JSONB
+priority_score            DOUBLE PRECISION
+status                    VARCHAR(20)            -- 'pending', 'approved', 'rejected'
+```
+
+A write that breaks a constraint here fails silently: both matcher writers catch the exception
+and only log `Error creating review queue entry`. Two traps:
+- a NULL `provider_team_id`. `GameHistoryMatcher._create_review_queue_entry` refuses placeholder
+  provider ids before queueing; `Modular11GameMatcher._enqueue_modular11_review_with_suggestions`
+  does not, and sends NULL for a falsy id.
+- a `confidence_score` that rounds to 0.90 at two decimals, so anything from 0.895, which
+  `confidence_range` rejects. Cap at 0.89, as `src/tournaments/alias_writer.py` does.
+
+Before planning a write of NULL, or of a new value range, into any column, read its nullability
+and checks live: `information_schema.columns.is_nullable` and `pg_get_constraintdef` over
+`pg_constraint` both answer under the MCP role, unlike `role_table_grants` and
+`constraint_column_usage` below.
+
 ## Safe Query Patterns
+
+### Testing against PostgREST
+
+A Python double for supabase-py must return only the columns `select()` asked for, and record
+calls at `execute()`. A double that hands back whole fixture rows lets a column missing from the
+select list pass every test while production raises `KeyError`, or reads `None` through `.get()`.
+The frontend's `filteringClientMock` (`frontend/test/supabase-mock.ts`) applies the filters it
+models but does not project columns either, so do not treat it as covering this.
 
 ### Pagination (REQUIRED for large tables)
 ```python
@@ -237,6 +312,16 @@ See `scripts/refresh_team_scrape_activity.py` and its migration for a worked exa
 carries `SET LOCAL statement_timeout = '300s'` and is cancelled on every production run;
 `.turbo/backfill-review-2026-07-27.md` records `calculate_rankings.py`'s Python fallback
 taking over weekly, and that fallback has never written a row. Do not copy its shape.
+
+### Bulk `is_excluded` updates pay a scan per row
+
+Each row that flips to `is_excluded = true` fires `trg_propagate_game_exclusion`. The trigger
+scans that whole `game_date`, because no index serves its `LEAST`/`GREATEST` key. It also flips
+every other non-excluded game with the same team pair and aligned scores, so count those before
+excluding.
+
+At about 13 ms per row on a typical date (measured 2026-09-14), a 100-id `.in_()` batch takes
+roughly 1.5 s warm, inside the 8-second budget.
 
 ## NEVER DO
 

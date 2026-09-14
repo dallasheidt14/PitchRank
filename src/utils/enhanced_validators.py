@@ -12,6 +12,7 @@ if _project_root not in sys.path:
     sys.path.append(_project_root)
 
 from config.settings import AGE_GROUPS  # noqa: E402
+from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 
 
 def _is_future_game_date(date_str: Any) -> bool:
@@ -151,15 +152,11 @@ class EnhancedDataValidator:
             goals_against = game.get("goals_against")
 
             # Required fields for source format
-            if not team_id:
+            if is_blank_provider_id(team_id):
                 errors.append("Missing required field: team_id")
-            elif not str(team_id).strip():
-                errors.append("Empty team ID: team_id")
 
-            if not opponent_id:
+            if is_blank_provider_id(opponent_id):
                 errors.append("Missing required field: opponent_id")
-            elif not str(opponent_id).strip():
-                errors.append("Empty opponent ID: opponent_id")
 
             if not home_away:
                 errors.append("Missing required field: home_away")
@@ -226,15 +223,11 @@ class EnhancedDataValidator:
             home_team_id = game.get("home_team_id") or game.get("home_provider_id")
             away_team_id = game.get("away_team_id") or game.get("away_provider_id")
 
-            if not home_team_id:
+            if is_blank_provider_id(home_team_id):
                 errors.append("Missing required field: home_team_id or home_provider_id")
-            elif not str(home_team_id).strip():
-                errors.append("Empty team ID: home_team_id")
 
-            if not away_team_id:
+            if is_blank_provider_id(away_team_id):
                 errors.append("Missing required field: away_team_id or away_provider_id")
-            elif not str(away_team_id).strip():
-                errors.append("Empty team ID: away_team_id")
 
             home_score_missing = "home_score" not in game or game["home_score"] is None
             away_score_missing = "away_score" not in game or game["away_score"] is None

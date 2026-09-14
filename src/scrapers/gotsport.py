@@ -56,6 +56,7 @@ from src.scrapers.provider import (
     UnsupportedProviderError,
 )
 from src.tournaments.alias_writer import enqueue_match_review, upsert_team_alias
+from src.utils.provider_ids import clean_provider_id
 from src.utils.team_utils import CURRENT_YEAR
 
 __all__ = [
@@ -745,7 +746,7 @@ class GotSportScraper(BaseScraper):
 
             # Extract opponent info
             opponent_name = opponent.get("full_name", "Unknown")
-            opponent_id = str(opponent.get("team_id", ""))
+            opponent_id = clean_provider_id(opponent.get("team_id"))
 
             # Extract opponent club
             opponent_club_name = ""

@@ -74,6 +74,14 @@ describe('POST /api/link-opponent', () => {
     expect(mockCreateServiceSupabase).not.toHaveBeenCalled();
   });
 
+  it.each(['None', 'null', '  '])('refuses the placeholder provider id %j before touching the database', async (id) => {
+    const res = await POST(makeRequest({ ...validBody, opponentProviderId: id }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Opponent has no provider ID');
+    expect(mockCreateServiceSupabase).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the team does not exist', async () => {
     svc.queueFrom('teams', { data: null, error: { message: 'no rows' } });
 
