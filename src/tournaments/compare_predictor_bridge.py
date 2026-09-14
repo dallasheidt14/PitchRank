@@ -51,6 +51,7 @@ class ComparePrediction:
     draw_probability: float
     expected_score: dict[str, int]
     expected_margin: float
+    expected_absolute_goal_difference: float
     blowout_4plus_probability: float
 
 
@@ -156,6 +157,10 @@ def _parse_prediction(row: dict[str, Any]) -> ComparePrediction:
             "teamB": int(expected_score["teamB"]),
         },
         expected_margin=_finite_float(row.get("expected_margin"), name="expected_margin"),
+        expected_absolute_goal_difference=_finite_float(
+            row.get("expected_absolute_goal_difference"),
+            name="expected_absolute_goal_difference",
+        ),
         blowout_4plus_probability=_probability(
             row.get("blowout_4plus_probability"), name="blowout_4plus_probability"
         ),

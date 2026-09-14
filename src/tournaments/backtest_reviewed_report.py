@@ -32,7 +32,11 @@ def observed_result_values(summary: dict[str, Any]) -> dict[str, int | float | N
     }
 
 
-def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
+def actual_vs_matchbalance_rows(
+    summary: dict[str, Any],
+    *,
+    require_validated_model: bool = True,
+) -> list[dict[str, Any]]:
     """Compare captured results with the proposed MatchBalance projection."""
 
     observed = observed_result_values(summary)
@@ -40,7 +44,7 @@ def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]
     proposed = summary.get("proposed_schedule_projection") or summary.get(
         "proposed_model_projection"
     ) or {}
-    if validation.get("status") != "passed":
+    if require_validated_model and validation.get("status") != "passed":
         proposed = {}
     specs = (
         (
@@ -72,8 +76,15 @@ def actual_vs_matchbalance_rows(summary: dict[str, Any]) -> list[dict[str, Any]]
     ]
 
 
-def movement_rows(summary: dict[str, Any]) -> list[dict[str, Any]]:
-    if (summary.get("model_validation") or {}).get("status") != "passed":
+def movement_rows(
+    summary: dict[str, Any],
+    *,
+    require_validated_model: bool = True,
+) -> list[dict[str, Any]]:
+    if (
+        require_validated_model
+        and (summary.get("model_validation") or {}).get("status") != "passed"
+    ):
         return []
     labels = {"move_up": "Moved up", "move_down": "Moved down", "stay": "Stayed"}
     rows: list[dict[str, Any]] = []

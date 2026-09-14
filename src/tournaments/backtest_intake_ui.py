@@ -1318,17 +1318,31 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     proposed = summary.get("proposed_schedule_projection") or summary.get(
         "proposed_model_projection"
     ) or {}
+    observed = observed_result_values(summary)
     validation = summary.get("model_validation") or {}
     if validation and validation.get("status") != "passed":
         st.warning(
-            "This run is saved, but its sales comparison is withheld because the model did not "
-            "reproduce the unchanged tournament closely enough."
+            "This cohort is available for internal review, but it is not ready for the "
+            "tournament-director report because the model check needs attention."
         )
+        original = summary.get("original_schedule_projection") or {}
+        with st.expander("Why this cohort needs model review"):
+            st.write(
+                "Original schedule check: actual average margin "
+                f"{_format_model_value(observed['average_goal_differential'], 'goals')} versus "
+                "model expectation "
+                f"{_format_model_value(original.get('average_goal_differential'), 'goals')}; "
+                "actual 4+ blowout rate "
+                f"{_format_model_value(observed['blowout_4plus_rate'], 'rate')} versus "
+                "model expectation "
+                f"{_format_model_value(original.get('blowout_4plus_probability'), 'rate')}."
+            )
+            for blocker in validation.get("blockers") or ():
+                st.write(f"• {blocker}")
     if proposed.get("average_goal_differential") is None:
         st.warning(
             "The MatchBalance projection is unavailable because its modeled matchup evidence is incomplete."
         )
-    observed = observed_result_values(summary)
     actual_columns = st.columns(4)
     actual_columns[0].metric("Observed games", observed["game_count"])
     actual_columns[1].metric(
@@ -1347,7 +1361,10 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
         "The tournament values come directly from the captured results. The MatchBalance values "
         "project the reseeded division and pool assignments using only pre-event evidence."
     )
-    comparison_rows = actual_vs_matchbalance_rows(summary)
+    comparison_rows = actual_vs_matchbalance_rows(
+        summary,
+        require_validated_model=False,
+    )
     comparison_display = [
         {
             "Metric": row["Metric"],
@@ -1362,7 +1379,7 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     st.markdown("##### Actual tournament versus MatchBalance")
     st.dataframe(pd.DataFrame(comparison_display), hide_index=True, width="stretch")
 
-    moves = movement_rows(summary)
+    moves = movement_rows(summary, require_validated_model=False)
     changed = sum(row["Decision"] != "Stayed" for row in moves)
     move_columns = st.columns(3)
     move_columns[0].metric("Teams evaluated", len(moves))
@@ -1444,27 +1461,29 @@ def _render_event_rollup(
     coverage_columns[1].metric("Failed", coverage["failed"])
     coverage_columns[2].metric("Awaiting matches", coverage["awaiting_matches"])
     coverage_columns[3].metric(
-        "Other remaining",
+        "Waiting to run",
         coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
-    )
-    st.dataframe(
-        pd.DataFrame(
-            {
-                "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
-                "Teams": row["team_count"],
-                "Status": row["status"].replace("_", " ").title(),
-                "What remains": row["what_remains"],
-            }
-            for row in coverage["rows"]
-        ),
-        hide_index=True,
-        width="stretch",
     )
     if not rollup["selected_runs"]:
         st.info(
-            "No compatible cohort results exist yet. Complete the readiness checks, then run one "
-            "cohort or every ready cohort."
+            "No cohort has been run yet. Complete the one-time readiness items above once for the "
+            "event; you do not review every cohort. Then run one cohort or every ready cohort."
         )
+    with st.expander("Cohort status details"):
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                    "Teams": row["team_count"],
+                    "Status": row["status"].replace("_", " ").title(),
+                    "What remains": row["what_remains"],
+                }
+                for row in coverage["rows"]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+    if not rollup["selected_runs"]:
         return
     st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
     validation = rollup.get("model_validation") or {}
@@ -1476,7 +1495,8 @@ def _render_event_rollup(
             f"({float(event_validation.get('fixture_count_coverage') or 0):.0%} fixture coverage)."
         )
     if not comparison["comparison_ready"]:
-        if event_validation.get("status") == "failed":
+        all_cohorts_complete = coverage["completed"] == len(coverage["rows"])
+        if all_cohorts_complete and event_validation.get("status") == "failed":
             st.warning(
                 "The completed runs are saved, but MatchBalance is withholding the sales comparison "
                 "because the model did not reproduce the unchanged tournament closely enough "
@@ -1635,6 +1655,7 @@ def _run_reviewed_requests(
             status.update(label=f"{label}: completed", state="complete")
             st.success(f"{label}: completed")
             st.session_state[f"bt_completed_run_{event_key}"] = outcome.run_dir.name
+            st.session_state[f"bt_show_completed_{event_key}"] = True
     if not had_failure:
         st.rerun()
 
@@ -1654,7 +1675,8 @@ def _render_backtest_runner(
     st.markdown("#### Run Backtest")
     st.caption(
         "Reseed matched teams within each tournament cohort while keeping every captured division, "
-        "pool capacity, and fixture path fixed. MatchBalance optimizes both division and pool placement. "
+        "pool capacity, and fixture path fixed. MatchBalance treats the captured division order as strongest "
+        "to weakest regardless of the division names, then balances pools within each division. "
         "Runs and evidence stay local."
     )
     cancelled_label = st.session_state.pop(f"bt_cancel_notice_{event_key}", "")
@@ -1785,6 +1807,8 @@ def _render_backtest_runner(
         if not (assessment := assess_replay_format(division)).ready
     ]
     capture_reasons = capture_verification_blockers(saved_snapshot)
+    tiebreak_ready = _tiebreak_ready(saved_snapshot.tiebreak_decision)
+    remaining_team_decisions = max(team_total - team_reviewed, 0)
     if preflight is None:
         history_status = "Not checked"
         history_action = "Check historical ratings"
@@ -1815,7 +1839,21 @@ def _render_backtest_runner(
                     ),
                     "Action": (
                         matching_blocker
-                        or f"{team_reviewed} of {team_total} reviewed"
+                        or (
+                            f"All {team_total} team decisions complete"
+                            if team_total and not remaining_team_decisions
+                            else f"{remaining_team_decisions} team decisions remaining"
+                        )
+                    ),
+                },
+                {
+                    "Check": "Tournament tiebreak rule",
+                    "Owner": "You",
+                    "Status": "Ready" if tiebreak_ready else "Needs action",
+                    "Action": (
+                        "Published rule verified once for the event"
+                        if tiebreak_ready
+                        else "Verify the published rule once for the event"
                     ),
                 },
                 {
@@ -1926,6 +1964,12 @@ def _render_backtest_runner(
             merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
+    completed_records = list_reviewed_runs(event_key, base_dir=base_dir)
+    with st.expander(
+        f"Completed cohort results ({len(completed_records)})",
+        expanded=bool(st.session_state.pop(f"bt_show_completed_{event_key}", False)),
+    ):
+        _render_reviewed_result(event_key, base_dir)
     _render_event_rollup(
         saved_snapshot,
         readiness,
@@ -1934,8 +1978,6 @@ def _render_backtest_runner(
         predictor_sha256=selected_predictor_sha,
         merge_map_version=merge_map_version or None,
     )
-    with st.expander("Cohort diagnostics (optional)"):
-        _render_reviewed_result(event_key, base_dir)
 
 
 def render_intake(supabase_client: Any) -> None:
@@ -1993,7 +2035,7 @@ def render_intake(supabase_client: Any) -> None:
     )
     status_columns = st.columns(3)
     capture_verified = not capture_verification_blockers(snapshot)
-    status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
+    status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Verify once")
     status_columns[1].metric(
         "Team review",
         "Unavailable" if matching_blocker else f"{identity_reviewed} / {totals['total_teams']}",
@@ -2004,7 +2046,7 @@ def render_intake(supabase_client: Any) -> None:
     )
     status_columns[2].metric(
         "Structure",
-        f"{len(scoped_roster.divisions)} divisions captured",
+        f"{reviewed} / {len(scoped_roster.divisions)} schedules ready",
         help=(
             f"{reviewed} schedules are replay-ready. Tournament tiebreak rule: "
             f"{'verified' if _tiebreak_ready(snapshot.tiebreak_decision) else 'not verified'}."

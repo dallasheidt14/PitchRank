@@ -260,9 +260,9 @@ const RECENT_GAMES_COUNT = 5;
 const GLICKO_ELO_DIVISOR = 400;
 const POISSON_MAX_GOALS = 10;
 // Prediction lambdas are capped at 7.5. At that rate, mass above 40 goals is
-// negligible, so this support preserves the 4+ tail without changing the
-// existing 0-10 modal-score presentation grid.
-const POISSON_BLOWOUT_MAX_GOALS = 40;
+// negligible, so this support preserves distribution metrics without changing
+// the existing 0-10 modal-score presentation grid.
+const POISSON_EXTENDED_MAX_GOALS = 40;
 const DEFAULT_DRAW_RATE = 0.13;
 const COMMON_OPPONENT_RECENCY_DAYS = 150;
 
@@ -1015,20 +1015,30 @@ function poissonMass(lambda: number, maxGoals: number = POISSON_MAX_GOALS): numb
   return probabilities;
 }
 
-export function poissonBlowout4PlusProbability(lambdaA: number, lambdaB: number): number {
-  const probsA = poissonMass(lambdaA, POISSON_BLOWOUT_MAX_GOALS);
-  const probsB = poissonMass(lambdaB, POISSON_BLOWOUT_MAX_GOALS);
-  let probability = 0;
+function poissonExtendedMetrics(lambdaA: number, lambdaB: number) {
+  const probsA = poissonMass(lambdaA, POISSON_EXTENDED_MAX_GOALS);
+  const probsB = poissonMass(lambdaB, POISSON_EXTENDED_MAX_GOALS);
+  let blowout4Plus = 0;
+  let expectedAbsoluteGoalDifference = 0;
 
-  for (let scoreA = 0; scoreA <= POISSON_BLOWOUT_MAX_GOALS; scoreA++) {
-    for (let scoreB = 0; scoreB <= POISSON_BLOWOUT_MAX_GOALS; scoreB++) {
+  for (let scoreA = 0; scoreA <= POISSON_EXTENDED_MAX_GOALS; scoreA++) {
+    for (let scoreB = 0; scoreB <= POISSON_EXTENDED_MAX_GOALS; scoreB++) {
+      const probability = probsA[scoreA] * probsB[scoreB];
+      expectedAbsoluteGoalDifference += Math.abs(scoreA - scoreB) * probability;
       if (Math.abs(scoreA - scoreB) >= 4) {
-        probability += probsA[scoreA] * probsB[scoreB];
+        blowout4Plus += probability;
       }
     }
   }
 
-  return clamp(probability, 0, 1);
+  return {
+    blowout4Plus: clamp(blowout4Plus, 0, 1),
+    expectedAbsoluteGoalDifference,
+  };
+}
+
+export function poissonBlowout4PlusProbability(lambdaA: number, lambdaB: number): number {
+  return poissonExtendedMetrics(lambdaA, lambdaB).blowout4Plus;
 }
 
 function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
@@ -1059,11 +1069,13 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   }
 
   const total = winA + draw + winB;
+  const extendedMetrics = poissonExtendedMetrics(lambdaA, lambdaB);
   return {
     winA: total > 0 ? winA / total : 0.5,
     draw: total > 0 ? draw / total : DEFAULT_DRAW_RATE,
     winB: total > 0 ? winB / total : 0.5,
-    blowout4Plus: poissonBlowout4PlusProbability(lambdaA, lambdaB),
+    blowout4Plus: extendedMetrics.blowout4Plus,
+    expectedAbsoluteGoalDifference: extendedMetrics.expectedAbsoluteGoalDifference,
     bestWinA,
     bestDraw,
     bestWinB,
@@ -1092,6 +1104,7 @@ export interface MatchPrediction {
     teamB: number;
   };
   expectedMargin: number;
+  expectedAbsoluteGoalDifference?: number;
   blowout4PlusProbability: number;
   confidence: 'high' | 'medium' | 'low';
   confidence_score?: number; // Optional: include confidence score for debugging
@@ -1400,6 +1413,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       teamB: expectedScore.teamB,
     },
     expectedMargin,
+    expectedAbsoluteGoalDifference: distribution.expectedAbsoluteGoalDifference,
     blowout4PlusProbability: distribution.blowout4Plus,
     confidence,
     confidence_score: confidenceScore,

@@ -135,9 +135,48 @@ describe('predictMatch', () => {
       (prediction.winProbabilityA + prediction.winProbabilityB + (prediction.drawProbability ?? 0)).toFixed(6)
     ).toBe('1.000000');
     expect(prediction.expectedMargin).toBeGreaterThan(0);
+    expect(prediction.expectedAbsoluteGoalDifference ?? 0).toBeGreaterThan(Math.abs(prediction.expectedMargin));
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(prediction.expectedScore.teamB);
     expect(prediction.blowout4PlusProbability).toBeGreaterThan(0);
     expect(prediction.blowout4PlusProbability).toBeLessThanOrEqual(1);
+  });
+
+  it('uses the full Poisson support for expected margin in a high-scoring mismatch', () => {
+    const strong = makeTeam({
+      team_id_master: 'strong',
+      team_name: 'Strong FC 14B',
+      power_score_final: 0.99,
+      glicko_rating: 2200,
+      glicko_rd: 35,
+      sos_norm: 0.95,
+      offense_norm: 1,
+      defense_norm: 0.95,
+      wins: 30,
+      losses: 0,
+      draws: 0,
+      games_played: 30,
+      win_percentage: 100,
+    });
+    const weak = makeTeam({
+      team_id_master: 'weak',
+      team_name: 'Weak FC 14B',
+      power_score_final: 0.01,
+      glicko_rating: 1100,
+      glicko_rd: 160,
+      sos_norm: 0.1,
+      offense_norm: 0.05,
+      defense_norm: 0.05,
+      wins: 0,
+      losses: 30,
+      draws: 0,
+      games_played: 30,
+      win_percentage: 0,
+    });
+
+    const prediction = predictMatch(strong, weak, []);
+
+    expect(Math.abs(prediction.expectedMargin)).toBeGreaterThan(4.9);
+    expect(prediction.expectedAbsoluteGoalDifference ?? 0).toBeGreaterThanOrEqual(Math.abs(prediction.expectedMargin));
   });
 
   it('returns a draw-leaning, low-confidence prediction for sparse evenly matched data', () => {
@@ -179,6 +218,7 @@ describe('predictMatch', () => {
     expect(prediction.winProbabilityA).toBeLessThan(1);
     expect(prediction.expectedScore.teamA).toBeGreaterThanOrEqual(0);
     expect(prediction.expectedScore.teamB).toBeGreaterThanOrEqual(0);
+    expect(prediction.expectedAbsoluteGoalDifference ?? 0).toBeGreaterThan(0);
   });
 
   it('predicts draw for symmetric inputs even with non-sparse history', () => {
@@ -239,6 +279,7 @@ describe('predictMatch', () => {
     const reversed = predictMatch(younger, older, []);
 
     expect(forward.expectedMargin).toBeCloseTo(-reversed.expectedMargin, 10);
+    expect(forward.expectedAbsoluteGoalDifference).toBeCloseTo(reversed.expectedAbsoluteGoalDifference ?? 0, 10);
     expect(forward.blowout4PlusProbability).toBeCloseTo(reversed.blowout4PlusProbability, 10);
   });
 
