@@ -1032,5 +1032,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
-- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 9 fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 2 played fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Noted**: 2026-09-14
+
+### Two SincSports team rows hold two squads each, and league games now land on them
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
+- **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
 - **Noted**: 2026-09-14
