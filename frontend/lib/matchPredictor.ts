@@ -1077,7 +1077,7 @@ export interface MatchPrediction {
     teamB: number;
   };
   expectedMargin: number;
-  blowout4PlusProbability?: number;
+  blowout4PlusProbability: number;
   confidence: 'high' | 'medium' | 'low';
   confidence_score?: number; // Optional: include confidence score for debugging
 

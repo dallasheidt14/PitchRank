@@ -193,6 +193,7 @@ describe('buildMatchPrediction', () => {
       drawProbability: 0,
       expectedScore: { teamA: 3, teamB: 1 },
       expectedMargin: 2,
+      blowout4PlusProbability: 0.14,
       confidence: 'high',
       confidence_score: 0.81,
       components: {
