@@ -430,7 +430,7 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
         "Games counted": "1", "Average goal margin": "0.00", "Total goal margin": "0",
         "Blowout games (4+ goals)": "0", "Blowout rate": "0.0%",
     }
-    assert metrics["Capture verification"] == "Needs review"
+    assert metrics["Capture verification"] == "Verify once"
     assert metrics["Team review"] == "1 / 3"
     overview_labels = {button.label for button in test.button}
     assert "Run selected cohort" not in overview_labels
@@ -656,7 +656,7 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
     coverage = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
     assert coverage["Status"].tolist() == ["Failed"]
     assert coverage["What remains"].tolist() == ["Historical rating lookup timed out"]
-    assert any("No compatible cohort results exist yet" in item.value for item in test.info)
+    assert any("No cohort has been run yet" in item.value for item in test.info)
 
 
 def test_event_placements_stay_hidden_until_event_comparison_is_validated(monkeypatch):

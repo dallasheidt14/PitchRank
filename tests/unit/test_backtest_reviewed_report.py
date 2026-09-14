@@ -92,6 +92,21 @@ def test_failed_calibration_withholds_team_placement_recommendations():
     assert "<td>Alpha</td>" not in rendered
 
 
+def test_operator_can_inspect_a_completed_cohort_that_needs_model_review():
+    summary = _summary()
+    summary["model_validation"] = {"status": "failed", "blockers": ["Margin mismatch"]}
+
+    comparison = actual_vs_matchbalance_rows(
+        summary,
+        require_validated_model=False,
+    )
+    placements = movement_rows(summary, require_validated_model=False)
+
+    assert comparison[0]["MatchBalance projection"] == 1.5
+    assert comparison[0]["Estimated reduction"] == -0.5
+    assert placements[0]["Team"] == "Alpha"
+
+
 def test_director_report_escapes_tournament_and_team_names():
     summary = _summary()
     summary["event_name"] = "<script>alert(1)</script>"

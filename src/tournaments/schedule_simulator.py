@@ -465,6 +465,18 @@ def prediction_expected_margin(prediction: Any) -> float:
     return expected_margin
 
 
+def prediction_expected_absolute_goal_difference(prediction: Any) -> float:
+    """Return the expected observed absolute score difference for reporting."""
+
+    value = getattr(prediction, "expected_absolute_goal_difference", None)
+    if value is None:
+        return abs(prediction_expected_margin(prediction))
+    expected_absolute = float(value)
+    if not math.isfinite(expected_absolute) or expected_absolute < 0:
+        raise ValueError("expected_absolute_goal_difference must be finite and non-negative")
+    return expected_absolute
+
+
 def _advancement_decision(
     prediction: Any,
     home_team: SeedableTeam,
@@ -534,7 +546,7 @@ def _simulate_match(
         home_score=home_score,
         away_score=away_score,
         goal_differential=abs(home_score - away_score),
-        expected_goal_differential=abs(expected_margin),
+        expected_goal_differential=prediction_expected_absolute_goal_difference(prediction),
         blowout_4plus_probability=_optional_probability(
             prediction, "blowout_4plus_probability"
         ),

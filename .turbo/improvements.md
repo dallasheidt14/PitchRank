@@ -1043,6 +1043,38 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
 - **Noted**: 2026-09-14
 
+### Watchlist activity counts games that have been excluded
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
+- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
+- **Noted**: 2026-09-14
+
+### A GotSport import dry run still writes aliases and review-queue rows
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline._ensure_initialized` in `src/etl/enhanced_pipeline.py` (the fallback `GameHistoryMatcher(...)` construction, `:304`); `GameHistoryMatcher.__init__` in `src/models/game_matcher.py`
+- **Why**: Read on `origin/main` 2026-09-14. The provider-specific branches of that `if/elif` pass `dry_run=self.dry_run`. The final `else`, which GotSport and every other standard-matcher provider reach, does not, and `GameHistoryMatcher.__init__` defaults `dry_run=False`. `_create_alias` and `_create_review_queue_entry` therefore write during `import_games_enhanced.py --dry-run`, breaking CLAUDE.md's rule that the pipeline pass `dry_run` to every matcher it builds. `tests/unit/test_provider_matcher_dry_run.py` covers only the autocreating matchers.
+- **Noted**: 2026-09-14
+
+### TGS teams and aliases keyed on placeholder provider ids
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `team_alias_map` and `teams` rows for provider `tgs`; `TGSGameMatcher._match_by_provider_id` in `src/models/tgs_matcher.py`
+- **Why**: In live data on 2026-09-14, two TGS teams are keyed on placeholder ids, each with an approved `direct_id` alias. "Winner Game 4" is a bracket placeholder with id `"None"`, 2 games and a `rankings_full` row. The other has an empty name and id `""`, with 0 games. The GotSport twin of this shape pulled 4,846 unrelated games onto one team, and its cleanup (`scripts/exclude_none_opponent_games.py`) is GotSport-only. Import lookups cannot reach these rows: `match_game_history` and `GameHistoryMatcher._match_team` blank a placeholder id first, and the alias preload skips one. Still open: rejecting the two aliases, the ranked `"None"` row, and how the rows were created. `TGSGameMatcher._match_team` still passes whatever id it receives to `_create_new_tgs_team`.
+- **Noted**: 2026-09-14
+
+### Future-dated games already carry scores
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `games` rows with `game_date` after the import date; GotSport path `GotSportScraper._parse_api_match` in `src/scrapers/gotsport.py`; loader `fetch_games_for_rankings` in `src/rankings/data_adapter.py`
+- **Why**: On 2026-09-14, 211 games dated after that day already had both scores set. 80 are in the GotSport `"None"` sink that `scripts/exclude_none_opponent_games.py` excludes, and many of those read 1-0 or 0-1 weeks ahead of play. The other 131 are not part of it. `fetch_games_for_rankings` skips future dates, so the other 131 count as real results once their date passes. Unknown whether GotSport publishes pre-set or forfeit results or the import assigns scores to scheduled matches.
+- **Noted**: 2026-09-14
+
 ### Give the Modular11 scrape workflows a fixed start date instead of days-back
 
 - **Type**: direct

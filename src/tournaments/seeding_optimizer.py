@@ -63,6 +63,11 @@ POOL_POLICY_BALANCED_STRENGTH = "balanced_strength"
 POOL_ASSIGNMENT_POLICIES = frozenset(
     {POOL_POLICY_COMPETITIVE_MATCHUPS, POOL_POLICY_BALANCED_STRENGTH}
 )
+DIVISION_POLICY_OPTIMIZED_MATCHUPS = "optimized_matchups"
+DIVISION_POLICY_RANKED_BANDS = "ranked_bands"
+DIVISION_ASSIGNMENT_POLICIES = frozenset(
+    {DIVISION_POLICY_OPTIMIZED_MATCHUPS, DIVISION_POLICY_RANKED_BANDS}
+)
 
 
 @dataclass(frozen=True)
@@ -99,6 +104,7 @@ class TournamentOptimizationResult:
     optimizer_iterations: int
     matchup_proxy: str = "strength_gap_proxy_v1"
     pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS
+    division_assignment_policy: str = DIVISION_POLICY_OPTIMIZED_MATCHUPS
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -106,8 +112,10 @@ class TournamentOptimizationResult:
             "total_cost": self.total_cost,
             "optimizer_iterations": self.optimizer_iterations,
             "pool_assignment_policy": self.pool_assignment_policy,
+            "division_assignment_policy": self.division_assignment_policy,
             "divisions": [
                 {
+                    "skill_order": division_index,
                     "name": division.name,
                     "team_count": len(division.teams),
                     "total_pair_cost": division.total_pair_cost,
@@ -146,7 +154,7 @@ class TournamentOptimizationResult:
                         for seed_index, team in enumerate(division.teams, start=1)
                     ],
                 }
-                for division in self.divisions
+                for division_index, division in enumerate(self.divisions, start=1)
             ],
         }
 
@@ -706,11 +714,14 @@ def optimize_tournament_format(
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
     pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS,
+    division_assignment_policy: str = DIVISION_POLICY_OPTIMIZED_MATCHUPS,
 ) -> TournamentOptimizationResult:
     """Assign teams into the provided tournament format.
 
     The caller supplies the structure. This function only decides which teams
-    should land in each division and pool to reduce likely lopsided games.
+    should land in each division and pool to reduce likely lopsided games. With
+    ranked bands, division sequence is the skill order from highest to lowest;
+    names such as Gold, Premier, or Sapphire have no special meaning.
     """
 
     if not divisions:
@@ -720,8 +731,29 @@ def optimize_tournament_format(
             "pool_assignment_policy must be one of: "
             + ", ".join(sorted(POOL_ASSIGNMENT_POLICIES))
         )
+    if division_assignment_policy not in DIVISION_ASSIGNMENT_POLICIES:
+        raise ValueError(
+            "division_assignment_policy must be one of: "
+            + ", ".join(sorted(DIVISION_ASSIGNMENT_POLICIES))
+        )
 
-    if pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH:
+    if division_assignment_policy == DIVISION_POLICY_RANKED_BANDS:
+        division_specs = [
+            FlightSpec(name=division.name, team_count=division.team_count)
+            for division in divisions
+        ]
+        _validate_flights(teams, division_specs)
+        ordered_teams = sorted(teams, key=_team_sort_key)
+        division_memberships_list: list[tuple[SeedableTeam, ...]] = []
+        start_index = 0
+        for division in divisions:
+            end_index = start_index + int(division.team_count)
+            division_memberships_list.append(tuple(ordered_teams[start_index:end_index]))
+            start_index = end_index
+        division_memberships = tuple(division_memberships_list)
+        total_iterations = 0
+        pool_result_cache = {}
+    elif pool_assignment_policy == POOL_POLICY_BALANCED_STRENGTH:
         division_result = optimize_division_assignments(
             teams,
             [FlightSpec(division.name, division.team_count) for division in divisions],
@@ -758,7 +790,16 @@ def optimize_tournament_format(
             total_iterations += pool_iterations
         else:
             cache_key = (division_index, tuple(sorted(team.team_id for team in division_teams)))
-            pool_result = pool_result_cache[cache_key]
+            pool_result = pool_result_cache.get(cache_key)
+            if pool_result is None:
+                pool_result = optimize_division_assignments(
+                    division_teams,
+                    pool_specs,
+                    max_iterations=max_iterations,
+                    improvement_tolerance=improvement_tolerance,
+                    matchup_cost_fn=matchup_cost_fn,
+                    matchup_proxy=matchup_proxy,
+                )
             total_iterations += int(pool_result.optimizer_iterations)
             pools = tuple(
                 FlightAssignment(
@@ -820,6 +861,7 @@ def optimize_tournament_format(
         optimizer_iterations=total_iterations,
         matchup_proxy=matchup_proxy,
         pool_assignment_policy=pool_assignment_policy,
+        division_assignment_policy=division_assignment_policy,
     )
     _assert_assignment_integrity(teams, result.divisions)
     return result

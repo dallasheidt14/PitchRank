@@ -115,19 +115,30 @@ def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
     assert cost.projected_margin == pytest.approx(0.75)
 
 
-def test_compare_matchup_cost_uses_continuous_margin_instead_of_display_score():
+def test_compare_matchup_cost_uses_distribution_margin_and_exact_blowout_tail():
     prediction = SimpleNamespace(
         predicted_winner="team_a",
         expected_score={"teamA": 2, "teamB": 1},
         expected_margin=0.003,
+        expected_absolute_goal_difference=1.75,
         win_probability_a=0.4,
         win_probability_b=0.39,
-        blowout_4plus_probability=0.01,
+        blowout_4plus_probability=0.20,
+    )
+    lower_variance = SimpleNamespace(
+        **{
+            **vars(prediction),
+            "expected_absolute_goal_difference": 0.50,
+            "blowout_4plus_probability": 0.01,
+        }
     )
 
     cost = cohort._matchup_cost_from_prediction(prediction)
+    lower_variance_cost = cohort._matchup_cost_from_prediction(lower_variance)
 
-    assert cost.projected_margin == pytest.approx(0.003)
+    assert cost.projected_margin == pytest.approx(1.75)
+    assert cost.blowout_4plus_probability == pytest.approx(0.20)
+    assert cost.total_cost > lower_variance_cost.total_cost
 
 
 @pytest.mark.parametrize(

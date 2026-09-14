@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
+import { isBlankProviderId } from '@/lib/validation';
 
 /**
  * Create a new team and link it to an unknown opponent
@@ -30,6 +31,16 @@ export async function POST(request: NextRequest) {
     if (!gameId || !opponentProviderId || !teamName || !ageGroup || !gender) {
       return NextResponse.json(
         { error: 'Missing required fields: gameId, opponentProviderId, teamName, ageGroup, and gender' },
+        { status: 400 }
+      );
+    }
+
+    if (isBlankProviderId(opponentProviderId)) {
+      return NextResponse.json(
+        {
+          error: 'Opponent has no provider ID',
+          details: 'The provider did not identify this opponent, so it cannot be linked.',
+        },
         { status: 400 }
       );
     }

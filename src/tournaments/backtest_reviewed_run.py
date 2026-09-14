@@ -36,7 +36,7 @@ from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
 BACKTEST_PREDICTOR_SOURCE = "canonical_compare_historical"
-BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v5"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (
@@ -335,7 +335,7 @@ def execute_reviewed_run(
             BACKTEST_SCENARIO,
             run_id,
             base_dir=base_dir,
-        )
+        ).resolve()
         request_path = staging_dir / "request.json"
         write_json(request_path, request)
         command = [
@@ -464,6 +464,8 @@ def list_reviewed_runs(
         try:
             metadata = read_json(path / "run_metadata.json")
         except (OSError, ValueError, TypeError):
+            continue
+        if metadata.get("backtest_engine_version") != BACKTEST_ENGINE_VERSION:
             continue
         records.append(
             ReviewedRunRecord(
