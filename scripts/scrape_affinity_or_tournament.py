@@ -98,8 +98,8 @@ SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _team_hash(team_name: str, age_group: str, gender: str) -> str:
-    """Deterministic provider-side team ID, unique per cohort.
+def _team_hash(team_name: str, source_age_u: int, gender: str) -> str:
+    """Deterministic provider-side team ID, unique per source flight.
 
     The cohort is part of the identity, not decoration. Alias uniqueness is
     ``(provider_id, provider_team_id)`` and ``_create_new_affinity_or_team``
@@ -110,8 +110,13 @@ def _team_hash(team_name: str, age_group: str, gender: str) -> str:
     across four cohorts collided zero times on 2026-09-12 — but a single
     year-less name repeated across cohorts is enough, and the damage is not
     reversible by a merge.
+
+    Keyed on OYSA's own U-number rather than the PitchRank age group, because
+    the latter collapses U18 into u19 (CLAUDE.md: "PitchRank deliberately files
+    U18 into U19"). Two distinct source flights, BU18 and BU19, would otherwise
+    share one identity.
     """
-    key = f"{team_name.lower().strip()}|{age_group}|{gender}"
+    key = f"{team_name.lower().strip()}|u{source_age_u}|{gender}"
     return f"affinity_or:{hashlib.md5(key.encode()).hexdigest()[:12]}"
 
 
@@ -416,12 +421,12 @@ def scrape_flight_games(
 
             home_record = {
                 **base_record,
-                "team_id": _team_hash(home_name, age_group, gender_display),
-                "team_id_source": _team_hash(home_name, age_group, gender_display),
+                "team_id": _team_hash(home_name, flight["age_u"], gender_display),
+                "team_id_source": _team_hash(home_name, flight["age_u"], gender_display),
                 "team_name": home_name,
                 "club_name": "",
-                "opponent_id": _team_hash(away_name, age_group, gender_display),
-                "opponent_id_source": _team_hash(away_name, age_group, gender_display),
+                "opponent_id": _team_hash(away_name, flight["age_u"], gender_display),
+                "opponent_id_source": _team_hash(away_name, flight["age_u"], gender_display),
                 "opponent_name": away_name,
                 "opponent_club_name": "",
                 "home_away": "H",
@@ -431,12 +436,12 @@ def scrape_flight_games(
             }
             away_record = {
                 **base_record,
-                "team_id": _team_hash(away_name, age_group, gender_display),
-                "team_id_source": _team_hash(away_name, age_group, gender_display),
+                "team_id": _team_hash(away_name, flight["age_u"], gender_display),
+                "team_id_source": _team_hash(away_name, flight["age_u"], gender_display),
                 "team_name": away_name,
                 "club_name": "",
-                "opponent_id": _team_hash(home_name, age_group, gender_display),
-                "opponent_id_source": _team_hash(home_name, age_group, gender_display),
+                "opponent_id": _team_hash(home_name, flight["age_u"], gender_display),
+                "opponent_id_source": _team_hash(home_name, flight["age_u"], gender_display),
                 "opponent_name": home_name,
                 "opponent_club_name": "",
                 "home_away": "A",

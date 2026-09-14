@@ -2,7 +2,8 @@
 Affinity Sports OR game matcher - Oregon Youth Soccer (oysa.sportsaffinity.com).
 
 Creates new teams when no match found (like TGS/Modular11) so games are not dropped.
-All teams are OR state.
+Oregon is the default state, not a universal one -- OYSA's league reaches into
+SW Washington, so the state is resolved per club. See the class docstring.
 
 Uses hygiene-style normalization (14B→2014) to match DB teams that were
 normalized by the weekly data hygiene pipeline.
@@ -23,6 +24,7 @@ run before this gate existed.
 
 import logging
 import re
+from collections import Counter
 from difflib import SequenceMatcher
 from typing import Dict, Optional
 
@@ -34,6 +36,7 @@ from src.utils.team_name_utils import resolve_distinction
 logger = logging.getLogger(__name__)
 
 STATE_CODE = "OR"
+STATE_NAME = "Oregon"
 
 
 def _normalize_for_affinity_or(name: str) -> str:
@@ -219,7 +222,22 @@ class AffinityORGameMatcher(GameHistoryMatcher):
     """
     Affinity OR matcher: creates new teams when no match found.
 
-    All teams from Oregon Youth Soccer are OR state.
+    Oregon is the default state, not a universal one. OYSA's league reaches
+    across the Columbia into SW Washington — its own fixtures are played at
+    Ridgefield, Fort Vancouver HS and Columbia River HS — and four of the 55
+    clubs in a 261-team sample are stored in another state, three of them
+    unanimously WA: FC Salmon Creek (48 rows), CYSA Timber Barons (39) and
+    Pacific FC (33). Pacific FC is the club whose 12 teams the 2026-08-31 state
+    sweep corrected OR -> WA, recorded in
+    ``.turbo/reports/2026-08-31-targeting-the-gotsport-probe.md``. Stamping
+    "OR" on every team would have refused those candidates, autocreated
+    duplicates on the Oregon board, and undone that sweep.
+
+    So the state is resolved per team from the club's existing rows and only
+    falls back to OR when the club has no unanimous signal — the same contract
+    the PlayMetrics tournament path uses, via the inherited
+    ``_resolve_state_from_club``.
+
     Uses hygiene-style normalization so provider names match DB-normalized teams.
     """
 
@@ -229,6 +247,46 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         self._affinity_variant_gate_required = MATCHING_CONFIG.get("affinity_variant_gate_required", True)
         self._affinity_club_similarity_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
         self._affinity_debug_match_reasons = MATCHING_CONFIG.get("affinity_debug_match_reasons", False)
+        self._or_search_state_cache: Dict[str, str] = {}
+
+    def _state_for_club(self, club_name: Optional[str]) -> str:
+        """State to SEARCH for this club's candidates, defaulting to Oregon.
+
+        Deliberately looser than ``_resolve_state_from_club``, which answers
+        only on unanimity and so abstains for exactly the clubs this exists to
+        serve: Pacific FC is 82 WA rows and one BC, FC Salmon Creek 31 WA and
+        two OR. One outlier silences the strict resolver, and searching OR then
+        guarantees a miss and an autocreated duplicate on the wrong board.
+
+        Being wrong here costs a missed candidate and nothing else — the value
+        is never written, and the strict resolver still decides what a created
+        team stores. That asymmetry is why a plurality is good enough here and
+        not good enough there. Bounded at 1000 rows: a sample cannot settle a
+        question about the whole, which is why this only chooses where to look.
+        """
+        if not club_name:
+            return STATE_CODE
+        cached = self._or_search_state_cache.get(club_name)
+        if cached is not None:
+            return cached
+        state = STATE_CODE
+        try:
+            rows = (
+                self.db.table("teams")
+                .select("state_code")
+                .eq("club_name", club_name)
+                .not_.is_("state_code", "null")
+                .neq("state_code", "")
+                .limit(1000)
+                .execute()
+            )
+            counts = Counter(r["state_code"] for r in (rows.data or []) if r.get("state_code"))
+            if counts:
+                state = counts.most_common(1)[0][0]
+        except Exception as e:  # a read failure must not block matching
+            logger.debug(f"[AffinityOR] Club state lookup failed for {club_name!r}: {e}")
+        self._or_search_state_cache[club_name] = state
+        return state
 
     def _fuzzy_match_team(
         self, team_name: str, age_group: str, gender: str, club_name: Optional[str] = None
@@ -258,13 +316,17 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             )
             provider_has_ecnl = "ecnl" in name_lower and not provider_has_rl
 
-            # Affinity teams are OR-only; filter candidates to OR to avoid cross-state club noise.
+            # Scope candidates to one state to avoid cross-state club noise, but
+            # ask the club which state rather than assuming Oregon: a Pacific FC
+            # or FC Salmon Creek team plays in OYSA and lives in WA, and an OR
+            # filter cannot see its own canonical row.
+            search_state = self._state_for_club(provider_club_name)
             result = (
                 self.db.table("teams")
                 .select("team_id_master, team_name, club_name, age_group, gender, state_code")
                 .eq("age_group", age_group_normalized)
                 .eq("gender", gender)
-                .eq("state_code", STATE_CODE)
+                .eq("state_code", search_state)
                 .execute()
             )
 
@@ -285,7 +347,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 "team_name": provider_team_name,
                 "club_name": provider_club_name,
                 "age_group": age_group,
-                "state_code": STATE_CODE,
+                "state_code": search_state,
             }
 
             candidate_count_before_gate = len(result.data)
@@ -524,8 +586,16 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             elif remaining:
                 clean_team_name = remaining.lstrip("-–—").strip() or team_name
 
+        # OYSA reaches into SW Washington, so ask the club before stamping OR.
+        # Pacific FC, FC Salmon Creek and CYSA Timber Barons all play here and
+        # all live in WA; writing OR would duplicate them onto the wrong board
+        # and undo the 2026-08-31 state sweep that corrected them.
+        resolved_code, resolved_state = self._resolve_state_from_club(club_name)
+        new_state_code = resolved_code or STATE_CODE
+        new_state = resolved_state or STATE_NAME
+
         # Affinity OR: pass clean_team_name (built above by stripping club prefix).
-        distinction = resolve_distinction(clean_team_name, club_name, STATE_CODE)
+        distinction = resolve_distinction(clean_team_name, club_name, new_state_code)
 
         team_data = {
             "team_id_master": team_id_master,
@@ -533,7 +603,8 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             "club_name": club_name or clean_team_name,
             "age_group": age_group_normalized,
             "gender": gender_normalized,
-            "state_code": STATE_CODE,
+            "state_code": new_state_code,
+            "state": new_state,
             "provider_id": provider_id,
             "provider_team_id": provider_team_id,
             "distinction": distinction,

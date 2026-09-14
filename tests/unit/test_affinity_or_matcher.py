@@ -16,9 +16,12 @@ The wiring of these gates into candidate selection is covered by the dry-run
 verification against the database, not by a mocked PostgREST chain.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.models.affinity_or_matcher import (
+    AffinityORGameMatcher,
     _extract_lane_number,
     _extract_tier_tokens,
     _is_same_club,
@@ -146,6 +149,99 @@ class TestTiersConflict:
     )
     def test_compatible_tiers_are_allowed(self, provider, candidate):
         assert _tiers_conflict(self._tiers(provider), self._tiers(candidate)) is False
+
+
+class _FakeQuery:
+    """Chainable PostgREST double that only yields rows at execute().
+
+    A builder that returned rows on ``.eq()`` would let a caller that never
+    executes look like it read the table — the failure mode CLAUDE.md describes
+    for deferred builders.
+    """
+
+    def __init__(self, rows, log):
+        self._rows = rows
+        self._log = log
+
+    def select(self, *_a, **_k):
+        return self
+
+    def eq(self, field, value):
+        if field == "club_name":
+            self._log.append(value)
+            self._rows = [r for r in self._rows if r.get("club_name") == value]
+        return self
+
+    def neq(self, *_a, **_k):
+        return self
+
+    @property
+    def not_(self):
+        return self
+
+    def is_(self, *_a, **_k):
+        return self
+
+    def limit(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[{"state_code": r["state_code"]} for r in self._rows])
+
+
+class _FakeDB:
+    def __init__(self, rows):
+        self.rows = rows
+        self.clubs_queried = []
+
+    def table(self, _name):
+        return _FakeQuery(list(self.rows), self.clubs_queried)
+
+
+def _matcher_with(rows):
+    matcher = AffinityORGameMatcher.__new__(AffinityORGameMatcher)
+    matcher.db = _FakeDB(rows)
+    matcher._or_search_state_cache = {}
+    return matcher
+
+
+class TestSearchState:
+    """Which state to look in is decided per club, not stamped Oregon."""
+
+    def test_a_club_stored_in_washington_is_searched_in_washington(self):
+        """OYSA reaches into SW Washington; FC Salmon Creek lives there."""
+        rows = [{"club_name": "FC Salmon Creek", "state_code": "WA"}] * 31
+
+        assert _matcher_with(rows)._state_for_club("FC Salmon Creek") == "WA"
+
+    def test_a_lone_outlier_does_not_flip_the_club(self):
+        """Pacific FC is 82 WA rows and one BC. Unanimity would abstain here."""
+        rows = [{"club_name": "Pacific FC", "state_code": "WA"}] * 82
+        rows.append({"club_name": "Pacific FC", "state_code": "BC"})
+
+        assert _matcher_with(rows)._state_for_club("Pacific FC") == "WA"
+
+    def test_an_oregon_club_is_searched_in_oregon(self):
+        rows = [{"club_name": "FC Portland", "state_code": "OR"}] * 12
+
+        assert _matcher_with(rows)._state_for_club("FC Portland") == "OR"
+
+    def test_an_unknown_club_falls_back_to_the_leagues_state(self):
+        assert _matcher_with([])._state_for_club("Brand New Club") == "OR"
+
+    def test_no_club_name_falls_back_without_querying(self):
+        matcher = _matcher_with([{"club_name": "x", "state_code": "WA"}])
+
+        assert matcher._state_for_club(None) == "OR"
+        assert matcher.db.clubs_queried == []
+
+    def test_the_answer_is_cached_per_club(self):
+        matcher = _matcher_with([{"club_name": "FC Salmon Creek", "state_code": "WA"}])
+
+        matcher._state_for_club("FC Salmon Creek")
+        matcher._state_for_club("FC Salmon Creek")
+
+        assert matcher.db.clubs_queried == ["FC Salmon Creek"]
 
 
 class TestLaneNumber:
