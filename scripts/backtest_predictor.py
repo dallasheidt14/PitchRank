@@ -203,6 +203,16 @@ def _fetch_prediction_feature_snapshots_via_db(
             exp_win_rate,
             exp_goals_for,
             exp_goals_against,
+            same_age_games,
+            same_age_game_share,
+            same_age_unique_opponents,
+            same_age_top100_opp_count,
+            same_age_top500_opp_count,
+            same_age_avg_opp_power_adj,
+            repeat_opponent_share,
+            positive_ml_evidence_scale,
+            publication_cap_rank,
+            publication_cap_score,
             last_calculated,
             created_at
         FROM prediction_feature_history
@@ -286,7 +296,10 @@ async def _fetch_prediction_feature_snapshots_via_rest(
         "snapshot_date,team_id,age_group,gender,status,rank_in_cohort_final,"
         "power_score_final,sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
         "glicko_volatility,wins,losses,draws,games_played,win_percentage,exp_margin,"
-        "exp_win_rate,exp_goals_for,exp_goals_against,last_calculated,created_at"
+        "exp_win_rate,exp_goals_for,exp_goals_against,same_age_games,same_age_game_share,"
+        "same_age_unique_opponents,same_age_top100_opp_count,same_age_top500_opp_count,"
+        "same_age_avg_opp_power_adj,repeat_opponent_share,positive_ml_evidence_scale,"
+        "publication_cap_rank,publication_cap_score,last_calculated,created_at"
     )
     endpoint = f"{supabase_url.rstrip('/')}/rest/v1/prediction_feature_history"
     headers = {
@@ -580,7 +593,10 @@ async def fetch_prediction_feature_snapshots(
         "snapshot_date, team_id, age_group, gender, status, rank_in_cohort_final, "
         "power_score_final, sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
         "glicko_volatility, wins, losses, draws, games_played, win_percentage, exp_margin, "
-        "exp_win_rate, exp_goals_for, exp_goals_against, last_calculated, created_at"
+        "exp_win_rate, exp_goals_for, exp_goals_against, same_age_games, same_age_game_share, "
+        "same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, "
+        "same_age_avg_opp_power_adj, repeat_opponent_share, positive_ml_evidence_scale, "
+        "publication_cap_rank, publication_cap_score, last_calculated, created_at"
     )
 
     rows = []

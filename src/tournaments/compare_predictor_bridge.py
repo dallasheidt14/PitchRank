@@ -48,15 +48,15 @@ class ComparePrediction:
 def canonical_predictor_sha256() -> str:
     """Identify the exact Compare runtime and checked-in calibration files."""
 
-    digest = hashlib.sha256()
+    digest_parts: list[bytes] = []
     for path in PREDICTOR_IDENTITY_FILES:
         relative = path.relative_to(_REPO_ROOT).as_posix().encode("utf-8")
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
+        digest_parts.append(len(relative).to_bytes(4, "big"))
+        digest_parts.append(relative)
         contents = path.read_bytes()
-        digest.update(len(contents).to_bytes(8, "big"))
-        digest.update(contents)
-    return digest.hexdigest()
+        digest_parts.append(len(contents).to_bytes(8, "big"))
+        digest_parts.append(contents)
+    return hashlib.sha256(b"".join(digest_parts)).hexdigest()
 
 
 def validate_predictor_cutoff(cutoff_exclusive: str) -> None:
@@ -111,6 +111,28 @@ def _parse_prediction(row: dict[str, Any]) -> ComparePrediction:
     )
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert dataframe scalars and missing values into strict JSON values."""
+
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    scalar_item = getattr(value, "item", None)
+    if callable(scalar_item):
+        try:
+            return _json_safe(scalar_item())
+        except ValueError:
+            return None
+    if type(value).__name__ in {"NAType", "NaTType"}:
+        return None
+    return value
+
+
 def run_compare_prediction_batch(
     teams_by_entrant_id: dict[str, dict[str, Any]],
     games: list[dict[str, Any]],
@@ -137,7 +159,10 @@ def run_compare_prediction_batch(
     with tempfile.TemporaryDirectory(prefix="matchbalance-compare-") as temp_dir:
         input_path = Path(temp_dir) / "input.json"
         output_path = Path(temp_dir) / "output.json"
-        input_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+        input_path.write_text(
+            json.dumps(_json_safe(payload), sort_keys=True, allow_nan=False),
+            encoding="utf-8",
+        )
         command = [
             node,
             "--experimental-strip-types",

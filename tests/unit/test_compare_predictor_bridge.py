@@ -39,6 +39,7 @@ def _team(team_id: str, age: int, power_score: float) -> dict:
         "exp_win_rate": power_score,
         "exp_goals_for": 1.5 + power_score,
         "exp_goals_against": 2.5 - power_score,
+        "publication_cap_score": float("nan"),
     }
 
 

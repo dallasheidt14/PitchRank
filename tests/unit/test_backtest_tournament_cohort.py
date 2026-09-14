@@ -192,6 +192,8 @@ def test_historical_ranking_row_uses_frozen_prediction_features():
             "offense_norm": 0.55,
             "defense_norm": 0.49,
             "rank_in_cohort_final": 7,
+            "same_age_games": 8,
+            "publication_cap_score": 0.59,
         }
     )
 
@@ -199,6 +201,8 @@ def test_historical_ranking_row_uses_frozen_prediction_features():
     assert row["off_norm"] == 0.55
     assert row["def_norm"] == 0.49
     assert row["rank_in_cohort_final"] == 7
+    assert row["same_age_games"] == 8
+    assert row["publication_cap_score"] == 0.59
 
 
 def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
@@ -980,6 +984,8 @@ def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
             "games_played": 14,
             "power_score_true": 0.61,
             "rank_in_cohort_final": 7,
+            "same_age_games": 14,
+            "publication_cap_score": 0.6,
         },
         cohort_age_group="u11",
         cohort_gender="Male",
@@ -990,6 +996,8 @@ def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
     assert entrant_row["gender"] == "Male"
     assert entrant_row["source_age_group"] == "u10"
     assert entrant_row["source_gender"] == "Male"
+    assert entrant_row["same_age_games"] == 14
+    assert entrant_row["publication_cap_score"] == 0.6
     assert any("playing up from u10 into u11" in note for note in notes)
 
 
@@ -1090,6 +1098,16 @@ def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkey
         "exp_win_rate": 0.62,
         "exp_goals_for": 2.1,
         "exp_goals_against": 1.2,
+        "same_age_games": 10,
+        "same_age_game_share": 0.83,
+        "same_age_unique_opponents": 8,
+        "same_age_top100_opp_count": 2,
+        "same_age_top500_opp_count": 5,
+        "same_age_avg_opp_power_adj": 0.57,
+        "repeat_opponent_share": 0.17,
+        "positive_ml_evidence_scale": 0.91,
+        "publication_cap_rank": 100,
+        "publication_cap_score": 0.59,
     }
     rows = [
         {**base_row, "entrant_id": "entry-a", "ranking_source_team_id": "source-a", "source_age_group": "u10"},
@@ -1102,7 +1120,6 @@ def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkey
         2,
         1,
         "2026-08-01",
-        ml_overperformance=0.3,
     )
 
     predict_fn, cost_fn = cohort._build_compare_prediction_and_cost_functions(rows, [game])
@@ -1111,7 +1128,9 @@ def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkey
 
     assert captured["teams"]["entry-a"]["age"] == 10
     assert captured["teams"]["entry-a"]["exp_margin"] == 0.7
-    assert captured["games"][0]["ml_overperformance"] == 0.3
+    assert captured["teams"]["entry-a"]["same_age_games"] == 10
+    assert captured["teams"]["entry-a"]["publication_cap_score"] == 0.59
+    assert "ml_overperformance" not in captured["games"][0]
     assert predict_fn(team_a, team_b) is prediction
     assert cost_fn(team_a, team_b).blowout_4plus_probability == 0.07
 

@@ -157,7 +157,6 @@ def _canonicalize_historical_games(
                 away_score=game.away_score,
                 game_date=game.game_date,
                 created_at=game.created_at,
-                ml_overperformance=game.ml_overperformance,
             )
         )
     return canonical
@@ -311,7 +310,7 @@ def _fetch_recent_games_for_teams(
             response = (
                 client.table("games")
                 .select(
-                    "id,home_team_master_id,away_team_master_id,home_score,away_score,game_date,created_at,ml_overperformance"
+                    "id,home_team_master_id,away_team_master_id,home_score,away_score,game_date,created_at"
                 )
                 .gte("game_date", cutoff_date)
                 .lt("game_date", prediction_ts.strftime("%Y-%m-%d"))
@@ -345,11 +344,6 @@ def _fetch_recent_games_for_teams(
                         away_score=game_row.get("away_score"),
                         game_date=str(game_row["game_date"]),
                         created_at=str(game_row.get("created_at") or ""),
-                        ml_overperformance=(
-                            float(game_row["ml_overperformance"])
-                            if game_row.get("ml_overperformance") is not None
-                            else None
-                        ),
                     )
                 )
 
@@ -385,6 +379,16 @@ def _historical_ranking_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "exp_win_rate": snapshot.get("exp_win_rate"),
         "exp_goals_for": snapshot.get("exp_goals_for"),
         "exp_goals_against": snapshot.get("exp_goals_against"),
+        "same_age_games": snapshot.get("same_age_games"),
+        "same_age_game_share": snapshot.get("same_age_game_share"),
+        "same_age_unique_opponents": snapshot.get("same_age_unique_opponents"),
+        "same_age_top100_opp_count": snapshot.get("same_age_top100_opp_count"),
+        "same_age_top500_opp_count": snapshot.get("same_age_top500_opp_count"),
+        "same_age_avg_opp_power_adj": snapshot.get("same_age_avg_opp_power_adj"),
+        "repeat_opponent_share": snapshot.get("repeat_opponent_share"),
+        "positive_ml_evidence_scale": snapshot.get("positive_ml_evidence_scale"),
+        "publication_cap_rank": snapshot.get("publication_cap_rank"),
+        "publication_cap_score": snapshot.get("publication_cap_score"),
     }
 
 
@@ -580,6 +584,16 @@ def _freeze_historical_inputs(
                 "exp_win_rate": entrant.get("exp_win_rate"),
                 "exp_goals_for": entrant.get("exp_goals_for"),
                 "exp_goals_against": entrant.get("exp_goals_against"),
+                "same_age_games": entrant.get("same_age_games"),
+                "same_age_game_share": entrant.get("same_age_game_share"),
+                "same_age_unique_opponents": entrant.get("same_age_unique_opponents"),
+                "same_age_top100_opp_count": entrant.get("same_age_top100_opp_count"),
+                "same_age_top500_opp_count": entrant.get("same_age_top500_opp_count"),
+                "same_age_avg_opp_power_adj": entrant.get("same_age_avg_opp_power_adj"),
+                "repeat_opponent_share": entrant.get("repeat_opponent_share"),
+                "positive_ml_evidence_scale": entrant.get("positive_ml_evidence_scale"),
+                "publication_cap_rank": entrant.get("publication_cap_rank"),
+                "publication_cap_score": entrant.get("publication_cap_score"),
             }
         )
 
@@ -595,7 +609,6 @@ def _freeze_historical_inputs(
             "away_score": game.away_score,
             "game_date": str(game.game_date),
             "created_at": str(game.created_at or ""),
-            "ml_overperformance": game.ml_overperformance,
         }
         for game in sorted(recent_games or [], key=lambda item: (str(item.game_date), str(item.id)))
     ]
@@ -744,6 +757,16 @@ def _build_entrant_row(
         "exp_win_rate": ranking_row.get("exp_win_rate"),
         "exp_goals_for": ranking_row.get("exp_goals_for"),
         "exp_goals_against": ranking_row.get("exp_goals_against"),
+        "same_age_games": ranking_row.get("same_age_games"),
+        "same_age_game_share": ranking_row.get("same_age_game_share"),
+        "same_age_unique_opponents": ranking_row.get("same_age_unique_opponents"),
+        "same_age_top100_opp_count": ranking_row.get("same_age_top100_opp_count"),
+        "same_age_top500_opp_count": ranking_row.get("same_age_top500_opp_count"),
+        "same_age_avg_opp_power_adj": ranking_row.get("same_age_avg_opp_power_adj"),
+        "repeat_opponent_share": ranking_row.get("repeat_opponent_share"),
+        "positive_ml_evidence_scale": ranking_row.get("positive_ml_evidence_scale"),
+        "publication_cap_rank": ranking_row.get("publication_cap_rank"),
+        "publication_cap_score": ranking_row.get("publication_cap_score"),
     }
 
 
@@ -1182,6 +1205,16 @@ def _build_compare_prediction_and_cost_functions(
             "exp_win_rate": row.get("exp_win_rate"),
             "exp_goals_for": row.get("exp_goals_for"),
             "exp_goals_against": row.get("exp_goals_against"),
+            "same_age_games": row.get("same_age_games"),
+            "same_age_game_share": row.get("same_age_game_share"),
+            "same_age_unique_opponents": row.get("same_age_unique_opponents"),
+            "same_age_top100_opp_count": row.get("same_age_top100_opp_count"),
+            "same_age_top500_opp_count": row.get("same_age_top500_opp_count"),
+            "same_age_avg_opp_power_adj": row.get("same_age_avg_opp_power_adj"),
+            "repeat_opponent_share": row.get("repeat_opponent_share"),
+            "positive_ml_evidence_scale": row.get("positive_ml_evidence_scale"),
+            "publication_cap_rank": row.get("publication_cap_rank"),
+            "publication_cap_score": row.get("publication_cap_score"),
         }
     game_payload = [
         {
@@ -1192,7 +1225,6 @@ def _build_compare_prediction_and_cost_functions(
             "away_score": game.away_score,
             "game_date": str(game.game_date),
             "created_at": str(game.created_at or ""),
-            "ml_overperformance": game.ml_overperformance,
         }
         for game in all_games
     ]

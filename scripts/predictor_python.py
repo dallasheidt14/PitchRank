@@ -88,7 +88,6 @@ class Game:
     away_score: Optional[int]
     game_date: str
     created_at: Optional[str] = None
-    ml_overperformance: Optional[float] = None
 
 
 @dataclass
