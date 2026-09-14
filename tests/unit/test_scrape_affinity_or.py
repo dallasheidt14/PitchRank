@@ -157,11 +157,6 @@ def _scrape(monkeypatch, rows, date_header=FUTURE_HEADER, window=WIDE_WINDOW):
     """Scrape `rows` with the season pinned, so Aug 1 does not move the expectations."""
     html = _schedule_html(rows, date_header)
     monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: html)
-    monkeypatch.setattr(
-        scraper,
-        "calculate_age_group_from_birth_year",
-        lambda birth_year: team_utils.calculate_age_group_from_birth_year(birth_year, PINNED_SEASON),
-    )
     return scraper.scrape_flight_games(TOURNAMENT, FLIGHT, *window)
 
 
@@ -366,6 +361,31 @@ class TestFetchFailureIsLoud:
         )
 
         assert scraper.discover_flights(TOURNAMENT, 17, "Male") == []
+
+
+class TestEmittedCohortFollowsTheEvent:
+    """Both derivations must read the event's season, not the wall clock."""
+
+    def test_the_rows_cohort_moves_with_the_events_season_only(self, monkeypatch):
+        """A rescan after an Aug 1 rollover must not age this league up.
+
+        birth_year was pinned to the event in an earlier round while the
+        age_group conversion still read the clock, so the two could disagree
+        and the emitted board moved on its own.
+        """
+        monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: _schedule_html([PLAYED], FUTURE_HEADER))
+
+        this_season = scraper.scrape_flight_games(TOURNAMENT, FLIGHT, *WIDE_WINDOW)
+        next_season = scraper.scrape_flight_games(
+            {**TOURNAMENT, "season_year": PINNED_SEASON + 1}, FLIGHT, *WIDE_WINDOW
+        )
+
+        assert {r["age_group"] for r in this_season} == {"u13"}
+        assert {r["age_year"] for r in this_season} == {2014}
+        # Same flight and the same birth year, read against a later season:
+        # one board OLDER. That is precisely the drift a clock-derived cohort
+        # would apply to this fixed historical event every Aug 1.
+        assert {r["age_group"] for r in next_season} == {"u14"}
 
 
 class TestDateWindow:

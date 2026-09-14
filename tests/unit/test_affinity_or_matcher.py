@@ -199,7 +199,9 @@ class _FakeQuery:
         return self
 
     def execute(self):
-        return SimpleNamespace(data=[{"state_code": r["state_code"]} for r in self._rows])
+        return SimpleNamespace(
+            data=[{"club_name": r.get("club_name"), "state_code": r["state_code"]} for r in self._rows]
+        )
 
 
 class _FakeDB:
@@ -215,6 +217,7 @@ def _matcher_with(rows):
     matcher = AffinityORGameMatcher.__new__(AffinityORGameMatcher)
     matcher.db = _FakeDB(rows)
     matcher._or_search_state_cache = {}
+    matcher._or_stored_club_name = {}
     return matcher
 
 
@@ -307,9 +310,16 @@ class TestClubInference:
 class TestStateForNewTeam:
     """What gets written is stricter than what gets searched."""
 
-    def _matcher(self, rows, unanimous=None):
+    def _matcher(self, rows, unanimous=None, expect_club=None):
         matcher = _matcher_with(rows)
-        matcher._resolve_state_from_club = lambda _club: (unanimous, "Washington" if unanimous else None)
+        seen = []
+
+        def fake_resolver(club):
+            seen.append(club)
+            return (unanimous, "Washington" if unanimous else None)
+
+        matcher._resolve_state_from_club = fake_resolver
+        matcher.clubs_asked_for_unanimity = seen
         return matcher
 
     def test_a_unanimous_club_stores_its_state(self):
@@ -326,6 +336,20 @@ class TestStateForNewTeam:
         matcher = self._matcher(rows, unanimous=None)
 
         assert matcher._state_for_new_team("FC Salmon Creek") == (None, None)
+
+    def test_unanimity_is_asked_under_the_clubs_stored_spelling(self):
+        """The inherited resolver compares case-sensitively.
+
+        Handing it the inferred "CYSA Timber Barons" against 27 stored "Cysa
+        Timber Barons" rows made it find nothing, and the disagreement branch
+        then stored NULL for a club whose every row says WA.
+        """
+        rows = [{"club_name": "Cysa Timber Barons", "state_code": "WA"}] * 27
+        matcher = self._matcher(rows, unanimous="WA")
+
+        matcher._state_for_new_team("CYSA Timber Barons")
+
+        assert matcher.clubs_asked_for_unanimity == ["Cysa Timber Barons"]
 
     def test_an_unknown_club_takes_the_leagues_state(self):
         matcher = self._matcher([], unanimous=None)

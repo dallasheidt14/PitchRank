@@ -397,7 +397,10 @@ def scrape_flight_games(
             birth_year = flight.get("birth_year")
             age_group = ""
             if birth_year:
-                ag = calculate_age_group_from_birth_year(birth_year)
+                # Against the event's season, like the birth year above. Reading
+                # the clock here would emit u14 for this 2026 league's BU13 the
+                # first time an operator rescans it past an Aug 1 rollover.
+                ag = calculate_age_group_from_birth_year(birth_year, tournament["season_year"])
                 if ag:
                     age_group = ag.lower()
 

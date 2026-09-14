@@ -249,6 +249,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         self._affinity_club_similarity_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
         self._affinity_debug_match_reasons = MATCHING_CONFIG.get("affinity_debug_match_reasons", False)
         self._or_search_state_cache: Dict[str, Optional[str]] = {}
+        self._or_stored_club_name: Dict[str, Optional[str]] = {}
 
     def _club_for(self, team_name: Optional[str], club_name: Optional[str]) -> Optional[str]:
         """The club to reason about for this team, inferred when the feed omits it.
@@ -285,10 +286,19 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         to *look* and may take a plurality, because nothing it decides is
         written down.
         """
-        resolved_code, resolved_state = self._resolve_state_from_club(club_name)
+        # Ask the unanimity question under the club's OWN stored spelling. The
+        # inherited resolver compares with a case-sensitive eq, so handing it
+        # the inferred "CYSA Timber Barons" against 27 stored "Cysa Timber
+        # Barons" rows made it report no unanimous state while the plurality
+        # below saw them -- and this branch then read unanimous agreement as
+        # disagreement and stored NULL.
+        plurality = self._club_state_plurality(club_name)
+        stored_name = self._or_stored_club_name.get(club_name) or club_name
+
+        resolved_code, resolved_state = self._resolve_state_from_club(stored_name)
         if resolved_code:
             return resolved_code, resolved_state
-        if self._club_state_plurality(club_name) is not None:
+        if plurality is not None:
             return None, None
         return STATE_CODE, STATE_NAME
 
@@ -325,10 +335,11 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         if club_name in self._or_search_state_cache:
             return self._or_search_state_cache[club_name]
         state = None
+        stored = None
         try:
             rows = (
                 self.db.table("teams")
-                .select("state_code")
+                .select("club_name, state_code")
                 # ilike with no wildcards is case-insensitive equality: the DB
                 # stores "Cysa Timber Barons" where the name infers
                 # "CYSA Timber Barons", and an exact eq misses it entirely.
@@ -338,11 +349,16 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 .limit(1000)
                 .execute()
             )
-            counts = Counter(r["state_code"] for r in (rows.data or []) if r.get("state_code"))
+            data = rows.data or []
+            counts = Counter(r["state_code"] for r in data if r.get("state_code"))
             if counts:
                 state = counts.most_common(1)[0][0]
+            spellings = Counter(r["club_name"] for r in data if r.get("club_name"))
+            if spellings:
+                stored = spellings.most_common(1)[0][0]
         except Exception as e:  # a read failure must not block matching
             logger.debug(f"[AffinityOR] Club state lookup failed for {club_name!r}: {e}")
+        self._or_stored_club_name[club_name] = stored
         self._or_search_state_cache[club_name] = state
         return state
 
