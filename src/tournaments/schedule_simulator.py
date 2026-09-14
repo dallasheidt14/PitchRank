@@ -1049,7 +1049,10 @@ def _simulate_captured_division_schedule(
     division: DivisionAssignment,
     template: DivisionScheduleTemplate,
     predict_fn: PredictionFn,
+    *,
+    qualification_predict_fn: PredictionFn | None = None,
 ) -> DivisionSimulation:
+    qualification_predict_fn = qualification_predict_fn or predict_fn
     pools = [list(pool.teams) for pool in division.pools]
     all_teams = [team for pool in pools for team in pool]
     standings = _empty_standings(all_teams)
@@ -1075,7 +1078,7 @@ def _simulate_captured_division_schedule(
                 tiebreak_source_urls=template.tiebreak_source_urls,
                 scoring_policy=template.scoring_policy,
                 three_team_head_to_head=template.three_team_head_to_head,
-                predict_fn=predict_fn,
+                predict_fn=qualification_predict_fn,
                 qualification_tiebreaks=qualification_tiebreaks,
             )
             return ranked[position]
@@ -1097,7 +1100,7 @@ def _simulate_captured_division_schedule(
                     tiebreak_source_urls=template.tiebreak_source_urls,
                     scoring_policy=template.scoring_policy,
                     three_team_head_to_head=template.three_team_head_to_head,
-                    predict_fn=predict_fn,
+                    predict_fn=qualification_predict_fn,
                     qualification_tiebreaks=qualification_tiebreaks,
                 )
             return candidates[position]
@@ -1190,9 +1193,16 @@ def simulate_division_schedule(
     division: DivisionAssignment,
     template: DivisionScheduleTemplate,
     predict_fn: PredictionFn,
+    *,
+    qualification_predict_fn: PredictionFn | None = None,
 ) -> DivisionSimulation:
     if template.fixture_slots:
-        return _simulate_captured_division_schedule(division, template, predict_fn)
+        return _simulate_captured_division_schedule(
+            division,
+            template,
+            predict_fn,
+            qualification_predict_fn=qualification_predict_fn,
+        )
 
     pool_rankings: list[list[SeedableTeam]] = []
     simulated_matches: list[SimulatedMatch] = []
@@ -1363,6 +1373,7 @@ def simulate_tournament_schedule(
             division=division,
             template=templates[division.name],
             predict_fn=simulation_predict_fn,
+            qualification_predict_fn=predict_fn,
         )
         for division in divisions
     )

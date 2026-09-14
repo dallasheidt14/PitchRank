@@ -47,11 +47,6 @@ on:
         required: false
         default: "pitm_24367490034_hybrid"
         type: string
-      force_offline_refresh:
-        description: "Recompute offline predictions even if rows already have completed offline payloads"
-        required: false
-        default: false
-        type: boolean
       dry_run:
         description: "Build fixture rows without writing them to the database"
         required: false
@@ -186,7 +181,6 @@ jobs:
           LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
           OFFLINE_MODEL_VERSION: ${{ github.event.inputs.offline_model_version }}
-          FORCE_OFFLINE_REFRESH: ${{ github.event.inputs.force_offline_refresh }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
@@ -214,10 +208,6 @@ jobs:
 
           if [ -n "$OFFLINE_MODEL_VERSION" ]; then
             CMD+=(--offline-model-version "$OFFLINE_MODEL_VERSION")
-          fi
-
-          if [ "$FORCE_OFFLINE_REFRESH" = "true" ]; then
-            CMD+=(--force-offline-refresh)
           fi
 
           if [ "$DRY_RUN" = "true" ]; then

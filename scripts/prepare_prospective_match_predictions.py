@@ -777,7 +777,6 @@ def prepare_prospective_match_predictions(
     model_artifact: Optional[Path],
     calibration_artifact: Optional[Path],
     offline_model_version: Optional[str],
-    force_offline_refresh: bool,
     dry_run: bool,
 ) -> Dict[str, Any]:
     fixtures = load_fixtures_from_jsonl(fixtures_file, source_artifact_path or str(fixtures_file))
@@ -1063,13 +1062,6 @@ def main() -> None:
         default=None,
         help="Optional explicit offline model version label",
     )
-    parser.add_argument(
-        "--force-offline-refresh",
-        action="store_true",
-        help=(
-            "Retry unresolved or errored future fixtures. Completed prediction payloads remain immutable."
-        ),
-    )
     parser.add_argument("--dry-run", action="store_true", help="Build everything but skip database writes")
     parser.add_argument("--summary-path", default=None, help="Optional path to write JSON summary")
     args = parser.parse_args()
@@ -1094,7 +1086,6 @@ def main() -> None:
         model_artifact=model_artifact,
         calibration_artifact=calibration_artifact,
         offline_model_version=args.offline_model_version,
-        force_offline_refresh=args.force_offline_refresh,
         dry_run=args.dry_run,
     )
     if args.summary_path:

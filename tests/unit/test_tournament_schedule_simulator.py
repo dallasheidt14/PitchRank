@@ -13,12 +13,14 @@ from src.tournaments.schedule_simulator import (
     _rank_pool_teams,
     _SampledPrediction,
     _simulate_match,
+    _stochastic_prediction_function,
     _update_pool_standings,
     captured_division_schedule_template,
     explicit_division_schedule_template,
     infer_division_schedule_template,
     refine_tournament_assignments_for_schedule,
     schedule_competitiveness_objective,
+    simulate_division_schedule,
     simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
@@ -311,6 +313,73 @@ def test_sampled_prediction_consumes_tiebreak_draw_for_every_match():
     )
 
     assert tied_rng.random() == decisive_rng.random()
+
+
+def test_tiger_qualifier_projection_does_not_consume_fixture_randomness():
+    class CountingRandom(random.Random):
+        def __init__(self, seed):
+            super().__init__(seed)
+            self.draw_count = 0
+
+        def random(self):
+            self.draw_count += 1
+            return super().random()
+
+    teams = [_team(1, 0.8, 1), _team(2, 0.4, 2), _team(3, 0.6, 3)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=3, pool_sizes=(3,))],
+        matchup_cost_fn=_cost,
+    )
+    template = captured_division_schedule_template(
+        division_name="Gold",
+        actual_division_name="U17 Boys Gold",
+        pool_sizes=(3,),
+        fixture_slots=(
+            {
+                "stage": "Pool",
+                "counts_for_standings": True,
+                "home": {"kind": "pool_slot", "pool_index": 0, "slot_index": 0},
+                "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 1},
+            },
+            {
+                "stage": "Final",
+                "home": {"kind": "pool_rank", "pool_index": 0, "rank": 0},
+                "away": {"kind": "pool_slot", "pool_index": 0, "slot_index": 2},
+            },
+        ),
+        tiebreak_order=TIGER_TOURNAMENTS_TIEBREAK_ORDER,
+        tiebreak_source_urls=("https://tigertournaments.com/resources-2/",),
+        scoring_policy=TIGER_TOURNAMENTS_SCORING_POLICY,
+    )
+
+    def always_draw_prediction(home, away):
+        home_stronger = home.power_score > away.power_score
+        return SimpleNamespace(
+            predicted_winner="draw",
+            expected_score={"teamA": 1, "teamB": 1},
+            win_probability_a=0.4 if home_stronger else 0.2,
+            draw_probability=0.4,
+            win_probability_b=0.2 if home_stronger else 0.4,
+            scoreline_probability_matrix=((0.0, 0.0), (0.0, 1.0)),
+        )
+
+    rng = CountingRandom(17)
+    sampled = _stochastic_prediction_function(
+        always_draw_prediction,
+        rng=rng,
+        team_strength_offsets={},
+    )
+    simulation = simulate_division_schedule(
+        result.divisions[0],
+        template,
+        sampled,
+        qualification_predict_fn=always_draw_prediction,
+    )
+
+    assert simulation.match_count == 2
+    assert simulation.qualification_tiebreaks
+    assert rng.draw_count == 4
 
 
 def test_simulate_tournament_schedule_replays_two_pools_of_three_with_semis():
