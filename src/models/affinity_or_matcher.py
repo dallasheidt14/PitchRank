@@ -133,6 +133,15 @@ _TIER_TOKENS = frozenset(
 # at all and an ECNL-RL squad merges onto its club's ECNL squad.
 _TIER_ALIASES = {"ecrl": frozenset({"ecnl", "rl"})}
 
+# "Academy" and "Premier" are frequently part of a club's actual name — 14 and 5
+# of the 106 distinct OR club names respectively, e.g. "Coast to Coast Futbol
+# Academy", "Oregon Premier FC" — so a side naming one has not necessarily named
+# a tier, and a one-sided difference there is not evidence of anything. Every
+# other token in _TIER_TOKENS was measured absent from OR club names on
+# 2026-09-12, so one side naming ECNL while the other does not is a real tier
+# difference and must reject.
+_CLUB_AMBIGUOUS_TIERS = frozenset({"academy", "premier"})
+
 
 def _extract_tier_tokens(name: str) -> frozenset:
     """Competitive tiers named in a team name, e.g. 'United PDX ECNL 2013' -> {'ecnl'}.
@@ -148,6 +157,22 @@ def _extract_tier_tokens(name: str) -> frozenset:
     for word in words:
         tiers |= _TIER_ALIASES.get(word, frozenset())
     return frozenset(tiers)
+
+
+def _tiers_conflict(provider_tiers: frozenset, candidate_tiers: frozenset) -> bool:
+    """True when two names name different tiers and so cannot be one team.
+
+    A one-sided *competitive* tier counts: requiring both sides to name one let
+    a plain squad match its club's ECNL squad, with the club and variant boosts
+    carrying it past auto-approve. "Academy" and "Premier" are the exception —
+    often just part of a club's name — so they only count when both sides say
+    one, which still separates a club's Academy squad from its Premier squad.
+    """
+    provider_strong = provider_tiers - _CLUB_AMBIGUOUS_TIERS
+    candidate_strong = candidate_tiers - _CLUB_AMBIGUOUS_TIERS
+    if provider_strong != candidate_strong:
+        return True
+    return bool(provider_tiers and candidate_tiers and provider_tiers != candidate_tiers)
 
 
 def _extract_lane_number(name: str) -> Optional[str]:
@@ -311,8 +336,13 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 # the variant gate above reads None != None as agreement — which
                 # matched a Premier squad onto its club's ECNL squad, the merge
                 # CLAUDE.md's division-tier rule forbids.
+                # A one-sided competitive tier is a difference, not an absence:
+                # requiring both sides to name one let plain 'FC Portland 13B Red'
+                # match 'FC Portland ECNL 2013 Red' with the club and variant
+                # boosts carrying it past auto-approve. Only the two club-shaped
+                # words still need naming on both sides before they count.
                 candidate_tiers = _extract_tier_tokens(candidate_name_norm)
-                if provider_tiers and candidate_tiers and provider_tiers != candidate_tiers:
+                if _tiers_conflict(provider_tiers, candidate_tiers):
                     reject_counts["tier_mismatch"] += 1
                     continue
 

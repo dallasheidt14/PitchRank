@@ -23,6 +23,7 @@ from src.models.affinity_or_matcher import (
     _extract_tier_tokens,
     _is_same_club,
     _normalize_for_affinity_or,
+    _tiers_conflict,
 )
 
 THRESHOLD = 0.9
@@ -102,6 +103,49 @@ class TestTierTokens:
 
     def test_academy_and_premier_are_different_tiers(self):
         assert _extract_tier_tokens("WOODBURN FC 2013 Academy") != _extract_tier_tokens("WOODBURN FC 2013 Premier")
+
+
+class TestTiersConflict:
+    """A one-sided competitive tier is a difference; a club-shaped word is not."""
+
+    def _tiers(self, name):
+        return _extract_tier_tokens(name)
+
+    @pytest.mark.parametrize(
+        "provider, candidate",
+        [
+            # One side names ECNL and the other names nothing — the case that
+            # slipped past the both-sided rule with the club+variant boosts
+            # carrying it over auto-approve.
+            ("FC Portland 2013 Red", "FC Portland ECNL 2013 Red"),
+            ("FC Portland ECNL 2013 Red", "FC Portland 2013 Red"),
+            # Every spelling of the regional league against plain ECNL
+            ("United PDX ECNL 2013", "United PDX ECNL RL 2013"),
+            ("United PDX ECNL 2013", "United PDX ECNL-RL 2013"),
+            ("United PDX ECNL 2013", "United PDX ECRL 2013"),
+            # Both name a club-shaped word, and they differ
+            ("Woodburn FC 2013 Academy", "Woodburn FC 2013 Premier"),
+        ],
+    )
+    def test_conflicting_tiers_are_refused(self, provider, candidate):
+        assert _tiers_conflict(self._tiers(provider), self._tiers(candidate)) is True
+
+    @pytest.mark.parametrize(
+        "provider, candidate",
+        [
+            # Neither names a tier
+            ("FC Portland 2013 Red", "FC Portland 2014 Red"),
+            # Same tier both sides
+            ("United PDX ECNL 2013", "United PDX ECNL 2014"),
+            ("United PDX ECRL 2013", "United PDX ECNL-RL 2014"),
+            # "Academy" and "Premier" are part of these clubs' names, not tiers,
+            # so one side carrying the club's full name must not reject.
+            ("Coast to Coast Futbol Academy 2013 Red", "Coast to Coast 2014 Red"),
+            ("Oregon Premier FC 2013 Red", "Oregon Premier 2014 Red"),
+        ],
+    )
+    def test_compatible_tiers_are_allowed(self, provider, candidate):
+        assert _tiers_conflict(self._tiers(provider), self._tiers(candidate)) is False
 
 
 class TestLaneNumber:
