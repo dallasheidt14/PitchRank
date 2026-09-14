@@ -1026,3 +1026,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
 - **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
 - **Noted**: 2026-09-14
+
+### Fox Soccer Academy 2010 B Black was created as a U16 duplicate of its U17 team
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
+- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 9 fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Noted**: 2026-09-14
