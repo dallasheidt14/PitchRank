@@ -1101,3 +1101,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - Rename only names whose single U-age equals the prior label and that carry no birth year or season.
   - Park the u19 board at U18, write the oldest board first, guard each write on its old value, and dry run by default.
 - **Noted**: 2026-09-14
+
+### SincSports teams carry their team-ID state prefix as an unmarked state, and Tier B overrides it from a shared club name
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `SincSportsGameMatcher._create_new_sincsports_team` (`state_code` param) in `src/models/sincsports_matcher.py`; `club_derived_state` and `outranked` in `scripts/assign_team_states.py`
+- **Why**: Measured 2026-09-14: 19,596 of the 19,616 SincSports teams created 09-13/14 have `state_code` equal to the first two letters of their SincSports ID (`VAM11811` = VA), with no `state` name and no `state_source`, so the sweep treats it as a guess. That day's free sweep proposed about 30 Tier B corrections on those teams. By hand, about half were right (Gwinnett Soccer Academy NC→GA) and about half rested on a club name belonging to a different club (a Gunston SC team, which is in VA, filed under KEYSTONE FC PA; Winchester, Woodbury, Pasadena, Hub City). Settle whether the prefix is the registering state or the event's host state, then either stamp it as a provider source or stop writing it.
+- **Noted**: 2026-09-14
+
+### GotSport's unset AL default passes the guard for teams with no club-mates
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `unset_default_disputed` and its callers in `decide` and the confirm builder, `scripts/assign_team_states.py`
+- **Why**: The guard drops an `AL` answer only when the team's name, club or a place word in its name disagrees. A team in `--probe-unclubbed` has no club-mates and often no place word, so AL goes through. 2026-09-14 rehearsal (ledger answers, no calls): "MAFC 2017 Royal" TX→AL auto-apply (all 4 opponents TX), and an "Arlington Soccer Association" team confirmed as AL (all 3 opponents VA). Both were withheld by hand. Needs a rule for AL with no local reading that doesn't also block real Alabama teams.
+- **Noted**: 2026-09-14
