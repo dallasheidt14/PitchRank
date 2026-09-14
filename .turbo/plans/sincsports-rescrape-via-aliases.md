@@ -15,7 +15,7 @@ This plan adds a standalone driver `scripts/scrape_sincsports_games_via_aliases.
 ### Analogous Features
 
 - `scripts/scrape_games.py:253-520` — Closest structural analog. Async driver: argparse → dotenv → Supabase client → team-fetch → asyncio+Semaphore concurrent scrape → JSONL emit (with `file_lock`) → bulk `team_scrape_log` insert + `teams.last_scraped_at` bump (deferred via `log_buffer`) → optional `--auto-import` hand-off. CLI defaults at `:524-544`: `--provider`, `--output`, `--limit-teams`, `--skip-teams`, `--null-teams-only`, `--include-recent`, `--since-date`, `--auto-import`, `--concurrency=30`.
-- `scripts/scrape_sincsports_tournament_schedule.py:1-212` — SincSports-specific standalone driver, but tournament-id sourced (does NOT consult `team_alias_map` or `teams`). Useful for the dotenv loader (`:53-57`), JSONL output convention (`data/raw/sincsports_games_tournament_<TID>_<ts>.jsonl` at `:191`), and `import_games_enhanced.py` hand-off shape (`:198-205`).
+- `scripts/scrape_sincsports_tournament_schedule.py` — SincSports driver that takes a tournament id (`--tid`) or a browser capture (`--from-bundle`); its optional `--check-aliases` reads approved aliases only to hold back unlinked teams, and it never sources teams from `team_alias_map` or `teams`. Useful for the dotenv loader, the JSONL output convention (`data/raw/sincsports_games_<label>_<ts>.jsonl`), and the `import_games_enhanced.py` hand-off shape.
 - `scripts/maintain_gotsport_direct_id_aliases.py:60-83` — Existing paginated read from `team_alias_map` filtered by `provider_id`, `review_status='approved'`, `not_.is_("provider_team_id","null")`. Direct template for the new driver's source query.
 - `scripts/backfill_missing_club_names.py:178-227` — `fetch_gotsport_ids` is the closest "alias-first, teams-as-fallback" lookup pattern: reads `team_alias_map` filtered by provider + approved + `in_("team_id_master", batch)`. Direct analog for the alias→teams join shape.
 - `src/scrapers/base.py:71-122` — `BaseScraper._get_teams_to_scrape()` shows the pre-RPC pattern: `get_teams_to_scrape` RPC → batched `teams.in_("team_id_master", batch)` re-fetch. The new driver inverts the flow (alias-first, then teams batch-fetch) but reuses the batching idiom.
@@ -32,7 +32,7 @@ This plan adds a standalone driver `scripts/scrape_sincsports_games_via_aliases.
 
 ### Convention Anchors
 
-- **dotenv loader** (`scrape_games.py:32-47`): `load_dotenv()`, then `.env.local` with `override=True` if it exists, then `logger.info("Loaded .env.local"|"Loaded .env")`. Same idiom in `scrape_sincsports_tournament_schedule.py:53-57`. Not yet consolidated into a helper.
+- **dotenv loader** (`scrape_games.py:32-47`): `load_dotenv()`, then `.env.local` with `override=True` if it exists, then `logger.info("Loaded .env.local"|"Loaded .env")`. Same idiom in `scrape_sincsports_tournament_schedule.py`. Not yet consolidated into a helper.
 - **Supabase client init** (`scrape_games.py:283`): `create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_ROLE_KEY"))`.
 - **CLI shape**: `argparse.ArgumentParser` → `asyncio.run(main())` → `KeyboardInterrupt`→`sys.exit(130)`, generic `Exception`→`logger.exception` + `sys.exit(1)` (`scrape_games.py:523-577`).
 - **JSONL output** convention: `data/raw/scraped_games_{ts}.jsonl` (gotsport) / `data/raw/sincsports_games_tournament_<TID>_<ts>.jsonl`. New driver: `data/raw/sincsports_games_via_aliases_<ts>.jsonl`.

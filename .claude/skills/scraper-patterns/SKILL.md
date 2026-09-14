@@ -343,6 +343,65 @@ events return a province (`ON`, `BC`), not a US state.
 `scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
 only `name`, so the other fields cost no extra request.
 
+## SincSports Schedule Pages
+
+### Access
+
+SincSports pages sit behind a Cloudflare challenge that answers plain `requests` on the
+schedule, rankings and clubs pages with 403; the ZenRows `--via-proxy` option on the tournament
+driver is untested against it. A same-origin `fetch()` from a page already open on
+`soccer.sincsports.com` passes. Capture in a
+real browser with `scripts/sincsports_capture_bundle.js` through the Playwright MCP
+`browser_evaluate` tool, then parse offline with
+`scripts/scrape_sincsports_tournament_schedule.py --from-bundle`. `browser_evaluate` rejects a
+trailing semicolon after the function, and its `filename` must sit under the checkout root in a
+folder that already exists. Per-team game histories are gated behind SincVIP.
+
+### Layouts and paging
+
+- `schedule.aspx` renders either the old `div.form-row.game-row` layout or the newer `sched2`
+  layout. A league division opens on standings, so request `&mode=schedule` to get games.
+- Both layouts show 50 games per page via `&gpage=N`. The pager (`sched-pager` or `sched2-pager`)
+  links only nearby pages: a 312-game division's page 1 links pages 1–4 of 7. Take the page count
+  from its "N games" total as well as its links (`parse_page_count`); trusting links alone
+  truncates silently.
+- A sched2 root links every division. An old-layout root links only the one it shows and lists
+  the rest as `<select>` option values; the capture script reads both, while
+  `parse_tournament_index` reads links only. Codes are `UxxM##` boys, `UxxF##` girls.
+- Team ids are `a[data-team]` in sched2 and `teamid=` in old-layout links. Old-layout league
+  pages link team names to `schedule2.aspx`, old-layout tournaments to `schedule.aspx`.
+
+### Status and dates
+
+- Cancelled, postponed and forfeited sched2 games carry `.sched2-gstat-off` in the venue slot
+  (`Forfeit`, `Canceled - Weather`, `Blackout - Postponed`), often beside a recorded score such as
+  4-0. Take status from it; `.sched2-mark` and `.sched2-typechip` never carry it, so a forfeit read
+  from those looks played. `.sched2-gstat-note` (`Kicks from the Mark`) is informational.
+- sched2 day headers print a weekday and "Mon D" with no year. The team links carry `year=`, the
+  event year; of that year and the years either side, the right one puts the date on the printed
+  weekday (`_sched2_day_date`).
+- `Jan 1` is the site's placeholder for games with no real date, printed under either `MON` or
+  the event year's own weekday, and it can carry a score (a 0-0 marked played).
+  `parse_division_pages` leaves every 1 January game undated so none of them import.
+
+### Rec, small-sided and adult play
+
+PitchRank never imports rec, small-sided (3v3–6v6) or adult play; 7v7 and 9v9 are standard U9–U12
+formats and stay in. SincSports' own tags are not enough: a league tagged Competitive can still run
+divisions named "Rec First Division". The capture script searches with Recreation and Small Sided
+unticked and skips excluded league and division names, and the import command skips any division
+or event whose name matches the same pattern (`is_excluded_play`), so an older capture cannot
+bring them in either. Keep the two patterns identical.
+
+### Finding leagues
+
+Each league season has its own tid (a spring and a fall tid per league). The Leagues list
+(`events.aspx?sinc=Y&leagues=Y`) is an ASP.NET form: set `ctl00$ContentPlaceHolder1$tbFrom` and
+submit `ctl00$ContentPlaceHolder1$btnSearch`. Unlike the tournament view it accepts past From
+Dates, filters on end date, and returns at most 30 leagues with no pager, so walk the From Date
+forward. Featured leagues render the same card with an `F` in every control id
+(`lnkFEventName`, `lblFDate`).
+
 ## Request Pattern
 
 ### Standard Request
