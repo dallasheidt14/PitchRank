@@ -66,3 +66,22 @@ def test_missing_history_fallback_has_a_distinct_evidence_basis():
 
     assert estimate["power_score"] == pytest.approx(0.64)
     assert basis == DIVISION_MISSING_HISTORY_AVERAGE_BASIS
+
+
+def test_average_strength_does_not_inherit_peer_evidence_or_certainty():
+    peer = {
+        **_row("rated", "silver", 0.64),
+        "games_played": 24,
+        "glicko_rd": 45.0,
+        "glicko_volatility": 0.04,
+    }
+
+    estimate, _basis = build_average_rating_estimate(
+        {"entrant_id": "unknown", "actual_division_key": "silver"},
+        (peer,),
+    )
+
+    assert estimate["power_score"] == pytest.approx(0.64)
+    assert estimate["games_played"] == 0
+    assert estimate["glicko_rd"] == 350.0
+    assert estimate["glicko_volatility"] is None

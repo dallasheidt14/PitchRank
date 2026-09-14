@@ -112,6 +112,7 @@ class TournamentOptimizationResult:
     schedule_objective_after: float | None = None
     schedule_scenario_count: int = 0
     schedule_random_seed: int | None = None
+    schedule_scenario_risk_weight: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -126,6 +127,7 @@ class TournamentOptimizationResult:
             "schedule_objective_after": self.schedule_objective_after,
             "schedule_scenario_count": self.schedule_scenario_count,
             "schedule_random_seed": self.schedule_random_seed,
+            "schedule_scenario_risk_weight": self.schedule_scenario_risk_weight,
             "divisions": [
                 {
                     "name": division.name,
@@ -944,6 +946,7 @@ def optimize_tournament_format(
     matchup_cost_fn: MatchupCostFn = projected_matchup_cost,
     matchup_proxy: str = "strength_gap_proxy_v1",
     pool_assignment_policy: str = POOL_POLICY_COMPETITIVE_MATCHUPS,
+    restart_count: int = 5,
 ) -> TournamentOptimizationResult:
     """Assign teams into the provided tournament format.
 
@@ -967,6 +970,7 @@ def optimize_tournament_format(
             improvement_tolerance=improvement_tolerance,
             matchup_cost_fn=matchup_cost_fn,
             matchup_proxy=matchup_proxy,
+            restart_count=restart_count,
         )
         division_memberships = tuple(division.teams for division in division_result.divisions)
         total_iterations = division_result.optimizer_iterations

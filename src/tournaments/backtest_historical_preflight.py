@@ -36,6 +36,9 @@ from src.tournaments.backtest_rating_fallback import (
     needs_rating_fallback,
 )
 from src.tournaments.backtest_reviewed_run import model_artifact_sha256, resolve_model_artifact
+from src.tournaments.historical_coverage_reporting import (
+    write_historical_coverage_report,
+)
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir
 from src.utils.merge_resolver import MergeResolver
@@ -56,6 +59,7 @@ class HistoricalEntrantCheck:
     source_age_group: str = ""
     source_gender: str = ""
     power_score: float | None = None
+    games_played: int = 0
     reason: str = ""
     rating_basis: str = "historical_snapshot"
     rating_source_count: int = 0
@@ -160,6 +164,7 @@ def write_historical_preflight(
 ) -> Path:
     path = historical_preflight_path(event_key, base_dir=base_dir)
     write_json(path, result.to_dict())
+    write_historical_coverage_report(result, path.parent)
     return path
 
 
@@ -324,6 +329,7 @@ def run_historical_preflight(
                 source_age_group=str(row["source_age_group"]),
                 source_gender=str(row["source_gender"]),
                 power_score=float(row["power_score"]),
+                games_played=int(row.get("games_played") or 0),
                 strength_uncertainty=strength_uncertainty,
                 uncertainty_basis=uncertainty_basis,
             )

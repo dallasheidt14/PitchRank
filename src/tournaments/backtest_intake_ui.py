@@ -69,6 +69,9 @@ from src.tournaments.backtest_reviewed_run import (
 )
 from src.tournaments.backtest_scope import backtest_scope_snapshot
 from src.tournaments.gotsport_event_structure import summarize_structure_quality
+from src.tournaments.historical_coverage_reporting import (
+    build_historical_coverage_report,
+)
 from src.tournaments.roster_resolver import make_team_details_lookup, resolve_manual_reference
 from src.tournaments.schedule_simulator import (
     DEFAULT_TIEBREAK_ORDER,
@@ -1802,6 +1805,8 @@ def _render_backtest_runner(
     if preflight:
         eligible = sum(item.eligible for item in preflight.cohorts)
         total = sum(item.total for item in preflight.cohorts)
+        coverage_report = build_historical_coverage_report(preflight)
+        quality_counts = coverage_report["summary"]["counts_by_quality"]
         fallbacks = [
             entrant
             for cohort in preflight.cohorts
@@ -1812,6 +1817,13 @@ def _render_backtest_runner(
             st.success(
                 f"Historical evidence ready for {eligible} of {total} entrants before "
                 f"{preflight.cutoff_exclusive}."
+            )
+            st.caption(
+                "Historical evidence quality: "
+                f"{quality_counts.get('established_history', 0)} established, "
+                f"{quality_counts.get('moderate_history', 0)} moderate, "
+                f"{quality_counts.get('limited_history', 0)} limited, and "
+                f"{coverage_report['summary']['average_estimate_entrants']} average estimates."
             )
             if fallbacks:
                 not_found_fallbacks = sum(
@@ -1826,25 +1838,26 @@ def _render_backtest_runner(
                     f"{missing_history_fallbacks} matched team(s) without eligible pre-event "
                     "history. These limitations are saved with the Backtest evidence."
                 )
-                with st.expander("Average estimates and uncertainty"):
+            recovery_rows = [
+                row
+                for row in coverage_report["entrants"]
+                if row["needs_evidence_recovery"]
+            ]
+            if recovery_rows:
+                with st.expander("Teams using limited or average evidence"):
                     st.dataframe(
                         pd.DataFrame(
                             [
                                 {
-                                    "Cohort": (
-                                        f"{_display_gender(cohort.gender)} "
-                                        f"{cohort.age_group.upper()}"
-                                    ),
-                                    "Team": entrant.event_team_name,
-                                    "Estimate": entrant.rating_basis,
-                                    "Source teams": entrant.rating_source_count,
-                                    "Uncertainty": entrant.strength_uncertainty,
-                                    "Reason": entrant.reason,
+                                    "Cohort": f"{_display_gender(row['gender'])} {str(row['age_group']).upper()}",
+                                    "Team": row["event_team_name"],
+                                    "Evidence": row["evidence_quality"],
+                                    "History games": row["games_played"],
+                                    "Estimate": row["rating_basis"],
+                                    "Uncertainty": row["strength_uncertainty"],
+                                    "Reason": row["reason"],
                                 }
-                                for cohort in preflight.cohorts
-                                for entrant in cohort.entrants
-                                if entrant.rating_basis != "historical_snapshot"
-                                and entrant.eligible
+                                for row in recovery_rows
                             ]
                         ),
                         hide_index=True,

@@ -19,13 +19,10 @@ AVERAGE_ESTIMATE_SOURCE_PREFIX = "average-estimate:"
 _AVERAGED_FIELDS = (
     "power_score",
     "rank_in_cohort",
-    "games_played",
     "sos_norm",
     "off_norm",
     "def_norm",
     "glicko_rating",
-    "glicko_rd",
-    "glicko_volatility",
 )
 
 
@@ -101,6 +98,11 @@ def build_average_rating_estimate(
     }
     for field in _AVERAGED_FIELDS:
         estimate[field] = _finite_average(candidates, field)
+    # Preserve the requested average central strength without pretending that
+    # the unknown entrant inherited its peers' evidence volume or certainty.
+    estimate["games_played"] = 0
+    estimate["glicko_rd"] = 350.0
+    estimate["glicko_volatility"] = None
     if estimate["power_score"] is None:
         raise ValueError(
             "No eligible pre-event rating is available to calculate an average for "

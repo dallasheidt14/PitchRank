@@ -1888,6 +1888,15 @@ def main() -> int:
             "when the predictor supplies a coherent score distribution"
         ),
     )
+    parser.add_argument(
+        "--optimization-scenario-risk-weight",
+        type=float,
+        default=0.35,
+        help=(
+            "Penalty applied to the 90th-percentile scheduled-matchup cost across "
+            "team-strength scenarios"
+        ),
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -2244,6 +2253,15 @@ def main() -> int:
         )
         for division_spec, division_payload in zip(divisions, payload["divisions"], strict=False)
     }
+    strength_sorted_result = optimize_tournament_format(
+        seedable_teams,
+        divisions,
+        max_iterations=0,
+        matchup_cost_fn=matchup_cost_fn,
+        matchup_proxy=matchup_proxy,
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+        restart_count=1,
+    )
     if args.schedule_refinement_iterations > 0:
         print("PHASE: refining-scheduled-matchups", flush=True)
         optimization_result = refine_tournament_assignments_for_schedule(
@@ -2261,9 +2279,15 @@ def main() -> int:
                 else 0
             ),
             random_seed=args.simulation_random_seed,
+            scenario_risk_weight=args.optimization_scenario_risk_weight,
         )
     simulated_tournament = simulate_tournament_schedule(
         optimization_result.divisions,
+        templates,
+        predict_fn,
+    )
+    strength_sorted_tournament = simulate_tournament_schedule(
+        strength_sorted_result.divisions,
         templates,
         predict_fn,
     )
@@ -2284,6 +2308,10 @@ def main() -> int:
     proposed_schedule_projection = _schedule_projection(
         simulated_tournament,
         projection_basis="matchbalance_reseeded_fixture_graph",
+    )
+    strength_sorted_schedule_projection = _schedule_projection(
+        strength_sorted_tournament,
+        projection_basis="strength_sorted_divisions_balanced_pools",
     )
     if (
         args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME
@@ -2374,6 +2402,13 @@ def main() -> int:
         "optimized_projection": optimized_payload,
         "proposed_model_projection": proposed_model_projection,
         "proposed_schedule_projection": proposed_schedule_projection,
+        "optimizer_benchmarks": {
+            "actual_scraped_results": actual_summary,
+            "captured_original_projection": original_schedule_projection,
+            "strength_sorted_projection": strength_sorted_schedule_projection,
+            "matchbalance_optimized_projection": proposed_schedule_projection,
+            "strength_sorted_assignment": strength_sorted_result.to_dict(),
+        },
         "simulation_ensemble": simulation_ensemble,
         "model_validation": model_validation,
         "seeding_comparison": seeding_comparison,

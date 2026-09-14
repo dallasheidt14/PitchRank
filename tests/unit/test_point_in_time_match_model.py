@@ -12,6 +12,7 @@ from src.predictions.point_in_time_match_model import (
     _poisson_draw_gate_mask,
     _poisson_outcome_probabilities,
     _poisson_score_matrix,
+    _schedule_load_features,
     _score_matrix_summary,
     _snapshot_as_of,
     build_point_in_time_dataset,
@@ -215,6 +216,31 @@ def test_dataset_preserves_created_at_for_per_example_history_cutoff():
     target = result.dataset[result.dataset["game_id"] == "target"].iloc[0]
 
     assert target["team_a_prior_game_count"] == 0.0
+
+
+def test_schedule_load_features_use_only_strictly_available_prior_dates():
+    games = [
+        PredictorGame("old", "a", "b", 2, 0, "2026-04-01"),
+        PredictorGame("recent", "a", "c", 1, 1, "2026-04-07"),
+        PredictorGame(
+            "late-result",
+            "a",
+            "d",
+            3,
+            0,
+            "2026-04-09",
+            created_at="2026-04-10T12:00:00Z",
+        ),
+        PredictorGame("same-day", "a", "e", 1, 0, "2026-04-10"),
+    ]
+
+    features = _schedule_load_features(games, target_date="2026-04-10")
+
+    assert features == {
+        "days_since_last_game": 3.0,
+        "games_last_7_days": 1.0,
+        "games_last_30_days": 2.0,
+    }
 
 
 def test_chronological_split_keeps_dates_and_mirrored_games_together():

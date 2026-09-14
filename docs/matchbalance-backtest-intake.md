@@ -80,6 +80,20 @@ Backtest evaluates both team orientations and averages them into one neutral-sit
 
 Every training run evaluates two interpretable baselines on the exact same untouched examples: a cohort scoring-rate Poisson model and a recency-weighted team attack/defense Poisson model shrunk toward its age and gender cohort. MatchBalance therefore has to beat simple historical alternatives on probability quality, margin error, 4+ blowout probability, and competitive-game detection. The benchmark is written to `point_in_time_model_frozen_holdout_benchmarks.csv` and recorded in the model metadata. It never silently promotes a model. Evaluation bundles also break performance out by age, gender, feature source, and the weaker of the two teams' history coverage.
 
+For a broader offline bake-off, save the point-in-time training dataset and run:
+
+```powershell
+python scripts/run_match_model_laboratory.py `
+  --dataset models/point_in_time_match_predictor/training_dataset.csv `
+  --output-dir reports/matchbalance-model-laboratory
+```
+
+The laboratory uses expanding chronological folds and keeps every short tournament, plus any overlapping date interval, entirely inside one fold. It compares the learned MatchBalance model with cohort-average Poisson, recency-weighted hierarchical Poisson, hierarchical negative-binomial, and hierarchical bivariate-Poisson candidates. Every candidate is scored on the same canonical games. The report includes tournament-fold metrics, combined metrics, age/gender/history-coverage slices, exact frozen predictions, failures, the dataset SHA-256, Git commit, configuration, and a report digest. A challenger is marked `promote` only when it covers the same folds, clears minimum evidence, improves repeatedly, stays within the primary-metric noninferiority limits, and does not materially regress an adequately sized age, gender, or history segment. That recommendation is evidence only; it never changes the active artifact automatically.
+
+Running **Check historical ratings** also writes `historical_coverage.json` and `historical_coverage.csv` beside the local event preflight. These files separate established, moderate, limited, missing-history-average, not-found-average, and ineligible evidence. Average-strength entrants retain the requested peer-average central rating but carry zero inherited games and broad rating uncertainty instead of pretending to own their peers' evidence.
+
+Fresh point-in-time datasets also include strictly pre-date schedule-load features: days since each team's previous match and games played in the previous 7 and 30 days. Late-imported and same-day results remain excluded.
+
 Prospective predictions provide the independent evidence needed for future model promotion. The freezing jobs select only unresolved future fixtures, use expected-state writes, and never replace a completed prediction. Offline predictions require the fixture date to be later than the prediction timestamp. Evaluation chooses one heuristic/offline version pair and scores both only on their shared strictly pregame fixtures.
 
 The division optimizer and balanced-pool pass retain every entrant exactly once at the captured capacities. Captured group and pool IDs provide stable internal identities when published display labels are blank or repeated; reports retain the published labels for the director. Reported outcome estimates come from the captured schedule graph, including pool games, cross-pool games, and dependent playoff slots. The matchup model calculates the exact probability of a 4+ goal margin from its score distribution. Older cohort outputs without the captured-schedule projection or unchanged-fixture validation are not mixed into a current tournament-director comparison.
@@ -92,6 +106,7 @@ Backtest data lives under `reports/gotsport__<event_id>__<season-or-unknown>/int
 - `event_intake.json`: saved capture, matching outcomes, and division reviews.
 - `event_links.json`: editable event team links and persistent clear decisions.
 - `historical_preflight.json`: read-only eligibility results tied to the exact reviewed requests and selected model hash.
+- `historical_coverage.json` and `historical_coverage.csv`: evidence-quality totals and the recovery queue created with the historical preflight.
 - `scenarios/reviewed-backtest/runs/<run_id>/`: one atomic completed cohort run containing the strict request, frozen historical evidence, original-versus-proposed model summary, team movements, logs, and director report. Failed and operator-stopped attempts remain in `.failed` and `.cancelled` sibling directories for diagnosis and can be rerun from Backtest.
 - Each completed run records the Backtest engine version. A scoring or simulation change makes older outputs incompatible with the current tournament-wide result, so the affected cohorts must be rerun instead of silently mixing old and new behavior.
 

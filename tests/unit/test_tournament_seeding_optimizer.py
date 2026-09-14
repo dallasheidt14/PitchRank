@@ -74,6 +74,25 @@ def test_equal_cost_strength_bands_keep_gold_silver_bronze_order():
     assert max(division_ranks[1]) < min(division_ranks[2])
 
 
+def test_strength_sorted_benchmark_can_disable_search_restarts():
+    teams = [_team(index, 1.0 - index / 10.0, index) for index in range(1, 7)]
+    result = optimize_tournament_format(
+        teams,
+        [DivisionSpec("Gold", 3), DivisionSpec("Silver", 3)],
+        max_iterations=0,
+        restart_count=1,
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+    )
+
+    assert [team.team_id for team in result.divisions[0].teams] == [
+        "team-1",
+        "team-2",
+        "team-3",
+    ]
+    assert result.optimizer_restarts == 1
+    assert result.selected_restart == 0
+
+
 def test_optimize_tournament_format_assigns_divisions_and_pools():
     teams = [
         _team(1, 0.95, 1),

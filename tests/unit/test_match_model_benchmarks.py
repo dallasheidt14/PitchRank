@@ -4,7 +4,11 @@ import pandas as pd
 import pytest
 
 from src.predictions.match_model_benchmarks import (
+    _bivariate_poisson_matrix,
+    _negative_binomial_vector,
+    _poisson_vector,
     build_frozen_holdout_benchmark,
+    build_historical_count_benchmark,
     build_historical_poisson_benchmark,
 )
 
@@ -80,3 +84,68 @@ def test_frozen_holdout_benchmark_uses_only_shared_fixture_examples():
     assert set(table["shared_examples"]) == {1}
     assert set(table["candidate"]) == {"first", "second"}
     assert table["benchmark_rank"].notna().all()
+
+
+def test_negative_binomial_family_preserves_mass_and_models_overdispersion():
+    goals = range(9)
+    poisson = _poisson_vector(2.0, 8)
+    negative_binomial = _negative_binomial_vector(2.0, 0.7, 8)
+
+    poisson_mean = sum(
+        goal * probability for goal, probability in zip(goals, poisson, strict=True)
+    )
+    negative_binomial_mean = sum(
+        goal * probability
+        for goal, probability in zip(goals, negative_binomial, strict=True)
+    )
+    poisson_variance = sum(
+        (goal - poisson_mean) ** 2 * probability
+        for goal, probability in zip(goals, poisson, strict=True)
+    )
+    negative_binomial_variance = sum(
+        (goal - negative_binomial_mean) ** 2 * probability
+        for goal, probability in zip(goals, negative_binomial, strict=True)
+    )
+
+    assert negative_binomial.sum() == pytest.approx(1.0)
+    assert negative_binomial_variance > poisson_variance
+
+
+def test_bivariate_poisson_family_adds_positive_score_correlation():
+    matrix = _bivariate_poisson_matrix(1.8, 1.5, 0.45, 8)
+    axis = pd.Series(range(9), dtype=float).to_numpy()
+    mean_a = float((matrix * axis[:, None]).sum())
+    mean_b = float((matrix * axis[None, :]).sum())
+    covariance = float(
+        (matrix * (axis[:, None] - mean_a) * (axis[None, :] - mean_b)).sum()
+    )
+
+    assert matrix.sum() == pytest.approx(1.0)
+    assert covariance > 0.0
+
+
+@pytest.mark.parametrize("family", ["negative_binomial", "bivariate_poisson"])
+def test_historical_count_challengers_emit_coherent_probabilities(family):
+    train = pd.DataFrame(
+        [
+            _example("g1", "2026-01-01", "a", "b", 5, 2),
+            _example("g2", "2026-01-02", "a", "c", 1, 1),
+            _example("g3", "2026-01-03", "b", "c", 0, 3),
+        ]
+    )
+    test = pd.DataFrame([_example("g4", "2026-02-01", "a", "b", 2, 0)])
+
+    prediction = build_historical_count_benchmark(
+        train,
+        test,
+        family=family,
+    ).iloc[0]
+
+    assert (
+        prediction["prob_team_a_win"]
+        + prediction["prob_draw"]
+        + prediction["prob_team_b_win"]
+    ) == pytest.approx(1.0)
+    assert prediction["blowout_5plus_probability"] <= prediction[
+        "blowout_4plus_probability"
+    ] <= prediction["blowout_3plus_probability"]

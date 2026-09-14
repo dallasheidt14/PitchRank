@@ -19,6 +19,7 @@ from src.tournaments.schedule_simulator import (
     explicit_division_schedule_template,
     infer_division_schedule_template,
     refine_tournament_assignments_for_schedule,
+    robust_scenario_objective,
     schedule_competitiveness_objective,
     simulate_division_schedule,
     simulate_paired_tournament_ensemble,
@@ -235,6 +236,14 @@ def test_schedule_refinement_optimizes_the_games_that_are_actually_played():
         frozenset(team.team_id for team in pool.teams)
         for pool in refined.divisions[0].pools
     } == {frozenset({"team-1", "team-2"}), frozenset({"team-3", "team-4"})}
+
+
+def test_robust_scenario_objective_penalizes_uncertain_downside():
+    stable = robust_scenario_objective([1.0, 1.0, 1.0], risk_weight=0.35)
+    fragile = robust_scenario_objective([0.7, 0.7, 2.0], risk_weight=0.35)
+
+    assert stable == 1.0
+    assert fragile > sum([0.7, 0.7, 2.0]) / 3
 
 
 def test_latent_team_strength_tilts_one_coherent_distribution():

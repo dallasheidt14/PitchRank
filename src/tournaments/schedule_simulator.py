@@ -1431,6 +1431,36 @@ def schedule_competitiveness_objective(
     return float(sum(costs) / len(costs))
 
 
+def robust_scenario_objective(
+    values: Sequence[float],
+    *,
+    risk_weight: float,
+) -> float:
+    """Blend mean matchup cost with its scenario downside."""
+
+    if not values:
+        raise ValueError("At least one scenario objective is required")
+    if not math.isfinite(risk_weight) or risk_weight < 0:
+        raise ValueError("risk_weight must be finite and non-negative")
+    numeric = [float(value) for value in values]
+    if any(not math.isfinite(value) for value in numeric):
+        raise ValueError("Scenario objectives must be finite")
+    mean = float(sum(numeric) / len(numeric))
+    ordered = sorted(numeric)
+    position = (len(ordered) - 1) * 0.90
+    lower_index = int(math.floor(position))
+    upper_index = int(math.ceil(position))
+    if lower_index == upper_index:
+        downside = ordered[lower_index]
+    else:
+        fraction = position - lower_index
+        downside = (
+            ordered[lower_index] * (1.0 - fraction)
+            + ordered[upper_index] * fraction
+        )
+    return mean + risk_weight * max(0.0, downside - mean)
+
+
 def refine_tournament_assignments_for_schedule(
     initial: TournamentOptimizationResult,
     templates: dict[str, DivisionScheduleTemplate],
@@ -1441,6 +1471,7 @@ def refine_tournament_assignments_for_schedule(
     improvement_tolerance: float = 1e-9,
     scenario_count: int = 0,
     random_seed: int = 20260905,
+    scenario_risk_weight: float = 0.35,
 ) -> TournamentOptimizationResult:
     """Refine an initial seeding against the tournament's captured schedule graph."""
 
@@ -1454,6 +1485,8 @@ def refine_tournament_assignments_for_schedule(
 
     if scenario_count < 0:
         raise ValueError("scenario_count must be non-negative")
+    if not math.isfinite(scenario_risk_weight) or scenario_risk_weight < 0:
+        raise ValueError("scenario_risk_weight must be finite and non-negative")
     teams_by_id = {
         team.team_id: team for division in initial.divisions for team in division.teams
     }
@@ -1485,7 +1518,10 @@ def refine_tournament_assignments_for_schedule(
             )
             for offsets in scenarios
         )
-        return float(sum(values) / len(values))
+        return robust_scenario_objective(
+            values,
+            risk_weight=scenario_risk_weight if scenarios else 0.0,
+        )
 
     refined = refine_assignments_for_objective(
         initial,
@@ -1498,6 +1534,9 @@ def refine_tournament_assignments_for_schedule(
         refined,
         schedule_scenario_count=scenario_count,
         schedule_random_seed=random_seed if scenario_count else None,
+        schedule_scenario_risk_weight=(
+            scenario_risk_weight if scenario_count else 0.0
+        ),
     )
 
 

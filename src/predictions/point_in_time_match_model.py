@@ -53,6 +53,7 @@ from src.predictions.match_model_benchmarks import (
     build_frozen_holdout_benchmark,
     build_historical_poisson_benchmark,
 )
+from src.predictions.temporal_partitioning import event_aware_partition_groups
 
 logger = logging.getLogger(__name__)
 
@@ -905,6 +906,29 @@ def _game_was_available_before(game: PredictorGame, target_date: str) -> bool:
         return False
 
 
+def _schedule_load_features(
+    games: Iterable[PredictorGame],
+    *,
+    target_date: str,
+) -> dict[str, float]:
+    """Summarize recent match load using only strictly pre-date evidence."""
+
+    cutoff = pd.Timestamp(target_date).normalize()
+    days_before = []
+    for game in _dedupe_games(games):
+        if not _game_was_available_before(game, target_date):
+            continue
+        played_on = pd.Timestamp(game.game_date).normalize()
+        days = int((cutoff - played_on).days)
+        if days > 0:
+            days_before.append(days)
+    return {
+        "days_since_last_game": float(min(days_before)) if days_before else 365.0,
+        "games_last_7_days": float(sum(days <= 7 for days in days_before)),
+        "games_last_30_days": float(sum(days <= 30 for days in days_before)),
+    }
+
+
 def _outcome_label(score_a: int, score_b: int) -> Tuple[int, str]:
     if score_a > score_b:
         return OUTCOME_TEAM_A_WIN, OUTCOME_LABELS[OUTCOME_TEAM_A_WIN]
@@ -954,6 +978,14 @@ def build_point_in_time_matchup_row(
 
     recent_form_a = calculate_recent_form(team_a_id, team_a_prior_games)
     recent_form_b = calculate_recent_form(team_b_id, team_b_prior_games)
+    schedule_load_a = _schedule_load_features(
+        team_a_prior_games,
+        target_date=game_date,
+    )
+    schedule_load_b = _schedule_load_features(
+        team_b_prior_games,
+        target_date=game_date,
+    )
     h2h = calculate_head_to_head(team_a_id, team_b_id, combined_prior_games)
     common_opponents = calculate_common_opponent_signal(team_a_id, team_b_id, combined_prior_games)
     common_opponent_details = _build_common_opponent_feature_summary(
@@ -991,6 +1023,24 @@ def build_point_in_time_matchup_row(
             "recent_form_diff": recent_form_a - recent_form_b,
             "recent_form_gap_abs": abs(recent_form_a - recent_form_b),
             "recent_form_closeness": math.exp(-abs(recent_form_a - recent_form_b) / 0.3),
+            "team_a_days_since_last_game": schedule_load_a["days_since_last_game"],
+            "team_b_days_since_last_game": schedule_load_b["days_since_last_game"],
+            "days_since_last_game_diff": (
+                schedule_load_a["days_since_last_game"]
+                - schedule_load_b["days_since_last_game"]
+            ),
+            "team_a_games_last_7_days": schedule_load_a["games_last_7_days"],
+            "team_b_games_last_7_days": schedule_load_b["games_last_7_days"],
+            "games_last_7_days_diff": (
+                schedule_load_a["games_last_7_days"]
+                - schedule_load_b["games_last_7_days"]
+            ),
+            "team_a_games_last_30_days": schedule_load_a["games_last_30_days"],
+            "team_b_games_last_30_days": schedule_load_b["games_last_30_days"],
+            "games_last_30_days_diff": (
+                schedule_load_a["games_last_30_days"]
+                - schedule_load_b["games_last_30_days"]
+            ),
             "head_to_head_advantage": _to_float(h2h.get("advantage")),
             "head_to_head_games": _to_float(h2h.get("gamesPlayed")),
             "head_to_head_avg_margin": _to_float(h2h.get("avgMargin")),
@@ -1493,77 +1543,7 @@ class PointInTimeMatchModel:
     def _chronological_partition_groups(dataset_df: pd.DataFrame) -> pd.Series:
         """Keep short named events intact while treating long competitions by date."""
 
-        dates = pd.to_datetime(dataset_df["game_date"], errors="raise").dt.normalize()
-        unique_game_dates = [pd.Timestamp(value) for value in sorted(dates.unique())]
-        parent = {value: value for value in unique_game_dates}
-
-        def find(value: pd.Timestamp) -> pd.Timestamp:
-            while parent[value] != value:
-                parent[value] = parent[parent[value]]
-                value = parent[value]
-            return value
-
-        def union(left: pd.Timestamp, right: pd.Timestamp) -> None:
-            left_root = find(left)
-            right_root = find(right)
-            if left_root == right_root:
-                return
-            earlier, later = sorted((left_root, right_root))
-            parent[later] = earlier
-
-        if "event_name" not in dataset_df.columns:
-            return pd.Series(
-                [f"date:{value.date().isoformat()}" for value in dates],
-                index=dataset_df.index,
-                dtype="object",
-            )
-
-        event_names = dataset_df["event_name"].fillna("").astype(str).str.strip()
-        for event_name in sorted(name for name in event_names.unique() if name):
-            event_mask = event_names.eq(event_name)
-            unique_dates = sorted(dates[event_mask].unique())
-            clusters: list[list[pd.Timestamp]] = []
-            for event_date in unique_dates:
-                normalized_date = pd.Timestamp(event_date)
-                if not clusters or (normalized_date - clusters[-1][-1]).days > 14:
-                    clusters.append([normalized_date])
-                else:
-                    clusters[-1].append(normalized_date)
-            for cluster in clusters:
-                if (cluster[-1] - cluster[0]).days > 14:
-                    continue
-                for event_date in cluster[1:]:
-                    union(cluster[0], event_date)
-
-        # Complete events can span across otherwise independent game dates. If
-        # those intervals overlap, they must become one indivisible time block;
-        # sorting separate groups by their end dates would otherwise allow a
-        # later result into training before an earlier event game in validation.
-        intervals_by_root: dict[pd.Timestamp, list[pd.Timestamp]] = {}
-        for game_date in unique_game_dates:
-            intervals_by_root.setdefault(find(game_date), []).append(game_date)
-        ordered_intervals = sorted(
-            (
-                (min(values), max(values), root)
-                for root, values in intervals_by_root.items()
-            ),
-            key=lambda item: (item[0], item[1]),
-        )
-        active_root: pd.Timestamp | None = None
-        active_end: pd.Timestamp | None = None
-        for interval_start, interval_end, root in ordered_intervals:
-            if active_root is not None and active_end is not None and interval_start <= active_end:
-                union(active_root, root)
-                active_root = find(active_root)
-                active_end = max(active_end, interval_end)
-            else:
-                active_root = root
-                active_end = interval_end
-        return pd.Series(
-            [f"date-block:{find(pd.Timestamp(value)).date().isoformat()}" for value in dates],
-            index=dataset_df.index,
-            dtype="object",
-        )
+        return event_aware_partition_groups(dataset_df)
 
     def _expand_class_probabilities(self, encoded_probabilities: np.ndarray) -> np.ndarray:
         if encoded_probabilities.ndim == 1:
