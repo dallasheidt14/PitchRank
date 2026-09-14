@@ -81,3 +81,4 @@ credentials/
 
 # Event-specific point-in-time Backtest models are local generated evidence.
 /models/matchbalance_*_pre_event/
+/models/matchbalance_registry/

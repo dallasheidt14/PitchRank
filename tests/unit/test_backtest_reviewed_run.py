@@ -146,6 +146,49 @@ def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path
     assert runner.default_model_artifact("2026-09-05") == str(expected)
 
 
+def test_default_model_artifact_prefers_activated_registry_version(tmp_path, monkeypatch):
+    from src.tournaments import backtest_reviewed_run as runner
+
+    monkeypatch.delenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", raising=False)
+    monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
+    registry_root = tmp_path / "models" / "matchbalance_registry"
+    version_dir = registry_root / "reviewed-v2"
+    version_dir.mkdir(parents=True)
+    artifact = version_dir / "point_in_time_match_model.pkl"
+    metadata = version_dir / "point_in_time_match_model_metadata.json"
+    manifest = version_dir / "laboratory_manifest.json"
+    artifact.write_bytes(b"registry-model")
+    metadata.write_text("{}", encoding="utf-8")
+    manifest.write_text("{}", encoding="utf-8")
+    import hashlib
+
+    registry_root.joinpath("registry.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "matchbalance-model-registry-v1",
+                "active_version": "reviewed-v2",
+                "versions": {
+                    "reviewed-v2": {
+                        "activated_at": "2026-09-13T00:00:00+00:00",
+                        "model_data_end_date": "2026-08-30",
+                        "artifact": "reviewed-v2/point_in_time_match_model.pkl",
+                        "metadata": "reviewed-v2/point_in_time_match_model_metadata.json",
+                        "laboratory_manifest": "reviewed-v2/laboratory_manifest.json",
+                        "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                        "metadata_sha256": hashlib.sha256(metadata.read_bytes()).hexdigest(),
+                        "laboratory_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert runner.default_model_artifact("2026-09-05") == str(
+        artifact.relative_to(tmp_path)
+    )
+
+
 def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 

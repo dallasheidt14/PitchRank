@@ -70,7 +70,7 @@ For San Antonio Labor Cup 26, the tournament cutoff is **2026-09-05 exclusive**.
 python scripts/train_point_in_time_match_model.py --min-game-date 2025-09-05 --max-game-date 2026-09-05 --limit None --calibration-ratio 0.2 --test-ratio 0.2 --min-examples 100 --probability-strategy score_distribution --selection-objective competitive_match_quality --model-dir models/matchbalance_san_antonio_2026_pre_event
 ```
 
-The model artifact stays local and is not committed. Select `models/matchbalance_san_antonio_2026_pre_event/point_in_time_match_model.pkl` in Backtest, then run the historical preflight.
+Add `--save-dataset` when the run will enter the reviewed model registry. The model artifact stays local and is not committed. Select `models/matchbalance_san_antonio_2026_pre_event/point_in_time_match_model.pkl` in Backtest, then run the historical preflight.
 
 Historical feature rows are immutable through the ranking writer: a repeated team/date snapshot keeps the first stored values instead of rewriting them under the original `created_at`. Historical snapshot and game queries include IDs that were deprecated by a later merge, then resolve those immutable rows to the current canonical identity. The manifest retains each snapshot's stored source team ID. Historical game context also requires both the played date and the database `created_at` to precede the event cutoff. The manifest freezes those eligible games and every related-team snapshot used for common-opponent features under the same digest.
 
@@ -89,6 +89,19 @@ python scripts/run_match_model_laboratory.py `
 ```
 
 The laboratory uses expanding chronological folds and keeps every short tournament, plus any overlapping date interval, entirely inside one fold. It compares the learned MatchBalance model with cohort-average Poisson, recency-weighted hierarchical Poisson, hierarchical negative-binomial, and hierarchical bivariate-Poisson candidates. Every candidate is scored on the same canonical games. The report includes tournament-fold metrics, combined metrics, age/gender/history-coverage slices, exact frozen predictions, failures, the dataset SHA-256, Git commit, configuration, and a report digest. A challenger is marked `promote` only when it covers the same folds, clears minimum evidence, improves repeatedly, stays within the primary-metric noninferiority limits, and does not materially regress an adequately sized age, gender, or history segment. That recommendation is evidence only; it never changes the active artifact automatically.
+
+Register a promoted artifact only after its sidecar metadata carries the same saved-dataset SHA-256 as the laboratory report:
+
+```powershell
+python scripts/manage_match_model_registry.py register `
+  --version 2026.09.13-v2 `
+  --artifact models/matchbalance_candidate/point_in_time_match_model.pkl `
+  --laboratory-manifest reports/matchbalance-model-laboratory/laboratory_manifest.json `
+  --candidate matchbalance_learned
+python scripts/manage_match_model_registry.py activate --version 2026.09.13-v2
+```
+
+Registration copies the artifact, metadata, and laboratory manifest into an immutable local version folder and verifies their hashes. It rejects a reused version, a held candidate, a changed laboratory digest, a non-coherent probability strategy, or mismatched training data. Registration does not activate the version. Once explicitly activated, Backtest can select the newest intact registered artifact whose training end date is strictly before the completed event; existing unregistered model folders remain a compatibility fallback.
 
 Running **Check historical ratings** also writes `historical_coverage.json` and `historical_coverage.csv` beside the local event preflight. These files separate established, moderate, limited, missing-history-average, not-found-average, and ineligible evidence. Average-strength entrants retain the requested peer-average central rating but carry zero inherited games and broad rating uncertainty instead of pretending to own their peers' evidence.
 

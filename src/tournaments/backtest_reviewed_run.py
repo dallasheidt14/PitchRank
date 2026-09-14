@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from src.predictions.model_registry import eligible_registry_artifacts
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster
 from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
@@ -230,6 +231,12 @@ def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
     cutoff = str(cutoff_exclusive or "").strip()[:10]
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff):
         return None
+    registered = eligible_registry_artifacts(
+        _REPO_ROOT / "models" / "matchbalance_registry",
+        cutoff_exclusive=cutoff,
+    )
+    if registered:
+        return registered[-1][1]
     eligible = []
     for artifact in (_REPO_ROOT / "models").glob("**/point_in_time_match_model.pkl"):
         data_end = _model_data_end_date(artifact)

@@ -32,6 +32,7 @@ from scripts.backtest_predictor import (  # noqa: E402
     fetch_historical_games,
     fetch_prediction_feature_snapshots,
 )
+from src.predictions.model_laboratory import dataset_sha256  # noqa: E402
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
     DEFAULT_SELECTION_OBJECTIVE,
@@ -224,9 +225,11 @@ async def main():
     logger.info("Dataset summary saved to %s", summary_path)
     logger.info("Dataset summary: %s", dataset_result.summary)
 
+    training_dataset_sha256 = None
     if args.save_dataset and not dataset_result.dataset.empty:
         dataset_path = model_dir / "training_dataset.csv"
         dataset_result.dataset.to_csv(dataset_path, index=False)
+        training_dataset_sha256 = dataset_sha256(dataset_path)
         logger.info("Training dataset saved to %s", dataset_path)
 
     if dataset_result.dataset.empty:
@@ -257,6 +260,9 @@ async def main():
             "log_loss_tolerance": args.log_loss_tolerance,
         },
     )
+    if training_dataset_sha256:
+        metrics["training_dataset_sha256"] = training_dataset_sha256
+        model.training_metadata["training_dataset_sha256"] = training_dataset_sha256
     artifact_paths = model.save()
     evaluation_report = model.write_evaluation_report(str(model_dir), prefix="point_in_time_model")
 
