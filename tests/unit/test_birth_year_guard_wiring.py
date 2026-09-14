@@ -54,6 +54,7 @@ def test_guard_is_wired_into_the_candidate_loop():
 
 _SUBCLASS_PATHS = [
     ("src.models.affinity_wa_matcher", "AffinityWAGameMatcher"),
+    ("src.models.affinity_or_matcher", "AffinityORGameMatcher"),
     ("src.models.playmetrics_matcher", "PlayMetricsGameMatcher"),
     ("src.models.tgs_matcher", "TGSGameMatcher"),
     ("src.models.sincsports_matcher", "SincSportsGameMatcher"),

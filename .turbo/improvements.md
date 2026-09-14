@@ -973,6 +973,36 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: 1,028 game rows across 552 live teams carry `home_team_master_id = away_team_master_id`, verified by direct SQL 2026-09-12 (894 GotSport, 124 TGS, 5 PlayMetrics, 3 Modular11, 2 Affinity WA; dates 2024-03-29 to 2027-03-13). Nothing filters them before Glicko, so a team is rated against itself. They also mark rows that are two squads fused into one record — `XF 2016 RCL 1` (`ab31993f`) holds 42 games against 17-20 for each sibling squad and plays every flight opponent twice. Root cause unknown: could be a matcher resolving two provider ids to one master, or a provider feed listing both sides identically.
 - **Noted**: 2026-09-12
 
+### The canonical club map merges distinct clubs, and `are_same_club` never looks past it
+
+- **ID**: IMP-211
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `are_same_club` and `similarity_score` in `src/utils/club_normalizer.py`; the canonical map they read via `normalize_to_club`
+- **Why**: `are_same_club` returns on canonical id alone when both names resolve, so raw similarity is never consulted — and the map over-collapses. Measured 2026-09-11 over the 106 distinct `state_code = 'OR'` club names: `portland_timbers` swallows eight separate clubs (Portland Timbers, Eastside Timbers, Eugene Timbers FC, Rogue Valley Timbers, FC Portland Academy, ADF Portland and two more), `surf` merges Cascade Surf with Oregon Surf, and `vancouver_whitecaps` merges Vancouver West SC with Vancouver Lightning. `are_same_club('FC Portland', 'Rogue Valley Timbers')` is therefore `True` at threshold 0.9 while the two names score 0.21. The fallback is no safer: `similarity_score` is `token_set_ratio`, which scores containment, so `('FC Portland', 'Portland City United SC')` is a perfect 1.0. Both defects were caught matching distinct Oregon squads at confidence 1.0 in an `affinity_or` dry run. `affinity_or` works around them locally in `_is_same_club`; `affinity_wa` and every other caller still take the shared path, and WA has been importing against it on a weekly cron.
+- **Noted**: 2026-09-11
+
+### A dry run reports `Teams created: 0` no matter how many teams it would create
+
+- **ID**: IMP-212
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the `teams_created` metric fold in `EnhancedETLPipeline.import_games` (`src/etl/enhanced_pipeline.py`), against the `"created": True` flag the provider matchers return from `_match_team`
+- **Why**: Verified 2026-09-11 on `affinity_or`: the matcher returns `{"created": True, ...}` and the teams table is genuinely untouched, but the dry-run summary prints `Teams matched: 226 / Teams created: 0` while a direct pass over the same 57 distinct names creates 41 of them. So the one number an operator would read to size an autocreate before letting it write is always zero, for every provider. CLAUDE.md already warns that a new provider's dry run has to be verified against the database rather than its summary; this is the specific reason why.
+- **Noted**: 2026-09-11
+
+### A same-day rematch is deduped away for every provider but `playmetrics_tournament`
+
+- **ID**: IMP-213
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_make_composite_key` and the `schedule_id` branch of `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
+- **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
+- **Noted**: 2026-09-12
+
 ### Game imports lose write access after 1,000 games
 
 - **Type**: direct
