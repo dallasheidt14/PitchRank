@@ -42,6 +42,10 @@ from scripts.predictor_python import (
 from scripts.predictor_python import (
     Game as PredictorGame,
 )
+from src.predictions.coherent_score_calibration import (
+    apply_score_distribution_calibration,
+    fit_score_distribution_calibration,
+)
 from src.predictions.evaluation_reporting import (
     OUTCOME_ORDER,
     PROBABILITY_COLUMNS,
@@ -1338,6 +1342,7 @@ class PointInTimeMatchModel:
         self.blowout_probability_thresholds_by_age: Dict[int, Dict[int, float]] = {3: {}, 5: {}}
         self.training_metadata: Dict[str, object] = {}
         self.backtest_projection_calibration: Dict[str, object] = {}
+        self.score_distribution_calibration: Dict[str, object] = {}
         self.last_evaluation_frame = pd.DataFrame()
         self.last_benchmark_table = pd.DataFrame()
         self.training_partitioning: Dict[str, object] = {}
@@ -2497,6 +2502,13 @@ class PointInTimeMatchModel:
             stalemate_signal=stalemate_signal,
             projected_total_goals=projected_total_goals,
         )
+        score_matrix = apply_score_distribution_calibration(
+            score_matrix,
+            dataset_df,
+            self.score_distribution_calibration,
+        )
+        probabilities = _score_matrix_outcome_probabilities(score_matrix)
+        summary = _score_matrix_summary(score_matrix)
         _assert_coherent_score_distribution(probabilities, summary)
         return StrategyOutputs(
             probabilities=probabilities,
@@ -2795,10 +2807,12 @@ class PointInTimeMatchModel:
         strategy_metrics: Dict[str, Dict[str, object]] = {}
         strategy_draw_postprocessing: Dict[str, Dict[str, object]] = {}
         strategy_blowout_postprocessing: Dict[str, BlowoutPostprocessing] = {}
+        strategy_score_distribution_calibration: Dict[str, Dict[str, object]] = {}
         test_age_group_numeric = _age_group_numeric_array(test_df)
         for strategy_name in sorted(PROBABILITY_STRATEGIES):
             self.blowout_calibrator_3plus = None
             self.blowout_calibrator_5plus = None
+            self.score_distribution_calibration = {}
             raw_calibration_outputs = self._strategy_outputs(
                 strategy_name,
                 dataset_df=calibration_df,
@@ -2807,6 +2821,17 @@ class PointInTimeMatchModel:
                 predicted_score_a=calibration_predicted_score_a,
                 predicted_score_b=calibration_predicted_score_b,
             )
+            score_distribution_calibration: Dict[str, object] = {}
+            if (
+                strategy_name == COHERENT_SCORE_DISTRIBUTION_STRATEGY
+                and raw_calibration_outputs.score_matrix is not None
+            ):
+                score_distribution_calibration = fit_score_distribution_calibration(
+                    raw_calibration_outputs.score_matrix,
+                    calibration_df,
+                )
+                self.score_distribution_calibration = score_distribution_calibration
+            strategy_score_distribution_calibration[strategy_name] = score_distribution_calibration
             draw_policy = self._fit_draw_postprocessing(
                 train_df=calibration_df,
                 probabilities=raw_calibration_outputs.probabilities,
@@ -2876,6 +2901,9 @@ class PointInTimeMatchModel:
             self.probability_strategy = selected_probability_strategy
 
         self.draw_decision_policy = strategy_draw_postprocessing[self.probability_strategy]
+        self.score_distribution_calibration = strategy_score_distribution_calibration[
+            self.probability_strategy
+        ]
         self.auto_strategy_selection = auto_strategy_selection or {}
         selected_blowout_postprocessing = strategy_blowout_postprocessing[self.probability_strategy]
         self.blowout_calibrator_3plus = selected_blowout_postprocessing.calibrator_3plus
@@ -3015,6 +3043,7 @@ class PointInTimeMatchModel:
             },
             "strategy_metrics": strategy_metrics,
             "strategy_metrics_partition": "calibration",
+            "score_distribution_calibration": self.score_distribution_calibration,
             "training_partitioning": self.training_partitioning,
             "frozen_holdout_benchmarks": self.last_benchmark_table.to_dict(orient="records"),
             "frozen_holdout_benchmark_policy": (
@@ -3045,6 +3074,7 @@ class PointInTimeMatchModel:
             "strategy_constraints": self.strategy_constraints,
             "auto_strategy_selection": self.auto_strategy_selection,
             "backtest_projection_calibration": self.backtest_projection_calibration,
+            "score_distribution_calibration": self.score_distribution_calibration,
             "training_partitioning": self.training_partitioning,
         }
         return metrics
@@ -3094,6 +3124,10 @@ class PointInTimeMatchModel:
         model.backtest_projection_calibration = payload.get(
             "backtest_projection_calibration",
             model.training_metadata.get("backtest_projection_calibration", {}),
+        )
+        model.score_distribution_calibration = payload.get(
+            "score_distribution_calibration",
+            model.training_metadata.get("score_distribution_calibration", {}),
         )
         return model
 
@@ -3230,6 +3264,7 @@ class PointInTimeMatchModel:
             "class_labels": self.class_labels,
             "training_metadata": self.training_metadata,
             "backtest_projection_calibration": self.backtest_projection_calibration,
+            "score_distribution_calibration": self.score_distribution_calibration,
         }
 
         with open(pickle_path, "wb") as handle:

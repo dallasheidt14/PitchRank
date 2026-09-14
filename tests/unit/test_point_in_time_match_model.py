@@ -68,23 +68,36 @@ def test_model_artifact_round_trip_preserves_backtest_projection_calibration(tmp
         "examples": 792,
     }
     model.backtest_projection_calibration = calibration
+    score_distribution_calibration = {
+        "version": "coherent-exponential-tilt-v1",
+        "global": {
+            "temperature": 0.85,
+            "absolute_margin_tilt": 0.09,
+            "total_goals_tilt": 0.0,
+        },
+        "segments": {},
+    }
+    model.score_distribution_calibration = score_distribution_calibration
     model.training_metadata = {"backtest_projection_calibration": calibration}
 
     paths = model.save("fixture")
     loaded = PointInTimeMatchModel.load(paths["pickle_path"])
 
     assert loaded.backtest_projection_calibration == calibration
+    assert loaded.score_distribution_calibration == score_distribution_calibration
 
     legacy_path = tmp_path / "fixture-legacy.pkl"
     with open(paths["pickle_path"], "rb") as handle:
         legacy_payload = pickle.load(handle)
     legacy_payload.pop("backtest_projection_calibration")
+    legacy_payload.pop("score_distribution_calibration")
     with legacy_path.open("wb") as handle:
         pickle.dump(legacy_payload, handle)
 
     legacy_loaded = PointInTimeMatchModel.load(str(legacy_path))
 
     assert legacy_loaded.backtest_projection_calibration == calibration
+    assert legacy_loaded.score_distribution_calibration == {}
 
 
 def test_build_point_in_time_dataset_is_chronological_and_mirrored():
