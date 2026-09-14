@@ -179,6 +179,36 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
         }
 
 
+def test_list_reviewed_runs_excludes_outputs_from_older_engines(tmp_path):
+    from src.tournaments import backtest_reviewed_run as runner
+    from src.tournaments.storage import run_dir
+
+    event_key = "gotsport__51783__2025"
+    current_dir = run_dir(event_key, runner.BACKTEST_SCENARIO, "current", base_dir=tmp_path)
+    legacy_dir = run_dir(event_key, runner.BACKTEST_SCENARIO, "legacy", base_dir=tmp_path)
+    for path, version in (
+        (current_dir, runner.BACKTEST_ENGINE_VERSION),
+        (legacy_dir, "reviewed-backtest-v4"),
+    ):
+        path.mkdir(parents=True)
+        (path / "done.json").write_text("{}", encoding="utf-8")
+        (path / "run_metadata.json").write_text(
+            json.dumps(
+                {
+                    "backtest_engine_version": version,
+                    "cohort_age_group": "u14",
+                    "cohort_gender": "Male",
+                    "ended_at": "2026-09-14T00:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    records = list_reviewed_runs(event_key, base_dir=tmp_path)
+
+    assert [record.run_id for record in records] == ["current"]
+
+
 def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 

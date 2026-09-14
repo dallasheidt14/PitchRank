@@ -465,6 +465,8 @@ def list_reviewed_runs(
             metadata = read_json(path / "run_metadata.json")
         except (OSError, ValueError, TypeError):
             continue
+        if metadata.get("backtest_engine_version") != BACKTEST_ENGINE_VERSION:
+            continue
         records.append(
             ReviewedRunRecord(
                 run_id=run_id,
