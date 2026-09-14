@@ -48,6 +48,12 @@ TOURNAMENTS = [
         "name": "2026 OYSA Fall League",
         "tournament_guid": "765ABB82-7406-4A4D-9446-7EA366142522",
         "base_url": "https://oysa.sportsaffinity.com",
+        # The season this event's U-numbers were written in. Required, and
+        # never the wall clock: this list is rescanned indefinitely, so a
+        # clock-derived cohort would re-file this same 2026 event one group
+        # higher every Aug 1 (CLAUDE.md: "Resolve against the event, never the
+        # wall clock"). A wider --days-back is enough to trigger it.
+        "season_year": 2026,
     },
 ]
 
@@ -145,8 +151,8 @@ def _compute_result(gf: Optional[int], ga: Optional[int]) -> str:
     return "D"
 
 
-def _age_u_to_birth_year(age_u: int, season_year: Optional[int] = None) -> int:
-    """Derive the band's birth year from a U-age. Season year rolls over Aug 1.
+def _age_u_to_birth_year(age_u: int, season_year: int) -> int:
+    """Derive the band's birth year from a U-age, against the event's season.
 
     OYSA runs the Aug 1 - Jul 31 cycle that USYS adopted for 2026-27, so its
     U13 is the Aug 2013 - Jul 2014 band — the same cohort PitchRank calls u13.
@@ -157,10 +163,6 @@ def _age_u_to_birth_year(age_u: int, season_year: Optional[int] = None) -> int:
     after its older year, so reading a name as a single birth year files the
     whole division one cohort high.
     """
-    if season_year is None:
-        from src.utils.team_utils import CURRENT_YEAR
-
-        season_year = CURRENT_YEAR
     return season_year - age_u + 1
 
 
@@ -289,7 +291,7 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
         if age_u != target_age or gender != target_gender:
             continue
 
-        birth_year = _age_u_to_birth_year(age_u)
+        birth_year = _age_u_to_birth_year(age_u, tournament["season_year"])
 
         flights.append(
             {

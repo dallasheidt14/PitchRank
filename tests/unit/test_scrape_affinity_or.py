@@ -74,6 +74,23 @@ class TestDivisionCohort:
         assert from_the_team_name == "U14"
 
 
+class TestTournamentRegistry:
+    """Every configured league must declare the season its labels were written in."""
+
+    def test_each_tournament_declares_its_season(self):
+        """Derived from the list itself, so a new league cannot omit it silently."""
+        missing = [t["name"] for t in scraper.TOURNAMENTS if not t.get("season_year")]
+
+        assert missing == []
+
+    def test_each_tournament_declares_its_endpoint(self):
+        incomplete = [
+            t.get("name") for t in scraper.TOURNAMENTS if not (t.get("tournament_guid") and t.get("base_url"))
+        ]
+
+        assert incomplete == []
+
+
 class TestGenderAndAgeExtraction:
     """Both Affinity label styles must parse; OYSA writes the compact one."""
 
@@ -124,6 +141,7 @@ TOURNAMENT = {
     "name": "2026 OYSA Fall League",
     "tournament_guid": "765ABB82-7406-4A4D-9446-7EA366142522",
     "base_url": "https://oysa.sportsaffinity.com",
+    "season_year": PINNED_SEASON,
 }
 
 # Whether a blank pair is a fixture depends on the wall clock, so these dates
@@ -221,12 +239,6 @@ class TestDiscoverFlights:
         monkeypatch.setattr(
             scraper, "_fetch", lambda url, retries=3: _accepted_list_html(DIVISIONS)
         )
-        unpinned = scraper._age_u_to_birth_year
-        monkeypatch.setattr(
-            scraper,
-            "_age_u_to_birth_year",
-            lambda age_u, season_year=None: unpinned(age_u, PINNED_SEASON),
-        )
         return scraper.discover_flights(TOURNAMENT, target_age, target_gender)
 
     @pytest.mark.parametrize(
@@ -247,6 +259,24 @@ class TestDiscoverFlights:
         assert [f["division_name"] for f in flights] == [expected_division]
         assert flights[0]["birth_year"] == expected_birth_year
         assert flights[0]["age_u"] == target_age
+
+    def test_the_season_comes_from_the_event_not_the_clock(self, monkeypatch):
+        """A fixed historical event must not re-file itself every Aug 1.
+
+        This list is rescanned indefinitely, so reading the wall clock would
+        move the 2026 league's BU13 birth year from 2014 to 2015 the next time
+        an operator widens --days-back past a rollover.
+        """
+        monkeypatch.setattr(
+            scraper, "_fetch", lambda url, retries=3: _accepted_list_html(DIVISIONS)
+        )
+        later_season = {**TOURNAMENT, "season_year": PINNED_SEASON + 1}
+
+        same_season = scraper.discover_flights(TOURNAMENT, 13, "Male")
+        next_season = scraper.discover_flights(later_season, 13, "Male")
+
+        assert same_season[0]["birth_year"] == 2014
+        assert next_season[0]["birth_year"] == 2015
 
     def test_other_cohorts_are_filtered_out(self, monkeypatch):
         """Without the cohort filter every sweep would return all four divisions."""

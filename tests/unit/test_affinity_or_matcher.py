@@ -172,6 +172,19 @@ class _FakeQuery:
             self._rows = [r for r in self._rows if r.get("club_name") == value]
         return self
 
+    def ilike(self, field, value):
+        """Case-insensitive equality when the pattern carries no wildcard.
+
+        Mirrors what PostgREST does, because that is the whole reason the
+        lookup uses ilike: the DB stores "Cysa Timber Barons" where the team
+        name infers "CYSA Timber Barons".
+        """
+        if field == "club_name":
+            self._log.append(value)
+            pattern = value.lower()
+            self._rows = [r for r in self._rows if (r.get("club_name") or "").lower() == pattern]
+        return self
+
     def neq(self, *_a, **_k):
         return self
 
@@ -221,10 +234,29 @@ class TestSearchState:
 
         assert _matcher_with(rows)._state_for_club("Pacific FC") == "WA"
 
+    def test_a_club_stored_in_a_different_case_is_still_found(self):
+        """The DB spells it "Cysa Timber Barons"; the team name infers "CYSA"."""
+        rows = [{"club_name": "Cysa Timber Barons", "state_code": "WA"}] * 27
+
+        assert _matcher_with(rows)._state_for_club("CYSA Timber Barons") == "WA"
+
     def test_an_oregon_club_is_searched_in_oregon(self):
         rows = [{"club_name": "FC Portland", "state_code": "OR"}] * 12
 
         assert _matcher_with(rows)._state_for_club("FC Portland") == "OR"
+
+    def test_a_placeholder_club_is_never_asked(self):
+        """"No Club Selection" is not a club; its plurality would be noise.
+
+        One placeholder name covers 1,596 teams across 23 states, so a state
+        derived from it would be stamped on every team that carries it.
+        """
+        rows = [{"club_name": "No Club Selection", "state_code": "WA"}] * 40
+        matcher = _matcher_with(rows)
+
+        assert matcher._club_state_plurality("No Club Selection") is None
+        assert matcher._state_for_club("No Club Selection") == "OR"
+        assert matcher.db.clubs_queried == []
 
     def test_an_unknown_club_falls_back_to_the_leagues_state(self):
         assert _matcher_with([])._state_for_club("Brand New Club") == "OR"
@@ -242,6 +274,63 @@ class TestSearchState:
         matcher._state_for_club("FC Salmon Creek")
 
         assert matcher.db.clubs_queried == ["FC Salmon Creek"]
+
+
+class TestClubInference:
+    """The feed never names a club, so both paths must infer the same one."""
+
+    def test_a_missing_club_is_inferred_from_the_team_name(self):
+        matcher = _matcher_with([])
+
+        assert matcher._club_for("FC Salmon Creek 13B White", None) == "FC Salmon Creek"
+
+    def test_a_supplied_club_wins(self):
+        matcher = _matcher_with([])
+
+        assert matcher._club_for("FC Salmon Creek 13B White", "Given Club") == "Given Club"
+
+    def test_no_team_name_infers_nothing(self):
+        assert _matcher_with([])._club_for(None, None) is None
+
+    def test_matching_and_creation_infer_the_same_club(self):
+        """They used to disagree: matching inferred it, creation got None.
+
+        That stored the whole squad name as the club and skipped the state
+        resolver entirely, putting a Washington team on the Oregon board.
+        """
+        matcher = _matcher_with([])
+        name = "FC Salmon Creek 13B White"
+
+        assert matcher._club_for(name, None) == matcher._club_for(name, "")
+
+
+class TestStateForNewTeam:
+    """What gets written is stricter than what gets searched."""
+
+    def _matcher(self, rows, unanimous=None):
+        matcher = _matcher_with(rows)
+        matcher._resolve_state_from_club = lambda _club: (unanimous, "Washington" if unanimous else None)
+        return matcher
+
+    def test_a_unanimous_club_stores_its_state(self):
+        matcher = self._matcher([{"club_name": "Cysa Timber Barons", "state_code": "WA"}], unanimous="WA")
+
+        assert matcher._state_for_new_team("Cysa Timber Barons") == ("WA", "Washington")
+
+    def test_a_club_whose_rows_disagree_stores_nothing(self):
+        """NULL beats a guess: the state tooling can fill a NULL, not a wrong value."""
+        rows = [
+            {"club_name": "FC Salmon Creek", "state_code": "WA"},
+            {"club_name": "FC Salmon Creek", "state_code": "OR"},
+        ]
+        matcher = self._matcher(rows, unanimous=None)
+
+        assert matcher._state_for_new_team("FC Salmon Creek") == (None, None)
+
+    def test_an_unknown_club_takes_the_leagues_state(self):
+        matcher = self._matcher([], unanimous=None)
+
+        assert matcher._state_for_new_team("Brand New Club") == ("OR", "Oregon")
 
 
 class TestLaneNumber:

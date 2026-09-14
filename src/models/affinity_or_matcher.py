@@ -26,11 +26,12 @@ import logging
 import re
 from collections import Counter
 from difflib import SequenceMatcher
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club, normalize_club_name
+from src.utils.placeholder_clubs import is_placeholder_club
 from src.utils.team_name_utils import resolve_distinction
 
 logger = logging.getLogger(__name__)
@@ -247,7 +248,49 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         self._affinity_variant_gate_required = MATCHING_CONFIG.get("affinity_variant_gate_required", True)
         self._affinity_club_similarity_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
         self._affinity_debug_match_reasons = MATCHING_CONFIG.get("affinity_debug_match_reasons", False)
-        self._or_search_state_cache: Dict[str, str] = {}
+        self._or_search_state_cache: Dict[str, Optional[str]] = {}
+
+    def _club_for(self, team_name: Optional[str], club_name: Optional[str]) -> Optional[str]:
+        """The club to reason about for this team, inferred when the feed omits it.
+
+        The scraper writes an empty ``club_name`` for every row, because an
+        Affinity schedule page names teams and never clubs. Both the state
+        resolver and the ``teams.club_name`` column therefore depend on this
+        inference, and it has to happen in one place: it used to be a local in
+        ``_fuzzy_match_team``, so matching saw "FC Salmon Creek" while creation
+        saw None -- which stored the entire squad name as the club and put a
+        Washington team on the Oregon board.
+        """
+        if club_name:
+            return club_name
+        if not team_name:
+            return None
+        from src.models.game_matcher import extract_club_from_team_name
+
+        return extract_club_from_team_name(_normalize_for_affinity_or(team_name)) or None
+
+    def _state_for_new_team(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """``(state_code, state)`` to STORE on a newly created team.
+
+        Three cases, and only one of them may default:
+
+        - the club's stated teams are unanimous -> that state;
+        - the club has stated teams that disagree -> ``(None, None)``. A guess
+          here becomes the value every later heuristic agrees with, and a club
+          that agrees with itself is invisible to every correction
+          ``assigning-team-states`` can make; a NULL it can still fill;
+        - the club is unknown to us -> the league's own state, Oregon.
+
+        Deliberately stricter than :meth:`_state_for_club`, which picks where
+        to *look* and may take a plurality, because nothing it decides is
+        written down.
+        """
+        resolved_code, resolved_state = self._resolve_state_from_club(club_name)
+        if resolved_code:
+            return resolved_code, resolved_state
+        if self._club_state_plurality(club_name) is not None:
+            return None, None
+        return STATE_CODE, STATE_NAME
 
     def _state_for_club(self, club_name: Optional[str]) -> str:
         """State to SEARCH for this club's candidates, defaulting to Oregon.
@@ -264,17 +307,32 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         not good enough there. Bounded at 1000 rows: a sample cannot settle a
         question about the whole, which is why this only chooses where to look.
         """
-        if not club_name:
-            return STATE_CODE
-        cached = self._or_search_state_cache.get(club_name)
-        if cached is not None:
-            return cached
-        state = STATE_CODE
+        return self._club_state_plurality(club_name) or STATE_CODE
+
+    def _club_state_plurality(self, club_name: Optional[str]) -> Optional[str]:
+        """Most common stated state among the club's rows, or None if it has none.
+
+        None means "this club is unknown to us", which is a different answer
+        from "this club is known and its rows disagree" — the first is safe to
+        default, the second is not.
+        """
+        # A placeholder is not a club, so it cannot be asked — the same reason
+        # the base resolver refuses one. "No Club Selection" alone covers 1,596
+        # teams across 23 states, and its plurality would be noise stamped on
+        # every team that carries it.
+        if not club_name or is_placeholder_club(club_name):
+            return None
+        if club_name in self._or_search_state_cache:
+            return self._or_search_state_cache[club_name]
+        state = None
         try:
             rows = (
                 self.db.table("teams")
                 .select("state_code")
-                .eq("club_name", club_name)
+                # ilike with no wildcards is case-insensitive equality: the DB
+                # stores "Cysa Timber Barons" where the name infers
+                # "CYSA Timber Barons", and an exact eq misses it entirely.
+                .ilike("club_name", club_name)
                 .not_.is_("state_code", "null")
                 .neq("state_code", "")
                 .limit(1000)
@@ -298,11 +356,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             # Canonicalize provider inputs before any candidate retrieval/scoring.
             provider_team_name = _normalize_for_affinity_or(team_name)
             age_group_normalized = age_group.lower() if age_group else age_group
-            if not club_name:
-                extracted = extract_club_from_team_name(provider_team_name)
-                if extracted:
-                    club_name = extracted
-            provider_club_name = _normalize_club_for_affinity(club_name)
+            provider_club_name = _normalize_club_for_affinity(self._club_for(team_name, club_name))
 
             provider_variant = extract_team_variant(provider_team_name)
             provider_tiers = _extract_tier_tokens(provider_team_name)
@@ -513,7 +567,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             try:
                 new_team_id = self._create_new_affinity_or_team(
                     team_name=team_name,
-                    club_name=club_name,
+                    club_name=self._club_for(team_name, club_name),
                     age_group=age_group,
                     gender=gender,
                     provider_id=provider_id,
@@ -590,9 +644,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         # Pacific FC, FC Salmon Creek and CYSA Timber Barons all play here and
         # all live in WA; writing OR would duplicate them onto the wrong board
         # and undo the 2026-08-31 state sweep that corrected them.
-        resolved_code, resolved_state = self._resolve_state_from_club(club_name)
-        new_state_code = resolved_code or STATE_CODE
-        new_state = resolved_state or STATE_NAME
+        new_state_code, new_state = self._state_for_new_team(club_name)
 
         # Affinity OR: pass clean_team_name (built above by stripping club prefix).
         distinction = resolve_distinction(clean_team_name, club_name, new_state_code)
