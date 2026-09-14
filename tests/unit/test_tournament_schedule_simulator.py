@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +22,7 @@ from src.tournaments.schedule_simulator import (
     refine_tournament_assignments_for_schedule,
     robust_scenario_objective,
     schedule_competitiveness_objective,
+    select_robust_schedule_candidate,
     simulate_division_schedule,
     simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
@@ -244,6 +246,63 @@ def test_robust_scenario_objective_penalizes_uncertain_downside():
 
     assert stable == 1.0
     assert fragile > sum([0.7, 0.7, 2.0]) / 3
+
+
+def test_robust_candidate_selection_uses_shared_scenarios_and_reports_team_stability():
+    teams = [_team(1, 0.9, 1), _team(2, 0.8, 2), _team(3, 0.3, 3), _team(4, 0.2, 4)]
+    first = optimize_tournament_format(
+        teams,
+        [DivisionSpec(name="Gold", team_count=4, pool_sizes=(2, 2))],
+        matchup_cost_fn=_cost,
+        pool_assignment_policy="balanced_strength",
+    )
+    division = first.divisions[0]
+    left, right = division.pools
+    swapped_left = replace(left, teams=(left.teams[0], right.teams[0]))
+    swapped_right = replace(right, teams=(left.teams[1], right.teams[1]))
+    swapped_division = replace(
+        division,
+        teams=swapped_left.teams + swapped_right.teams,
+        pools=(swapped_left, swapped_right),
+    )
+    second = replace(
+        first,
+        divisions=(swapped_division,),
+        schedule_random_seed=101,
+    )
+    first = replace(first, schedule_random_seed=100)
+    templates = {
+        "Gold": explicit_division_schedule_template(
+            division_name="Gold",
+            pool_sizes=(2, 2),
+            format_code="ROUND_ROBIN",
+            actual_game_count=2,
+        )
+    }
+
+    selected, report = select_robust_schedule_candidate(
+        (first, second),
+        templates,
+        _distribution_prediction,
+        validation_scenario_count=7,
+        validation_random_seed=29,
+    )
+    repeated, repeated_report = select_robust_schedule_candidate(
+        (first, second),
+        templates,
+        _distribution_prediction,
+        validation_scenario_count=7,
+        validation_random_seed=29,
+    )
+
+    assert selected == repeated
+    assert report == repeated_report
+    assert report["candidate_run_count"] == 2
+    assert report["unique_arrangement_count"] == 2
+    assert report["validation_scenario_count"] == 7
+    assert report["minimum_division_agreement_rate"] == 1.0
+    assert report["minimum_pool_agreement_rate"] == 0.5
+    assert report["fragile_team_count"] > 0
 
 
 def test_latent_team_strength_tilts_one_coherent_distribution():

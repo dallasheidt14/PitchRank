@@ -1461,6 +1461,176 @@ def robust_scenario_objective(
     return mean + risk_weight * max(0.0, downside - mean)
 
 
+def _assignment_signature(
+    divisions: Sequence[DivisionAssignment],
+) -> tuple[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]], ...]:
+    return tuple(
+        (
+            division.name,
+            tuple(
+                (pool.name, tuple(sorted(team.team_id for team in pool.teams)))
+                for pool in division.pools
+            ),
+        )
+        for division in divisions
+    )
+
+
+def _assignment_placements(
+    divisions: Sequence[DivisionAssignment],
+) -> dict[str, tuple[str, str]]:
+    placements: dict[str, tuple[str, str]] = {}
+    for division in divisions:
+        if division.pools:
+            for pool in division.pools:
+                for team in pool.teams:
+                    if team.team_id in placements:
+                        raise ValueError(f"Team appears more than once in an assignment: {team.team_id}")
+                    placements[team.team_id] = (division.name, pool.name)
+        else:
+            for team in division.teams:
+                if team.team_id in placements:
+                    raise ValueError(f"Team appears more than once in an assignment: {team.team_id}")
+                placements[team.team_id] = (division.name, "")
+    return placements
+
+
+def _linear_quantile(values: Sequence[float], probability: float) -> float:
+    ordered = sorted(float(value) for value in values)
+    position = (len(ordered) - 1) * probability
+    lower_index = int(math.floor(position))
+    upper_index = int(math.ceil(position))
+    if lower_index == upper_index:
+        return ordered[lower_index]
+    fraction = position - lower_index
+    return ordered[lower_index] * (1.0 - fraction) + ordered[upper_index] * fraction
+
+
+def select_robust_schedule_candidate(
+    candidates: Sequence[TournamentOptimizationResult],
+    templates: dict[str, DivisionScheduleTemplate],
+    predict_fn: PredictionFn,
+    *,
+    validation_scenario_count: int = 31,
+    validation_random_seed: int = 20260905,
+    scenario_risk_weight: float = 0.35,
+) -> tuple[TournamentOptimizationResult, dict[str, Any]]:
+    """Select candidate seedings on shared holdout strength scenarios."""
+
+    if not candidates:
+        raise ValueError("At least one optimization candidate is required")
+    if validation_scenario_count < 0:
+        raise ValueError("validation_scenario_count must be non-negative")
+    if not math.isfinite(scenario_risk_weight) or scenario_risk_weight < 0:
+        raise ValueError("scenario_risk_weight must be finite and non-negative")
+    reference_placements = _assignment_placements(candidates[0].divisions)
+    if not reference_placements:
+        raise ValueError("Optimization candidates must contain teams")
+    teams_by_id = {
+        team.team_id: team
+        for division in candidates[0].divisions
+        for team in division.teams
+    }
+    candidate_placements = []
+    for candidate in candidates:
+        placements = _assignment_placements(candidate.divisions)
+        if set(placements) != set(reference_placements):
+            raise ValueError("Optimization candidates must contain the same teams")
+        candidate_placements.append(placements)
+
+    validation_rng = random.Random(validation_random_seed)
+    offsets_by_scenario = [
+        {
+            team_id: validation_rng.gauss(0.0, float(team.strength_uncertainty))
+            for team_id, team in teams_by_id.items()
+        }
+        for _ in range(validation_scenario_count)
+    ]
+    candidate_rows: list[dict[str, Any]] = []
+    ranked_candidates = []
+    for candidate_index, candidate in enumerate(candidates):
+        objective_values = [
+            schedule_competitiveness_objective(
+                simulate_tournament_schedule(candidate.divisions, templates, predict_fn)
+            )
+        ]
+        objective_values.extend(
+            schedule_competitiveness_objective(
+                simulate_tournament_schedule(
+                    candidate.divisions,
+                    templates,
+                    _latent_strength_prediction_function(
+                        predict_fn,
+                        team_strength_offsets=offsets,
+                    ),
+                )
+            )
+            for offsets in offsets_by_scenario
+        )
+        robust_objective = robust_scenario_objective(
+            objective_values,
+            risk_weight=scenario_risk_weight if offsets_by_scenario else 0.0,
+        )
+        signature = _assignment_signature(candidate.divisions)
+        candidate_rows.append(
+            {
+                "candidate_index": candidate_index,
+                "search_random_seed": candidate.schedule_random_seed,
+                "mean_objective": float(sum(objective_values) / len(objective_values)),
+                "p90_objective": _linear_quantile(objective_values, 0.90),
+                "robust_objective": robust_objective,
+                "assignment_signature": signature,
+            }
+        )
+        ranked_candidates.append((robust_objective, signature, candidate_index, candidate))
+    _objective, _signature, selected_index, selected = min(
+        ranked_candidates,
+        key=lambda item: (item[0], item[1], item[2]),
+    )
+    selected_placements = candidate_placements[selected_index]
+    team_stability = []
+    for team_id, (selected_division, selected_pool) in sorted(selected_placements.items()):
+        division_agreement = sum(
+            placements[team_id][0] == selected_division for placements in candidate_placements
+        ) / len(candidate_placements)
+        pool_agreement = sum(
+            placements[team_id] == (selected_division, selected_pool)
+            for placements in candidate_placements
+        ) / len(candidate_placements)
+        status = "stable" if pool_agreement >= 0.80 else "fragile" if pool_agreement < 0.60 else "moderate"
+        team_stability.append(
+            {
+                "team_id": team_id,
+                "selected_division": selected_division,
+                "selected_pool": selected_pool,
+                "division_agreement_rate": division_agreement,
+                "pool_agreement_rate": pool_agreement,
+                "status": status,
+            }
+        )
+    return selected, {
+        "schema_version": "matchbalance-optimizer-stability-v1",
+        "candidate_run_count": len(candidates),
+        "unique_arrangement_count": len(
+            {_assignment_signature(candidate.divisions) for candidate in candidates}
+        ),
+        "validation_scenario_count": validation_scenario_count,
+        "validation_random_seed": validation_random_seed,
+        "scenario_risk_weight": scenario_risk_weight,
+        "selected_candidate_index": selected_index,
+        "selected_search_random_seed": selected.schedule_random_seed,
+        "candidates": candidate_rows,
+        "team_stability": team_stability,
+        "stable_team_count": sum(row["status"] == "stable" for row in team_stability),
+        "moderate_team_count": sum(row["status"] == "moderate" for row in team_stability),
+        "fragile_team_count": sum(row["status"] == "fragile" for row in team_stability),
+        "minimum_division_agreement_rate": min(
+            row["division_agreement_rate"] for row in team_stability
+        ),
+        "minimum_pool_agreement_rate": min(row["pool_agreement_rate"] for row in team_stability),
+    }
+
+
 def refine_tournament_assignments_for_schedule(
     initial: TournamentOptimizationResult,
     templates: dict[str, DivisionScheduleTemplate],

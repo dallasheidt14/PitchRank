@@ -40,7 +40,7 @@ BACKTEST_PROBABILITY_STRATEGY = "score_distribution"
 COMPATIBLE_FITTED_PROBABILITY_STRATEGIES = frozenset(
     {"poisson_draw_gate", BACKTEST_PROBABILITY_STRATEGY}
 )
-BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v4"
 DEFAULT_MODEL_ARTIFACT = (
     "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
     "point_in_time_match_model.pkl"

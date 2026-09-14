@@ -69,6 +69,7 @@ from src.tournaments.schedule_simulator import (  # noqa: E402
     explicit_division_schedule_template,
     prediction_expected_margin,
     refine_tournament_assignments_for_schedule,
+    select_robust_schedule_candidate,
     simulate_paired_tournament_ensemble,
     simulate_tournament_schedule,
 )
@@ -1897,6 +1898,18 @@ def main() -> int:
             "team-strength scenarios"
         ),
     )
+    parser.add_argument(
+        "--optimization-candidate-count",
+        type=int,
+        default=5,
+        help="Independent uncertainty-seeded schedule candidates to compare",
+    )
+    parser.add_argument(
+        "--optimization-validation-scenario-count",
+        type=int,
+        default=31,
+        help="Shared holdout strength scenarios used to select the robust candidate",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -2233,13 +2246,14 @@ def main() -> int:
     )
 
     print("PHASE: running-optimizer", flush=True)
-    optimization_result = optimize_tournament_format(
+    initial_optimization_result = optimize_tournament_format(
         seedable_teams,
         divisions,
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
         pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
     )
+    optimization_result = initial_optimization_result
 
     actual_game_counts = {
         str(division_name): int(summary["actual_game_count"])
@@ -2262,24 +2276,49 @@ def main() -> int:
         pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
         restart_count=1,
     )
-    if args.schedule_refinement_iterations > 0:
+    coherent_uncertainty_optimization = (
+        args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME
+        and resolved_probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY
+        and args.optimization_scenario_count > 0
+    )
+    optimizer_stability: dict[str, Any] = {
+        "status": "unavailable",
+        "reason": "Coherent model uncertainty scenarios are required",
+    }
+    if args.schedule_refinement_iterations > 0 and coherent_uncertainty_optimization:
+        print("PHASE: refining-scheduled-matchups", flush=True)
+        if args.optimization_candidate_count <= 0:
+            raise ValueError("optimization-candidate-count must be positive")
+        candidates = tuple(
+            refine_tournament_assignments_for_schedule(
+                initial_optimization_result,
+                templates,
+                predict_fn,
+                matchup_cost_fn=matchup_cost_fn,
+                max_iterations=args.schedule_refinement_iterations,
+                scenario_count=args.optimization_scenario_count,
+                random_seed=args.simulation_random_seed + candidate_index * 1009,
+                scenario_risk_weight=args.optimization_scenario_risk_weight,
+            )
+            for candidate_index in range(args.optimization_candidate_count)
+        )
+        optimization_result, optimizer_stability = select_robust_schedule_candidate(
+            candidates,
+            templates,
+            predict_fn,
+            validation_scenario_count=args.optimization_validation_scenario_count,
+            validation_random_seed=args.simulation_random_seed + 7919,
+            scenario_risk_weight=args.optimization_scenario_risk_weight,
+        )
+        optimizer_stability["status"] = "available"
+    elif args.schedule_refinement_iterations > 0:
         print("PHASE: refining-scheduled-matchups", flush=True)
         optimization_result = refine_tournament_assignments_for_schedule(
-            optimization_result,
+            initial_optimization_result,
             templates,
             predict_fn,
             matchup_cost_fn=matchup_cost_fn,
             max_iterations=args.schedule_refinement_iterations,
-            scenario_count=(
-                args.optimization_scenario_count
-                if (
-                    args.predictor_source == PREDICTOR_SOURCE_POINT_IN_TIME
-                    and resolved_probability_strategy == COHERENT_SCORE_DISTRIBUTION_STRATEGY
-                )
-                else 0
-            ),
-            random_seed=args.simulation_random_seed,
-            scenario_risk_weight=args.optimization_scenario_risk_weight,
         )
     simulated_tournament = simulate_tournament_schedule(
         optimization_result.divisions,
@@ -2385,6 +2424,16 @@ def main() -> int:
     optimized_payload["schedule_templates"] = {name: template.to_dict() for name, template in templates.items()}
 
     recommendations = _build_division_recommendations(entrant_rows, optimized_payload["divisions"])
+    stability_by_team = {
+        str(row["team_id"]): row
+        for row in optimizer_stability.get("team_stability", ())
+    }
+    for recommendation in recommendations:
+        stability = stability_by_team.get(str(recommendation["entrant_id"]))
+        if stability:
+            recommendation["division_agreement_rate"] = stability["division_agreement_rate"]
+            recommendation["pool_agreement_rate"] = stability["pool_agreement_rate"]
+            recommendation["placement_stability"] = stability["status"]
     output_payload = {
         "event_name": event_name,
         "cohort": {"age_group": age_group, "gender": gender},
@@ -2409,6 +2458,7 @@ def main() -> int:
             "matchbalance_optimized_projection": proposed_schedule_projection,
             "strength_sorted_assignment": strength_sorted_result.to_dict(),
         },
+        "optimizer_stability": optimizer_stability,
         "simulation_ensemble": simulation_ensemble,
         "model_validation": model_validation,
         "seeding_comparison": seeding_comparison,
