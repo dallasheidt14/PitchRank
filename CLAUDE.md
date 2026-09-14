@@ -558,7 +558,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `refresh-team-scrape-activity.yml` | Sun 12:19 UTC | Recompute the `teams` activity columns the scrape-eligibility rules read |
 | `process-missing-games.yml` | Every 15 min | Drain the queue, 40 teams per run |
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
-| `calculate-rankings.yml` | Mon 12:30 PM UTC | Recalculate rankings (Glicko-2 + ML) |
+| `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`) |
@@ -683,6 +683,30 @@ either re-applying the file — aborting on its guard, blocking unrelated
 migrations — or skipping a rollover that never happened. The rollback expires at
 the first post-roll ranking run, which re-anchors scores that restoring labels
 cannot undo.
+
+**The relabel moves `teams.age_group` and nothing else, so Modular11 needs its
+own pass.** Its team names (`956 United U16 AD`), `teams.provider_team_id` and
+`team_alias_map.provider_team_id` (`{club}_U{age}_{HD|AD}`) all carry a U-age
+that the relabel leaves a year behind. The matcher looks aliases up by the age
+it scraped, and team creation reuses a team by `provider_team_id` without an
+age check. Stale IDs therefore misfile the new season's games and create
+duplicates. Roll them before any Modular11 import, following these rules:
+
+- **Which IDs:** move the ID of every rolled team whose ID age equals its
+  pre-rollover label, not just the renamed teams. Include deprecated rows, which
+  still hold the unique index, and Modular11 aliases on GotSport/TGS teams.
+  Rolling a subset collides with neighbours' stale IDs.
+- **Order and guards:** write the oldest board first, and guard each write on its
+  old value.
+- **The u19 board:** park its IDs at `_U18_`. Modular11 lists no U18, so those
+  teams receive nothing until someone decides where they belong.
+- **Which names:** rename only a name whose single U-age equals the prior label
+  and that carries no birth year or season.
+- **The first import after the roll:** a pre-rollover game now resolves to the
+  younger squad and passes the age check. Scrape only dates after the roll.
+
+The 2026-09-14 pass was a one-off; its rollback data is in gitignored
+`data/backups/`, and the backlog tracks keeping a reusable script.
 
 ### Weekly Cycle
 

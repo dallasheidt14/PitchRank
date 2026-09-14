@@ -1074,3 +1074,30 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `games` rows with `game_date` after the import date; GotSport path `GotSportScraper._parse_api_match` in `src/scrapers/gotsport.py`; loader `fetch_games_for_rankings` in `src/rankings/data_adapter.py`
 - **Why**: On 2026-09-14, 211 games dated after that day already had both scores set. 80 are in the GotSport `"None"` sink that `scripts/exclude_none_opponent_games.py` excludes, and many of those read 1-0 or 0-1 weeks ahead of play. The other 131 are not part of it. `fetch_games_for_rankings` skips future dates, so the other 131 count as real results once their date passes. Unknown whether GotSport publishes pre-set or forfeit results or the import assigns scores to scheduled matches.
 - **Noted**: 2026-09-14
+
+### Give the Modular11 scrape workflows a fixed start date instead of days-back
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `Modular11ScheduleSpider.__init__` (`scrapers/modular11_scraper/modular11_scraper/spiders/modular11_schedule.py`) and `Modular11EventsSpider.__init__` (`modular11_events.py`), both deriving `start_date = now - days_back`; the `days_back` input of `modular11-weekly-scrape.yml` and `modular11-events-weekly-scrape.yml`
+- **Why**: The operator decision (2026-09-14) is to import only Modular11 games dated 2026-09-01 or later. Today that must be re-expressed as a days count on every run, and the default of 365 re-scrapes last season. Since the 2026-09-14 alias roll, a pre-rollover game labelled U16 resolves to last season's U15 squad and passes the matcher's age check, so it is misfiled silently rather than rejected. Modular11 code is operator-gated; this entry needs the owner to open it.
+- **Noted**: 2026-09-14
+
+### Modular11 team creation reuses a team by stored provider ID without checking its age
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `Modular11GameMatcher._create_new_modular11_team` in `src/models/modular11_matcher.py` (the `teams` select on `provider_id` + aliased `provider_team_id` that returns `existing.data["team_id_master"]`, and the same lookup in its duplicate-key fallback)
+- **Why**: `_match_by_provider_id` rejects an alias whose team is in another age group (`_validate_team_age_group`), but team creation then looks up `teams.provider_team_id = "{club}_U{age}_{div}"` and returns whatever it finds with no age check. Read 2026-09-14: a stale ID therefore attaches a new squad's games to an older squad, which is why every rollover must roll `teams.provider_team_id` as well as the aliases. Operator-gated like all Modular11 code.
+- **Noted**: 2026-09-14
+
+### Commit a reusable rollover script for Modular11 team names and provider IDs
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: new script under `scripts/`; reads `teams_age_rollover_backup_<year>` and writes `teams.team_name`, `teams.provider_team_id`, `team_alias_map.provider_team_id`
+- **Why**: The Aug 1 relabel migration moves only `teams.age_group`, so Modular11 U-ages in names and `{club}_U{age}_{div}` IDs fall a year behind every season. The 2026-09-14 fix was a one-off scratch script, not kept; rollback data is in gitignored `data/backups/modular11_*_2026-09-14.*`. Rules that held:
+  - Roll IDs for every rolled team whose ID age equals its prior label, including deprecated rows (they still hold the unique index) and Modular11 aliases on GotSport/TGS teams. Rolling only renamed teams held back 249.
+  - Rename only names whose single U-age equals the prior label and that carry no birth year or season.
+  - Park the u19 board at U18, write the oldest board first, guard each write on its old value, and dry run by default.
+- **Noted**: 2026-09-14
