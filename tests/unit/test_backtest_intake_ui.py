@@ -534,6 +534,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     )
     write_historical_preflight(event_key, failed_preflight, base_dir=tmp_path)
     calls = []
+    preflight_calls = []
 
     def fake_execute(
         event_key_value,
@@ -590,6 +591,9 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
     def fake_preflight(requests, _client):
         request_list = list(requests)
+        preflight_calls.append(request_list)
+        if len(preflight_calls) == 1:
+            return failed_preflight
         entrants = tuple(
             HistoricalEntrantCheck(
                 entrant["entrant_id"],
@@ -629,6 +633,10 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     )
     model_row = readiness_table.loc[readiness_table["Check"] == "Prediction engine"].iloc[0]
     assert model_row["Action"] == "PitchRank Compare predictor with historical inputs"
+    missing = next(item.value for item in test.dataframe if "Reason" in item.value.columns)
+    assert missing[["Team", "Reason"]].to_dict("records") == [
+        {"Team": "Alpha", "Reason": "Historical rating was not available"}
+    ]
     run_button = next(
         button
         for button in test.button
@@ -636,6 +644,15 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     )
     assert run_button.disabled is False
     run_button.click().run()
+    assert not test.exception, [error.message for error in test.exception]
+    assert calls == []
+    assert any("Some teams still lack a usable pre-event rating" in item.value for item in test.warning)
+    retry_button = next(
+        button
+        for button in test.button
+        if button.label == "Retry ratings and run full tournament Backtest (1 cohort)"
+    )
+    retry_button.click().run()
 
     assert not test.exception, [error.message for error in test.exception]
     assert calls == [(event_key, "u14")]

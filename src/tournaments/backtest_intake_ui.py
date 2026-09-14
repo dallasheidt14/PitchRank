@@ -1712,6 +1712,9 @@ def _render_backtest_runner(
     cancelled_label = st.session_state.pop(f"bt_cancel_notice_{event_key}", "")
     if cancelled_label:
         st.info(f"{cancelled_label} was stopped safely. Select it and run it again when ready.")
+    history_notice = st.session_state.pop(f"bt_history_notice_{event_key}", "")
+    if history_notice:
+        st.warning(history_notice)
     operator_snapshot = replace(
         snapshot,
         reviews=_current_reviews(snapshot),
@@ -1780,6 +1783,12 @@ def _render_backtest_runner(
                     supabase_client,
                 )
                 write_historical_preflight(event_key, result, base_dir=base_dir)
+                if not result.ready:
+                    st.session_state[f"bt_history_notice_{event_key}"] = (
+                        "Some teams still lack a usable pre-event rating. Open Advanced details "
+                        "to see the teams and reasons, then retry after the source data is fixed."
+                    )
+                    st.rerun()
                 return result
             except HistoricalPreflightUnavailable as exc:
                 st.error(f"MatchBalance could not prepare the historical ratings: {exc}")
@@ -1975,6 +1984,19 @@ def _render_backtest_runner(
                     f"Average estimates: {not_found_fallbacks} Not Found team(s) and "
                     f"{missing_history_fallbacks} matched team(s) without eligible pre-event history."
                 )
+            missing_rows = [
+                {
+                    "Cohort": f"{_display_gender(cohort.gender)} {cohort.age_group.upper()}",
+                    "Team": entrant.event_team_name,
+                    "Reason": entrant.reason,
+                }
+                for cohort in preflight.cohorts
+                for entrant in cohort.entrants
+                if not entrant.eligible
+            ]
+            if missing_rows:
+                st.caption("Teams still missing a usable pre-event rating")
+                st.dataframe(pd.DataFrame(missing_rows), hide_index=True, width="stretch")
         if readiness:
             selected_index = st.selectbox(
                 "Cohort to run",
