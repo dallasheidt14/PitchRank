@@ -70,6 +70,7 @@ PROMOTION_PRIMARY_METRICS: tuple[str, ...] = (
     "margin_mae",
     "blowout_4plus_brier",
 )
+DEFAULT_PROMOTION_BASELINE = "historical_hierarchical_poisson"
 
 DEFAULT_NONINFERIORITY_TOLERANCES: Mapping[str, float] = {
     "log_loss": 0.01,
@@ -606,6 +607,33 @@ def evaluate_candidate_promotion(
         "segment_regressions": segment_regressions,
         "reasons": reasons,
         "automatic_activation": False,
+    }
+
+
+def build_promotion_decisions(
+    fold_metrics: pd.DataFrame,
+    *,
+    promotion_baseline: str = DEFAULT_PROMOTION_BASELINE,
+    minimum_folds: int = 3,
+    minimum_shared_games: int = 500,
+    segment_metrics: pd.DataFrame | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Evaluate every registrable candidate against one declared baseline."""
+
+    candidates = sorted(fold_metrics.get("candidate", pd.Series(dtype=str)).unique())
+    if promotion_baseline not in candidates:
+        return {}
+    return {
+        candidate: evaluate_candidate_promotion(
+            fold_metrics,
+            champion=promotion_baseline,
+            challenger=candidate,
+            minimum_folds=minimum_folds,
+            minimum_shared_games=minimum_shared_games,
+            segment_metrics=segment_metrics,
+        )
+        for candidate in candidates
+        if candidate != promotion_baseline
     }
 
 

@@ -15,9 +15,10 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.predictions.model_laboratory import (  # noqa: E402
+    DEFAULT_PROMOTION_BASELINE,
     build_feature_coverage_report,
+    build_promotion_decisions,
     dataset_sha256,
-    evaluate_candidate_promotion,
     finite_json_records,
     report_digest,
     run_count_model_laboratory,
@@ -76,9 +77,9 @@ def main() -> int:
         help="Evaluate only the transparent count-model challengers",
     )
     parser.add_argument(
-        "--champion",
-        default="matchbalance_learned",
-        help="Candidate that challengers must beat for a promotion recommendation",
+        "--promotion-baseline",
+        default=DEFAULT_PROMOTION_BASELINE,
+        help="Existing baseline that every registrable candidate must beat",
     )
     parser.add_argument("--minimum-promotion-folds", type=int, default=3)
     parser.add_argument("--minimum-promotion-games", type=int, default=500)
@@ -108,19 +109,13 @@ def main() -> int:
     _write_json(output_dir / "feature_coverage.json", feature_coverage)
 
     candidates = sorted(result.fold_metrics.get("candidate", pd.Series(dtype=str)).unique())
-    promotion = {}
-    if args.champion in candidates:
-        for challenger in candidates:
-            if challenger == args.champion:
-                continue
-            promotion[challenger] = evaluate_candidate_promotion(
-                result.fold_metrics,
-                champion=args.champion,
-                challenger=challenger,
-                minimum_folds=args.minimum_promotion_folds,
-                minimum_shared_games=args.minimum_promotion_games,
-                segment_metrics=result.segment_metrics,
-            )
+    promotion = build_promotion_decisions(
+        result.fold_metrics,
+        promotion_baseline=args.promotion_baseline,
+        minimum_folds=args.minimum_promotion_folds,
+        minimum_shared_games=args.minimum_promotion_games,
+        segment_metrics=result.segment_metrics,
+    )
 
     manifest = {
         "schema_version": "matchbalance-model-laboratory-v1",
@@ -142,7 +137,7 @@ def main() -> int:
             "half_life_days": args.half_life_days,
             "prior_games": args.prior_games,
             "include_matchbalance_learned": not args.skip_learned,
-            "champion": args.champion,
+            "promotion_baseline": args.promotion_baseline,
         },
         "folds": [asdict(fold) for fold in result.folds],
         "failures": list(result.failures),

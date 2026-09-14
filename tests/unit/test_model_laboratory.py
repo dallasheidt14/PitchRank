@@ -3,7 +3,9 @@ from __future__ import annotations
 import pandas as pd
 
 from src.predictions.model_laboratory import (
+    DEFAULT_PROMOTION_BASELINE,
     build_feature_coverage_report,
+    build_promotion_decisions,
     build_rolling_tournament_folds,
     evaluate_candidate_promotion,
     run_count_model_laboratory,
@@ -173,6 +175,21 @@ def test_promotion_gate_requires_repeated_noninferior_primary_improvement():
     assert decision["decision"] == "promote"
     assert decision["shared_games"] == 300
     assert decision["automatic_activation"] is False
+
+
+def test_default_promotion_baseline_makes_learned_candidate_registrable():
+    rows = _promotion_rows().replace(
+        {
+            "champion": DEFAULT_PROMOTION_BASELINE,
+            "challenger": "matchbalance_learned",
+        }
+    )
+
+    decisions = build_promotion_decisions(rows, minimum_shared_games=250)
+
+    assert DEFAULT_PROMOTION_BASELINE not in decisions
+    assert decisions["matchbalance_learned"]["decision"] == "promote"
+    assert decisions["matchbalance_learned"]["champion"] == DEFAULT_PROMOTION_BASELINE
 
 
 def test_promotion_gate_holds_candidate_with_missing_tournament_fold():
