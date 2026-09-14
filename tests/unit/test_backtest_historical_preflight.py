@@ -23,6 +23,10 @@ def _allow_fixture_cutoff(monkeypatch):
         "src.tournaments.backtest_historical_preflight.validate_predictor_cutoff",
         lambda _cutoff: None,
     )
+    monkeypatch.setattr(
+        "src.tournaments.backtest_historical_preflight.validate_predictor_runtime",
+        lambda: None,
+    )
 
 
 class _Resolver:
@@ -81,6 +85,17 @@ def _snapshot_rows():
             )
         ]
     )
+
+
+def test_preflight_reports_missing_predictor_runtime_before_database_access(monkeypatch):
+    from src.tournaments import backtest_historical_preflight as preflight
+
+    def unavailable():
+        raise RuntimeError("The PitchRank Compare predictor runtime is not installed")
+
+    monkeypatch.setattr(preflight, "validate_predictor_runtime", unavailable)
+    with pytest.raises(HistoricalPreflightUnavailable, match="runtime is not installed"):
+        run_historical_preflight((_request(),), object())
 
 
 def test_preflight_checks_every_entrant_with_same_strict_cutoff(monkeypatch):

@@ -17,6 +17,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FRONTEND_DIR = _REPO_ROOT / "frontend"
 _CALIBRATION_DIR = _FRONTEND_DIR / "public" / "data" / "calibration"
 _BATCH_SCRIPT = _FRONTEND_DIR / "scripts" / "run-backtest-predictions.ts"
+_TSX_CLI = _FRONTEND_DIR / "node_modules" / "tsx" / "dist" / "cli.mjs"
 
 PREDICTOR_CALIBRATION_AVAILABLE_DATE = "2026-04-20"
 PREDICTOR_CALIBRATION_SOURCE_COMMIT = "b76902f95eda14ed0b4c5c68d782ac2c01aa01f2"
@@ -32,6 +33,14 @@ PREDICTOR_IDENTITY_FILES = (
     _CALIBRATION_DIR / "confidence_parameters_v2.json",
     _CALIBRATION_DIR / "heuristic_outcome_calibration.json",
 )
+
+
+def _locked_tsx_version() -> str:
+    lock = json.loads((_FRONTEND_DIR / "package-lock.json").read_text(encoding="utf-8"))
+    version = str(((lock.get("packages") or {}).get("node_modules/tsx") or {}).get("version") or "")
+    if not version:
+        raise RuntimeError("frontend/package-lock.json does not contain the required tsx runtime")
+    return version
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,7 @@ def canonical_predictor_sha256() -> str:
             "calibration_available_date": PREDICTOR_CALIBRATION_AVAILABLE_DATE,
             "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
             "cutoff_policy": "calibration_available_date_strictly_before_event_cutoff",
+            "tsx_version": _locked_tsx_version(),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -81,6 +91,38 @@ def validate_predictor_cutoff(cutoff_exclusive: str) -> None:
             "PitchRank Compare calibration was not available before the event cutoff "
             f"{cutoff.isoformat()}; earliest supported cutoff is 2026-04-21"
         )
+
+
+def _predictor_runtime_command() -> list[str]:
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("Node.js is required to run the canonical PitchRank Compare predictor")
+    if not _TSX_CLI.is_file():
+        raise RuntimeError(
+            "The PitchRank Compare predictor runtime is not installed; "
+            "run `npm ci --prefix frontend` before running Backtest"
+        )
+    return [node, str(_TSX_CLI)]
+
+
+def validate_predictor_runtime(*, timeout_seconds: int = 15) -> None:
+    """Probe the Node-20-compatible TypeScript runtime before a cohort starts."""
+
+    command = [*_predictor_runtime_command(), "--version"]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=_FRONTEND_DIR,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f"PitchRank Compare predictor runtime check failed: {exc}") from exc
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "unknown tsx error"
+        raise RuntimeError(f"PitchRank Compare predictor runtime check failed: {detail}")
 
 
 def _finite_float(value: Any, *, name: str) -> float:
@@ -153,9 +195,7 @@ def run_compare_prediction_batch(
     entrant_ids = sorted(teams_by_entrant_id)
     if len(entrant_ids) < 2:
         return {}
-    node = shutil.which("node")
-    if not node:
-        raise RuntimeError("Node.js is required to run the canonical PitchRank Compare predictor")
+    runtime_command = _predictor_runtime_command()
 
     payload = {
         "schema_version": 1,
@@ -173,8 +213,7 @@ def run_compare_prediction_batch(
             encoding="utf-8",
         )
         command = [
-            node,
-            "--experimental-strip-types",
+            *runtime_command,
             str(_BATCH_SCRIPT),
             str(input_path),
             str(output_path),

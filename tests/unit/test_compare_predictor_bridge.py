@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import shutil
+from types import SimpleNamespace
 
 import pytest
 
+import src.tournaments.compare_predictor_bridge as bridge
 from src.tournaments.compare_predictor_bridge import (
     canonical_predictor_sha256,
     run_compare_prediction_batch,
     validate_predictor_cutoff,
+    validate_predictor_runtime,
 )
 
 
@@ -55,6 +58,32 @@ def test_predictor_identity_and_cutoff_are_stable(monkeypatch):
         "2026-04-21",
     )
     assert canonical_predictor_sha256() != original_identity
+
+
+def test_predictor_runtime_requires_the_checked_in_tsx_install(monkeypatch, tmp_path):
+    monkeypatch.setattr(bridge.shutil, "which", lambda _name: "node")
+    monkeypatch.setattr(bridge, "_TSX_CLI", tmp_path / "missing-tsx.mjs")
+
+    with pytest.raises(RuntimeError, match="npm ci --prefix frontend"):
+        validate_predictor_runtime()
+
+
+def test_predictor_runtime_probes_tsx_with_node(monkeypatch, tmp_path):
+    tsx_cli = tmp_path / "cli.mjs"
+    tsx_cli.write_text("", encoding="utf-8")
+    monkeypatch.setattr(bridge.shutil, "which", lambda _name: "node-20")
+    monkeypatch.setattr(bridge, "_TSX_CLI", tsx_cli)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="tsx v4", stderr="")
+
+    monkeypatch.setattr(bridge.subprocess, "run", run)
+    validate_predictor_runtime()
+
+    assert calls[0][0] == ["node-20", str(tsx_cli), "--version"]
+    assert calls[0][1]["cwd"] == bridge._FRONTEND_DIR
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")

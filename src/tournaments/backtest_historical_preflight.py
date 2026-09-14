@@ -35,6 +35,7 @@ from src.tournaments.compare_predictor_bridge import (
     PREDICTOR_CALIBRATION_SOURCE_COMMIT,
     canonical_predictor_sha256,
     validate_predictor_cutoff,
+    validate_predictor_runtime,
 )
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir
@@ -182,6 +183,10 @@ def run_historical_preflight(
         raise ValueError("All preflight cohorts need one explicit event cutoff")
     cutoff = next(iter(cutoffs))
     validate_predictor_cutoff(cutoff)
+    try:
+        validate_predictor_runtime()
+    except RuntimeError as exc:
+        raise HistoricalPreflightUnavailable(str(exc)) from exc
     try:
         resolver = MergeResolver(client)
         resolver.load_merge_map()
