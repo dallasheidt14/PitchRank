@@ -17,6 +17,7 @@ from src.predictions.point_in_time_match_model import (
     _snapshot_as_of,
     build_point_in_time_dataset,
     build_point_in_time_matchup_row,
+    merge_optional_match_context,
 )
 
 
@@ -171,6 +172,70 @@ def test_build_point_in_time_dataset_is_chronological_and_mirrored():
     assert g3_original["actual_outcome"] == "team_a_win"
     assert g3_mirrored["actual_outcome"] == "team_b_win"
     assert g3_original["power_score_final_diff"] == -g3_mirrored["power_score_final_diff"]
+
+
+def test_optional_match_context_is_mirrored_without_losing_shared_pregame_fields():
+    home = _snapshot("2026-04-01", "home")
+    away = _snapshot("2026-04-01", "away")
+    context = {
+        "match_duration_minutes": 70,
+        "players_per_side": 11,
+        "event_strength": 0.82,
+        "home_roster_continuity": 0.90,
+        "away_roster_continuity": 0.65,
+        "home_rest_minutes": 180,
+        "away_rest_minutes": 90,
+    }
+
+    original = build_point_in_time_matchup_row(
+        "home",
+        "away",
+        home,
+        away,
+        [],
+        "2026-04-02",
+        match_context=context,
+    )
+    mirrored = build_point_in_time_matchup_row(
+        "away",
+        "home",
+        away,
+        home,
+        [],
+        "2026-04-02",
+        match_context=context,
+        match_context_mirrored=True,
+    )
+
+    assert original["match_duration_minutes"] == mirrored["match_duration_minutes"] == 70
+    assert original["players_per_side"] == mirrored["players_per_side"] == 11
+    assert original["event_strength"] == mirrored["event_strength"] == 0.82
+    assert original["team_a_roster_continuity"] == 0.90
+    assert mirrored["team_a_roster_continuity"] == 0.65
+    assert mirrored["roster_continuity_diff"] == -original["roster_continuity_diff"]
+    assert original["team_a_rest_minutes"] == 180
+    assert mirrored["team_a_rest_minutes"] == 90
+    assert mirrored["rest_minutes_diff"] == -original["rest_minutes_diff"]
+
+
+def test_merge_optional_match_context_requires_unique_reviewed_game_ids():
+    games = pd.DataFrame({"id": ["g1", "g2"], "game_date": ["2026-01-01", "2026-01-02"]})
+    context = pd.DataFrame(
+        {
+            "game_id": ["g1", "g2"],
+            "match_duration_minutes": [60, 70],
+            "players_per_side": [9, 11],
+        }
+    )
+
+    merged = merge_optional_match_context(games, context)
+
+    assert merged["match_duration_minutes"].tolist() == [60, 70]
+    assert merged["players_per_side"].tolist() == [9, 11]
+
+    duplicated = pd.concat([context, context.iloc[[0]]], ignore_index=True)
+    with np.testing.assert_raises_regex(ValueError, "must be unique"):
+        merge_optional_match_context(games, duplicated)
 
 
 def test_matchup_history_excludes_same_day_and_late_imported_results():

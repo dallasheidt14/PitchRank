@@ -40,6 +40,7 @@ from src.predictions.point_in_time_match_model import (  # noqa: E402
     DatasetBuildResult,
     PointInTimeMatchModel,
     build_point_in_time_dataset,
+    merge_optional_match_context,
 )
 from supabase import create_client  # noqa: E402
 
@@ -142,6 +143,13 @@ async def main():
         help="Persist the built training frame to CSV for inspection",
     )
     parser.add_argument(
+        "--game-context-csv",
+        help=(
+            "Optional local pregame enrichment keyed by game_id. Supported fields are "
+            "duration, players per side, event strength, roster continuity, and rest minutes."
+        ),
+    )
+    parser.add_argument(
         "--include-team-names",
         action="store_true",
         help="Fetch canonical team names for dataset/reporting output (slower; disabled by default in CI)",
@@ -169,6 +177,14 @@ async def main():
     if games_df.empty:
         logger.error("No historical games found")
         sys.exit(1)
+    game_context_sha256 = None
+    if args.game_context_csv:
+        context_path = Path(args.game_context_csv).resolve()
+        if not context_path.is_file():
+            raise FileNotFoundError(f"Game context CSV not found: {context_path}")
+        games_df = merge_optional_match_context(games_df, pd.read_csv(context_path))
+        game_context_sha256 = dataset_sha256(context_path)
+        logger.info("Attached reviewed pregame context from %s", context_path)
 
     team_ids = sorted(
         set(games_df["home_team_master_id"].dropna().astype(str)).union(
@@ -263,6 +279,9 @@ async def main():
     if training_dataset_sha256:
         metrics["training_dataset_sha256"] = training_dataset_sha256
         model.training_metadata["training_dataset_sha256"] = training_dataset_sha256
+    if game_context_sha256:
+        metrics["game_context_sha256"] = game_context_sha256
+        model.training_metadata["game_context_sha256"] = game_context_sha256
     artifact_paths = model.save()
     evaluation_report = model.write_evaluation_report(str(model_dir), prefix="point_in_time_model")
 

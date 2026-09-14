@@ -90,6 +90,16 @@ FEATURE_EXCLUDE_COLUMNS = {
     "actual_outcome_label",
 }
 
+OPTIONAL_MATCH_CONTEXT_COLUMNS = (
+    "match_duration_minutes",
+    "players_per_side",
+    "event_strength",
+    "home_roster_continuity",
+    "away_roster_continuity",
+    "home_rest_minutes",
+    "away_rest_minutes",
+)
+
 SNAPSHOT_NUMERIC_FIELDS = [
     "power_score_final",
     "sos_norm",
@@ -933,6 +943,87 @@ def _schedule_load_features(
     }
 
 
+def merge_optional_match_context(
+    games_df: pd.DataFrame,
+    context_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach reviewed pregame context by game ID without changing database reads."""
+
+    if "id" not in games_df.columns:
+        raise ValueError("Historical games must contain id")
+    if "game_id" not in context_df.columns:
+        raise ValueError("Match context must contain game_id")
+    if context_df["game_id"].isna().any() or context_df["game_id"].astype(str).str.strip().eq("").any():
+        raise ValueError("Match context game_id values must be nonempty")
+    context_ids = context_df["game_id"].astype(str)
+    if context_ids.duplicated().any():
+        duplicates = sorted(context_ids[context_ids.duplicated(keep=False)].unique())
+        raise ValueError("Match context game_id values must be unique: " + ", ".join(duplicates[:5]))
+    unknown = sorted(
+        set(context_df.columns) - {"game_id", *OPTIONAL_MATCH_CONTEXT_COLUMNS}
+    )
+    if unknown:
+        raise ValueError("Unsupported match context columns: " + ", ".join(unknown))
+    result = games_df.copy()
+    context = context_df.copy()
+    context["game_id"] = context_ids
+    context = context.set_index("game_id")
+    game_ids = result["id"].astype(str)
+    for column in OPTIONAL_MATCH_CONTEXT_COLUMNS:
+        if column in context.columns:
+            result[column] = game_ids.map(context[column])
+    return result
+
+
+def _optional_context_float(context: dict[str, object], key: str) -> float:
+    value = context.get(key)
+    if value is None or pd.isna(value):
+        return float("nan")
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else float("nan")
+
+
+def _match_context_features(
+    context: Optional[dict[str, object]],
+    *,
+    mirrored: bool,
+) -> dict[str, float]:
+    context = context or {}
+    team_a_prefix = "away" if mirrored else "home"
+    team_b_prefix = "home" if mirrored else "away"
+    duration = _optional_context_float(context, "match_duration_minutes")
+    players_per_side = _optional_context_float(context, "players_per_side")
+    event_strength = _optional_context_float(context, "event_strength")
+    team_a_continuity = _optional_context_float(
+        context,
+        f"{team_a_prefix}_roster_continuity",
+    )
+    team_b_continuity = _optional_context_float(
+        context,
+        f"{team_b_prefix}_roster_continuity",
+    )
+    team_a_rest = _optional_context_float(context, f"{team_a_prefix}_rest_minutes")
+    team_b_rest = _optional_context_float(context, f"{team_b_prefix}_rest_minutes")
+    return {
+        "match_duration_minutes": duration,
+        "match_duration_known": float(math.isfinite(duration)),
+        "players_per_side": players_per_side,
+        "playing_format_known": float(math.isfinite(players_per_side)),
+        "event_strength": event_strength,
+        "event_strength_known": float(math.isfinite(event_strength)),
+        "team_a_roster_continuity": team_a_continuity,
+        "team_b_roster_continuity": team_b_continuity,
+        "roster_continuity_diff": team_a_continuity - team_b_continuity,
+        "team_a_roster_continuity_known": float(math.isfinite(team_a_continuity)),
+        "team_b_roster_continuity_known": float(math.isfinite(team_b_continuity)),
+        "team_a_rest_minutes": team_a_rest,
+        "team_b_rest_minutes": team_b_rest,
+        "rest_minutes_diff": team_a_rest - team_b_rest,
+        "team_a_rest_known": float(math.isfinite(team_a_rest)),
+        "team_b_rest_known": float(math.isfinite(team_b_rest)),
+    }
+
+
 def _outcome_label(score_a: int, score_b: int) -> Tuple[int, str]:
     if score_a > score_b:
         return OUTCOME_TEAM_A_WIN, OUTCOME_LABELS[OUTCOME_TEAM_A_WIN]
@@ -955,6 +1046,8 @@ def build_point_in_time_matchup_row(
     example_orientation: str = "shadow",
     actual_score_a: Optional[int] = None,
     actual_score_b: Optional[int] = None,
+    match_context: Optional[dict[str, object]] = None,
+    match_context_mirrored: bool = False,
 ) -> Dict[str, object]:
     """
     Build one offline-model feature row for a matchup using point-in-time snapshot fields.
@@ -1007,6 +1100,12 @@ def build_point_in_time_matchup_row(
     enriched_team_a_snapshot = {**team_a_snapshot, "_game_date": game_date}
     enriched_team_b_snapshot = {**team_b_snapshot, "_game_date": game_date}
     features = _paired_snapshot_features(enriched_team_a_snapshot, enriched_team_b_snapshot)
+    features.update(
+        _match_context_features(
+            match_context,
+            mirrored=match_context_mirrored,
+        )
+    )
 
     if actual_score_a is not None and actual_score_b is not None:
         actual_outcome_code, actual_outcome_name = _outcome_label(int(actual_score_a), int(actual_score_b))
@@ -1198,6 +1297,8 @@ def build_point_in_time_dataset(
             example_orientation=orientation,
             actual_score_a=score_a,
             actual_score_b=score_b,
+            match_context=game_row.to_dict(),
+            match_context_mirrored=orientation == "mirrored",
         )
         if pd.notna(game_row.get("event_name")) and str(game_row.get("event_name") or "").strip():
             example["event_name"] = str(game_row["event_name"]).strip()

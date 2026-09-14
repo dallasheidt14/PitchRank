@@ -79,6 +79,31 @@ def test_feature_coverage_separates_ready_inputs_from_collection_backlog():
     assert duration["missing_columns"] == ["match_duration_minutes"]
 
 
+def test_feature_coverage_recognizes_reviewed_optional_context():
+    frame = pd.DataFrame(
+        {
+            "match_duration_minutes": [60.0],
+            "players_per_side": [9.0],
+            "team_a_roster_continuity": [0.8],
+            "team_b_roster_continuity": [0.7],
+            "event_strength": [0.6],
+            "team_a_rest_minutes": [120.0],
+            "team_b_rest_minutes": [90.0],
+        }
+    )
+
+    report = build_feature_coverage_report(frame)
+
+    for group in (
+        "match_duration",
+        "playing_format",
+        "roster_continuity",
+        "event_strength",
+        "tournament_rest",
+    ):
+        assert group in report["ready_groups"]
+
+
 def test_count_model_laboratory_compares_all_candidates_on_the_same_games():
     frame = pd.DataFrame([_game(day) for day in range(1, 13)])
 
