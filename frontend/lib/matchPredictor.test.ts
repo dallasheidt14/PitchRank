@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { calculateCommonOpponentSignal, predictMatch, warmMatchPredictorCalibration } from './matchPredictor';
+import {
+  calculateCommonOpponentSignal,
+  poissonBlowout4PlusProbability,
+  predictMatch,
+  warmMatchPredictorCalibration,
+} from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 
 beforeAll(async () => {
@@ -69,6 +74,16 @@ function makeGame(overrides: Partial<Game>): Game {
     ...overrides,
   };
 }
+
+describe('poissonBlowout4PlusProbability', () => {
+  it('includes the high-score tail and stays symmetric', () => {
+    const probability = poissonBlowout4PlusProbability(7.5, 1.3);
+
+    expect(probability).toBeGreaterThan(0.815);
+    expect(probability).toBeLessThan(0.825);
+    expect(probability).toBeCloseTo(poissonBlowout4PlusProbability(1.3, 7.5), 12);
+  });
+});
 
 describe('predictMatch', () => {
   it('favors the stronger team in a clear mismatch', () => {

@@ -259,6 +259,10 @@ const DEFAULT_SENSITIVITY = 4.5;
 const RECENT_GAMES_COUNT = 5;
 const GLICKO_ELO_DIVISOR = 400;
 const POISSON_MAX_GOALS = 10;
+// Prediction lambdas are capped at 7.5. At that rate, mass above 40 goals is
+// negligible, so this support preserves the 4+ tail without changing the
+// existing 0-10 modal-score presentation grid.
+const POISSON_BLOWOUT_MAX_GOALS = 40;
 const DEFAULT_DRAW_RATE = 0.13;
 const COMMON_OPPONENT_RECENCY_DAYS = 150;
 
@@ -1011,6 +1015,22 @@ function poissonMass(lambda: number, maxGoals: number = POISSON_MAX_GOALS): numb
   return probabilities;
 }
 
+export function poissonBlowout4PlusProbability(lambdaA: number, lambdaB: number): number {
+  const probsA = poissonMass(lambdaA, POISSON_BLOWOUT_MAX_GOALS);
+  const probsB = poissonMass(lambdaB, POISSON_BLOWOUT_MAX_GOALS);
+  let probability = 0;
+
+  for (let scoreA = 0; scoreA <= POISSON_BLOWOUT_MAX_GOALS; scoreA++) {
+    for (let scoreB = 0; scoreB <= POISSON_BLOWOUT_MAX_GOALS; scoreB++) {
+      if (Math.abs(scoreA - scoreB) >= 4) {
+        probability += probsA[scoreA] * probsB[scoreB];
+      }
+    }
+  }
+
+  return clamp(probability, 0, 1);
+}
+
 function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   const probsA = poissonMass(lambdaA);
   const probsB = poissonMass(lambdaB);
@@ -1018,7 +1038,6 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   let winA = 0;
   let draw = 0;
   let winB = 0;
-  let blowout4Plus = 0;
   let bestWinA = { teamA: 1, teamB: 0, probability: 0 };
   let bestDraw = { teamA: 1, teamB: 1, probability: 0 };
   let bestWinB = { teamA: 0, teamB: 1, probability: 0 };
@@ -1026,10 +1045,6 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   for (let scoreA = 0; scoreA <= POISSON_MAX_GOALS; scoreA++) {
     for (let scoreB = 0; scoreB <= POISSON_MAX_GOALS; scoreB++) {
       const probability = probsA[scoreA] * probsB[scoreB];
-      if (Math.abs(scoreA - scoreB) >= 4) {
-        blowout4Plus += probability;
-      }
-
       if (scoreA > scoreB) {
         winA += probability;
         if (probability > bestWinA.probability) bestWinA = { teamA: scoreA, teamB: scoreB, probability };
@@ -1048,7 +1063,7 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
     winA: total > 0 ? winA / total : 0.5,
     draw: total > 0 ? draw / total : DEFAULT_DRAW_RATE,
     winB: total > 0 ? winB / total : 0.5,
-    blowout4Plus: total > 0 ? blowout4Plus / total : 0,
+    blowout4Plus: poissonBlowout4PlusProbability(lambdaA, lambdaB),
     bestWinA,
     bestDraw,
     bestWinB,
