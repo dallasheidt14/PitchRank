@@ -36,11 +36,12 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
         blowout_games=results["blowout_games"],
     )
     readiness = build_reviewed_cohort_readiness(snapshot, links)
-    model_path = tmp_path / "model.pkl"
-    model_path.write_bytes(b"model")
     preflight = SimpleNamespace(
         input_sha256="preflight-sha",
         cutoff_exclusive="2025-05-10",
+        predictor_sha256="predictor-sha",
+        calibration_available_date="2025-04-01",
+        calibration_source_commit="source-commit",
         ready=True,
         merge_map_version="merge-v1",
         cohorts=(SimpleNamespace(eligible=2, total=2),),
@@ -50,8 +51,7 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
     monkeypatch.setattr(
         acceptance, "build_reviewed_cohort_readiness", lambda *_args, **_kwargs: readiness
     )
-    monkeypatch.setattr(acceptance, "model_artifact_sha256", lambda *_args: "model-sha")
-    monkeypatch.setattr(acceptance, "_model_data_end", lambda *_args: "2025-05-09")
+    monkeypatch.setattr(acceptance, "canonical_predictor_sha256", lambda: "predictor-sha")
     monkeypatch.setattr(
         acceptance, "preflight_input_sha256", lambda *_args, **_kwargs: "preflight-sha"
     )
@@ -82,7 +82,6 @@ def test_acceptance_passes_only_when_every_gate_is_current(monkeypatch, tmp_path
     report = acceptance.validate_backtest_acceptance(
         "gotsport__51783__unknown",
         profile,
-        model_artifact=model_path,
         base_dir=tmp_path,
         merge_map_version="merge-v1",
     )
@@ -134,14 +133,13 @@ def test_acceptance_exposes_baseline_and_completion_failures(monkeypatch, tmp_pa
     report = acceptance.validate_backtest_acceptance(
         "gotsport__51783__unknown",
         profile,
-        model_artifact=tmp_path / "missing.pkl",
         base_dir=tmp_path,
     )
 
     failed_names = {check["name"] for check in report["checks"] if check["status"] == "fail"}
     assert report["status"] == "incomplete"
     assert "teams" in failed_names
-    assert "historical model artifact" in failed_names
+    assert "PitchRank prediction engine" not in failed_names
     assert "historical rating preflight" in failed_names
     assert "completed cohort outputs" in failed_names
     assert "tournament team movements" in failed_names

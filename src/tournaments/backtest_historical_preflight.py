@@ -13,7 +13,6 @@ import pandas as pd
 
 from scripts.backtest_predictor import build_snapshot_index, fetch_prediction_feature_snapshots
 from scripts.backtest_tournament_cohort import (
-    DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
     TEAM_META_COLS,
     _build_entrant_row,
     _canonicalize_snapshot_index,
@@ -21,12 +20,9 @@ from scripts.backtest_tournament_cohort import (
     _fetch_rows_by_ids,
     _filter_snapshot_index_for_cutoff,
     _historical_ranking_row,
-    _override_point_in_time_probability_strategy,
     _resolve_prediction_snapshot,
-    _verify_model_training_provenance,
     _verify_snapshot_provenance,
 )
-from src.predictions.point_in_time_match_model import PointInTimeMatchModel
 from src.tournaments.backtest_rating_fallback import (
     MISSING_HISTORY_FALLBACK_POLICY,
     RATING_FALLBACK_POLICY,
@@ -34,14 +30,20 @@ from src.tournaments.backtest_rating_fallback import (
     missing_history_rating_fallback,
     needs_rating_fallback,
 )
-from src.tournaments.backtest_reviewed_run import model_artifact_sha256, resolve_model_artifact
+from src.tournaments.compare_predictor_bridge import (
+    PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+    PREDICTOR_CALIBRATION_SOURCE_COMMIT,
+    canonical_predictor_sha256,
+    validate_predictor_cutoff,
+    validate_predictor_runtime,
+)
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 from src.tournaments.storage.event_key import intake_dir
 from src.utils.merge_resolver import MergeResolver
 
 
 class HistoricalPreflightUnavailable(RuntimeError):
-    """The read-only data service or model could not be checked."""
+    """The read-only historical data service could not be checked."""
 
 
 @dataclass(frozen=True)
@@ -79,10 +81,11 @@ class HistoricalPreflight:
     input_sha256: str
     checked_at: str
     cutoff_exclusive: str
-    model_artifact_sha256: str
-    model_data_end_date: str
+    predictor_sha256: str
     merge_map_version: str
     cohorts: tuple[HistoricalCohortCheck, ...]
+    calibration_available_date: str = ""
+    calibration_source_commit: str = ""
 
     @property
     def ready(self) -> bool:
@@ -111,8 +114,13 @@ class HistoricalPreflight:
             input_sha256=str(payload["input_sha256"]),
             checked_at=str(payload["checked_at"]),
             cutoff_exclusive=str(payload["cutoff_exclusive"]),
-            model_artifact_sha256=str(payload["model_artifact_sha256"]),
-            model_data_end_date=str(payload["model_data_end_date"]),
+            predictor_sha256=str(
+                payload.get("predictor_sha256")
+                or payload.get("model_artifact_sha256")
+                or ""
+            ),
+            calibration_available_date=str(payload.get("calibration_available_date") or ""),
+            calibration_source_commit=str(payload.get("calibration_source_commit") or ""),
             merge_map_version=str(payload["merge_map_version"]),
             cohorts=cohorts,
         )
@@ -120,15 +128,16 @@ class HistoricalPreflight:
 
 def preflight_input_sha256(
     requests: Iterable[dict[str, Any]],
-    model_artifact: str | Path,
     *,
     merge_map_version: str,
+    predictor_sha256: str | None = None,
 ) -> str:
+    predictor_sha = predictor_sha256 or canonical_predictor_sha256()
     payload = {
         "requests": list(requests),
-        "model_artifact_sha256": model_artifact_sha256(model_artifact),
+        "predictor_sha256": predictor_sha,
         "merge_map_version": merge_map_version,
-        "policy": "strict-pre-event-snapshot-with-transparent-average-estimate-v4",
+        "policy": "pitchrank-predictor-strict-pre-event-snapshot-with-transparent-average-estimate-v5",
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -163,8 +172,6 @@ def write_historical_preflight(
 def run_historical_preflight(
     requests: Iterable[dict[str, Any]],
     client: Any,
-    *,
-    model_artifact: str | Path,
 ) -> HistoricalPreflight:
     """Check the exact entrant snapshots the strict cohort runner will require."""
 
@@ -175,16 +182,12 @@ def run_historical_preflight(
     if "" in cutoffs or len(cutoffs) != 1:
         raise ValueError("All preflight cohorts need one explicit event cutoff")
     cutoff = next(iter(cutoffs))
-    artifact = resolve_model_artifact(model_artifact)
+    validate_predictor_cutoff(cutoff)
     try:
-        model = PointInTimeMatchModel.load(str(artifact))
-        _override_point_in_time_probability_strategy(
-            model,
-            DEFAULT_TOURNAMENT_POINT_IN_TIME_STRATEGY,
-        )
-        model_data_end = _verify_model_training_provenance(
-            dict(model.training_metadata or {}), prediction_date=cutoff
-        )
+        validate_predictor_runtime()
+    except RuntimeError as exc:
+        raise HistoricalPreflightUnavailable(str(exc)) from exc
+    try:
         resolver = MergeResolver(client)
         resolver.load_merge_map()
         if resolver.version == "error":
@@ -380,13 +383,13 @@ def run_historical_preflight(
     return HistoricalPreflight(
         input_sha256=preflight_input_sha256(
             request_list,
-            artifact,
             merge_map_version=str(resolver.version),
         ),
         checked_at=utc_now_iso(),
         cutoff_exclusive=cutoff,
-        model_artifact_sha256=model_artifact_sha256(artifact),
-        model_data_end_date=model_data_end,
+        predictor_sha256=canonical_predictor_sha256(),
+        calibration_available_date=PREDICTOR_CALIBRATION_AVAILABLE_DATE,
+        calibration_source_commit=PREDICTOR_CALIBRATION_SOURCE_COMMIT,
         merge_map_version=str(resolver.version),
         cohorts=tuple(cohort_results),
     )

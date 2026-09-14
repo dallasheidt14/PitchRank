@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -16,6 +15,18 @@ from src.tournaments.backtest_intake_state import CaptureVerification
 from src.tournaments.backtest_link_store import EventLinks, TeamLink
 from src.tournaments.backtest_reviewed_run import build_reviewed_cohort_readiness
 from tests.unit.test_backtest_request import _links, _snapshot
+
+
+@pytest.fixture(autouse=True)
+def _allow_fixture_cutoff(monkeypatch):
+    monkeypatch.setattr(
+        "src.tournaments.backtest_historical_preflight.validate_predictor_cutoff",
+        lambda _cutoff: None,
+    )
+    monkeypatch.setattr(
+        "src.tournaments.backtest_historical_preflight.validate_predictor_runtime",
+        lambda: None,
+    )
 
 
 class _Resolver:
@@ -76,20 +87,21 @@ def _snapshot_rows():
     )
 
 
-def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkeypatch):
+def test_preflight_reports_missing_predictor_runtime_before_database_access(monkeypatch):
     from src.tournaments import backtest_historical_preflight as preflight
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
+    def unavailable():
+        raise RuntimeError("The PitchRank Compare predictor runtime is not installed")
+
+    monkeypatch.setattr(preflight, "validate_predictor_runtime", unavailable)
+    with pytest.raises(HistoricalPreflightUnavailable, match="runtime is not installed"):
+        run_historical_preflight((_request(),), object())
+
+
+def test_preflight_checks_every_entrant_with_same_strict_cutoff(monkeypatch):
+    from src.tournaments import backtest_historical_preflight as preflight
+
     monkeypatch.setattr(preflight, "MergeResolver", _Resolver)
-    monkeypatch.setattr(
-        preflight.PointInTimeMatchModel,
-        "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="poisson_draw_gate",
-        ),
-    )
     monkeypatch.setattr(
         preflight,
         "_fetch_rows_by_ids",
@@ -105,31 +117,19 @@ def test_preflight_checks_every_entrant_with_same_strict_cutoff(tmp_path, monkey
 
     monkeypatch.setattr(preflight, "fetch_prediction_feature_snapshots", snapshots)
 
-    result = run_historical_preflight((_request(),), object(), model_artifact=artifact)
+    result = run_historical_preflight((_request(),), object())
 
     assert result.ready is True
     assert result.cutoff_exclusive == "2025-05-10"
-    assert result.model_data_end_date == "2025-05-08"
+    assert len(result.predictor_sha256) == 64
     assert result.cohorts[0].eligible == result.cohorts[0].total == 2
     assert HistoricalPreflight.from_dict(result.to_dict()) == result
 
 
-def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(
-    tmp_path, monkeypatch
-):
+def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(monkeypatch):
     from src.tournaments import backtest_historical_preflight as preflight
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
     monkeypatch.setattr(preflight, "MergeResolver", _Resolver)
-    monkeypatch.setattr(
-        preflight.PointInTimeMatchModel,
-        "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="poisson_draw_gate",
-        ),
-    )
     monkeypatch.setattr(preflight, "_fetch_rows_by_ids", lambda *_args, **_kwargs: [])
 
     async def snapshots(*_args, **_kwargs):
@@ -137,7 +137,7 @@ def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(
 
     monkeypatch.setattr(preflight, "fetch_prediction_feature_snapshots", snapshots)
 
-    result = run_historical_preflight((_request(),), object(), model_artifact=artifact)
+    result = run_historical_preflight((_request(),), object())
 
     missing_history = result.cohorts[0].entrants[1]
     assert result.ready is True
@@ -151,22 +151,10 @@ def test_preflight_uses_a_distinct_average_for_a_matched_team_without_history(
     assert "No eligible pre-event PitchRank history" in missing_history.reason
 
 
-def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(
-    tmp_path, monkeypatch
-):
+def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(monkeypatch):
     from src.tournaments import backtest_historical_preflight as preflight
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
     monkeypatch.setattr(preflight, "MergeResolver", _Resolver)
-    monkeypatch.setattr(
-        preflight.PointInTimeMatchModel,
-        "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="poisson_draw_gate",
-        ),
-    )
     monkeypatch.setattr(
         preflight,
         "_fetch_rows_by_ids",
@@ -190,7 +178,7 @@ def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(
     )
     request = build_reviewed_cohort_readiness(snapshot, reviewed_links)[0].request
 
-    result = run_historical_preflight((request,), object(), model_artifact=artifact)
+    result = run_historical_preflight((request,), object())
 
     fallback = result.cohorts[0].entrants[1]
     assert result.ready is True
@@ -202,20 +190,10 @@ def test_preflight_accepts_reviewed_not_found_with_division_average_estimate(
     assert "No PitchRank identity" in fallback.reason
 
 
-def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path, monkeypatch):
+def test_preflight_keeps_database_outage_distinct_from_missing_history(monkeypatch):
     from src.tournaments import backtest_historical_preflight as preflight
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
     monkeypatch.setattr(preflight, "MergeResolver", _Resolver)
-    monkeypatch.setattr(
-        preflight.PointInTimeMatchModel,
-        "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="poisson_draw_gate",
-        ),
-    )
     monkeypatch.setattr(
         preflight,
         "_fetch_rows_by_ids",
@@ -223,41 +201,16 @@ def test_preflight_keeps_database_outage_distinct_from_missing_history(tmp_path,
     )
 
     with pytest.raises(HistoricalPreflightUnavailable, match="could not be read"):
-        run_historical_preflight((_request(),), object(), model_artifact=artifact)
+        run_historical_preflight((_request(),), object())
 
 
-def test_preflight_rejects_an_incompatible_model_before_database_reads(tmp_path, monkeypatch):
-    from src.tournaments import backtest_historical_preflight as preflight
-
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
+def test_preflight_cache_key_changes_with_merge_map_version(monkeypatch):
     monkeypatch.setattr(
-        preflight.PointInTimeMatchModel,
-        "load",
-        lambda _path: SimpleNamespace(
-            training_metadata={"model_data_end_date": "2025-05-08"},
-            probability_strategy="hybrid",
-        ),
-    )
-    monkeypatch.setattr(
-        preflight,
-        "MergeResolver",
-        lambda *_args, **_kwargs: pytest.fail("database access should not start"),
+        "src.tournaments.backtest_historical_preflight.canonical_predictor_sha256",
+        lambda: "predictor-sha",
     )
 
-    with pytest.raises(HistoricalPreflightUnavailable, match="Backtest requires 'poisson_draw_gate'"):
-        run_historical_preflight((_request(),), object(), model_artifact=artifact)
-
-
-def test_preflight_cache_key_changes_with_merge_map_version(tmp_path, monkeypatch):
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
-    monkeypatch.setattr(
-        "src.tournaments.backtest_historical_preflight.model_artifact_sha256",
-        lambda _path: "model-sha",
-    )
-
-    first = preflight_input_sha256((_request(),), artifact, merge_map_version="merge-v1")
-    second = preflight_input_sha256((_request(),), artifact, merge_map_version="merge-v2")
+    first = preflight_input_sha256((_request(),), merge_map_version="merge-v1")
+    second = preflight_input_sha256((_request(),), merge_map_version="merge-v2")
 
     assert first != second

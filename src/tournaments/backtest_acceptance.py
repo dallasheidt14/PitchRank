@@ -9,7 +9,6 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from src.predictions.point_in_time_match_model import PointInTimeMatchModel
 from src.tournaments.backtest_event_rollup import build_event_rollup
 from src.tournaments.backtest_historical_preflight import (
     load_historical_preflight,
@@ -25,11 +24,10 @@ from src.tournaments.backtest_link_store import canonicalize_event_links, load_l
 from src.tournaments.backtest_replay_format import assess_replay_format
 from src.tournaments.backtest_reviewed_run import (
     build_reviewed_cohort_readiness,
+    canonical_predictor_sha256,
     capture_verification_blockers,
     list_failed_reviewed_runs,
     list_reviewed_runs,
-    model_artifact_sha256,
-    resolve_model_artifact,
 )
 from src.tournaments.backtest_scope import backtest_scope_roster
 
@@ -76,11 +74,6 @@ def _check(name: str, expected, actual, *, detail: str = "") -> dict:
     }
 
 
-def _model_data_end(model_path: Path) -> str:
-    model = PointInTimeMatchModel.load(str(model_path))
-    return str((model.training_metadata or {}).get("model_data_end_date") or "")[:10]
-
-
 def _scoped_entry_count(roster) -> int:
     """Count the division-qualified entrant rows emitted by cohort requests."""
 
@@ -91,7 +84,6 @@ def validate_backtest_acceptance(
     event_key: str,
     profile: AcceptanceProfile,
     *,
-    model_artifact: str | Path,
     base_dir: str | Path = "reports",
     merge_map_version: str = "",
     resolve_team_id: Callable[[str], str | None] | None = None,
@@ -173,34 +165,16 @@ def validate_backtest_acceptance(
     }
     checks.append(_check("cohort intake readiness", {}, readiness_blockers))
     requests = [item.request for item in readiness if item.request is not None]
-    artifact = resolve_model_artifact(model_artifact)
-    artifact_exists = artifact.is_file()
-    checks.append(_check("historical model artifact", True, artifact_exists, detail=str(artifact)))
-    model_sha = model_artifact_sha256(artifact) if artifact_exists else ""
-    model_data_end = ""
-    if artifact_exists:
-        try:
-            model_data_end = _model_data_end(artifact)
-        except Exception as exc:
-            checks.append(_check("historical model readable", True, False, detail=str(exc)))
-        else:
-            checks.append(_check("historical model readable", True, True))
-    checks.append(
-        _check(
-            "historical model cutoff",
-            True,
-            bool(model_data_end and model_data_end < profile.cutoff_exclusive),
-            detail=f"model data ends {model_data_end or 'unknown'}; event cutoff {profile.cutoff_exclusive}",
-        )
-    )
+    predictor_sha = canonical_predictor_sha256()
+    checks.append(_check("PitchRank prediction engine", True, bool(predictor_sha)))
     preflight = load_historical_preflight(event_key, base_dir=base_dir)
     expected_preflight_sha = (
         preflight_input_sha256(
             requests,
-            artifact,
             merge_map_version=merge_map_version,
+            predictor_sha256=predictor_sha,
         )
-        if artifact_exists and len(requests) == len(readiness) and requests
+        if len(requests) == len(readiness) and requests
         else ""
     )
     preflight_current = bool(
@@ -209,6 +183,10 @@ def validate_backtest_acceptance(
         and preflight.merge_map_version == merge_map_version
         and preflight.input_sha256 == expected_preflight_sha
         and preflight.cutoff_exclusive == profile.cutoff_exclusive
+        and preflight.predictor_sha256 == predictor_sha
+        and bool(preflight.calibration_available_date)
+        and preflight.calibration_available_date < profile.cutoff_exclusive
+        and bool(preflight.calibration_source_commit)
         and preflight.ready
     )
     checks.append(
@@ -232,7 +210,7 @@ def validate_backtest_acceptance(
         snapshot,
         readiness,
         attempts,
-        model_sha256=model_sha or None,
+        predictor_sha256=predictor_sha or None,
         merge_map_version=merge_map_version or None,
     )
     coverage = rollup["coverage"]

@@ -115,6 +115,21 @@ def test_point_in_time_matchup_cost_uses_reported_calibrated_margin():
     assert cost.projected_margin == pytest.approx(0.75)
 
 
+def test_compare_matchup_cost_uses_continuous_margin_instead_of_display_score():
+    prediction = SimpleNamespace(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=0.003,
+        win_probability_a=0.4,
+        win_probability_b=0.39,
+        blowout_4plus_probability=0.01,
+    )
+
+    cost = cohort._matchup_cost_from_prediction(prediction)
+
+    assert cost.projected_margin == pytest.approx(0.003)
+
+
 @pytest.mark.parametrize(
     "calibration",
     (
@@ -192,6 +207,8 @@ def test_historical_ranking_row_uses_frozen_prediction_features():
             "offense_norm": 0.55,
             "defense_norm": 0.49,
             "rank_in_cohort_final": 7,
+            "same_age_games": 8,
+            "publication_cap_score": 0.59,
         }
     )
 
@@ -199,6 +216,41 @@ def test_historical_ranking_row_uses_frozen_prediction_features():
     assert row["off_norm"] == 0.55
     assert row["def_norm"] == 0.49
     assert row["rank_in_cohort_final"] == 7
+    assert row["same_age_games"] == 8
+    assert row["publication_cap_score"] == 0.59
+
+
+def test_average_snapshot_preserves_the_averaged_compare_profile():
+    snapshot = cohort._synthesize_snapshot_from_entrant_row(
+        {
+            "ranking_source_team_id": "average-estimate:missing",
+            "average_source_count": 2,
+            "source_age_group": "u14",
+            "source_gender": "Male",
+            "games_played": 12,
+            "power_score": 0.5,
+            "off_norm": 0.52,
+            "def_norm": 0.48,
+            "wins": 6,
+            "losses": 4,
+            "draws": 2,
+            "win_percentage": 58.3,
+            "exp_margin": 0.12,
+            "exp_win_rate": 0.54,
+            "exp_goals_for": 1.7,
+            "exp_goals_against": 1.4,
+            "same_age_games": 9,
+            "same_age_game_share": 0.75,
+            "publication_cap_score": 0.49,
+        },
+        "2026-09-05",
+    )
+
+    assert snapshot["wins"] == 6
+    assert snapshot["win_percentage"] == 58.3
+    assert snapshot["exp_margin"] == 0.12
+    assert snapshot["same_age_games"] == 9
+    assert snapshot["publication_cap_score"] == 0.49
 
 
 def test_historical_snapshot_provenance_rejects_reconstructed_inputs():
@@ -315,6 +367,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         snapshots,
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
         resolved_probability_strategy="poisson_draw_gate",
@@ -324,6 +377,7 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
         snapshots,
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={"train_examples": 100},
         resolved_probability_strategy="poisson_draw_gate",
@@ -333,8 +387,26 @@ def test_freeze_historical_inputs_is_deterministic_and_records_cutoff():
     assert first["source"] == "prediction_feature_history"
     assert first["data_cutoff_exclusive"] == "2026-04-10"
     assert first["resolved_probability_strategy"] == "poisson_draw_gate"
+    assert first["predictor_sha256"] == cohort.canonical_predictor_sha256()
+    assert first["calibration_available_date"] == "2026-04-20"
+    assert len(first["calibration_source_commit"]) == 40
     assert first["teams"][0]["snapshot_date"] == "2026-04-09"
     assert len(first["input_digest_sha256"]) == 64
+
+    legacy = cohort._freeze_historical_inputs(
+        entrants,
+        snapshots,
+        prediction_date="2026-04-10",
+        history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_PYTHON,
+        model_artifact=None,
+        model_training_metadata={},
+        resolved_probability_strategy=None,
+    )
+    assert legacy["predictor_source"] == cohort.PREDICTOR_SOURCE_PYTHON
+    assert legacy["predictor_sha256"] is None
+    assert "calibration_available_date" not in legacy
+    assert "calibration_source_commit" not in legacy
 
 
 def test_freeze_historical_inputs_covers_games_and_related_snapshots():
@@ -386,6 +458,7 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         {"source-a": entrant_snapshot},
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={},
         resolved_probability_strategy="poisson_draw_gate",
@@ -401,6 +474,7 @@ def test_freeze_historical_inputs_covers_games_and_related_snapshots():
         {"source-a": entrant_snapshot},
         prediction_date="2026-04-10",
         history_start_date="2025-04-10",
+        predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
         model_artifact=None,
         model_training_metadata={},
         resolved_probability_strategy="poisson_draw_gate",
@@ -442,6 +516,7 @@ def test_freeze_historical_inputs_hashes_resolved_probability_strategy():
             snapshots,
             prediction_date="2026-04-10",
             history_start_date="2025-04-10",
+            predictor_source=cohort.PREDICTOR_SOURCE_COMPARE,
             model_artifact=None,
             model_training_metadata={},
             resolved_probability_strategy=strategy,
@@ -977,6 +1052,8 @@ def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
             "games_played": 14,
             "power_score_true": 0.61,
             "rank_in_cohort_final": 7,
+            "same_age_games": 14,
+            "publication_cap_score": 0.6,
         },
         cohort_age_group="u11",
         cohort_gender="Male",
@@ -987,6 +1064,8 @@ def test_build_entrant_row_keeps_event_cohort_for_play_up_team():
     assert entrant_row["gender"] == "Male"
     assert entrant_row["source_age_group"] == "u10"
     assert entrant_row["source_gender"] == "Male"
+    assert entrant_row["same_age_games"] == 14
+    assert entrant_row["publication_cap_score"] == 0.6
     assert any("playing up from u10 into u11" in note for note in notes)
 
 
@@ -1042,6 +1121,86 @@ def test_python_predictor_receives_source_age_for_combined_cohort(monkeypatch):
 
     assert captured[0]["age_group"] == "u10/u11"
     assert captured[0]["source_age_group"] == "u10"
+
+
+def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkeypatch):
+    captured = {}
+    prediction = SimpleNamespace(
+        predicted_winner="team_a",
+        expected_score={"teamA": 2, "teamB": 1},
+        expected_margin=0.8,
+        win_probability_a=0.6,
+        draw_probability=0.2,
+        win_probability_b=0.2,
+        blowout_4plus_probability=0.07,
+    )
+
+    def fake_batch(teams, games):
+        captured["teams"] = teams
+        captured["games"] = games
+        return {
+            ("entry-a", "entry-b"): prediction,
+            ("entry-b", "entry-a"): prediction,
+        }
+
+    monkeypatch.setattr(cohort, "run_compare_prediction_batch", fake_batch)
+    base_row = {
+        "event_team_name": "Alpha",
+        "club_name": "Example FC",
+        "state_code": "TX",
+        "source_gender": "Male",
+        "rank_in_cohort": 4,
+        "power_score": 0.61,
+        "glicko_rating": 1580,
+        "glicko_rd": 75,
+        "glicko_volatility": 0.05,
+        "sos_norm": 0.55,
+        "off_norm": 0.58,
+        "def_norm": 0.56,
+        "wins": 8,
+        "losses": 3,
+        "draws": 1,
+        "games_played": 12,
+        "win_percentage": 70.8,
+        "exp_margin": 0.7,
+        "exp_win_rate": 0.62,
+        "exp_goals_for": 2.1,
+        "exp_goals_against": 1.2,
+        "same_age_games": 10,
+        "same_age_game_share": 0.83,
+        "same_age_unique_opponents": 8,
+        "same_age_top100_opp_count": 2,
+        "same_age_top500_opp_count": 5,
+        "same_age_avg_opp_power_adj": 0.57,
+        "repeat_opponent_share": 0.17,
+        "positive_ml_evidence_scale": 0.91,
+        "publication_cap_rank": 100,
+        "publication_cap_score": 0.59,
+    }
+    rows = [
+        {**base_row, "entrant_id": "entry-a", "ranking_source_team_id": "source-a", "source_age_group": "u10"},
+        {**base_row, "entrant_id": "entry-b", "ranking_source_team_id": "source-b", "source_age_group": "u11"},
+    ]
+    game = PredictorGame(
+        "game-1",
+        "source-a",
+        "source-b",
+        2,
+        1,
+        "2026-08-01",
+    )
+
+    predict_fn, cost_fn = cohort._build_compare_prediction_and_cost_functions(rows, [game])
+    team_a = SeedableTeam("entry-a", "Alpha", "u10/u11", "Male", 0.61)
+    team_b = SeedableTeam("entry-b", "Beta", "u10/u11", "Male", 0.61)
+
+    assert captured["teams"]["entry-a"]["age"] == 10
+    assert captured["teams"]["entry-a"]["exp_margin"] == 0.7
+    assert captured["teams"]["entry-a"]["same_age_games"] == 10
+    assert captured["teams"]["entry-a"]["publication_cap_score"] == 0.59
+    assert "ml_overperformance" not in captured["games"][0]
+    assert predict_fn(team_a, team_b) is prediction
+    assert cost_fn(team_a, team_b).blowout_4plus_probability == 0.07
 
 
 def test_pool_arrangement_comparison_matches_optimizer_objective_exactly():

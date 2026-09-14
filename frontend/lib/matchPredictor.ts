@@ -48,9 +48,9 @@
 
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
-import { loadCalibrationJson } from './calibrationLoader';
-import { computeConfidence, warmConfidenceCalibration } from './confidenceEngine';
-import { extractAgeFromTeamName } from './utils';
+import { loadCalibrationJson } from './calibrationLoader.ts';
+import { computeConfidence, warmConfidenceCalibration } from './confidenceEngine.ts';
+import { extractAgeFromTeamName } from './teamAge.ts';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -259,6 +259,10 @@ const DEFAULT_SENSITIVITY = 4.5;
 const RECENT_GAMES_COUNT = 5;
 const GLICKO_ELO_DIVISOR = 400;
 const POISSON_MAX_GOALS = 10;
+// Prediction lambdas are capped at 7.5. At that rate, mass above 40 goals is
+// negligible, so this support preserves the 4+ tail without changing the
+// existing 0-10 modal-score presentation grid.
+const POISSON_BLOWOUT_MAX_GOALS = 40;
 const DEFAULT_DRAW_RATE = 0.13;
 const COMMON_OPPONENT_RECENCY_DAYS = 150;
 
@@ -777,12 +781,19 @@ const DRAW_THRESHOLD = 0.03; // |winProb - 0.5| < 3% → predict draw
 // outcome calibration prior tipping the predicted winner deterministically.
 const SYMMETRY_EPSILON = 1e-9;
 
+function calibrationAge(age: number | null): number | null {
+  // PitchRank stores the oldest supported cohort as U19, while the predictor's
+  // checked-in tournament calibration uses the U18 label.
+  return age === 19 ? 18 : age;
+}
+
 /**
  * Get age-adjusted league average goals per team
  * Uses calibrated parameters from age_group_parameters.json if available,
  * otherwise falls back to empirical defaults
  */
 function getLeagueAverageGoals(age: number | null): number {
+  age = calibrationAge(age);
   if (!age) return 2.5; // Default to middle range if age unknown
 
   // Try to use calibrated parameters
@@ -809,6 +820,7 @@ function getLeagueAverageGoals(age: number | null): number {
  * - Blowout MAE was 2x overall MAE; this fix addresses that gap
  */
 function getAgeSpecificMarginMultiplier(age: number | null, absPowerDiff: number, mismatchScore: number = 0): number {
+  age = calibrationAge(age);
   // Try to use margin calibration v2 parameters first
   const ageKey = age ? `u${age}` : null;
   let baseMultiplier = 1.0;
@@ -895,6 +907,7 @@ function applyOutcomeCalibration(winProbA: number, drawProb: number, winProbB: n
 }
 
 function getAgeSpecificDrawOverrideThreshold(age: number | null): number | null {
+  age = calibrationAge(age);
   if (!outcomeCalibrationParams || outcomeCalibrationParams.enabled === false) {
     return null;
   }
@@ -1002,6 +1015,22 @@ function poissonMass(lambda: number, maxGoals: number = POISSON_MAX_GOALS): numb
   return probabilities;
 }
 
+export function poissonBlowout4PlusProbability(lambdaA: number, lambdaB: number): number {
+  const probsA = poissonMass(lambdaA, POISSON_BLOWOUT_MAX_GOALS);
+  const probsB = poissonMass(lambdaB, POISSON_BLOWOUT_MAX_GOALS);
+  let probability = 0;
+
+  for (let scoreA = 0; scoreA <= POISSON_BLOWOUT_MAX_GOALS; scoreA++) {
+    for (let scoreB = 0; scoreB <= POISSON_BLOWOUT_MAX_GOALS; scoreB++) {
+      if (Math.abs(scoreA - scoreB) >= 4) {
+        probability += probsA[scoreA] * probsB[scoreB];
+      }
+    }
+  }
+
+  return clamp(probability, 0, 1);
+}
+
 function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   const probsA = poissonMass(lambdaA);
   const probsB = poissonMass(lambdaB);
@@ -1016,7 +1045,6 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
   for (let scoreA = 0; scoreA <= POISSON_MAX_GOALS; scoreA++) {
     for (let scoreB = 0; scoreB <= POISSON_MAX_GOALS; scoreB++) {
       const probability = probsA[scoreA] * probsB[scoreB];
-
       if (scoreA > scoreB) {
         winA += probability;
         if (probability > bestWinA.probability) bestWinA = { teamA: scoreA, teamB: scoreB, probability };
@@ -1035,6 +1063,7 @@ function buildOutcomeDistribution(lambdaA: number, lambdaB: number) {
     winA: total > 0 ? winA / total : 0.5,
     draw: total > 0 ? draw / total : DEFAULT_DRAW_RATE,
     winB: total > 0 ? winB / total : 0.5,
+    blowout4Plus: poissonBlowout4PlusProbability(lambdaA, lambdaB),
     bestWinA,
     bestDraw,
     bestWinB,
@@ -1063,6 +1092,7 @@ export interface MatchPrediction {
     teamB: number;
   };
   expectedMargin: number;
+  blowout4PlusProbability: number;
   confidence: 'high' | 'medium' | 'low';
   confidence_score?: number; // Optional: include confidence score for debugging
 
@@ -1182,8 +1212,20 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   // is rolled deliberately once a year. Reading the name first let a stale or
   // ambiguous name silently override the column -- "SSA 14/15" matched \b14\b
   // and derived U13 for a team the database correctly holds at U12.
-  const effectiveAge =
-    teamA.age || teamB.age || extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);
+  const storedAges = [teamA.age, teamB.age]
+    .filter((age): age is number => age != null)
+    .map(calibrationAge)
+    .filter((age): age is number => age != null);
+  const nameAges = [extractAgeFromTeamName(teamA.team_name), extractAgeFromTeamName(teamB.team_name)]
+    .filter((age): age is number => age != null)
+    .map(calibrationAge)
+    .filter((age): age is number => age != null);
+  let effectiveAge: number | null = null;
+  if (storedAges.length > 0) {
+    effectiveAge = Math.max(...storedAges);
+  } else if (nameAges.length > 0) {
+    effectiveAge = Math.max(...nameAges);
+  }
   const leagueAvgGoals = getLeagueAverageGoals(effectiveAge);
   const baseTotalGoals = leagueAvgGoals * 2;
   const predictiveGoalsA = blendOptional(
@@ -1358,6 +1400,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       teamB: expectedScore.teamB,
     },
     expectedMargin,
+    blowout4PlusProbability: distribution.blowout4Plus,
     confidence,
     confidence_score: confidenceScore,
     components: {

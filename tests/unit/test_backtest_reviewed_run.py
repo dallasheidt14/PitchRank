@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from src.tournaments.backtest_intake_state import CaptureVerification
 from src.tournaments.backtest_reviewed_run import (
     build_reviewed_cohort_readiness,
-    default_model_artifact,
+    canonical_predictor_sha256,
     execute_reviewed_run,
     list_reviewed_runs,
     reviewed_run_export,
@@ -36,7 +36,7 @@ def _summary() -> dict:
         "cohort": {"age_group": "u14", "gender": "Male"},
         "historical_games_used_for_prediction": 12,
         "predictor": {"prediction_date": "2025-05-10", "probability_strategy": "poisson_draw_gate"},
-        "historical_inputs": {"model_artifact_sha256": "abc", "input_digest_sha256": "def"},
+        "historical_inputs": {"predictor_sha256": "abc", "input_digest_sha256": "def"},
         "actual_results": {
             "actual_game_count": 1,
             "average_goal_differential": 1.0,
@@ -102,46 +102,14 @@ def test_verified_reviewed_cohort_builds_one_strict_request():
     assert readiness[0].request["prediction_date"] == "2025-05-10"
 
 
-def test_default_model_artifact_can_be_configured(monkeypatch):
-    monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", "C:/models/history.pkl")
-
-    assert default_model_artifact() == "C:/models/history.pkl"
-
-
-def test_default_model_artifact_selects_newest_strictly_pre_event_model(tmp_path, monkeypatch):
-    from src.tournaments import backtest_reviewed_run as runner
-
-    monkeypatch.delenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", raising=False)
-    monkeypatch.setattr(runner, "_REPO_ROOT", tmp_path)
-    candidates = (
-        ("older", "2026-07-01", "poisson_draw_gate"),
-        ("newest", "2026-08-08", "poisson_draw_gate"),
-        ("newer-incompatible", "2026-08-20", "hybrid"),
-        ("too-new", "2026-09-05", "poisson_draw_gate"),
-    )
-    for folder, data_end, strategy in candidates:
-        model_dir = tmp_path / "models" / folder
-        model_dir.mkdir(parents=True)
-        (model_dir / "point_in_time_match_model.pkl").write_bytes(b"model")
-        (model_dir / "point_in_time_match_model_metadata.json").write_text(
-            json.dumps(
-                {
-                    "model_data_end_date": data_end,
-                    "probability_strategy": strategy,
-                }
-            ),
-            encoding="utf-8",
-        )
-
-    expected = (tmp_path / "models" / "newest" / "point_in_time_match_model.pkl").relative_to(tmp_path)
-    assert runner.default_model_artifact("2026-09-05") == str(expected)
+def test_canonical_predictor_identity_is_stable():
+    assert canonical_predictor_sha256() == canonical_predictor_sha256()
+    assert len(canonical_predictor_sha256()) == 64
 
 
 def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"historical model")
     process = SimpleNamespace(returncode=0)
     commands = []
 
@@ -153,8 +121,11 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.subprocess, "Popen", fake_popen)
 
     def stream(_process, staging_dir, on_progress):
-        (staging_dir / "summary.json").write_text(json.dumps(_summary()), encoding="utf-8")
-        (staging_dir / "historical_inputs.json").write_text("{}", encoding="utf-8")
+        summary = _summary()
+        (staging_dir / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+        (staging_dir / "historical_inputs.json").write_text(
+            json.dumps(summary["historical_inputs"]), encoding="utf-8"
+        )
         (staging_dir / "division_recommendations.json").write_text("[]", encoding="utf-8")
         (staging_dir / "division_recommendations.csv").write_text("team\nAlpha\n", encoding="utf-8")
         on_progress(runner.ReviewedRunProgress("running-optimizer", None, None, "PHASE: running-optimizer"))
@@ -167,7 +138,6 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     outcome = execute_reviewed_run(
         "gotsport__51783__2025",
         request,
-        model_artifact=artifact,
         merge_map_version="merge-v1",
         base_dir=tmp_path,
         on_progress=events.append,
@@ -180,7 +150,13 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
     assert metadata["state"] == "completed"
     assert metadata["backtest_engine_version"] == runner.BACKTEST_ENGINE_VERSION
     assert metadata["source_capture_generation"] == "generation-1"
-    assert metadata["model_artifact_sha256"]
+    assert metadata["predictor_sha256"] == canonical_predictor_sha256()
+    summary = json.loads((outcome.run_dir / "summary.json").read_text(encoding="utf-8"))
+    frozen = json.loads((outcome.run_dir / "historical_inputs.json").read_text(encoding="utf-8"))
+    assert summary["historical_inputs"] == frozen
+    assert "--predictor-source" in commands[0]
+    assert commands[0][commands[0].index("--predictor-source") + 1] == "compare"
+    assert "--point-in-time-model-artifact" not in commands[0]
     assert metadata["merge_map_version"] == "merge-v1"
     version_index = commands[0].index("--expected-merge-map-version")
     assert commands[0][version_index + 1] == "merge-v1"
@@ -202,8 +178,6 @@ def test_execute_reviewed_run_promotes_local_evidence(tmp_path, monkeypatch):
 def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"historical model")
     process = SimpleNamespace(returncode=7)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
@@ -216,7 +190,6 @@ def test_execute_reviewed_run_preserves_failed_evidence(tmp_path, monkeypatch):
     outcome = execute_reviewed_run(
         "gotsport__51783__2025",
         request,
-        model_artifact=artifact,
         merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
@@ -246,8 +219,6 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
         def wait(self, timeout=None):
             return self.returncode
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"historical model")
     process = InterruptedProcess()
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
@@ -261,7 +232,6 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
         execute_reviewed_run(
             "gotsport__51783__2025",
             request,
-            model_artifact=artifact,
             merge_map_version="merge-v1",
             base_dir=tmp_path,
         )
@@ -284,8 +254,6 @@ def test_execute_reviewed_run_terminates_child_when_streamlit_interrupts(tmp_pat
 def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypatch):
     from src.tournaments import backtest_reviewed_run as runner
 
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"historical model")
     process = SimpleNamespace(returncode=0)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *args, **kwargs: process)
 
@@ -299,7 +267,6 @@ def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypa
     outcome = execute_reviewed_run(
         "gotsport__51783__2025",
         request,
-        model_artifact=artifact,
         merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
@@ -311,8 +278,6 @@ def test_execute_reviewed_run_marks_report_generation_failure(tmp_path, monkeypa
 
 
 def test_execute_reviewed_run_rejects_an_event_directory_mismatch(tmp_path):
-    artifact = tmp_path / "model.pkl"
-    artifact.write_bytes(b"model")
     request = dict(build_reviewed_cohort_readiness(_verified_snapshot(), _links())[0].request)
     request["event_id"] = "other"
 
@@ -320,7 +285,6 @@ def test_execute_reviewed_run_rejects_an_event_directory_mismatch(tmp_path):
         execute_reviewed_run(
             "gotsport__51783__2025",
             request,
-            model_artifact=artifact,
             merge_map_version="merge-v1",
             base_dir=tmp_path,
         )

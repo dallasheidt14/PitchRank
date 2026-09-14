@@ -18,7 +18,7 @@
 
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
-import { loadCalibrationJson } from './calibrationLoader';
+import { loadCalibrationJson } from './calibrationLoader.ts';
 
 // Confidence calibration v2 parameters
 interface ConfidenceParametersV2 {

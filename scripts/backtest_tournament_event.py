@@ -452,8 +452,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--predictor-source",
-        default="point_in_time",
-        choices=["python", "point_in_time"],
+        default="compare",
+        choices=["compare", "python", "point_in_time"],
         help="Prediction engine to use for each cohort replay",
     )
     parser.add_argument(

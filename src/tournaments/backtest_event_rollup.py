@@ -67,7 +67,7 @@ def select_compatible_runs(
     readiness: Iterable[ReviewedCohortReadiness],
     records: Iterable[ReviewedRunRecord],
     *,
-    model_sha256: str | None,
+    predictor_sha256: str | None,
     merge_map_version: str | None,
 ) -> tuple[tuple[SelectedCohortRun, ...], tuple[dict[str, Any], ...]]:
     """Select the newest current run for each cohort without mixing evidence."""
@@ -84,7 +84,7 @@ def select_compatible_runs(
         failed_reason = ""
         candidate_records = (
             records_by_cohort.get((item.age_group, item.gender), ())
-            if model_sha256 and merge_map_version and not item.blockers
+            if predictor_sha256 and merge_map_version and not item.blockers
             else ()
         )
         for record in candidate_records:
@@ -98,7 +98,7 @@ def select_compatible_runs(
                 continue
             if metadata.get("request_sha256") != _request_sha(item.request):
                 continue
-            if metadata.get("model_artifact_sha256") != model_sha256:
+            if metadata.get("predictor_sha256") != predictor_sha256:
                 continue
             if metadata.get("merge_map_version") != merge_map_version:
                 continue
@@ -119,11 +119,11 @@ def select_compatible_runs(
         elif failed_reason:
             status = "failed"
             what_remains = failed_reason
-        elif not model_sha256 or not merge_map_version:
+        elif not predictor_sha256 or not merge_map_version:
             status = "awaiting_history"
             what_remains = (
-                "Select a valid historical model artifact"
-                if not model_sha256
+                "Load the PitchRank historical predictor"
+                if not predictor_sha256
                 else "Refresh the current team merge map"
             )
         else:
@@ -249,7 +249,7 @@ def build_event_rollup(
     readiness: Iterable[ReviewedCohortReadiness],
     records: Iterable[ReviewedRunRecord],
     *,
-    model_sha256: str | None = None,
+    predictor_sha256: str | None = None,
     merge_map_version: str | None = None,
 ) -> dict[str, Any]:
     """Combine compatible cohort outputs into one honest tournament summary."""
@@ -258,7 +258,7 @@ def build_event_rollup(
         snapshot,
         readiness,
         records,
-        model_sha256=model_sha256,
+        predictor_sha256=predictor_sha256,
         merge_map_version=merge_map_version,
     )
     proposed_margin, proposed_matchups = _weighted_projection(selected, "proposed_schedule_projection")
@@ -414,7 +414,7 @@ def build_event_rollup(
             "rows": list(coverage),
         },
         "selected_runs": [run.record.run_id for run in selected],
-        "model_artifact_sha256": model_sha256,
+        "predictor_sha256": predictor_sha256,
         "merge_map_version": merge_map_version,
     }
 
@@ -457,7 +457,7 @@ def render_event_rollup_html(rollup: dict[str, Any]) -> str:
     blowout_reduction = _format(
         comparison["estimated_blowout_4plus_rate_reduction"], rate=True
     )
-    model_sha = html.escape(str(rollup.get("model_artifact_sha256") or "Unavailable"))
+    predictor_sha = html.escape(str(rollup.get("predictor_sha256") or "Unavailable"))
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>{html.escape(str(event['event_name']))} MatchBalance Backtest</title><style>
 body{{font-family:Arial,sans-serif;color:#17212b;max-width:1120px;margin:32px auto;padding:0 20px}}
@@ -497,7 +497,7 @@ estimates for matched teams without eligible pre-event history.</p>
 <h2>Cohort coverage</h2><p>{coverage['completed']} of {coverage['total_cohorts']} cohorts complete.</p>
 <table><thead><tr><th>Cohort</th><th>Teams</th><th>Status</th><th>What remains</th></tr></thead>
 <tbody>{coverage_rows}</tbody></table>
-<p class="muted">Model SHA-256: {model_sha}</p>
+<p class="muted">Predictor SHA-256: {predictor_sha}</p>
 </body></html>"""
 
 

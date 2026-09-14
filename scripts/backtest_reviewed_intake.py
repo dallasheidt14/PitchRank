@@ -60,8 +60,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--intake-json", required=True, help="Reviewed Backtest event_intake.json or download")
     parser.add_argument("--output-dir", default="reports/reviewed_tournament_backtest")
-    parser.add_argument("--predictor-source", choices=("python", "point_in_time"), default="point_in_time")
-    parser.add_argument("--point-in-time-model-artifact", default=None)
     parser.add_argument("--history-lookback-days", type=int, default=365)
     parser.add_argument("--snapshot-buffer-days", type=int, default=30)
     args = parser.parse_args()
@@ -110,16 +108,12 @@ def main() -> int:
             "--output-dir",
             str(run_dir),
             "--predictor-source",
-            args.predictor_source,
+            "compare",
             "--history-lookback-days",
             str(args.history_lookback_days),
             "--snapshot-buffer-days",
             str(args.snapshot_buffer_days),
         ]
-        if args.predictor_source == "point_in_time":
-            if not args.point_in_time_model_artifact:
-                raise ValueError("--point-in-time-model-artifact is required for point_in_time")
-            command.extend(["--point-in-time-model-artifact", str(args.point_in_time_model_artifact)])
         completed = subprocess.run(command, check=False)
         results.append(
             {

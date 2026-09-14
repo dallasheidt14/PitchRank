@@ -382,7 +382,7 @@ def _render_failed_rollup_app():
         [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
         "gotsport__51783__2025",
         Path("."),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -399,7 +399,7 @@ def _render_unvalidated_rollup_app():
         [ReviewedCohortReadiness("u12", "Male", 2, 1, {"age_group": "u12"})],
         "gotsport__51783__2025",
         Path("."),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -468,12 +468,6 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     from tests.unit.test_backtest_reviewed_run import _summary
 
     event_key = "gotsport__51783__2025"
-    artifact = tmp_path / "historical-model.pkl"
-    artifact.write_bytes(b"model")
-    artifact.with_name("historical-model_metadata.json").write_text(
-        json.dumps({"probability_strategy": "poisson_draw_gate"}),
-        encoding="utf-8",
-    )
     snapshot = replace(
         _snapshot(),
         verification=CaptureVerification(
@@ -496,12 +490,11 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         event_key_value,
         request,
         *,
-        model_artifact,
         merge_map_version,
         base_dir,
         on_progress,
     ):
-        calls.append((event_key_value, request["age_group"], str(model_artifact)))
+        calls.append((event_key_value, request["age_group"]))
         run_path = (
             Path(base_dir)
             / event_key_value
@@ -521,7 +514,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
             "request_sha256": hashlib.sha256(
                 json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
             ).hexdigest(),
-            "model_artifact_sha256": ui.model_artifact_sha256(model_artifact),
+            "predictor_sha256": ui.canonical_predictor_sha256(),
             "merge_map_version": merge_map_version,
         }
         (run_path / "run_metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -546,9 +539,7 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         lambda client: SimpleNamespace(version="ok", resolve=lambda team_id: team_id),
     )
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
-    monkeypatch.setenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT", str(artifact))
-
-    def fake_preflight(requests, _client, *, model_artifact):
+    def fake_preflight(requests, _client):
         request_list = list(requests)
         entrants = tuple(
             HistoricalEntrantCheck(
@@ -567,13 +558,11 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         return HistoricalPreflight(
             preflight_input_sha256(
                 request_list,
-                model_artifact,
                 merge_map_version="ok",
             ),
             "2026-09-12T00:00:00+00:00",
             "2025-05-10",
-            ui.model_artifact_sha256(model_artifact),
-            "2025-05-09",
+            ui.canonical_predictor_sha256(),
             "merge-v1",
             (HistoricalCohortCheck("u14", "Male", len(entrants), len(entrants), entrants),),
         )
@@ -585,21 +574,20 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
 
     assert not test.exception, [error.message for error in test.exception]
     test.radio(key="bt_section_generation-1").set_value("Backtest").run()
-    assert any(item.label == "Advanced model settings" for item in test.expander)
-    assert any(item.label == "Historical model artifact override" for item in test.text_input)
+    assert not any(item.label == "Advanced model settings" for item in test.expander)
+    assert any("same predictor used by PitchRank Compare" in item.value for item in test.info)
     readiness_table = next(
         item.value for item in test.dataframe if {"Check", "Owner", "Action"}.issubset(item.value.columns)
     )
-    model_row = readiness_table.loc[readiness_table["Check"] == "Historical model"].iloc[0]
-    assert model_row["Action"] == "Eligible pre-event model selected"
-    assert str(artifact.resolve()) not in readiness_table["Action"].tolist()
+    model_row = readiness_table.loc[readiness_table["Check"] == "Prediction engine"].iloc[0]
+    assert model_row["Action"] == "PitchRank Compare predictor with historical inputs"
     next(button for button in test.button if button.label == "Check historical ratings").click().run()
     run_button = next(button for button in test.button if button.label == "Run selected cohort")
     assert run_button.disabled is False
     run_button.click().run()
 
     assert not test.exception, [error.message for error in test.exception]
-    assert calls == [(event_key, "u14", str(artifact.resolve()))]
+    assert calls == [(event_key, "u14")]
     metrics = {item.label: item.value for item in test.metric}
     assert metrics["Observed games"] == "1"
     assert metrics["Observed average margin"] == "1.00"
@@ -640,7 +628,7 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
                 "request_sha256": hashlib.sha256(
                     json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8")
                 ).hexdigest(),
-                "model_artifact_sha256": "model-sha",
+                "predictor_sha256": "predictor-sha",
                 "merge_map_version": "merge-v1",
             }
         ),
@@ -807,7 +795,6 @@ def test_run_all_continues_after_one_cohort_fails(tmp_path, monkeypatch):
     ui._run_reviewed_requests(
         "gotsport__51783__2025",
         readiness,
-        model_artifact="model.pkl",
         merge_map_version="merge-v1",
         base_dir=tmp_path,
     )
