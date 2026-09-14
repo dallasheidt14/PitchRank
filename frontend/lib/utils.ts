@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import { formatGender } from './constants';
-import { extractAgeFromTeamName, soccerSeasonYear } from './teamAge';
+import { soccerSeasonYear } from './teamAge';
 
 export { extractAgeFromTeamName } from './teamAge';
 
