@@ -11,9 +11,9 @@ redirects future games with nothing recording it. team_alias_map has no audit
 table and no revert RPC, which is why every run writes a CSV before it writes
 anything else -- that CSV is the only rollback that exists.
 
-RE-POINT, NEVER DELETE. Four provider matchers autocreate on an alias miss
+RE-POINT, NEVER DELETE. Five provider matchers autocreate on an alias miss
 (playmetrics_matcher.py:337-346, affinity_wa_matcher.py:307,
-sincsports_matcher.py:596, modular11_matcher.py:592). Deleting an alias does not
+affinity_or_matcher.py:422, sincsports_matcher.py:596, modular11_matcher.py:592). Deleting an alias does not
 park the team awaiting a guarded re-match: the next import creates a DUPLICATE
 canonical team with a wall-clock-derived age and writes a fresh direct_id alias
 to it -- invisible to any fuzzy_auto-filtered scan, and strictly worse than the
