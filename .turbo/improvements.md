@@ -1002,3 +1002,43 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_make_composite_key` and the `schedule_id` branch of `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
 - **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
 - **Noted**: 2026-09-12
+
+### Game imports lose write access after 1,000 games
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline` periodic client refresh (the `connection_refresh_interval` block) in `src/etl/enhanced_pipeline.py`; `SUPABASE_KEY` in `config/settings.py`
+- **Why**: Read 2026-09-14: the refresh rebuilds the client with `create_client(SUPABASE_URL, SUPABASE_KEY)`, and `SUPABASE_KEY` is the anon key, while `scripts/import_games_enhanced.py` built the original client from `SUPABASE_SERVICE_ROLE_KEY`. A SincSports import on 2026-09-13 then failed every later insert with RLS `42501` on `games` and still exited 0; the workaround was `SUPABASE_KEY=<service role key>` in the process env. Rebuild the client with the key the original client used. Needed before any scheduled import that can exceed 1,000 games.
+- **Noted**: 2026-09-14
+
+### SincSports live tournament scrape imports a partial event
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `main` in `scripts/scrape_sincsports_tournament_schedule.py`; `SincSportsScheduleScraper.fetch_tournament` in `src/scrapers/sincsports_schedule.py`
+- **Why**: `fetch_tournament` records a failed division on `self.errors` and continues, and the `--tid` branch of `main` prints the error count, writes the JSONL and runs `--auto-import` with exit 0, so a 403 on one division's later page drops that division's games silently. The `--from-bundle` branch refuses an incomplete capture with exit 1. Return 1 when `scraper.errors` is non-empty, at least under `--auto-import`.
+- **Noted**: 2026-09-14
+
+### Two SincSports tournament games may have been imported from a forfeit and a cancellation
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
+- **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
+- **Noted**: 2026-09-14
+
+### Fox Soccer Academy 2010 B Black was created as a U16 duplicate of its U17 team
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
+- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 2 played fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Noted**: 2026-09-14
+
+### Two SincSports team rows hold two squads each, and league games now land on them
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
+- **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
+- **Noted**: 2026-09-14
