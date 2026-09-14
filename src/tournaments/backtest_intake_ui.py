@@ -1444,27 +1444,29 @@ def _render_event_rollup(
     coverage_columns[1].metric("Failed", coverage["failed"])
     coverage_columns[2].metric("Awaiting matches", coverage["awaiting_matches"])
     coverage_columns[3].metric(
-        "Other remaining",
+        "Waiting to run",
         coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
-    )
-    st.dataframe(
-        pd.DataFrame(
-            {
-                "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
-                "Teams": row["team_count"],
-                "Status": row["status"].replace("_", " ").title(),
-                "What remains": row["what_remains"],
-            }
-            for row in coverage["rows"]
-        ),
-        hide_index=True,
-        width="stretch",
     )
     if not rollup["selected_runs"]:
         st.info(
-            "No compatible cohort results exist yet. Complete the readiness checks, then run one "
-            "cohort or every ready cohort."
+            "No cohort has been run yet. Complete the one-time readiness items above once for the "
+            "event; you do not review every cohort. Then run one cohort or every ready cohort."
         )
+    with st.expander("Cohort status details"):
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                    "Teams": row["team_count"],
+                    "Status": row["status"].replace("_", " ").title(),
+                    "What remains": row["what_remains"],
+                }
+                for row in coverage["rows"]
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+    if not rollup["selected_runs"]:
         return
     st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
     validation = rollup.get("model_validation") or {}
@@ -1785,6 +1787,8 @@ def _render_backtest_runner(
         if not (assessment := assess_replay_format(division)).ready
     ]
     capture_reasons = capture_verification_blockers(saved_snapshot)
+    tiebreak_ready = _tiebreak_ready(saved_snapshot.tiebreak_decision)
+    remaining_team_decisions = max(team_total - team_reviewed, 0)
     if preflight is None:
         history_status = "Not checked"
         history_action = "Check historical ratings"
@@ -1815,7 +1819,21 @@ def _render_backtest_runner(
                     ),
                     "Action": (
                         matching_blocker
-                        or f"{team_reviewed} of {team_total} reviewed"
+                        or (
+                            f"All {team_total} team decisions complete"
+                            if team_total and not remaining_team_decisions
+                            else f"{remaining_team_decisions} team decisions remaining"
+                        )
+                    ),
+                },
+                {
+                    "Check": "Tournament tiebreak rule",
+                    "Owner": "You",
+                    "Status": "Ready" if tiebreak_ready else "Needs action",
+                    "Action": (
+                        "Published rule verified once for the event"
+                        if tiebreak_ready
+                        else "Verify the published rule once for the event"
                     ),
                 },
                 {
@@ -1993,7 +2011,7 @@ def render_intake(supabase_client: Any) -> None:
     )
     status_columns = st.columns(3)
     capture_verified = not capture_verification_blockers(snapshot)
-    status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Needs review")
+    status_columns[0].metric("Capture verification", "Verified" if capture_verified else "Verify once")
     status_columns[1].metric(
         "Team review",
         "Unavailable" if matching_blocker else f"{identity_reviewed} / {totals['total_teams']}",
@@ -2004,7 +2022,7 @@ def render_intake(supabase_client: Any) -> None:
     )
     status_columns[2].metric(
         "Structure",
-        f"{len(scoped_roster.divisions)} divisions captured",
+        f"{reviewed} / {len(scoped_roster.divisions)} schedules ready",
         help=(
             f"{reviewed} schedules are replay-ready. Tournament tiebreak rule: "
             f"{'verified' if _tiebreak_ready(snapshot.tiebreak_decision) else 'not verified'}."
