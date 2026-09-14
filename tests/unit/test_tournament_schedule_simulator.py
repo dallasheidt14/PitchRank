@@ -1,3 +1,4 @@
+import random
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ from src.tournaments.schedule_simulator import (
     _empty_standings,
     _latent_strength_prediction_function,
     _rank_pool_teams,
+    _SampledPrediction,
     _simulate_match,
     _update_pool_standings,
     captured_division_schedule_template,
@@ -286,6 +288,29 @@ def test_paired_ensemble_is_reproducible_and_identical_arrangements_have_zero_de
     assert first["original"] == first["proposed"]
     assert first["comparison"]["average_goal_differential_reduction"]["mean"] == 0.0
     assert first["comparison"]["blowout_4plus_rate_reduction"]["mean"] == 0.0
+
+
+def test_sampled_prediction_consumes_tiebreak_draw_for_every_match():
+    tied_rng = random.Random(17)
+    decisive_rng = random.Random(17)
+    base = _distribution_prediction(_team(1, 0.6, 1), _team(2, 0.5, 2))
+
+    _SampledPrediction(
+        base,
+        home_score=1,
+        away_score=1,
+        tiebreak_home_probability=0.5,
+        rng=tied_rng,
+    )
+    _SampledPrediction(
+        base,
+        home_score=2,
+        away_score=1,
+        tiebreak_home_probability=0.5,
+        rng=decisive_rng,
+    )
+
+    assert tied_rng.random() == decisive_rng.random()
 
 
 def test_simulate_tournament_schedule_replays_two_pools_of_three_with_semis():

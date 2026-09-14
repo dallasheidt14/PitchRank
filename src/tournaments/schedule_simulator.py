@@ -540,8 +540,9 @@ class _SampledPrediction:
             self.predicted_winner = "team_b"
         else:
             self.predicted_winner = "draw"
+        tiebreak_draw = rng.random()
         if home_score == away_score:
-            home_advances = rng.random() < tiebreak_home_probability
+            home_advances = tiebreak_draw < tiebreak_home_probability
             self.win_probability_a = 1.0 if home_advances else 0.0
             self.win_probability_b = 0.0 if home_advances else 1.0
 

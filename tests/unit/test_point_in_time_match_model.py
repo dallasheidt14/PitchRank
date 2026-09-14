@@ -578,6 +578,54 @@ def test_score_matrix_summary_has_coherent_margin_and_nested_tails():
     )
 
 
+def test_evaluation_frame_preserves_gender_and_history_segmentation_fields():
+    model = PointInTimeMatchModel(model_dir="models/test_point_in_time_match_model")
+    test_df = pd.DataFrame(
+        {
+            "game_id": ["g1"],
+            "game_date": ["2026-04-01"],
+            "age_group_numeric": [14],
+            "team_a_is_female": [1.0],
+            "team_b_is_female": [1.0],
+            "team_a_games_played": [12.0],
+            "team_b_games_played": [4.0],
+            "actual_outcome": ["team_a_win"],
+            "actual_margin": [1.0],
+            "actual_score_a": [2.0],
+            "actual_score_b": [1.0],
+            "stalemate_signal": [0.1],
+            "projected_total_goals": [3.0],
+        }
+    )
+    outcome_probabilities = np.array([[0.6, 0.2, 0.2]])
+    scalar = np.array([0.2])
+
+    frame = model._build_evaluation_frame(
+        test_df,
+        outcome_probabilities,
+        np.array([0]),
+        np.array([0.8]),
+        np.array([2.0]),
+        np.array([1.0]),
+        outcome_probabilities,
+        scalar,
+        np.array([2.0]),
+        np.array([1.0]),
+        np.array([1.2]),
+        scalar,
+        np.array([0.1]),
+        np.array([0.05]),
+        np.array([0]),
+        np.array([0]),
+        "score_distribution",
+    )
+
+    assert frame.loc[0, "team_a_is_female"] == 1.0
+    assert frame.loc[0, "team_b_is_female"] == 1.0
+    assert frame.loc[0, "team_a_games_played"] == 12.0
+    assert frame.loc[0, "team_b_games_played"] == 4.0
+
+
 def test_score_distribution_contract_rejects_non_nested_tail_probabilities():
     summary = _score_matrix_summary(
         _poisson_score_matrix(np.array([2.0]), np.array([2.0]), rho=np.array([0.0]))
