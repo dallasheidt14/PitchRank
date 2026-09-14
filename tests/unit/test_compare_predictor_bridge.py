@@ -70,7 +70,41 @@ def test_batch_runs_the_compare_predictor_for_both_orientations():
     forward = predictions[("entrant-a", "entrant-b")]
     reversed_order = predictions[("entrant-b", "entrant-a")]
     assert forward.expected_margin == pytest.approx(-reversed_order.expected_margin)
+    assert forward.win_probability_a == pytest.approx(reversed_order.win_probability_b)
+    assert forward.win_probability_b == pytest.approx(reversed_order.win_probability_a)
+    assert forward.draw_probability == pytest.approx(reversed_order.draw_probability)
+    assert forward.expected_score == {
+        "teamA": reversed_order.expected_score["teamB"],
+        "teamB": reversed_order.expected_score["teamA"],
+    }
+    assert reversed_order.predicted_winner == {
+        "team_a": "team_b",
+        "team_b": "team_a",
+        "draw": "draw",
+    }[forward.predicted_winner]
     assert forward.blowout_4plus_probability == pytest.approx(
         reversed_order.blowout_4plus_probability
     )
     assert forward.win_probability_a + forward.draw_probability + forward.win_probability_b == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")
+def test_batch_mirrors_nearly_even_matchups_instead_of_repredicting_them():
+    predictions = run_compare_prediction_batch(
+        {
+            "entrant-a": _team("team-a", 14, 0.500),
+            "entrant-b": _team("team-b", 14, 0.501),
+        },
+        [],
+    )
+
+    forward = predictions[("entrant-a", "entrant-b")]
+    reversed_order = predictions[("entrant-b", "entrant-a")]
+    assert reversed_order.predicted_winner == {
+        "team_a": "team_b",
+        "team_b": "team_a",
+        "draw": "draw",
+    }[forward.predicted_winner]
+    assert forward.win_probability_a == pytest.approx(reversed_order.win_probability_b)
+    assert forward.win_probability_b == pytest.approx(reversed_order.win_probability_a)
+    assert forward.expected_margin == pytest.approx(-reversed_order.expected_margin)

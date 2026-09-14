@@ -34,9 +34,10 @@ async function main() {
   await warmMatchPredictorCalibration();
   const teams = [...payload.teams].sort((left, right) => left.entrant_id.localeCompare(right.entrant_id));
   const predictions = [];
-  for (const left of teams) {
-    for (const right of teams) {
-      if (left.entrant_id === right.entrant_id) continue;
+  for (let leftIndex = 0; leftIndex < teams.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < teams.length; rightIndex += 1) {
+      const left = teams[leftIndex];
+      const right = teams[rightIndex];
       const prediction = predictMatch(left.team, right.team, payload.games);
       predictions.push({
         entrant_a: left.entrant_id,
@@ -47,6 +48,25 @@ async function main() {
         draw_probability: prediction.drawProbability ?? 0,
         expected_score: prediction.expectedScore,
         expected_margin: prediction.expectedMargin,
+        blowout_4plus_probability: prediction.blowout4PlusProbability,
+      });
+      predictions.push({
+        entrant_a: right.entrant_id,
+        entrant_b: left.entrant_id,
+        predicted_winner:
+          prediction.predictedWinner === 'team_a'
+            ? 'team_b'
+            : prediction.predictedWinner === 'team_b'
+              ? 'team_a'
+              : 'draw',
+        win_probability_a: prediction.winProbabilityB,
+        win_probability_b: prediction.winProbabilityA,
+        draw_probability: prediction.drawProbability ?? 0,
+        expected_score: {
+          teamA: prediction.expectedScore.teamB,
+          teamB: prediction.expectedScore.teamA,
+        },
+        expected_margin: -prediction.expectedMargin,
         blowout_4plus_probability: prediction.blowout4PlusProbability,
       });
     }
