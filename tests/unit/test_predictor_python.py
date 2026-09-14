@@ -143,3 +143,40 @@ def test_predict_match_uses_common_opponent_signal():
     assert prediction.components["commonOpponentSignal"] > 0.0
     assert prediction.common_opponents is not None
     assert prediction.common_opponents["sharedOpponents"] == 2.0
+
+
+def test_predict_match_prefers_stored_historical_age_over_team_name():
+    base = {
+        "power_score_final": 0.62,
+        "sos_norm": 0.56,
+        "offense_norm": 0.60,
+        "defense_norm": 0.55,
+        "age": 14,
+        "games_played": 20,
+        "glicko_rating": 1600,
+        "glicko_rd": 75,
+    }
+    opponent = {
+        "power_score_final": 0.48,
+        "sos_norm": 0.49,
+        "offense_norm": 0.47,
+        "defense_norm": 0.50,
+        "age": 14,
+        "games_played": 20,
+        "glicko_rating": 1475,
+        "glicko_rd": 80,
+    }
+
+    misleading_names = predict_match(
+        TeamRanking(team_id_master="a", team_name="Example U10", **base),
+        TeamRanking(team_id_master="b", team_name="Opponent U10", **opponent),
+        [],
+    )
+    neutral_names = predict_match(
+        TeamRanking(team_id_master="a", team_name="Example", **base),
+        TeamRanking(team_id_master="b", team_name="Opponent", **opponent),
+        [],
+    )
+
+    assert misleading_names.expected_score == neutral_names.expected_score
+    assert misleading_names.expected_margin == neutral_names.expected_margin

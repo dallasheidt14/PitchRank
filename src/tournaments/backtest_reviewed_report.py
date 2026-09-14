@@ -158,7 +158,7 @@ def render_reviewed_backtest_html(
         if (summary.get("model_validation") or {}).get("status") == "passed"
         else (
             "<h2>Team placement</h2><p><strong>Placement recommendations withheld.</strong> "
-            "The historical model did not pass unchanged-tournament calibration.</p>"
+            "The historical predictor did not pass unchanged-tournament validation.</p>"
         )
     )
     movement_rows_html = "".join(
@@ -175,7 +175,7 @@ def render_reviewed_backtest_html(
     )
     predictor = summary.get("predictor") or {}
     cutoff = html.escape(str(predictor.get("prediction_date") or metadata.get("prediction_date") or ""))
-    artifact_hash = html.escape(str((summary.get("historical_inputs") or {}).get("model_artifact_sha256") or ""))
+    predictor_hash = html.escape(str((summary.get("historical_inputs") or {}).get("predictor_sha256") or ""))
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{event_name} Backtest</title>
 <style>
@@ -207,7 +207,7 @@ column estimates the reseeded division and pool assignments using only pre-event
 <th>Estimated reduction</th></tr></thead><tbody>{model_rows}</tbody></table>
 {placement_section.format(movement_rows_html=movement_rows_html)}
 <h2>Historical evidence</h2><p>Exclusive event cutoff: <strong>{cutoff or 'Unavailable'}</strong></p>
-<p>Model artifact SHA-256: <code>{artifact_hash or 'Unavailable'}</code></p>
+<p>Predictor SHA-256: <code>{predictor_hash or 'Unavailable'}</code></p>
 </body></html>"""
 
 

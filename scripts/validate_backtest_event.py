@@ -46,7 +46,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-key", required=True)
     parser.add_argument("--profile", choices=sorted(ACCEPTANCE_PROFILES), required=True)
-    parser.add_argument("--model-artifact", required=True)
     parser.add_argument("--reports-dir", default="reports")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
@@ -54,7 +53,6 @@ def main() -> int:
     report = validate_backtest_acceptance(
         args.event_key,
         ACCEPTANCE_PROFILES[args.profile],
-        model_artifact=args.model_artifact,
         base_dir=args.reports_dir,
         merge_map_version=str(resolver.version),
         resolve_team_id=resolver.resolve,

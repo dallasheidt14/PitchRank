@@ -47,7 +47,11 @@ from scripts.backtest_predictor import (  # noqa: E402
     fetch_prediction_feature_snapshots,
 )
 from scripts.predictor_python import Game as PredictorGame  # noqa: E402
-from scripts.predictor_python import TeamRanking, predict_match  # noqa: E402
+from scripts.predictor_python import (  # noqa: E402
+    TeamRanking,
+    canonical_predictor_sha256,
+    predict_match,
+)
 from src.predictions.point_in_time_match_model import (  # noqa: E402
     PointInTimeMatchModel,
     build_point_in_time_matchup_row,
@@ -594,6 +598,9 @@ def _freeze_historical_inputs(
         "teams": teams,
         "model_artifact": str(model_artifact) if model_artifact is not None else None,
         "model_artifact_sha256": artifact_sha256,
+        "predictor_sha256": (
+            canonical_predictor_sha256() if model_artifact is None else None
+        ),
         "model_training_metadata": model_training_metadata or {},
         "resolved_probability_strategy": resolved_probability_strategy,
         "recent_games": frozen_games,

@@ -14,6 +14,7 @@ scripts use the same prediction logic as the live compare UI:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from dataclasses import dataclass, field
@@ -25,6 +26,28 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBRATION_DIR = REPO_ROOT / "frontend" / "public" / "data" / "calibration"
+
+PREDICTOR_IDENTITY_FILES = (
+    Path(__file__).resolve(),
+    CALIBRATION_DIR / "age_group_parameters.json",
+    CALIBRATION_DIR / "probability_parameters.json",
+    CALIBRATION_DIR / "margin_parameters_v2.json",
+    CALIBRATION_DIR / "confidence_parameters_v2.json",
+)
+
+
+def canonical_predictor_sha256() -> str:
+    """Identify the offline PitchRank predictor and its checked-in calibration."""
+
+    digest = hashlib.sha256()
+    for path in PREDICTOR_IDENTITY_FILES:
+        relative = path.relative_to(REPO_ROOT).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        contents = path.read_bytes()
+        digest.update(len(contents).to_bytes(8, "big"))
+        digest.update(contents)
+    return digest.hexdigest()
 
 
 BASE_WEIGHTS = {
@@ -687,11 +710,14 @@ def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game
     win_prob_a = calibrate_probability(raw_win_prob_a)
     win_prob_b = 1.0 - win_prob_a
 
+    # Historical ranking rows carry the age that was valid at the event cutoff.
+    # Team names often retain an older age label after seasonal rollover, so the
+    # stored value must win whenever it is available.
     effective_age = (
-        extract_age_from_team_name(team_a.team_name)
-        or extract_age_from_team_name(team_b.team_name)
-        or team_a.age
+        team_a.age
         or team_b.age
+        or extract_age_from_team_name(team_a.team_name)
+        or extract_age_from_team_name(team_b.team_name)
     )
 
     abs_power_diff = abs(power_diff)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import secrets
 import subprocess
@@ -16,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from scripts.predictor_python import canonical_predictor_sha256
 from src.tournaments.backtest_intake_state import BacktestSnapshot, effective_roster
 from src.tournaments.backtest_link_store import EventLinks
 from src.tournaments.backtest_request import BacktestRequestError, build_cohort_backtest_requests
@@ -35,12 +35,8 @@ from src.tournaments.storage._io import append_jsonl, read_json, utc_now_iso, wr
 from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
-BACKTEST_PROBABILITY_STRATEGY = "poisson_draw_gate"
-BACKTEST_ENGINE_VERSION = "reviewed-backtest-v2"
-DEFAULT_MODEL_ARTIFACT = (
-    "models/point_in_time_tournament_margin_postsnapshot_poisson_draw_gate_v1/"
-    "point_in_time_match_model.pkl"
-)
+BACKTEST_PREDICTOR_SOURCE = "pitchrank_historical"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (
@@ -180,67 +176,6 @@ def build_reviewed_cohort_readiness(
     return tuple(rows)
 
 
-def resolve_model_artifact(value: str | Path) -> Path:
-    path = Path(value).expanduser()
-    if not path.is_absolute():
-        path = _REPO_ROOT / path
-    return path.resolve()
-
-
-def _model_metadata(artifact: Path) -> dict[str, Any]:
-    metadata_path = artifact.with_name(f"{artifact.stem}_metadata.json")
-    if not metadata_path.is_file():
-        return {}
-    try:
-        metadata = read_json(metadata_path)
-    except (OSError, ValueError, TypeError):
-        return {}
-    return metadata if isinstance(metadata, dict) else {}
-
-
-def _model_data_end_date(artifact: Path) -> str:
-    return str(_model_metadata(artifact).get("model_data_end_date") or "")
-
-
-def model_probability_strategy(artifact: str | Path) -> str:
-    """Return the fitted strategy recorded beside a point-in-time artifact."""
-
-    return str(
-        _model_metadata(resolve_model_artifact(artifact)).get("probability_strategy") or ""
-    ).strip().lower()
-
-
-def find_eligible_model_artifact(cutoff_exclusive: str) -> Path | None:
-    """Choose the newest compatible local model trained before the event."""
-
-    cutoff = str(cutoff_exclusive or "").strip()[:10]
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cutoff):
-        return None
-    eligible = []
-    for artifact in (_REPO_ROOT / "models").glob("**/point_in_time_match_model.pkl"):
-        data_end = _model_data_end_date(artifact)
-        if (
-            data_end
-            and data_end < cutoff
-            and model_probability_strategy(artifact) == BACKTEST_PROBABILITY_STRATEGY
-        ):
-            eligible.append((data_end, artifact.resolve()))
-    return max(eligible, default=("", None), key=lambda item: (item[0], str(item[1])))[1]
-
-
-def default_model_artifact(cutoff_exclusive: str = "") -> str:
-    configured = os.getenv("MATCHBALANCE_POINT_IN_TIME_MODEL_ARTIFACT")
-    if configured:
-        return configured
-    eligible = find_eligible_model_artifact(cutoff_exclusive)
-    if eligible is not None:
-        try:
-            return str(eligible.relative_to(_REPO_ROOT))
-        except ValueError:
-            return str(eligible)
-    return DEFAULT_MODEL_ARTIFACT
-
-
 def _safe_part(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
     return normalized or "unknown"
@@ -253,16 +188,6 @@ def _run_id(age_group: str, gender: str) -> str:
 
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    return _sha256_bytes(path.read_bytes())
-
-
-def model_artifact_sha256(path: str | Path) -> str:
-    """Return the stable identity used to select compatible cohort runs."""
-
-    return _sha256_file(resolve_model_artifact(path))
 
 
 def _finalize_failure(
@@ -385,7 +310,6 @@ def execute_reviewed_run(
     event_key: str,
     request: dict[str, Any],
     *,
-    model_artifact: str | Path,
     merge_map_version: str,
     base_dir: Path | str = "reports",
     on_progress: Callable[[ReviewedRunProgress], None] = lambda _event: None,
@@ -401,9 +325,7 @@ def execute_reviewed_run(
         raise ValueError("Backtest request needs a cohort age and gender")
     if not str(merge_map_version).strip() or merge_map_version == "error":
         raise ValueError("Backtest run needs the current team merge-map version")
-    artifact = resolve_model_artifact(model_artifact)
-    if not artifact.is_file():
-        raise FileNotFoundError(f"Historical model artifact not found: {artifact}")
+    predictor_sha256 = canonical_predictor_sha256()
 
     ensure_scenario(event_key, BACKTEST_SCENARIO, base_dir=base_dir)
     with acquire_scenario_lock(event_key, BACKTEST_SCENARIO, base_dir=base_dir, timeout=2.0):
@@ -424,11 +346,7 @@ def execute_reviewed_run(
             "--output-dir",
             str(staging_dir),
             "--predictor-source",
-            "point_in_time",
-            "--point-in-time-model-artifact",
-            str(artifact),
-            "--point-in-time-probability-strategy",
-            BACKTEST_PROBABILITY_STRATEGY,
+            "python",
             "--history-lookback-days",
             "365",
             "--snapshot-buffer-days",
@@ -452,10 +370,8 @@ def execute_reviewed_run(
                 "started_at": started_at,
                 "ended_at": None,
                 "state": "running",
-                "predictor_source": "point_in_time",
-                "probability_strategy": BACKTEST_PROBABILITY_STRATEGY,
-                "model_artifact": str(artifact),
-                "model_artifact_sha256": _sha256_file(artifact),
+                "predictor_source": BACKTEST_PREDICTOR_SOURCE,
+                "predictor_sha256": predictor_sha256,
                 "request_sha256": _sha256_bytes(request_bytes),
                 "command": command,
             }
@@ -512,6 +428,12 @@ def execute_reviewed_run(
             from src.tournaments.backtest_reviewed_report import write_reviewed_backtest_html
 
             summary = read_json(staging_dir / "summary.json")
+            historical_inputs = dict(summary.get("historical_inputs") or {})
+            historical_inputs["predictor_sha256"] = predictor_sha256
+            historical_inputs.pop("model_artifact", None)
+            historical_inputs.pop("model_artifact_sha256", None)
+            summary["historical_inputs"] = historical_inputs
+            write_json(staging_dir / "summary.json", summary)
             write_reviewed_backtest_html(
                 staging_dir / "comparison.html",
                 summary,

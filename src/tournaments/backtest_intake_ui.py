@@ -52,18 +52,14 @@ from src.tournaments.backtest_reviewed_report import (
     observed_result_values,
 )
 from src.tournaments.backtest_reviewed_run import (
-    BACKTEST_PROBABILITY_STRATEGY,
     ReviewedCohortReadiness,
     build_reviewed_cohort_readiness,
+    canonical_predictor_sha256,
     capture_verification_blockers,
-    default_model_artifact,
     execute_reviewed_run,
     list_failed_reviewed_runs,
     list_reviewed_runs,
     load_reviewed_run,
-    model_artifact_sha256,
-    model_probability_strategy,
-    resolve_model_artifact,
     reviewed_run_export,
 )
 from src.tournaments.backtest_scope import backtest_scope_snapshot
@@ -1388,8 +1384,8 @@ def _render_reviewed_result(event_key: str, base_dir) -> None:
     with st.expander("Historical evidence used"):
         st.write(f"Exclusive event cutoff: {predictor.get('prediction_date') or 'Unavailable'}")
         st.write(f"Historical games used: {summary.get('historical_games_used_for_prediction', 0)}")
-        st.write(f"Probability strategy: {predictor.get('probability_strategy') or 'Unavailable'}")
-        st.write(f"Model SHA-256: {historical.get('model_artifact_sha256') or 'Unavailable'}")
+        st.write(f"Prediction engine: {predictor.get('source') or 'Unavailable'}")
+        st.write(f"Predictor SHA-256: {historical.get('predictor_sha256') or 'Unavailable'}")
         st.write(f"Frozen input digest: {historical.get('input_digest_sha256') or 'Unavailable'}")
     downloads = st.columns(3)
     html_path = record.run_dir / "comparison.html"
@@ -1423,7 +1419,7 @@ def _render_event_rollup(
     event_key: str,
     base_dir,
     *,
-    model_sha256: str | None,
+    predictor_sha256: str | None,
     merge_map_version: str | None,
 ) -> None:
     records = (*list_reviewed_runs(event_key, base_dir=base_dir),
@@ -1432,7 +1428,7 @@ def _render_event_rollup(
         snapshot,
         readiness,
         records,
-        model_sha256=model_sha256,
+        predictor_sha256=predictor_sha256,
         merge_map_version=merge_map_version,
     )
     comparison = rollup["actual_vs_matchbalance"]
@@ -1562,7 +1558,7 @@ def _render_event_rollup(
         event_rollup_export(rollup),
         file_name=f"{event_key}-tournament-backtest.zip",
         mime="application/zip",
-        key=f"bt_event_rollup_{snapshot.generation}_{model_sha256 or 'none'}",
+        key=f"bt_event_rollup_{snapshot.generation}_{predictor_sha256 or 'none'}",
         disabled=not comparison["comparison_ready"],
         help=(
             None
@@ -1576,7 +1572,6 @@ def _run_reviewed_requests(
     event_key: str,
     readiness: list[ReviewedCohortReadiness],
     *,
-    model_artifact: str,
     merge_map_version: str,
     base_dir,
 ) -> None:
@@ -1618,7 +1613,6 @@ def _run_reviewed_requests(
                 outcome = execute_reviewed_run(
                     event_key,
                     cohort.request,
-                    model_artifact=model_artifact,
                     merge_map_version=merge_map_version,
                     base_dir=base_dir,
                     on_progress=on_progress,
@@ -1698,63 +1692,19 @@ def _render_backtest_runner(
             for item in readiness
         ]
 
-    automatic_artifact = default_model_artifact(snapshot.roster.event_start_date or "")
-    with st.expander("Advanced model settings"):
-        st.caption(
-            "MatchBalance automatically selects the newest eligible local model trained only "
-            "on data from before this event. Use this override only for engineering checks."
-        )
-        artifact_value = st.text_input(
-            "Historical model artifact override",
-            value=automatic_artifact,
-            key=f"bt_model_artifact_{snapshot.roster.event_id}",
-        )
-        try:
-            artifact_path = resolve_model_artifact(artifact_value)
-            model_exists = artifact_path.is_file()
-            artifact_strategy = model_probability_strategy(artifact_path) if model_exists else ""
-            model_ready = model_exists and artifact_strategy == BACKTEST_PROBABILITY_STRATEGY
-        except (OSError, ValueError):
-            artifact_path = None
-            model_exists = False
-            artifact_strategy = ""
-            model_ready = False
-        if not model_ready:
-            st.caption(
-                "Engineering setup: train an eligible model with "
-                "`python scripts/train_point_in_time_match_model.py "
-                "--max-game-date YYYY-MM-DD`, then select its "
-                "point_in_time_match_model.pkl file here."
-            )
-    if model_ready:
-        model_blocker = ""
-    elif model_exists:
-        described_strategy = artifact_strategy or "no recorded strategy"
-        model_blocker = (
-            f"Historical model uses {described_strategy}; Backtest requires "
-            f"{BACKTEST_PROBABILITY_STRATEGY}"
-        )
-    else:
-        model_blocker = "Historical model artifact not found"
-    selected_model_sha = model_artifact_sha256(artifact_path) if model_ready else None
-    if model_ready:
-        st.caption(
-            "Historical model: eligible pre-event model selected automatically for the "
-            f"{snapshot.roster.event_start_date or 'event'} cutoff."
-        )
-    else:
-        st.info(
-            "No eligible pre-event model is selected. Open Advanced model settings for "
-            "engineering setup."
-        )
+    selected_predictor_sha = canonical_predictor_sha256()
+    st.info(
+        "Prediction engine: PitchRank's existing match predictor, using only ratings and games "
+        "recorded before this tournament began."
+    )
     request_items = [item for item in readiness if item.request is not None]
     preflight = None
     expected_preflight_sha = ""
-    if model_ready and request_items:
+    if request_items:
         expected_preflight_sha = preflight_input_sha256(
             (item.request for item in request_items if item.request is not None),
-            artifact_path,
             merge_map_version=merge_map_version,
+            predictor_sha256=selected_predictor_sha,
         )
         try:
             cached_preflight = load_historical_preflight(event_key, base_dir=base_dir)
@@ -1765,8 +1715,8 @@ def _render_backtest_runner(
                 preflight = cached_preflight
     if st.button(
         "Check historical ratings",
-        disabled=not (model_ready and request_items),
-        help=model_blocker or "Read-only check of historical evidence and any reviewed rating fallbacks.",
+        disabled=not request_items,
+        help="Read-only check of historical evidence and any reviewed rating fallbacks.",
         key=f"bt_historical_preflight_{snapshot.generation}",
     ):
         with st.spinner("Checking pre-event rating snapshots and reviewed fallbacks..."):
@@ -1774,7 +1724,6 @@ def _render_backtest_runner(
                 preflight = run_historical_preflight(
                     (item.request for item in request_items if item.request is not None),
                     supabase_client,
-                    model_artifact=artifact_path,
                 )
                 write_historical_preflight(event_key, preflight, base_dir=base_dir)
             except HistoricalPreflightUnavailable as exc:
@@ -1876,10 +1825,10 @@ def _render_backtest_runner(
                     ),
                 },
                 {
-                    "Check": "Historical model",
+                    "Check": "Prediction engine",
                     "Owner": "MatchBalance",
-                    "Status": "Ready" if model_ready else "Needs engineering",
-                    "Action": "Eligible pre-event model selected" if model_ready else model_blocker,
+                    "Status": "Ready",
+                    "Action": "PitchRank historical predictor",
                 },
                 {
                     "Check": "Pre-event team ratings",
@@ -1892,35 +1841,32 @@ def _render_backtest_runner(
         hide_index=True,
         width="stretch",
     )
-    if model_ready:
-        enriched = []
-        for item in readiness:
-            cohort_preflight = preflight_by_cohort.get((item.age_group, item.gender))
-            history_blocker = ""
-            if item.request is not None and cohort_preflight is None:
-                history_blocker = "Check historical ratings before running this cohort"
-            elif cohort_preflight is not None and not cohort_preflight.ready:
-                missing = cohort_preflight.total - cohort_preflight.eligible
-                history_blocker = f"{missing} entrants lack eligible pre-event ratings"
-            enriched.append(
-                replace(
-                    item,
-                    request=item.request,
-                    blockers=((*item.blockers, history_blocker) if history_blocker else item.blockers),
-                )
+    enriched = []
+    for item in readiness:
+        cohort_preflight = preflight_by_cohort.get((item.age_group, item.gender))
+        history_blocker = ""
+        if item.request is not None and cohort_preflight is None:
+            history_blocker = "Check historical ratings before running this cohort"
+        elif cohort_preflight is not None and not cohort_preflight.ready:
+            missing = cohort_preflight.total - cohort_preflight.eligible
+            history_blocker = f"{missing} entrants lack eligible pre-event ratings"
+        enriched.append(
+            replace(
+                item,
+                request=item.request,
+                blockers=((*item.blockers, history_blocker) if history_blocker else item.blockers),
             )
-        readiness = enriched
+        )
+    readiness = enriched
     table_rows = []
     for item in readiness:
         blockers = list(item.blockers)
-        if model_blocker:
-            blockers.append(model_blocker)
         table_rows.append(
             {
                 "Cohort": f"{_display_gender(item.gender)} {item.age_group.upper()}",
                 "Teams": item.team_count,
                 "Divisions": item.division_count,
-                "Status": "Ready" if item.ready and model_ready else "Blocked",
+                "Status": "Ready" if item.ready else "Blocked",
                 "What remains": "; ".join(blockers),
             }
         )
@@ -1933,7 +1879,7 @@ def _render_backtest_runner(
             readiness,
             event_key,
             base_dir,
-            model_sha256=selected_model_sha,
+            predictor_sha256=selected_predictor_sha,
             merge_map_version=merge_map_version or None,
         )
         with st.expander("Cohort diagnostics (optional)"):
@@ -1953,21 +1899,19 @@ def _render_backtest_runner(
     run_selected = actions[0].button(
         "Run selected cohort",
         type="primary",
-        disabled=not (selected.ready and model_ready),
-        help="\n".join((*selected.blockers, model_blocker)) or None,
+        disabled=not selected.ready,
+        help="\n".join(selected.blockers) or None,
         key=f"bt_run_selected_{snapshot.generation}",
     )
     run_all = actions[1].button(
         f"Run all ready cohorts ({len(ready)})",
-        disabled=not (ready and model_ready),
-        help=model_blocker or None,
+        disabled=not ready,
         key=f"bt_run_all_{snapshot.generation}",
     )
     if run_selected:
         _run_reviewed_requests(
             event_key,
             [selected],
-            model_artifact=str(artifact_path),
             merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
@@ -1975,7 +1919,6 @@ def _render_backtest_runner(
         _run_reviewed_requests(
             event_key,
             ready,
-            model_artifact=str(artifact_path),
             merge_map_version=merge_map_version,
             base_dir=base_dir,
         )
@@ -1984,7 +1927,7 @@ def _render_backtest_runner(
         readiness,
         event_key,
         base_dir,
-        model_sha256=selected_model_sha,
+        predictor_sha256=selected_predictor_sha,
         merge_map_version=merge_map_version or None,
     )
     with st.expander("Cohort diagnostics (optional)"):

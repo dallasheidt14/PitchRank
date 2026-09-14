@@ -45,7 +45,7 @@ def _record(tmp_path, readiness, *, with_4plus: bool = True) -> ReviewedRunRecor
         "backtest_engine_version": BACKTEST_ENGINE_VERSION,
         "source_capture_generation": "generation-1",
         "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
-        "model_artifact_sha256": "model-sha",
+        "predictor_sha256": "predictor-sha",
         "merge_map_version": "merge-v1",
     }
     original = {
@@ -104,7 +104,7 @@ def test_event_rollup_uses_current_compatible_run_and_weighted_sales_metrics(tmp
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -146,7 +146,7 @@ def test_event_rollup_does_not_invent_4plus_rate_for_legacy_run(tmp_path):
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -173,7 +173,7 @@ def test_event_rollup_keeps_small_cohort_calibration_failures_as_warnings(tmp_pa
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -198,7 +198,7 @@ def test_event_rollup_withholds_comparison_when_event_wide_replay_fails(tmp_path
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -245,7 +245,7 @@ def test_event_rollup_actual_baseline_always_uses_the_whole_scraped_tournament(t
         snapshot,
         (*readiness, waiting),
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -266,7 +266,7 @@ def test_event_rollup_rejects_stale_capture_or_different_model(tmp_path):
         snapshot,
         readiness,
         (record,),
-        model_sha256="different",
+        predictor_sha256="different",
         merge_map_version="merge-v1",
     )
 
@@ -288,7 +288,7 @@ def test_event_rollup_rejects_output_from_an_older_engine_version(tmp_path):
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -315,7 +315,7 @@ def test_event_rollup_withholds_old_runs_when_current_verification_is_blocked(tm
         unstable,
         current_readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v1",
     )
 
@@ -334,7 +334,7 @@ def test_event_rollup_rejects_run_from_an_older_merge_map(tmp_path):
         snapshot,
         readiness,
         (record,),
-        model_sha256="model-sha",
+        predictor_sha256="predictor-sha",
         merge_map_version="merge-v2",
     )
 
@@ -342,7 +342,7 @@ def test_event_rollup_rejects_run_from_an_older_merge_map(tmp_path):
     assert rollup["selected_runs"] == []
 
 
-def test_event_rollup_requires_explicit_model_hash(tmp_path):
+def test_event_rollup_requires_explicit_predictor_hash(tmp_path):
     snapshot = _verified_snapshot()
     readiness = build_reviewed_cohort_readiness(snapshot, _links())
     record = _record(tmp_path, readiness[0])
@@ -351,7 +351,7 @@ def test_event_rollup_requires_explicit_model_hash(tmp_path):
         snapshot,
         readiness,
         (record,),
-        model_sha256=None,
+        predictor_sha256=None,
         merge_map_version="merge-v1",
     )
 
@@ -360,5 +360,5 @@ def test_event_rollup_requires_explicit_model_hash(tmp_path):
     assert rollup["selected_runs"] == []
     assert (
         rollup["coverage"]["rows"][0]["what_remains"]
-        == "Select a valid historical model artifact"
+        == "Load the PitchRank historical predictor"
     )
