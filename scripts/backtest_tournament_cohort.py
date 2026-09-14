@@ -1103,7 +1103,9 @@ def _build_python_prediction_and_cost_functions(
             blowout_3plus_probability=blowout_3plus_probability,
             blowout_5plus_probability=blowout_5plus_probability,
             total_cost=total_cost,
-            blowout_4plus_probability=prediction.blowout_4plus_probability,
+            blowout_4plus_probability=getattr(
+                prediction, "blowout_4plus_probability", None
+            ),
         )
         cost_cache[cache_key] = result
         return result
