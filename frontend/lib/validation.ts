@@ -12,6 +12,14 @@ export function isValidEmail(value: string): boolean {
   return EMAIL_REGEX.test(value);
 }
 
+// Keep in sync with BLANK_PROVIDER_IDS in src/utils/provider_ids.py.
+const BLANK_PROVIDER_IDS = new Set(['', 'none', 'null']);
+
+/** A scraper that stringifies a null id writes "None"; linking one such game attaches every game carrying it to one team. */
+export function isBlankProviderId(value: unknown): boolean {
+  return value === null || value === undefined || BLANK_PROVIDER_IDS.has(String(value).trim().toLowerCase());
+}
+
 /**
  * Misspelled provider domains mapped to what the person meant. Matched on the
  * whole domain so an unusual-but-real domain (school districts, employers) can

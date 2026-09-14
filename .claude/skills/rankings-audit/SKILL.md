@@ -79,6 +79,34 @@ ORDER BY snapshot_date DESC LIMIT 5;
 - Algorithm update (check for code changes)
 - Bad data imported (check quarantine)
 
+### 5. Sink Team (Placeholder Provider ID)
+**Symptom:** `rank_in_cohort_final` swings by thousands between snapshots (e.g. #120 → #5,039 → #380), with hundreds of games a month against opponents from every age group
+**Cause:** An approved `team_alias_map` row is keyed on `'None'`, the string a null opponent id becomes when stringified. Games carrying that id were attached to this team, through the import matcher or an admin link's backfill, and stay attached after the alias is fixed. The importer and matcher refuse `''`, `'None'` and `'null'` alike, so a sink found today holds games stored before those guards or written by a path that skips them.
+**Check:**
+```sql
+-- Which provider id did the team's own side carry?
+SELECT CASE WHEN home_team_master_id = 'X' THEN home_provider_id ELSE away_provider_id END AS side_id,
+       count(*)
+FROM games
+WHERE home_team_master_id = 'X' OR away_team_master_id = 'X'
+GROUP BY 1 ORDER BY 2 DESC;
+
+-- Placeholder aliases, and how they were made
+SELECT a.provider_id, a.provider_team_id, a.team_id_master, a.review_status,
+       l.notes, l.games_updated, l.linked_at, l.reverted_at
+FROM team_alias_map a
+LEFT JOIN team_link_audit l
+  ON l.provider_id = a.provider_id AND l.provider_team_id = a.provider_team_id
+ AND l.team_id_master = a.team_id_master
+WHERE lower(trim(a.provider_team_id)) IN ('', 'none', 'null');
+```
+Read provenance from `team_link_audit`, not `match_method`, which maintenance scripts relabel to `direct_id`.
+- A link-opponent or create-team row means an admin linked it from the site. That action also filled every still-empty team slot carrying the id under the same provider, so games can predate the alias's `created_at`.
+- A row with `reverted_at` set is an unlink.
+- No row leaves the origin unknown: importers and scripts write aliases without one, and both site routes only log a failed audit insert.
+
+**Fix:** For a GotSport alias, run `scripts/exclude_none_opponent_games.py`, which is a dry run unless given `--execute`. It rejects the alias and sets `is_excluded` on the games attached through the placeholder side. It refuses `--execute` when the exclusion trigger would also flip another game sharing a date, team pair and scores. For another provider, do the same by hand and count those twins first. A ranking rerun alone changes nothing.
+
 ## Cohort Sizes (Reference)
 ```sql
 SELECT age_group, gender, COUNT(*) as team_count
