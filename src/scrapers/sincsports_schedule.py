@@ -23,6 +23,12 @@ via ``?div=<DIV>`` query strings. Per division, every game is a
 - status / venue (col-md-4) — ``<font color='red'>Cancelled</font>``
   marks cancellations
 
+Newer events render a "sched2" layout instead. In either layout
+the games list lives at ``&mode=schedule`` (league divisions otherwise open
+on standings) and shows 50 games per page, linked by ``&gpage=N``. Cancelled,
+postponed and forfeited sched2 games carry a ``sched2-gstat-off`` label,
+sometimes alongside a recorded score.
+
 The ``parse_division`` and ``parse_tournament_index`` functions are pure
 — unit tests run against committed fixtures with no network. The
 ``SincSportsScheduleScraper`` class wraps them with the existing
@@ -33,10 +39,12 @@ env vars) for live fetching.
 from __future__ import annotations
 
 import logging
+import math
 import random
 import re
 import time
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import List, Optional
 
 import requests
@@ -54,6 +62,16 @@ _DIV_QS_RE = re.compile(r"[?&]div=([A-Z0-9]+)", re.IGNORECASE)
 _DATE_RE = re.compile(r"(\d{1,2}/\d{1,2}/\d{4})")
 _TIME_RE = re.compile(r"(\d{1,2}:\d{2}\s*(?:AM|PM))")
 _GAME_NUM_RE = re.compile(r"#(\d+)")
+_SCHED2_TEAM_ID_RE = re.compile(r"[A-Z0-9]{1,20}")
+_SCHED2_SCORE_RE = re.compile(r"[0-9]{1,3}")
+_SCHED2_YEAR_RE = re.compile(r"[?&]year=([0-9]{4})")
+_PAGER_CLASS_RE = re.compile(r"^sched2?-pager$")
+_PAGER_INFO_CLASS_RE = re.compile(r"^sched2?-pager-info$")
+_GPAGE_RE = re.compile(r"[?&]gpage=([0-9]{1,4})")
+_PAGER_TOTAL_RE = re.compile(r"([0-9]{1,6})\s+games?", re.IGNORECASE)
+_GAMES_PER_PAGE = 50
+_WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+_PLACEHOLDER_DATE_RE = re.compile(r"0?1/0?1/[0-9]{4}$")
 
 
 @dataclass
@@ -80,7 +98,7 @@ def _parse_team_block(team_div: Optional[Tag]) -> tuple[Optional[str], Optional[
     if not team_div:
         return (None, None)
     team_link = team_div.find("a", href=re.compile(r"/team/team\.aspx.*teamid=", re.IGNORECASE))
-    name_link = team_div.find("a", href=re.compile(r"schedule\.aspx.*team="))
+    name_link = team_div.find("a", href=re.compile(r"schedule2?\.aspx.*team="))
     team_id = None
     if team_link:
         m = _TEAMID_HREF_RE.search(team_link.get("href", "") or "")
@@ -104,15 +122,7 @@ def _parse_score_col(card: Tag) -> tuple[Optional[int], Optional[int]]:
         return (None, None)
 
 
-def parse_division(html: str, tournament_id: str, division_code: str) -> List[TournamentGame]:
-    """Pure parser for one ``schedule.aspx?tid=X&div=Y`` page.
-
-    Returns one ``TournamentGame`` per fixture with both team_ids resolved.
-    Empty modal cards (no team links) are dropped silently. Status is
-    ``"Cancelled"`` when a red ``<font>`` tag is present, ``"Played"`` when
-    a numeric score is present, else ``"Scheduled"``.
-    """
-    soup = BeautifulSoup(html, "html.parser")
+def _parse_game_rows(soup: BeautifulSoup, tournament_id: str, division_code: str) -> List[TournamentGame]:
     games: List[TournamentGame] = []
 
     for card in soup.find_all("div", class_=lambda c: c and "form-row" in c and "game-row" in c):
@@ -171,6 +181,156 @@ def parse_division(html: str, tournament_id: str, division_code: str) -> List[To
     return games
 
 
+def _parse_sched2_team(team_div: Tag) -> tuple[Optional[str], Optional[str], Optional[int]]:
+    follow = team_div.find("a", attrs={"data-team": True})
+    team_id = (follow.get("data-team") or "").strip().upper() if follow else ""
+    name_link = team_div.find("a", class_="sched2-team-lnk")
+    score_el = team_div.find(class_="sched2-team-score")
+    score_text = score_el.get_text(strip=True) if score_el else ""
+    return (
+        team_id if _SCHED2_TEAM_ID_RE.fullmatch(team_id) else None,
+        name_link.get_text(strip=True) if name_link else None,
+        int(score_text) if _SCHED2_SCORE_RE.fullmatch(score_text) else None,
+    )
+
+
+def _sched2_division_name(soup: BeautifulSoup, division_code: str) -> Optional[str]:
+    for option in soup.select("select.sched2-select option[selected]"):
+        m = _DIV_QS_RE.search(option.get("value") or "")
+        if m and m.group(1).upper() == division_code.upper():
+            return option.get_text(strip=True)
+    return None
+
+
+def _sched2_day_date(day: Tag, event_year: int) -> Optional[str]:
+    """Resolve a yearless day header (``SAT`` / ``Feb 14``) to ``M/D/YYYY``.
+
+    Of the event year and the years either side, at most one puts that month
+    and day on the printed weekday; when none does, the date stays blank.
+    """
+    date_el = day.find(class_="sched2-dayhd-date")
+    dow_el = day.find(class_="sched2-dayhd-dow")
+    if not date_el or not dow_el:
+        return None
+    try:
+        month_day = datetime.strptime(f"{date_el.get_text(strip=True)} 2000", "%b %d %Y")
+    except ValueError:
+        return None
+    weekday = dow_el.get_text(strip=True).upper()[:3]
+    for year in (event_year, event_year + 1, event_year - 1):
+        try:
+            d = date(year, month_day.month, month_day.day)
+        except ValueError:
+            continue
+        if _WEEKDAYS[d.weekday()] == weekday:
+            return f"{d.month}/{d.day}/{d.year}"
+    return None
+
+
+def _parse_sched2_games(soup: BeautifulSoup, tournament_id: str, division_code: str) -> List[TournamentGame]:
+    year_link = soup.find("a", href=_SCHED2_YEAR_RE)
+    event_year = int(_SCHED2_YEAR_RE.search(year_link["href"]).group(1)) if year_link else None
+    if event_year is None:
+        logger.warning(f"{tournament_id} {division_code}: no event year on page; game dates left blank")
+
+    division_name = _sched2_division_name(soup, division_code)
+    games: List[TournamentGame] = []
+
+    for day in soup.find_all("div", class_="sched2-daygroup"):
+        game_date = _sched2_day_date(day, event_year) if event_year else None
+
+        for card in day.find_all("div", class_="sched2-game"):
+            teams = card.find_all("div", class_="sched2-team")
+            if len(teams) < 2:
+                continue
+            home_id, home_name, home_score = _parse_sched2_team(teams[0])
+            away_id, away_name, away_score = _parse_sched2_team(teams[1])
+            if not home_id or not away_id:
+                continue  # unfilled bracket slot or unreadable team id
+
+            off_label = card.find(class_="sched2-gstat-off")
+            if off_label:
+                status = off_label.get_text(" ", strip=True) or "Cancelled"
+            elif home_score is not None and away_score is not None:
+                status = "Played"
+            else:
+                status = "Scheduled"
+
+            time_el = card.find(class_="sched2-game-time")
+            num_el = card.find(class_="sched2-game-num")
+            venue_el = card.find("a", class_="sched2-field-link")
+            games.append(
+                TournamentGame(
+                    tournament_id=tournament_id,
+                    division_code=division_code,
+                    division_name=division_name,
+                    game_num=num_el.get_text(strip=True).lstrip("#") if num_el else None,
+                    date=game_date,
+                    time=time_el.get_text(strip=True) if time_el else None,
+                    home_id=home_id,
+                    home_name=home_name,
+                    home_score=home_score,
+                    away_id=away_id,
+                    away_name=away_name,
+                    away_score=away_score,
+                    status=status,
+                    venue=venue_el.get_text(strip=True) if venue_el else None,
+                )
+            )
+    return games
+
+
+def parse_division_pages(pages: List[str], tournament_id: str, division_code: str) -> List[TournamentGame]:
+    """Pure parser for every page of one ``schedule.aspx?tid=X&div=Y`` division, in ``gpage`` order.
+
+    Returns one ``TournamentGame`` per fixture with both team_ids resolved.
+    Empty modal cards and unfilled bracket slots (no readable team ids) are dropped
+    silently, and a game repeated across pages (the schedule shifting between
+    fetches) is kept once. Status is the site's own label for a cancelled,
+    postponed or forfeited game, ``"Played"`` when both scores are present,
+    else ``"Scheduled"``. A game dated 1 January is left undated: SincSports
+    files games with no real date there, some of them scored.
+    """
+    games: List[TournamentGame] = []
+    seen = set()
+    for html in pages:
+        soup = BeautifulSoup(html or "", "html.parser")
+        if soup.find("div", class_="sched2-game"):
+            page_games = _parse_sched2_games(soup, tournament_id, division_code)
+        else:
+            page_games = _parse_game_rows(soup, tournament_id, division_code)
+        for g in page_games:
+            if g.date and _PLACEHOLDER_DATE_RE.match(g.date):
+                g.date = None
+            key = (g.date, g.time, g.home_id, g.away_id, g.game_num)
+            if key not in seen:
+                seen.add(key)
+                games.append(g)
+    return games
+
+
+def parse_division(html: str, tournament_id: str, division_code: str) -> List[TournamentGame]:
+    """Pure parser for one ``schedule.aspx?tid=X&div=Y`` page; see ``parse_division_pages``."""
+    return parse_division_pages([html], tournament_id, division_code)
+
+
+def parse_page_count(html: str) -> int:
+    """Return how many ``gpage`` pages a division's games list spans; 1 when it has no pager.
+
+    The pager (``sched-pager`` in the old layout, ``sched2-pager`` in sched2)
+    links only the pages near the current one, so the count comes from its
+    "N games" total as well as its links.
+    """
+    pager = BeautifulSoup(html or "", "html.parser").find("div", class_=_PAGER_CLASS_RE)
+    if not pager:
+        return 1
+    info = pager.find(class_=_PAGER_INFO_CLASS_RE)
+    total_m = _PAGER_TOTAL_RE.search(info.get_text(" ", strip=True)) if info else None
+    pages_by_total = math.ceil(int(total_m.group(1)) / _GAMES_PER_PAGE) if total_m else 1
+    linked_pages = [int(m.group(1)) for a in pager.find_all("a", href=True) if (m := _GPAGE_RE.search(a["href"]))]
+    return max([pages_by_total, *linked_pages])
+
+
 def parse_tournament_index(html: str) -> List[str]:
     """Return the deduped list of division codes referenced from the tournament root.
 
@@ -213,13 +373,21 @@ class SincSportsScheduleScraper:
         return parse_tournament_index(resp.text)
 
     def fetch_division(self, tid: str, division_code: str, year: int = 2026) -> List[TournamentGame]:
-        """Fetch and parse one (tournament, division) schedule page."""
-        url = f"{BASE_URL}{SCHEDULE_PATH}?tid={tid}&year={year}&stid={tid}&syear={year}&div={division_code}"
+        """Fetch and parse every games page of one (tournament, division) schedule."""
+        url = (
+            f"{BASE_URL}{SCHEDULE_PATH}?tid={tid}&year={year}&stid={tid}&syear={year}&div={division_code}&mode=schedule"
+        )
+        pages = [self._fetch_division_page(url)]
+        for page in range(2, parse_page_count(pages[0]) + 1):
+            pages.append(self._fetch_division_page(f"{url}&gpage={page}"))
+        return parse_division_pages(pages, tid, division_code)
+
+    def _fetch_division_page(self, url: str) -> str:
         logger.info(f"Fetching division: {url}")
         resp = self.session.get(url, timeout=self.timeout)
         resp.raise_for_status()
         time.sleep(random.uniform(self.delay_min, self.delay_max))
-        return parse_division(resp.text, tid, division_code)
+        return resp.text
 
     def fetch_tournament(self, tid: str, year: int = 2026) -> List[TournamentGame]:
         """Iterate every division in a tournament and return all games.

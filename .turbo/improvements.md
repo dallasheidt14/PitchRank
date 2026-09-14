@@ -972,3 +972,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/rankings/data_adapter.py` `drop_duplicates(subset=["id"])` (no self-play filter); origin likely `src/etl/enhanced_pipeline.py` team-id backfill / provider matchers
 - **Why**: 1,028 game rows across 552 live teams carry `home_team_master_id = away_team_master_id`, verified by direct SQL 2026-09-12 (894 GotSport, 124 TGS, 5 PlayMetrics, 3 Modular11, 2 Affinity WA; dates 2024-03-29 to 2027-03-13). Nothing filters them before Glicko, so a team is rated against itself. They also mark rows that are two squads fused into one record — `XF 2016 RCL 1` (`ab31993f`) holds 42 games against 17-20 for each sibling squad and plays every flight opponent twice. Root cause unknown: could be a matcher resolving two provider ids to one master, or a provider feed listing both sides identically.
 - **Noted**: 2026-09-12
+
+### Game imports lose write access after 1,000 games
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline` periodic client refresh (the `connection_refresh_interval` block) in `src/etl/enhanced_pipeline.py`; `SUPABASE_KEY` in `config/settings.py`
+- **Why**: Read 2026-09-14: the refresh rebuilds the client with `create_client(SUPABASE_URL, SUPABASE_KEY)`, and `SUPABASE_KEY` is the anon key, while `scripts/import_games_enhanced.py` built the original client from `SUPABASE_SERVICE_ROLE_KEY`. A SincSports import on 2026-09-13 then failed every later insert with RLS `42501` on `games` and still exited 0; the workaround was `SUPABASE_KEY=<service role key>` in the process env. Rebuild the client with the key the original client used. Needed before any scheduled import that can exceed 1,000 games.
+- **Noted**: 2026-09-14
+
+### SincSports live tournament scrape imports a partial event
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `main` in `scripts/scrape_sincsports_tournament_schedule.py`; `SincSportsScheduleScraper.fetch_tournament` in `src/scrapers/sincsports_schedule.py`
+- **Why**: `fetch_tournament` records a failed division on `self.errors` and continues, and the `--tid` branch of `main` prints the error count, writes the JSONL and runs `--auto-import` with exit 0, so a 403 on one division's later page drops that division's games silently. The `--from-bundle` branch refuses an incomplete capture with exit 1. Return 1 when `scraper.errors` is non-empty, at least under `--auto-import`.
+- **Noted**: 2026-09-14
+
+### Two SincSports tournament games may have been imported from a forfeit and a cancellation
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
+- **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
+- **Noted**: 2026-09-14
