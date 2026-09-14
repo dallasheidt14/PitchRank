@@ -36,7 +36,7 @@ from src.tournaments.storage.event_key import parse_event_key
 
 BACKTEST_SCENARIO = "reviewed-backtest"
 BACKTEST_PREDICTOR_SOURCE = "canonical_compare_historical"
-BACKTEST_ENGINE_VERSION = "reviewed-backtest-v3"
+BACKTEST_ENGINE_VERSION = "reviewed-backtest-v4"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PROGRESS_RE = re.compile(r"^PROGRESS:\s+(\S+)\s+(\d+)/(\d+)\s*$")
 _EXPORT_FILES = (

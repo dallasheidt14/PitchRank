@@ -215,6 +215,7 @@ def build_cohort_backtest_requests(
                 raise BacktestRequestError(str(error)) from error
             divisions_payload.append(
                 {
+                    "skill_order": len(divisions_payload) + 1,
                     "name": division.group_id,
                     "actual_division_name": division.division_label,
                     "group_id": division.group_id,
@@ -327,7 +328,7 @@ def build_cohort_backtest_requests(
                 "divisions": divisions_payload,
                 "entrants": entrants,
                 "actual_games_override": actual_games,
-                "assignment_policy": "competitive_balance_only",
+                "assignment_policy": "ranked_division_bands_balanced_pools",
                 "source_capture_generation": snapshot.generation,
             }
         )

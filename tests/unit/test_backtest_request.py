@@ -110,10 +110,11 @@ def test_build_request_preserves_exact_pool_membership_and_source_results():
     request = build_cohort_backtest_requests(_snapshot(), event_links=_links())[0]
 
     assert request["age_group"] == "u14"
-    assert request["assignment_policy"] == "competitive_balance_only"
+    assert request["assignment_policy"] == "ranked_division_bands_balanced_pools"
     assert "constraints" not in request
     division = request["divisions"][0]
     assert division["name"] == "group-1"
+    assert division["skill_order"] == 1
     assert division["actual_division_name"] == "Gold"
     assert division["team_count"] == 2
     assert division["pool_sizes"] == [2]

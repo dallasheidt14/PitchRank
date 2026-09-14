@@ -3,6 +3,7 @@ import math
 import pytest
 
 from src.tournaments.seeding_optimizer import (
+    DIVISION_POLICY_RANKED_BANDS,
     POOL_POLICY_BALANCED_STRENGTH,
     DivisionSpec,
     FlightSpec,
@@ -118,6 +119,52 @@ def test_backtest_pool_balancing_never_trades_teams_across_seed_bands():
     for left_seed, right_seed in ((1, 2), (3, 4), (5, 6), (7, 8)):
         seed_band = {f"team-{left_seed}", f"team-{right_seed}"}
         assert [len(seed_band & pool) for pool in pool_team_ids] == [1, 1]
+
+
+def test_ranked_band_policy_keeps_stronger_teams_in_higher_divisions():
+    teams = [
+        _team(1, 0.95, 1),
+        _team(2, 0.90, 2),
+        _team(3, 0.85, 3),
+        _team(4, 0.80, 4),
+        _team(5, 0.75, 5),
+        _team(6, 0.70, 6),
+        _team(7, 0.65, 7),
+        _team(8, 0.60, 8),
+    ]
+    divisions = [
+        DivisionSpec(name="Platinum", team_count=4, pool_sizes=(2, 2)),
+        DivisionSpec(name="Amethyst", team_count=4, pool_sizes=(2, 2)),
+    ]
+
+    def cross_band_cost(team_a: SeedableTeam, team_b: SeedableTeam) -> MatchupCost:
+        preferred = frozenset((team_a.team_id, team_b.team_id)) in {
+            frozenset(("team-1", "team-8")),
+            frozenset(("team-2", "team-7")),
+            frozenset(("team-3", "team-6")),
+            frozenset(("team-4", "team-5")),
+        }
+        value = 0.0 if preferred else 10.0
+        return MatchupCost(value, 0.5, 0.2, 0.1, value)
+
+    result = optimize_tournament_format(
+        teams,
+        divisions,
+        matchup_cost_fn=cross_band_cost,
+        pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+        division_assignment_policy=DIVISION_POLICY_RANKED_BANDS,
+    )
+
+    assert [
+        [team.team_id for team in division.teams]
+        for division in result.divisions
+    ] == [
+        ["team-1", "team-2", "team-3", "team-4"],
+        ["team-5", "team-6", "team-7", "team-8"],
+    ]
+    assert result.division_assignment_policy == DIVISION_POLICY_RANKED_BANDS
+    assert [division["skill_order"] for division in result.to_dict()["divisions"]] == [1, 2]
+    assert all(len(pool.teams) == 2 for division in result.divisions for pool in division.pools)
 
 
 def test_optimize_tournament_format_validates_pool_sizes():

@@ -1675,7 +1675,8 @@ def _render_backtest_runner(
     st.markdown("#### Run Backtest")
     st.caption(
         "Reseed matched teams within each tournament cohort while keeping every captured division, "
-        "pool capacity, and fixture path fixed. MatchBalance optimizes both division and pool placement. "
+        "pool capacity, and fixture path fixed. MatchBalance treats the captured division order as strongest "
+        "to weakest regardless of the division names, then balances pools within each division. "
         "Runs and evidence stay local."
     )
     cancelled_label = st.session_state.pop(f"bt_cancel_notice_{event_key}", "")

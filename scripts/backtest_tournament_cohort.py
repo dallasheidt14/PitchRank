@@ -76,6 +76,7 @@ from src.tournaments.schedule_simulator import (  # noqa: E402
     simulate_tournament_schedule,
 )
 from src.tournaments.seeding_optimizer import (  # noqa: E402
+    DIVISION_POLICY_RANKED_BANDS,
     POOL_POLICY_BALANCED_STRENGTH,
     DivisionAssignment,
     DivisionSpec,
@@ -2166,6 +2167,7 @@ def main() -> int:
         matchup_cost_fn=matchup_cost_fn,
         matchup_proxy=matchup_proxy,
         pool_assignment_policy=POOL_POLICY_BALANCED_STRENGTH,
+        division_assignment_policy=DIVISION_POLICY_RANKED_BANDS,
     )
 
     actual_game_counts = {
@@ -2249,7 +2251,7 @@ def main() -> int:
         "unique_canonical_team_count": len(canonical_team_ids),
         "historical_games_used_for_prediction": len(recent_games),
         "predictor": predictor_details,
-        "assignment_policy": "competitive_balance_only",
+        "assignment_policy": "ranked_division_bands_balanced_pools",
         "historical_inputs": historical_inputs,
         "notes": sorted(set(notes)),
         "actual_results": actual_summary,
