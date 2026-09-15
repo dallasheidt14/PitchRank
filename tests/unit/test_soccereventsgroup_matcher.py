@@ -243,6 +243,20 @@ class TestRegistrationOutcomes:
 
         assert (db.writes("teams"), db.writes("team_alias_map")) == ([], [])
 
+    def test_a_team_row_already_carrying_the_seg_id_is_relinked_not_created(self, monkeypatch):
+        own_row = {**_candidate("m-own", "U15 N1", "AFC Union"), "provider_id": PROVIDER, "provider_team_id": "590399"}
+        db = _DB([own_row])
+        matcher = _matcher(db)
+        monkeypatch.setattr(matcher, "_fuzzy_match_team", lambda *a, **k: None)
+
+        result = _register(matcher)
+
+        assert (result["team_id"], result["created"], result["relinked"]) == ("m-own", False, True)
+        assert db.writes("teams") == []
+        assert [(a["provider_team_id"], a["team_id_master"]) for a in db.writes("team_alias_map")] == [
+            ("590399", "m-own")
+        ]
+
     def test_a_dry_run_create_writes_nothing_and_keeps_one_id(self):
         db = _DB()
         matcher = _matcher(db, dry_run=True)

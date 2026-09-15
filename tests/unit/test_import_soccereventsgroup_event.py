@@ -286,6 +286,16 @@ class TestParseBracketGames:
 
         assert seg.parse_bracket_games(html) == []
 
+    @pytest.mark.parametrize("score", ["²", "١", "1234", "9" * 5000])
+    def test_a_score_that_is_not_one_to_three_ascii_digits_is_dropped(self, score):
+        html = f"""<div id="x_BracketPanel">
+          <table class="game">
+          <tr><td class="team">A FC</td><td class="score">{score}</td><td class="title">Final</td></tr>
+          <tr><td class="team">B FC</td><td class="score">1</td><td class="time">9/7 9:00A, Field 1</td></tr></table>
+        </div>"""
+
+        assert seg.parse_bracket_games(html) == []
+
     def test_a_page_with_no_bracket_panel_has_no_games(self):
         assert seg.parse_bracket_games(NO_BRACKET) == []
 
@@ -390,6 +400,15 @@ class TestBuildCsvRows:
 
         assert [(g.title, g.home_id) for g in held] == [("Consolation", "588950")]
 
+    @pytest.mark.parametrize("status", ["already_linked", "linked_existing", "relinked", "created"])
+    def test_every_linked_outcome_lets_its_games_import(self, status):
+        outcomes = self._all_linked()
+        outcomes["596374"] = seg.Outcome(status, "master-596374", 1.0)
+
+        records, held = self._rows(outcomes)
+
+        assert (held, len(records)) == ([], 14)
+
     def test_a_game_whose_team_has_no_outcome_is_held_back(self):
         outcomes = self._all_linked()
         del outcomes["596374"]
@@ -482,17 +501,22 @@ class _FixedDate(date):
 
 @pytest.fixture
 def run_main(monkeypatch, tmp_path):
-    def run(*flags, saved=None):
+    def run(*flags, saved=None, queued=None):
         raw = json.loads((FIXTURES / "program.json").read_text(encoding="utf-8"))
         _FakeMatcher.instances = []
         imports = []
         alias_calls = []
+        review_calls = []
 
         def fake_existing_aliases(_client, _provider_id, seg_team_ids):
             alias_calls.append(list(seg_team_ids))
             if len(alias_calls) == 1:
                 return {}
             return saved if saved is not None else {i: f"new-{i}" for i in seg_team_ids}
+
+        def fake_pending_reviews(_client, seg_team_ids):
+            review_calls.append(list(seg_team_ids))
+            return set(seg_team_ids) if queued is None else queued & set(seg_team_ids)
 
         fetcher = _PageFetcher()
         monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
@@ -504,6 +528,7 @@ def run_main(monkeypatch, tmp_path):
         monkeypatch.setattr(seg, "_get", lambda _s, url: SimpleNamespace(text=fetcher(url)))
         monkeypatch.setattr(seg, "SoccerEventsGroupGameMatcher", _FakeMatcher)
         monkeypatch.setattr(seg, "existing_aliases", fake_existing_aliases)
+        monkeypatch.setattr(seg, "pending_reviews", fake_pending_reviews)
         monkeypatch.setattr(seg, "team_names_by_id", lambda _c, _ids: {})
         monkeypatch.setattr(seg, "_soccer_season_year", lambda now=None: SEASON)
         monkeypatch.setattr(seg, "date", _FixedDate)
@@ -516,7 +541,9 @@ def run_main(monkeypatch, tmp_path):
         code = seg.main()
         [report] = tmp_path.glob("*_teams.csv")
         outcomes = {r["seg_team_id"]: r for r in csv.DictReader(report.open(encoding="utf-8"))}
-        return SimpleNamespace(code=code, imports=imports, outcomes=outcomes, alias_calls=alias_calls)
+        return SimpleNamespace(
+            code=code, imports=imports, outcomes=outcomes, alias_calls=alias_calls, review_calls=review_calls
+        )
 
     return run
 
@@ -529,6 +556,7 @@ class TestMain:
         assert result.imports == []
         assert [(m.dry_run, m.registration_mode) for m in _FakeMatcher.instances] == [(True, True)]
         assert len(result.alias_calls) == 1
+        assert result.review_calls == []
 
     def test_execute_imports_the_games_csv(self, run_main):
         result = run_main("--execute")
@@ -560,6 +588,36 @@ class TestMain:
             "link was not saved",
         )
 
+    def test_a_relinked_team_whose_link_was_not_saved_is_an_error(self, run_main):
+        relinked = {"matched": True, "team_id": "own-596374", "method": "direct_id", "confidence": 1.0}
+        _FakeMatcher.results = {"596374": {**relinked, "created": False, "relinked": True}}
+        in_scope, _ = _roster()
+        saved = {row.seg_team_id: f"new-{row.seg_team_id}" for row in in_scope if row.seg_team_id != "596374"}
+        try:
+            result = run_main("--execute", saved=saved)
+        finally:
+            _FakeMatcher.results = {}
+
+        assert (result.outcomes["596374"]["outcome"], result.outcomes["596374"]["reason"]) == (
+            "error",
+            "link was not saved",
+        )
+
+    def test_a_team_queued_for_review_with_no_pending_row_is_an_error(self, run_main):
+        review = {"matched": False, "team_id": None, "method": "fuzzy_review", "confidence": 0.8, "review": True}
+        _FakeMatcher.results = {"596374": review, "581312": review}
+        try:
+            result = run_main("--execute", queued={"581312"})
+        finally:
+            _FakeMatcher.results = {}
+
+        assert sorted(result.review_calls[0]) == ["581312", "596374"]
+        assert (result.outcomes["581312"]["outcome"], result.outcomes["581312"]["reason"]) == ("review", "")
+        assert (result.outcomes["596374"]["outcome"], result.outcomes["596374"]["reason"]) == (
+            "error",
+            "review item was not saved",
+        )
+
 
 class TestUnsavedLinks:
     def test_a_missing_or_misdirected_alias_is_reported(self):
@@ -568,12 +626,26 @@ class TestUnsavedLinks:
             "b": seg.Outcome("created", "T2"),
             "c": seg.Outcome("created", "T3"),
             "d": seg.Outcome("review"),
+            "e": seg.Outcome("relinked", "T4"),
+            "f": seg.Outcome("already_linked", "T5"),
         }
 
         assert seg.unsaved_links(outcomes, {"a": "T1", "b": "T9"}) == {
             "b": "link was not saved",
             "c": "link was not saved",
+            "e": "link was not saved",
         }
+
+
+class TestUnsavedReviews:
+    def test_only_a_review_outcome_with_no_pending_row_is_reported(self):
+        outcomes = {
+            "a": seg.Outcome("review", confidence=0.8),
+            "b": seg.Outcome("review", confidence=0.8),
+            "c": seg.Outcome("created", "T1"),
+        }
+
+        assert seg.unsaved_reviews(outcomes, {"a"}) == {"b": "review item was not saved"}
 
 
 def _outcomes_of(results):
@@ -600,14 +672,16 @@ class _FakeMatcherForRegister:
 
 class TestRegisterTeams:
     def test_each_result_shape_lands_in_its_bucket(self):
-        rows = [seg.TeamRow(str(i), f"Team {i}", 1, "D", "u11", 2016, "Male", "IL") for i in range(6)]
+        rows = [seg.TeamRow(str(i), f"Team {i}", 1, "D", "u11", 2016, "Male", "IL") for i in range(7)]
+        direct = {"matched": True, "method": "direct_id", "confidence": 1.0}
         matcher = _FakeMatcherForRegister(
             {
-                "1": {"matched": True, "team_id": "t1", "method": "direct_id", "confidence": 1.0, "created": True},
+                "1": {**direct, "team_id": "t1", "created": True},
                 "2": {"matched": True, "team_id": "t2", "method": "fuzzy_auto", "confidence": 0.95, "created": False},
                 "3": {"matched": False, "team_id": None, "method": "fuzzy_review", "confidence": 0.8, "review": True},
                 "4": RuntimeError("boom"),
-                "5": {"matched": True, "team_id": "t5", "method": "direct_id", "confidence": 1.0, "created": False},
+                "5": {**direct, "team_id": "t5", "created": False},
+                "6": {**direct, "team_id": "t6", "created": False, "relinked": True},
             }
         )
 
@@ -620,8 +694,9 @@ class TestRegisterTeams:
             "3": ("review", None),
             "4": ("error", None),
             "5": ("already_linked", "t5"),
+            "6": ("relinked", "t6"),
         }
-        assert matcher.calls == ["1", "2", "3", "4", "5"]
+        assert matcher.calls == ["1", "2", "3", "4", "5", "6"]
 
     def test_a_team_needing_review_by_its_name_age_is_queued_not_matched(self):
         row = seg.TeamRow("9", "CFYSC 10U Boys Premier", 1, "D", "u11", 2016, "Male", "IL")
@@ -682,6 +757,19 @@ class TestExistingAliases:
         client = SimpleNamespace(table=lambda _name: _AliasQuery(rows))
 
         assert seg.existing_aliases(client, "seg", ["1", "2", "3"]) == {"1": "a"}
+
+
+class TestPendingReviews:
+    def test_only_this_providers_pending_rows_count(self):
+        rows = [
+            {"provider_id": "soccereventsgroup", "provider_team_id": "1", "status": "pending"},
+            {"provider_id": "gotsport", "provider_team_id": "2", "status": "pending"},
+            {"provider_id": "soccereventsgroup", "provider_team_id": "3", "status": "rejected"},
+            {"provider_id": "soccereventsgroup", "provider_team_id": "4", "status": "pending"},
+        ]
+        client = SimpleNamespace(table=lambda _name: _AliasQuery(rows))
+
+        assert seg.pending_reviews(client, ["1", "2", "3"]) == {"1"}
 
 
 class _Response:

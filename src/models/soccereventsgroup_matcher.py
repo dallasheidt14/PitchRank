@@ -300,7 +300,8 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         club_name: Optional[str] = None,
         state_code: Optional[str] = None,
     ) -> Dict:
-        """Adds ``created`` to every result, and ``review`` to one left in the review queue."""
+        """Adds ``created`` to every result, ``review`` to one left in the review queue, and
+        ``relinked`` to one whose team row already carried this SEG id and got its alias rewritten."""
         base_result = super()._match_team(
             provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
         )
@@ -339,6 +340,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             "method": "direct_id",
             "confidence": 1.0,
             "created": was_created,
+            "relinked": not was_created,
         }
 
     def queue_for_review(

@@ -47,7 +47,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import requests
 from bs4 import BeautifulSoup
@@ -137,8 +137,10 @@ HEADERS = {
 SCRAPE_TS = datetime.now(timezone.utc).isoformat()
 SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
 
-LINKED_OUTCOMES = frozenset({"already_linked", "linked_existing", "created"})
+LINKED_OUTCOMES = frozenset({"already_linked", "linked_existing", "relinked", "created"})
 
+# ASCII and bounded: str.isdigit() also accepts "²", which int() then refuses.
+_SCORE = re.compile(r"[0-9]{1,3}")
 _LABEL_COHORTS = re.compile(r"^U\d{1,2}(?:\s*/\s*U?\d{1,2})*(?![\d/])", re.IGNORECASE)
 _LABEL_NUMBERS = re.compile(r"(\d{1,2})")
 _NAME_U_AGE = re.compile(r"\bU(\d{1,2})\b")
@@ -393,6 +395,8 @@ def register_teams(matcher, provider_id: str, roster: List[TeamRow], already: Di
 
         if result.get("created"):
             outcomes[row.seg_team_id] = Outcome("created", result["team_id"], 1.0)
+        elif result.get("relinked"):
+            outcomes[row.seg_team_id] = Outcome("relinked", result["team_id"], 1.0)
         elif result.get("matched"):
             status = "linked_existing" if result.get("method") == "fuzzy_auto" else "already_linked"
             outcomes[row.seg_team_id] = Outcome(status, result["team_id"], result.get("confidence"))
@@ -412,7 +416,37 @@ def unsaved_links(outcomes: Dict[str, Outcome], saved: Dict[str, str]) -> Dict[s
     return {
         seg_team_id: "link was not saved"
         for seg_team_id, outcome in outcomes.items()
-        if outcome.status in ("linked_existing", "created") and saved.get(seg_team_id) != outcome.team_id_master
+        if outcome.status in ("linked_existing", "relinked", "created")
+        and saved.get(seg_team_id) != outcome.team_id_master
+    }
+
+
+def pending_reviews(supabase, seg_team_ids: List[str]) -> Set[str]:
+    """SEG team ids with a pending review row."""
+    found: Set[str] = set()
+    for i in range(0, len(seg_team_ids), 100):
+        result = (
+            supabase.table("team_match_review_queue")
+            .select("provider_team_id")
+            .eq("provider_id", PROVIDER_CODE)
+            .eq("status", "pending")
+            .in_("provider_team_id", seg_team_ids[i : i + 100])
+            .execute()
+        )
+        found.update(str(row["provider_team_id"]) for row in result.data or [])
+    return found
+
+
+def unsaved_reviews(outcomes: Dict[str, Outcome], pending: Set[str]) -> Dict[str, str]:
+    """Teams reported queued for review with no pending row.
+
+    The matcher logs a failed review write and still reports the team queued, and
+    its games are then held back with nothing in the queue to release them.
+    """
+    return {
+        seg_team_id: "review item was not saved"
+        for seg_team_id, outcome in outcomes.items()
+        if outcome.status == "review" and seg_team_id not in pending
     }
 
 
@@ -488,7 +522,7 @@ def parse_bracket_games(html: str) -> List[Dict]:
             time_cell = row.find("td", class_="time")
             title = title or (title_cell.get_text(strip=True) if title_cell else "")
             when = when or (time_cell.get_text(strip=True) if time_cell else "")
-        if len(sides) != 2 or not all(name and score.isdigit() for name, score in sides):
+        if len(sides) != 2 or not all(name and _SCORE.fullmatch(score) for name, score in sides):
             continue
         games.append({"title": title, "when": when, "sides": sides})
     return games
@@ -715,6 +749,9 @@ def main() -> int:
         saved = existing_aliases(supabase, provider_id, list(outcomes))
         for seg_team_id, reason in unsaved_links(outcomes, saved).items():
             outcomes[seg_team_id] = Outcome("error", outcomes[seg_team_id].team_id_master, reason=reason)
+        queued = pending_reviews(supabase, [i for i, o in outcomes.items() if o.status == "review"])
+        for seg_team_id, reason in unsaved_reviews(outcomes, queued).items():
+            outcomes[seg_team_id] = Outcome("error", confidence=outcomes[seg_team_id].confidence, reason=reason)
     for seg_team_id, reason in conflicts.items():
         proposed = preview[seg_team_id]
         outcomes[seg_team_id] = Outcome("conflict", proposed.team_id_master, proposed.confidence, reason)
@@ -737,7 +774,7 @@ def main() -> int:
     summary = Table(title=f"SEG program {args.program_id}")
     summary.add_column("")
     summary.add_column("Count", justify="right")
-    for status in ("already_linked", "linked_existing", "created", "review", "conflict", "error"):
+    for status in ("already_linked", "linked_existing", "relinked", "created", "review", "conflict", "error"):
         summary.add_row(status, str(sum(1 for o in outcomes.values() if o.status == status)))
     summary.add_row("skipped teams", str(len(skipped)))
     summary.add_row("bracket games in window", str(len(games)))
