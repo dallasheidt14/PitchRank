@@ -404,6 +404,22 @@ def _render_unvalidated_rollup_app():
     )
 
 
+def test_single_saved_event_opens_automatically_after_session_restart(tmp_path, monkeypatch):
+    import tournament_intake as app
+    from src.tournaments import backtest_intake_ui as ui
+    from src.tournaments.backtest_intake_state import write_snapshot
+
+    snapshot = sample_snapshot(generation="saved-event")
+    write_snapshot("gotsport__51783__unknown", snapshot, base_dir=tmp_path)
+    fake_st = SimpleNamespace(session_state={}, error=lambda message: pytest.fail(message))
+    monkeypatch.setattr(ui, "st", fake_st)
+
+    ui._load_saved(tmp_path)
+
+    assert fake_st.session_state[app._BACKTEST_KEYS.snapshot] == snapshot
+    assert fake_st.session_state["bt_review_epoch_saved-event"] == 1
+
+
 @pytest.fixture
 def rendered_intake(tmp_path, monkeypatch):
     import tournament_intake as app
@@ -436,8 +452,9 @@ def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_act
     assert "Run selected cohort" not in overview_labels
     test.radio(key="bt_section_capture-one").set_value("Backtest").run()
     run_labels = {button.label for button in test.button}
-    assert "Run selected cohort" in run_labels
-    assert "Run all ready cohorts (0)" in run_labels
+    assert "Prepare and run full tournament Backtest (2 cohorts)" in run_labels
+    assert "Prepare ratings and run only this cohort" in run_labels
+    assert "Check historical ratings" not in run_labels
     test.radio(key="bt_section_capture-one").set_value("Teams").run()
     test.radio(key="bt_filter_capture-one").set_value("All teams").run()
     tables = [item.value for item in test.dataframe]
@@ -460,10 +477,14 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         HistoricalEntrantCheck,
         HistoricalPreflight,
         preflight_input_sha256,
+        write_historical_preflight,
     )
     from src.tournaments.backtest_intake_state import CaptureVerification, write_snapshot
     from src.tournaments.backtest_link_store import update_links
-    from src.tournaments.backtest_reviewed_run import ReviewedRunOutcome
+    from src.tournaments.backtest_reviewed_run import (
+        ReviewedRunOutcome,
+        build_reviewed_cohort_readiness,
+    )
     from tests.unit.test_backtest_request import _links, _snapshot
     from tests.unit.test_backtest_reviewed_run import _summary
 
@@ -484,7 +505,36 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
         changed_links=_links().links,
         base_dir=tmp_path,
     )
+    request = build_reviewed_cohort_readiness(snapshot, _links())[0].request
+    assert request is not None
+    failed_preflight = HistoricalPreflight(
+        preflight_input_sha256(
+            [request],
+            merge_map_version="ok",
+            predictor_sha256=ui.canonical_predictor_sha256(),
+        ),
+        "2026-09-12T00:00:00+00:00",
+        "2025-05-10",
+        ui.canonical_predictor_sha256(),
+        "ok",
+        (
+            HistoricalCohortCheck(
+                "u14",
+                "Male",
+                0,
+                1,
+                (
+                    HistoricalEntrantCheck(
+                        "entrant-1", "Alpha", "team-1", "team-1", False,
+                        reason="Historical rating was not available",
+                    ),
+                ),
+            ),
+        ),
+    )
+    write_historical_preflight(event_key, failed_preflight, base_dir=tmp_path)
     calls = []
+    preflight_calls = []
 
     def fake_execute(
         event_key_value,
@@ -541,6 +591,9 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     monkeypatch.setattr(ui, "execute_reviewed_run", fake_execute)
     def fake_preflight(requests, _client):
         request_list = list(requests)
+        preflight_calls.append(request_list)
+        if len(preflight_calls) == 1:
+            return failed_preflight
         entrants = tuple(
             HistoricalEntrantCheck(
                 entrant["entrant_id"],
@@ -575,16 +628,31 @@ def test_ready_saved_cohort_runs_and_renders_actual_vs_matchbalance(tmp_path, mo
     assert not test.exception, [error.message for error in test.exception]
     test.radio(key="bt_section_generation-1").set_value("Backtest").run()
     assert not any(item.label == "Advanced model settings" for item in test.expander)
-    assert any("same predictor used by PitchRank Compare" in item.value for item in test.info)
     readiness_table = next(
-        item.value for item in test.dataframe if {"Check", "Owner", "Action"}.issubset(item.value.columns)
+        item.value for item in test.dataframe if {"Check", "Status", "Action"}.issubset(item.value.columns)
     )
     model_row = readiness_table.loc[readiness_table["Check"] == "Prediction engine"].iloc[0]
     assert model_row["Action"] == "PitchRank Compare predictor with historical inputs"
-    next(button for button in test.button if button.label == "Check historical ratings").click().run()
-    run_button = next(button for button in test.button if button.label == "Run selected cohort")
+    missing = next(item.value for item in test.dataframe if "Reason" in item.value.columns)
+    assert missing[["Team", "Reason"]].to_dict("records") == [
+        {"Team": "Alpha", "Reason": "Historical rating was not available"}
+    ]
+    run_button = next(
+        button
+        for button in test.button
+        if button.label == "Retry ratings and run full tournament Backtest (1 cohort)"
+    )
     assert run_button.disabled is False
     run_button.click().run()
+    assert not test.exception, [error.message for error in test.exception]
+    assert calls == []
+    assert any("Some teams still lack a usable pre-event rating" in item.value for item in test.warning)
+    retry_button = next(
+        button
+        for button in test.button
+        if button.label == "Retry ratings and run full tournament Backtest (1 cohort)"
+    )
+    retry_button.click().run()
 
     assert not test.exception, [error.message for error in test.exception]
     assert calls == [(event_key, "u14")]
@@ -650,13 +718,11 @@ def test_failed_cohort_remains_visible_after_refresh_without_successful_runs(
     test = AppTest.from_function(_render_failed_rollup_app, default_timeout=10).run()
 
     assert not test.exception, [error.message for error in test.exception]
-    metrics = {item.label: item.value for item in test.metric}
-    assert metrics["Cohorts completed"] == "0"
-    assert metrics["Failed"] == "1"
-    coverage = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
-    assert coverage["Status"].tolist() == ["Failed"]
-    assert coverage["What remains"].tolist() == ["Historical rating lookup timed out"]
-    assert any("No cohort has been run yet" in item.value for item in test.info)
+    assert any("1 cohort run(s) failed" in item.value for item in test.warning)
+    assert not any(item.label == "Cohorts completed" for item in test.metric)
+    failed_details = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
+    assert failed_details["Status"].tolist() == ["Failed"]
+    assert failed_details["What remains"].tolist() == ["Historical rating lookup timed out"]
 
 
 def test_event_placements_stay_hidden_until_event_comparison_is_validated(monkeypatch):
@@ -1047,7 +1113,9 @@ def test_unsaved_tiebreak_edit_blocks_backtest_from_using_the_saved_rule(rendere
 
     readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
     assert readiness["What remains"].str.contains("Save the current review").all()
-    assert next(button for button in test.button if button.label == "Run selected cohort").disabled
+    assert next(
+        button for button in test.button if "full tournament Backtest" in button.label
+    ).disabled
 
 
 def test_streamlit_can_replace_an_existing_match_even_when_current_age_differs(rendered_intake, monkeypatch):
@@ -1218,7 +1286,9 @@ def test_streamlit_outage_keeps_local_links_and_clears_in_display_and_export(
 
     readiness = next(item.value for item in test.dataframe if "What remains" in item.value.columns)
     assert readiness["What remains"].str.contains("merge-synchronized team IDs").all()
-    assert next(button for button in test.button if button.label == "Run selected cohort").disabled
+    assert next(
+        button for button in test.button if "full tournament Backtest" in button.label
+    ).disabled
     metrics = {item.label: item.value for item in test.metric}
     assert metrics["Team review"] == "Unavailable"
     test.radio(key="bt_section_capture-one").set_value("Teams").run()

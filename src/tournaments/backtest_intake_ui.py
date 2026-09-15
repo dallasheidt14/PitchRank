@@ -364,11 +364,36 @@ def _sync_matches(
     )
 
 
+def _activate_saved_snapshot(snapshot: BacktestSnapshot) -> None:
+    from tournament_intake import _BACKTEST_KEYS
+
+    # This is the only object the Backtest results and save path read.
+    st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
+    st.session_state[f"bt_review_drafts_{snapshot.generation}"] = {
+        review.group_id: asdict(review) for review in reviews_for_capture(snapshot.roster, snapshot.reviews)
+    }
+    st.session_state[f"bt_cohort_drafts_{snapshot.generation}"] = {
+        decision.group_id: asdict(decision) for decision in snapshot.cohort_decisions
+    }
+    st.session_state[f"bt_tiebreak_draft_{snapshot.generation}"] = (
+        _decision_to_tiebreak_draft(snapshot)
+    )
+    # Fresh widget identities discard a stale session's rejected edits.
+    epoch_key = f"bt_review_epoch_{snapshot.generation}"
+    st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
+
+
 def _load_saved(base_dir) -> None:
     from tournament_intake import _BACKTEST_KEYS
 
     paths = sorted(base_dir.glob("gotsport__*/intake/event_intake.json"))
     if not paths:
+        return
+    if len(paths) == 1 and st.session_state.get(_BACKTEST_KEYS.snapshot) is None:
+        try:
+            _activate_saved_snapshot(read_snapshot(paths[0].parent.parent.name, base_dir=base_dir))
+        except Exception as exc:
+            st.error(f"Could not open the saved intake: {exc}")
         return
     with st.expander("Open a saved Backtest event", expanded=False):
         keys = [path.parent.parent.name for path in paths]
@@ -389,20 +414,7 @@ def _load_saved(base_dir) -> None:
             except Exception as exc:
                 st.error(f"Could not open this saved intake: {exc}")
                 return
-            # This is the only object the Backtest results and save path read.
-            st.session_state[_BACKTEST_KEYS.snapshot] = snapshot
-            st.session_state[f"bt_review_drafts_{snapshot.generation}"] = {
-                review.group_id: asdict(review) for review in reviews_for_capture(snapshot.roster, snapshot.reviews)
-            }
-            st.session_state[f"bt_cohort_drafts_{snapshot.generation}"] = {
-                decision.group_id: asdict(decision) for decision in snapshot.cohort_decisions
-            }
-            st.session_state[f"bt_tiebreak_draft_{snapshot.generation}"] = (
-                _decision_to_tiebreak_draft(snapshot)
-            )
-            # Fresh widget identities discard a stale session's rejected edits.
-            epoch_key = f"bt_review_epoch_{snapshot.generation}"
-            st.session_state[epoch_key] = st.session_state.get(epoch_key, 0) + 1
+            _activate_saved_snapshot(snapshot)
             st.rerun()
 
 
@@ -1456,6 +1468,31 @@ def _render_event_rollup(
     movements = rollup["team_movements"]
     coverage = rollup["coverage"]
     st.markdown("#### Tournament-wide Backtest result")
+    if not rollup["selected_runs"]:
+        if coverage["failed"]:
+            st.warning(
+                f"{coverage['failed']} cohort run(s) failed. Open the details below to inspect or retry them."
+            )
+            with st.expander("Failed cohort details"):
+                st.dataframe(
+                    pd.DataFrame(
+                        {
+                            "Cohort": f"{_display_gender(row['gender'])} {row['age_group'].upper()}",
+                            "Teams": row["team_count"],
+                            "Status": row["status"].replace("_", " ").title(),
+                            "What remains": row["what_remains"],
+                        }
+                        for row in coverage["rows"]
+                        if row["status"] == "failed"
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                )
+        else:
+            st.caption(
+                "No current Backtest result yet. Run the full tournament to build the comparison."
+            )
+        return
     coverage_columns = st.columns(4)
     coverage_columns[0].metric("Cohorts completed", coverage["completed"])
     coverage_columns[1].metric("Failed", coverage["failed"])
@@ -1464,11 +1501,6 @@ def _render_event_rollup(
         "Waiting to run",
         coverage["awaiting_review"] + coverage["awaiting_history"] + coverage["ready"],
     )
-    if not rollup["selected_runs"]:
-        st.info(
-            "No cohort has been run yet. Complete the one-time readiness items above once for the "
-            "event; you do not review every cohort. Then run one cohort or every ready cohort."
-        )
     with st.expander("Cohort status details"):
         st.dataframe(
             pd.DataFrame(
@@ -1483,8 +1515,6 @@ def _render_event_rollup(
             hide_index=True,
             width="stretch",
         )
-    if not rollup["selected_runs"]:
-        return
     st.caption(comparison["scope_note"] + ". Each cohort uses the same selected historical model.")
     validation = rollup.get("model_validation") or {}
     event_validation = validation.get("event_validation") or {}
@@ -1682,6 +1712,9 @@ def _render_backtest_runner(
     cancelled_label = st.session_state.pop(f"bt_cancel_notice_{event_key}", "")
     if cancelled_label:
         st.info(f"{cancelled_label} was stopped safely. Select it and run it again when ready.")
+    history_notice = st.session_state.pop(f"bt_history_notice_{event_key}", "")
+    if history_notice:
+        st.warning(history_notice)
     operator_snapshot = replace(
         snapshot,
         reviews=_current_reviews(snapshot),
@@ -1718,13 +1751,13 @@ def _render_backtest_runner(
             for item in readiness
         ]
 
+    base_readiness = readiness
     selected_predictor_sha = canonical_predictor_sha256()
-    st.info(
-        "Prediction engine: the same predictor used by PitchRank Compare, using only ratings and games "
-        "recorded before this tournament began."
-    )
-    request_items = [item for item in readiness if item.request is not None]
+    request_items = [item for item in base_readiness if item.request is not None]
+    base_ready = [item for item in base_readiness if item.ready]
+    event_ready_for_history = bool(base_readiness) and len(base_ready) == len(base_readiness)
     preflight = None
+    preflight_load_warning = ""
     expected_preflight_sha = ""
     if request_items:
         expected_preflight_sha = preflight_input_sha256(
@@ -1735,71 +1768,57 @@ def _render_backtest_runner(
         try:
             cached_preflight = load_historical_preflight(event_key, base_dir=base_dir)
         except Exception as exc:
-            st.warning(f"Saved historical preflight could not be read: {exc}")
+            preflight_load_warning = f"Saved historical preparation could not be read: {exc}"
         else:
             if cached_preflight and cached_preflight.input_sha256 == expected_preflight_sha:
                 preflight = cached_preflight
-    if st.button(
-        "Check historical ratings",
-        disabled=not request_items,
-        help="Read-only check of historical evidence and any reviewed rating fallbacks.",
-        key=f"bt_historical_preflight_{snapshot.generation}",
-    ):
-        with st.spinner("Checking pre-event rating snapshots and reviewed fallbacks..."):
+
+    def prepare_history():
+        if not request_items:
+            return None
+        with st.spinner("Preparing pre-event team ratings..."):
             try:
-                preflight = run_historical_preflight(
+                result = run_historical_preflight(
                     (item.request for item in request_items if item.request is not None),
                     supabase_client,
                 )
-                write_historical_preflight(event_key, preflight, base_dir=base_dir)
+                write_historical_preflight(event_key, result, base_dir=base_dir)
+                if not result.ready:
+                    st.session_state[f"bt_history_notice_{event_key}"] = (
+                        "Some teams still lack a usable pre-event rating. Open Advanced details "
+                        "to see the teams and reasons, then retry after the source data is fixed."
+                    )
+                    st.rerun()
+                return result
             except HistoricalPreflightUnavailable as exc:
-                st.error(f"Historical data could not be checked: {exc}")
+                st.error(f"MatchBalance could not prepare the historical ratings: {exc}")
             except Exception as exc:
-                st.error(f"Historical preflight failed: {exc}")
-    preflight_by_cohort = {
-        (item.age_group, item.gender): item for item in (preflight.cohorts if preflight else ())
-    }
-    if preflight:
-        eligible = sum(item.eligible for item in preflight.cohorts)
-        total = sum(item.total for item in preflight.cohorts)
-        fallbacks = [
-            entrant
-            for cohort in preflight.cohorts
-            for entrant in cohort.entrants
-            if entrant.rating_basis != "historical_snapshot" and entrant.eligible
-        ]
-        if preflight.ready:
-            st.success(
-                f"Historical evidence ready for {eligible} of {total} entrants before "
-                f"{preflight.cutoff_exclusive}."
+                st.error(f"Historical rating preparation failed: {exc}")
+        return None
+
+    def apply_history(source, prepared):
+        by_cohort = {
+            (item.age_group, item.gender): item
+            for item in (prepared.cohorts if prepared else ())
+        }
+        enriched = []
+        for item in source:
+            cohort_preflight = by_cohort.get((item.age_group, item.gender))
+            history_blocker = ""
+            if item.request is not None and cohort_preflight is None:
+                history_blocker = "Historical ratings have not been prepared"
+            elif cohort_preflight is not None and not cohort_preflight.ready:
+                missing = cohort_preflight.total - cohort_preflight.eligible
+                history_blocker = f"{missing} entrants lack eligible pre-event ratings"
+            enriched.append(
+                replace(
+                    item,
+                    request=item.request,
+                    blockers=((*item.blockers, history_blocker) if history_blocker else item.blockers),
+                )
             )
-            if fallbacks:
-                not_found_fallbacks = sum(
-                    entrant.rating_fallback == RATING_FALLBACK_POLICY for entrant in fallbacks
-                )
-                missing_history_fallbacks = sum(
-                    entrant.rating_fallback == MISSING_HISTORY_FALLBACK_POLICY
-                    for entrant in fallbacks
-                )
-                st.info(
-                    f"Average estimates: {not_found_fallbacks} team(s) marked Not Found and "
-                    f"{missing_history_fallbacks} matched team(s) without eligible pre-event "
-                    "history. These limitations are saved with the Backtest evidence."
-                )
-        else:
-            st.warning(f"Historical ratings need attention: {eligible} of {total} entrants are eligible.")
-            with st.expander("Missing historical evidence"):
-                missing_rows = [
-                    {
-                        "Cohort": f"{_display_gender(cohort.gender)} {cohort.age_group.upper()}",
-                        "Team": entrant.event_team_name,
-                        "Reason": entrant.reason,
-                    }
-                    for cohort in preflight.cohorts
-                    for entrant in cohort.entrants
-                    if not entrant.eligible
-                ]
-                st.dataframe(pd.DataFrame(missing_rows), hide_index=True, width="stretch")
+        return enriched
+
     scoped_divisions = backtest_scope_snapshot(saved_snapshot).roster.divisions
     schedule_attention = [
         assessment.reason
@@ -1809,29 +1828,14 @@ def _render_backtest_runner(
     capture_reasons = capture_verification_blockers(saved_snapshot)
     tiebreak_ready = _tiebreak_ready(saved_snapshot.tiebreak_decision)
     remaining_team_decisions = max(team_total - team_reviewed, 0)
-    if preflight is None:
-        history_status = "Not checked"
-        history_action = "Check historical ratings"
-    elif preflight.ready:
-        history_status = "Ready"
-        history_action = f"{sum(item.eligible for item in preflight.cohorts)} entrants eligible"
-    else:
-        history_status = "Needs attention"
-        history_action = "Resolve missing pre-event ratings"
-    st.markdown("##### Readiness")
-    st.caption("Your decisions and MatchBalance system checks are shown separately.")
-    st.dataframe(
-        pd.DataFrame(
-            [
+    technical_rows = [
                 {
                     "Check": "Event capture",
-                    "Owner": "You",
                     "Status": "Ready" if not capture_reasons else "Needs action",
                     "Action": "; ".join(capture_reasons) or "Published division list verified",
                 },
                 {
                     "Check": "Team identities",
-                    "Owner": "You",
                     "Status": (
                         "Unavailable"
                         if matching_blocker
@@ -1848,7 +1852,6 @@ def _render_backtest_runner(
                 },
                 {
                     "Check": "Tournament tiebreak rule",
-                    "Owner": "You",
                     "Status": "Ready" if tiebreak_ready else "Needs action",
                     "Action": (
                         "Published rule verified once for the event"
@@ -1858,7 +1861,6 @@ def _render_backtest_runner(
                 },
                 {
                     "Check": "Captured schedules",
-                    "Owner": "MatchBalance",
                     "Status": "Ready" if not schedule_attention else "Needs engineering",
                     "Action": (
                         f"All {len(scoped_divisions)} division schedules are replay-ready"
@@ -1868,52 +1870,156 @@ def _render_backtest_runner(
                 },
                 {
                     "Check": "Prediction engine",
-                    "Owner": "MatchBalance",
                     "Status": "Ready",
                     "Action": "PitchRank Compare predictor with historical inputs",
                 },
                 {
                     "Check": "Pre-event team ratings",
-                    "Owner": "MatchBalance",
-                    "Status": history_status,
-                    "Action": history_action,
+                    "Status": (
+                        "Ready"
+                        if preflight and preflight.ready
+                        else "Needs attention" if preflight else "Prepared when you run"
+                    ),
+                    "Action": (
+                        f"{sum(item.eligible for item in preflight.cohorts)} entrants eligible"
+                        if preflight and preflight.ready
+                        else "Resolve missing pre-event ratings"
+                        if preflight
+                        else "Automatic"
+                    ),
                 },
             ]
-        ),
-        hide_index=True,
-        width="stretch",
-    )
-    enriched = []
-    for item in readiness:
-        cohort_preflight = preflight_by_cohort.get((item.age_group, item.gender))
-        history_blocker = ""
-        if item.request is not None and cohort_preflight is None:
-            history_blocker = "Check historical ratings before running this cohort"
-        elif cohort_preflight is not None and not cohort_preflight.ready:
-            missing = cohort_preflight.total - cohort_preflight.eligible
-            history_blocker = f"{missing} entrants lack eligible pre-event ratings"
-        enriched.append(
-            replace(
-                item,
-                request=item.request,
-                blockers=((*item.blockers, history_blocker) if history_blocker else item.blockers),
-            )
+    readiness = apply_history(base_readiness, preflight)
+    ready = [item for item in readiness if item.ready]
+    event_ready = bool(readiness) and len(ready) == len(readiness)
+    cohort_count_label = f"{len(readiness)} cohort{'s' if len(readiness) != 1 else ''}"
+    if not event_ready_for_history:
+        all_blockers = list(dict.fromkeys(blocker for item in readiness for blocker in item.blockers))
+        next_step = all_blockers[0] if all_blockers else "No tournament cohorts are available to run"
+        st.warning(f"Next step: {next_step}")
+    elif preflight is None:
+        st.info(
+            f"Ready to run {cohort_count_label}. MatchBalance will prepare the historical ratings "
+            "automatically when you start."
         )
-    readiness = enriched
+    elif event_ready:
+        eligible = sum(item.eligible for item in preflight.cohorts)
+        st.success(f"Ready to run {len(ready)} cohorts covering {eligible} entrants.")
+    else:
+        blocked = len(readiness) - len(ready)
+        st.warning(f"{blocked} cohort(s) need historical evidence before the Backtest can run.")
+
+    if preflight is None:
+        primary_label = f"Prepare and run full tournament Backtest ({cohort_count_label})"
+    elif preflight.ready:
+        primary_label = f"Run full tournament Backtest ({cohort_count_label})"
+    else:
+        primary_label = f"Retry ratings and run full tournament Backtest ({cohort_count_label})"
+    run_full = st.button(
+        primary_label,
+        type="primary",
+        disabled=not event_ready_for_history,
+        key=f"bt_run_full_{snapshot.generation}",
+    )
+    if run_full and event_ready_for_history:
+        active_preflight = preflight if preflight and preflight.ready else prepare_history()
+        if active_preflight is not None:
+            targets = apply_history(base_ready, active_preflight)
+            runnable = [item for item in targets if item.ready]
+            if len(runnable) != len(base_ready):
+                st.error("Some cohorts still lack usable pre-event ratings. Open advanced details below.")
+            else:
+                _run_reviewed_requests(
+                    event_key,
+                    runnable,
+                    merge_map_version=merge_map_version,
+                    base_dir=base_dir,
+                )
+
     table_rows = []
-    for item in readiness:
+    for index, item in enumerate(readiness):
         blockers = list(item.blockers)
+        base_item = base_readiness[index]
+        waiting_for_automatic_history = preflight is None and base_item.ready
         table_rows.append(
             {
                 "Cohort": f"{_display_gender(item.gender)} {item.age_group.upper()}",
                 "Teams": item.team_count,
                 "Divisions": item.division_count,
-                "Status": "Ready" if item.ready else "Blocked",
-                "What remains": "; ".join(blockers),
+                "Status": "Ready" if item.ready or waiting_for_automatic_history else "Blocked",
+                "What remains": (
+                    "Historical ratings are prepared automatically"
+                    if waiting_for_automatic_history
+                    else "; ".join(blockers)
+                ),
             }
         )
-    with st.expander("Cohort-by-cohort details"):
+    run_selected = False
+    selected_base = None
+    with st.expander("Advanced: run one cohort or inspect readiness"):
+        st.caption(
+            "MatchBalance uses the PitchRank Compare predictor with only ratings and games recorded "
+            "before this tournament began."
+        )
+        if preflight_load_warning:
+            st.warning(preflight_load_warning)
+        st.dataframe(pd.DataFrame(technical_rows), hide_index=True, width="stretch")
         st.dataframe(pd.DataFrame(table_rows), hide_index=True, width="stretch")
+        if preflight:
+            fallbacks = [
+                entrant
+                for cohort in preflight.cohorts
+                for entrant in cohort.entrants
+                if entrant.rating_basis != "historical_snapshot" and entrant.eligible
+            ]
+            if fallbacks:
+                not_found_fallbacks = sum(
+                    entrant.rating_fallback == RATING_FALLBACK_POLICY for entrant in fallbacks
+                )
+                missing_history_fallbacks = sum(
+                    entrant.rating_fallback == MISSING_HISTORY_FALLBACK_POLICY
+                    for entrant in fallbacks
+                )
+                st.caption(
+                    f"Average estimates: {not_found_fallbacks} Not Found team(s) and "
+                    f"{missing_history_fallbacks} matched team(s) without eligible pre-event history."
+                )
+            missing_rows = [
+                {
+                    "Cohort": f"{_display_gender(cohort.gender)} {cohort.age_group.upper()}",
+                    "Team": entrant.event_team_name,
+                    "Reason": entrant.reason,
+                }
+                for cohort in preflight.cohorts
+                for entrant in cohort.entrants
+                if not entrant.eligible
+            ]
+            if missing_rows:
+                st.caption("Teams still missing a usable pre-event rating")
+                st.dataframe(pd.DataFrame(missing_rows), hide_index=True, width="stretch")
+        if readiness:
+            selected_index = st.selectbox(
+                "Cohort to run",
+                tuple(range(len(readiness))),
+                format_func=lambda index: (
+                    f"{_display_gender(readiness[index].gender)} {readiness[index].age_group.upper()}"
+                ),
+                key=f"bt_run_cohort_{snapshot.generation}",
+            )
+            selected = readiness[selected_index]
+            selected_base = base_readiness[selected_index]
+            run_selected = st.button(
+                (
+                    "Run only this cohort"
+                    if preflight and preflight.ready
+                    else "Retry ratings and run only this cohort"
+                    if preflight
+                    else "Prepare ratings and run only this cohort"
+                ),
+                disabled=not selected_base.ready,
+                help="\n".join(selected.blockers) or None,
+                key=f"bt_run_selected_{snapshot.generation}",
+            )
     if not readiness:
         st.info("No tournament cohorts are available to run.")
         _render_event_rollup(
@@ -1927,49 +2033,26 @@ def _render_backtest_runner(
         with st.expander("Cohort diagnostics (optional)"):
             _render_reviewed_result(event_key, base_dir)
         return
-    selected_index = st.selectbox(
-        "Cohort to run",
-        tuple(range(len(readiness))),
-        format_func=lambda index: (
-            f"{_display_gender(readiness[index].gender)} {readiness[index].age_group.upper()}"
-        ),
-        key=f"bt_run_cohort_{snapshot.generation}",
-    )
-    selected = readiness[selected_index]
-    ready = [item for item in readiness if item.ready]
-    actions = st.columns(2)
-    run_selected = actions[0].button(
-        "Run selected cohort",
-        type="primary",
-        disabled=not selected.ready,
-        help="\n".join(selected.blockers) or None,
-        key=f"bt_run_selected_{snapshot.generation}",
-    )
-    run_all = actions[1].button(
-        f"Run all ready cohorts ({len(ready)})",
-        disabled=not ready,
-        key=f"bt_run_all_{snapshot.generation}",
-    )
-    if run_selected:
-        _run_reviewed_requests(
-            event_key,
-            [selected],
-            merge_map_version=merge_map_version,
-            base_dir=base_dir,
-        )
-    if run_all:
-        _run_reviewed_requests(
-            event_key,
-            ready,
-            merge_map_version=merge_map_version,
-            base_dir=base_dir,
-        )
+    if run_selected and selected_base is not None and selected_base.ready:
+        active_preflight = preflight if preflight and preflight.ready else prepare_history()
+        if active_preflight is not None:
+            target = apply_history([selected_base], active_preflight)[0]
+            if target.ready:
+                _run_reviewed_requests(
+                    event_key,
+                    [target],
+                    merge_map_version=merge_map_version,
+                    base_dir=base_dir,
+                )
+            else:
+                st.error("This cohort still lacks usable pre-event ratings.")
     completed_records = list_reviewed_runs(event_key, base_dir=base_dir)
-    with st.expander(
-        f"Completed cohort results ({len(completed_records)})",
-        expanded=bool(st.session_state.pop(f"bt_show_completed_{event_key}", False)),
-    ):
-        _render_reviewed_result(event_key, base_dir)
+    if completed_records:
+        with st.expander(
+            f"Previous cohort run files ({len(completed_records)})",
+            expanded=bool(st.session_state.pop(f"bt_show_completed_{event_key}", False)),
+        ):
+            _render_reviewed_result(event_key, base_dir)
     _render_event_rollup(
         saved_snapshot,
         readiness,
