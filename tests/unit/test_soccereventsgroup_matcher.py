@@ -420,6 +420,24 @@ class TestFuzzyLinking:
         assert (result["method"], result["team_id"]) == ("fuzzy_auto", "m-bluefire")
 
     @pytest.mark.parametrize(
+        "provider, candidate",
+        [("Macon SC U15B Elite", "Macon SC U15 Elite GA"), ("Macon SC U15B Elite GA", "Macon SC U15 Elite")],
+    )
+    def test_a_state_ga_on_a_boys_team_is_not_the_girls_academy_tier(self, provider, candidate):
+        db = _DB([_candidate("m-macon", candidate, "Macon SC", state_code="GA", gender="Male")])
+
+        result = _register(_matcher(db), name=provider, state_code="GA", gender="Male")
+
+        assert (result["method"], result["team_id"]) == ("fuzzy_auto", "m-macon")
+
+    def test_ga_on_a_girls_team_is_the_girls_academy_tier(self):
+        db = _DB([_candidate("m-swarm", "SSA Swarm U15 Elite GA", "SSA Swarm", state_code="GA")])
+
+        result = _register(_matcher(db), name="SSA Swarm U15G Elite", state_code="GA")
+
+        assert (result["method"], result["created"]) == ("direct_id", True)
+
+    @pytest.mark.parametrize(
         "provider, candidate, stored_club",
         [
             ("Pegasus FC GU15 Red", "Pegasus FC GU15 Black", "Pegasus FC"),

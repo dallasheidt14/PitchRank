@@ -437,7 +437,8 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
   squad gate. Both read tier and band tokens ("ECNL-RL", the "/13" of "G2012/13") as a coach,
   so two spellings of one squad are rejected and a duplicate team is created.
 - Gate squads on `colors`, `directions` and `team_number` from `extract_distinctions`, squad
-  codes (N1, S2), and tiers via `squad_name_gates.extract_tier_tokens` / `tiers_conflict`.
+  codes (N1, S2), and tiers via `squad_name_gates.extract_tier_tokens` / `tiers_conflict`,
+  dropping "ga" on a boys team (Girls Academy is girls-only, so there it means Georgia).
   Count a squad number or code only when both names carry one. Leave `location_codes` out: it
   collects leftover words ("Lou" of "Lou Fusz") and rejects real matches.
 - Strip the club from both names before reading squad marks, or a club's own words

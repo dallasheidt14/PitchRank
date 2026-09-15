@@ -104,15 +104,23 @@ def seg_tier_tokens(name: str) -> frozenset:
     return tiers - {"mls"} if tiers & {"ad", "hd"} else tiers
 
 
-def squad_marks(name: str) -> Dict:
-    """The parts of a canonical, club-free name that tell two squads of one club apart."""
+def is_boys(gender: Optional[str]) -> bool:
+    return (gender or "").upper() in ("M", "MALE", "BOYS", "B")
+
+
+def squad_marks(name: str, boys: bool = False) -> Dict:
+    """The parts of a canonical, club-free name that tell two squads of one club apart.
+
+    Girls Academy is a girls league, so on a boys team "GA" is the state of Georgia.
+    """
     distinctions = extract_distinctions(name)
+    tiers = seg_tier_tokens(name)
     return {
         "colors": distinctions["colors"],
         "directions": distinctions["directions"],
         "team_number": distinctions["team_number"],
         "squad_codes": frozenset(t for t in (w.lower() for w in _NAME_TOKENS.split(name)) if _SQUAD_CODE.match(t)),
-        "tiers": seg_tier_tokens(name),
+        "tiers": tiers - {"ga"} if boys else tiers,
     }
 
 
@@ -223,7 +231,8 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             return None
         provider_team_name = canonical_team_name(team_name)
         provider_club_name = club_name or club_from_team_name(team_name)
-        provider_marks = squad_marks(without_club(provider_team_name, provider_club_name))
+        boys = is_boys(gender)
+        provider_marks = squad_marks(without_club(provider_team_name, provider_club_name), boys)
         provider_team = {
             "team_name": provider_team_name,
             "club_name": provider_club_name,
@@ -256,7 +265,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
                 else:
                     continue
 
-            if squads_conflict(provider_marks, squad_marks(without_club(candidate_name, club_in_name))):
+            if squads_conflict(provider_marks, squad_marks(without_club(candidate_name, club_in_name), boys)):
                 continue
 
             candidate = {
@@ -414,7 +423,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             "team_name": clean_team_name,
             "club_name": club_name or clean_team_name,
             "age_group": age_group.lower(),
-            "gender": "Male" if gender.upper() in ("M", "MALE", "BOYS", "B") else "Female",
+            "gender": "Male" if is_boys(gender) else "Female",
             "state_code": state_code,
             "state": STATE_CODE_TO_NAME.get(state_code) if state_code else None,
             "provider_id": provider_id,
