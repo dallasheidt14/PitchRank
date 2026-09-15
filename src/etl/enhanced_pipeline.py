@@ -15,7 +15,7 @@ _project_root = str(Path(__file__).parent.parent.parent)
 if _project_root not in sys.path:
     sys.path.append(_project_root)
 
-from config.settings import BUILD_ID, MATCHING_CONFIG, SUPABASE_KEY, SUPABASE_URL  # noqa: E402
+from config.settings import BUILD_ID, MATCHING_CONFIG  # noqa: E402
 from src.etl.bulk_ops import (  # noqa: E402
     bulk_backfill_null_scores,
     bulk_update_last_scraped_at,
@@ -355,6 +355,15 @@ class EnhancedETLPipeline:
             # Non-numeric values or conversion errors
             return False
 
+    def _refresh_client(self) -> None:
+        """Rebuild the Supabase client from the current client's own URL and key.
+
+        Never rebuild from config: its SUPABASE_KEY is the anon key, which RLS refuses for game inserts.
+        supabase 2.26+ stores the URL as a yarl URL, hence str().
+        """
+        self.supabase = create_client(str(self.supabase.supabase_url), self.supabase.supabase_key)
+        self.matcher.db = self.supabase
+
     def _should_accept_for_insert(self, game: Dict) -> bool:
         """
         Return True if a transformed game record should be inserted.
@@ -477,11 +486,9 @@ class EnhancedETLPipeline:
                 games_since_refresh += 1
                 if refresh_interval and games_since_refresh >= refresh_interval:
                     try:
-                        if SUPABASE_URL and SUPABASE_KEY:
-                            self.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-                            self.matcher.db = self.supabase
-                            games_since_refresh = 0
-                            logger.info(f"[Pipeline] Refreshed Supabase client after {refresh_interval} games")
+                        self._refresh_client()
+                        games_since_refresh = 0
+                        logger.info(f"[Pipeline] Refreshed Supabase client after {refresh_interval} games")
                     except Exception as refresh_err:
                         logger.warning(f"[Pipeline] Client refresh failed (non-fatal): {refresh_err}")
 

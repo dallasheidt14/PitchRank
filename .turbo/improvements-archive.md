@@ -1349,3 +1349,36 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: Restoring a saved link writes it into `st.session_state[keys.overrides]`, and an override is a mechanism built for a decision the operator just made: it beats the resolver, and `_render_seeding_progress_metrics` drops overridden rows from `outstanding`, which is what renders the "Use this team" control. A revived link is therefore uneditable — verified 2026-09-11 by reading both functions — and re-walking restores it again, so a wrong saved link cannot be corrected through the UI at all. Two further edges come from the same mismatch: with the merge map down, `restore=False` lets an automatic match replace a saved manual link through `merge_links`, and a restored id can be stale where an override can never be re-resolved. Both raised by Codex on PR #1130 and deferred there. The fix that closes all of them is to stop auto-applying: surface a saved link as information beside the row with a one-click re-apply, so nothing revived is silently authoritative. Saving is unaffected and is well covered; this entry is about the restoring half only.
 - **Noted**: 2026-09-11
 - **Refs**: `codex/matchbalance-intake-infrastructure` (2026-09-11); locked per-event merge updates and editable all-team Backtest review, with concurrent-save and Streamlit regression tests.
+
+### Game imports lose write access after 1,000 games
+
+- **ID**: IMP-215
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline` periodic client refresh (the `connection_refresh_interval` block) in `src/etl/enhanced_pipeline.py`; `SUPABASE_KEY` in `config/settings.py`
+- **Why**: Read 2026-09-14: the refresh rebuilds the client with `create_client(SUPABASE_URL, SUPABASE_KEY)`, and `SUPABASE_KEY` is the anon key, while `scripts/import_games_enhanced.py` built the original client from `SUPABASE_SERVICE_ROLE_KEY`. A SincSports import on 2026-09-13 then failed every later insert with RLS `42501` on `games` and still exited 0; the workaround was `SUPABASE_KEY=<service role key>` in the process env. Rebuild the client with the key the original client used. Needed before any scheduled import that can exceed 1,000 games.
+- **Noted**: 2026-09-14
+- **Refs**: branch `fix/importer-refresh-key`
+
+### Fox Soccer Academy 2010 B Black was created as a U16 duplicate of its U17 team
+
+- **ID**: IMP-218
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
+- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 2 played fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Noted**: 2026-09-14
+- **Refs**: data fix 2026-09-14, closed on branch `fix/importer-refresh-key`: SincSports `NCM1100C1E` and TGS `102205` rows merged into GotSport `506677`'s team, and the 2 held league games imported
+
+### Two SincSports team rows hold two squads each, and league games now land on them
+
+- **ID**: IMP-219
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
+- **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
+- **Noted**: 2026-09-14
+- **Refs**: data fix 2026-09-15, closed on branch `fix/importer-refresh-key`: `NCM15006B2` (Barça Academy A U12 Blau) and `SCM140018D` (Carolina Eclipse Premier 1) each moved to their own team, their league games relinked through `unlink_game_team`/`link_game_team`. The Eclipse stray was `SCM140018D`, not the `SCM140018E` named above: `SCM140018E`, `SCM14001BE` and `SCM14001D8` are all Premier 2 and stay together. The May tournament id `NCM150DE` ("Barça Academy 2015 Blau") names neither squad A nor B, so it stays on the `NCM15006B1` row.
