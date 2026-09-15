@@ -16,6 +16,7 @@ import pytest
 import requests
 
 from scripts import import_soccereventsgroup_event as seg
+from src.models.game_matcher import GameHistoryMatcher
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "soccereventsgroup"
 SEASON = 2026
@@ -501,7 +502,7 @@ class _FixedDate(date):
 
 @pytest.fixture
 def run_main(monkeypatch, tmp_path):
-    def run(*flags, saved=None, queued=None):
+    def run(*flags, saved=None, queued=None, teams=None):
         raw = json.loads((FIXTURES / "program.json").read_text(encoding="utf-8"))
         _FakeMatcher.instances = []
         imports = []
@@ -529,7 +530,7 @@ def run_main(monkeypatch, tmp_path):
         monkeypatch.setattr(seg, "SoccerEventsGroupGameMatcher", _FakeMatcher)
         monkeypatch.setattr(seg, "existing_aliases", fake_existing_aliases)
         monkeypatch.setattr(seg, "pending_reviews", fake_pending_reviews)
-        monkeypatch.setattr(seg, "team_names_by_id", lambda _c, _ids: {})
+        monkeypatch.setattr(seg, "teams_by_id", lambda _c, ids: {i: t for i, t in (teams or {}).items() if i in ids})
         monkeypatch.setattr(seg, "_soccer_season_year", lambda now=None: SEASON)
         monkeypatch.setattr(seg, "date", _FixedDate)
         monkeypatch.setattr(
@@ -541,8 +542,15 @@ def run_main(monkeypatch, tmp_path):
         code = seg.main()
         [report] = tmp_path.glob("*_teams.csv")
         outcomes = {r["seg_team_id"]: r for r in csv.DictReader(report.open(encoding="utf-8"))}
+        [games_csv] = tmp_path.glob("*_games.csv")
+        games = list(csv.DictReader(games_csv.open(encoding="utf-8")))
         return SimpleNamespace(
-            code=code, imports=imports, outcomes=outcomes, alias_calls=alias_calls, review_calls=review_calls
+            code=code,
+            imports=imports,
+            outcomes=outcomes,
+            games=games,
+            alias_calls=alias_calls,
+            review_calls=review_calls,
         )
 
     return run
@@ -616,6 +624,129 @@ class TestMain:
         assert (result.outcomes["596374"]["outcome"], result.outcomes["596374"]["reason"]) == (
             "error",
             "review item was not saved",
+        )
+
+    @pytest.mark.parametrize("flags", [(), ("--execute",)])
+    def test_a_team_linked_to_another_board_is_an_error_and_its_game_is_held_back(self, run_main, flags):
+        relinked = {"matched": True, "team_id": "new-596374", "method": "direct_id", "confidence": 1.0}
+        _FakeMatcher.results = {"596374": {**relinked, "created": False, "relinked": True}}
+        teams = {"new-596374": {"team_name": "Pegasus FC Girls 2013 Red", "age_group": "u13", "gender": "Female"}}
+        try:
+            result = run_main(*flags, teams=teams)
+        finally:
+            _FakeMatcher.results = {}
+
+        assert {k: result.outcomes["596374"][k] for k in ("outcome", "pitchrank_team_name", "reason")} == {
+            "outcome": "error",
+            "pitchrank_team_name": "Pegasus FC Girls 2013 Red",
+            "reason": "linked team is on the u13 board, division is u14",
+        }
+        assert [g for g in result.games if "596374" in (g["team_id"], g["opponent_id"])] == []
+        assert len(result.games) == 12
+
+
+class _TeamsTable:
+    """The read ``_validate_team_age_group`` makes; ``execute()`` raises on no row, as PostgREST ``.single()`` does."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, name):
+        assert name == "teams"
+        return self
+
+    def select(self, _columns):
+        return self
+
+    def eq(self, _field, team_id):
+        self.team_id = team_id
+        return self
+
+    def single(self):
+        return self
+
+    def execute(self):
+        if self.team_id not in self.rows:
+            raise RuntimeError("JSON object requested, multiple (or no) rows returned")
+        return SimpleNamespace(data=self.rows[self.team_id])
+
+
+class TestOffBoardLinks:
+    def test_a_linked_team_the_importer_would_refuse_is_reported(self):
+        rows = [seg.TeamRow(str(i), f"Team {i}", 1, "D", "u10", 2017, "Female", "IL") for i in range(9)]
+        outcomes = {
+            "0": seg.Outcome("already_linked", "T0"),
+            "1": seg.Outcome("linked_existing", "T1"),
+            "2": seg.Outcome("relinked", "T2"),
+            "3": seg.Outcome("created", "T3"),
+            "4": seg.Outcome("already_linked", "T4"),
+            "5": seg.Outcome("review", "T5"),
+            "6": seg.Outcome("already_linked", "T6"),
+            "7": seg.Outcome("relinked", "T7"),
+            "8": seg.Outcome("already_linked", "T8"),
+        }
+        teams = {
+            "T0": {"age_group": "u9", "gender": "Female"},
+            "T1": {"age_group": "U10", "gender": "Male"},
+            "T2": {"age_group": "u10", "gender": "Female"},
+            "T3": {"age_group": "u11", "gender": "Female"},
+            "T4": {"age_group": None, "gender": None},
+            "T5": {"age_group": "u9", "gender": "Female"},
+            "T7": {"age_group": None, "gender": "Male"},
+            "T8": {"age_group": "u11", "gender": None},
+        }
+
+        assert seg.off_board_links(rows, outcomes, teams) == {
+            "0": "linked team is on the u9 board, division is u10",
+            "1": "linked team is Male, division is Female",
+            "6": "linked team not found",
+            "7": "linked team is Male, division is Female",
+            "8": "linked team is on the u11 board, division is u10",
+        }
+
+    def test_it_refuses_exactly_the_teams_the_importer_refuses(self):
+        stored = {
+            "on board": {"age_group": "u14", "gender": "Female"},
+            "upper case": {"age_group": "U14", "gender": "Female"},
+            "trailing space": {"age_group": "u14 ", "gender": "Female"},
+            "empty age": {"age_group": "", "gender": "Female"},
+            "no age, wrong gender": {"age_group": None, "gender": "Male"},
+            "wrong age": {"age_group": "u13", "gender": "Female"},
+            "wrong age, no gender": {"age_group": "u13", "gender": None},
+            "wrong gender": {"age_group": "u14", "gender": "Male"},
+        }
+        cases = [*stored, "missing row"]
+        rows = [seg.TeamRow(case, case, 1, "D", "u14", 2013, "Female", "IL") for case in cases]
+        outcomes = {case: seg.Outcome("already_linked", case) for case in cases}
+        validator = GameHistoryMatcher.__new__(GameHistoryMatcher)
+        validator.db = _TeamsTable(stored)
+
+        guard_refuses = set(seg.off_board_links(rows, outcomes, stored))
+        importer_refuses = {case for case in cases if not validator._validate_team_age_group(case, "u14", "Female")}
+
+        assert guard_refuses == importer_refuses == {
+            "trailing space",
+            "no age, wrong gender",
+            "wrong age",
+            "wrong age, no gender",
+            "wrong gender",
+            "missing row",
+        }
+
+
+class TestTeamsById:
+    def test_every_batch_of_teams_is_kept_with_the_fields_the_board_check_reads(self):
+        fields = {"age_group": "u10", "gender": "Female"}
+        rows = [{"team_id_master": f"T{i}", "team_name": f"Team {i}", "club_name": "C", **fields} for i in range(150)]
+        executed = []
+
+        teams = seg.teams_by_id(_client("teams", rows, executed), [f"T{i}" for i in range(150)])
+
+        assert executed == [100, 50]
+        assert sorted(teams) == sorted(f"T{i}" for i in range(150))
+        assert (teams["T0"], teams["T149"]) == (
+            {"team_id_master": "T0", "team_name": "Team 0", **fields},
+            {"team_id_master": "T149", "team_name": "Team 149", **fields},
         )
 
 
@@ -730,12 +861,15 @@ class TestSharedLinks:
         }
 
 
-class _AliasQuery:
-    def __init__(self, rows):
-        self.rows = rows
-        self.filters = []
+class _Query:
+    """A PostgREST read: filters rows, returns only the selected columns, records each execute's ``in_`` batch size."""
 
-    def select(self, *_a):
+    def __init__(self, rows, executed):
+        self.rows, self.executed = rows, executed
+        self.filters, self.columns, self.batch = [], [], 0
+
+    def select(self, columns):
+        self.columns = [c.strip() for c in columns.split(",")]
         return self
 
     def eq(self, field, value):
@@ -743,11 +877,24 @@ class _AliasQuery:
         return self
 
     def in_(self, field, values):
+        self.batch = len(values)
         self.filters.append(lambda r, f=field, v=tuple(values): r[f] in v)
         return self
 
     def execute(self):
-        return SimpleNamespace(data=[r for r in self.rows if all(f(r) for f in self.filters)])
+        self.executed.append(self.batch)
+        found = [r for r in self.rows if all(f(r) for f in self.filters)]
+        return SimpleNamespace(data=[{c: r[c] for c in self.columns} for r in found])
+
+
+def _client(table, rows, executed=None):
+    """A client holding ``rows`` in one table; opening any other table fails the test."""
+
+    def open_table(name):
+        assert name == table, f"queried {name!r}, not {table!r}"
+        return _Query(rows, [] if executed is None else executed)
+
+    return SimpleNamespace(table=open_table)
 
 
 class TestExistingAliases:
@@ -757,9 +904,8 @@ class TestExistingAliases:
             {"provider_id": "gotsport", "provider_team_id": "2", "team_id_master": "b", "review_status": "approved"},
             {"provider_id": "seg", "provider_team_id": "3", "team_id_master": "c", "review_status": "pending"},
         ]
-        client = SimpleNamespace(table=lambda _name: _AliasQuery(rows))
 
-        assert seg.existing_aliases(client, "seg", ["1", "2", "3"]) == {"1": "a"}
+        assert seg.existing_aliases(_client("team_alias_map", rows), "seg", ["1", "2", "3"]) == {"1": "a"}
 
 
 class TestPendingReviews:
@@ -770,9 +916,7 @@ class TestPendingReviews:
             {"provider_id": "soccereventsgroup", "provider_team_id": "3", "status": "rejected"},
             {"provider_id": "soccereventsgroup", "provider_team_id": "4", "status": "pending"},
         ]
-        client = SimpleNamespace(table=lambda _name: _AliasQuery(rows))
-
-        assert seg.pending_reviews(client, ["1", "2", "3"]) == {"1"}
+        assert seg.pending_reviews(_client("team_match_review_queue", rows), ["1", "2", "3"]) == {"1"}
 
 
 class _Response:

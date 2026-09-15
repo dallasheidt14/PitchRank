@@ -472,18 +472,43 @@ def shared_links(outcomes: Dict[str, Outcome]) -> Dict[str, str]:
     return conflicts
 
 
-def team_names_by_id(supabase, team_ids: List[str]) -> Dict[str, str]:
-    names: Dict[str, str] = {}
+def off_board_links(roster: List[TeamRow], outcomes: Dict[str, Outcome], teams: Dict[str, Dict]) -> Dict[str, str]:
+    """Linked teams the importer will refuse: no team row, or a stored age group or gender not the division's.
+
+    The importer re-checks every link against its game's age group and gender with
+    ``GameHistoryMatcher._validate_team_age_group`` and leaves a refused side blank,
+    so the game would insert half-matched. A linked team's stored board can differ
+    from this division's; a team this run creates takes the division's.
+    """
+    refused: Dict[str, str] = {}
+    for row in roster:
+        outcome = outcomes[row.seg_team_id]
+        if outcome.status not in ("already_linked", "linked_existing", "relinked"):
+            continue
+        team = teams.get(outcome.team_id_master)
+        if team is None:
+            refused[row.seg_team_id] = "linked team not found"
+            continue
+        team_age = (team.get("age_group") or "").lower()
+        if team_age and team_age != row.age_group:
+            refused[row.seg_team_id] = f"linked team is on the {team_age} board, division is {row.age_group}"
+        elif team.get("gender") and team["gender"] != row.gender:
+            refused[row.seg_team_id] = f"linked team is {team['gender']}, division is {row.gender}"
+    return refused
+
+
+def teams_by_id(supabase, team_ids: List[str]) -> Dict[str, Dict]:
+    teams: Dict[str, Dict] = {}
     for i in range(0, len(team_ids), 100):
         result = (
             supabase.table("teams")
-            .select("team_id_master, team_name")
+            .select("team_id_master, team_name, age_group, gender")
             .in_("team_id_master", team_ids[i : i + 100])
             .execute()
         )
         for row in result.data or []:
-            names[row["team_id_master"]] = row["team_name"]
-    return names
+            teams[row["team_id_master"]] = row
+    return teams
 
 
 # ── Brackets ───────────────────────────────────────────────────────────────────
@@ -755,6 +780,9 @@ def main() -> int:
     for seg_team_id, reason in conflicts.items():
         proposed = preview[seg_team_id]
         outcomes[seg_team_id] = Outcome("conflict", proposed.team_id_master, proposed.confidence, reason)
+    teams = teams_by_id(supabase, sorted({o.team_id_master for o in outcomes.values() if o.team_id_master}))
+    for seg_team_id, reason in off_board_links(in_scope, outcomes, teams).items():
+        outcomes[seg_team_id] = Outcome("error", outcomes[seg_team_id].team_id_master, reason=reason)
 
     def pause() -> None:
         time.sleep(random.uniform(args.delay_min, args.delay_max))
@@ -767,7 +795,7 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     games_csv = args.output_dir / f"{args.program_id}_{stamp}_games.csv"
     report_csv = args.output_dir / f"{args.program_id}_{stamp}_teams.csv"
-    names = team_names_by_id(supabase, sorted({o.team_id_master for o in outcomes.values() if o.team_id_master}))
+    names = {team_id: team["team_name"] for team_id, team in teams.items()}
     write_csv(games_csv, REQUIRED_COLUMNS, records)
     write_csv(report_csv, REPORT_COLUMNS, report_rows(in_scope, skipped, outcomes, names))
 

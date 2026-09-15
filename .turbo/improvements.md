@@ -1150,3 +1150,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `REQUIRED_COLUMNS` in `scripts/scrape_affinity_or_tournament.py`, `scrape_affinity_wa_tournament.py`, `scrape_playmetrics_league.py`, `scrape_tgs_event.py`, `import_soccereventsgroup_event.py`; `_compute_result` in three of them; `bulk_existing_aliases` in `scripts/discover_sincsports_teams.py` and `discover_sincsports_via_tournament.py`, `existing_aliases` in `import_soccereventsgroup_event.py`
 - **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
 - **Noted**: 2026-09-14
+
+### Find out why recent games are stored with one side unmatched
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/enhanced_pipeline.py` partial-match branch (`match_status == "partial"` appended to `game_records`); `src/models/game_matcher.py` `GameHistoryMatcher._validate_team_age_group`
+- **Why**: Measured read-only 2026-09-15: games created since 2026-08-15, not excluded, with exactly one master id NULL — gotsport 2,572, sincsports 49. The cause is not established. GotSport opponents missing from the database are one known source. A second showed up on that day's Soccer Events Group import: an approved alias whose team's stored `age_group` no longer matched the game's, which the age check refuses, leaving that side blank. Count how many NULL sides have an approved alias for their provider id to size the second cause before changing any importer.
+- **Noted**: 2026-09-15

@@ -1,6 +1,6 @@
 ---
 name: scraper-patterns
-description: "Web scraping patterns for PitchRank - rate limits, error handling, existing scraper conventions, per-provider endpoint quirks, and team-name parsing for provider matchers. Use when writing or debugging a scraper, adding a provider, or building a provider matcher's fuzzy gates."
+description: "Web scraping patterns for PitchRank - rate limits, error handling, existing scraper conventions, per-provider endpoint quirks, and team-name parsing for provider matchers. Use when writing or debugging a scraper, adding a provider, building a provider matcher's fuzzy gates, or resolving provider review-queue items by hand."
 ---
 
 # Scraper Patterns Skill for PitchRank
@@ -416,7 +416,8 @@ User-Agent, no proxy. `scripts/import_soccereventsgroup_event.py` is the driver.
   the band's younger year. Accept the division only when the cutoff is Aug 1 and the leading
   age of `sessionName` ("U10 Bronze"; the tier follows the age) names one cohort that agrees
   with that birth year in the event's own season; skip it otherwise. File teams on the board
-  that birth year sits on this season, never from the label or the team name.
+  that birth year sits on this season, never from the label or the team name. A label with no
+  U-age ("HS"), one spanning two boards ("U13/U14") or a board below U10 is skipped.
 - `/site/teams/details.aspx?TeamID=<id>` carries the division's bracket in the element whose
   id ends `BracketPanel`: one `table.game` per game, `td.team` (classes `winner`/`loser`),
   `td.score`, `td.title` ("Semifinal") and `td.time` ("9/6 3:00P, Field 08"). One page per
@@ -427,6 +428,7 @@ User-Agent, no proxy. `scripts/import_soccereventsgroup_event.py` is the driver.
   (NBSP included) and compare case-insensitively against that division's roster only; report
   a name the division does not hold rather than importing the game.
 - A drawn game (0-0, 1-1) marks neither side; take the result from the scores, not the classes.
+  Import a 0-0 as a draw rather than skipping it.
 
 ## Provider Matcher Name Parsing
 
@@ -453,11 +455,47 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 - Cap review-queue confidence with `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP` (0.89).
   `team_match_review_queue` requires 0.75 <= confidence < 0.90, the clamp covers only the
   upper bound, and the base `_create_review_queue_entry` logs a refused insert and drops the row.
+- When two teams registered in one event link to the same PitchRank team, they are two squads:
+  hold each new fuzzy link to it as a conflict, and keep a link that was already approved or
+  whose team row carries the provider team id (`import_soccereventsgroup_event.shared_links`).
 
 To test matching against production without writes, construct the matcher with
 `dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy
 matching. Teams an earlier real run created then appear as existing candidates, so the
 replay's link counts overstate what a first run on a fresh event does.
+
+### Resolving provider review items by hand
+
+- Link a team with an approved `team_alias_map` row: `match_method` "manual", or "direct_id"
+  when the target team row already carries that provider team id (`teams.provider_team_id`).
+  First check that no other team in the same event already links to the target.
+- Make a new team through the provider matcher's create helper plus a direct_id alias.
+- Read the alias back, then set the queue row's `status` ("approved" for a link, "rejected"
+  for a new team), `reviewed_by` and `reviewed_at`. The base `_create_alias` logs a failed
+  write and returns normally.
+- Write the alias directly rather than through the `approve_team_match` RPC. The RPC inserts
+  `match_method = 'manual_review'`, which the `valid_match_type` CHECK from migration
+  `20240201000004` does not allow, and where the insert does land its `ON CONFLICT DO NOTHING`
+  keeps any existing alias.
+
+### Repairing a half-matched game
+
+In a Soccer Events Group game import, the base `GameHistoryMatcher._validate_team_age_group`
+refuses a link whose team's stored age group or gender no longer matches the game, and the
+game inserts with that side NULL. Other providers differ: the TGS, SincSports and PlayMetrics
+matchers override `_match_by_provider_id` without the check.
+
+- Hold such games back before the import (`import_soccereventsgroup_event.off_board_links`).
+- To repair a stored one, re-point the alias to the team on the right board, then re-run the
+  import with a `--days-back` that covers the game's date. The composite duplicate check
+  (provider, both provider ids, date, both scores) finds the stored row, and
+  `EnhancedETLPipeline._backfill_duplicate_team_links` fills only its NULL master ids. It skips
+  Modular11 and dry runs.
+- Read the game back afterwards. A game outside the window is not re-imported at all, a
+  changed score inserts a second row beside the half-matched one, and the run's summary does
+  not report the fill.
+- Leave the game un-excluded: exclusion does not stop the fill, but it stays on the repaired
+  row and hides it. Let the backfill write the team id rather than writing it by hand.
 
 ## Request Pattern
 
@@ -781,3 +819,15 @@ age it lists collapses to the same cohort (`GU18/19`, since U18 folds into U19).
 sniffing misses age-first labels (`U11 Girls` has no leading `G`), and an
 unresolved gender does not stay empty downstream — `normalize_gender("")`
 returns `"Male"`.
+
+**Check a sample before calling a division's ages unreliable.** Read the birth
+years in its team names first. When sampling `teams`, skip rows this provider
+created or matched, since their age group came from the division, and compare
+against the board the division maps to this season rather than its printed label.
+Raise the doubt with the operator when that sample disagrees.
+
+**Once a division's cohort is resolved, a team's name can only veto it.** A U-age
+in the name that differs from the division's, read against the event's own
+season, sends a not-yet-linked team to the review queue instead of linking or
+creating it. The name never sets the team's age
+(`import_soccereventsgroup_event.name_age_mismatch`).

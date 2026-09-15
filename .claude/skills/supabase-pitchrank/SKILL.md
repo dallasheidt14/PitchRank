@@ -195,6 +195,9 @@ models but does not project columns either, so do not treat it as covering this.
 # PostgREST caps a response at max-rows: 200,000 on the hosted project (measured
 # 2026-09-09), but 1,000 under a local `supabase start` (supabase/config.toml).
 # Paginate regardless -- for memory, and for scans that could exceed either cap.
+# Order by a unique column: without .order() PostgREST promises no row order, so
+# successive pages can skip or repeat rows (a matcher paging candidates that way can
+# miss an existing team and create a duplicate).
 
 def fetch_all_teams(client):
     all_teams = []
@@ -204,6 +207,7 @@ def fetch_all_teams(client):
     while True:
         result = client.table('teams') \
             .select('*') \
+            .order('team_id_master') \
             .range(offset, offset + batch_size - 1) \
             .execute()
 
@@ -503,9 +507,9 @@ for batch in chunks(ids, 100):
 # BAD - unbounded; truncates silently at max-rows (200,000 hosted, 1,000 local)
 client.table('games').select('*').execute()
 
-# GOOD - paginate
-.range(0, 999).execute()
-.range(1000, 1999).execute()
+# GOOD - paginate, ordered by a unique column
+.order('id').range(0, 999).execute()
+.order('id').range(1000, 1999).execute()
 ```
 
 ## Safe Patterns
@@ -560,7 +564,7 @@ def merge_team(client, deprecated_id: str, canonical_id: str, *, dry_run: bool =
 .select('col', count='exact')  # Count
 .order('col', desc=True)       # Sort
 .limit(100)            # Limit results
-.range(0, 99)          # Pagination
+.range(0, 99)          # Pagination (with .order on a unique column)
 ```
 
 ## Write Operations (CAUTION)

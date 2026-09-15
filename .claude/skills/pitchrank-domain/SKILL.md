@@ -12,6 +12,9 @@ You are working on PitchRank, a youth soccer ranking platform. This skill teache
 ### U-Age Format
 - U10, U11, U12, U13, U14, U15, U16, U17, U18, U19
 - "U" = "Under" (U14 = Under 14 years old)
+- Boards run U10–U19, with U18 filed into U19; the ranking run drops games outside that
+  range. U8 and U9 teams can still be stored, and whether an importer skips them, or a
+  division spanning two ages, differs by importer.
 
 ### Birth Year to Age
 
