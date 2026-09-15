@@ -575,18 +575,25 @@ points at the fused row:
    `_create_new_sincsports_team`: new uuid, club prefix stripped, `resolve_distinction`), with the
    fused row's `club_name`, `age_group`, `gender` and `state_code` and the moving id.
 3. Point the moving alias at the new row as `direct_id`.
-4. Relink each game side whose `home_provider_id`/`away_provider_id` is the moving id:
+4. Relink each scored game side whose `home_provider_id`/`away_provider_id` is the moving id:
    `unlink_game_team(p_game_id, <fused row>, p_is_home_team)`, which refuses a side holding any other
    team, then `link_game_team(p_game_id, <new row>, p_is_home_team)`. On an immutable game these are
    the master-id changes the trigger permits; both are service-role only.
 
-`game_uid` keeps the fused row's master id. That is harmless for a scored game, but an unscored
-fixture on a moved side is found by that uid when its score arrives, so it gets a second, scored
-row instead. Count unscored fixtures on the moving id before splitting and record them.
+The two calls are separate transactions, so a side can be left with no team between them. An
+import that fills it in the meantime reads the alias, which already points at the new row, and
+`link_game_team` then raises "already linked" naming the new row: count that as done. Retry any
+other failed link from the log before moving on.
+
+**Set `is_excluded` on unscored fixtures on the moving side instead of relinking them.** Their
+`game_uid` would keep the fused row's master id, and the score backfill looks rows up by that uid,
+so the scored import would add a second row beside the stranded one. Excluded, the scored import
+simply adds the correct row.
 
 Dry run first. Log every write (new row ids, each alias row with its prior `match_method`, each
-relinked game side) so the split can be undone. Verify afterwards: no self-play on either row,
-same-date pairs only at tournaments, aliases pointing as intended.
+relinked or excluded game side) so the split can be undone. Verify afterwards: no moved game with
+an empty side, no self-play on either row, same-date pairs only at tournaments, aliases pointing
+as intended.
 
 ## Re-enabling the weekly job
 
