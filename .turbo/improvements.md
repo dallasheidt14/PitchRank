@@ -367,17 +367,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The rule is currently pasted byte-identically into `find_stale_teams`, `find_discovery_teams` and `find_topup_teams`, held together by a drift test. Sharing it as a scalar SQL function genuinely will not work — `inline_function()` refuses a body with `hasSubLinks` and the rule carries an `EXISTS`. A view does: `is_simple_subquery()` does not reject sublinks, so the qual is pulled up into each caller's `WHERE` and the plan is unchanged. Needs an explicit `REVOKE SELECT ... FROM anon, authenticated`, since Supabase's default privileges would otherwise expose it over PostgREST. Would retire three copies, most of the drift test, and the requirement that the block stay schema-qualified to suit whichever caller runs under `search_path = ''`.
 - **Noted**: 2026-08-27
 
-### find_discovery_teams recomputes what teams.last_fixture_at now stores
-
-- **ID**: IMP-131
-- **Status**: open
-- **Type**: direct
-- **Category**: performance
-- **Where**: `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql` (the `team_flags` CTE)
-- **Why**: `has_future` is 1 exactly when `MAX(game_date) > CURRENT_DATE` and `has_recent` exactly when `MAX(game_date) >= CURRENT_DATE - 90`; both are `t.last_fixture_at` comparisons, which the same migration set materialises and refreshes. The column is also more correct, since it resolves `team_merge_map` while the CTE joins raw master ids. The CTE scans ~3M game rows every Sunday to recompute two booleans. Trade-off to accept explicitly: `last_fixture_at` is up to a refresh interval stale, so a fixture imported mid-week would not suppress that team's discovery enqueue until the next refresh — a wasted scrape, not a wrong result.
-- **Noted**: 2026-08-27
-- **Update (2026-09-15)**: Now failing, not just slow. `enqueue-discovery.yml` died on 2026-09-13 with a 57014 statement timeout on the `find_discovery_teams` RPC, 8.7s after the script started; the two prior runs got their RPC response 4s (09-06) and 7s (08-30) after start, against PostgREST's 8s budget, so the next Sunday run is likely to fail too. A 2026-09-15 EXPLAIN shows the plan led by two parallel seq scans of `games` feeding `team_flags`.
-
 ### process_missing_games advances last_scraped_at after a window-limited scrape
 
 - **ID**: IMP-132
@@ -1150,3 +1139,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `REQUIRED_COLUMNS` in `scripts/scrape_affinity_or_tournament.py`, `scrape_affinity_wa_tournament.py`, `scrape_playmetrics_league.py`, `scrape_tgs_event.py`, `import_soccereventsgroup_event.py`; `_compute_result` in three of them; `bulk_existing_aliases` in `scripts/discover_sincsports_teams.py` and `discover_sincsports_via_tournament.py`, `existing_aliases` in `import_soccereventsgroup_event.py`
 - **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
 - **Noted**: 2026-09-14
+
+### The backlog sweep silently drops a repeated field label
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `parse_entry` in `scripts/sweep_improvements.py`
+- **Why**: Fields are stored with `entry.fields.setdefault(label, value)`, so when an entry carries two lines with the same label (two `Update (YYYY-MM-DD)` notes written the same day) only the first is kept, the second never reaches `extras`, and the next sweep that rewrites the file deletes it. Keep repeated labels, or fail loudly; `tests/unit/test_improvements_backlog.py` could also reject a duplicate label.
+- **Noted**: 2026-09-15
+
+### pr_wait reports "Codex did not review" when Codex's review was clean
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `codex_findings` in `scripts/pr_wait.py`
+- **Why**: It reads only the PR's review objects and inline comments. A clean Codex review arrives as a "Codex Review Summary ... Completed" issue comment plus a +1 reaction, with no review object, so the script prints "Codex did not review this PR" and waits out `CODEX_WINDOW_MINUTES` anyway. Seen on #1151 (2026-09-15): summary comment completed two minutes after open, +1 reaction, script reported no review. Findings still arrive as review objects, so this misreports and delays rather than merging past findings.
+- **Noted**: 2026-09-15
