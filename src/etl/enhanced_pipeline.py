@@ -23,6 +23,7 @@ from src.etl.bulk_ops import (  # noqa: E402
 )
 from src.models.game_matcher import GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
+from src.utils.provider_ids import clean_provider_id, is_blank_provider_id  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
 
 # Import club normalizer for pre-match normalization
@@ -194,6 +195,8 @@ class EnhancedETLPipeline:
             logger.info(f"Fetched {len(all_alias_data)} approved aliases from database")
 
             for alias in all_alias_data:
+                if is_blank_provider_id(alias["provider_team_id"]):
+                    continue
                 raw_team_id = str(alias["provider_team_id"])
                 cache_entry = {
                     "team_id_master": alias["team_id_master"],
@@ -1311,8 +1314,8 @@ class EnhancedETLPipeline:
         Target format:
         - home_team_id, away_team_id, home_score, away_score
         """
-        team_id = game.get("team_id")
-        opponent_id = game.get("opponent_id")
+        team_id = clean_provider_id(game.get("team_id"))
+        opponent_id = clean_provider_id(game.get("opponent_id"))
         home_away = game.get("home_away", "H").upper()
         goals_for = game.get("goals_for")
         goals_against = game.get("goals_against")
@@ -1999,14 +2002,20 @@ class EnhancedETLPipeline:
                 except (ValueError, TypeError):
                     away_score_int = None
 
+            # Fall back to team_id/opponent_id only when the matcher left the key unset. A
+            # present blank means that side's own id was blank, and an `or` would refill it
+            # from the other team's id and turn the game into a self-game.
+            home_pid = game["home_provider_id"] if game.get("home_provider_id") is not None else game.get("team_id", "")
+            away_pid = (
+                game["away_provider_id"] if game.get("away_provider_id") is not None else game.get("opponent_id", "")
+            )
+
             record = {
                 "game_uid": game.get("game_uid"),
                 "home_team_master_id": game.get("home_team_master_id"),
                 "away_team_master_id": game.get("away_team_master_id"),
-                # Use home_provider_id/away_provider_id from matcher, with fallback to team_id/opponent_id
-                # The matcher sets these based on home_away flag, so fallback should work correctly
-                "home_provider_id": game.get("home_provider_id") or game.get("team_id", ""),
-                "away_provider_id": game.get("away_provider_id") or game.get("opponent_id", ""),
+                "home_provider_id": home_pid,
+                "away_provider_id": away_pid,
                 "home_score": home_score_int,
                 "away_score": away_score_int,
                 "result": game.get("result"),
@@ -2029,7 +2038,7 @@ class EnhancedETLPipeline:
             }
 
             # Validate required fields before adding to insert batch
-            if not record["home_provider_id"] or not record["away_provider_id"]:
+            if is_blank_provider_id(record["home_provider_id"]) or is_blank_provider_id(record["away_provider_id"]):
                 skipped_empty_provider_ids += 1
                 if skipped_empty_provider_ids <= 5:  # Log first 5 examples
                     logger.warning(

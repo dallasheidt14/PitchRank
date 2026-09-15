@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
 from src.utils.placeholder_clubs import is_placeholder_club
+from src.utils.provider_ids import clean_provider_id, is_blank_provider_id
 from supabase import Client
 
 # Import rapidfuzz for better similarity scoring (handles word reordering)
@@ -615,8 +616,12 @@ class GameHistoryMatcher:
         if "home_team_id" in game_data and "away_team_id" in game_data:
             # Already transformed - use directly
             # Convert to strings (may be floats from CSV)
-            home_provider_id_raw = game_data.get("home_provider_id") or game_data.get("home_team_id", "")
-            away_provider_id_raw = game_data.get("away_provider_id") or game_data.get("away_team_id", "")
+            home_provider_id_raw = clean_provider_id(
+                game_data.get("home_provider_id") or game_data.get("home_team_id", "")
+            )
+            away_provider_id_raw = clean_provider_id(
+                game_data.get("away_provider_id") or game_data.get("away_team_id", "")
+            )
             # Convert floats to int strings (e.g., 544491.0 -> "544491")
             try:
                 home_provider_id = (
@@ -686,8 +691,8 @@ class GameHistoryMatcher:
             home_away = game_data.get("home_away", "H").upper()
 
             # Extract team_id and opponent_id, converting floats to strings if needed
-            team_id_raw = game_data.get("team_id", "")
-            opponent_id_raw = game_data.get("opponent_id", "")
+            team_id_raw = clean_provider_id(game_data.get("team_id", ""))
+            opponent_id_raw = clean_provider_id(game_data.get("opponent_id", ""))
 
             # Convert floats to int strings (CSV may have 544491.0 -> "544491")
             try:
@@ -818,6 +823,8 @@ class GameHistoryMatcher:
             - method: str ('direct_id', 'provider_id', 'alias', 'fuzzy', None)
             - confidence: float (0.0-1.0)
         """
+        provider_team_id = clean_provider_id(provider_team_id) or None
+
         # Strategy 1: Direct provider ID match (NEW - highest priority)
         if provider_team_id:
             alias_match = self._match_by_provider_id(provider_id, provider_team_id, age_group, gender)
@@ -983,7 +990,7 @@ class GameHistoryMatcher:
         is used for multiple age groups, we MUST validate age_group to prevent
         U16 games from matching to U13 teams.
         """
-        if not provider_team_id:
+        if is_blank_provider_id(provider_team_id):
             return None
 
         team_id_str = str(provider_team_id).strip()
@@ -1578,6 +1585,9 @@ class GameHistoryMatcher:
         review_status: str = "approved",
     ):
         """Create or update team alias map entry"""
+        if is_blank_provider_id(provider_team_id):
+            logger.debug(f"Not creating alias for blank provider team id {provider_team_id!r} ({team_name})")
+            return
         try:
             # Confidence ceiling: fuzzy matches should never be stored at 1.0
             # Only direct_id / import methods get 1.0 confidence.
@@ -1641,8 +1651,12 @@ class GameHistoryMatcher:
     ):
         """Insert match into team_match_review_queue for manual review.
 
-        All unmatched teams go here - with or without suggested matches.
+        Unmatched teams with a real provider id go here - with or without suggested matches.
         """
+        # A blank id names no team to review: "" violates NOT NULL, and "None" would queue a phantom.
+        if is_blank_provider_id(provider_team_id):
+            logger.debug(f"Not queueing review for blank provider team id {provider_team_id!r} ({provider_team_name})")
+            return
         try:
             # Get provider code (team_match_review_queue uses VARCHAR provider_id)
             provider_result = self.db.table("providers").select("code").eq("id", provider_id).single().execute()

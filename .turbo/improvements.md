@@ -1043,6 +1043,81 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
 - **Noted**: 2026-09-14
 
+### Watchlist activity counts games that have been excluded
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
+- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
+- **Noted**: 2026-09-14
+
+### A GotSport import dry run still writes aliases and review-queue rows
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline._ensure_initialized` in `src/etl/enhanced_pipeline.py` (the fallback `GameHistoryMatcher(...)` construction, `:304`); `GameHistoryMatcher.__init__` in `src/models/game_matcher.py`
+- **Why**: Read on `origin/main` 2026-09-14. The provider-specific branches of that `if/elif` pass `dry_run=self.dry_run`. The final `else`, which GotSport and every other standard-matcher provider reach, does not, and `GameHistoryMatcher.__init__` defaults `dry_run=False`. `_create_alias` and `_create_review_queue_entry` therefore write during `import_games_enhanced.py --dry-run`, breaking CLAUDE.md's rule that the pipeline pass `dry_run` to every matcher it builds. `tests/unit/test_provider_matcher_dry_run.py` covers only the autocreating matchers.
+- **Noted**: 2026-09-14
+
+### TGS teams and aliases keyed on placeholder provider ids
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `team_alias_map` and `teams` rows for provider `tgs`; `TGSGameMatcher._match_by_provider_id` in `src/models/tgs_matcher.py`
+- **Why**: In live data on 2026-09-14, two TGS teams are keyed on placeholder ids, each with an approved `direct_id` alias. "Winner Game 4" is a bracket placeholder with id `"None"`, 2 games and a `rankings_full` row. The other has an empty name and id `""`, with 0 games. The GotSport twin of this shape pulled 4,846 unrelated games onto one team, and its cleanup (`scripts/exclude_none_opponent_games.py`) is GotSport-only. Import lookups cannot reach these rows: `match_game_history` and `GameHistoryMatcher._match_team` blank a placeholder id first, and the alias preload skips one. Still open: rejecting the two aliases, the ranked `"None"` row, and how the rows were created. `TGSGameMatcher._match_team` still passes whatever id it receives to `_create_new_tgs_team`.
+- **Noted**: 2026-09-14
+
+### Future-dated games already carry scores
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `games` rows with `game_date` after the import date; GotSport path `GotSportScraper._parse_api_match` in `src/scrapers/gotsport.py`; loader `fetch_games_for_rankings` in `src/rankings/data_adapter.py`
+- **Why**: On 2026-09-14, 211 games dated after that day already had both scores set. 80 are in the GotSport `"None"` sink that `scripts/exclude_none_opponent_games.py` excludes, and many of those read 1-0 or 0-1 weeks ahead of play. The other 131 are not part of it. `fetch_games_for_rankings` skips future dates, so the other 131 count as real results once their date passes. Unknown whether GotSport publishes pre-set or forfeit results or the import assigns scores to scheduled matches.
+- **Noted**: 2026-09-14
+
+### Give the Modular11 scrape workflows a fixed start date instead of days-back
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `Modular11ScheduleSpider.__init__` (`scrapers/modular11_scraper/modular11_scraper/spiders/modular11_schedule.py`) and `Modular11EventsSpider.__init__` (`modular11_events.py`), both deriving `start_date = now - days_back`; the `days_back` input of `modular11-weekly-scrape.yml` and `modular11-events-weekly-scrape.yml`
+- **Why**: The operator decision (2026-09-14) is to import only Modular11 games dated 2026-09-01 or later. Today that must be re-expressed as a days count on every run, and the default of 365 re-scrapes last season. Since the 2026-09-14 alias roll, a pre-rollover game labelled U16 resolves to last season's U15 squad and passes the matcher's age check, so it is misfiled silently rather than rejected. Modular11 code is operator-gated; this entry needs the owner to open it.
+- **Noted**: 2026-09-14
+
+### Modular11 team creation reuses a team by stored provider ID without checking its age
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `Modular11GameMatcher._create_new_modular11_team` in `src/models/modular11_matcher.py` (the `teams` select on `provider_id` + aliased `provider_team_id` that returns `existing.data["team_id_master"]`, and the same lookup in its duplicate-key fallback)
+- **Why**: `_match_by_provider_id` rejects an alias whose team is in another age group (`_validate_team_age_group`), but team creation then looks up `teams.provider_team_id = "{club}_U{age}_{div}"` and returns whatever it finds with no age check. Read 2026-09-14: a stale ID therefore attaches a new squad's games to an older squad, which is why every rollover must roll `teams.provider_team_id` as well as the aliases. Operator-gated like all Modular11 code.
+- **Noted**: 2026-09-14
+
+### Commit a reusable rollover script for Modular11 team names and provider IDs
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: new script under `scripts/`; reads `teams_age_rollover_backup_<year>` and writes `teams.team_name`, `teams.provider_team_id`, `team_alias_map.provider_team_id`
+- **Why**: The Aug 1 relabel migration moves only `teams.age_group`, so Modular11 U-ages in names and `{club}_U{age}_{div}` IDs fall a year behind every season. The 2026-09-14 fix was a one-off scratch script, not kept; rollback data is in gitignored `data/backups/modular11_*_2026-09-14.*`. Rules that held:
+  - Roll IDs for every rolled team whose ID age equals its prior label, including deprecated rows (they still hold the unique index) and Modular11 aliases on GotSport/TGS teams. Rolling only renamed teams held back 249.
+  - Rename only names whose single U-age equals the prior label and that carry no birth year or season.
+  - Park the u19 board at U18, write the oldest board first, guard each write on its old value, and dry run by default.
+- **Noted**: 2026-09-14
+
+### SincSports teams carry their team-ID state prefix as an unmarked state, and Tier B overrides it from a shared club name
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `SincSportsGameMatcher._create_new_sincsports_team` (`state_code` param) in `src/models/sincsports_matcher.py`; `club_derived_state` and `outranked` in `scripts/assign_team_states.py`
+- **Why**: Measured 2026-09-14: 19,596 of the 19,616 SincSports teams created 09-13/14 have `state_code` equal to the first two letters of their SincSports ID (`VAM11811` = VA), with no `state` name and no `state_source`, so the sweep treats it as a guess. That day's free sweep proposed about 30 Tier B corrections on those teams. By hand, about half were right (Gwinnett Soccer Academy NC→GA) and about half rested on a club name belonging to a different club (a Gunston SC team, which is in VA, filed under KEYSTONE FC PA; Winchester, Woodbury, Pasadena, Hub City). Settle whether the prefix is the registering state or the event's host state, then either stamp it as a provider source or stop writing it.
+- **Noted**: 2026-09-14
+
+### GotSport's unset AL default passes the guard for teams with no club-mates
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `unset_default_disputed` and its callers in `decide` and the confirm builder, `scripts/assign_team_states.py`
+- **Why**: The guard drops an `AL` answer only when the team's name, club or a place word in its name disagrees. A team in `--probe-unclubbed` has no club-mates and often no place word, so AL goes through. 2026-09-14 rehearsal (ledger answers, no calls): "MAFC 2017 Royal" TX→AL auto-apply (all 4 opponents TX), and an "Arlington Soccer Association" team confirmed as AL (all 3 opponents VA). Both were withheld by hand. Needs a rule for AL with no local reading that doesn't also block real Alabama teams.
+- **Noted**: 2026-09-14
+
 ### Base matcher review-queue and alias writes fail without the caller knowing
 
 - **Type**: plan

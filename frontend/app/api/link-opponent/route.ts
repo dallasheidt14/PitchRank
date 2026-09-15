@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
+import { isBlankProviderId } from '@/lib/validation';
 
 /**
  * Link unknown opponent to a team
@@ -25,6 +26,16 @@ export async function POST(request: NextRequest) {
     if (!gameId || !opponentProviderId || !teamIdMaster) {
       return NextResponse.json(
         { error: 'Missing required fields: gameId, opponentProviderId, and teamIdMaster' },
+        { status: 400 }
+      );
+    }
+
+    if (isBlankProviderId(opponentProviderId)) {
+      return NextResponse.json(
+        {
+          error: 'Opponent has no provider ID',
+          details: 'The provider did not identify this opponent, so it cannot be linked.',
+        },
         { status: 400 }
       );
     }

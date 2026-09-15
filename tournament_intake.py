@@ -601,7 +601,11 @@ def _render_rekey_banner() -> None:
         st.warning(f"{len(result.failed)} event(s) need manual season_year fix: {items}")
     if result.unmigrated:
         items = ", ".join(result.unmigrated)
-        st.warning(f"{len(result.unmigrated)} event(s) pending metadata (no event_metadata.json yet): {items}")
+        logger.info(
+            "%s event(s) pending metadata (no event_metadata.json yet): %s",
+            len(result.unmigrated),
+            items,
+        )
 
 
 def _render_intake_section(supabase_client: Any) -> None:

@@ -48,6 +48,7 @@ async function main() {
         draw_probability: prediction.drawProbability ?? 0,
         expected_score: prediction.expectedScore,
         expected_margin: prediction.expectedMargin,
+        expected_absolute_goal_difference: prediction.expectedAbsoluteGoalDifference,
         blowout_4plus_probability: prediction.blowout4PlusProbability,
       });
       predictions.push({
@@ -67,6 +68,7 @@ async function main() {
           teamB: prediction.expectedScore.teamA,
         },
         expected_margin: -prediction.expectedMargin,
+        expected_absolute_goal_difference: prediction.expectedAbsoluteGoalDifference,
         blowout_4plus_probability: prediction.blowout4PlusProbability,
       });
     }

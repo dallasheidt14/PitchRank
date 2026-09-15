@@ -281,18 +281,30 @@ Per-team walk roughly 5x's the HTTP request count vs per-group walk alone (~96 t
 
 ### Silent type traps at the parser boundary
 
-Four adjacent seams disagree about how a team id is typed, and every one fails without raising:
+Five adjacent seams disagree about how a team id is typed, and every one fails without raising:
 
-- `_parse_api_match` (`gotsport.py:660`) takes `team_id: int` and matches by strict equality
-  against the payload's integer at `:671`. A string id matches nothing, so the team yields
+- `_parse_api_match` (`gotsport.py:664`) takes `team_id: int` and matches by strict equality
+  against the payload's integer at `:675`. A string id matches nothing, so the team yields
   **zero games and no error**. Its `since_date` is a `date` with no default; a raw timestamp
   raises a `TypeError` the method catches, returning `None`.
-- `_game_data_to_dict` (`:841`) takes `team_id: str`, and `src/scrapers/base.py:52` emits
+- `_game_data_to_dict` (`:845`) takes `team_id: str`, and `src/scrapers/base.py:52` emits
   `"team_id": str(team_id)` — game rows carry the **provider** id as text.
-- `club_cache` (`:330`) is string-keyed behind an exact `in` test at `:805`. An integer key
+- `club_cache` (`:334`) is string-keyed behind an exact `in` test at `:809`. An integer key
   misses and falls through to a direct `self.session.get`.
 - `_finalize_queue_items` (`scripts/drain_queue.py:365`) indexes by **`team_id_master`**, not the
   provider id.
+- `str(obj.get("<id key>", ""))` turns a present `null` into the string **`"None"`**, because
+  the default fills only a missing key. `"None"` is truthy, so any truthiness test reads it as a
+  real id. An approved alias keyed on it attaches every game carrying it from that provider to
+  one team; GotSport's did, for thousands of games.
+  - Read the raw value through `clean_provider_id` (`src/utils/provider_ids.py`), which maps
+    `None`, `"None"`, `"null"` and blanks to `""`, and test later with `is_blank_provider_id`.
+    The importer, matcher and admin link routes all refuse a blank id by that definition.
+  - `str(v) if v else ""` (`src/scrapers/sincsports.py:427`) handles a real `null` but passes
+    an id that is already the string `"None"`.
+  - `src/scrapers/template.py:202`, the starting point for new scrapers, still carries the unsafe form.
+  - Pin it with a fixture whose id is `null` and assert the parsed id is `""`. A game count
+    cannot see this trap.
 
 `src/scrapers/base.py:28-40` is the canonical pattern for the split: provider id for scraping and
 for the game dict, master id for `_get_last_scrape_date` and `_log_team_scrape`. Carry both ids
@@ -586,9 +598,9 @@ def extract_game(row) -> dict:
     """Extract game data in standard format."""
     return {
         'provider': 'gotsport',
-        'team_id': str(row.get('team_id', '')),
+        'team_id': clean_provider_id(row.get('team_id')),
         'team_name': row.get('team_name', '').strip(),
-        'opponent_id': str(row.get('opponent_id', '')),
+        'opponent_id': clean_provider_id(row.get('opponent_id')),
         'opponent_name': row.get('opponent_name', '').strip(),
         'goals_for': safe_int(row.get('goals_for')),
         'goals_against': safe_int(row.get('goals_against')),

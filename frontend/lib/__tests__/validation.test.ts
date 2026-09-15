@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 
-import { suggestEmailCorrection } from '../validation';
+import { isBlankProviderId, suggestEmailCorrection } from '../validation';
+
+describe('isBlankProviderId', () => {
+  it.each([null, undefined, '', '  ', 'None', 'none', 'NULL', ' None '])('treats %j as naming no team', (value) => {
+    expect(isBlankProviderId(value)).toBe(true);
+  });
+
+  it.each(['601496', 601496])('keeps %j as a real provider id', (value) => {
+    expect(isBlankProviderId(value)).toBe(false);
+  });
+});
 
 describe('suggestEmailCorrection', () => {
   it('corrects the two typo domains that stranded real signups', () => {
