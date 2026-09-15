@@ -454,12 +454,12 @@ def shared_links(outcomes: Dict[str, Outcome]) -> Dict[str, str]:
     """SEG teams of this event that matched the same PitchRank team as another one.
 
     Two registrations in one event are two squads, so at most one of them can be
-    that team. Every newly linked team in such a group is reported; a team whose
-    alias was already approved keeps it.
+    that team. Every fuzzy-linked team in such a group is reported; a team whose
+    alias was already approved, or whose own row carries its SEG id, keeps it.
     """
     by_team: Dict[str, List[str]] = {}
     for seg_team_id, outcome in outcomes.items():
-        if outcome.status in ("already_linked", "linked_existing"):
+        if outcome.status in ("already_linked", "linked_existing", "relinked"):
             by_team.setdefault(outcome.team_id_master, []).append(seg_team_id)
     conflicts: Dict[str, str] = {}
     for team_id_master, seg_team_ids in by_team.items():

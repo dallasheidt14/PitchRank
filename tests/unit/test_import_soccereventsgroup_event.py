@@ -718,12 +718,15 @@ class TestSharedLinks:
             "d": seg.Outcome("linked_existing", "T2", 0.92),
             "e": seg.Outcome("created", "T3", 1.0),
             "f": seg.Outcome("linked_existing", "T4", 1.0),
+            "g": seg.Outcome("relinked", "T5", 1.0),
+            "h": seg.Outcome("linked_existing", "T5", 0.93),
         }
 
         assert seg.shared_links(outcomes) == {
             "a": "same PitchRank team as SEG team b",
             "b": "same PitchRank team as SEG team a",
             "d": "same PitchRank team as SEG team c",
+            "h": "same PitchRank team as SEG team g",
         }
 
 
