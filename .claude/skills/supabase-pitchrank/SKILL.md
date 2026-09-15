@@ -313,6 +313,28 @@ carries `SET LOCAL statement_timeout = '300s'` and is cancelled on every product
 `.turbo/backfill-review-2026-07-27.md` records `calculate_rankings.py`'s Python fallback
 taking over weekly, and that fallback has never written a row. Do not copy its shape.
 
+### A LIMIT stops early only when an index supplies the ORDER BY
+
+A page-sized RPC can still do whole-table work. When no index supplies the sort, the planner
+evaluates the full WHERE for every candidate row, sorts them all, and only then applies the
+LIMIT. That can fit the 8 seconds while the pages are cached and time out when they are not.
+
+Null placement decides whether an index supplies the order. A btree built `ASC` (nulls last,
+the default) serves `ASC` and plain `DESC`; one built `ASC NULLS FIRST` serves
+`ASC NULLS FIRST` and `DESC NULLS LAST`, so a plain `DESC` against it sorts everything. In a
+multicolumn index a column's order is usable only when every earlier column is pinned with
+`=`. When the WHERE already excludes NULLs (`x < $cutoff`), write the null placement that
+matches the index: rows are unchanged, and the planner can walk the index and stop once
+OFFSET plus LIMIT rows are found, under an Incremental Sort when the ORDER BY adds a
+tiebreaker the index lacks.
+
+Confirm with `EXPLAIN (ANALYZE, BUFFERS)` run twice. A first run that times out or shows a
+large `read=`, followed by a much faster one, is this plan meeting a cold cache; two slow runs
+are the same shape with nothing cached to hide it. A SQL function with `SECURITY DEFINER` or a
+`SET` clause is never inlined, and PG17 plans its body generically, so test the body as a
+`PREPARE`d statement under `SET plan_cache_mode = force_generic_plan`. `find_topup_teams`
+(`20260915120000`) is the worked example.
+
 ### Bulk `is_excluded` updates pay a scan per row
 
 Each row that flips to `is_excluded = true` fires `trg_propagate_game_exclusion`. The trigger
@@ -552,6 +574,21 @@ def merge_team(client, deprecated_id: str, canonical_id: str, *, dry_run: bool =
 .update(data)          # Modify existing (NEEDS filter!)
 .delete()              # Remove rows (NEEDS filter!)
 ```
+
+## Applying a Migration
+
+No workflow applies migrations on merge. They are often run by hand in the dashboard SQL
+editor without repairing the ledger, or recorded under a different version than their file, so
+the ledger and `supabase/migrations/` disagree in both directions. `supabase db push` then
+refuses: it lists ledger versions with no local file (suggesting
+`migration repair --status reverted`) and local files older than the newest ledger entry
+(suggesting `--include-all`). Take neither suggestion; both end in re-running files that are
+already live.
+
+Before recommending a push, compare `mcp__supabase__list_migrations` with
+`supabase/migrations/` by name as well as version, and confirm the functions, tables or indexes
+the unlisted files create exist live. To ship one migration, run its SQL in the SQL editor,
+then record it with `supabase migration repair --status applied <version>`.
 
 ## Environment Variables
 
