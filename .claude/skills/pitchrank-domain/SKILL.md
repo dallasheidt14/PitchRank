@@ -84,7 +84,7 @@ helper rather than recomputing an offset, and change the SQL with it if the rang
 ### Other Leagues
 - DPL = Development Player League
 - NPL = National Premier League
-- GA = Girls Academy
+- GA = Girls Academy, a girls-only league. On a boys team "GA" is the state of Georgia, never this tier
 - Premier, Elite, Select, Classic = club-specific tiers
 
 ## Team Structure

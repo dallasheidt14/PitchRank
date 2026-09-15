@@ -6,7 +6,7 @@ looks right and is inert is worse than no guard, because it is counted as
 protection. So this file tests reachability and wiring, not semantics --
 tests/unit/test_birth_years_guard.py covers what the guard decides.
 
-Five provider matchers OVERRIDE `_fuzzy_match_team`, which is why the guard sits
+Most provider matchers OVERRIDE `_fuzzy_match_team`, which is why the guard sits
 at `_match_team`'s accept path: every subclass reaches it through
 `super()._match_team(...)`. The guard reads `fuzzy_match["team_name"]`, so a
 subclass that stops returning that key would fail the guard OPEN and silently.
@@ -59,6 +59,7 @@ _SUBCLASS_PATHS = [
     ("src.models.tgs_matcher", "TGSGameMatcher"),
     ("src.models.sincsports_matcher", "SincSportsGameMatcher"),
     ("src.models.modular11_matcher", "Modular11GameMatcher"),
+    ("src.models.soccereventsgroup_matcher", "SoccerEventsGroupGameMatcher"),
 ]
 
 
