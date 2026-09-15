@@ -1,0 +1,77 @@
+{
+  "program": {
+    "id": 19206,
+    "affiliationId": 80,
+    "name": "Chicago Cup ",
+    "start": "2026-09-04T05:00:00",
+    "end": "2026-09-08T04:59:00",
+    "dateRangeString": "Sep 4 - 7, 2026",
+    "city": "Vernon Hills",
+    "state": "IL"
+  },
+  "divisions": [
+    {
+      "id": 213903,
+      "primaryName": "Boys",
+      "sessionName": "U8",
+      "groupName": "",
+      "gender": true,
+      "genderName": "Male",
+      "oldestEligibleBirthdate": "2018-08-01T00:00:00"
+    },
+    {
+      "id": 239717,
+      "primaryName": "Boys",
+      "sessionName": "U10 Bronze",
+      "groupName": "",
+      "gender": true,
+      "genderName": "Male",
+      "oldestEligibleBirthdate": "2016-08-01T00:00:00"
+    },
+    {
+      "id": 239723,
+      "primaryName": "Boys",
+      "sessionName": "U11 Platinum",
+      "groupName": "",
+      "gender": true,
+      "genderName": "Male",
+      "oldestEligibleBirthdate": "2015-08-01T00:00:00"
+    },
+    {
+      "id": 213904,
+      "primaryName": "Girls",
+      "sessionName": "U8/U9",
+      "groupName": "",
+      "gender": false,
+      "genderName": "Female",
+      "oldestEligibleBirthdate": "2017-08-01T00:00:00"
+    },
+    {
+      "id": 239747,
+      "primaryName": "Girls",
+      "sessionName": "U14 Gold",
+      "groupName": "",
+      "gender": false,
+      "genderName": "Female",
+      "oldestEligibleBirthdate": "2012-08-01T00:00:00"
+    },
+    {
+      "id": 239754,
+      "primaryName": "Girls",
+      "sessionName": "U18/19 Gold",
+      "groupName": "",
+      "gender": false,
+      "genderName": "Female",
+      "oldestEligibleBirthdate": "2007-08-01T00:00:00"
+    },
+    {
+      "id": 213900,
+      "primaryName": "Girls",
+      "sessionName": "HS Bronze",
+      "groupName": "",
+      "gender": false,
+      "genderName": "Female",
+      "oldestEligibleBirthdate": "2007-08-01T00:00:00"
+    }
+  ]
+}

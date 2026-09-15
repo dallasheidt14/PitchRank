@@ -1,0 +1,269 @@
+{
+  "programTeams": [
+    {
+      "programId": -2618,
+      "programName": "Chicago Cup ",
+      "divisions": [
+        {
+          "divisionId": 213903,
+          "divisionName": "Boys - U8",
+          "gender": true,
+          "teams": [
+            {
+              "teamId": 575265,
+              "teamName": "CFYSC 8U Boys Select",
+              "origin": "Chicago, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 570398,
+              "teamName": "Olympiacos Chicago BU07 DF Elite",
+              "origin": "Niles, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 570399,
+              "teamName": "Olympiacos Chicago BU08 DF Elite",
+              "origin": "Niles, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 596378,
+              "teamName": "Pegasus FC BU8 Red",
+              "origin": "Deerfield, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 593821,
+              "teamName": "SC Hammers BU8",
+              "origin": "Schaumburg, IL",
+              "state": "IL"
+            }
+          ]
+        },
+        {
+          "divisionId": 239717,
+          "divisionName": "Boys - U10 Bronze",
+          "gender": true,
+          "teams": [
+            {
+              "teamId": 592286,
+              "teamName": "Berber City FC u10",
+              "origin": "CHICAGO, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 592614,
+              "teamName": "FORCE U10B PREMIER",
+              "origin": "Crystal Lake, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 596380,
+              "teamName": "Pegasus FC BU10 Blue",
+              "origin": "Deerfield, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 595360,
+              "teamName": "Roadrunners SC Select BU10 II",
+              "origin": "Woodridge, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 595415,
+              "teamName": "Trevian SC BU10 White Copa",
+              "origin": "Glenview, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 577908,
+              "teamName": "U10B FC LAKE COUNTY 16/17 SELECT 2",
+              "origin": "Waukegan, IL",
+              "state": "IL"
+            }
+          ]
+        },
+        {
+          "divisionId": 239723,
+          "divisionName": "Boys - U11 Platinum",
+          "gender": true,
+          "teams": [
+            {
+              "teamId": 575271,
+              "teamName": "CFYSC 11U Boys Premier",
+              "origin": "Chicago, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 595379,
+              "teamName": "Chicago FC United U11 Academy Red",
+              "origin": "Glenview, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 581324,
+              "teamName": "Croatian Eagles 11UB Red",
+              "origin": "Milwaukee, WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 592364,
+              "teamName": "FC Pride U11 Pre-ECNL 15/16",
+              "origin": "Indianapolis, IN",
+              "state": "IN"
+            },
+            {
+              "teamId": 580345,
+              "teamName": "Lou Fusz Athletic 15/16B Blue Star Premier (2034)",
+              "origin": "St. Louis, MO",
+              "state": "MO"
+            }
+          ]
+        },
+        {
+          "divisionId": 213904,
+          "divisionName": "Girls - U8/U9",
+          "gender": false,
+          "teams": [
+            {
+              "teamId": 575268,
+              "teamName": "CFYSC 9U Girls Premier",
+              "origin": "Chicago, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 572097,
+              "teamName": "FC Central IL U9 Girls Select",
+              "origin": "Peoria, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 596366,
+              "teamName": "Pegasus FC GU8 Red",
+              "origin": "Deerfield, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 577896,
+              "teamName": "U09G FC LAKE COUNTY 17/18 SELECT 1",
+              "origin": "Waukegan, IL",
+              "state": "IL"
+            }
+          ]
+        },
+        {
+          "divisionId": 239747,
+          "divisionName": "Girls - U14 Gold",
+          "gender": false,
+          "teams": [
+            {
+              "teamId": 575278,
+              "teamName": "CFYSC 14U Girls Premier",
+              "origin": "Chicago, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 595392,
+              "teamName": "Chicago FC United U14 GA Aspire",
+              "origin": "Glenview, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 588950,
+              "teamName": "Chicago Inter U14G ECNL-RL",
+              "origin": "Romeoville, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 581312,
+              "teamName": "Croatian Eagles 14uG Aspire",
+              "origin": "Milwaukee, WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 576488,
+              "teamName": "FC United ECNL RL U14G",
+              "origin": "Cedar Rapids, IA",
+              "state": "IA"
+            },
+            {
+              "teamId": 596374,
+              "teamName": "Pegasus FC GU14 Red",
+              "origin": "Deerfield, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 577902,
+              "teamName": "U14G FC LAKE COUNTY 12/13 ELITE N1",
+              "origin": "Waukegan, IL",
+              "state": "IL"
+            }
+          ]
+        },
+        {
+          "divisionId": 213900,
+          "divisionName": "Girls - HS Bronze",
+          "gender": false,
+          "teams": [
+            {
+              "teamId": 581317,
+              "teamName": "Croatian Eagles 17uG Aspire",
+              "origin": "Milwaukee, WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 593514,
+              "teamName": "EBU 17U GIRLS PREMIER 1",
+              "origin": "Brookfield , WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 592615,
+              "teamName": "FORCE U15/16/17G PREMIER",
+              "origin": "Crystal Lake, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 596377,
+              "teamName": "Pegasus FC GU18 Red",
+              "origin": "Deerfield, IL",
+              "state": "IL"
+            }
+          ]
+        },
+        {
+          "divisionId": 239754,
+          "divisionName": "Girls - U18/19 Gold",
+          "gender": false,
+          "teams": [
+            {
+              "teamId": 581318,
+              "teamName": "Croatian Eagles 19uG Aspire",
+              "origin": "Milwaukee, WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 592433,
+              "teamName": "Galaxy SC U19 Aspire",
+              "origin": "Naperville, IL",
+              "state": "IL"
+            },
+            {
+              "teamId": 577799,
+              "teamName": "Rush WI U18 Girls Rush",
+              "origin": "Madison , WI",
+              "state": "WI"
+            },
+            {
+              "teamId": 577905,
+              "teamName": "U18G FC LAKE COUNTY 08/09 ELITE N1",
+              "origin": "Waukegan, IL",
+              "state": "IL"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

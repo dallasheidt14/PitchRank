@@ -274,6 +274,17 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "soccereventsgroup":
+            from src.models.soccereventsgroup_matcher import SoccerEventsGroupGameMatcher
+
+            # No registration_mode: only the roster pass creates SEG teams.
+            logger.info("Using SoccerEventsGroupGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = SoccerEventsGroupGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 
