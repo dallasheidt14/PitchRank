@@ -65,10 +65,12 @@ cannot conceal a badly overmatched team, and a chain of similar neighbors cannot
 join incompatible endpoints.
 
 Teams are ordered by average predicted signed margin against the cohort. A
-deterministic partition finds the fewest contiguous safe groups, then prefers
-lower within-group risk. A singleton is explicitly labeled as having no peer in
-that tier. Borderline placement notes identify adjacent tiers a team also fits
-without creating an unsafe pairing. Cross-tier reversals produce review warnings.
+deterministic partition finds the fewest contiguous safe groups, then places
+boundaries at the largest natural breaks in that matchup-strength order. Lower
+within-group risk breaks any remaining tie. A singleton is explicitly labeled
+as having no peer in that tier. Borderline placement notes identify adjacent
+tiers a team also fits without creating an unsafe pairing. Cross-tier reversals
+produce review warnings.
 "Clear separation" requires directional evidence across the tier boundary:
 at least 75% of upper/lower pairings favor the upper tier, at least half exceed
 the grouping limits, and their average signed edge reaches half the margin limit.

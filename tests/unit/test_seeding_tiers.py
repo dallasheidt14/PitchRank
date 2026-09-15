@@ -142,6 +142,27 @@ def test_minimum_groups_avoids_greedy_chaining_and_fixed_sizes():
     assert all(tier.max_expected_margin <= 2 for tier in result.tiers)
 
 
+def test_safe_partition_uses_the_clearest_strength_break():
+    ids = ["a", "b", "c", "d"]
+    roster = [
+        TierEntrant(key, f"Team {key}", score)
+        for key, score in zip(ids, [0.9, 0.8, 0.85, 0.3], strict=True)
+    ]
+    predictions = {
+        ("a", "b"): prediction(0.2),
+        ("a", "c"): prediction(0.4),
+        ("a", "d"): prediction(3.0),
+        ("b", "c"): prediction(0.2),
+        ("b", "d"): prediction(3.0),
+        ("c", "d"): prediction(0.2),
+    }
+
+    result = build_tiers(roster, predictions)
+
+    assert memberships(result) == [{"a", "b", "c"}, {"d"}]
+    assert result.ordered_ids == ("a", "c", "b", "d")
+
+
 def test_manual_unsafe_merge_reports_risk_and_named_pair():
     result = build_tiers(entrants(["a", "b"]), {("a", "b"): prediction(4, 0.6)}, manual_groups=[["a", "b"]])
     assert memberships(result) == [{"a", "b"}]

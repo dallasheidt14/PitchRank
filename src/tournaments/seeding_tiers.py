@@ -117,13 +117,19 @@ def _risk(pair: _Pair, policy: TierPolicy) -> float:
 
 
 def _automatic_groups(
-    ordered: Sequence[str], pairs: Mapping[tuple[str, str], _Pair], policy: TierPolicy
+    ordered: Sequence[str],
+    pairs: Mapping[tuple[str, str], _Pair],
+    policy: TierPolicy,
+    strength: Mapping[str, float],
 ) -> list[tuple[str, ...]]:
-    """Minimum number of complete-link bands; then minimize total pair risk.
+    """Minimum complete-link bands, with boundaries at natural strength breaks.
 
     Interval risk and safety are built in O(n²), followed by an O(n²) dynamic
-    program. A deterministic boundary tuple breaks any remaining ties. No
-    preferred tier size, tier count, or adjacent-pair shortcut is involved.
+    program. Among safe partitions with the same minimum tier count, maximize
+    the total adjacent all-field strength gap at the boundaries, then minimize
+    total within-tier pair risk. The gap chooses between fully checked bands;
+    it never replaces the every-pair safety requirement. A deterministic
+    boundary tuple breaks any remaining ties.
     """
     count = len(ordered)
     safe: dict[tuple[int, int], bool] = {}
@@ -139,17 +145,25 @@ def _automatic_groups(
             safe[(start, end)] = extra_safe and safe.get((start, end - 1), True)
             cost[(start, end)] = extra_cost + cost.get((start, end - 1), 0.0)
 
-    best: list[tuple[int, float, tuple[int, ...]]] = [(0, 0.0, ())]
+    best: list[tuple[int, float, float, tuple[int, ...]]] = [(0, 0.0, 0.0, ())]
     for end in range(1, count + 1):
         candidates = []
         for start in range(end):
             if safe[(start, end)]:
                 previous = best[start]
-                candidates.append((previous[0] + 1, previous[1] + cost[(start, end)], (*previous[2], end)))
+                boundary_gap = strength[ordered[start - 1]] - strength[ordered[start]] if start else 0.0
+                candidates.append(
+                    (
+                        previous[0] + 1,
+                        previous[1] - boundary_gap,
+                        previous[2] + cost[(start, end)],
+                        (*previous[3], end),
+                    )
+                )
         best.append(min(candidates))
     result = []
     start = 0
-    for end in best[-1][2]:
+    for end in best[-1][3]:
         result.append(tuple(ordered[start:end]))
         start = end
     return result
@@ -205,7 +219,7 @@ def build_tiers(
     }
     ordered = sorted(eligible, key=lambda key: (-strength[key], *_display_key(by_id[key])))
     groups = (
-        _automatic_groups(ordered, pairs, policy)
+        _automatic_groups(ordered, pairs, policy, strength)
         if manual_groups is None
         else _manual_groups(manual_groups, eligible)
     )
