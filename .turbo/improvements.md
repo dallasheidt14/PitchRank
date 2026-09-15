@@ -376,6 +376,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql` (the `team_flags` CTE)
 - **Why**: `has_future` is 1 exactly when `MAX(game_date) > CURRENT_DATE` and `has_recent` exactly when `MAX(game_date) >= CURRENT_DATE - 90`; both are `t.last_fixture_at` comparisons, which the same migration set materialises and refreshes. The column is also more correct, since it resolves `team_merge_map` while the CTE joins raw master ids. The CTE scans ~3M game rows every Sunday to recompute two booleans. Trade-off to accept explicitly: `last_fixture_at` is up to a refresh interval stale, so a fixture imported mid-week would not suppress that team's discovery enqueue until the next refresh — a wasted scrape, not a wrong result.
 - **Noted**: 2026-08-27
+- **Update (2026-09-15)**: Now failing, not just slow. `enqueue-discovery.yml` died on 2026-09-13 with a 57014 statement timeout on the `find_discovery_teams` RPC, 8.7s after the script started; the two prior runs got their RPC response 4s (09-06) and 7s (08-30) after start, against PostgREST's 8s budget, so the next Sunday run is likely to fail too. A 2026-09-15 EXPLAIN shows the plan led by two parallel seq scans of `games` feeding `team_flags`.
 
 ### process_missing_games advances last_scraped_at after a window-limited scrape
 
@@ -1093,10 +1094,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: dx
 - **Where**: new script under `scripts/`; reads `teams_age_rollover_backup_<year>` and writes `teams.team_name`, `teams.provider_team_id`, `team_alias_map.provider_team_id`
 - **Why**: The Aug 1 relabel migration moves only `teams.age_group`, so Modular11 U-ages in names and `{club}_U{age}_{div}` IDs fall a year behind every season. The 2026-09-14 fix was a one-off scratch script, not kept; rollback data is in gitignored `data/backups/modular11_*_2026-09-14.*`. Rules that held:
-- **Noted**: 2026-09-14
   - Roll IDs for every rolled team whose ID age equals its prior label, including deprecated rows (they still hold the unique index) and Modular11 aliases on GotSport/TGS teams. Rolling only renamed teams held back 249.
   - Rename only names whose single U-age equals the prior label and that carry no birth year or season.
   - Park the u19 board at U18, write the oldest board first, guard each write on its old value, and dry run by default.
+- **Noted**: 2026-09-14
 
 ### SincSports teams carry their team-ID state prefix as an unmarked state, and Tier B overrides it from a shared club name
 
@@ -1118,9 +1119,49 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The guard drops an `AL` answer only when the team's name, club or a place word in its name disagrees. A team in `--probe-unclubbed` has no club-mates and often no place word, so AL goes through. 2026-09-14 rehearsal (ledger answers, no calls): "MAFC 2017 Royal" TX→AL auto-apply (all 4 opponents TX), and an "Arlington Soccer Association" team confirmed as AL (all 3 opponents VA). Both were withheld by hand. Needs a rule for AL with no local reading that doesn't also block real Alabama teams.
 - **Noted**: 2026-09-14
 
-### A game import exits 0 when its inserts fail
+### Pin the find_topup_teams and refresh RPC REVOKE and GRANT as whole statements
 
 - **ID**: IMP-229
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `test_topup_is_locked_down_to_service_role` and `test_refresh_is_locked_down_to_service_role` in `tests/unit/test_scrape_activity_predicate.py`
+- **Why**: The top-up test asserts four separate substrings of the newest migration defining `find_topup_teams` (a SECURITY DEFINER RPC), so `TO service_role, anon;` still contains `TO service_role`, and nothing checks for an extra `GRANT EXECUTE ... TO authenticated` line; both stay green. Nothing is exposed today (live ACL 2026-09-15: `postgres` and `service_role` only). Assert each full-signature REVOKE and GRANT through its closing `;`, against `_executable` text, and that no other GRANT on the function appears. The refresh test pins the signature but has the same two holes, so fix both together. Surfaced by review of the top-up timeout fix.
+- **Noted**: 2026-09-15
+
+### Base matcher review-queue and alias writes fail without the caller knowing
+
+- **ID**: IMP-230
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher._create_review_queue_entry` and `_create_alias`
+- **Why**: `_create_review_queue_entry` inserts `confidence_score` unclamped, so a birth-year-demoted match scoring 0.90 or more violates the `team_match_review_queue` CHECK (0.75 <= score < 0.90); the `except` logs one error and the row is gone. The first Soccer Events Group execute on 2026-09-14 lost two rows this way until that matcher clamped to `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP`; every other provider still sends the raw score. Its dry run also logs "Created review queue entry" having written nothing, and `_create_alias` swallows its own write failure while the caller reports the team linked. Clamp and surface failures in the base class once rather than per provider.
+- **Noted**: 2026-09-14
+
+### Oregon and WA matchers reject same-squad names and pick equal-score candidates arbitrarily
+
+- **ID**: IMP-231
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `extract_team_variant`; `src/models/affinity_or_matcher.py` and `src/models/affinity_wa_matcher.py` `_fuzzy_match_team`; `tests/unit/test_provider_matcher_dry_run.py` create-helper parametrization
+- **Why**: Building the Soccer Events Group matcher on 2026-09-14 showed `extract_team_variant` reading tier and band tokens such as "ECNL-RL" or the "/13" of "G2012/13" as a coach name, so two spellings of one squad fail the variant gate and a duplicate team is created; SEG replaced the gate with `extract_distinctions` colours, directions and squad number plus tier tokens. Both matchers also take the first of several equal-score candidates in iteration order, where SEG now sends a tie to review. Separately, the dry-run test's create-helper list covers sincsports, affinity_wa and soccereventsgroup but not `_create_new_affinity_or_team`.
+- **Noted**: 2026-09-14
+
+### Event scrapers each carry their own copy of the game-import CSV contract
+
+- **ID**: IMP-232
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `REQUIRED_COLUMNS` in `scripts/scrape_affinity_or_tournament.py`, `scrape_affinity_wa_tournament.py`, `scrape_playmetrics_league.py`, `scrape_tgs_event.py`, `import_soccereventsgroup_event.py`; `_compute_result` in three of them; `bulk_existing_aliases` in `scripts/discover_sincsports_teams.py` and `discover_sincsports_via_tournament.py`, `existing_aliases` in `import_soccereventsgroup_event.py`
+- **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
+- **Noted**: 2026-09-14
+
+### A game import exits 0 when its inserts fail
+
+- **ID**: IMP-233
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
@@ -1130,7 +1171,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### The backlog sweep detaches indented bullet lines from the field they belong to
 
-- **ID**: IMP-230
+- **ID**: IMP-234
 - **Status**: open
 - **Type**: direct
 - **Category**: dx

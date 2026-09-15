@@ -144,10 +144,20 @@ def test_every_gated_function_carries_exactly_one_copy():
 
 
 def test_no_other_function_carries_a_copy():
-    """A fourth copy anywhere in the migration tree is drift the identity test
-    below cannot see, because it only compares the copies it knows about."""
-    total = sum(len(_predicate_blocks(_sql(p))) for p in sorted(MIGRATIONS.glob("*.sql")))
-    assert total == len(GATED_FUNCTIONS), f"expected {len(GATED_FUNCTIONS)} copies tree-wide, found {total}"
+    """A copy anywhere outside the gated functions is drift the identity test
+    below cannot see, because it only compares the copies it knows about.
+
+    Counted against every definition of the gated functions, superseded ones
+    included, because redefining one in a new migration adds a copy to the tree
+    without adding one to the database.
+    """
+    total = 0
+    gated = 0
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        sql = _sql(path)
+        total += len(_predicate_blocks(sql))
+        gated += sum(len(_predicate_blocks(body)) for name in GATED_FUNCTIONS for body in _function_bodies(sql, name))
+    assert total == gated, f"{total - gated} copies of the predicate sit outside the gated functions"
 
 
 def test_all_live_copies_are_identical():
@@ -260,7 +270,33 @@ def test_topup_consumes_every_parameter_it_declares():
 def test_topup_orders_by_a_unique_tiebreaker():
     """last_scraped_at is stamped per run, so tie groups span thousands of rows.
     Without a unique secondary key, OFFSET paging can repeat or skip rows."""
-    assert "ORDER BY t.last_scraped_at DESC, t.team_id_master" in _flat(_topup_body())
+    assert "ORDER BY t.last_scraped_at DESC NULLS LAST, t.team_id_master" in _flat(_topup_body())
+
+
+def test_topup_order_is_the_scrape_index_walked_backwards():
+    """Plain DESC means NULLS FIRST, which the index cannot supply, so every eligible
+    team is filtered and sorted to return one page, which the RPC statement timeout
+    cannot reliably absorb.
+
+    The walk also rests on the WHERE opening with an equality on the index's leading
+    column ANDed to a range on the second. That range must exclude NULLs, or NULLS
+    LAST would move never-scraped teams to the end of the order.
+    """
+    body = _bare(_topup_body())
+    assert "t.last_scraped_at DESC NULLS LAST" in body
+    assert re.search(
+        r"WHERE t\.provider_id = find_topup_teams\.p_provider_id "
+        r"AND t\.last_scraped_at < find_topup_teams\.p_cutoff AND ",
+        body,
+    ), f"find_topup_teams' WHERE no longer opens with the index conditions:\n{body}"
+
+    # Unquoted identifiers fold to lower case, so a DROP INDEX in capitals still drops it.
+    executable = {p.name: _executable(_sql(p)).lower() for p in sorted(MIGRATIONS.glob("*.sql"))}
+    touching = [name for name, sql in executable.items() if "teams_provider_scrape_priority_idx" in sql]
+    assert touching == ["20260422000002_add_get_teams_to_scrape_limited.sql"], (
+        f"{touching} touch teams_provider_scrape_priority_idx; recheck find_topup_teams' ORDER BY against it"
+    )
+    assert "on public.teams (provider_id, last_scraped_at asc nulls first)" in _flat(executable[touching[0]])
 
 
 def test_topup_returns_exactly_the_columns_the_scrape_path_reads():

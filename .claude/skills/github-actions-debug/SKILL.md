@@ -55,6 +55,11 @@ jobs:
 **Cause:** Secret not configured in repo settings
 **Fix:** Add secret via GitHub UI: Settings → Secrets → Actions
 
+### 6. Statement Timeout From a Database Call
+**Error:** `canceling statement due to statement timeout` (code `57014`) raised from `.execute()`
+**Cause:** The call outran the 8 seconds a service-role PostgREST request gets
+**Fix:** A write or page-sized call that grew past the budget needs a smaller batch. A read that returns one page yet sorts or filters every candidate row first needs a different plan, and re-running or shrinking batches changes nothing there; diagnose it with the `supabase-pitchrank` skill's "A LIMIT stops early only when an index supplies the ORDER BY" section.
+
 ## PitchRank Workflows
 
 Schedules live in CLAUDE.md's workflow table; check the yml when it matters. Durations
