@@ -1359,5 +1359,38 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Where**: `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql` (the `team_flags` CTE)
 - **Why**: `has_future` is 1 exactly when `MAX(game_date) > CURRENT_DATE` and `has_recent` exactly when `MAX(game_date) >= CURRENT_DATE - 90`; both are `t.last_fixture_at` comparisons, which the same migration set materialises and refreshes. The column is also more correct, since it resolves `team_merge_map` while the CTE joins raw master ids. The CTE scans ~3M game rows every Sunday to recompute two booleans. Trade-off to accept explicitly: `last_fixture_at` is up to a refresh interval stale, so a fixture imported mid-week would not suppress that team's discovery enqueue until the next refresh — a wasted scrape, not a wrong result.
 - **Noted**: 2026-08-27
-- **Update (2026-09-15)**: Now failing, not just slow. `enqueue-discovery.yml` died on 2026-09-13 with a 57014 statement timeout on the `find_discovery_teams` RPC, 8.7s after the script started; the two prior runs got their RPC response 4s (09-06) and 7s (08-30) after start, against PostgREST's 8s budget, so the next Sunday run is likely to fail too. A 2026-09-15 EXPLAIN shows the plan led by two parallel seq scans of `games` feeding `team_flags`. EXPLAIN ANALYZE later that day overturned that reading: the `games` aggregate was about 2s of 15s, and the rest was the eligibility predicate's `ranking_history` probe, run once per candidate team before the sort.
 - **Refs**: `fix/discovery-query-statement-timeout` (2026-09-15); migration `20260915130000_find_discovery_teams_reads_fixture_dates.sql` reads `last_fixture_at` as proposed and filters a sorted subquery with the predicate, so the probe stops once the LIMIT is filled (0.5s under EXPLAIN ANALYZE). This accepts the staleness trade-off in Why; each such team also takes a row-limit slot another team would have had.
+- **Update (2026-09-15)**: Now failing, not just slow. `enqueue-discovery.yml` died on 2026-09-13 with a 57014 statement timeout on the `find_discovery_teams` RPC, 8.7s after the script started; the two prior runs got their RPC response 4s (09-06) and 7s (08-30) after start, against PostgREST's 8s budget, so the next Sunday run is likely to fail too. A 2026-09-15 EXPLAIN shows the plan led by two parallel seq scans of `games` feeding `team_flags`. EXPLAIN ANALYZE later that day overturned that reading: the `games` aggregate was about 2s of 15s, and the rest was the eligibility predicate's `ranking_history` probe, run once per candidate team before the sort.
+
+### Game imports lose write access after 1,000 games
+
+- **ID**: IMP-215
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline` periodic client refresh (the `connection_refresh_interval` block) in `src/etl/enhanced_pipeline.py`; `SUPABASE_KEY` in `config/settings.py`
+- **Why**: Read 2026-09-14: the refresh rebuilds the client with `create_client(SUPABASE_URL, SUPABASE_KEY)`, and `SUPABASE_KEY` is the anon key, while `scripts/import_games_enhanced.py` built the original client from `SUPABASE_SERVICE_ROLE_KEY`. A SincSports import on 2026-09-13 then failed every later insert with RLS `42501` on `games` and still exited 0; the workaround was `SUPABASE_KEY=<service role key>` in the process env. Rebuild the client with the key the original client used. Needed before any scheduled import that can exceed 1,000 games.
+- **Noted**: 2026-09-14
+- **Refs**: branch `fix/importer-refresh-key`
+
+### Fox Soccer Academy 2010 B Black was created as a U16 duplicate of its U17 team
+
+- **ID**: IMP-218
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
+- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 2 played fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
+- **Noted**: 2026-09-14
+- **Refs**: data fix 2026-09-14, closed on branch `fix/importer-refresh-key`: SincSports `NCM1100C1E` and TGS `102205` rows merged into GotSport `506677`'s team, and the 2 held league games imported
+
+### Two SincSports team rows hold two squads each, and league games now land on them
+
+- **ID**: IMP-219
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
+- **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
+- **Noted**: 2026-09-14
+- **Refs**: data fix 2026-09-15, closed on branch `fix/importer-refresh-key`: `NCM15006B2` (Barça Academy A U12 Blau) and `SCM140018D` (Carolina Eclipse Premier 1) each moved to their own team, their league games relinked through `unlink_game_team`/`link_game_team`. The Eclipse stray was `SCM140018D`, not the `SCM140018E` named above: `SCM140018E`, `SCM14001BE` and `SCM14001D8` are all Premier 2 and stay together. The May tournament id `NCM150DE` ("Barça Academy 2015 Blau") names neither squad A nor B, so it stays on the `NCM15006B1` row.

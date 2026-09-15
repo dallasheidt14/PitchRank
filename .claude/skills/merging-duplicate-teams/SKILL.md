@@ -418,7 +418,8 @@ So before applying, reject any pair where either row:
 
 Self-play is not exotic: **1,028 game rows across 552 live teams**, mostly GotSport (measured
 2026-09-12). Those rows also reach the ranking engine, which is a separate defect worth its own
-backlog entry — but for merge purposes treat one as a hard stop on that pair.
+backlog entry — but for merge purposes treat one as a hard stop on that pair, and split the row
+first (see **Splitting a fused row**).
 
 ### Count games from `games`, never from `teams.game_row_count`
 
@@ -551,6 +552,48 @@ Also record what is left in the class you just worked, so the next run starts fr
 than from a rescan.
 
 State plainly that the held pairs need a human decision rather than a rule.
+
+## Splitting a fused row
+
+A row is two squads when its provider ids play different opponents on the same league date, or
+show up as self-play. Split it before anything merges into it. This covers fusion at the alias
+layer. When `team_merge_map` shows the moving squad arrived through a merge, revert that merge
+instead (Step 6): its games still name the absorbed row, which still holds the provider id.
+
+**Decide which ids move from the provider's own team name for each id**, read from the scraped
+game data (alias rows store no name), not from alias method: SincSports names `Premier 1` and
+`Premier 2` apart even when both ids sit on one row. A row can carry more than two ids. The squad
+matching the row's name, usually the one with more ids, stays; the other moves to a new row. Leave
+an id whose name matches neither squad where it is and record it as unresolved.
+
+**Write in this order**, so no import ever sees a game side with no team while its alias still
+points at the fused row:
+
+1. `(provider_id, provider_team_id)` is unique on `teams`: when the moving id is the fused row's
+   own `provider_team_id`, repoint that column to a staying id.
+2. Create the new `teams` row the way the provider's matcher does (for SincSports,
+   `_create_new_sincsports_team`: new uuid, club prefix stripped, `resolve_distinction`), with the
+   fused row's `club_name`, `age_group`, `gender` and `state_code` and the moving id.
+3. Point the moving alias at the new row as `direct_id`.
+4. Relink each scored game side whose `home_provider_id`/`away_provider_id` is the moving id:
+   `unlink_game_team(p_game_id, <fused row>, p_is_home_team)`, which refuses a side holding any other
+   team, then `link_game_team(p_game_id, <new row>, p_is_home_team)`. On an immutable game these are
+   the master-id changes the trigger permits; both are service-role only.
+
+The two calls are separate transactions, so a side can be left with no team between them. An
+import that fills it in the meantime reads the alias, which already points at the new row, and
+`link_game_team` then raises "already linked" naming the new row: count that as done. Retry any
+other failed link from the log before moving on.
+
+**Set `is_excluded` on unscored fixtures on the moving side instead of relinking them.** Their
+`game_uid` would keep the fused row's master id, and the score backfill looks rows up by that uid,
+so the scored import would add a second row beside the stranded one. Excluded, the scored import
+simply adds the correct row.
+
+Dry run first. Log every write (new row ids, each alias row with its prior `match_method`, each
+relinked or excluded game side) so the split can be undone. Verify afterwards: no moved game with
+an empty side, no self-play on either row, same-date pairs only at tournaments, aliases pointing
+as intended.
 
 ## Re-enabling the weekly job
 

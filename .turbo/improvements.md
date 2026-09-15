@@ -957,6 +957,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Games where a team plays itself reach the ranking engine
 
+- **ID**: IMP-214
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `src/rankings/data_adapter.py` `drop_duplicates(subset=["id"])` (no self-play filter); origin likely `src/etl/enhanced_pipeline.py` team-id backfill / provider matchers
@@ -993,16 +995,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
 - **Noted**: 2026-09-12
 
-### Game imports lose write access after 1,000 games
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `EnhancedETLPipeline` periodic client refresh (the `connection_refresh_interval` block) in `src/etl/enhanced_pipeline.py`; `SUPABASE_KEY` in `config/settings.py`
-- **Why**: Read 2026-09-14: the refresh rebuilds the client with `create_client(SUPABASE_URL, SUPABASE_KEY)`, and `SUPABASE_KEY` is the anon key, while `scripts/import_games_enhanced.py` built the original client from `SUPABASE_SERVICE_ROLE_KEY`. A SincSports import on 2026-09-13 then failed every later insert with RLS `42501` on `games` and still exited 0; the workaround was `SUPABASE_KEY=<service role key>` in the process env. Rebuild the client with the key the original client used. Needed before any scheduled import that can exceed 1,000 games.
-- **Noted**: 2026-09-14
-
 ### SincSports live tournament scrape imports a partial event
 
+- **ID**: IMP-216
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `main` in `scripts/scrape_sincsports_tournament_schedule.py`; `SincSportsScheduleScraper.fetch_tournament` in `src/scrapers/sincsports_schedule.py`
@@ -1011,30 +1007,18 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Two SincSports tournament games may have been imported from a forfeit and a cancellation
 
+- **ID**: IMP-217
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
 - **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
 - **Noted**: 2026-09-14
 
-### Fox Soccer Academy 2010 B Black was created as a U16 duplicate of its U17 team
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `teams` / `team_alias_map` rows for SincSports team `NCM1100C1E`; duplicate-merge process (`merging-duplicate-teams` skill)
-- **Why**: The 2026-09-14 Carolina Champions League team import created `NCM1100C1E` as a new u16 team (SincSports' ID and page say U16) after the matcher held a 1.0-score match for review. The same squad already exists as u17 from GotSport (`506677`) and TGS (`102205`), its name says 2010, and it plays in the league's Under 17 division, so u17 is right. Its 2 played fall league games were held out of that import; merge the u16 row into the u17 team, then import them.
-- **Noted**: 2026-09-14
-
-### Two SincSports team rows hold two squads each, and league games now land on them
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
-- **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
-- **Noted**: 2026-09-14
-
 ### Watchlist activity counts games that have been excluded
 
+- **ID**: IMP-220
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
@@ -1043,6 +1027,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### A GotSport import dry run still writes aliases and review-queue rows
 
+- **ID**: IMP-221
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `EnhancedETLPipeline._ensure_initialized` in `src/etl/enhanced_pipeline.py` (the fallback `GameHistoryMatcher(...)` construction, `:304`); `GameHistoryMatcher.__init__` in `src/models/game_matcher.py`
@@ -1051,6 +1037,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### TGS teams and aliases keyed on placeholder provider ids
 
+- **ID**: IMP-222
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `team_alias_map` and `teams` rows for provider `tgs`; `TGSGameMatcher._match_by_provider_id` in `src/models/tgs_matcher.py`
@@ -1059,6 +1047,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Future-dated games already carry scores
 
+- **ID**: IMP-223
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `games` rows with `game_date` after the import date; GotSport path `GotSportScraper._parse_api_match` in `src/scrapers/gotsport.py`; loader `fetch_games_for_rankings` in `src/rankings/data_adapter.py`
@@ -1067,6 +1057,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Give the Modular11 scrape workflows a fixed start date instead of days-back
 
+- **ID**: IMP-224
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `Modular11ScheduleSpider.__init__` (`scrapers/modular11_scraper/modular11_scraper/spiders/modular11_schedule.py`) and `Modular11EventsSpider.__init__` (`modular11_events.py`), both deriving `start_date = now - days_back`; the `days_back` input of `modular11-weekly-scrape.yml` and `modular11-events-weekly-scrape.yml`
@@ -1075,6 +1067,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Modular11 team creation reuses a team by stored provider ID without checking its age
 
+- **ID**: IMP-225
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `Modular11GameMatcher._create_new_modular11_team` in `src/models/modular11_matcher.py` (the `teams` select on `provider_id` + aliased `provider_team_id` that returns `existing.data["team_id_master"]`, and the same lookup in its duplicate-key fallback)
@@ -1083,6 +1077,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Commit a reusable rollover script for Modular11 team names and provider IDs
 
+- **ID**: IMP-226
+- **Status**: open
 - **Type**: plan
 - **Category**: dx
 - **Where**: new script under `scripts/`; reads `teams_age_rollover_backup_<year>` and writes `teams.team_name`, `teams.provider_team_id`, `team_alias_map.provider_team_id`
@@ -1094,6 +1090,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### SincSports teams carry their team-ID state prefix as an unmarked state, and Tier B overrides it from a shared club name
 
+- **ID**: IMP-227
+- **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `SincSportsGameMatcher._create_new_sincsports_team` (`state_code` param) in `src/models/sincsports_matcher.py`; `club_derived_state` and `outranked` in `scripts/assign_team_states.py`
@@ -1102,6 +1100,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### GotSport's unset AL default passes the guard for teams with no club-mates
 
+- **ID**: IMP-228
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `unset_default_disputed` and its callers in `decide` and the confirm builder, `scripts/assign_team_states.py`
@@ -1110,6 +1110,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Pin the find_topup_teams and refresh RPC REVOKE and GRANT as whole statements
 
+- **ID**: IMP-229
+- **Status**: open
 - **Type**: direct
 - **Category**: testing
 - **Where**: `test_topup_is_locked_down_to_service_role` and `test_refresh_is_locked_down_to_service_role` in `tests/unit/test_scrape_activity_predicate.py`
@@ -1118,6 +1120,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Base matcher review-queue and alias writes fail without the caller knowing
 
+- **ID**: IMP-230
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/models/game_matcher.py` `GameHistoryMatcher._create_review_queue_entry` and `_create_alias`
@@ -1126,6 +1130,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Oregon and WA matchers reject same-squad names and pick equal-score candidates arbitrarily
 
+- **ID**: IMP-231
+- **Status**: open
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `src/models/game_matcher.py` `extract_team_variant`; `src/models/affinity_or_matcher.py` and `src/models/affinity_wa_matcher.py` `_fuzzy_match_team`; `tests/unit/test_provider_matcher_dry_run.py` create-helper parametrization
@@ -1134,6 +1140,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Event scrapers each carry their own copy of the game-import CSV contract
 
+- **ID**: IMP-232
+- **Status**: open
 - **Type**: plan
 - **Category**: refactor
 - **Where**: `REQUIRED_COLUMNS` in `scripts/scrape_affinity_or_tournament.py`, `scrape_affinity_wa_tournament.py`, `scrape_playmetrics_league.py`, `scrape_tgs_event.py`, `import_soccereventsgroup_event.py`; `_compute_result` in three of them; `bulk_existing_aliases` in `scripts/discover_sincsports_teams.py` and `discover_sincsports_via_tournament.py`, `existing_aliases` in `import_soccereventsgroup_event.py`
@@ -1142,6 +1150,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### The backlog sweep silently drops a repeated field label
 
+- **ID**: IMP-233
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `parse_entry` in `scripts/sweep_improvements.py`
@@ -1150,8 +1160,30 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### pr_wait reports "Codex did not review" when Codex's review was clean
 
+- **ID**: IMP-234
+- **Status**: open
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `codex_findings` in `scripts/pr_wait.py`
 - **Why**: It reads only the PR's review objects and inline comments. A clean Codex review arrives as a "Codex Review Summary ... Completed" issue comment plus a +1 reaction, with no review object, so the script prints "Codex did not review this PR" and waits out `CODEX_WINDOW_MINUTES` anyway. Seen on #1151 (2026-09-15): summary comment completed two minutes after open, +1 reaction, script reported no review. Findings still arrive as review objects, so this misreports and delays rather than merging past findings.
+- **Noted**: 2026-09-15
+
+### A game import exits 0 when its inserts fail
+
+- **ID**: IMP-235
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `main` exit handling in `scripts/import_games_enhanced.py`; `EnhancedETLPipeline._bulk_insert_games` and its caller `import_games` in `src/etl/enhanced_pipeline.py`
+- **Why**: Read 2026-09-15: no insert failure reaches `main`'s exit code. `_bulk_insert_games` catches each one, records whole-chunk failures only on the shared `self.metrics.errors` (never the batch metrics `import_games` returns) and returns the inserted count, which is what `games_accepted` holds; `import_games` catches its own exceptions after initialization, so `main`'s all-batches-failed `sys.exit(1)` cannot fire for one. `failed_games_count` counts games whose teams did not resolve. That is how the RLS `42501` run behind IMP-215 exited 0, and the weekly TGS and PlayMetrics import steps gate on this exit code. Count inserts that failed for a non-duplicate reason and exit non-zero when any did; attempted-versus-inserted is the wrong test, because the per-row fallback skips duplicate-key rows on purpose.
+- **Noted**: 2026-09-15
+
+### The backlog sweep detaches indented bullet lines from the field they belong to
+
+- **ID**: IMP-236
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `parse_entry` and `Entry.render` in `scripts/sweep_improvements.py`
+- **Why**: Read 2026-09-15: `parse_entry` puts every line that does not match `FIELD_RE` into `Entry.extras`, and `render` writes all fields first and extras last. A real sweep on an entry whose Why ends in an indented bullet list (IMP-226, "Rules that held:") put its Noted line between the Why and the bullets, so the rules rendered as sub-points of the date; `tests/unit/test_improvements_backlog.py` stayed green and the entry was fixed by hand. Attach continuation lines to the preceding field and render them under it, with a test on a multi-line Why. Until then, re-check such entries after every sweep.
 - **Noted**: 2026-09-15
