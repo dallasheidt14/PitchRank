@@ -376,6 +376,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `supabase/migrations/20260827100300_scrape_eligibility_skips_inactive_teams.sql` (the `team_flags` CTE)
 - **Why**: `has_future` is 1 exactly when `MAX(game_date) > CURRENT_DATE` and `has_recent` exactly when `MAX(game_date) >= CURRENT_DATE - 90`; both are `t.last_fixture_at` comparisons, which the same migration set materialises and refreshes. The column is also more correct, since it resolves `team_merge_map` while the CTE joins raw master ids. The CTE scans ~3M game rows every Sunday to recompute two booleans. Trade-off to accept explicitly: `last_fixture_at` is up to a refresh interval stale, so a fixture imported mid-week would not suppress that team's discovery enqueue until the next refresh — a wasted scrape, not a wrong result.
 - **Noted**: 2026-08-27
+- **Update (2026-09-15)**: Now failing, not just slow. `enqueue-discovery.yml` died on 2026-09-13 with a 57014 statement timeout on the `find_discovery_teams` RPC, 8.7s after the script started; the two prior runs got their RPC response 4s (09-06) and 7s (08-30) after start, against PostgREST's 8s budget, so the next Sunday run is likely to fail too. A 2026-09-15 EXPLAIN shows the plan led by two parallel seq scans of `games` feeding `team_flags`.
 
 ### process_missing_games advances last_scraped_at after a window-limited scrape
 
@@ -1117,3 +1118,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `unset_default_disputed` and its callers in `decide` and the confirm builder, `scripts/assign_team_states.py`
 - **Why**: The guard drops an `AL` answer only when the team's name, club or a place word in its name disagrees. A team in `--probe-unclubbed` has no club-mates and often no place word, so AL goes through. 2026-09-14 rehearsal (ledger answers, no calls): "MAFC 2017 Royal" TX→AL auto-apply (all 4 opponents TX), and an "Arlington Soccer Association" team confirmed as AL (all 3 opponents VA). Both were withheld by hand. Needs a rule for AL with no local reading that doesn't also block real Alabama teams.
 - **Noted**: 2026-09-14
+
+### Pin the find_topup_teams and refresh RPC REVOKE and GRANT as whole statements
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `test_topup_is_locked_down_to_service_role` and `test_refresh_is_locked_down_to_service_role` in `tests/unit/test_scrape_activity_predicate.py`
+- **Why**: The top-up test asserts four separate substrings of the newest migration defining `find_topup_teams` (a SECURITY DEFINER RPC), so `TO service_role, anon;` still contains `TO service_role`, and nothing checks for an extra `GRANT EXECUTE ... TO authenticated` line; both stay green. Nothing is exposed today (live ACL 2026-09-15: `postgres` and `service_role` only). Assert each full-signature REVOKE and GRANT through its closing `;`, against `_executable` text, and that no other GRANT on the function appears. The refresh test pins the signature but has the same two holes, so fix both together. Surfaced by review of the top-up timeout fix.
+- **Noted**: 2026-09-15
