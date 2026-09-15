@@ -1187,3 +1187,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `parse_entry` and `Entry.render` in `scripts/sweep_improvements.py`
 - **Why**: Read 2026-09-15: `parse_entry` puts every line that does not match `FIELD_RE` into `Entry.extras`, and `render` writes all fields first and extras last. A real sweep on an entry whose Why ends in an indented bullet list (IMP-226, "Rules that held:") put its Noted line between the Why and the bullets, so the rules rendered as sub-points of the date; `tests/unit/test_improvements_backlog.py` stayed green and the entry was fixed by hand. Attach continuation lines to the preceding field and render them under it, with a test on a multi-line Why. Until then, re-check such entries after every sweep.
 - **Noted**: 2026-09-15
+
+### Find out why recent games are stored with one side unmatched
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/enhanced_pipeline.py` partial-match branch (`match_status == "partial"` appended to `game_records`); `src/models/game_matcher.py` `GameHistoryMatcher._validate_team_age_group`
+- **Why**: Measured read-only 2026-09-15: games created since 2026-08-15, not excluded, with exactly one master id NULL — gotsport 2,572, sincsports 49. The cause is not established. GotSport opponents missing from the database are one known source. A second showed up on that day's Soccer Events Group import: an approved alias whose team's stored `age_group` no longer matched the game's, which the age check refuses, leaving that side blank. Count how many NULL sides have an approved alias for their provider id to size the second cause before changing any importer.
+- **Noted**: 2026-09-15

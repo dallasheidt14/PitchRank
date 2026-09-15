@@ -441,8 +441,9 @@ Games (Supabase; 365-day window + 28-day grace taper)
 ```python
 # Pagination. PostgREST's max-rows caps a response: 200,000 against the hosted
 # project (measured 2026-09-09, content-range 0-199999), but 1,000 under a local
-# `supabase start` -- supabase/config.toml commits max_rows = 1000. Page either way.
-supabase.table('games').select('*').range(offset, offset + 999).execute()
+# `supabase start` -- supabase/config.toml commits max_rows = 1000. Page either way,
+# ordered by a unique column: without .order() pages can skip or repeat rows.
+supabase.table('games').select('*').order('id').range(offset, offset + 999).execute()
 
 # Batch queries (100-ID limit for URI length). games.home_team_master_id /
 # away_team_master_id join teams.team_id_master, NOT teams.id — filtering teams
