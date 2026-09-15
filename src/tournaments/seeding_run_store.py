@@ -23,6 +23,7 @@ from typing import Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.storage._io import write_json
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ class SeedingRun:
     overrides: dict[int, dict[str, Any]] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
     saved_at: str = ""
+    pack: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -87,10 +89,11 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None) -> Path:
         "resolved": [asdict(item) for item in run.resolved],
         "overrides": {str(index): value for index, value in run.overrides.items()},
         "warnings": list(run.warnings),
+        "pack": run.pack,
     }
 
     path = target / RUN_FILENAME
-    path.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_json(path, payload, indent=1)
     return path
 
 
@@ -115,6 +118,7 @@ def load_run(slug: str, *, base_dir: Path | str | None = None) -> SeedingRun:
         overrides={int(index): value for index, value in (payload.get("overrides") or {}).items()},
         warnings=tuple(payload.get("warnings") or ()),
         saved_at=payload.get("saved_at", ""),
+        pack=payload.get("pack"),
     )
 
 

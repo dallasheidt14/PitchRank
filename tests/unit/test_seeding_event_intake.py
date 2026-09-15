@@ -1635,27 +1635,17 @@ def test_the_runner_resolves_reports_through_the_redirected_helper(app, tmp_path
     assert tournament_intake.reports_dir() == tmp_path
 
 
-# -------- the walk only pays for ages that can be ranked -------------------
+# -------- every age remains in a whole-tournament pack --------------------
 
 
-def test_the_walk_asks_only_for_the_ages_pitchrank_boards(app):
-    """Otherwise the app pays for team pages it can never rank or seed."""
+def test_the_walk_keeps_unranked_ages_for_placement_review(app):
     scrape = _RecordingScrape()
     app.setattr(tournament_intake, "scrape_event_roster", scrape)
     _install(app, _FakeSt())
 
     _scrape(limit_groups=None)
 
-    assert scrape.calls[0]["wanted_cohorts"] == tournament_intake._RANKED_COHORTS
-
-
-def test_the_boarded_ages_come_from_config_not_a_list_here():
-    """Derived, so the set follows the August rollover instead of going stale."""
-    from config.settings import AGE_GROUPS
-
-    assert tournament_intake._RANKED_COHORTS == frozenset(AGE_GROUPS)
-    assert "u9" not in tournament_intake._RANKED_COHORTS
-    assert {"u10", "u19"} <= tournament_intake._RANKED_COHORTS
+    assert scrape.calls[0]["wanted_cohorts"] is None
 
 
 # -------- a walk the operator's next click killed --------------------------
@@ -2256,6 +2246,28 @@ def test_the_paste_path_parks_a_roster_belonging_to_no_event(app):
     parked, _resolved = fake_st.session_state._seeding_result
     assert parked.rows, "the paste path parked nothing, so this proves nothing"
     assert fake_st.session_state.get("_seeding_result_event_id") is None
+
+
+@pytest.mark.parametrize("text", ["", "Male U14\nClub\tTeam\tState\nNew Club\tNew Team\tTX"])
+def test_failed_replacement_paste_preserves_saved_decisions_and_exports(app, text):
+    fake_st = _install(app, _FakeSt())
+    prior = to_seeding_rows(_roster(_team(0)), {})
+    tournament_intake._park_seeding_result(prior, event_id="52975")
+    fake_st.session_state._seeding_overrides = {0: {"team_id_master": "reviewed-team"}}
+    fake_st.session_state._seeding_pack = {"operator_notes": {"u14|Male": "Keep the reviewed placement."}}
+    fake_st.session_state._seeding_pdf = b"previous PDF"
+    fake_st.session_state._seeding_sheet_html = "previous HTML"
+
+    def fail(*_args, **_kwargs):
+        raise tournament_intake.requests.RequestException("temporary provider outage")
+
+    app.setattr(tournament_intake, "resolve_roster", fail)
+    tournament_intake._run_seeding_resolve(text, None)
+
+    assert fake_st.session_state._seeding_result == prior
+    assert fake_st.session_state._seeding_overrides == {0: {"team_id_master": "reviewed-team"}}
+    assert fake_st.session_state._seeding_pdf == b"previous PDF"
+    assert fake_st.session_state._seeding_sheet_html == "previous HTML"
 
 
 def test_the_parked_roster_is_written_before_the_event_it_names(app):

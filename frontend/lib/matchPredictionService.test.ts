@@ -168,6 +168,7 @@ function createMockSupabase() {
         return builder;
       }),
       order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockReturnThis(),
       limit: vi.fn().mockReturnThis(),
       maybeSingle: vi.fn(async () => resolveQuery(state)),
       then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>

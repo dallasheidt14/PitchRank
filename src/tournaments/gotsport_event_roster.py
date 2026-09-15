@@ -17,6 +17,8 @@ That link is published only for teams GotSport itself ranks: 74% of a
 competitive event's teams (52975) and none of a recreational one's (52980).
 A team without it is returned with ``provider_team_id=None`` rather than
 dropped — naming it is the caller's job, not this scraper's.
+Accepted-team rows without a registration link also remain in Seeding, with a
+local occurrence key instead of an invented registration ID.
 
 **An unreadable division label never costs a team.** Linking runs on the
 provider id alone, so the cohort is metadata carried alongside it; skipping a
@@ -33,6 +35,7 @@ import random
 import re
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, fields, replace
@@ -165,7 +168,7 @@ class EventRosterTeam:
     """Tournament cohort; ``age_group`` separately scopes current identity lookup."""
     published_cohort_label: str = ""
     source_entry_key: str = ""
-    """Local occurrence key when a published standings row carries no provider ID."""
+    """Local occurrence key when a published team row carries no registration ID."""
 
 
 @dataclass(frozen=True)
@@ -656,6 +659,44 @@ def _record_team(cell, teams: dict[str, str]) -> None:
         name = anchor.get_text(strip=True)
         if match and name:
             teams.setdefault(match.group(1), name)
+
+
+def _seeding_source_rows(
+    html: str, group_id: str, linked_teams: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """Retain ID-less accepted-team rows without requiring posted fixtures.
+
+    Seeding reads the bare Team column, which can precede even standings/PTS.
+    Each published row keeps its own identity. A unique exact name can reuse a
+    linked fixture participant only when the accepted list has one occurrence;
+    two same-named accepted teams must not collapse into one.
+    """
+    candidates: list[tuple[str, str, bool]] = []
+    soup = BeautifulSoup(html or "", "html.parser")
+    for table_index, table in enumerate(soup.find_all("table")):
+        column = None
+        for row_index, row in enumerate(table.find_all("tr")):
+            cells = row.find_all(["td", "th"])
+            headings = [_squashed(cell.get_text(" ")) for cell in cells]
+            if _squashed(_STANDINGS_HEADING) in headings:
+                column = headings.index(_squashed(_STANDINGS_HEADING))
+                continue
+            if column is None or column >= len(cells) or (len(cells) == 1 and cells[0].get("colspan")):
+                continue
+            cell = cells[column]
+            name = printable_text(" ".join(cell.get_text(" ").split())).strip()
+            if not name or _ADVANCEMENT_SLOT.fullmatch(name):
+                continue
+            linked: dict[str, str] = {}
+            _record_team(cell, linked)
+            candidates.append((name, f"standings:{group_id}:{table_index}:{row_index}", bool(linked)))
+
+    occurrences = Counter(_squashed(name) for name, _, _ in candidates)
+    registered = Counter(_squashed(name) for _, name in linked_teams)
+    return tuple(
+        (name, key) for name, key, linked in candidates
+        if not linked and not (occurrences[_squashed(name)] == 1 and registered[_squashed(name)] == 1)
+    )
 
 
 def parse_provider_team_id(html: str) -> str | None:
@@ -1218,8 +1259,11 @@ def scrape_event_roster(
     kept: an unreadable label is not evidence a division is unwanted, and
     guessing costs teams.
 
+    ID-less accepted Team rows are retained for name matching even before any
+    fixtures or standings statistics exist.
+
     ``completed_event=True`` keeps all discovered divisions and all published
-    teams, including unranked ages and source-only standings rows. Failed or
+    teams, including unranked ages and fixture-only named participants. Failed or
     unvisited divisions remain explicit placeholders. It also separates the
     tournament's published cohort from a team's current identity lookup age.
     """
@@ -1297,7 +1341,7 @@ def scrape_event_roster(
     # and read by an operator as "the walk failed". They would also arrive
     # before the per-team fetch failures below and win the cap, inverting the
     # ordering `_warnings` exists to guarantee.
-    source_only = {}
+    source_only = {division.group_id: (list(division.seeding_source_teams), ()) for division in divisions}
     if completed_event:
         source_only = {division.group_id: _source_only_participants(division) for division in divisions}
         divisions = [
@@ -1308,11 +1352,10 @@ def scrape_event_roster(
         ]
     pending = [(division, entry) for division in divisions for entry in division.teams]
     source_only_keys: dict[str, list[str]] = {}
-    if completed_event:
-        for division in divisions:
-            entries, _ = source_only[division.group_id]
-            pending.extend((division, ("", name)) for name, _ in entries)
-            source_only_keys[division.group_id] = [key for _, key in entries]
+    for division in divisions:
+        entries, _ = source_only[division.group_id]
+        pending.extend((division, ("", name)) for name, _ in entries)
+        source_only_keys[division.group_id] = [key for _, key in entries]
     team_progress = on_progress
     if on_phase:
         def report_team_progress(done: int, total: int) -> None:
@@ -1330,7 +1373,7 @@ def scrape_event_roster(
             warnings.append(failure)
             unreadable += 1
         source_entry_key = ""
-        if completed_event:
+        if completed_event or not registration_id:
             source_entry_key = (
                 f"registration:{registration_id}" if registration_id
                 else source_only_keys[division.group_id].pop(0)
@@ -1377,6 +1420,8 @@ class _Division:
     structure: ScrapedDivision
     published_age_group: str = ""
     published_cohort_label: str = ""
+    seeding_source_teams: tuple[tuple[str, str], ...] = ()
+    """Accepted name and local occurrence key, for upcoming-event Seeding only."""
 
 
 def _read_group_ids(
@@ -1571,13 +1616,14 @@ def _read_divisions(
             gender = parse_header_gender(group_html)
         named = label or f"group {group_id}"
         teams = parse_group_teams(group_html)
+        source_teams = _seeding_source_rows(group_html, group_id, teams) if not completed_event else ()
         if not team_table_found(group_html):
             unreadable.append(group_id)
             warnings.append(
                 f"Division {named}: no team table this module recognizes, so its "
                 "teams could not be read"
             )
-        elif not teams:
+        elif not teams and not source_teams:
             warnings.append(f"Division {named} lists no teams yet")
         divisions.append(
             _Division(
@@ -1586,6 +1632,7 @@ def _read_divisions(
                 age_group=age_group,
                 gender=gender,
                 teams=teams,
+                seeding_source_teams=source_teams,
                 published_age_group=published_age,
                 published_cohort_label=published_label or label if completed_event else "",
                 structure=parse_division_structure(

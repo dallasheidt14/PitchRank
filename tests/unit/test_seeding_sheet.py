@@ -7,6 +7,11 @@ escaped before it reaches the page.
 
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+
+import pytest
+
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_sheet import (
@@ -14,6 +19,7 @@ from src.tournaments.seeding_sheet import (
     fetch_ranking_run_date,
     render_sheet_html,
 )
+from src.tournaments.seeding_tiers import TierAnalysis, TierGroup, TierPolicy
 
 PASTE = (
     "Male U14\nClub\tTeam\tState\n"
@@ -235,3 +241,134 @@ def test_the_unranked_note_does_not_tell_the_reader_to_rescrape():
 
     assert "run this again" not in html
     assert "scrape" not in html.lower()
+
+
+def _analysis(**changes):
+    return replace(TierAnalysis(
+        tiers=(
+            TierGroup(1, ("1",), 0.0, 0.0, None),
+            TierGroup(2, ("0",), 0.0, 0.0, None),
+        ),
+        review={"2": "Too few recent games to place confidently."},
+        borderline={"0": (1,)},
+        boundaries=("Keep Tier 1 and Tier 2 in separate flights where possible.",),
+        ordered_ids=("1", "0"),
+        warnings=("Review this single-team tier before assigning a flight.",),
+    ), **changes)
+
+
+def _tier_sheets(analysis=None):
+    return build_cohort_sheets(
+        parse_roster(PASTE).rows, RESOLVED, {}, RATINGS,
+        tier_analyses={("u14", "Male"): analysis or _analysis()},
+    )
+
+
+def _render_tier(analysis=None, **kwargs):
+    return render_sheet_html(
+        "Competitive Cup", _tier_sheets(analysis),
+        generated_on="2026-09-15", ranking_run="2026-09-14", **kwargs,
+    )
+
+
+def test_tier_sheet_carries_identity_and_preserves_every_accepted_row_once():
+    sheets = _tier_sheets()
+    assert [(team.entrant_id, team.team_id_master) for team in sheets[0].rated] == [
+        ("1", "m-laredo"), ("0", "m-barca"),
+    ]
+    assert sheets[0].unrated[0].review_reason == "Too few recent games to place confidently."
+    assert re.findall(r'data-entrant="([^"]+)"', _render_tier()) == ["1", "0", "2", "3"]
+
+
+def test_tier_order_controls_print_order_and_seeds_continue_across_tiers():
+    analysis = _analysis(tiers=(
+        TierGroup(1, ("0",), 0.0, 0.0, None),
+        TierGroup(2, ("1",), 0.0, 0.0, None),
+    ), ordered_ids=("0", "1"))
+    document = _render_tier(analysis)
+    assert re.findall(r'data-entrant="([^"]+)"><td class="pos">([^<]+)', document) == [
+        ("0", "1"), ("1", "2"), ("2", "-"), ("3", "-"),
+    ]
+
+
+def test_missing_analysis_member_is_kept_for_review_instead_of_dropped():
+    document = _render_tier(_analysis(review={}))
+    assert document.count('data-entrant="2"') == 1
+    assert "Placement has not been assessed." in document
+
+
+@pytest.mark.parametrize("analysis", [
+    _analysis(tiers=(
+        TierGroup(1, ("1",), 0.0, 0.0, None),
+        TierGroup(2, ("1",), 0.0, 0.0, None),
+    )),
+    _analysis(review={"1": "Review"}),
+    _analysis(review={"999": "Review"}),
+])
+def test_stale_or_duplicate_analysis_cannot_produce_a_misleading_sheet(analysis):
+    with pytest.raises(ValueError):
+        _render_tier(analysis)
+
+
+def test_customer_pdf_shows_score_scale_review_reason_boundaries_and_manual_warnings():
+    document = _render_tier(policy=TierPolicy(1.5, 0.2))
+    assert ">53.5</td>" in document
+    assert ">0.535</td>" not in document
+    assert "Needs placement review" in document
+    assert "Too few recent games to place confidently." in document
+    assert "Borderline: also fits Tier 1." in document
+    assert "no within-tier matchup to assess" in document
+    assert "Keep Tier 1 and Tier 2 in separate flights where possible." in document
+    assert "Review this single-team tier before assigning a flight." in document
+    assert "expected goal gap up to 1.5" in document
+    assert "chance of a 4+ goal margin up to 20%" in document
+
+
+def test_customer_notes_and_prediction_text_are_escaped():
+    document = _render_tier(
+        _analysis(warnings=("<script>warning</script>",)),
+        operator_notes={("u14", "Male"): "<b>Local knowledge & notes</b>"},
+    )
+    assert "<script>warning</script>" not in document
+    assert "&lt;script&gt;warning&lt;/script&gt;" in document
+    assert "&lt;b&gt;Local knowledge &amp; notes&lt;/b&gt;" in document
+
+
+def test_printable_document_uses_no_remote_font_or_image_requests():
+    document = _render_tier()
+    assert "https://" not in document
+    assert "http://" not in document
+
+
+def test_repeated_master_id_does_not_silently_remove_a_roster_entrant():
+    parsed = parse_roster(PASTE)
+    sheets = build_cohort_sheets(parsed.rows, RESOLVED, {2: {"team_id_master": "m-laredo"}}, RATINGS)
+    assert sum(sheet.total_teams for sheet in sheets) == 4
+    assert [team.entrant_id for team in sheets[0].rated] == ["1", "2", "0"]
+
+
+def test_duplicate_source_indexes_fail_instead_of_overwriting_an_entrant():
+    row = parse_roster(PASTE).rows[0]
+    with pytest.raises(ValueError, match="unique source index"):
+        build_cohort_sheets([row, row], RESOLVED, {}, RATINGS)
+
+
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), -0.1, 1.1, "unknown", "0.55", True, False])
+def test_invalid_score_is_not_printed_as_a_ranked_number(score):
+    ratings = {**RATINGS, "m-stx": {"power_score_final": score, "rank_in_cohort_final": 1}}
+    stx = next(team for team in _sheets(ratings)[0].unrated if team.entrant_id == "2")
+    assert stx.power_score is None
+
+
+@pytest.mark.parametrize("score", ["unknown", True, False])
+def test_invalid_score_still_renders_team_with_its_placement_review_reason(score):
+    ratings = {**RATINGS, "m-stx": {"power_score_final": score, "rank_in_cohort_final": 1}}
+    sheets = build_cohort_sheets(
+        parse_roster(PASTE).rows, RESOLVED, {}, ratings,
+        tier_analyses={("u14", "Male"): _analysis(review={"2": "No current published PowerScore."})},
+    )
+    document = render_sheet_html("Test Cup", sheets, generated_on="2026-09-15", ranking_run="2026-09-14")
+    assert document.count('data-entrant="2"') == 1
+    assert "No current published PowerScore." in document
+    row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
+    assert '<td class="num score">-</td>' in row

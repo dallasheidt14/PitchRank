@@ -103,23 +103,18 @@ from src.tournaments.seeding_enqueue import (
     make_enqueue_caller,
     make_provider_team_id_lookup,
 )
+from src.tournaments.seeding_intake_ui import invalidate_seeding_exports, render_seeding_pack
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
+from src.tournaments.seeding_pack import pack_matches
 from src.tournaments.seeding_run_store import (
     SeedingRun,
-    slugify,
 )
 from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
 from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
 from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
-from src.tournaments.seeding_sheet import (
-    build_cohort_sheets,
-    fetch_ranking_run_date,
-    make_ratings_lookup,
-    render_sheet_html,
-)
 from src.tournaments.storage import (
     CohortConstraints,
     CohortStructure,
@@ -3582,12 +3577,6 @@ _SEEDING_PLACEHOLDER = (
     "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
 )
 
-# The ages PitchRank boards, read from the config the rest of the app uses so the
-# set moves with the August rollover rather than being restated here. A division
-# outside it is not worth a team page: `rankings_full` holds no row for those
-# cohorts, so a seeding sheet has nothing to say about their teams.
-_RANKED_COHORTS = frozenset(AGE_GROUPS)
-
 _SEEDING_EVENT_PROBE_DIVISIONS = 2
 # The scraper defaults to serial; a whole event walked one page at a time is hours.
 _SEEDING_EVENT_WORKERS = 8
@@ -3647,11 +3636,7 @@ def _seeding_provider_id_lookup(supabase_client: Any) -> ProviderIdLookup:
 def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     """Parse the pasted roster, resolve every row, and park the result in session state."""
     parsed = parse_roster(text)
-    st.session_state._seeding_overrides = {}
-    st.session_state._seeding_resolution_failed = False
-    st.session_state._seeding_sheet_html = None
     if not parsed.rows:
-        _park_seeding_result(None, event_id=None)
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
         return
 
@@ -3679,6 +3664,8 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
         progress.empty()
         session.close()
 
+    st.session_state._seeding_overrides = {}
+    st.session_state._seeding_resolution_failed = False
     _park_seeding_result((parsed, resolved), event_id=None)
 
 
@@ -3729,7 +3716,7 @@ def _run_event_roster_scrape(
                         fetch=make_zenrows_fetcher(api_key),
                         limit_groups=limit_groups,
                         max_workers=_SEEDING_EVENT_WORKERS,
-                        wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
+                        wanted_cohorts=None,
                         on_phase=on_phase,
                         **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
                     )
@@ -4353,6 +4340,8 @@ def _render_seeding_override(
             # for a Backtest-view override would autosave nothing real and mean
             # nothing here.
             if keys is _SEEDING_KEYS:
+                st.session_state.pop("_seeding_pack", None)
+                invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
             st.rerun()
 
@@ -4374,6 +4363,9 @@ def _autosave_seeding_run() -> bool:
     if not name or not result:
         return False
     parsed, resolved = result
+    pack = st.session_state.get("_seeding_pack")
+    if not pack_matches(pack, parsed.rows, resolved, st.session_state._seeding_overrides):
+        pack = None
     try:
         save_seeding_run_file(
             SeedingRun(
@@ -4382,9 +4374,10 @@ def _autosave_seeding_run() -> bool:
                 resolved=resolved,
                 overrides=dict(st.session_state._seeding_overrides),
                 warnings=parsed.warnings,
+                pack=pack,
             )
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         st.warning(f"Could not save this run: {exc}")
         return False
     return True
@@ -4400,6 +4393,7 @@ def _load_seeding_run(slug: str) -> None:
         (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved), event_id=None
     )
     st.session_state._seeding_overrides = dict(run.overrides)
+    st.session_state._seeding_pack = run.pack
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
     st.session_state._seeding_loaded_slug = slug
@@ -4419,6 +4413,8 @@ def _apply_pending_seeding_widgets() -> None:
         return
     st.session_state["seeding_event_name"] = pending_name
     st.session_state["seeding_roster_text"] = ""
+    for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
+        st.session_state.pop(key, None)
 
 
 def _render_seeding_run_controls() -> None:
@@ -4469,42 +4465,10 @@ def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) ->
 
 
 def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
-    """Build the branded, print-ready cohort sheet.
-
-    Behind a button rather than on every rerun: the ratings come from the
-    database, and a full roster is several round trips.
-    """
-    st.markdown("#### Cohort sheet")
-    event_name = _seeding_run_name()
-    if not event_name:
-        st.caption("Name the event above to build the sheet — the name is its headline.")
-        return
-
-    st.caption("Downloads a designed page. Open it and press Ctrl+P, then Save as PDF.")
-    if st.button("Build the sheet", key="_seeding_build_sheet"):
-        with st.spinner("Fetching ratings..."):
-            ratings = make_ratings_lookup(supabase_client)(_seeding_team_ids(parsed, resolved))
-            sheets = build_cohort_sheets(parsed.rows, resolved, st.session_state._seeding_overrides, ratings)
-            st.session_state._seeding_sheet_html = render_sheet_html(
-                event_name,
-                sheets,
-                generated_on=_long_date(date.today()),
-                ranking_run=fetch_ranking_run_date(supabase_client),
-            )
-
-    document = st.session_state.get("_seeding_sheet_html")
-    if not document:
-        return
-
-    st.download_button(
-        "Download the sheet",
-        data=document.encode("utf-8"),
-        file_name=f"{slugify(event_name)}-matchbalance.html",
-        mime="text/html",
-        key="_seeding_sheet_download",
+    """Review matchup tiers and generate the selected cohort PDF pack."""
+    render_seeding_pack(
+        parsed, resolved, supabase_client, event_name=_seeding_run_name(), save=_autosave_seeding_run,
     )
-    with st.expander("Preview"):
-        components.html(document, height=900, scrolling=True)
 
 
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
@@ -4526,7 +4490,8 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
     st.markdown("#### Refresh the data first")
     st.caption(
         f"Queues {rehearsal.would_queue} teams for a scrape at the same priority a user-clicked "
-        "refresh uses, so their ratings are current before anything is seeded."
+        "refresh uses. After scraping and the next rankings run finish, rebuild matchup tiers "
+        "to use the updated data. Queueing alone does not update this sheet."
     )
     if rehearsal.skipped:
         st.caption(
@@ -4684,6 +4649,10 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
     """
     st.session_state[keys.result] = pair
     st.session_state[keys.result_event_id] = event_id if pair else None
+    if keys == _SEEDING_KEYS:
+        st.session_state.pop("_seeding_pack", None)
+        st.session_state.pop("_seeding_pack_unsaved", None)
+        invalidate_seeding_exports(st.session_state)
 
 
 def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> int:

@@ -53,6 +53,8 @@ class ComparePrediction:
     expected_margin: float
     expected_absolute_goal_difference: float
     blowout_4plus_probability: float
+    confidence: str | None = None
+    confidence_score: float | None = None
 
 
 def canonical_predictor_sha256() -> str:
@@ -163,6 +165,12 @@ def _parse_prediction(row: dict[str, Any]) -> ComparePrediction:
         ),
         blowout_4plus_probability=_probability(
             row.get("blowout_4plus_probability"), name="blowout_4plus_probability"
+        ),
+        confidence=str(row["confidence"]) if row.get("confidence") is not None else None,
+        confidence_score=(
+            _probability(row["confidence_score"], name="confidence_score")
+            if row.get("confidence_score") is not None
+            else None
         ),
     )
 
