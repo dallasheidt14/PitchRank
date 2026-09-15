@@ -402,6 +402,29 @@ Dates, filters on end date, and returns at most 30 leagues with no pager, so wal
 forward. Featured leagues render the same card with an `F` in every control id
 (`lnkFEventName`, `lblFDate`).
 
+### Finding past tournaments
+
+The tournament view of `events.aspx` lists upcoming events only and ignores a past From Date.
+Past events with results are on `usarankevents.aspx`:
+
+- Set `ctl00$ContentPlaceHolder1$tbFrom` and `ctl00$ContentPlaceHolder1$tbEnd` (M/D/YYYY) and submit
+  `ctl00$ContentPlaceHolder1$btnSearch`. The date range filters the list; the State dropdown did
+  not (2026-09-13).
+- The list shows 30 events a page. Page it from inside the page with
+  `eo_Callback("cpEvents", "<page>")`, pages numbered from 1, and wait under a cap for its
+  "Displaying: X to Y / N" text to change before reading rows or firing the next page. A callback
+  fired before the previous one lands cancels it; pages landed in about a second on 2026-09-15,
+  where an earlier session allowed up to 120 s. Each row's `schedule.aspx?tid=` link gives the tid,
+  beside the event name, start date and state.
+- Most listed events are not run on SincSports: their root has no divisions, and their results
+  are SincVIP-gated (see Access). Of 252 uncaptured events from Aug 1 to Sep 15, 2026, 242 had no
+  divisions and the other 10 were girls or adult only. Pass the new tids to the capture script's
+  `divisions` mode: it reads each root's division links and `<select>` options and captures only
+  boys divisions, so an event with none costs one request and yields nothing.
+- New tournaments are the listed tids missing from earlier captures under `data/raw/sincsports_*`.
+  Re-capturing a recent event is safe: games already stored are skipped and a late score comes in
+  as a new game, but a corrected score does not replace the stored one.
+
 ## Soccer Events Group Pages
 
 soccereventsgroup.com runs on 3 Step Sports and answers `requests` sent with a browser
