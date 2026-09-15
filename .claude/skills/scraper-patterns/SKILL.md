@@ -1,6 +1,6 @@
 ---
 name: scraper-patterns
-description: Web scraping patterns for PitchRank - rate limits, error handling, existing scraper conventions
+description: "Web scraping patterns for PitchRank - rate limits, error handling, existing scraper conventions, per-provider endpoint quirks, and team-name parsing for provider matchers. Use when writing or debugging a scraper, adding a provider, or building a provider matcher's fuzzy gates."
 ---
 
 # Scraper Patterns Skill for PitchRank
@@ -389,6 +389,62 @@ submit `ctl00$ContentPlaceHolder1$btnSearch`. Unlike the tournament view it acce
 Dates, filters on end date, and returns at most 30 leagues with no pager, so walk the From Date
 forward. Featured leagues render the same card with an `F` in every control id
 (`lnkFEventName`, `lblFDate`).
+
+## Soccer Events Group Pages
+
+soccereventsgroup.com runs on 3 Step Sports and answers `requests` sent with a browser
+User-Agent, no proxy. `scripts/import_soccereventsgroup_event.py` is the driver.
+
+- `/api/program/<id>` returns `{program, divisions}`. `program.start` dates the event and
+  `program.affiliationId` feeds the roster call.
+- `/api/team/list?affiliationId=<a>&programIds=<id>` is the roster: JSON, teams under
+  `programTeams[].divisions[].teams[]`, each with its numeric team id, `origin`
+  ("Chicago, IL") and `state`.
+- Take a division's birth year from `oldestEligibleBirthdate`, the Aug 1 cutoff: year + 1 is
+  the band's younger year. Accept the division only when the cutoff is Aug 1 and the leading
+  age of `sessionName` ("U10 Bronze"; the tier follows the age) names one cohort that agrees
+  with that birth year in the event's own season; skip it otherwise. File teams on the board
+  that birth year sits on this season, never from the label or the team name.
+- `/site/teams/details.aspx?TeamID=<id>` carries the division's bracket in the element whose
+  id ends `BracketPanel`: one `table.game` per game, `td.team` (classes `winner`/`loser`),
+  `td.score`, `td.title` ("Semifinal") and `td.time` ("9/6 3:00P, Field 08"). One page per
+  division is enough. The time has no year: use `program.start`'s year, or the next year for
+  a date before the start.
+- Pool play is not published; brackets are the only results.
+- Bracket pages re-case team names, and roster names can end in NBSP. Collapse whitespace
+  (NBSP included) and compare case-insensitively against that division's roster only; report
+  a name the division does not hold rather than importing the game.
+- A drawn game (0-0, 1-1) marks neither side; take the result from the scores, not the classes.
+
+## Provider Matcher Name Parsing
+
+Rules for a provider matcher that gates fuzzy candidates on the team name
+(`src/models/soccereventsgroup_matcher.py` follows them):
+
+- Avoid `game_matcher.extract_team_variant` and `extract_distinctions()["coach_name"]` as a
+  squad gate. Both read tier and band tokens ("ECNL-RL", the "/13" of "G2012/13") as a coach,
+  so two spellings of one squad are rejected and a duplicate team is created.
+- Gate squads on `colors`, `directions` and `team_number` from `extract_distinctions`, squad
+  codes (N1, S2), and tiers via `squad_name_gates.extract_tier_tokens` / `tiers_conflict`.
+  Count a squad number or code only when both names carry one. Leave `location_codes` out: it
+  collects leftover words ("Lou" of "Lou Fusz") and rejects real matches.
+- Strip the club from both names before reading squad marks, or a club's own words
+  ("Blue Fire", "Blue Star") read as colors.
+- Extract the club yourself before calling `extract_club_from_team_name`. Normalize a glued age
+  and gender ("U15G", "14uG", "BU07") to `U<n>`, strip a leading U-age, and cut the name at a
+  two-digit band ("14/15", "15/16B") or a Boys/Girls word. Left in, a glued form or band stays
+  in the club, and a leading `U12` yields no club at all. Collapse dotted initials too:
+  `extract_distinctions` reads the "S" of "S.C." as the direction South.
+- Break equal scores on an exact name match, then a same-state candidate over a stateless one;
+  send a remaining tie to review rather than taking the first candidate.
+- Cap review-queue confidence with `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP` (0.89).
+  `team_match_review_queue` requires 0.75 <= confidence < 0.90, the clamp covers only the
+  upper bound, and the base `_create_review_queue_entry` logs a refused insert and drops the row.
+
+To test matching against production without writes, construct the matcher with
+`dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy
+matching. Teams an earlier real run created then appear as existing candidates, so the
+replay's link counts overstate what a first run on a fresh event does.
 
 ## Request Pattern
 

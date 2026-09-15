@@ -1042,3 +1042,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: team rows "Barça Academy U11 Blau" (SincSports `NCM15006B1` + `NCM15006B2`) and "U13 Boys- Carolina Eclipse Premier 2" (`SCM140018D` + `SCM140018E`); their `fuzzy_auto` aliases in `team_alias_map`
 - **Why**: Both second ids were fuzzy-linked on 2026-09-13 and are not among the five fused rows that day's run record lists. After the 2026-09-14 Carolina Champions League Fall import, verified by query: `NCM15006B1` and `NCM15006B2` played each other on 2026-08-23 (5-1), which is stored as a game against itself, and both rows carry games from two squads on the same days (5 team-days and 2 team-days). Repoint each second alias to its own team and re-attribute that id's games; games are immutable, so the re-attribution needs a decision.
 - **Noted**: 2026-09-14
+
+### Base matcher review-queue and alias writes fail without the caller knowing
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher._create_review_queue_entry` and `_create_alias`
+- **Why**: `_create_review_queue_entry` inserts `confidence_score` unclamped, so a birth-year-demoted match scoring 0.90 or more violates the `team_match_review_queue` CHECK (0.75 <= score < 0.90); the `except` logs one error and the row is gone. The first Soccer Events Group execute on 2026-09-14 lost two rows this way until that matcher clamped to `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP`; every other provider still sends the raw score. Its dry run also logs "Created review queue entry" having written nothing, and `_create_alias` swallows its own write failure while the caller reports the team linked. Clamp and surface failures in the base class once rather than per provider.
+- **Noted**: 2026-09-14
+
+### Oregon and WA matchers reject same-squad names and pick equal-score candidates arbitrarily
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `extract_team_variant`; `src/models/affinity_or_matcher.py` and `src/models/affinity_wa_matcher.py` `_fuzzy_match_team`; `tests/unit/test_provider_matcher_dry_run.py` create-helper parametrization
+- **Why**: Building the Soccer Events Group matcher on 2026-09-14 showed `extract_team_variant` reading tier and band tokens such as "ECNL-RL" or the "/13" of "G2012/13" as a coach name, so two spellings of one squad fail the variant gate and a duplicate team is created; SEG replaced the gate with `extract_distinctions` colours, directions and squad number plus tier tokens. Both matchers also take the first of several equal-score candidates in iteration order, where SEG now sends a tie to review. Separately, the dry-run test's create-helper list covers sincsports, affinity_wa and soccereventsgroup but not `_create_new_affinity_or_team`.
+- **Noted**: 2026-09-14
+
+### Event scrapers each carry their own copy of the game-import CSV contract
+
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `REQUIRED_COLUMNS` in `scripts/scrape_affinity_or_tournament.py`, `scrape_affinity_wa_tournament.py`, `scrape_playmetrics_league.py`, `scrape_tgs_event.py`, `import_soccereventsgroup_event.py`; `_compute_result` in three of them; `bulk_existing_aliases` in `scripts/discover_sincsports_teams.py` and `discover_sincsports_via_tournament.py`, `existing_aliases` in `import_soccereventsgroup_event.py`
+- **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
+- **Noted**: 2026-09-14

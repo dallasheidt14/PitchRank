@@ -23,6 +23,7 @@ from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.sincsports_matcher import SincSportsGameMatcher
+from src.models.soccereventsgroup_matcher import SoccerEventsGroupGameMatcher
 from src.models.tgs_matcher import TGSGameMatcher
 
 AUTOCREATING_MATCHERS = [
@@ -32,6 +33,7 @@ AUTOCREATING_MATCHERS = [
     ("affinity_or", AffinityORGameMatcher),
     ("playmetrics", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
+    ("soccereventsgroup", SoccerEventsGroupGameMatcher),
 ]
 
 
@@ -70,6 +72,7 @@ def test_pipeline_passes_dry_run_to_every_autocreating_matcher(provider):
     [
         ("sincsports", SincSportsGameMatcher, "_create_new_sincsports_team"),
         ("affinity_wa", AffinityWAGameMatcher, "_create_new_affinity_wa_team"),
+        ("soccereventsgroup", SoccerEventsGroupGameMatcher, "_create_new_soccereventsgroup_team"),
     ],
 )
 def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):

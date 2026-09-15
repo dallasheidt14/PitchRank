@@ -328,6 +328,8 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | AthleteOne | `athleteone` | API client | Conference schedules |
 | PlayMetrics | `playmetrics` | League JSON API | SECL + state leagues (events use `playmetrics_tournament`) |
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
+| Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
+| Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
