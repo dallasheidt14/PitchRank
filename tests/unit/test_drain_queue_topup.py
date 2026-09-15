@@ -545,3 +545,130 @@ def test_is_scrapeable_team_does_not_read_the_activity_columns():
     assert _is_scrapeable_team(
         {"team_id_master": "t-1", "team_name": "T", "provider_team_id": "1", "age_group": "u12", "birth_year": 2014}
     )
+
+
+# --- top-up timeout must not discard an already-claimed queue batch ------------
+#
+# Runs 34902142464, 34920077694 and 34920669722 (2026-09-14/15) each claimed a
+# full batch, then died because find_topup_teams — the step that only pads a
+# short batch — hit the statement timeout. The last of them threw away 491
+# scrapeable teams to satisfy a 9-team shortfall.
+
+
+def _api_error(code):
+    """An APIError shaped like the one PostgREST returns, carrying `code`."""
+    from postgrest.exceptions import APIError
+
+    return APIError({"code": code, "message": "boom", "hint": None, "details": None})
+
+
+def _drain_observing_scrapes(topup_error, claimed_rows=1, limit=50):
+    """Run drain_queue() and record which teams actually reached the scraper.
+
+    Returns (outcome, release_count, scraped_team_ids). `outcome` is "completed"
+    or the exception class name, so a test can tell "ran with a short batch"
+    from "aborted".
+    """
+    import asyncio
+    from unittest.mock import patch
+
+    import scripts.drain_queue as d
+
+    released = []
+    scraped = []
+
+    supabase = Mock()
+
+    def _table(_name):
+        t = Mock()
+        t.update.return_value.in_.return_value.execute.side_effect = lambda: released.append(1) or Mock()
+        return t
+
+    supabase.table.side_effect = _table
+
+    claimed = [
+        {
+            "id": f"req-{i}",
+            "team_id_master": f"t-{i}",
+            "team_name": f"Team {i}",
+            "provider_id": "p",
+            "provider_team_id": str(i),
+            "game_date": None,
+            "priority": 1,
+            "request_type": "x",
+        }
+        for i in range(claimed_rows)
+    ]
+    meta = {f"t-{i}": {"age_group": "u12", "birth_year": 2014, "last_scraped_at": None} for i in range(claimed_rows)}
+
+    async def _fake_scrape(_sem, _scraper, team, *args, **kwargs):
+        scraped.append(team["team_id_master"])
+        return (0, None, False)
+
+    topup = (lambda *a, **k: []) if topup_error is None else topup_error
+
+    with (
+        patch.object(d, "create_client", return_value=supabase),
+        patch.object(d, "GotSportScraper") as gs,
+        patch.object(d, "_claim_queue_items", return_value=claimed),
+        patch.object(d, "_fetch_team_metadata", return_value=meta),
+        patch.object(d, "_fetch_topup_teams", side_effect=topup),
+        patch.object(d, "_scrape_team_concurrent", _fake_scrape),
+        patch.object(d, "_finalize_queue_items", Mock()),
+        patch.object(d, "_bulk_log_team_scrapes", Mock()),
+    ):
+        gs.return_value._get_provider_id.return_value = "pid"
+        try:
+            asyncio.run(d.drain_queue(limit=limit, concurrency=1, dry_run=False))
+            return "completed", len(released), scraped
+        except BaseException as exc:  # noqa: BLE001 - the outcome under test
+            return type(exc).__name__, len(released), scraped
+
+
+def test_topup_timeout_still_scrapes_the_claimed_queue_batch():
+    """57014 is the whole bug: a padding step must not bin real claimed work."""
+    outcome, releases, scraped = _drain_observing_scrapes(topup_error=_api_error("57014"), claimed_rows=3)
+    assert outcome == "completed"
+    assert scraped == ["t-0", "t-1", "t-2"]
+
+
+def test_topup_timeout_does_not_release_the_claims_it_is_about_to_scrape():
+    """The rows must stay 'processing' so _finalize_queue_items can complete
+    them — releasing here would hand back work this run is still doing."""
+    _, releases, _ = _drain_observing_scrapes(topup_error=_api_error("57014"), claimed_rows=3)
+    assert releases == 0
+
+
+def test_missing_topup_function_still_aborts_and_releases():
+    """42883 (undefined_function) is a deploy fault, not a transient one. This
+    is the other half of the SQLSTATE guard: widening the catch to every
+    APIError would let an unapplied migration scrape short batches forever."""
+    outcome, releases, scraped = _drain_observing_scrapes(topup_error=_api_error("42883"))
+    assert outcome == "APIError"
+    assert releases == 1
+    assert scraped == []
+
+
+def test_a_topup_error_with_no_sqlstate_still_aborts():
+    """Guards the getattr default: an exception carrying no `code` at all must
+    not fall through the `!= 57014` comparison into the swallow path."""
+    outcome, releases, scraped = _drain_observing_scrapes(topup_error=RuntimeError("transient"))
+    assert outcome == "RuntimeError"
+    assert releases == 1
+    assert scraped == []
+
+
+def test_empty_queue_plus_timed_out_topup_fails_instead_of_reporting_success():
+    """A run that scraped nothing must not exit 0. Swallowing the timeout would
+    otherwise turn 'no teams at all' into a green run that looks like work."""
+    outcome, _, scraped = _drain_observing_scrapes(topup_error=_api_error("57014"), claimed_rows=0)
+    assert outcome == "RuntimeError"
+    assert scraped == []
+
+
+def test_empty_queue_plus_legitimately_empty_topup_is_not_an_error():
+    """The other half of that guard: nothing due is a real state and stays
+    green. Only a *failed* top-up turns an empty batch into a failure."""
+    outcome, _, scraped = _drain_observing_scrapes(topup_error=None, claimed_rows=0)
+    assert outcome == "completed"
+    assert scraped == []

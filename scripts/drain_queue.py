@@ -243,6 +243,8 @@ def _fetch_team_metadata(supabase, team_id_masters: List[str]) -> Dict[str, Dict
 
 _TOPUP_STALE_DAYS = 14
 _TOPUP_PAGE_SIZE = 1000
+# Postgres SQLSTATE for "canceling statement due to statement timeout".
+_TOPUP_TIMEOUT_SQLSTATE = "57014"
 _TEAM_KEYS = (
     "team_id_master",
     "team_name",
@@ -659,21 +661,61 @@ async def drain_queue(
         # the second scrape is incremental.
         queue_team_count = len(teams)
         shortfall = limit - queue_team_count
+        topup_failed = False
         if shortfall > 0:
-            topup = _fetch_topup_teams(
-                supabase,
-                provider_id,
-                shortfall,
-                {t["team_id_master"] for t in teams if t.get("team_id_master")},
-            )
+            try:
+                topup = _fetch_topup_teams(
+                    supabase,
+                    provider_id,
+                    shortfall,
+                    {t["team_id_master"] for t in teams if t.get("team_id_master")},
+                )
+            except Exception as exc:
+                # A statement timeout in the top-up must not throw away a batch the
+                # queue already filled. find_topup_teams sorts the whole teams table
+                # on last_scraped_at — a column carrying no index — and re-evaluates
+                # the canonical eligibility predicate (including a correlated EXISTS
+                # against ranking_history) per row, so once the eligible-and-stale
+                # pool runs dry and the LIMIT can no longer be filled it exceeds the
+                # statement timeout. That is what killed runs 34902142464,
+                # 34920077694 and 34920669722 on 2026-09-14/15, each of which had
+                # already claimed a full batch of real queue work: 500 claimed and
+                # 491 scrapeable in the last of them, all discarded to satisfy a
+                # top-up that is only meant to pad a short batch.
+                #
+                # Narrow on the SQLSTATE, not on the exception type: every other
+                # failure still propagates so the claim-release guard runs. A missing
+                # find_topup_teams migration raises 42883, which is a deploy fault
+                # rather than a transient one and must stay loud.
+                if getattr(exc, "code", None) != _TOPUP_TIMEOUT_SQLSTATE:
+                    raise
+                topup_failed = True
+                topup = []
+                logger.warning(
+                    "find_topup_teams timed out (SQLSTATE %s); continuing with the queue batch only",
+                    _TOPUP_TIMEOUT_SQLSTATE,
+                )
+                console.print(
+                    "[yellow]Top-up query timed out — continuing with the "
+                    f"{queue_team_count:,} teams already claimed from the queue[/yellow]"
+                )
             if topup:
                 console.print(
                     f"[cyan]Topping up with {len(topup):,} teams from the teams table "
                     f"(most-recently-scraped first, skipping the last 14 days)[/cyan]"
                 )
                 teams.extend(topup)
-            else:
+            elif not topup_failed:
                 console.print("[yellow]No eligible teams available to top up the batch[/yellow]")
+
+        # Only reachable when the top-up errored: an empty queue plus a legitimately
+        # empty top-up is a real "nothing due" state and still exits 0. Swallowing
+        # the timeout above must not turn a run that scraped nothing at all into a
+        # green one, which would read as work done.
+        if not teams and topup_failed:
+            raise RuntimeError(
+                "Nothing to scrape: the queue yielded no eligible teams and the teams-table top-up timed out"
+            )
 
         if dry_run:
             topup_count = len(teams) - queue_team_count
