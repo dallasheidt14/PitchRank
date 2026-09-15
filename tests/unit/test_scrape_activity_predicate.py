@@ -239,6 +239,52 @@ def test_the_revival_producers_do_not_carry_the_predicate():
 
 
 # --------------------------------------------------------------------------- #
+# find_discovery_teams
+# --------------------------------------------------------------------------- #
+
+
+def test_discovery_signature_is_unchanged():
+    """Adding or retyping an argument creates a second function beside this one instead
+    of replacing it, leaving the old body live."""
+    path, _ = _newest_definition("find_discovery_teams")
+    sql = _flat(_executable(_sql(path)))
+    assert "find_discovery_teams( p_provider_id uuid, p_row_limit integer DEFAULT 1000 )" in sql
+    assert "RETURNS TABLE(team_id_master uuid, team_name text, provider_team_id text)" in sql
+
+
+def test_discovery_reads_fixture_dates_instead_of_aggregating_games():
+    """Aggregating every games row per call is whole-table work inside an 8s RPC
+    budget; teams.last_fixture_at already carries both facts the query needs: whether a
+    future fixture exists, and whether one fell in the last 90 days."""
+    body = _bare(_discovery_body())
+    assert not re.search(r"\bgames\b", body), f"find_discovery_teams reads games again:\n{body}"
+
+
+def test_discovery_filters_and_sorts_candidates_before_the_predicate_reads_them():
+    """The predicate probes ranking_history once per team it sees, so it filters the
+    sorted subquery and the LIMIT stops it early. Moved inside, or with the outer order
+    differing from the inner one, it runs for every candidate team. Pinned whole
+    because no other test guards the scope filters or the ANDs joining them."""
+    body = _bare(_discovery_body())
+    expected_opening = (
+        "$$ SELECT t.team_id_master, t.team_name, t.provider_team_id FROM ( "
+        "SELECT tm.*, COALESCE(tm.last_fixture_at >= CURRENT_DATE - 90, false) AS has_recent "
+        "FROM teams tm, (select extract(year from (now() - interval '7 months'))::int as yr) c "
+        "WHERE tm.is_deprecated = false "
+        "AND tm.provider_id = find_discovery_teams.p_provider_id "
+        "AND (tm.last_fixture_at IS NULL OR tm.last_fixture_at <= CURRENT_DATE) "
+        "AND (tm.age_group IS NULL OR UPPER(TRIM(tm.age_group)) NOT IN ('U8','U-8','U9','U-9')) "
+        "AND (tm.birth_year IS NULL OR tm.birth_year NOT IN (c.yr - 21, c.yr - 20, c.yr - 8, c.yr - 7, c.yr - 6)) "
+        "ORDER BY has_recent DESC, tm.last_scraped_at ASC NULLS FIRST ) t "
+        "WHERE NOT (t.team_name = 'unknown_' || t.provider_team_id) AND ( (t.last_fixture_at"
+    )
+    assert body.startswith(expected_opening), f"find_discovery_teams' subquery shape changed:\n{body}"
+    assert body.endswith(
+        ") ORDER BY t.has_recent DESC, t.last_scraped_at ASC NULLS FIRST LIMIT find_discovery_teams.p_row_limit; $$"
+    ), f"find_discovery_teams no longer ends by ordering and limiting the filtered rows:\n{body}"
+
+
+# --------------------------------------------------------------------------- #
 # find_topup_teams
 # --------------------------------------------------------------------------- #
 
@@ -336,6 +382,11 @@ def test_all_four_columns_are_added_idempotently():
 
 def _refresh_body() -> str:
     _, body = _newest_definition(REFRESH_FUNCTION)
+    return _executable(body)
+
+
+def _discovery_body() -> str:
+    _, body = _newest_definition("find_discovery_teams")
     return _executable(body)
 
 

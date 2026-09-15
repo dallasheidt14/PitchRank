@@ -313,11 +313,11 @@ carries `SET LOCAL statement_timeout = '300s'` and is cancelled on every product
 `.turbo/backfill-review-2026-07-27.md` records `calculate_rankings.py`'s Python fallback
 taking over weekly, and that fallback has never written a row. Do not copy its shape.
 
-### A LIMIT stops early only when an index supplies the ORDER BY
+### A LIMIT stops no work below a full sort
 
-A page-sized RPC can still do whole-table work. When no index supplies the sort, the planner
-evaluates the full WHERE for every candidate row, sorts them all, and only then applies the
-LIMIT. That can fit the 8 seconds while the pages are cached and time out when they are not.
+A page-sized RPC can still do whole-table work. In a flat query with no index to supply the
+sort, the planner evaluates the full WHERE for every candidate row, sorts them all, and only
+then applies the LIMIT. That can fit the 8 seconds while the pages are cached and time out when they are not.
 
 Null placement decides whether an index supplies the order. A btree built `ASC` (nulls last,
 the default) serves `ASC` and plain `DESC`; one built `ASC NULLS FIRST` serves
@@ -328,12 +328,23 @@ matches the index: rows are unchanged, and the planner can walk the index and st
 OFFSET plus LIMIT rows are found, under an Incremental Sort when the ORDER BY adds a
 tiebreaker the index lacks.
 
-Confirm with `EXPLAIN (ANALYZE, BUFFERS)` run twice. A first run that times out or shows a
-large `read=`, followed by a much faster one, is this plan meeting a cold cache; two slow runs
-are the same shape with nothing cached to hide it. A SQL function with `SECURITY DEFINER` or a
-`SET` clause is never inlined, and PG17 plans its body generically, so test the body as a
-`PREPARE`d statement under `SET plan_cache_mode = force_generic_plan`. `find_topup_teams`
-(`20260915120000`) is the worked example.
+When no index can supply the order, as with a computed leading sort key, the scan and sort still
+cover every candidate, but a costly per-row check can stop early. Filter and sort the candidates
+on cheap columns in a subquery, apply the check in the outer WHERE, and repeat the same ORDER BY
+before the LIMIT; any other outer order puts a sort above the check that drains it. The check
+must stay a filter: a correlated `EXISTS` inside an `OR` does, but a top-level `AND [NOT] EXISTS`
+becomes a join the planner may hash and re-sort, so confirm `EXPLAIN` shows it as a `SubPlan` in
+the Subquery Scan's `Filter`. No `OFFSET 0` fence is needed: the inner ORDER BY stops PG17
+flattening the subquery, and PG17 never pushes a filter holding a correlated subquery down into
+one. `find_discovery_teams` (`20260915130000`) is the worked example.
+
+Confirm with `EXPLAIN (ANALYZE, BUFFERS)` run twice; a plain `EXPLAIN` shows estimates and can
+blame the wrong node. A first run that times out or shows a large `read=`, followed by a much
+faster one, is a whole-candidate sort meeting a cold cache; two slow runs are the same shape with
+nothing cached to hide it. A SQL function with `SECURITY DEFINER` or a `SET` clause is never
+inlined, and PG17 plans its body generically, so test the body as a `PREPARE`d statement under
+`SET plan_cache_mode = force_generic_plan`, as was done for `find_topup_teams`
+(`20260915120000`).
 
 ### Bulk `is_excluded` updates pay a scan per row
 
