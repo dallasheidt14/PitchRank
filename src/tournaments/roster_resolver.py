@@ -33,13 +33,17 @@ from typing import Any
 import requests
 
 from src.tournaments.roster_paste import RosterRow
+from src.utils.club_normalizer import are_same_club
+from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "GOTSPORT_RANKING_SEARCH_URL",
     "ResolvedTeam",
+    "TeamDetailsLookup",
     "build_search_params",
+    "escape_ilike_literal",
     "ManualReference",
     "ManualResolution",
     "fetch_gotsport_provider_id",
@@ -66,6 +70,7 @@ _PROVIDER_GENDER = {"Male": "m", "Female": "f"}
 GotsportSearch = Callable[[str, str, str], list[dict[str, Any]]]
 ProviderIdLookup = Callable[[str], str | None]
 ExactNameLookup = Callable[[str, str, str], list[str]]
+TeamDetailsLookup = Callable[[str], dict[str, Any] | None]
 
 
 @dataclass(frozen=True)
@@ -82,6 +87,7 @@ class ResolvedTeam:
     provider_team_id: str | None = None
     matched_name: str | None = None
     candidates: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    review_reason: str | None = None
 
 
 def build_search_params(team_name: str, age_group: str, gender: str) -> dict[str, str]:
@@ -148,12 +154,76 @@ def _names_the_same_team(candidate_name: str, row: RosterRow) -> bool:
     }
 
 
+def _state_code(value: Any) -> str | None:
+    """Normalize a U.S. state name or postal code for identity comparison."""
+    text = str(value or "").strip()
+    upper = text.upper()
+    if upper in STATE_CODE_TO_NAME:
+        return upper
+    return state_name_to_code(text)
+
+
+def _candidate_state(candidate: dict[str, Any]) -> str:
+    for key in ("state_code", "state", "team_state"):
+        value = str(candidate.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _identity_conflict_reason(row: RosterRow, *signals: dict[str, Any] | None) -> str | None:
+    """Explain contradictory club/state evidence, while treating omissions as neutral."""
+    submitted_club = row.club_raw.strip()
+    submitted_state = _state_code(row.state)
+    reasons: list[str] = []
+    seen: set[str] = set()
+
+    for signal in signals:
+        if not signal:
+            continue
+        candidate_club = str(signal.get("club_name") or "").strip()
+        if submitted_club and candidate_club and not are_same_club(submitted_club, candidate_club):
+            reason = f"Club conflict: submitted '{submitted_club}', candidate '{candidate_club}'."
+            if reason not in seen:
+                reasons.append(reason)
+                seen.add(reason)
+
+        candidate_state_raw = _candidate_state(signal)
+        candidate_state = _state_code(candidate_state_raw)
+        if submitted_state and candidate_state and submitted_state != candidate_state:
+            reason = f"State conflict: submitted '{submitted_state}', candidate '{candidate_state}'."
+            if reason not in seen:
+                reasons.append(reason)
+                seen.add(reason)
+
+    return " ".join(reasons) or None
+
+
+def _review_candidate(
+    *,
+    team_id_master: str | None = None,
+    provider_hit: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = dict(provider_hit or {})
+    candidate.update(details or {})
+    if team_id_master:
+        candidate["team_id_master"] = team_id_master
+    return candidate
+
+
+def escape_ilike_literal(value: str) -> str:
+    """Escape Postgres ILIKE metacharacters so a team name stays literal."""
+    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
 def resolve_row(
     row: RosterRow,
     *,
     gotsport_search: GotsportSearch,
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
+    lookup_team_details: TeamDetailsLookup | None = None,
 ) -> ResolvedTeam:
     """Resolve one row, GotSport id first and exact local name second."""
     hits: list[dict[str, Any]] = []
@@ -176,9 +246,34 @@ def resolve_row(
                 status="review",
                 candidates=tuple(hits),
             )
+        conflict = _identity_conflict_reason(row, hits[0])
+        if conflict:
+            return ResolvedTeam(
+                source_index=row.source_index,
+                status="review",
+                provider_team_id=str(hits[0].get("team_id")),
+                candidates=tuple(hits),
+                review_reason=conflict,
+            )
         provider_team_id = str(hits[0].get("team_id"))
         team_id_master = lookup_provider_id(provider_team_id)
         if team_id_master:
+            details = lookup_team_details(team_id_master) if lookup_team_details else None
+            conflict = _identity_conflict_reason(row, hits[0], details)
+            if conflict:
+                return ResolvedTeam(
+                    source_index=row.source_index,
+                    status="review",
+                    provider_team_id=provider_team_id,
+                    candidates=(
+                        _review_candidate(
+                            team_id_master=team_id_master,
+                            provider_hit=hits[0],
+                            details=details,
+                        ),
+                    ),
+                    review_reason=conflict,
+                )
             return ResolvedTeam(
                 source_index=row.source_index,
                 status="gotsport_id",
@@ -189,6 +284,15 @@ def resolve_row(
 
     local = lookup_exact_name(row.team_name_stripped, row.section_age_group, row.section_gender)
     if len(local) == 1:
+        details = lookup_team_details(local[0]) if lookup_team_details else None
+        conflict = _identity_conflict_reason(row, details)
+        if conflict:
+            return ResolvedTeam(
+                source_index=row.source_index,
+                status="review",
+                candidates=(_review_candidate(team_id_master=local[0], details=details),),
+                review_reason=conflict,
+            )
         return ResolvedTeam(
             source_index=row.source_index,
             status="exact_name",
@@ -211,6 +315,7 @@ def resolve_roster(
     gotsport_search: GotsportSearch,
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
+    lookup_team_details: TeamDetailsLookup | None = None,
     delay_seconds: float = 0.0,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[ResolvedTeam, ...]:
@@ -228,6 +333,7 @@ def resolve_roster(
                 gotsport_search=gotsport_search,
                 lookup_provider_id=lookup_provider_id,
                 lookup_exact_name=lookup_exact_name,
+                lookup_team_details=lookup_team_details,
             )
         )
         if on_progress is not None:
@@ -319,7 +425,7 @@ def resolve_manual_reference(
     )
 
 
-def make_team_details_lookup(supabase_client: Any) -> Callable[[str], dict[str, Any] | None]:
+def make_team_details_lookup(supabase_client: Any) -> TeamDetailsLookup:
     """Fetch the fields an operator needs to confirm a pasted id is the right team."""
 
     def lookup(team_id_master: str) -> dict[str, Any] | None:
@@ -423,7 +529,7 @@ def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> 
         rows = (
             supabase_client.table("teams")
             .select("team_id_master,team_name")
-            .ilike("team_name", team_name)
+            .ilike("team_name", escape_ilike_literal(team_name))
             .eq("age_group", age_group)
             .eq("gender", gender)
             .eq("is_deprecated", False)

@@ -60,13 +60,23 @@ def test_slugify_refuses_a_name_with_nothing_usable():
 
 
 def test_saved_run_reloads_with_its_rows_intact(tmp_path):
-    save_run(_run(), base_dir=tmp_path)
+    run = _run()
+    run = replace(
+        run,
+        rows=(
+            replace(run.rows[0], requested_flight="Gold"),
+            replace(run.rows[1], listed_division="U14 Boys Silver"),
+        ),
+    )
+    save_run(run, base_dir=tmp_path)
 
     loaded = load_run("stx-cup-2026", base_dir=tmp_path)
 
     assert [row.team_name_raw for row in loaded.rows] == ["Barcelona SC 13B Aztecas", "Tyler FC 15B*"]
     assert loaded.rows[1].has_star_marker is True
     assert loaded.rows[0].section_age_group == "u14"
+    assert loaded.rows[0].requested_flight == "Gold"
+    assert loaded.rows[1].listed_division == "U14 Boys Silver"
 
 
 def test_saved_run_reloads_with_its_resolutions_intact(tmp_path):
@@ -178,6 +188,20 @@ def test_legacy_saved_run_without_pack_remains_loadable(tmp_path):
     assert loaded.pack is None
     assert loaded.rows == _run().rows
     assert loaded.overrides == _run().overrides
+
+
+def test_legacy_saved_rows_without_flight_fields_use_blank_defaults(tmp_path):
+    path = save_run(_run(), base_dir=tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    for row in payload["rows"]:
+        row.pop("requested_flight", None)
+        row.pop("listed_division", None)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    loaded = load_run("stx-cup-2026", base_dir=tmp_path)
+
+    assert all(row.requested_flight == "" for row in loaded.rows)
+    assert all(row.listed_division == "" for row in loaded.rows)
 
 
 def test_failed_pack_serialization_preserves_the_previous_saved_run_bytes(tmp_path):

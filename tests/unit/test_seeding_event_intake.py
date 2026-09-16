@@ -1387,6 +1387,111 @@ def test_the_name_pass_is_marked_pending_until_it_commits(app):
     assert seen == [True], "the flag must already be set when the free pass starts"
 
 
+# -------- duplicate identity review ---------------------------------------
+
+
+def test_identity_conflict_reason_is_visible_in_the_review_table():
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster("Male U14\nSubmitted FC\tTeam A\tTX")
+    resolved = (
+        ResolvedTeam(
+            source_index=0,
+            status="review",
+            candidates=({"team_id_master": "master-a", "club_name": "Other Academy"},),
+            review_reason="Club conflict: submitted 'Submitted FC', candidate 'Other Academy'.",
+        ),
+    )
+
+    frame = tournament_intake._seeding_result_frame(parsed, resolved, {})
+
+    assert frame.loc[0, "Review"] == (
+        "Club conflict: submitted 'Submitted FC', candidate 'Other Academy'."
+    )
+
+
+def test_every_same_cohort_duplicate_match_is_flagged_without_dropping_a_row():
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster(
+        "Male U14\nClub A\tTeam A\tTX\nClub B\tTeam B\tTX\nClub C\tTeam C\tTX"
+    )
+    resolved = (
+        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-a"),
+        ResolvedTeam(source_index=1, status="exact_name", team_id_master="master-a"),
+        ResolvedTeam(source_index=2, status="gotsport_id", team_id_master="master-c"),
+    )
+
+    frame = tournament_intake._seeding_result_frame(parsed, resolved, {})
+
+    assert len(frame) == 3
+    assert frame["Team"].tolist() == ["Team A", "Team B", "Team C"]
+    assert frame.loc[0, "Review"] == frame.loc[1, "Review"]
+    assert "rows 1, 2" in frame.loc[0, "Review"]
+    assert frame.loc[2, "Review"] == ""
+
+
+def test_an_override_that_creates_a_same_cohort_duplicate_is_flagged_on_both_rows():
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster("Male U14\nClub A\tTeam A\tTX\nClub B\tTeam B\tTX")
+    resolved = (
+        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-a"),
+        ResolvedTeam(source_index=1, status="gotsport_id", team_id_master="master-b"),
+    )
+
+    frame = tournament_intake._seeding_result_frame(
+        parsed,
+        resolved,
+        {1: {"team_id_master": "master-a", "team_name": "Corrected Team"}},
+    )
+
+    assert frame["Review"].str.contains("same PitchRank team").tolist() == [True, True]
+
+
+def test_the_same_pitchrank_team_in_different_cohorts_is_not_flagged_as_a_duplicate():
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster(
+        "Male U14\nClub A\tTeam A\tTX\nMale U13\nClub A\tTeam A\tTX"
+    )
+    resolved = tuple(
+        ResolvedTeam(source_index=index, status="gotsport_id", team_id_master="master-a")
+        for index in range(2)
+    )
+
+    frame = tournament_intake._seeding_result_frame(parsed, resolved, {})
+
+    assert frame["Review"].tolist() == ["", ""]
+
+
+def test_the_seeding_tab_warns_before_a_duplicate_match_reaches_the_sheet(monkeypatch):
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster("Male U14\nClub A\tTeam A\tTX\nClub B\tTeam B\tTX")
+    resolved = tuple(
+        ResolvedTeam(source_index=index, status="gotsport_id", team_id_master="master-a")
+        for index in range(2)
+    )
+    fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state._seeding_result = (parsed, resolved)
+    fake_st.session_state._seeding_overrides = {}
+    for name in (
+        "_render_seeding_run_controls",
+        "_render_seeding_event_scrape",
+        "_render_seeding_warnings",
+        "_render_seeding_save",
+        "_render_seeding_enqueue",
+        "_render_seeding_sheet",
+    ):
+        monkeypatch.setattr(tournament_intake, name, lambda *_args, **_kwargs: None)
+
+    tournament_intake._render_seeding_tab(None)
+
+    assert any("2 registration rows share a PitchRank team" in warning for warning in fake_st.warnings)
+    assert fake_st.dataframes == 1
+
+
 # -------- the tab actually wires its parts together -----------------------
 
 

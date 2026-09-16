@@ -8,6 +8,7 @@ from streamlit.testing.v1 import AppTest
 
 from src.tournaments import seeding_intake_ui as ui
 from src.tournaments.compare_predictor_bridge import ComparePrediction
+from src.tournaments.roster_paste import parse_roster
 from src.tournaments.seeding_predictions import SeedingPredictionBatch
 
 APP = '''
@@ -15,7 +16,7 @@ import streamlit as st
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_intake_ui import render_seeding_pack
-parsed = parse_roster("Male U14\\nClub\\tTeam\\tState\\nAlpha\\tAlpha FC\\tTX\\nBeta\\tBeta FC\\tTX\\n"
+parsed = parse_roster("Male U14\\nClub\\tTeam\\tState\\nAlpha\\tAlpha FC\\tTX\\nBeta\\tBeta Entry*\\tTX\\n"
                       "Female U15\\nClub\\tTeam\\tState\\nNew\\tNew Girls\\tTX")
 resolved = (ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="00000000-0000-0000-0000-000000000001"),
             ResolvedTeam(source_index=1, status="gotsport_id", team_id_master="00000000-0000-0000-0000-000000000002"),
@@ -38,9 +39,12 @@ def operator(monkeypatch):
                                        1.0, 1.5, .10, "medium", .60)
         reverse = replace(prediction, predicted_winner="team_b", win_probability_a=.20,
                           win_probability_b=.65, expected_score={"teamA": 1, "teamB": 2}, expected_margin=-1)
+        team_names = {"0": "Alpha FC", "1": "Beta FC", "2": "New Girls"}
+        team_ages = {"0": 14, "1": 13, "2": 15}
         teams = {key: {entrant: {
-            "team_id_master": team_id, "team_name": "Alpha FC" if entrant == "0" else "Beta FC",
-            "power_score_final": .55, "rank_in_cohort_final": 40, "gender": "M", "age": 14,
+            "team_id_master": team_id, "team_name": team_names[entrant],
+            "power_score_final": .55, "rank_in_cohort_final": 40, "gender": "M",
+            "age": team_ages[entrant],
             "status": "Active", "games_played": 10, "prediction_game_count": 10,
         } for entrant, team_id in members.items()} for key, members in cohorts.items()}
         pairs = {key: ({("0", "1"): prediction, ("1", "0"): reverse} if len(members) == 2 else {})
@@ -76,6 +80,35 @@ def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator)
     assert app.session_state["_seeding_sheet_html"] is None
     assert "_seeding_pdf" not in app.session_state
     assert all(button.label != "Generate PDF pack" for button in app.button)
+
+
+def test_review_and_sheet_keep_registered_name_primary_with_match_and_play_up_context(operator):
+    app, _calls = operator
+    click(app, "Build matchup tiers")
+
+    editor = app.dataframe[0].value
+    beta = editor.loc[editor["Team"] == "Beta Entry"].iloc[0]
+    assert beta["PitchRank match"] == "Beta FC"
+    assert beta["Roster context"] == "Plays up from U13"
+
+    document = app.session_state["_seeding_sheet_html"]
+    row = document.split('data-entrant="1"', 1)[1].split("</tr>", 1)[0]
+    assert row.index("Beta Entry") < row.index("PitchRank: Beta FC")
+    assert "Plays up from U13" in row
+
+
+@pytest.mark.parametrize("ranked_age", [14, 15])
+def test_review_uses_generic_play_up_for_same_age_or_older_match_and_keeps_c_suffix(ranked_age):
+    row = parse_roster("Male U14\nClub\tFire 13B*-c\tTX").rows[0]
+
+    columns = ui._identity_columns(
+        "0",
+        {"0": {"team_name": "Fire 13B", "age": ranked_age}},
+        {"0": row},
+    )
+
+    assert columns["Team"] == "Fire 13B-c"
+    assert columns["Roster context"] == "Plays up"
 
 
 def test_policy_and_operator_notes_save_and_invalidate_pdf(operator):

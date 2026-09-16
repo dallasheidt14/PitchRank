@@ -7,13 +7,16 @@ database lookups are injected, so nothing here touches the network or Supabase.
 
 from __future__ import annotations
 
+import re
+
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import (
     ResolvedTeam,
+    build_search_params,
+    make_exact_name_lookup,
     make_provider_id_lookup,
     parse_manual_reference,
     resolve_manual_reference,
-    build_search_params,
     resolve_roster,
     resolve_row,
     summarize,
@@ -78,6 +81,49 @@ def test_single_gotsport_hit_resolving_locally_is_a_direct_match():
     assert resolved.status == "gotsport_id"
     assert resolved.team_id_master == "master-1"
     assert resolved.provider_team_id == "534748"
+
+
+def test_single_gotsport_hit_with_a_conflicting_club_requires_review():
+    row = _row("Male U14\nBarcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=lambda name, age, gender: [
+            {"team_id": 534748, "team_name": name, "club_name": "Beach FC"}
+        ],
+        lookup_provider_id=_never_called,
+        lookup_exact_name=_never_called,
+    )
+
+    assert resolved.status == "review"
+    assert resolved.provider_team_id == "534748"
+    assert resolved.candidates[0]["club_name"] == "Beach FC"
+    assert resolved.review_reason == (
+        "Club conflict: submitted 'Barcelona Soccer Club', candidate 'Beach FC'."
+    )
+
+
+def test_single_gotsport_hit_with_a_database_state_conflict_requires_review():
+    row = _row("Male U14\nBarcelona Soccer Club\tBarcelona SC 13B Aztecas\tTexas")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=lambda name, age, gender: [
+            {"team_id": 534748, "team_name": name, "club_name": "Barcelona SC"}
+        ],
+        lookup_provider_id=lambda _pid: "master-1",
+        lookup_exact_name=_never_called,
+        lookup_team_details=lambda _team_id: {
+            "team_id_master": "master-1",
+            "team_name": "Barcelona SC 13B Aztecas",
+            "club_name": "Barcelona Soccer Club",
+            "state_code": "CA",
+        },
+    )
+
+    assert resolved.status == "review"
+    assert resolved.candidates[0]["team_id_master"] == "master-1"
+    assert resolved.review_reason == "State conflict: submitted 'TX', candidate 'CA'."
 
 
 def test_marker_name_retries_the_stripped_form_when_the_raw_form_misses():
@@ -160,6 +206,82 @@ def test_unique_exact_name_resolves_when_gotsport_finds_nothing():
         gotsport_search=_no_gotsport_hits,
         lookup_provider_id=_no_local_id,
         lookup_exact_name=lambda name, age, gender: ["master-4"],
+    )
+
+    assert resolved.status == "exact_name"
+
+
+def test_unique_exact_name_with_a_conflicting_club_requires_review():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=_no_gotsport_hits,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["master-4"],
+        lookup_team_details=lambda _team_id: {
+            "team_id_master": "master-4",
+            "team_name": "A Team",
+            "club_name": "Different Academy",
+            "state_code": "TX",
+        },
+    )
+
+    assert resolved.status == "review"
+    assert resolved.team_id_master is None
+    assert resolved.candidates[0]["team_id_master"] == "master-4"
+    assert resolved.review_reason == "Club conflict: submitted 'A Club', candidate 'Different Academy'."
+
+
+def test_unique_exact_name_with_a_conflicting_state_requires_review():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=_no_gotsport_hits,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["master-4"],
+        lookup_team_details=lambda _team_id: {
+            "team_id_master": "master-4",
+            "team_name": "A Team",
+            "club_name": "A Club",
+            "state_code": "California",
+        },
+    )
+
+    assert resolved.status == "review"
+    assert resolved.candidates[0]["team_id_master"] == "master-4"
+    assert resolved.review_reason == "State conflict: submitted 'TX', candidate 'CA'."
+
+
+def test_equivalent_club_and_state_forms_keep_the_unique_exact_name_match():
+    row = _row("Male U14\nBarcelona Soccer Club\tA Team\tTexas")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=_no_gotsport_hits,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["master-4"],
+        lookup_team_details=lambda _team_id: {
+            "team_id_master": "master-4",
+            "club_name": "Barcelona SC",
+            "state_code": "TX",
+        },
+    )
+
+    assert resolved.status == "exact_name"
+    assert resolved.team_id_master == "master-4"
+
+
+def test_missing_candidate_club_and_state_are_neutral():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=_no_gotsport_hits,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["master-4"],
+        lookup_team_details=lambda _team_id: {"team_id_master": "master-4", "team_name": "A Team"},
     )
 
     assert resolved.status == "exact_name"
@@ -313,7 +435,22 @@ class _FakeQuery:
         return self
 
     def ilike(self, column, value):
-        self._rows = [row for row in self._rows if str(row.get(column, "")).lower() == str(value).lower()]
+        expression = []
+        index = 0
+        while index < len(value):
+            character = value[index]
+            if character == "\\" and index + 1 < len(value):
+                index += 1
+                expression.append(re.escape(value[index]))
+            elif character == "%":
+                expression.append(".*")
+            elif character == "_":
+                expression.append(".")
+            else:
+                expression.append(re.escape(character))
+            index += 1
+        pattern = re.compile("".join(expression), re.IGNORECASE | re.DOTALL)
+        self._rows = [row for row in self._rows if pattern.fullmatch(str(row.get(column, "")))]
         return self
 
     def limit(self, count):
@@ -338,6 +475,30 @@ class _FakeClient:
 GOTSPORT = "gs-uuid"
 OTHER = "other-uuid"
 PROVIDERS = [{"id": GOTSPORT, "code": "gotsport"}, {"id": OTHER, "code": "sincsports"}]
+
+
+def test_exact_name_lookup_treats_backslash_percent_and_underscore_as_literals():
+    literal_name = r"FC\One_100%"
+    client = _FakeClient(
+        teams=[
+            {
+                "team_id_master": "literal",
+                "team_name": literal_name,
+                "age_group": "u14",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+            {
+                "team_id_master": "wildcard",
+                "team_name": "FCXOneA1000",
+                "age_group": "u14",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+        ]
+    )
+
+    assert make_exact_name_lookup(client)(literal_name, "u14", "Male") == ["literal"]
 
 
 def test_provider_id_lookup_ignores_the_same_id_under_another_provider():

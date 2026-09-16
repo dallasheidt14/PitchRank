@@ -35,6 +35,8 @@ from src.tournaments.roster_resolver import (
     GotsportSearch,
     ProviderIdLookup,
     ResolvedTeam,
+    TeamDetailsLookup,
+    escape_ilike_literal,
     make_provider_id_lookup,
     resolve_row,
 )
@@ -84,6 +86,7 @@ def to_seeding_rows(
                 team_name_stripped=name,
                 has_star_marker=False,
                 has_c_marker=False,
+                listed_division=printable_text(team.division_label),
             )
         )
         provider_team_id = team.provider_team_id
@@ -155,6 +158,7 @@ def resolve_unlinked(
     gotsport_search: GotsportSearch,
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
+    lookup_team_details: TeamDetailsLookup | None = None,
     delay_seconds: float = 0.0,
     historical_context: bool = False,
 ) -> tuple[ResolvedTeam, ...]:
@@ -214,6 +218,7 @@ def resolve_unlinked(
                 item,
                 lookup_provider_id=lookup_provider_id,
                 lookup_exact_name=lookup_exact_name,
+                lookup_team_details=lookup_team_details,
             )
         elif row.section_age_group and row.section_gender:
             # ``build_search_params`` raises on either blank — ValueError on the
@@ -224,6 +229,7 @@ def resolve_unlinked(
                 gotsport_search=gotsport_search,
                 lookup_provider_id=lookup_provider_id,
                 lookup_exact_name=lookup_exact_name,
+                lookup_team_details=lookup_team_details,
             )
             if delay_seconds:
                 time.sleep(delay_seconds)
@@ -247,7 +253,7 @@ def make_historical_name_lookup(supabase_client, merge_resolver=None) -> ExactNa
             query = (
                 supabase_client.table("teams")
                 .select("team_id_master,team_name")
-                .ilike("team_name", team_name)
+                .ilike("team_name", escape_ilike_literal(team_name))
                 .eq("is_deprecated", False)
                 .order("team_id_master")
                 .range(offset, offset + 999)
@@ -275,6 +281,7 @@ def _relink_known_id(
     *,
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
+    lookup_team_details: TeamDetailsLookup | None = None,
 ) -> ResolvedTeam:
     """Retry the id, then an exact name, keeping the published id either way.
 
@@ -292,12 +299,21 @@ def _relink_known_id(
 
     local = lookup_exact_name(row.team_name_stripped, row.section_age_group, row.section_gender)
     if len(local) == 1:
+        outcome = resolve_row(
+            row,
+            gotsport_search=lambda *_args: [],
+            lookup_provider_id=lambda _provider_team_id: None,
+            lookup_exact_name=lambda *_args: local,
+            lookup_team_details=lookup_team_details,
+        )
         return ResolvedTeam(
-            source_index=row.source_index,
-            status="exact_name",
-            team_id_master=local[0],
+            source_index=outcome.source_index,
+            status=outcome.status,
+            team_id_master=outcome.team_id_master,
             provider_team_id=item.provider_team_id,
-            matched_name=row.team_name_stripped,
+            matched_name=outcome.matched_name,
+            candidates=outcome.candidates,
+            review_reason=outcome.review_reason,
         )
     if len(local) > 1:
         # Same shape ``resolve_row`` returns for an ambiguous name. Withholding it

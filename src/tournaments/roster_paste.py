@@ -53,6 +53,15 @@ class RosterRow:
     team_name_stripped: str
     has_star_marker: bool
     has_c_marker: bool
+    requested_flight: str = ""
+    """Optional flight requested in a pasted roster's fourth column."""
+    listed_division: str = ""
+    """Neutral event-published division label; it does not imply a request."""
+
+    @property
+    def registered_name(self) -> str:
+        """Tournament-facing name with only the separate play-up marker removed."""
+        return self.team_name_raw.replace("*", "").strip() or self.team_name_stripped
 
 
 @dataclass(frozen=True)
@@ -117,6 +126,7 @@ def parse_roster(text: str) -> ParsedRoster:
         club_raw = cells[0].strip()
         team_name_raw = cells[1].strip()
         state = cells[2].strip() if len(cells) > 2 else ""
+        requested_flight = cells[3].strip() if len(cells) > 3 else ""
         stripped, has_star, has_c = _split_markers(team_name_raw)
         rows.append(
             RosterRow(
@@ -129,6 +139,7 @@ def parse_roster(text: str) -> ParsedRoster:
                 team_name_stripped=stripped,
                 has_star_marker=has_star,
                 has_c_marker=has_c,
+                requested_flight=requested_flight,
             )
         )
 
