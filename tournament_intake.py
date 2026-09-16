@@ -3640,12 +3640,12 @@ def _seeding_provider_id_lookup(supabase_client: Any) -> ProviderIdLookup:
     return make_provider_id_lookup(supabase_client, _seeding_merge_resolver(supabase_client))
 
 
-def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
-    """Parse the pasted roster, resolve every row, and park the result in session state."""
+def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
+    """Resolve and park the pasted roster, returning whether replacement succeeded."""
     parsed = parse_roster(text)
     if not parsed.rows:
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
-        return
+        return False
 
     session = requests.Session()
     progress = st.progress(0.0, text=f"Looking up 0 of {len(parsed.rows)} teams...")
@@ -3666,7 +3666,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
         )
     except requests.RequestException as exc:
         st.error(f"GotSport lookup failed: {exc}")
-        return
+        return False
     finally:
         progress.empty()
         session.close()
@@ -3674,6 +3674,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
     st.session_state._seeding_overrides = {}
     st.session_state._seeding_resolution_failed = False
     _park_seeding_result((parsed, resolved), event_id=None)
+    return True
 
 
 def _run_event_roster_scrape(
@@ -4895,8 +4896,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         type="primary",
         disabled=not st.session_state.get("seeding_roster_text"),
     ):
-        _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client)
-        _autosave_seeding_run()
+        if _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client):
+            _autosave_seeding_run()
 
     _render_seeding_event_scrape(supabase_client)
 

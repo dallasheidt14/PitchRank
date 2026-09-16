@@ -2417,7 +2417,7 @@ def test_the_paste_path_parks_a_roster_belonging_to_no_event(app):
             "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX",
         ]
     )
-    tournament_intake._run_seeding_resolve(roster_text, None)
+    assert tournament_intake._run_seeding_resolve(roster_text, None) is True
 
     parked, _resolved = fake_st.session_state._seeding_result
     assert parked.rows, "the paste path parked nothing, so this proves nothing"
@@ -2438,12 +2438,45 @@ def test_failed_replacement_paste_preserves_saved_decisions_and_exports(app, tex
         raise tournament_intake.requests.RequestException("temporary provider outage")
 
     app.setattr(tournament_intake, "resolve_roster", fail)
-    tournament_intake._run_seeding_resolve(text, None)
+    assert tournament_intake._run_seeding_resolve(text, None) is False
 
     assert fake_st.session_state._seeding_result == prior
     assert fake_st.session_state._seeding_overrides == {0: {"team_id_master": "reviewed-team"}}
     assert fake_st.session_state._seeding_pdf == b"previous PDF"
     assert fake_st.session_state._seeding_sheet_html == "previous HTML"
+
+
+def test_failed_resolve_button_does_not_save_the_previous_roster_under_a_new_name(app):
+    """A rejected replacement must not autosave Event A's rows as Event B."""
+    fake_st = _install(app, _FakeSt(buttons={None: True}))
+    prior = to_seeding_rows(_roster(_team(0)), {})
+    tournament_intake._park_seeding_result(prior, event_id="52975")
+    fake_st.session_state.seeding_event_name = "Event B"
+    fake_st.session_state.seeding_roster_text = "this has no age and gender heading"
+    fake_st.session_state._seeding_overrides = {}
+    saved: list[str] = []
+    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: saved.append("Event B") or True)
+    for name in (
+        "_render_seeding_run_controls",
+        "_render_seeding_event_scrape",
+        "_render_seeding_warnings",
+        "_render_seeding_save",
+        "_render_seeding_enqueue",
+        "_render_seeding_sheet",
+    ):
+        app.setattr(tournament_intake, name, lambda *_args, **_kwargs: None)
+    app.setattr(tournament_intake, "_render_seeding_progress_metrics", lambda *_args: ({}, []))
+    app.setattr(
+        tournament_intake,
+        "summarize",
+        lambda _resolved: {"gotsport_id": 0, "exact_name": 0},
+    )
+    app.setattr(tournament_intake, "_seeding_result_frame", lambda *_args: object())
+
+    tournament_intake._render_seeding_tab(None)
+
+    assert saved == []
+    assert fake_st.session_state._seeding_result == prior
 
 
 def test_the_parked_roster_is_written_before_the_event_it_names(app):
