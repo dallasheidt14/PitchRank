@@ -116,8 +116,8 @@ def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha2
             if not isinstance(team, dict) or not _UUID.fullmatch(str(team.get("team_id_master", ""))):
                 raise ValueError("Seeding Compare result has an invalid team identity")
             count = team.get("prediction_game_count")
-            if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-                raise ValueError("Seeding Compare result has no scored game coverage")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError("Seeding Compare result has an invalid scored game count")
         parsed = {}
         for row in rows:
             if not isinstance(row, dict):

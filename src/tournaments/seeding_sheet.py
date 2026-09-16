@@ -7,10 +7,9 @@ The same standalone, offline-ready HTML powers the preview and PDF export.
 The published ``power_score_final`` is displayed and sorts teams within tiers.
 The matchup analysis determines tier membership and order.
 
-A team counts as ranked when PitchRank publishes a rank for it. An Inactive team
-does not qualify: it is left out of the ranking views entirely and keeps only a
-stale PowerScore, with neither a national nor a state rank. Such a team sits
-below the line with its score still shown, rather than appearing among ranked
+A team with a valid current PowerScore can be seeded even when PitchRank has not
+published a numeric rank for it. An Inactive team does not qualify: it keeps only
+a stale PowerScore and sits below the line rather than appearing among current
 teams with an empty rank beside its name.
 
 State rank comes from ``state_rankings_view``. ``rankings_full.state_rank`` is
@@ -144,7 +143,7 @@ def build_cohort_sheets(
             team_id_master=team_id,
             review_reason=analysis.review.get(str(row.source_index)) if analysis else None,
         )
-        if rating.get("rank_in_cohort_final") is not None and score is not None:
+        if score is not None and rating.get("status") != "Inactive":
             grouped[cohort].append(team)
         else:
             unrated[cohort].append(team)
@@ -242,7 +241,7 @@ def _score(value: float | None) -> str:
 
 def _status_label(status: str | None) -> str:
     return {
-        "Not Enough Ranked Games": "Not yet ranked",
+        "Not Enough Ranked Games": "",
         "Inactive": "No current ranking",
     }.get(str(status or "").strip(), str(status or "").strip())
 

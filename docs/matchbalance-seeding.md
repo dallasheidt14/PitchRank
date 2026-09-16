@@ -17,7 +17,7 @@ Sell a complete event pack or a pack containing only the requested cohorts.
    finish the whole-event capture before selling a complete tournament pack.
    Confirm the imported team and cohort counts against the director's list.
 3. Resolve team identities. Every accepted row stays in the sheet, including
-   unranked ages and teams whose identity or match history needs review.
+   teams whose identity or eligibility needs review.
 4. Under **Competitive seeding sheets**, select **All imported cohorts** for the
    event pack or **Choose cohorts** for an à la carte order. Click
    **Build matchup tiers**. This reads current data and compares every eligible
@@ -80,12 +80,11 @@ Cross-tier reversals produce review warnings.
 at least 75% of upper/lower pairings favor the upper tier, at least half exceed
 the grouping limits, and their average signed edge reaches half the margin limit.
 
-Unresolved, duplicate-identity, unranked/inactive, wrong-gender, older-than-cohort,
-and limited-history teams stay in **Placement review**. The history floor is
-three scored games in both the published ranking count and the history actually
-consumed by Compare under the canonical team ID.
-Younger teams may play up. Low prediction confidence alone does not exclude a
-team: close matchups can naturally have an uncertain winner.
+Any matched, active team with a valid PowerScore is seeded, including teams with
+a provisional score or little recent history. Unresolved, duplicate-identity,
+inactive, missing-score, wrong-gender, and older-than-cohort teams stay in
+**Placement review**. Younger teams may play up. Low prediction confidence alone
+does not exclude a team: close matchups can naturally have an uncertain winner.
 
 The customer PDF leads with the recommended tier sizes and three direct steps:
 build flights from the same tier, seed each tier from top to bottom, and use a

@@ -17,26 +17,16 @@ from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_predictions import _parse_batch
 from src.tournaments.seeding_tiers import TierAnalysis, TierEntrant, TierPolicy, build_tiers
 
-PACK_SCHEMA_VERSION = 1
-# An explicit operator review floor, not a claim that three games establish
-# reliable strength. Compare's confidence remains visible above this floor.
-MINIMUM_SCORED_GAMES = 3
+PACK_SCHEMA_VERSION = 2
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
         "Two roster entries appear to be the same team. Confirm both team matches before seeding."
     ),
-    "No published cohort rank; placement review required.": (
-        "Limited recent results. Use club input or recent scores."
-    ),
     "Current ranking data unavailable; placement review required.": (
         "Confirm the club and team match. Then use recent results or club input before seeding."
     ),
-    "No scored games in the Compare lookback window; placement review required.": (
-        "Limited recent results. Use club input or recent scores."
-    ),
 }
-_LIMITED_RESULTS_REASON = "Limited recent results. Use club input or recent scores."
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -204,37 +194,17 @@ def _published_score(team: dict[str, Any]) -> float | None:
     return float(score)
 
 
-def _not_yet_ranked_reason(row: RosterRow) -> str:
-    label = cohort_label(cohort_key(row.section_age_group, row.section_gender))
-    return (
-        f"Not yet ranked. PitchRank has a preliminary score but no published {label} ranking. "
-        "Use recent results or club input."
-    )
-
-
 def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None, identity: str | None) -> str | None:
     if not _valid_cohort(row.section_age_group, row.section_gender):
         return "Confirm the listed age group and gender before seeding."
     if not identity:
         return "Confirm the club, team name, and age group before seeding."
     if unavailable:
-        reason = _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
-        if reason == _LIMITED_RESULTS_REASON:
-            if team.get("status") == "Inactive":
-                return "No current ranking. Use recent results or club input."
-            if _published_score(team) is not None and team.get("rank_in_cohort_final") is None:
-                return _not_yet_ranked_reason(row)
-            if _published_score(team) is not None and team.get("rank_in_cohort_final") is not None:
-                return "No recent Compare results. Use recent results or club input."
-        return reason
+        return _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
     if not team:
-        return _LIMITED_RESULTS_REASON
+        return "Current PitchRank data is unavailable. Confirm the team match before seeding."
     if team.get("status") == "Inactive":
         return "No current ranking. Use recent results or club input."
-    if team.get("rank_in_cohort_final") is None:
-        if _published_score(team) is not None:
-            return _not_yet_ranked_reason(row)
-        return "No current PitchRank score. Use recent results or club input."
     if _published_score(team) is None:
         return "No current PitchRank score. Use recent results or club input."
     expected_gender = "M" if row.section_gender == "Male" else "F"
@@ -247,12 +217,6 @@ def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None
         return "The matched team may be older than this age group. Confirm eligibility before seeding."
     # Younger entrants may intentionally play up. The tournament heading
     # controls their placement, while Compare uses their actual recorded age.
-    counts = [team.get("games_played"), team.get("prediction_game_count")]
-    games = min(
-        value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0 for value in counts
-    )
-    if games < MINIMUM_SCORED_GAMES:
-        return "Fewer than 3 scored games. Use recent results or club input."
     return None
 
 

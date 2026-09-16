@@ -123,22 +123,18 @@ export async function buildSeedingPredictions(
     await Promise.all(
       canonicalIds.slice(start, start + 8).map(async (teamId) => {
         try {
-          const team = await fetchPredictionTeam(supabase, teamId, { strict: true });
-          if (team.rank_in_cohort_final == null) {
-            unavailableByCanonical.set(teamId, 'Limited recent results. Use club input or recent scores.');
-          } else {
-            for (const value of Object.values(team)) {
-              if (typeof value === 'number' && !Number.isFinite(value)) {
-                throw new Error('Compare team input contains a non-finite value');
-              }
+          const team = await fetchPredictionTeam(supabase, teamId, { strict: true, allowEmptyHistory: true });
+          for (const value of Object.values(team)) {
+            if (typeof value === 'number' && !Number.isFinite(value)) {
+              throw new Error('Compare team input contains a non-finite value');
             }
-            teamByCanonical.set(teamId, team);
           }
+          teamByCanonical.set(teamId, team);
         } catch (error) {
           if (error instanceof AppError && error.code === 'team_not_found') {
             unavailableByCanonical.set(teamId, 'Confirm the club, team name, and age group before seeding.');
           } else if (error instanceof AppError && error.code === 'prediction_unavailable') {
-            unavailableByCanonical.set(teamId, 'Limited recent results. Use club input or recent scores.');
+            unavailableByCanonical.set(teamId, 'No usable current PitchRank rating is available.');
           } else {
             throw error;
           }
@@ -186,10 +182,6 @@ export async function buildSeedingPredictions(
       // our evidence count or make an old canonical profile look recently played.
       const ids = new Set([resolved.canonicalTeamId]);
       const teamGames = games.filter((game) => includesTeam(game, ids));
-      if (!teamGames.length) {
-        output.unavailable[entrantId] = 'Limited recent results. Use club input or recent scores.';
-        continue;
-      }
       output.teams[entrantId] = {
         ...team,
         latest_game_date: teamGames[0]?.game_date ?? null,

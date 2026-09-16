@@ -157,6 +157,15 @@ def test_changed_identity_roster_or_purchase_selection_invalidates_snapshot():
         analyze_pack(pack, ROWS, RESOLVED, {0: {"team_id_master": IDS[4]}})
 
 
+def test_previous_pack_schema_requires_rebuilding_the_matchup_matrix():
+    pack = _pack()
+    pack["schema_version"] = 1
+
+    assert not pack_matches(pack, ROWS, RESOLVED, {})
+    with pytest.raises(ValueError, match="Rebuild matchup tiers"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
+
+
 def test_selection_order_and_duplicate_input_selection_do_not_change_coverage():
     pack = _pack(["u12|Male", "u14|Male", "u12|Male"])
     assert pack["selected_cohorts"] == ["u12|Male", "u14|Male"]
@@ -177,13 +186,12 @@ def test_low_confidence_is_reported_without_removing_supported_teams():
     assert any("low outcome confidence" in warning for warning in result.warnings)
 
 
-@pytest.mark.parametrize("published,loaded,reviewed", [(2, 10, True), (10, 2, True), (3, 3, False), (None, 10, True)])
-def test_three_scored_games_is_an_explicit_floor_on_both_sources(published, loaded, reviewed):
+@pytest.mark.parametrize("published,loaded", [(0, 0), (1, 2), (2, 10), (10, 2), (None, 10)])
+def test_game_count_does_not_exclude_a_team_with_a_valid_powerscore(published, loaded):
     pack = _pack(change_team={"games_played": published, "prediction_game_count": loaded})
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
-    assert ("0" in result.review) is reviewed
-    if reviewed:
-        assert result.review["0"] == "Fewer than 3 scored games. Use recent results or club input."
+    assert "0" in result.ordered_ids
+    assert "0" not in result.review
 
 
 @pytest.mark.parametrize(
@@ -227,14 +235,20 @@ def test_missing_or_invalid_display_score_requires_review_not_default_strength(s
     assert result.review["0"] == "No current PitchRank score. Use recent results or club input."
 
 
-def test_preliminary_score_without_a_published_rank_is_named_clearly():
-    result = analyze_pack(_pack(change_team={"rank_in_cohort_final": None}), ROWS, RESOLVED, {})[
-        ("u12", "Male")
-    ]
-    assert result.review["0"] == (
-        "Not yet ranked. PitchRank has a preliminary score but no published U12 Boys ranking. "
-        "Use recent results or club input."
-    )
+def test_valid_powerscore_without_a_published_rank_is_still_seeded():
+    result = analyze_pack(
+        _pack(change_team={
+            "rank_in_cohort_final": None,
+            "status": "Not Enough Ranked Games",
+            "games_played": 0,
+            "prediction_game_count": 0,
+        }),
+        ROWS,
+        RESOLVED,
+        {},
+    )[("u12", "Male")]
+    assert "0" in result.ordered_ids
+    assert "0" not in result.review
 
 
 def test_inactive_ranking_is_named_clearly():
@@ -266,57 +280,6 @@ def test_arbitrary_unavailable_reason_survives_unchanged():
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert result.review["0"] == "Director note: confirm the local team name."
-
-
-@pytest.mark.parametrize("reason", [
-    "No published cohort rank; placement review required.",
-    "No scored games in the Compare lookback window; placement review required.",
-])
-def test_saved_legacy_unavailable_reason_uses_plain_recent_results_guidance(reason):
-    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
-    batch.teams["u12|Male"].pop("0")
-    batch.predictions["u12|Male"] = {}
-    batch.unavailable["u12|Male"]["0"] = reason
-    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, {})
-
-    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
-
-    assert result.review["0"] == "Limited recent results. Use club input or recent scores."
-
-
-@pytest.mark.parametrize(
-    "unavailable,rank,expected",
-    [
-        (
-            "No published cohort rank; placement review required.",
-            None,
-            "Not yet ranked. PitchRank has a preliminary score but no published U12 Boys ranking. "
-            "Use recent results or club input.",
-        ),
-        (
-            "No scored games in the Compare lookback window; placement review required.",
-            20,
-            "No recent Compare results. Use recent results or club input.",
-        ),
-    ],
-)
-def test_unavailable_team_uses_saved_rating_to_explain_the_review(unavailable, rank, expected):
-    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
-    batch.teams["u12|Male"].pop("0")
-    batch.predictions["u12|Male"] = {}
-    batch.unavailable["u12|Male"]["0"] = unavailable
-    ratings = {
-        IDS[0]: {
-            "team_name": "Preliminary Team",
-            "power_score_final": 0.55,
-            "rank_in_cohort_final": rank,
-        },
-    }
-    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, ratings)
-
-    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
-
-    assert result.review["0"] == expected
 
 
 def test_ambiguous_legacy_ranking_error_preserves_identity_and_recent_results_actions():

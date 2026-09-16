@@ -194,41 +194,56 @@ describe('Seeding canonical Compare bridge', () => {
     expect(result.cohorts['u15:Male'].predictions).toHaveLength(2);
   });
 
-  it('preserves missing rank and empty history as placement review instead of predicting a weak team', async () => {
+  it('predicts every pair when teams have PowerScores despite a missing rank or no recent games', async () => {
     const data = fixtures();
     data.rankings_full[1].rank_in_cohort_final = null;
     data.games = [game('only-a', A, 'opponent')];
     const db = database(data);
     const result = await buildSeedingPredictions(db.client, { cohort: { a: A, b: B, c: C } });
-    expect(result.cohorts.cohort.unavailable.b).toBe('Limited recent results. Use club input or recent scores.');
-    expect(result.cohorts.cohort.unavailable.c).toBe('Limited recent results. Use club input or recent scores.');
-    expect(result.cohorts.cohort.predictions).toEqual([]);
+    expect(result.cohorts.cohort.unavailable).toEqual({});
+    expect(result.cohorts.cohort.teams.b.rank_in_cohort_final).toBeNull();
+    expect(result.cohorts.cohort.teams.b.prediction_game_count).toBe(0);
+    expect(result.cohorts.cohort.teams.c.prediction_game_count).toBe(0);
+    expect(result.cohorts.cohort.predictions).toHaveLength(6);
   });
 
   it('gives the director a clear identity check when the matched team no longer exists', async () => {
     const data = fixtures();
     data.teams = data.teams.filter((row) => row.team_id_master !== B);
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
-    expect(result.cohorts.cohort.unavailable.b).toBe(
-      'Confirm the club, team name, and age group before seeding.'
-    );
+    expect(result.cohorts.cohort.unavailable.b).toBe('Confirm the club, team name, and age group before seeding.');
   });
 
-  it('uses recent-results guidance when Compare lacks enough published data', async () => {
+  it('includes a PowerScore team with zero ranked games and zero recent prediction games', async () => {
     const data = fixtures();
     data.rankings_full[1].games_played = 0;
+    data.games = [];
+    const db = database(data);
+    const result = await buildSeedingPredictions(db.client, { cohort: { a: A, b: B } });
+    expect(result.cohorts.cohort.unavailable).toEqual({});
+    expect(result.cohorts.cohort.teams.b.power_score_final).toBe(0.53);
+    expect(result.cohorts.cohort.teams.b.prediction_game_count).toBe(0);
+    expect(result.cohorts.cohort.predictions).toHaveLength(2);
+    await expect(fetchPredictionTeam(db.client, B)).rejects.toMatchObject({ code: 'prediction_unavailable' });
+  });
+
+  it('excludes a team when it has no PowerScore', async () => {
+    const data = fixtures();
+    data.rankings_full[1].power_score_final = null;
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
-    expect(result.cohorts.cohort.unavailable.b).toBe('Limited recent results. Use club input or recent scores.');
+    expect(result.cohorts.cohort.unavailable.b).toBe('No usable current PitchRank rating is available.');
+    expect(result.cohorts.cohort.teams.b).toBeUndefined();
+    expect(result.cohorts.cohort.predictions).toEqual([]);
   });
 
   it('does not count merged-only history that Compare does not consume in its team profile', async () => {
     const data = fixtures();
     data.games = Array.from({ length: 4 }, (_, index) => game(`merged-only-${index}`, OLD_A, B));
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
-    expect(result.cohorts.cohort.unavailable.a).toBe('Limited recent results. Use club input or recent scores.');
-    expect(result.cohorts.cohort.teams.a).toBeUndefined();
+    expect(result.cohorts.cohort.unavailable).toEqual({});
+    expect(result.cohorts.cohort.teams.a.prediction_game_count).toBe(0);
     expect(result.cohorts.cohort.teams.b.prediction_game_count).toBe(4);
-    expect(result.cohorts.cohort.predictions).toEqual([]);
+    expect(result.cohorts.cohort.predictions).toHaveLength(2);
   });
 
   it('fails the whole batch on a failed predictive input read', async () => {

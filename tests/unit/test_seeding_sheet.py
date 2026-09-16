@@ -110,7 +110,7 @@ def test_an_inactive_team_with_a_score_but_no_rank_falls_below_the_line():
     assert u14.unrated[0].status == "Inactive"
 
 
-def test_non_active_ranking_status_uses_plain_customer_copy():
+def test_provisional_score_status_is_not_shown_as_a_customer_warning():
     ratings = dict(RATINGS)
     ratings["m-stx"] = {
         "team_name": "STX Elevate FC 2012/13 JG", "club_name": "STX Elevate FC",
@@ -118,12 +118,21 @@ def test_non_active_ranking_status_uses_plain_customer_copy():
         "rank_in_cohort_final": None, "rank_in_state_final": None,
     }
 
+    sheets = _sheets(ratings)
     document = render_sheet_html(
-        "STX Cup 2026", _sheets(ratings), generated_on="2026-09-02", ranking_run="2026-08-31"
+        "STX Cup 2026", sheets[:1], generated_on="2026-09-02", ranking_run="2026-08-31"
     )
 
-    assert "Not yet ranked" in document
+    assert [team.team_name for team in sheets[0].rated] == [
+        "Laredo Heat Red U14",
+        "Barcelona SC Aztecas U14",
+        "STX Elevate FC 2012/13 JG",
+    ]
+    assert sheets[0].unrated == ()
+    assert "Not yet ranked" not in document
     assert "Not Enough Ranked Games" not in document
+    assert "Unranked Teams" not in document
+    assert ">30.0</td>" in document
 
 
 def test_an_override_supplies_the_team_id_used_for_the_rating():
@@ -265,7 +274,7 @@ def _analysis(**changes):
             TierGroup(1, ("1",), 0.0, 0.0, None),
             TierGroup(2, ("0",), 0.0, 0.0, None),
         ),
-        review={"2": "Limited recent results. Use club input or recent scores."},
+        review={"2": "Confirm the club, team name, and age group before seeding."},
         borderline={"0": (1,)},
         boundaries=("Keep Tier 1 and Tier 2 in separate flights where possible.",),
         ordered_ids=("1", "0"),
@@ -292,7 +301,7 @@ def test_tier_sheet_carries_identity_and_preserves_every_accepted_row_once():
     assert [(team.entrant_id, team.team_id_master) for team in sheets[0].rated] == [
         ("1", "m-laredo"), ("0", "m-barca"),
     ]
-    assert sheets[0].unrated[0].review_reason == "Limited recent results. Use club input or recent scores."
+    assert sheets[0].unrated[0].review_reason == "Confirm the club, team name, and age group before seeding."
     assert re.findall(r'data-entrant="([^"]+)"', _render_tier()) == ["1", "0", "2", "3"]
 
 
@@ -341,7 +350,8 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert "PitchRank score" in document
     assert "What to know" in document
     assert "Manual placement needed" in document
-    assert "Limited recent results. Use club input or recent scores." in document
+    assert "Confirm the club, team name, and age group before seeding." in document
+    assert "Limited recent results" not in document
     assert "Boundary option: If Tier 1 needs one more team, move this team up." in document
     assert "No close peer was found at this level." in document
     assert "Keep Tier 1 and Tier 2 in separate flights where possible." in document
@@ -353,7 +363,7 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
 def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     analysis = _analysis(
         tiers=(),
-        review={str(index): "Limited recent results. Use club input or recent scores." for index in range(3)},
+        review={str(index): "Confirm the team match before seeding." for index in range(3)},
         borderline={},
         boundaries=(),
         ordered_ids=(),

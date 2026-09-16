@@ -204,7 +204,7 @@ export type PredictionTeam = TeamWithRanking & { ratings_as_of: string | null; s
 export async function fetchPredictionTeam(
   supabase: SupabaseClient,
   teamId: string,
-  options: { strict?: boolean } = {}
+  options: { strict?: boolean; allowEmptyHistory?: boolean } = {}
 ): Promise<PredictionTeam> {
   const [teamResult, rankingResult, stateRankingResult, rankingsFullData, predictiveResult] = await Promise.all([
     supabase
@@ -343,7 +343,7 @@ export async function fetchPredictionTeam(
     exp_goals_against: predictiveData?.exp_goals_against ?? null,
   };
 
-  if (team.power_score_final == null || team.games_played <= 0) {
+  if (team.power_score_final == null || (!options.allowEmptyHistory && team.games_played <= 0)) {
     throw new AppError(
       'Prediction unavailable. Match predictions rely on current ranking data for both teams.',
       'prediction_unavailable',

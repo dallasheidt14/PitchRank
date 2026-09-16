@@ -85,7 +85,9 @@ def _runtime(monkeypatch, tmp_path, result=None, returncode=0):
 
 def test_loads_both_orientations_and_keeps_credentials_out_of_files_commands_and_errors(monkeypatch, tmp_path):
     calls = _runtime(monkeypatch, tmp_path)
-    batch = bridge.load_seeding_predictions(COHORTS, supabase_url="https://private-db.example", supabase_key="private-secret")
+    batch = bridge.load_seeding_predictions(
+        COHORTS, supabase_url="https://private-db.example", supabase_key="private-secret"
+    )
 
     assert batch.predictions["u14:Male"][("6", "7")].expected_margin == 3.8
     assert batch.predictions["u14:Male"][("7", "6")].expected_margin == -3.8
@@ -115,12 +117,27 @@ def test_loads_both_orientations_and_keeps_credentials_out_of_files_commands_and
             ),
             "duplicate",
         ),
-        (lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(expected_margin=float("nan")), "non-finite"),
-        (lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(blowout_4plus_probability=1.1), "invalid"),
+        (
+            lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(
+                expected_margin=float("nan")
+            ),
+            "non-finite",
+        ),
+        (
+            lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(
+                blowout_4plus_probability=1.1
+            ),
+            "invalid",
+        ),
         (lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(win_probability_a=0.7), "probabilities"),
         (lambda result: result["cohorts"]["u14:Male"]["predictions"][1].update(expected_margin=3.8), "orientations"),
-        (lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(expected_score={"teamA": 2.4, "teamB": 0}), "score"),
-        (lambda result: result["cohorts"]["u14:Male"]["teams"]["6"].update(prediction_game_count=0), "game coverage"),
+        (
+            lambda result: result["cohorts"]["u14:Male"]["predictions"][0].update(
+                expected_score={"teamA": 2.4, "teamB": 0}
+            ),
+            "score",
+        ),
+        (lambda result: result["cohorts"]["u14:Male"]["teams"]["6"].update(prediction_game_count=-1), "game count"),
     ],
 )
 def test_rejects_incomplete_or_invalid_predictor_output(mutate, match):
@@ -130,10 +147,21 @@ def test_rejects_incomplete_or_invalid_predictor_output(mutate, match):
         bridge._parse_batch(result, COHORTS, "digest")
 
 
+def test_zero_recent_games_is_valid_seeding_evidence():
+    result = _result()
+    result["cohorts"]["u14:Male"]["teams"]["6"]["prediction_game_count"] = 0
+
+    batch = bridge._parse_batch(result, COHORTS, "digest")
+
+    assert batch.teams["u14:Male"]["6"]["prediction_game_count"] == 0
+
+
 def test_runtime_failure_never_returns_an_approximate_prediction_or_sensitive_details(monkeypatch, tmp_path):
     _runtime(monkeypatch, tmp_path, returncode=1)
     with pytest.raises(RuntimeError, match="prediction failed") as failure:
-        bridge.load_seeding_predictions(COHORTS, supabase_url="https://private-db.example", supabase_key="private-secret")
+        bridge.load_seeding_predictions(
+            COHORTS, supabase_url="https://private-db.example", supabase_key="private-secret"
+        )
     assert "private-secret" not in str(failure.value)
     assert "private-db.example" not in str(failure.value)
 
@@ -244,7 +272,10 @@ def test_real_cli_uses_the_shared_compare_service_against_local_read_only_http_f
             self.end_headers()
             self.wfile.write(body)
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    class FixtureServer(ThreadingHTTPServer):
+        request_queue_size = 32
+
+    server = FixtureServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
