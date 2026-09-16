@@ -80,6 +80,44 @@ Do not raise the local default without re-measuring the sustained rate — empir
 ~15 req/s sustained from one IP trips the WAF (measured 2026-05-18). Back off when it
 trips; do not route around it.
 
+## Sequential Walks on `team_details`
+
+A plain `requests.Session` loop — no ZenRows, no concurrency — is its own rate regime: egress
+is a single direct IP rather than proxied residential, so the concurrency defaults and the
+`WAFBreaker` machinery above do not apply. `scripts/reconcile_teams_with_gotsport.py` walks
+this way.
+
+**Pace at a fixed 3 s.** The fixed-delay warning under Rate Limiting guards against several
+workers lining their bursts up; one process has no one to line up with, so a constant sleep is
+correct here. Measured across every US state, 2026-09-09 to 2026-09-16: 3 s carried ~166,000
+calls with near-zero failed lookups; 2 s degraded before it failed, chunk time climbing from 19
+to 38 minutes at a constant setting and then blocking; 1.5 s blocked hard after ~9,000 calls.
+Budget `delay + ~0.35 s` per **call** — ~1,075 calls/hour at 3 s, and ~1,250 teams/hour, since
+~85% of teams carry a resolvable alias and the rest cost no request. Raise the delay when chunk
+times drift upward rather than lowering it.
+
+**Separate a provider block from a local network outage before reacting.**
+`TeamDetailsResolver` collapses a WAF 403, a timeout and a DNS failure into `{}` alike, and
+`reconcile_teams_with_gotsport.py` stops after `--abort-after` (default 10) consecutive
+**failed** lookups with **exit code 75**. A 404 is the origin answering and clears the streak,
+so an abort means nothing answered — not that ten teams were missing. Resolve one id the
+current slice already answered for, through `src/utils/gotsport_team_details.TeamDetailsResolver`,
+and read the result:
+
+- **Reachable** — a real block. Wait out a cooldown (300 s, the documented WAF default) and add
+  a second to the delay.
+- **Unreachable** — the network. Retry in a few minutes at the same pace, and spend none of the
+  `--abort-after` allowance on it.
+
+**Walk a large population in chunks, and record each chunk's offset and exit code.** No script
+in the repo emits such a log, so a driver has to write one. 500 rows per chunk (`--limit`'s
+default); resume from the last recorded chunk, where exit 0 advances to the next offset and
+anything else redoes the same one, since an aborted chunk examined only part of its slice.
+`fetch_target_teams` sorts on the immutable `team_id_master`, so the window cannot re-sort
+between runs even after the walk renames teams. *Checkpointing* below covers the same job for
+the scraper classes; this endpoint's response is described under *Team details payload
+contract*.
+
 ## ZenRows Tiers and Routing
 
 Credit tiers: base request 1, `js_render` 5, `premium_proxy` 10, both 25. The scrapers default

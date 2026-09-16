@@ -248,6 +248,16 @@ PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
 Do not "fix" this by splitting the cohort.
 
+**The table above is the stored label; the boards are narrower.** `AGE_GROUPS` in
+`config/settings.py` keys `u10`–`u17` and `u19`, so a team stored as `u9` or younger
+is a valid, accurate row that appears on no public ranking board — `rankings_full`
+excludes it and a customer cannot find it. That is deliberate (GotSport registers real
+U8 and U9 teams; PitchRank does not rank them), and it makes "correct" and "visible"
+two different questions: moving a mislabelled team to `u9` removes it from a board it
+should never have been on, which is a fix, not a regression. Those rows are not
+stranded either — `20260801000000_age_group_rollover_2026_27.sql` rolls `u7`→`u8`→`u9`→`u10`
+with the rest, so each cohort ages onto the boards on its own.
+
 #### A stored birth year does not pick out one cohort, so who a team plays decides
 
 Because a band runs Aug 1 – Jul 31, a single calendar year sits in two of them: 2014

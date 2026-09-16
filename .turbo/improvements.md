@@ -1229,3 +1229,40 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Five files hand-roll the `table().select().eq()…execute()` chain. Verified 2026-09-15: the dry-run test's double records at `insert()` rather than `execute()` and returns `data=None` from `.single().execute()`, which postgrest never does (it raises `APIError` PGRST116), while parametrizing over every autocreating matcher. Only the PlayMetrics double honours both CLAUDE.md double rules; Affinity OR's yields rows at `execute()` but still logs its filter at `eq()`. A `tests/conftest.py` double that raises on `.single()` with zero rows and records at `execute()` lets the rest adopt it.
 - **Noted**: 2026-09-15
 - **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+
+### Read a two-year band written with apostrophes
+
+- **ID**: IMP-240
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation)
+- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. Accepting `'` before either year in the existing pattern is the whole fix.
+- **Noted**: 2026-09-16
+
+### Merge the duplicate teams a cohort correction cannot move
+
+- **ID**: IMP-241
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: teams data, not code; the candidates are derivable from `teams` alone (below), and `merging-duplicate-teams` owns the decision
+- **Why**: 512 teams as of the 2026-09-16 re-check are held from an otherwise-confirmed age-group correction because a team with the same name and gender already sits in the target cohort. Moving one onto the other would put two identical teams on one board; leaving it holds a known-wrong cohort. Most likely one copy of a duplicate pair was mislabelled, which kept the pair apart and out of reach of the fuzzy duplicate merge (disabled: `FUZZY_AUTO_MERGE_ENABLED: 'false'` in `data-hygiene-weekly.yml`).
+- **First**: matching name and gender is a candidate signal, not proof of one squad, so each pair needs the positive evidence `merging-duplicate-teams` requires -- both names resolving to the same birth-year set, plus schedules that either never share a season or share at least two opponents (`.claude/skills/merging-duplicate-teams/references/evidence-rules.md`, "What a merge requires"). Validate first; merge direction is the last question, not the only one. Pairs failing that bar are the more interesting half: a real cohort error the correction is still blocked on.
+- **Reproduce the candidates** without the gitignored re-check output -- live teams sharing a name and gender across more than one cohort, 3,040 such groups covering 12,336 teams on 2026-09-16, a superset of the 512:
+  ```sql
+  SELECT lower(btrim(team_name)) AS name, gender, COUNT(*) AS teams
+  FROM teams WHERE is_deprecated = false AND btrim(team_name) <> ''
+  GROUP BY 1, 2 HAVING COUNT(DISTINCT age_group) > 1;
+  ```
+- **Noted**: 2026-09-16
+
+### Bring the age-group correction tools into the repo, with tests
+
+- **ID**: IMP-242
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `data/exports/fix_band_cohorts.py` (`apply_plan`, `name_contradiction`, `attach_fixture_evidence`) and `data/exports/weekly_age_recheck.py` (`pending_population`); both gitignored, plus the Windows task "PitchRank Weekly Age-Group Recheck" that runs the second every Tuesday
+- **Why**: These two wrote `teams.age_group` for 12,083 teams on 2026-09-15/16 and carry the plan/apply/revert path any later batch will reuse, but they sit under `data/` so no CI job has ever imported them. Their correctness rests on parsing rules that fail silently when wrong — IMP-240 is exactly that shape, and it reached a live write. A scheduled task now depends on one of them, so a break is invisible until a week of reports goes missing. Moving them to `scripts/` with unit tests over the decision helpers (band forms, contradiction detection, verdict thresholds) puts them behind the same gate as everything else they write to.
+- **Noted**: 2026-09-16
