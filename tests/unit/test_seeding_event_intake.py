@@ -172,6 +172,11 @@ class _FakeProgress:
         self._log.append("<cleared>")
 
 
+class _FakeStatus:
+    def update(self, **_kw: Any) -> None:
+        pass
+
+
 class _FakeColumn:
     """A column, which Streamlit also lets a caller write through directly."""
 
@@ -239,6 +244,9 @@ class _FakeSt:
         bar = _FakeProgress(self.progress_texts)
         bar.progress(_value, text=text)
         return bar
+
+    def status(self, *_a: Any, **_kw: Any) -> _FakeStatus:
+        return _FakeStatus()
 
     def spinner(self, text: str = "") -> _FakeSpinner:
         return _FakeSpinner(self.spinners, str(text), self._spinner_raises)
@@ -374,10 +382,18 @@ def _install(monkeypatch, fake_st: _FakeSt) -> _FakeSt:
     return fake_st
 
 
-def _scrape(url: str = EVENT_URL, client: Any = None, *, limit_groups: int | None) -> None:
+def _scrape(
+    url: str = EVENT_URL,
+    client: Any = None,
+    *,
+    limit_groups: int | None,
+    keys=tournament_intake._SEEDING_KEYS,
+) -> None:
     """Run the walk the way Streamlit does: a rerun ends the script run."""
     with contextlib.suppress(_Rerun):
-        tournament_intake._run_event_roster_scrape(url, client, limit_groups=limit_groups)
+        tournament_intake._run_event_roster_scrape(
+            url, client, limit_groups=limit_groups, keys=keys
+        )
 
 
 def _render_controls(client: Any = None) -> None:
@@ -398,6 +414,7 @@ def test_the_runner_forwards_the_division_limit_and_the_worker_count(app):
     assert scrape.calls[0]["event_id"] == "52975"
     assert scrape.calls[0]["limit_groups"] == 2
     assert scrape.calls[0]["max_workers"] == 8, "the scraper defaults to serial, which walks an event for hours"
+    assert scrape.calls[0]["wanted_cohorts"] == frozenset(tournament_intake.AGE_GROUPS)
 
 
 def test_the_runner_forwards_a_full_walk_as_no_limit(app):
@@ -643,6 +660,9 @@ def _probe(**overrides: Any) -> dict[str, Any]:
         "limit_groups": 2,
         "divisions_found": 40,
         "divisions_walked": 2,
+        "divisions_skipped": 0,
+        "divisions_sampled": 2,
+        "u10_plus_only": True,
         "teams": 11,
         "linked": 8,
         **overrides,
@@ -653,13 +673,66 @@ def test_the_full_event_button_is_disabled_until_something_has_been_probed(app):
     fake_st, runs = _render(app, url=EVENT_URL, probe=None)
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == "Scrape all U10+ divisions"
     assert runs == []
+
+
+def test_the_seeding_intro_discloses_younger_division_page_cost(app):
+    fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
+
+    explanation = " ".join(fake_st.captions)
+    assert "younger division pages" in explanation
+    assert "does not buy those younger teams' pages" in explanation
 
 
 def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=_probe(url="https://system.gotsport.com/org_event/events/1"))
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
+
+
+def test_changing_the_url_clears_the_other_events_rows_and_exports_but_not_its_recovery(app):
+    old_roster = _roster(_team(0), event_id="55368")
+    tournament_intake._write_event_roster_recovery(old_roster, limit_groups=2)
+    parsed, resolved = to_seeding_rows(old_roster, {})
+    new_url = "https://system.gotsport.com/org_event/events/49180"
+    fake_st = _install(app, _FakeSt(text={"seeding_event_url": new_url}))
+    tournament_intake._park_seeding_result((parsed, resolved), event_id="55368")
+    fake_st.session_state._seeding_overrides = {0: {"team_id_master": "old-team"}}
+    fake_st.session_state._seeding_resolution_failed = True
+    fake_st.session_state._seeding_sheet_html = "<html>old event</html>"
+    fake_st.session_state._seeding_pack = {"event": "old"}
+    fake_st.session_state._seeding_pdf = b"old pdf"
+    fake_st.session_state._seeding_pdf_hash = "old-hash"
+
+    _render_controls()
+
+    assert fake_st.session_state.get("_seeding_result") is None
+    assert fake_st.session_state.get("_seeding_result_event_id") is None
+    assert fake_st.session_state._seeding_overrides == {}
+    assert fake_st.session_state._seeding_resolution_failed is False
+    assert fake_st.session_state._seeding_sheet_html is None
+    assert "_seeding_pack" not in fake_st.session_state
+    assert "_seeding_pdf" not in fake_st.session_state
+    assert "_seeding_pdf_hash" not in fake_st.session_state
+    assert not any("Walked" in caption for caption in fake_st.captions), (
+        "the old probe must not be described beneath the new URL"
+    )
+    recovered, limit_groups = tournament_intake._recovered_walk("55368")
+    assert recovered == old_roster
+    assert limit_groups == 2
+
+
+def test_an_equivalent_url_keeps_the_parked_event_result(app):
+    roster = _roster(_team(0))
+    parsed, resolved = to_seeding_rows(roster, {})
+    fake_st = _install(app, _FakeSt())
+    tournament_intake._park_seeding_result((parsed, resolved), event_id="52975")
+
+    tournament_intake._clear_result_from_other_event(EVENT_URL + "/?source=operator")
+
+    assert fake_st.session_state._seeding_result == (parsed, resolved)
+    assert fake_st.session_state._seeding_result_event_id == "52975"
 
 
 def test_a_probe_that_read_no_division_does_not_unlock_the_full_event(app):
@@ -751,18 +824,30 @@ def test_no_retry_is_offered_while_the_lookups_are_healthy(app):
 
 
 def test_the_caption_prices_the_whole_event_not_the_sample():
-    """40 divisions at the sampled 5.5 teams each, plus a landing page.
+    """The raw checked count captures both age mix and teams per kept division.
 
-    Pricing the two divisions actually walked instead would quote about a
-    nineteenth of the real bill, on the one number the operator has when
-    authorizing the spend.
+    This sample checked four raw divisions to reach two U10+ groups with 11
+    teams. Dividing by the two kept groups would charge team pages to every
+    younger division even though their team pages are deliberately skipped.
     """
-    caption = tournament_intake._seeding_probe_caption(_probe(divisions_found=40, divisions_walked=2, teams=11))
+    caption = tournament_intake._seeding_probe_caption(
+        _probe(
+            divisions_found=40,
+            divisions_walked=4,
+            divisions_skipped=2,
+            divisions_sampled=2,
+            teams=11,
+        )
+    )
 
-    pages = 1 + 40 + 40 * 11 / 2
+    pages = tournament_intake.LANDING_READS + 40 + 40 * 11 / 4
     low = pages * 0.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
     high = pages * 1.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
     assert f"{tournament_intake._money(low)}-{tournament_intake._money(high)}" in caption
+    wrong_pages = tournament_intake.LANDING_READS + 40 + 40 * 11 / 2
+    wrong_low = wrong_pages * 0.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
+    wrong_high = wrong_pages * 1.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
+    assert f"{tournament_intake._money(wrong_low)}-{tournament_intake._money(wrong_high)}" not in caption
     assert low < high, "the range reads low to high"
 
 
@@ -782,6 +867,15 @@ def test_a_full_walk_quotes_no_further_cost():
     assert "$" not in caption, "the whole event has already been walked"
 
 
+def test_a_limited_probe_that_reached_every_division_quotes_no_further_cost():
+    caption = tournament_intake._seeding_probe_caption(
+        _probe(divisions_found=4, divisions_walked=4, divisions_sampled=0, teams=0)
+    )
+
+    assert "$" not in caption, "there are no event divisions left to buy"
+    assert "not enough to price" not in caption, "there is no rest of the event to price"
+
+
 def test_the_probe_price_is_the_arithmetic_it_claims_to_be():
     """Written out rather than derived, so a wrong page count fails here.
 
@@ -799,8 +893,23 @@ def test_the_probe_buttons_label_carries_that_price(app):
     label = fake_st.button_by_key("_seeding_event_probe_run")["label"]
     low, high = tournament_intake._seeding_probe_price()
 
-    assert f"{tournament_intake._SEEDING_EVENT_PROBE_DIVISIONS} divisions" in label
+    assert f"{tournament_intake._SEEDING_EVENT_PROBE_DIVISIONS} U10+ divisions" in label
+    assert "starts around" in label
     assert f"{tournament_intake._money(low)}-{tournament_intake._money(high)}" in label
+
+
+def test_backtest_labels_and_caption_do_not_claim_a_u10_filter(app):
+    fake_st = _install(app, _FakeSt(text={"backtest_event_url": EVENT_URL}))
+    fake_st.session_state._backtest_event_probe = _probe(u10_plus_only=False)
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda *_a, **_kw: None)
+
+    tournament_intake._render_seeding_event_scrape(
+        None, keys=tournament_intake._BACKTEST_KEYS
+    )
+
+    assert fake_st.button_by_key("_backtest_event_full_run")["label"] == "Scrape the whole event"
+    assert "U10+" not in fake_st.button_by_key("_backtest_event_probe_run")["label"]
+    assert all("U10+" not in caption for caption in fake_st.captions)
 
 
 def test_a_price_is_written_so_streamlit_does_not_read_it_as_maths():
@@ -815,7 +924,7 @@ def test_a_price_is_written_so_streamlit_does_not_read_it_as_maths():
 @pytest.mark.parametrize(
     "text",
     [
-        "Check 2 divisions",
+        "Check 2 U10+ divisions",
         "The whole event looks like",
     ],
 )
@@ -1382,10 +1491,18 @@ def test_ordinary_punctuation_in_a_division_label_survives():
 
 def test_the_caption_reports_the_counts_it_was_given():
     caption = tournament_intake._seeding_probe_caption(
-        _probe(divisions_found=40, divisions_walked=2, teams=11, linked=8)
+        _probe(
+            divisions_found=40,
+            divisions_walked=4,
+            divisions_skipped=2,
+            divisions_sampled=2,
+            teams=11,
+            linked=8,
+        )
     )
 
-    assert "Walked 2 of 40 divisions" in caption
+    assert "Checked 4 of 40 event divisions" in caption
+    assert "captured 2 U10+ divisions" in caption
     assert "11 teams" in caption
     assert "8 carrying a GotSport id" in caption
 
@@ -1635,17 +1752,28 @@ def test_the_runner_resolves_reports_through_the_redirected_helper(app, tmp_path
     assert tournament_intake.reports_dir() == tmp_path
 
 
-# -------- every age remains in a whole-tournament pack --------------------
+# -------- Seeding carries only U10 and older; Backtest keeps the source -----
 
 
-def test_the_walk_keeps_unranked_ages_for_placement_review(app):
+def test_the_full_seeding_walk_keeps_only_u10_and_older(app):
     scrape = _RecordingScrape()
     app.setattr(tournament_intake, "scrape_event_roster", scrape)
     _install(app, _FakeSt())
 
     _scrape(limit_groups=None)
 
+    assert scrape.calls[0]["wanted_cohorts"] == frozenset(tournament_intake.AGE_GROUPS)
+
+
+def test_the_backtest_walk_keeps_every_published_age(app):
+    scrape = _RecordingScrape(raises=RuntimeError("stop after recording arguments"))
+    app.setattr(tournament_intake, "scrape_event_roster", scrape)
+    _install(app, _FakeSt())
+
+    _scrape(limit_groups=None, keys=tournament_intake._BACKTEST_KEYS)
+
     assert scrape.calls[0]["wanted_cohorts"] is None
+    assert scrape.calls[0]["completed_event"] is True
 
 
 # -------- a walk the operator's next click killed --------------------------
@@ -1717,7 +1845,13 @@ def test_a_reloaded_walk_reports_the_counts_the_paid_walk_had(app):
     buttons and tells the operator an event is finished with.
     """
     tournament_intake._write_event_roster_recovery(
-        _roster(_team(0), divisions_found=40, divisions_walked=40, divisions_unreadable=3),
+        _roster(
+            _team(0),
+            divisions_found=40,
+            divisions_walked=40,
+            divisions_unreadable=3,
+            divisions_skipped=7,
+        ),
         limit_groups=None,
     )
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None, buttons={"_seeding_event_reload_walk": True})
@@ -1725,6 +1859,7 @@ def test_a_reloaded_walk_reports_the_counts_the_paid_walk_had(app):
     probe = fake_st.session_state._seeding_event_probe
     assert probe["divisions_found"] == 40
     assert probe["divisions_walked"] == 40
+    assert probe["divisions_skipped"] == 7
     assert probe["complete"] is False, "three divisions were unreadable"
 
 
@@ -1846,6 +1981,14 @@ def test_a_walk_written_before_the_counters_existed_is_refused(app, tmp_path):
     _write_payload(tmp_path, _legacy_payload(divisions_walked=40))
 
     assert tournament_intake._recovered_walk("52975") is None
+
+
+def test_a_legacy_recovery_without_a_skipped_count_defaults_to_zero(app, tmp_path):
+    _write_payload(tmp_path, _legacy_payload())
+
+    roster, _limit = tournament_intake._recovered_walk("52975")
+
+    assert roster.divisions_skipped == 0
 
 
 def test_the_recovered_walk_is_filed_under_the_event_that_was_asked_for(app, tmp_path):
@@ -2170,6 +2313,9 @@ def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
         "limit_groups": None,
         "divisions_found": roster.divisions_found,
         "divisions_walked": roster.divisions_walked,
+        "divisions_skipped": roster.divisions_skipped,
+        "divisions_sampled": len(roster.divisions),
+        "u10_plus_only": False,
         "teams": len(roster.teams),
         "linked": sum(1 for team in roster.teams if team.provider_team_id),
         "complete": roster.is_complete,
@@ -2199,6 +2345,37 @@ def test_park_event_roster_with_backtest_keys_writes_only_backtest_state(app):
     assert fake_st.session_state.get("_seeding_event_probe") is None, (
         "a backtest-keyed walk must not touch the seeding view's probe counters"
     )
+
+
+def test_the_probe_records_captured_divisions_instead_of_inferring_them(app):
+    """A checked page may fail, so checked minus skipped can overstate the sample."""
+    fake_st = _install(app, _FakeSt())
+    divisions = tuple(
+        ScrapedDivision(
+            group_id=str(group_id),
+            division_label=label,
+            pools=(),
+            fixtures=(),
+            pools_readable=True,
+            fixtures_readable=True,
+            warnings=(),
+        )
+        for group_id, label in ((10, "U10 Boys"), (11, "U11 Girls"))
+    )
+    roster = _roster(
+        _team(0),
+        divisions_found=40,
+        divisions_walked=4,
+        divisions_skipped=1,
+        divisions_unreadable=1,
+        divisions=divisions,
+    )
+
+    tournament_intake._park_event_roster(EVENT_URL, roster, 2, None)
+
+    probe = fake_st.session_state._seeding_event_probe
+    assert probe["divisions_sampled"] == 2
+    assert probe["divisions_sampled"] != probe["divisions_walked"] - probe["divisions_skipped"]
 
 
 def test_a_reloaded_saved_run_does_not_claim_to_be_this_events_walk(app):

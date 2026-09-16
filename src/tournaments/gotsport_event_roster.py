@@ -1248,7 +1248,10 @@ def scrape_event_roster(
     first puts all several-hundred team pages through one pool instead.
 
     ``limit_groups`` stops after that many divisions, which is how a new event
-    gets priced against a couple of them before paying for all of it. The result
+    gets priced against a couple of them before paying for all of it. When
+    ``wanted_cohorts`` is also set, divisions outside those cohorts do not count
+    toward the limit: their division pages are checked in landing-page order
+    until the requested number of relevant divisions has been found. The result
     reports ``is_complete`` so a truncated or blocked walk cannot be mistaken
     for a whole one.
 
@@ -1281,21 +1284,58 @@ def scrape_event_roster(
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
-    if limit_groups is not None and limit_groups < len(group_ids):
-        warnings.append(f"Walked {limit_groups} of {len(group_ids)} divisions; roster is partial")
-        group_ids = group_ids[:limit_groups]
+    effective_wanted = None if completed_event else wanted_cohorts
+    if limit_groups is not None and effective_wanted is not None:
+        divisions, unreadable_divisions, divisions_walked = _read_until_wanted_limit(
+            throttled,
+            event_id,
+            group_ids,
+            limit_groups,
+            effective_wanted,
+            warnings,
+            on_progress=(
+                (lambda done, total: on_phase("Capturing divisions", done, total))
+                if on_phase
+                else None
+            ),
+        )
+    else:
+        if limit_groups is not None and limit_groups < len(group_ids):
+            warnings.append(
+                f"Walked {limit_groups} of {len(group_ids)} divisions; roster is partial"
+            )
+            group_ids = group_ids[:limit_groups]
 
-    divisions, unreadable_divisions = _read_divisions(
-        throttled, event_id, group_ids, max_workers, warnings, completed_event=completed_event,
-        on_progress=(lambda done, total: on_phase("Capturing divisions", done, total)) if on_phase else None,
-    )
+        divisions, unreadable_divisions = _read_divisions(
+            throttled,
+            event_id,
+            group_ids,
+            max_workers,
+            warnings,
+            completed_event=completed_event,
+            on_progress=(
+                (lambda done, total: on_phase("Capturing divisions", done, total))
+                if on_phase
+                else None
+            ),
+        )
+        divisions_walked = len(divisions)
+
     # Counted before the filter: a division we read and then chose not to pay
     # further for was still walked, and `is_complete` compares this against the
     # number found. Counting only the kept ones would report every filtered walk
     # as partial, which retires the full-walk control and disarms the guard that
     # stops a probe overwriting a complete roster.
-    divisions_walked = len(divisions)
-    divisions, skipped = _wanted_divisions(divisions, None if completed_event else wanted_cohorts, warnings)
+    divisions, skipped = _wanted_divisions(divisions, effective_wanted, warnings)
+    if (
+        limit_groups is not None
+        and effective_wanted is not None
+        and divisions_walked < divisions_found
+    ):
+        warnings.append(
+            f"Checked {divisions_walked} of {divisions_found} divisions to sample "
+            f"{len(divisions)} within the ages you rank; roster is partial"
+        )
     # A division we chose not to walk cannot have lost us teams, so its
     # unreadable table is not a gap in this roster. Counting it would make
     # `is_complete` false for a walk that got everything it asked for, and the
@@ -1651,6 +1691,55 @@ def _read_divisions(
             )
         )
     return divisions, unreadable
+
+
+def _read_until_wanted_limit(
+    fetch: HtmlFetcher,
+    event_id: str,
+    group_ids: tuple[str, ...],
+    limit_groups: int,
+    wanted_cohorts: Collection[str],
+    warnings: list[str],
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> tuple[list[_Division], list[str], int]:
+    """Read divisions in order until ``limit_groups`` relevant ones are found.
+
+    Division pages are intentionally read one at a time here. Reading ahead in
+    parallel would make a two-division paid probe buy pages it did not need.
+    Team pages are fetched only after this scan, once outside-cohort divisions
+    have been removed by ``_wanted_divisions``.
+    """
+    divisions: list[_Division] = []
+    unreadable: list[str] = []
+    walked = 0
+    wanted = 0
+    for group_id in group_ids:
+        if wanted >= limit_groups:
+            break
+        captured, captured_unreadable = _read_divisions(
+            fetch,
+            event_id,
+            (group_id,),
+            1,
+            warnings,
+        )
+        walked += 1
+        divisions.extend(captured)
+        unreadable.extend(captured_unreadable)
+        if not captured:
+            # This page was still checked and paid for. Mark it unreadable so a
+            # failed final scan cannot look complete merely because walked now
+            # counts attempts rather than successfully parsed pages.
+            unreadable.append(group_id)
+        else:
+            wanted += sum(
+                not names_cohort_outside(division.label, wanted_cohorts)
+                for division in captured
+            )
+        if on_progress:
+            on_progress(walked, len(group_ids))
+    return divisions, unreadable, walked
 
 
 def _wanted_divisions(

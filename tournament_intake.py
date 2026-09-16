@@ -3578,6 +3578,12 @@ _SEEDING_PLACEHOLDER = (
     "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
 )
 
+# The ages PitchRank boards, read from the config the rest of the app uses so the
+# set moves with the August rollover rather than being restated here. A division
+# outside it is not worth a team page: `rankings_full` holds no row for those
+# cohorts, so a seeding sheet has nothing to say about their teams.
+_RANKED_COHORTS = frozenset(AGE_GROUPS)
+
 _SEEDING_EVENT_PROBE_DIVISIONS = 2
 # The scraper defaults to serial; a whole event walked one page at a time is hours.
 _SEEDING_EVENT_WORKERS = 8
@@ -3717,7 +3723,7 @@ def _run_event_roster_scrape(
                         fetch=make_zenrows_fetcher(api_key),
                         limit_groups=limit_groups,
                         max_workers=_SEEDING_EVENT_WORKERS,
-                        wanted_cohorts=None,
+                        wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
                         on_phase=on_phase,
                         **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
                     )
@@ -3847,6 +3853,9 @@ def _park_event_roster(
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
         "divisions_walked": roster.divisions_walked,
+        "divisions_skipped": roster.divisions_skipped,
+        "divisions_sampled": len(roster.divisions),
+        "u10_plus_only": keys != _BACKTEST_KEYS,
         "teams": len(roster.teams),
         "linked": sum(1 for team in roster.teams if team.provider_team_id),
         # A walk that lost a division to an unreadable table returned teams and
@@ -3980,8 +3989,9 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
     reads. It is a property over five of them, so a payload keeping only
     ``found`` and ``walked`` rebuilds a walk that lost divisions as a whole one —
     which tells the operator an event is finished with and locks the buttons that
-    would finish it. ``divisions_skipped`` is not one of the five and nothing
-    downstream reads it, so it is not persisted.
+    would finish it. ``divisions_skipped`` is also preserved because the Seeding
+    caption explains how many younger divisions were bypassed to reach its U10+
+    sample.
 
     Best-effort by construction: this exists to protect a paid artifact, so a
     failure to write it must not itself cost the walk.
@@ -4001,6 +4011,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
                 "divisions_found": roster.divisions_found,
                 "divisions_walked": roster.divisions_walked,
                 "divisions_unreadable": roster.divisions_unreadable,
+                "divisions_skipped": roster.divisions_skipped,
                 "divisions_stable": roster.divisions_stable,
                 "teams_unreadable": roster.teams_unreadable,
                 "warnings": list(roster.warnings),
@@ -4098,6 +4109,7 @@ def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[Ev
             divisions_found=int(payload.get("divisions_found") or 0),
             divisions_walked=int(payload.get("divisions_walked") or 0),
             divisions_unreadable=int(payload.get("divisions_unreadable") or 0),
+            divisions_skipped=int(payload.get("divisions_skipped") or 0),
             divisions_stable=payload.get("divisions_stable") in (None, True),
             teams_unreadable=int(payload.get("teams_unreadable") or 0),
             divisions=tuple(_recovered_division(item) for item in payload.get("divisions") or ()),
@@ -4526,7 +4538,9 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
         roster = snapshot.roster
         return {
             "url": url, "limit_groups": snapshot.limit_groups, "divisions_found": roster.divisions_found,
-            "divisions_walked": roster.divisions_walked, "teams": len(roster.teams),
+            "divisions_walked": roster.divisions_walked, "divisions_skipped": roster.divisions_skipped,
+            "divisions_sampled": len(roster.divisions), "u10_plus_only": False,
+            "teams": len(roster.teams),
             "linked": sum(bool(team.provider_team_id) for team in roster.teams),
             "complete": roster.is_complete and roster.completed_event,
         }
@@ -4563,19 +4577,36 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     """What the walk saw, and what the rest of the event would cost."""
     walked = int(probe.get("divisions_walked") or 0)
     found = int(probe.get("divisions_found") or 0)
+    sampled = int(probe.get("divisions_sampled") or 0)
     teams = int(probe.get("teams") or 0)
     linked = int(probe.get("linked") or 0)
-    head = f"Walked {walked} of {found} divisions: {teams} teams, {linked} carrying a GotSport id."
+    u10_plus_only = bool(probe.get("u10_plus_only"))
+    if not u10_plus_only:
+        head = (
+            f"Walked {walked} of {found} divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+    elif probe.get("limit_groups") is None:
+        head = (
+            f"Checked all {walked} divisions and kept {sampled} U10+ divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+    else:
+        head = (
+            f"Checked {walked} of {found} event divisions and captured {sampled} U10+ divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+
+    if probe.get("limit_groups") is None or (found > 0 and walked >= found):
+        return head
 
     # Team pages are most of an event's bill, so a sample that found no team
     # prices nothing — which is the normal state of an event being seeded before
     # its schedules go up, not a rare one.
     if not walked or not teams:
         return f"{head} That is not enough to price the rest of the event from."
-    if probe.get("limit_groups") is None:
-        return head
 
-    pages = 1 + found + found * teams / walked
+    pages = LANDING_READS + found + found * teams / walked
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
@@ -4667,6 +4698,29 @@ def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> in
     return len(result[0].rows) if result else 0
 
 
+def _clear_result_from_other_event(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
+    """Remove an event walk from the view once the URL names another event.
+
+    Every paid walk is already persisted by ``_park_event_roster`` before it
+    reaches session state, so clearing these display fields does not discard the
+    recoverable roster.  It does stop the old rows, decisions and generated
+    sheet from appearing -- or being saved -- beneath a different event URL.
+
+    Pasted rosters and reopened named runs carry no event id and are left alone.
+    A blank URL also leaves the current result alone; only a non-empty input
+    that no longer names the parked event invalidates it.
+    """
+    parked_event_id = st.session_state.get(keys.result_event_id)
+    if not parked_event_id or not str(url or "").strip():
+        return
+    if event_id_from(url) == str(parked_event_id):
+        return
+
+    _park_seeding_result(None, event_id=None, keys=keys)
+    st.session_state[keys.overrides] = {}
+    st.session_state[keys.resolution_failed] = False
+
+
 def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
@@ -4683,8 +4737,9 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         st.markdown("#### Or scrape a GotSport event")
         st.caption(
             "Reads each division's teams and follows every team page for its GotSport id, "
-            "which links a team outright rather than by name. Check a couple of divisions first — "
-            "every page is paid for."
+            "which links a team outright rather than by name. The check keeps only U10 and older. "
+            "It may read younger division pages while finding the first two U10+ divisions, but it "
+            "does not buy those younger teams' pages."
         )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
@@ -4696,6 +4751,8 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         placeholder="https://system.gotsport.com/org_event/events/52975",
         disabled=in_progress,
     )
+    if keys is _SEEDING_KEYS:
+        _clear_result_from_other_event(url, keys=keys)
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
     already_walked = bool(probe.get("complete"))
@@ -4704,7 +4761,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
     with primary:
         full_clicked = st.button(
-            "Scrape the whole event",
+            "Scrape the whole event" if keys == _BACKTEST_KEYS else "Scrape all U10+ divisions",
             key=f"{keys.prefix}_event_full_run",
             type="primary" if keys == _BACKTEST_KEYS else "secondary",
             disabled=(not url or in_progress or already_walked
@@ -4714,7 +4771,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         probe_clicked = st.button(
             "Optional: check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
-            ) if keys == _BACKTEST_KEYS else "Check {} divisions (~{}-{})".format(
+            ) if keys == _BACKTEST_KEYS else "Check {} U10+ divisions (starts around {}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
