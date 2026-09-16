@@ -1,4 +1,10 @@
-import { stripe, extractPeriodEnd, mapStatusToPlan, isSessionPaymentSettled } from '@/lib/stripe/server';
+import {
+  stripe,
+  extractPeriodEnd,
+  mapStatusToPlan,
+  isCancellationScheduled,
+  isSessionPaymentSettled,
+} from '@/lib/stripe/server';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
@@ -68,7 +74,7 @@ export async function POST(req: Request) {
       subscription_status: status,
       plan,
       subscription_period_end: extractPeriodEnd(subscription),
-      cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+      cancel_at_period_end: isCancellationScheduled(subscription),
       updated_at: new Date().toISOString(),
     };
 

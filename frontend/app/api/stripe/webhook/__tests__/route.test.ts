@@ -7,7 +7,8 @@ vi.mock('next/headers', () => ({
 }));
 
 // Mock the stripe module
-vi.mock('@/lib/stripe/server', () => ({
+vi.mock('@/lib/stripe/server', async (importOriginal) => ({
+  isCancellationScheduled: (await importOriginal<typeof import('@/lib/stripe/server')>()).isCancellationScheduled,
   stripe: {
     webhooks: {
       constructEvent: vi.fn(),
@@ -289,6 +290,7 @@ describe('POST /api/stripe/webhook', () => {
           id: 'sub_123',
           customer: 'cus_123',
           status: 'active',
+          cancel_at: null,
           cancel_at_period_end: true,
           items: { data: [{ current_period_end: 1735689600 }] },
         } as unknown as Stripe.Subscription,
@@ -301,6 +303,7 @@ describe('POST /api/stripe/webhook', () => {
       id: 'sub_123',
       customer: 'cus_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: true,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -338,6 +341,8 @@ describe('POST /api/stripe/webhook', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_new',
       status: 'trialing',
+      cancel_at: null,
+      cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
 
@@ -386,6 +391,8 @@ describe('POST /api/stripe/webhook', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_second',
       status: 'trialing',
+      cancel_at: null,
+      cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
 
@@ -438,6 +445,8 @@ describe('POST /api/stripe/webhook', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_second',
       status: 'trialing',
+      cancel_at: null,
+      cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
 
@@ -579,6 +588,7 @@ describe('Beehiiv lifecycle routing', () => {
       id: 'sub_123',
       customer: 'cus_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: true,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -587,10 +597,39 @@ describe('Beehiiv lifecycle routing', () => {
       id: 'sub_123',
       customer: 'cus_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: true,
       items: { data: [{ current_period_end: 1735689600 }] },
     });
 
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'canceling');
+  });
+
+  it('routes canceling when the cancellation is scheduled through cancel_at alone', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at: 1735689600,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('customer.subscription.updated', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at: 1735689600,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    });
+
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ cancel_at_period_end: true })
+    );
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'canceling');
   });
 
@@ -600,6 +639,7 @@ describe('Beehiiv lifecycle routing', () => {
       id: 'sub_123',
       customer: 'cus_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -608,6 +648,7 @@ describe('Beehiiv lifecycle routing', () => {
       id: 'sub_123',
       customer: 'cus_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     });
@@ -615,13 +656,13 @@ describe('Beehiiv lifecycle routing', () => {
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'paid');
   });
 
-  it('writes current subscription state when a stale update event replays', async () => {
-    setPriorState({ subscription_status: 'canceled', cancel_at_period_end: false });
-    // The replayed event claims active, but Stripe's current truth is canceled
+  it('marks a trial cancellation without sending the paid canceling sequence', async () => {
+    setPriorState({ subscription_status: 'trialing', cancel_at_period_end: false });
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       customer: 'cus_123',
-      status: 'canceled',
+      status: 'trialing',
+      cancel_at: 1735689600,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -629,7 +670,8 @@ describe('Beehiiv lifecycle routing', () => {
     await fireEvent('customer.subscription.updated', {
       id: 'sub_123',
       customer: 'cus_123',
-      status: 'active',
+      status: 'trialing',
+      cancel_at: 1735689600,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     });
@@ -637,8 +679,40 @@ describe('Beehiiv lifecycle routing', () => {
     expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
       expect.anything(),
       'cus_123',
-      expect.objectContaining({ subscription_status: 'canceled', plan: 'free' })
+      expect.objectContaining({ cancel_at_period_end: true })
     );
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
+  });
+
+  it('writes current subscription state when a stale update event replays', async () => {
+    setPriorState({ subscription_status: 'canceled', cancel_at_period_end: false });
+    // The replayed event claims active, but Stripe's current truth is canceled.
+    // An ended subscription keeps its cancellation fields; it is not canceling.
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'canceled',
+      cancel_at: 1735689600,
+      cancel_at_period_end: true,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('customer.subscription.updated', {
+      id: 'sub_123',
+      customer: 'cus_123',
+      status: 'active',
+      cancel_at: null,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    });
+
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ subscription_status: 'canceled', plan: 'free', cancel_at_period_end: false })
+    );
+    expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
   });
 
   it('flips lifecycle to paid only on first invoice after trial', async () => {
@@ -646,6 +720,7 @@ describe('Beehiiv lifecycle routing', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -663,6 +738,7 @@ describe('Beehiiv lifecycle routing', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -675,11 +751,34 @@ describe('Beehiiv lifecycle routing', () => {
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
   });
 
+  it('keeps a cancel_at-only cancellation marked when an invoice is paid', async () => {
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: true });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at: 1735689600,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('invoice.paid', {
+      customer: 'cus_123',
+      parent: { subscription_details: { subscription: 'sub_123' } },
+    });
+
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ cancel_at_period_end: true })
+    );
+  });
+
   it('recovers lifecycle to paid when past_due invoice succeeds on retry', async () => {
     setPriorState({ subscription_status: 'past_due', cancel_at_period_end: false });
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -730,6 +829,7 @@ describe('Beehiiv automation enrollment', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'trialing',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -806,6 +906,7 @@ describe('Beehiiv automation enrollment', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -822,6 +923,29 @@ describe('Beehiiv automation enrollment', () => {
       expect.anything(),
       'cus_123',
       expect.objectContaining({ plan: 'premium' })
+    );
+  });
+
+  it('keeps a scheduled cancellation when a checkout event arrives after it', async () => {
+    setPriorState({ id: '1', subscription_status: 'active' });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'active',
+      cancel_at: 1735689600,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.async_payment_succeeded', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'paid',
+    });
+
+    expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
+      expect.anything(),
+      'cus_123',
+      expect.objectContaining({ cancel_at_period_end: true })
     );
   });
 });
@@ -864,6 +988,7 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'trialing',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);
@@ -951,6 +1076,7 @@ describe('Set-password email failure alerts an admin', () => {
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_new',
       status: 'active',
+      cancel_at: null,
       cancel_at_period_end: false,
       items: { data: [{ current_period_end: 1735689600 }] },
     } as unknown as Stripe.Response<Stripe.Subscription>);

@@ -329,7 +329,7 @@
 
 <div class="meta">
   <p><strong>Lifecycle state:</strong> <code>canceling</code></p>
-  <p><strong>Trigger:</strong> Webhook fires on <code>customer.subscription.updated</code> with <code>cancel_at_period_end = true</code>.</p>
+  <p><strong>Trigger:</strong> Webhook fires on <code>customer.subscription.updated</code> when a paying (<code>active</code>) subscription has a cancellation scheduled, through <code>cancel_at</code> or <code>cancel_at_period_end</code>.</p>
   <p><strong>Per-step gate:</strong> Attribute → <code>lifecycle</code> → is → <code>canceling</code></p>
   <p><strong>Exit condition:</strong> If they reactivate (toggle off), webhook flips <code>lifecycle = paid</code> and per-step gate auto-skips remaining emails.</p>
   <p><strong>Audience context:</strong> Clicked cancel — Premium ends at period end. Still have full access until then. Soft check-in, surface what turns off, offer reactivation. Do not beg.</p>

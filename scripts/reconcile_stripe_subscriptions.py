@@ -2,7 +2,8 @@
 """
 Reconcile Stripe subscriptions with user_profiles in Supabase.
 
-Detects and fixes mismatches where the webhook failed to update plan/status.
+Detects and fixes user_profiles rows whose plan, status, subscription id or
+canceling flag disagree with Stripe.
 Sends an email alert via Resend when mismatches are found.
 
 Usage:
@@ -48,12 +49,22 @@ FROM_EMAIL = "PitchRank <newsletter@mail.pitchrank.io>"
 def stripe_status_to_plan(status: str) -> str:
     """Map Stripe subscription status to PitchRank plan.
 
-    Mirrors webhook handler logic in
-    frontend/app/api/stripe/webhook/route.ts lines 158-161.
+    Mirrors mapStatusToPlan in frontend/lib/stripe/server.ts.
     """
     if status in ("active", "trialing", "past_due"):
         return "premium"
     return "free"
+
+
+def is_cancellation_scheduled(sub) -> bool:
+    """Whether a subscription that still grants premium is set to cancel.
+
+    Mirrors isCancellationScheduled in frontend/lib/stripe/server.ts, which
+    documents why both fields are read; change both together.
+    """
+    if stripe_status_to_plan(sub.status) != "premium":
+        return False
+    return sub.cancel_at is not None or bool(sub.cancel_at_period_end)
 
 
 def fetch_stripe_users(supabase):
@@ -61,7 +72,8 @@ def fetch_stripe_users(supabase):
     response = (
         supabase.table("user_profiles")
         .select(
-            "id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, subscription_period_end"
+            "id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, "
+            "subscription_period_end, cancel_at_period_end"
         )
         .not_.is_("stripe_customer_id", "null")
         .execute()
@@ -84,13 +96,13 @@ def check_stripe_subscription(customer_id: str):
     except (KeyError, TypeError):
         period_end = None
     if period_end is None:
-        # Fallback: 30 days from now (mirrors webhook handler at route.ts:164-165)
+        # Mirrors extractPeriodEnd's fallback in frontend/lib/stripe/server.ts
         period_end = int(datetime.now(timezone.utc).timestamp()) + 30 * 24 * 60 * 60
     return {
         "status": sub.status,
         "subscription_id": sub.id,
         "period_end": period_end,
-        "cancel_at_period_end": bool(sub.cancel_at_period_end),
+        "cancel_at_period_end": is_cancellation_scheduled(sub),
     }
 
 
@@ -137,13 +149,15 @@ def reconcile(supabase, dry_run: bool):
         db_plan = row.get("plan") or "free"
         db_status = row.get("subscription_status")
         db_sub_id = row.get("stripe_subscription_id")
+        db_canceling = bool(row.get("cancel_at_period_end"))
 
         # Check for mismatch
         plan_mismatch = db_plan != expected_plan
         status_mismatch = db_status != stripe_status
         sub_id_mismatch = sub_data and db_sub_id != stripe_sub_id
+        canceling_mismatch = db_canceling != cancel_at_period_end
 
-        if not (plan_mismatch or status_mismatch or sub_id_mismatch):
+        if not (plan_mismatch or status_mismatch or sub_id_mismatch or canceling_mismatch):
             logger.info(f"  OK {email}: plan={db_plan}, status={db_status}")
             continue
 
@@ -155,16 +169,21 @@ def reconcile(supabase, dry_run: bool):
                 "plan": db_plan,
                 "subscription_status": db_status,
                 "stripe_subscription_id": db_sub_id,
+                "cancel_at_period_end": db_canceling,
             },
             "after": {
                 "plan": expected_plan,
                 "subscription_status": stripe_status,
                 "stripe_subscription_id": stripe_sub_id,
+                "cancel_at_period_end": cancel_at_period_end,
             },
         }
         mismatches.append(mismatch)
 
-        logger.warning(f"  MISMATCH {email}: plan {db_plan}->{expected_plan}, status {db_status}->{stripe_status}")
+        logger.warning(
+            f"  MISMATCH {email}: plan {db_plan}->{expected_plan}, status {db_status}->{stripe_status}, "
+            f"canceling {db_canceling}->{cancel_at_period_end}"
+        )
 
         if not dry_run:
             update = {
@@ -201,6 +220,8 @@ def send_alert_email(mismatches: list, dry_run: bool):
             f"<td style='padding:6px 12px'>{m['before']['plan']} &rarr; {m['after']['plan']}</td>"
             f"<td style='padding:6px 12px'>"
             f"{m['before']['subscription_status']} &rarr; {m['after']['subscription_status']}</td>"
+            f"<td style='padding:6px 12px'>"
+            f"{m['before']['cancel_at_period_end']} &rarr; {m['after']['cancel_at_period_end']}</td>"
             f"</tr>"
         )
 
@@ -215,6 +236,7 @@ def send_alert_email(mismatches: list, dry_run: bool):
             <th style="padding:8px 12px; text-align:left">User</th>
             <th style="padding:8px 12px; text-align:left">Plan Change</th>
             <th style="padding:8px 12px; text-align:left">Status Change</th>
+            <th style="padding:8px 12px; text-align:left">Canceling</th>
         </tr>
         {rows_html}
     </table>

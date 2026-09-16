@@ -792,6 +792,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
 - **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
 - **Noted**: 2026-09-04
+- **Update (2026-09-16)**: The "exactly one" count read `cancel_at_period_end` alone. Counting `cancel_at` as well (as `isCancellationScheduled` in `frontend/lib/stripe/server.ts` does), 14 active subscriptions had a scheduled cancellation on 2026-09-16, 13 of them monthly. So the effect is not deferred to April 2027: every monthly subscription whose cancellation falls before month end is a certain loss the projection still weights at the average churn rate.
 
 ### Skip operator-decided teams in the contradiction audit's paid probe list
 
@@ -1277,12 +1278,12 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The dashboard MRR is meant to equal Stripe's Billing MRR. Stripe subtracts forever discounts, excludes metered prices, and normalizes every interval (with `interval_count`) to monthly; `computeMrr` does none of this and divides only `year`, so day/week read as monthly. None of it is reachable on 2026-09-16: zero discounts on any active or past_due subscription or item, and every item licensed with `interval_count` 1 on month or year. But checkout sets `allow_promotion_codes: true`, so a coupon can go live with no deploy. Repeating and one-time discounts follow a Billing "Configure" setting the API cannot read, and discounts come back as IDs unless expanded on the list call.
 - **Noted**: 2026-09-16
 
-### Treat a `cancel_at`-only cancellation as canceling wherever the profile flag is written
+### Carry the canceling flag through the Streamlit Stripe sync
 
-- **ID**: IMP-244
+- **ID**: IMP-246
 - **Status**: open
-- **Type**: plan
+- **Type**: direct
 - **Category**: reliability
-- **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleSubscriptionUpdated`, `handleInvoicePaid`), `frontend/app/api/stripe/sync/route.ts` (`POST`), `scripts/reconcile_stripe_subscriptions.py` (`check_stripe_subscription`); the same single-field read in `frontend/lib/admin/subscription-metrics.ts` (`buildTrialPipeline`) and `frontend/lib/admin/month-projection.ts` (`computeTrialProjection`) miscounts a trial canceled through `cancel_at` as still actionable
-- **Why**: All four read `cancel_at_period_end` alone when writing `user_profiles.cancel_at_period_end`, and the webhook docstring assumes the Customer Portal sets that flag. On 2026-09-16, 10 of the 14 active subscriptions with a scheduled cancellation had `cancel_at` set and `cancel_at_period_end` false, so those customers never get the flag stored or the Beehiiv `canceling` lifecycle sync. Fixing one writer is not enough: the 6-hourly reconcile or the next `invoice.paid` resets the stored flag, and the webhook re-fires `canceling` on the following update. `getSubscriptionMetrics` already treats either field as a scheduled cancellation.
+- **Where**: `dashboard.py` (the `needs_sync` "Sync to DB" block and the webhook-gap relabel loop beside `_display_plan`)
+- **Why**: The sync block writes `plan`, `subscription_status`, `stripe_subscription_id` and period end to `user_profiles` but never `cancel_at_period_end`, and re-derives status→plan inline (`sub.status in ('active', 'trialing', 'past_due')`). The webhook-gap relabel loop labels an active subscription with a scheduled cancellation `paid` rather than `paid (canceling)`. A profile synced there keeps a stale not-canceling flag until the next webhook or the 6-hourly reconcile. `stripe_status_to_plan` and `is_cancellation_scheduled` already exist in `scripts/reconcile_stripe_subscriptions.py`, but importing that module runs `load_dotenv(override=True)` and `logging.basicConfig` inside the Streamlit process, so reuse means moving the two helpers somewhere side-effect-free first.
 - **Noted**: 2026-09-16

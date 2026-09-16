@@ -40,7 +40,8 @@ vi.mock('@/lib/supabase/service', () => ({
   getSupabaseAdmin: vi.fn(() => ({ from: mockAdminFrom })),
 }));
 
-vi.mock('@/lib/stripe/server', () => ({
+vi.mock('@/lib/stripe/server', async (importOriginal) => ({
+  isCancellationScheduled: (await importOriginal<typeof import('@/lib/stripe/server')>()).isCancellationScheduled,
   stripe: {
     checkout: { sessions: { retrieve: mockSessionsRetrieve } },
     subscriptions: { retrieve: mockSubscriptionsRetrieve },
@@ -70,7 +71,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     status: 'complete',
     payment_status: 'paid',
     customer: 'cus_123',
-    subscription: { id: 'sub_1', status: 'active', cancel_at_period_end: false },
+    subscription: { id: 'sub_1', status: 'active', cancel_at: null, cancel_at_period_end: false },
     ...overrides,
   };
 }
@@ -239,6 +240,24 @@ describe('POST /api/stripe/sync', () => {
     // Then update by the resolved profile.id — NOT by stripe_customer_id again
     // (which would update any row sharing that customer_id, not just this profile).
     expect(update.eq).toHaveBeenCalledWith('id', 'profile-99');
+  });
+
+  it('marks a subscription canceling when its cancellation is scheduled through cancel_at alone', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockSessionsRetrieve.mockResolvedValue(
+      makeSession({
+        customer: 'cus_anon',
+        subscription: { id: 'sub_1', status: 'active', cancel_at: 1798761600, cancel_at_period_end: false },
+      })
+    );
+    const lookup = selectChain({ data: { id: 'profile-99' }, error: null });
+    const update = updateChain({ error: null });
+    mockAdminFrom.mockReturnValueOnce(lookup.client).mockReturnValueOnce(update.client);
+
+    const res = await POST(makeRequest({ sessionId: 'cs_test_anon' }));
+
+    expect(res.status).toBe(200);
+    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({ cancel_at_period_end: true }));
   });
 
   it('returns 500 on unexpected Stripe error', async () => {

@@ -94,6 +94,20 @@ export function mapStatusToPlan(status: Stripe.Subscription.Status): 'premium' |
 }
 
 /**
+ * Whether a subscription that still grants premium (see mapStatusToPlan) is set
+ * to cancel. On flexible
+ * billing mode the Customer Portal schedules a cancellation through `cancel_at`
+ * alone, leaving `cancel_at_period_end` false, so both are read.
+ *
+ * `is_cancellation_scheduled` in scripts/reconcile_stripe_subscriptions.py is
+ * the Python twin; change both together.
+ */
+export function isCancellationScheduled(subscription: Stripe.Subscription): boolean {
+  if (mapStatusToPlan(subscription.status) !== 'premium') return false;
+  return subscription.cancel_at !== null || subscription.cancel_at_period_end;
+}
+
+/**
  * Update a user profile by stripe_customer_id, verify the row exists, and
  * return the updated row(s). Throws on DB error or missing user.
  *

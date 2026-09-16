@@ -1361,10 +1361,10 @@ elif section == "🆕 New Accounts":
                 if p == 'admin':
                     return 'admin'
                 if p == 'premium':
-                    if canceling:
-                        return 'paid (canceling)'
                     if ss == 'trialing':
                         return 'trial'
+                    if canceling:
+                        return 'paid (canceling)'
                     if ss == 'past_due':
                         return 'paid (past due)'
                     return 'paid'
@@ -1432,7 +1432,7 @@ elif section == "🆕 New Accounts":
         created_valid = accounts_df['created_at_ts'].dropna()
         new_7d = int((created_valid >= (now_utc - pd.Timedelta(days=7))).sum()) if not created_valid.empty else 0
         prev_7d = int(((created_valid >= (now_utc - pd.Timedelta(days=14))) & (created_valid < (now_utc - pd.Timedelta(days=7)))).sum()) if not created_valid.empty else 0
-        paid_accounts = int(accounts_df['display_plan'].isin(['paid', 'paid (past due)']).sum()) if total_accounts > 0 else 0
+        paid_accounts = int(accounts_df['display_plan'].isin(['paid', 'paid (past due)', 'paid (canceling)']).sum()) if total_accounts > 0 else 0
         trial_accounts = int((accounts_df['display_plan'] == 'trial').sum()) if total_accounts > 0 else 0
         free_accounts = total_accounts - paid_accounts - trial_accounts - int((accounts_df['display_plan'] == 'admin').sum()) if total_accounts > 0 else 0
         total_subscribers = len(newsletter_df)
