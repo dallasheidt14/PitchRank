@@ -13,7 +13,7 @@ merged. This records what the sweep found so the next run starts from a count.
 | Candidate pairs at the 0.90 threshold, before the guard fix | 77 |
 | Same, after the guard fix | 46 |
 | Verified duplicates | 11 |
-| Merges applied | 0 |
+| Merges applied | 166 |
 
 ## Why so few
 
@@ -83,3 +83,41 @@ The 11 verified pairs need a human decision to apply, not a rule change. Merge
 direction must be reversed on them: `pick_canonical_pair` scores name aesthetics and
 chose to keep the row created this week and deprecate the established row holding
 the ranking history, in 10 of the 11.
+
+
+## Outcome, 2026-09-16
+
+166 merges applied in two batches (25, verified against the database, then 141), 0
+failures. Live NC teams fell from 6,128 to 5,962. Every deprecated row is marked
+deprecated and carries a `team_merge_map` row; no survivor was deprecated. The
+doubled-fixture repair found nothing to exclude, which follows from the clusters
+being selected for date-disjoint schedules.
+
+### What the adversarial review removed
+
+189 pairs entered review across four slices; 23 were removed and 3 had their
+direction reversed.
+
+| Removed | Why |
+|---|---|
+| 14 | Academy and MLS NEXT rows. The repo refuses this class for fuzzy merging and clustering on squad identity walked past that. 17 clubs field a U18 and a U19 side that both play the same MLS NEXT Cup window, so those are separate squads; a `<club>_U14_HD` id is a season slot rather than a squad. |
+| 4 | A row naming only the club, merged into one of several squads that club fields. |
+| 1 | `13 MLS Next AD` carries no club token, so every club's entry scores 1.0 against it. The pair would have fused Carolina Velocity FC into Carolina Core FC. |
+| 1 | A U14 squad into a U13 squad, each of which already had its own counterpart. |
+| 3 | Unresolved data defects: a survivor whose whole schedule sits two cohorts above its stored age, a stale `MLS_NEXT_AD` tag, and two colourless rows where the club fields Rise Black and Rise Gray. |
+
+The 3 direction reversals all came from asking whether a row had ranking history
+rather than how much: when both sides had some, the tiebreak kept the newer row.
+One would have discarded 68 published ranking snapshots in favour of 12. The
+final list discards the deeper history in no pair.
+
+### Still open
+
+- 99 clusters where neither row has a game. They look like duplicates and cannot
+  be evidenced, so they need a person rather than a rule.
+- 18 clusters holding contradicting fixtures on a shared date, and 15 where the two
+  rows played each other. Those are correct refusals.
+- The 23 removed above, each needing the specific decision named in its row.
+- **A SincSports import on 2026-09-13 and 2026-09-14 created NC rows duplicating
+  GotSport rows from 2025-11-04, which is where most of this came from.** Fixing
+  that matcher stops new duplicates arriving; nothing here addresses it.
