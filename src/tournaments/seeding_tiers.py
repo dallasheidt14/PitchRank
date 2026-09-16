@@ -263,19 +263,26 @@ def build_tiers(
             f"matchups, with an average expected edge of {average:.2f} goals; "
             f"{risky}/{len(margins)} exceed the within-tier limits."
         )
-        for members, neighbors, number in ((upper, lower, index + 2), (lower, upper, index + 1)):
-            # An alternative placement must leave both resulting groups safe,
-            # including existing neighbor-neighbor pairs after manual changes.
-            neighbors_safe = all(_risk(pairs[_pair_key(a, b)], policy) <= 1 for a, b in combinations(neighbors, 2))
-            for entrant_id in members:
-                remaining_safe = all(
-                    _risk(pairs[_pair_key(a, b)], policy) <= 1
-                    for a, b in combinations([key for key in members if key != entrant_id], 2)
-                )
-                if neighbors_safe and remaining_safe and all(
-                    _risk(pairs[_pair_key(entrant_id, other)], policy) <= 1 for other in neighbors
-                ):
-                    borderline.setdefault(entrant_id, []).append(number)
+        # A director can only move the two teams that touch the published seed
+        # boundary: the last seed in the upper tier or the first seed in the
+        # lower tier. Testing every member here produced mathematically safe but
+        # operationally nonsensical advice such as moving seed 1 below seed 3.
+        for members, neighbors, entrant_id, number in (
+            (upper, lower, upper[-1], index + 2),
+            (lower, upper, lower[0], index + 1),
+        ):
+            if len(members) == 1:
+                continue
+            remaining = tuple(key for key in members if key != entrant_id)
+            destination = (*neighbors, entrant_id)
+            remaining_safe = all(
+                _risk(pairs[_pair_key(a, b)], policy) <= 1 for a, b in combinations(remaining, 2)
+            )
+            destination_safe = all(
+                _risk(pairs[_pair_key(a, b)], policy) <= 1 for a, b in combinations(destination, 2)
+            )
+            if remaining_safe and destination_safe:
+                borderline.setdefault(entrant_id, []).append(number)
     # Matchup cycles can skip a neighboring tier. Inspect every cross-tier
     # pairing so an apparent A > B > C hierarchy cannot conceal C beating A.
     for upper_index, lower_index in combinations(range(len(groups)), 2):

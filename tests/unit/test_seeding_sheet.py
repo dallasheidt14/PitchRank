@@ -333,7 +333,7 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert "How to seed this group" in document
     assert "Build flights from the same tier" in document
     assert "Seed from top to bottom" in document
-    assert "Use Flexible teams when sizes do not fit" in document
+    assert "Use a Boundary option when sizes do not fit" in document
     assert "Use the tier first" in document
     assert "Strongest group" in document
     assert "Next competitive group" in document
@@ -342,7 +342,7 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert "What to know" in document
     assert "Manual placement needed" in document
     assert "Limited recent results. Use club input or recent scores." in document
-    assert "Flexible: can also play in Tier 1 if needed." in document
+    assert "Boundary option: If Tier 1 needs one more team, move this team up." in document
     assert "No close peer was found at this level." in document
     assert "Keep Tier 1 and Tier 2 in separate flights where possible." in document
     assert "Review this single-team tier before assigning a flight." in document
@@ -365,10 +365,10 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     assert "Review each team’s note before seeding." in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document
-    assert "Use Flexible teams" not in document
+    assert "Use a Boundary option" not in document
 
 
-def test_multiple_flexible_options_use_an_or_list():
+def test_multiple_boundary_options_use_an_or_list():
     analysis = _analysis(
         tiers=(
             TierGroup(1, ("1",), 0.0, 0.0, None),
@@ -383,7 +383,10 @@ def test_multiple_flexible_options_use_an_or_list():
     )
     document = _render_tier(analysis)
 
-    assert "Flexible: can also play in Tier 1 or Tier 3 if needed." in document
+    assert (
+        "Boundary options: If a neighboring tier needs one more team, move this team to Tier 1 or Tier 3."
+        in document
+    )
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -403,6 +406,7 @@ def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
     assert "Tier 1 and Tier 2 are close" in document
     assert "Tier 2 has one team. Place it with the closest available group" in document
     assert "A lower-tier team may compete well with an upper tier" in document
+    assert "Boundary option" in document
     assert "Several projected matchups are too close to call" in document
     assert "expected edge" not in document
     assert "within-tier limits" not in document

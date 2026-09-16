@@ -283,7 +283,7 @@ def _rows_html(
             if status and status != "Active" else ""
         )
         note = (placement_notes or {}).get(team.entrant_id) or team.review_reason or ""
-        note_class = "placement flexible-note" if note.startswith("Flexible:") else "placement"
+        note_class = "placement boundary-note" if note.startswith("Boundary option") else "placement"
         cells.append(
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}">'
             f'<td class="pos">{position if numbered else "-"}</td>'
@@ -340,10 +340,21 @@ def _tier_tables(sheet: CohortSheet) -> tuple[str, str]:
             description = "No close peer was found at this level. Review the guidance before finalizing."
         else:
             description = "Recommended together for the closest projected games."
-        notes = {
-            entrant_id: f"Flexible: can also play in {_tier_options(alternatives)} if needed."
-            for entrant_id, alternatives in analysis.borderline.items() if alternatives
-        }
+        notes = {}
+        for entrant_id, alternatives in analysis.borderline.items():
+            if not alternatives:
+                continue
+            if len(alternatives) > 1:
+                notes[entrant_id] = (
+                    f"Boundary options: If a neighboring tier needs one more team, move this team to "
+                    f"{_tier_options(alternatives)}."
+                )
+                continue
+            target = alternatives[0]
+            direction = "up" if target < tier.number else "down"
+            notes[entrant_id] = (
+                f"Boundary option: If Tier {target} needs one more team, move this team {direction}."
+            )
         parts.append(_table_html(f"Tier {tier.number}", members, numbered=True, start=start,
                                  subtitle=description, placement_notes=notes, cohort_label=cohort_label,
                                  purpose="Strongest group" if tier.number == 1 else "Next competitive group"))
@@ -381,7 +392,7 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
         elif "Overlapping matchups" in boundary:
             guidance.append(
                 f"Tier {index} and Tier {index + 1} are close. If pool sizes require a change, "
-                "start with a team marked Flexible."
+                "use the team marked Boundary option."
             )
         else:
             guidance.append(str(boundary))
@@ -398,7 +409,8 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
             )
         elif "strength-order exception" in warning:
             guidance.append(
-                "A lower-tier team may compete well with an upper tier. Review Flexible teams before finalizing."
+                "A lower-tier team may compete well with an upper tier. Review the tier line and any "
+                "Boundary option before finalizing."
             )
         elif "exceeds the matchup limits" in warning:
             tier = warning.split(" exceeds", 1)[0]
@@ -441,8 +453,8 @@ def _sheet_html(
     <span>Teams in a tier are the closest projected matchups.</span></div>
    <div class="guide-step"><strong>2. Seed from top to bottom</strong>
     <span>Tier 1 is strongest; each following tier is the next level.</span></div>
-   <div class="guide-step"><strong>3. Use Flexible teams when sizes do not fit</strong>
-    <span>Move one team at a time, then recheck the groups.</span></div>
+   <div class="guide-step"><strong>3. Use a Boundary option when sizes do not fit</strong>
+    <span>Only the team beside the tier line should move. Move one team at a time.</span></div>
   </div>
   <p class="guide-foot"><strong>Use the tier first.</strong>
    PitchRank score and state rank are supporting context.</p>"""
@@ -560,7 +572,7 @@ def render_sheet_html(
  .score {{ font-weight: 700; }}
  .state, .placement {{ font-size: 9.5px; }}
  .placement {{ color: {BRAND["muted"]}; }}
- .flexible-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
+ .boundary-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
  .flag {{ display: inline-block; margin-left: 5px; border: 1px solid {BRAND["rule"]}; border-radius: 2px;
  padding: 1px 3px; font-size: 8px; font-weight: 400; }}
  .review .tier-heading th {{ border-top: 2px solid {BRAND["yellow"]}; border-bottom-color: #D8C56A;

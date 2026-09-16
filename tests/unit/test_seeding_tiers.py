@@ -63,6 +63,82 @@ def test_neighbor_similarity_cannot_chain_a_five_goal_mismatch():
     assert result.borderline["b"] == (1,)
 
 
+def test_only_the_published_boundary_team_can_move_down():
+    roster = [
+        TierEntrant("a", "Team a", 0.9),
+        TierEntrant("b", "Team b", 0.8),
+        TierEntrant("c", "Team c", 0.7),
+        TierEntrant("d", "Team d", 0.6),
+        TierEntrant("e", "Team e", 0.5),
+    ]
+    predictions = matrix(["a", "b", "c", "d", "e"])
+    predictions.update({
+        ("a", "d"): prediction(4), ("a", "e"): prediction(4),
+        ("b", "d"): prediction(3), ("b", "e"): prediction(3),
+        ("c", "d"): prediction(1), ("c", "e"): prediction(1),
+    })
+
+    result = build_tiers(roster, predictions, manual_groups=[["a", "b", "c"], ["d", "e"]])
+
+    assert result.ordered_ids == ("a", "b", "c", "d", "e")
+    assert result.borderline == {"c": (2,)}
+
+
+def test_safe_interior_teams_are_not_boundary_options():
+    roster = [
+        TierEntrant("a", "Team a", 0.9),
+        TierEntrant("b", "Team b", 0.8),
+        TierEntrant("c", "Team c", 0.7),
+        TierEntrant("d", "Team d", 0.6),
+        TierEntrant("e", "Team e", 0.5),
+    ]
+    predictions = matrix(["a", "b", "c", "d", "e"])
+    predictions.update({
+        ("a", "d"): prediction(1), ("a", "e"): prediction(1),
+        ("b", "d"): prediction(1), ("b", "e"): prediction(1),
+        ("c", "d"): prediction(3), ("c", "e"): prediction(3),
+    })
+
+    result = build_tiers(roster, predictions, manual_groups=[["a", "b", "c"], ["d", "e"]])
+
+    assert result.ordered_ids == ("a", "b", "c", "d", "e")
+    assert result.borderline == {}
+
+
+def test_only_the_published_boundary_team_can_move_up():
+    roster = [
+        TierEntrant("a", "Team a", 0.9),
+        TierEntrant("b", "Team b", 0.8),
+        TierEntrant("c", "Team c", 0.7),
+        TierEntrant("d", "Team d", 0.6),
+        TierEntrant("e", "Team e", 0.5),
+    ]
+    predictions = matrix(["a", "b", "c", "d", "e"])
+    predictions.update({
+        ("a", "c"): prediction(1), ("b", "c"): prediction(1),
+        ("a", "d"): prediction(3), ("b", "d"): prediction(3),
+        ("a", "e"): prediction(3), ("b", "e"): prediction(3),
+    })
+
+    result = build_tiers(roster, predictions, manual_groups=[["a", "b"], ["c", "d", "e"]])
+
+    assert result.ordered_ids == ("a", "b", "c", "d", "e")
+    assert result.borderline == {"c": (1,)}
+
+
+def test_singleton_tier_is_not_removed_by_a_boundary_move():
+    roster = [TierEntrant("a", "Team a", 0.9), TierEntrant("b", "Team b", 0.8),
+              TierEntrant("c", "Team c", 0.7)]
+    result = build_tiers(
+        roster,
+        matrix(["a", "b", "c"]),
+        manual_groups=[["a"], ["b", "c"]],
+    )
+
+    assert "a" not in result.borderline
+    assert result.borderline == {"b": (1,)}
+
+
 def test_group_average_cannot_hide_one_overmatched_team():
     ids = [f"a{index}" for index in range(8)] + ["weak"]
     result = build_tiers(entrants(ids), matrix(ids, {key: 0 if key == "weak" else 5 for key in ids}))

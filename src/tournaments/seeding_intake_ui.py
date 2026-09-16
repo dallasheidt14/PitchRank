@@ -105,11 +105,19 @@ def _render_cohort_review(
     for tier in analysis.tiers:
         for entrant_id in tier.entrant_ids:
             adjacent = analysis.borderline.get(entrant_id, ())
+            if not adjacent:
+                placement_note = ""
+            elif len(adjacent) > 1:
+                placement_note = "Boundary option: move to Tier " + " or Tier ".join(map(str, adjacent))
+            else:
+                target = adjacent[0]
+                direction = "up" if target < tier.number else "down"
+                placement_note = f"Boundary option: move {direction} to Tier {target} if needed"
             rows.append({
                 "Entrant": entrant_id,
                 "Team": teams.get(entrant_id, {}).get("team_name") or names[entrant_id],
                 "Tier": tier.number,
-                "Placement note": "Also fits tier " + ", ".join(map(str, adjacent)) if adjacent else "",
+                "Placement note": placement_note,
             })
     if rows:
         generation = hashlib.sha256((
