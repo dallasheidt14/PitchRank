@@ -727,7 +727,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py:475`
+- **Where**: `src/models/affinity_wa_matcher.py:390`, `src/models/playmetrics_matcher.py` `_create_new_playmetrics_team`
+- **Update (2026-09-15)**: The PlayMetrics league path now takes the state from each CSV row (written by `scrape_playmetrics_league.py` from the league's governing body) rather than the `"WI"` constructor constant, so a second state (NC, governing body 1207) files its teams correctly. It writes `state_code` only, no longer the full-name `state` column, so `assign_team_states` can still correct it. Still a per-league constant with no `state_source`, and affinity_wa is untouched.
 - **Why**: Two tracked creation paths write a fixed state rather than deciding one: affinity_wa hardcodes `"WA"` (729 teams, 100% WA) and playmetrics' league path takes `default_state_code` (702 teams, 92% WI). A third population, 25 NJ teams stamped by a Squadi matcher, is **historical only**: no Squadi writer exists in any tracked file (`.turbo/plans/squadi-scraper.md` is the design note, not an implementation), and the unmerged branch that carried `SquadiGameMatcher` was deleted 2026-09-07 — so those rows need a data fix, not a code fix, and nothing recreates them. None sets `state_source`, so the corrector cannot distinguish a provider-reported state from a constant. Worse, the constant feeds Tier B's documented blind spot -- a club whose teams are uniformly stamped agrees with itself and is never corrected, which is why only **1 of 729** affinity_wa teams was touched by the full 2026-08-30 sweep. A visiting out-of-state club would be mislabelled permanently and invisibly. There is already a correct pattern to mirror in the same file family: PlayMetrics' tournament path passes `default_state_code=None` and falls back to `_resolve_state_from_club(club_name)`. No contamination is measurable in affinity_wa's names today (0 of 729 clubs read as out-of-state), so this is a latent-risk and provenance fix rather than a live-damage one.
 
 ### Ingest Fall League Washington from the sctour JSON API
@@ -1195,3 +1196,36 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/etl/enhanced_pipeline.py` partial-match branch (`match_status == "partial"` appended to `game_records`); `src/models/game_matcher.py` `GameHistoryMatcher._validate_team_age_group`
 - **Why**: Measured read-only 2026-09-15: games created since 2026-08-15, not excluded, with exactly one master id NULL — gotsport 2,572, sincsports 49. The cause is not established. GotSport opponents missing from the database are one known source. A second showed up on that day's Soccer Events Group import: an approved alias whose team's stored `age_group` no longer matched the game's, which the age check refuses, leaving that side blank. Count how many NULL sides have an approved alias for their provider id to size the second cause before changing any importer.
 - **Noted**: 2026-09-15
+
+### Pass each CSV row's `state_code` through the base matcher for every provider
+
+- **ID**: IMP-237
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher.match_game_history` (calls `_match_team` without `state_code`); `src/models/playmetrics_matcher.py` `_row_state_code` stash
+- **Why**: `scripts/import_games_enhanced.py` loads `state_code` on every game and base `_match_team` already accepts and forwards it, but only the PlayMetrics matcher consumes it, via a per-call stash the next provider would have to copy. Affinity WA/OR, SEG and TGS scrapers already write the column. `.turbo/specs/team-state-assignment.md` records this as deferred. `tgs_matcher` deliberately leaves state NULL, so the base needs an opt-in per matcher rather than a blanket pass.
+- **Noted**: 2026-09-15
+- **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+
+### Stop `affinity_or_matcher` writing the full-name `state` column from a derived value
+
+- **ID**: IMP-238
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/models/affinity_or_matcher.py` `_create_new_affinity_or_team` (`"state": new_state` in the insert payload); `scripts/assign_team_states.py` "stored value was reported" gate
+- **Why**: Verified 2026-09-15: `assign_team_states` treats a filled `state` as provider-reported and queues instead of correcting. The value is derived (club unanimity or the league's own "Oregon"), so a visiting club is mislabelled with no auto-correction. `tgs_matcher`, `affinity_wa_matcher` and `playmetrics_matcher` write `state_code` only. `soccereventsgroup_matcher` also writes `state`, from a per-team registration payload; decide that one rather than assume.
+- **Noted**: 2026-09-15
+- **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+
+### Share one supabase-py builder double across the matcher unit tests
+
+- **ID**: IMP-239
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `tests/unit/test_playmetrics_matcher_row_state.py` `_Db`; `tests/unit/test_provider_matcher_dry_run.py` `_db_with_no_existing_team`; `tests/unit/test_soccereventsgroup_matcher.py`; `tests/unit/test_affinity_or_matcher.py`; `tests/unit/test_sincsports_matcher_extensions.py`
+- **Why**: Five files hand-roll the `table().select().eq()…execute()` chain. Verified 2026-09-15: the dry-run test's double records at `insert()` rather than `execute()` and returns `data=None` from `.single().execute()`, which postgrest never does (it raises `APIError` PGRST116), while parametrizing over every autocreating matcher. Only the PlayMetrics double honours both CLAUDE.md double rules; Affinity OR's yields rows at `execute()` but still logs its filter at `eq()`. A `tests/conftest.py` double that raises on `.single()` with zero rows and records at `execute()` lets the rest adopt it.
+- **Noted**: 2026-09-15
+- **Refs**: review of branch `fix/playmetrics-nc-governing-body`

@@ -6,7 +6,7 @@ import re
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -17,6 +17,7 @@ import requests
 sys.path.append(str(Path(__file__).parent.parent))
 
 from src.utils.team_utils import calculate_age_group_from_birth_year, extract_birth_year_from_name  # noqa: E402
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 API_BASE = "https://api.gb.playmetrics.com/external/lss"
 OUTPUT_DIR = "data/raw/playmetrics"
@@ -28,19 +29,65 @@ SCRAPE_RUN_ID = None
 # governing_body_id → 2-letter state code.
 # Add entries here as PlayMetrics leagues are onboarded.
 GB_STATE_MAP: Dict[int, str] = {
-    1014: "WI",
-}
-
-# state_code → full state name (for the `state` CSV column).
-STATE_CODE_TO_NAME: Dict[str, str] = {
-    "WI": "Wisconsin",
+    1014: "WI",  # Wisconsin Youth Soccer (SECL + state leagues)
+    1207: "NC",  # NC Youth Soccer (Classic League)
 }
 
 # state_code → IANA timezone for local-date conversion of ``start_datetime``
 # (which is UTC). Without this, a 9pm CT kickoff rolls past midnight UTC and
 # the naive [:10] slice returns the wrong calendar date.
 STATE_CODE_TO_TIMEZONE: Dict[str, str] = {
+    "CT": "America/New_York",
+    "DC": "America/New_York",
+    "DE": "America/New_York",
+    "FL": "America/New_York",
+    "GA": "America/New_York",
+    "IN": "America/New_York",
+    "KY": "America/New_York",
+    "MA": "America/New_York",
+    "MD": "America/New_York",
+    "ME": "America/New_York",
+    "MI": "America/New_York",
+    "NC": "America/New_York",
+    "NH": "America/New_York",
+    "NJ": "America/New_York",
+    "NY": "America/New_York",
+    "OH": "America/New_York",
+    "PA": "America/New_York",
+    "RI": "America/New_York",
+    "SC": "America/New_York",
+    "VA": "America/New_York",
+    "VT": "America/New_York",
+    "WV": "America/New_York",
+    "AL": "America/Chicago",
+    "AR": "America/Chicago",
+    "IA": "America/Chicago",
+    "IL": "America/Chicago",
+    "KS": "America/Chicago",
+    "LA": "America/Chicago",
+    "MN": "America/Chicago",
+    "MO": "America/Chicago",
+    "MS": "America/Chicago",
+    "ND": "America/Chicago",
+    "NE": "America/Chicago",
+    "OK": "America/Chicago",
+    "SD": "America/Chicago",
+    "TN": "America/Chicago",
+    "TX": "America/Chicago",
     "WI": "America/Chicago",
+    "CO": "America/Denver",
+    "ID": "America/Denver",
+    "MT": "America/Denver",
+    "NM": "America/Denver",
+    "UT": "America/Denver",
+    "WY": "America/Denver",
+    "AZ": "America/Phoenix",
+    "CA": "America/Los_Angeles",
+    "NV": "America/Los_Angeles",
+    "OR": "America/Los_Angeles",
+    "WA": "America/Los_Angeles",
+    "AK": "America/Anchorage",
+    "HI": "Pacific/Honolulu",
 }
 
 # Canonical 27-column CSV (matches scripts/scrape_tgs_event.py REQUIRED_COLUMNS),
@@ -104,6 +151,11 @@ def resolve_config():
     parser.add_argument("--key", type=str, help="League key token")
     parser.add_argument("--output-dir", type=str, help="Output directory")
     parser.add_argument("--dry-run", action="store_true", help="Validate without writing output")
+    parser.add_argument(
+        "--min-game-date",
+        type=str,
+        help="Drop games whose local date is before YYYY-MM-DD (env PLAYMETRICS_MIN_GAME_DATE)",
+    )
 
     args = parser.parse_args()
 
@@ -132,6 +184,12 @@ def resolve_config():
 
     output_dir = args.output_dir or os.getenv("PLAYMETRICS_OUTPUT_DIR", OUTPUT_DIR)
     delay_sec = float(os.getenv("PLAYMETRICS_DELAY_SEC", "0.3"))
+    min_game_date = (args.min_game_date or os.getenv("PLAYMETRICS_MIN_GAME_DATE") or "").strip() or None
+    if min_game_date and not is_iso_date(min_game_date):
+        # The floor is compared lexicographically, so a malformed one silently
+        # keeps or drops the whole league instead of failing. Refuse to start.
+        print(f"❌ --min-game-date must be a real YYYY-MM-DD date, got {min_game_date!r}")
+        sys.exit(1)
 
     return {
         "governing_body_id": gb_id,
@@ -140,6 +198,7 @@ def resolve_config():
         "output_dir": output_dir,
         "dry_run": args.dry_run,
         "delay_sec": delay_sec,
+        "min_game_date": min_game_date,
     }
 
 
@@ -183,6 +242,9 @@ def map_min_age_to_age_group(min_age: Optional[int]) -> Optional[str]:
 
 # "U11", "u-11", "11U", "11u" — PitchRank tracks u10-u17 and u19 (u18 merges into u19).
 _TEAM_U_AGE_RE = re.compile(r"\b(?:[Uu]-?(\d{1,2})|(\d{1,2})[Uu])\b")
+# ASCII-bounded on purpose: ``\d`` also matches non-ASCII digits, which sort
+# above every real date and would pass a shape check.
+_ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> Optional[str]:
@@ -211,6 +273,28 @@ def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> 
             if num in (18, 19):
                 return "u19"
     return fallback_age_group
+
+
+def is_iso_date(value: str) -> bool:
+    """True for a real ASCII ``YYYY-MM-DD`` calendar date."""
+    if not _ISO_DATE_RE.fullmatch(value or ""):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def is_before_min_date(game_date: str, min_game_date: Optional[str]) -> bool:
+    """True when a local ``YYYY-MM-DD`` game date falls before the floor.
+
+    A blank or unparseable date is kept so the importer's own validation
+    reports it rather than this filter silently swallowing it.
+    """
+    if not min_game_date or not _ISO_DATE_RE.fullmatch(game_date or ""):
+        return False
+    return game_date < min_game_date
 
 
 def parse_int_or_none(v) -> Optional[int]:
@@ -445,6 +529,7 @@ def scrape_division(
         "skipped_forfeit": 0,
         "skipped_other_status": 0,
         "skipped_orphan": 0,
+        "skipped_before_min_date": 0,
         "futsal": 0,
     }
 
@@ -526,9 +611,13 @@ def scrape_division(
             gender,
             state_code,
         )
-        if rows:
-            records.extend(rows)
-            counts["games_emitted"] += 1
+        if not rows:
+            continue
+        if is_before_min_date(rows[0]["game_date"], config.get("min_game_date")):
+            counts["skipped_before_min_date"] += 1
+            continue
+        records.extend(rows)
+        counts["games_emitted"] += 1
 
     print(
         f"  ✅ {division_name} ({age_group}, {gender}): {counts['games_emitted']} games "
@@ -553,6 +642,7 @@ def scrape_league(config: Dict) -> Tuple[List[Dict], Dict]:
         "skipped_forfeit": 0,
         "skipped_other_status": 0,
         "skipped_orphan": 0,
+        "skipped_before_min_date": 0,
     }
 
     league_data = get_league(gb_id, league_id, key)
@@ -580,6 +670,7 @@ def scrape_league(config: Dict) -> Tuple[List[Dict], Dict]:
         summary["skipped_forfeit"] += counts["skipped_forfeit"]
         summary["skipped_other_status"] += counts["skipped_other_status"]
         summary["skipped_orphan"] += counts["skipped_orphan"]
+        summary["skipped_before_min_date"] += counts["skipped_before_min_date"]
 
     return all_records, summary
 
@@ -634,6 +725,8 @@ def main():
     print(f"🏛️  Governing body: {config['governing_body_id']} ({GB_STATE_MAP[config['governing_body_id']]})")
     print(f"🆔 League: {config['league_id']}-{config['key']}")
     print(f"🆔 Scrape run ID: {SCRAPE_RUN_ID}")
+    if config["min_game_date"]:
+        print(f"📅 Dropping games before {config['min_game_date']}")
 
     scrape_start = time.time()
     records, summary = scrape_league(config)
@@ -653,7 +746,8 @@ def main():
         f"\n📊 Scraped {summary['games_emitted']} games across {summary['division_processed']} divisions; "
         f"{summary['skipped_non_played']} non-played games dropped "
         f"({summary['skipped_forfeit']} forfeits, {summary['skipped_other_status']} other statuses); "
-        f"{summary['futsal_dropped']} futsal divisions skipped."
+        f"{summary['futsal_dropped']} futsal divisions skipped; "
+        f"{summary['skipped_before_min_date']} games before the date floor dropped."
     )
     print(f"⏱️  Total time: {scrape_duration:.1f}s")
 

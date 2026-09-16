@@ -4,12 +4,17 @@ PlayMetrics-specific game matcher.
 Hybrid design:
 - Structure mirrors ``TGSGameMatcher`` — JSON-API, integer provider_team_id
   unique per team, so ``_match_by_provider_id`` skips the age-group gate.
-- State scoping is configurable per-instance via ``default_state_code``:
-    * ``"WI"`` (default) — SECL flow: WI-scoped fuzzy candidates, WI autocreate.
+- State scoping follows the CSV row: ``scrape_playmetrics_league.py`` writes
+  ``state_code`` on every row from the league's governing body, and each game
+  is matched and autocreated in that state. A row with no ``state_code``
+  falls back to the per-instance ``default_state_code``:
+    * ``"WI"`` (default) — state-scoped flow: WI-scoped fuzzy candidates, WI autocreate.
     * ``None`` — tournament flow: no state filter on fuzzy candidates,
-      autocreate resolves state from the club's existing rows in ``teams``
-      (unique non-null state) or leaves it NULL when the club spans states
-      or is unknown to the DB.
+      autocreate resolves ``state_code`` from the club's existing rows in
+      ``teams`` (unique non-null state) or leaves it NULL when the club spans
+      states or is unknown to the DB.
+  A row whose ``state_code`` is not a US state is matched the tournament way
+  rather than filed under the default.
 - Inline autocreate: after base ``_match_team`` exhausts alias / direct_id /
   fuzzy paths without matching, a fresh team row is created so no game is
   dropped.
@@ -24,17 +29,11 @@ from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
 from src.utils.team_name_utils import extract_distinctions, resolve_distinction
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_CODE = "WI"
-
-# state_code → full state name. Only used when ``default_state_code`` is set
-# at construction; the no-state autocreate path reads the canonical ``state``
-# string straight off the existing teams row instead.
-STATE_CODE_TO_NAME: Dict[str, str] = {
-    "WI": "Wisconsin",
-}
 
 
 class PlayMetricsGameMatcher(GameHistoryMatcher):
@@ -64,6 +63,31 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         # ``state_code=None`` for the tournament path so it doesn't collide
         # with state-scoped entries.
         self._candidate_cache: Dict = {}
+        # State scope of the row being matched. ``match_game_history`` sets it
+        # from the row and restores the default afterwards: the base class calls
+        # ``_match_team`` without a state, so the scope has to travel on the instance.
+        self._row_state_code: Optional[str] = default_state_code
+
+    def match_game_history(self, game_data: Dict) -> Dict:
+        self._row_state_code = self._row_state_scope(game_data.get("state_code"))
+        try:
+            return super().match_game_history(game_data)
+        finally:
+            self._row_state_code = self.default_state_code
+
+    def _row_state_scope(self, raw) -> Optional[str]:
+        """State a row is matched in: its code, the default when blank, unscoped when unknown.
+
+        An unrecognized code is matched unscoped rather than defaulted: the default
+        would file the row under the wrong state, which is what this column exists to prevent.
+        """
+        code = str(raw or "").strip().upper()
+        if not code:
+            return self.default_state_code
+        if code in STATE_CODE_TO_NAME:
+            return code
+        logger.warning(f"[PlayMetrics] Unrecognized state_code {raw!r} on row; matching unscoped")
+        return None
 
     @staticmethod
     def _normalize_gender(gender: Optional[str]) -> Optional[str]:
@@ -182,8 +206,9 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             (``2000``-``2019``) so birth-year matches become token-aligned.
           * Strips separator characters (``|``, en/em dashes) that fragment tokens.
 
-        Applied only on the tournament path (``default_state_code=None``); the
-        SECL flow keeps its original league-format names untouched.
+        Applied only when matching unscoped (``state_code=None``: the tournament
+        flow, or a row with an unrecognized state); the league flow keeps its
+        original league-format names untouched.
         """
         if not name:
             return name
@@ -194,12 +219,17 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         return s
 
     def _fuzzy_match_team(
-        self, team_name: str, age_group: str, gender: str, club_name: Optional[str] = None
+        self,
+        team_name: str,
+        age_group: str,
+        gender: str,
+        club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> Optional[Dict]:
         """State-scoped fuzzy matching with Python-side club gate.
 
         SQL narrows candidates by ``age_group/gender`` and (when set) by
-        ``state_code``. With ``default_state_code=None`` the state filter is
+        ``state_code``. With ``state_code=None`` the state filter is
         dropped — the candidate pool grows to all states, the team_name is
         normalized via ``_normalize_pm_tournament_team_name`` (2-digit-year →
         4-digit, separator strip) so PM tournament naming aligns with DB
@@ -221,20 +251,18 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             gender_normalized = self._normalize_gender(gender)
             club_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
 
-            candidates = self._get_candidates(self.default_state_code, age_group_normalized, gender_normalized)
+            candidates = self._get_candidates(state_code, age_group_normalized, gender_normalized)
             if not candidates:
                 return None
 
-            tournament_path = self.default_state_code is None
-            scoring_team_name = (
-                self._normalize_pm_tournament_team_name(team_name) if tournament_path else team_name
-            )
+            unscoped = state_code is None
+            scoring_team_name = self._normalize_pm_tournament_team_name(team_name) if unscoped else team_name
             provider_distinctions = extract_distinctions(scoring_team_name)
             provider_team = {
                 "team_name": scoring_team_name,
                 "club_name": club_name,
                 "age_group": age_group,
-                "state_code": self.default_state_code,
+                "state_code": state_code,
             }
 
             best_match = None
@@ -277,11 +305,10 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
                 cand_name = team.get("team_name", "")
                 cand_state = team.get("state_code")
-                # Tournament path: copy candidate's state_code so the location
-                # component (0.10 weight) doesn't penalize for PM's missing state.
-                # SECL path: provider already has its own state_code.
+                # Copy the candidate's state_code so the location component
+                # (0.10 weight) doesn't penalize for PM's missing state.
                 provider_for_scoring = provider_team
-                if tournament_path and cand_state:
+                if unscoped and cand_state:
                     provider_for_scoring = {**provider_team, "state_code": cand_state}
                 candidate = {
                     "team_name": cand_name,
@@ -339,9 +366,18 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         age_group: Optional[str],
         gender: Optional[str],
         club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> Dict:
-        """Try base matching (alias / direct_id / fuzzy). On miss, autocreate a new team."""
-        base_result = super()._match_team(provider_id, provider_team_id, team_name, age_group, gender, club_name)
+        """Try base matching (alias / direct_id / fuzzy). On miss, autocreate a new team.
+
+        ``state_code`` scopes the fuzzy candidates and the autocreated team; it
+        defaults to the row being matched (see ``match_game_history``).
+        """
+        if state_code is None:
+            state_code = self._row_state_code
+        base_result = super()._match_team(
+            provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
+        )
 
         if base_result.get("matched"):
             return base_result
@@ -356,6 +392,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     gender=gender,
                     provider_id=provider_id,
                     provider_team_id=provider_team_id,
+                    state_code=state_code,
                 )
                 match_method = "direct_id" if provider_team_id else "import"
                 self._create_alias(
@@ -390,16 +427,14 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         gender: str,
         provider_id: Optional[str],
         provider_team_id: Optional[str] = None,
+        state_code: Optional[str] = None,
     ) -> str:
         """Create a new row in ``teams`` for a PlayMetrics team.
 
-        State assignment:
-          * ``default_state_code`` set (SECL) → use it directly with
-            ``STATE_CODE_TO_NAME`` for the ``state`` column.
-          * ``default_state_code`` is ``None`` (tournament) → resolve from the
-            club's existing rows in ``teams`` (unique non-null state); leave
-            both ``state_code`` and ``state`` NULL if the club spans multiple
-            states or has no DB signal.
+        State assignment writes ``state_code`` only, never the full-name
+        ``state`` column: ``assign_team_states`` treats a filled one as
+        provider-reported and queues corrections instead of applying them, and
+        a league's governing body is per-league evidence, not per-team.
 
         Handles the concurrent-autocreate race: two games in the same batch for
         a brand-new team can both reach this method, so we retry the lookup on
@@ -429,11 +464,10 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         age_group_normalized = age_group.lower() if age_group else age_group
         gender_normalized = self._normalize_gender(gender)
 
-        if self.default_state_code is not None:
-            new_state_code = self.default_state_code
-            new_state = STATE_CODE_TO_NAME.get(self.default_state_code)
+        if state_code is not None:
+            new_state_code: Optional[str] = state_code
         else:
-            new_state_code, new_state = self._resolve_state_from_club(club_name)
+            new_state_code, _ = self._resolve_state_from_club(club_name)
 
         team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
 
@@ -449,7 +483,6 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             "age_group": age_group_normalized,
             "gender": gender_normalized,
             "state_code": new_state_code,
-            "state": new_state,
             "provider_id": provider_id,
             "provider_team_id": provider_team_id,
             "distinction": distinction,
@@ -459,13 +492,11 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         try:
             if not self.dry_run:
                 self.db.table("teams").insert(team_data).execute()
-            # Keep the fuzzy-match candidate cache fresh so later rows in the same
-            # batch can match against the team we just created. Cache key uses
-            # ``self.default_state_code`` so the no-state cache (None, age, gender)
-            # gets the new row in tournament mode and the state-scoped cache
-            # ("WI", age, gender) gets it in SECL mode. Cached during dry-runs
-            # too so the in-batch dedup works the same way.
-            key = (self.default_state_code, age_group_normalized, gender_normalized)
+            # Keep the candidate cache fresh so later rows in the same batch match
+            # the team just created -- keyed by the row's state scope, not the
+            # resolved state, so it lands in the bucket the next lookup reads.
+            # Cached during dry-runs too so in-batch dedup behaves the same.
+            key = (state_code, age_group_normalized, gender_normalized)
             if key in self._candidate_cache:
                 self._candidate_cache[key].append({**team_data, "_distinctions": None})
             return team_id_master

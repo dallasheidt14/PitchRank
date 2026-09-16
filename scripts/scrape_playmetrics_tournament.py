@@ -24,8 +24,8 @@ behaviors that distinguish a tournament event from a season-long league:
      SECL-style rows during import or matching. ``event_name`` carries the
      PlayMetrics league name (the tournament name, e.g. "2026 Race City").
 
-The matcher refactor in ``src/models/playmetrics_matcher.py`` activates the
-no-state path automatically when constructed with ``default_state_code=None``,
+``src/models/playmetrics_matcher.py`` matches a row unscoped when it carries no
+``state_code`` and the matcher was constructed with ``default_state_code=None``,
 which the importer does for ``provider_code="playmetrics_tournament"``.
 """
 from __future__ import annotations
@@ -137,68 +137,6 @@ def parse_utc_to_local_date(iso_utc: str, venue_state: Optional[str]) -> str:
         return dt.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
     except (ValueError, TypeError):
         return iso_utc[:10]
-
-
-# Extra timezone entries needed for tournaments (the league scraper only had
-# WI). Add common youth-soccer states; missing entries fall back to UTC slice
-# which is wrong by ~12 hours but won't break.
-_TOURNAMENT_TIMEZONES: Dict[str, str] = {
-    "NC": "America/New_York",
-    "SC": "America/New_York",
-    "VA": "America/New_York",
-    "WV": "America/New_York",
-    "GA": "America/New_York",
-    "TN": "America/Chicago",
-    "KY": "America/New_York",
-    "OH": "America/New_York",
-    "FL": "America/New_York",
-    "AL": "America/Chicago",
-    "MS": "America/Chicago",
-    "TX": "America/Chicago",
-    "OK": "America/Chicago",
-    "AR": "America/Chicago",
-    "LA": "America/Chicago",
-    "IL": "America/Chicago",
-    "IN": "America/New_York",
-    "MI": "America/New_York",
-    "MN": "America/Chicago",
-    "WI": "America/Chicago",
-    "IA": "America/Chicago",
-    "MO": "America/Chicago",
-    "KS": "America/Chicago",
-    "NE": "America/Chicago",
-    "ND": "America/Chicago",
-    "SD": "America/Chicago",
-    "CO": "America/Denver",
-    "WY": "America/Denver",
-    "MT": "America/Denver",
-    "ID": "America/Denver",
-    "UT": "America/Denver",
-    "NM": "America/Denver",
-    "AZ": "America/Phoenix",
-    "NV": "America/Los_Angeles",
-    "CA": "America/Los_Angeles",
-    "OR": "America/Los_Angeles",
-    "WA": "America/Los_Angeles",
-    "AK": "America/Anchorage",
-    "HI": "Pacific/Honolulu",
-    "PA": "America/New_York",
-    "NY": "America/New_York",
-    "NJ": "America/New_York",
-    "MD": "America/New_York",
-    "DE": "America/New_York",
-    "DC": "America/New_York",
-    "MA": "America/New_York",
-    "CT": "America/New_York",
-    "RI": "America/New_York",
-    "NH": "America/New_York",
-    "VT": "America/New_York",
-    "ME": "America/New_York",
-}
-# Merge into the shared map without overwriting existing entries (so SECL's
-# WI mapping wins if a future contributor adds something there).
-for _code, _tz in _TOURNAMENT_TIMEZONES.items():
-    STATE_CODE_TO_TIMEZONE.setdefault(_code, _tz)
 
 
 def resolve_config() -> Dict:

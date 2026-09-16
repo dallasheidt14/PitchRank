@@ -288,7 +288,7 @@ class EnhancedETLPipeline:
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 
-            logger.info("Using PlayMetricsGameMatcher (WI-scoped fuzzy + auto-create)")
+            logger.info("Using PlayMetricsGameMatcher (row-state-scoped fuzzy + auto-create)")
             self.matcher = PlayMetricsGameMatcher(
                 self.supabase,
                 provider_id=self.provider_id,

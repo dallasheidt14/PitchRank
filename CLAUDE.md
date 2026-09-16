@@ -371,6 +371,7 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 - If state is only on a per-team detail page (not on the index/flight pages), a two-pass scrape (flights → unique team enrichment) is acceptable when the team count is bounded (~hundreds, not tens of thousands).
 - Default to auto-create with full metadata (mirrors SincSports/Affinity-WA/PlayMetrics matchers). Strict review-queue-only is only appropriate when meaningful canonical fields cannot be sourced.
 - The matcher subclass writes the alias in its overridden `_match_team` via `self._create_alias(...)`, NOT in the `_create_new_<provider>_team` helper. See `src/models/sincsports_matcher.py:549-640` for the canonical pattern.
+- `scripts/import_games_enhanced.py` builds each game from a column whitelist, once per loader (`stream_games_csv` and `load_games_csv`). A column your scraper writes reaches the matcher only if both whitelists name it; anything else is dropped silently, and a dry run reports success either way. `state_code` was written by the PlayMetrics scraper and discarded by both loaders for months.
 
 ---
 
@@ -630,8 +631,9 @@ different thing from a backfill and is not covered by the above: `wa-scraper.yml
 Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`),
 `or-scraper.yml` runs the Affinity OR matcher, which hardcodes `"OR"`
 (`src/models/affinity_or_matcher.py:506`, in `_create_new_affinity_or_team`), and
-`playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes its
-`default_state_code` (`src/models/playmetrics_matcher.py:237`). None sets `state_source`.
+`playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
+`state_code` — a per-league constant the scraper derives from the governing body
+(`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`). None sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
 

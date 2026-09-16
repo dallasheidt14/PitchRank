@@ -10,15 +10,20 @@ on:
   workflow_dispatch:
     inputs:
       league_url:
-        description: 'PlayMetrics league URL (default: SECL & State League Fall 2025)'
+        description: 'PlayMetrics league URL (default: NC Youth Soccer Classic League Fall 2026)'
         required: false
         type: string
-        default: 'https://playmetricssports.com/g/leagues/1014-1514-8ccd4dbb/league_view.html'
+        default: 'https://playmetricssports.com/g/leagues/1207-2289-46ec05ca/league_view.html'
       dry_run:
         description: 'Scrape only (skip import step)'
         required: false
         type: boolean
         default: false
+      min_game_date:
+        description: 'Drop games played before this local date (YYYY-MM-DD)'
+        required: false
+        type: string
+        default: '2026-08-01'
 
 jobs:
   scrape-and-import:
@@ -55,6 +60,8 @@ jobs:
           TRIGGER: ${{ github.event_name }}
           MANUAL_URL: ${{ inputs.league_url }}
           MANUAL_DRY_RUN: ${{ inputs.dry_run }}
+          # Scheduled runs have no inputs; the same floor applies to them.
+          MIN_GAME_DATE: ${{ inputs.min_game_date || '2026-08-01' }}
         run: |
           # NB: no `set -e` — loop handles per-URL failures so one bad league
           # doesn't shadow the others. pipefail kept so `tee` can't mask errors.
@@ -70,11 +77,16 @@ jobs:
             # the URL is silently discarded — passing a division_view.html
             # URL is equivalent to passing the league_view.html URL. We use
             # the league_view.html form here to make the whole-league intent
-            # explicit. League 1926 (~68 games/wk across 10 divisions) is
-            # intentionally fully imported.
+            # explicit.
+            #
+            # Only current-season leagues belong here: every scrape carries the
+            # MIN_GAME_DATE floor, so a league whose season ended before the floor
+            # scrapes to an empty CSV. Replace a league's URL with its next-season
+            # successor rather than keeping both. Wisconsin (governing body 1014)
+            # has no current league listed for that reason.
             URLS=(
-              "https://playmetricssports.com/g/leagues/1014-1514-8ccd4dbb/league_view.html"
-              "https://playmetricssports.com/g/leagues/1014-1926-7444e5c6/league_view.html"
+              # NC Youth Soccer Classic League — Fall 2026.
+              "https://playmetricssports.com/g/leagues/1207-2289-46ec05ca/league_view.html"
             )
             SKIP_IMPORT="false"
           else
@@ -107,6 +119,7 @@ jobs:
             if ! python scripts/scrape_playmetrics_league.py \
                 --league-url "$URL" \
                 --output-dir data/raw/playmetrics \
+                --min-game-date "$MIN_GAME_DATE" \
                 2>&1 | tee -a logs/playmetrics_scrape.log; then
               echo "❌ Scrape failed: $URL"
               FAILED=$((FAILED + 1))
