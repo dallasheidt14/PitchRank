@@ -94,6 +94,22 @@ ROOT = Path(__file__).resolve().parents[2]
         # A bare two-digit number is a squad number until something marks it a year.
         ("Arsenal 11 B", set()),
         ("6/7 Grinch Unit", set()),
+        # A U-age label directly after the number is what marks it. Leagues in the
+        # Carolinas write a cohort this way, the number being the band's older
+        # birth year: "15 (U11)" is the 2015 half of the 2016/2015 band. Without
+        # this both sides of "13 (13U) X" and "12 (U14) X" state nothing, and the
+        # guard cannot see that they are different cohorts.
+        ("15 (U11) TFA Purple", {2015}),
+        ("13 (13U) SGCSA Strikers White", {2013}),
+        ("12 (14U) CCFCY Premier", {2012}),
+        ("10 (U16) NBTSA Bulldogs G", {2010}),
+        ("2015 (11U) SGCSA Strikers White", {2015}),
+        # The label has to follow the number directly, so a U-age that opens the
+        # name is still only a band, and these keep their existing readings.
+        ("12U CSA North King", set()),
+        ("Team 13 Blue", set()),
+        ("Rush 11U (2015) Wisconsin", {2015}),
+        ("Seacoast United - U14G -12/13 Nal", {2012, 2013}),
     ],
 )
 def test_birth_years_notation(name, expected):
@@ -120,6 +136,14 @@ def test_birth_years_notation(name, expected):
         # Silent where it cannot see: no year stated on one side means no verdict.
         ("Rush U18", "Rush U19", False),
         ("FC Dallas Red", "FC Dallas 2009 Red", False),
+        # The cohort-then-band form, which the duplicate scan scores at 1.0
+        # because normalization erases both halves of it.
+        ("13 (13U) OCSA Coastal Crew Blue", "12 (U14) OCSA Coastal Crew Blue", True),
+        ("15 (U11) NCRT Triad White", "14 (U12) NCRT Triad White", True),
+        ("2011 NBTSA Bulldogs G", "10 (U16) NBTSA Bulldogs G", True),
+        # One cohort written two ways is not a conflict.
+        ("12 (U14) CCFC Blue", "12 (U14) CCFC Blue", False),
+        ("2015 (11U) SGCSA Strikers White", "15 (U11) SGCSA Strikers White", False),
     ],
 )
 def test_birth_years_conflict(name_a, name_b, conflict):

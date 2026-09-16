@@ -472,6 +472,19 @@ _AFFIX_2 = re.compile(
     re.I,
 )
 _GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)\b|\b(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
+# A U-age label directly after the number is another thing that marks it a year.
+# Leagues in the Carolinas name a cohort "<older birth year> (<band>)" -- "15
+# (U11) TFA Purple" is the 2015 half of the 2016/2015 band -- and both halves are
+# erased before any other pass runs: the label by _UAGE_TOKEN, the bare number by
+# _AFFIX_2's affix requirement. So "13 (13U) X" and "12 (U14) X" each state
+# nothing, score 1.0 against each other, and the guard stays silent on two
+# cohorts a year apart. Matched against the RAW name, because the label it
+# depends on is the first thing birth_years strips.
+_YEAR_THEN_UAGE = re.compile(
+    r"(?<![A-Za-z0-9])'?((?:20)?\d{2})\s*\(?\s*"
+    r"(?:[BGMF]?U-?\d{1,2}|[BGMF]?\d{1,2}U)[BGMF]?(?![\dA-Za-z])",
+    re.I,
+)
 
 
 def _four_digit_year(two_digits: str) -> int:
@@ -491,6 +504,13 @@ def birth_years(team_name: str | None) -> set[int]:
     text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", team_name))
     years: set[int] = set()
     spans: list[tuple[int, int]] = []
+
+    # Before the label goes: a number the label itself marks as a year.
+    for match in _YEAR_THEN_UAGE.finditer(_FORMAT_TOKEN.sub(" ", team_name)):
+        digits = match.group(1)
+        year = int(digits) if len(digits) == 4 else _four_digit_year(digits)
+        if _BIRTH_YEAR_MIN <= year <= _BIRTH_YEAR_MAX:
+            years.add(year)
 
     def _blanked() -> str:
         chars = list(text)
