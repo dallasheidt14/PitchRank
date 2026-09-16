@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
+import src.tournaments.seeding_run_store as seeding_run_store
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_run_store import (
@@ -38,6 +40,104 @@ def _run(name: str = "STX Cup 2026") -> SeedingRun:
         overrides={1: {"team_id_master": "master-2", "team_name": "Tyler FC 2015"}},
         warnings=parsed.warnings,
     )
+
+
+def _linked_worktree(tmp_path: Path, *, relative_gitdir: bool = False) -> tuple[Path, Path]:
+    primary = tmp_path / "primary"
+    common_git = primary / ".git"
+    git_dir = common_git / "worktrees" / "preview"
+    git_dir.mkdir(parents=True)
+    (git_dir / "commondir").write_text("../..\n", encoding="utf-8")
+
+    linked = tmp_path / "preview"
+    linked.mkdir()
+    target = git_dir
+    if relative_gitdir:
+        target = Path("..") / "primary" / ".git" / "worktrees" / "preview"
+    (linked / ".git").write_text(f"gitdir: {target}\n", encoding="utf-8")
+    return primary, linked
+
+
+# -------- default location ------------------------------------------------
+
+
+def test_default_base_dir_uses_the_primary_checkout_from_a_linked_worktree(
+    tmp_path, monkeypatch
+):
+    primary, linked = _linked_worktree(tmp_path)
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", linked)
+    monkeypatch.delenv("MATCHBALANCE_SEEDING_DIR", raising=False)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert seeding_run_store.default_base_dir() == primary / "reports" / "seeding"
+
+
+def test_default_base_dir_uses_a_normal_checkout_with_a_git_directory(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", checkout)
+    monkeypatch.delenv("MATCHBALANCE_SEEDING_DIR", raising=False)
+
+    assert seeding_run_store.default_base_dir() == checkout / "reports" / "seeding"
+
+
+def test_default_base_dir_accepts_a_relative_linked_worktree_gitdir(tmp_path, monkeypatch):
+    primary, linked = _linked_worktree(tmp_path, relative_gitdir=True)
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", linked)
+    monkeypatch.delenv("MATCHBALANCE_SEEDING_DIR", raising=False)
+
+    assert seeding_run_store.default_base_dir() == primary / "reports" / "seeding"
+
+
+def test_default_base_dir_uses_the_checkout_when_git_metadata_is_absent(tmp_path, monkeypatch):
+    checkout = tmp_path / "unpacked"
+    checkout.mkdir()
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", checkout)
+    monkeypatch.delenv("MATCHBALANCE_SEEDING_DIR", raising=False)
+
+    assert seeding_run_store.default_base_dir() == checkout / "reports" / "seeding"
+
+
+def test_default_base_dir_ignores_git_metadata_that_points_outside_the_common_repo(
+    tmp_path, monkeypatch
+):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    outside_git_dir = tmp_path / "outside" / "linked-metadata"
+    outside_git_dir.mkdir(parents=True)
+    rogue_common = tmp_path / "rogue" / ".git"
+    rogue_common.mkdir(parents=True)
+    (outside_git_dir / "commondir").write_text(str(rogue_common), encoding="utf-8")
+    (checkout / ".git").write_text(f"gitdir: {outside_git_dir}\n", encoding="utf-8")
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", checkout)
+    monkeypatch.delenv("MATCHBALANCE_SEEDING_DIR", raising=False)
+
+    assert seeding_run_store.default_base_dir() == checkout / "reports" / "seeding"
+
+
+def test_default_base_dir_honors_an_absolute_operator_override(tmp_path, monkeypatch):
+    configured = tmp_path / "durable" / "seeding"
+    monkeypatch.setenv("MATCHBALANCE_SEEDING_DIR", str(configured))
+
+    assert seeding_run_store.default_base_dir() == configured
+
+
+def test_relative_operator_override_is_anchored_to_the_shared_checkout(tmp_path, monkeypatch):
+    primary, linked = _linked_worktree(tmp_path)
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", linked)
+    monkeypatch.setenv("MATCHBALANCE_SEEDING_DIR", "operator-data/seeding")
+
+    assert seeding_run_store.default_base_dir() == primary / "operator-data" / "seeding"
+
+
+def test_blank_operator_override_keeps_the_shared_default(tmp_path, monkeypatch):
+    primary, linked = _linked_worktree(tmp_path)
+    monkeypatch.setattr(seeding_run_store, "_PROJECT_ROOT", linked)
+    monkeypatch.setenv("MATCHBALANCE_SEEDING_DIR", "   ")
+
+    assert seeding_run_store.default_base_dir() == primary / "reports" / "seeding"
 
 
 # -------- slugify ---------------------------------------------------------
