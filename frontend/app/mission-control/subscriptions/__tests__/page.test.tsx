@@ -114,6 +114,22 @@ describe('SubscriptionsDashboardPage', () => {
     expect(text).toContain('day 5 of 30');
   });
 
+  it('describes MRR the way Stripe counts it', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics({ pastDue: { total: 2, list: [] } }));
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('active + past due, less scheduled cancellations');
+    expect(text).toContain('counted in MRR unless canceling');
+  });
+
+  it('shows MRR as not loaded rather than a partial sum when a fetch failed', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({ mrr: null, errors: ['past_due subscriptions: stripe unavailable'] })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('could not be loaded');
+    expect(text).not.toContain('active + past due, less scheduled cancellations');
+  });
+
   it('says every charge cleared only when the fetch actually succeeded', async () => {
     getSubscriptionMetrics.mockReturnValue(metrics());
     const text = textOf(await SubscriptionsDashboardPage());

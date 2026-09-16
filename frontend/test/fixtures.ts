@@ -86,6 +86,7 @@ export function makeStripeSubscription(
     currentPeriodEnd?: number;
     email?: string;
     customer?: unknown;
+    cancelAt?: number | null;
     cancelAtPeriodEnd?: boolean;
     created?: number;
   } = {}
@@ -103,6 +104,7 @@ export function makeStripeSubscription(
     currentPeriodEnd = 0,
     email = 'test@example.com',
     customer,
+    cancelAt = null,
     cancelAtPeriodEnd = false,
     created = 0,
   } = overrides;
@@ -114,6 +116,7 @@ export function makeStripeSubscription(
     trial_end: trialEnd,
     canceled_at: canceledAt,
     ended_at: endedAt,
+    cancel_at: cancelAt,
     cancel_at_period_end: cancelAtPeriodEnd,
     customer: customer ?? { id: 'cus_x', email, deleted: false },
     items: {

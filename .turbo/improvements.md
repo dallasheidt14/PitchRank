@@ -1266,3 +1266,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `data/exports/fix_band_cohorts.py` (`apply_plan`, `name_contradiction`, `attach_fixture_evidence`) and `data/exports/weekly_age_recheck.py` (`pending_population`); both gitignored, plus the Windows task "PitchRank Weekly Age-Group Recheck" that runs the second every Tuesday
 - **Why**: These two wrote `teams.age_group` for 12,083 teams on 2026-09-15/16 and carry the plan/apply/revert path any later batch will reuse, but they sit under `data/` so no CI job has ever imported them. Their correctness rests on parsing rules that fail silently when wrong — IMP-240 is exactly that shape, and it reached a live write. A scheduled task now depends on one of them, so a break is invisible until a week of reports goes missing. Moving them to `scripts/` with unit tests over the decision helpers (band forms, contradiction detection, verdict thresholds) puts them behind the same gate as everything else they write to.
 - **Noted**: 2026-09-16
+
+### Match Stripe's MRR rules in computeMrr: discounts, interval_count, metered items
+
+- **ID**: IMP-243
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`computeMrr`, `listAll`)
+- **Why**: The dashboard MRR is meant to equal Stripe's Billing MRR. Stripe subtracts forever discounts, excludes metered prices, and normalizes every interval (with `interval_count`) to monthly; `computeMrr` does none of this and divides only `year`, so day/week read as monthly. None of it is reachable on 2026-09-16: zero discounts on any active or past_due subscription or item, and every item licensed with `interval_count` 1 on month or year. But checkout sets `allow_promotion_codes: true`, so a coupon can go live with no deploy. Repeating and one-time discounts follow a Billing "Configure" setting the API cannot read, and discounts come back as IDs unless expanded on the list call.
+- **Noted**: 2026-09-16
+
+### Treat a `cancel_at`-only cancellation as canceling wherever the profile flag is written
+
+- **ID**: IMP-244
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleSubscriptionUpdated`, `handleInvoicePaid`), `frontend/app/api/stripe/sync/route.ts` (`POST`), `scripts/reconcile_stripe_subscriptions.py` (`check_stripe_subscription`); the same single-field read in `frontend/lib/admin/subscription-metrics.ts` (`buildTrialPipeline`) and `frontend/lib/admin/month-projection.ts` (`computeTrialProjection`) miscounts a trial canceled through `cancel_at` as still actionable
+- **Why**: All four read `cancel_at_period_end` alone when writing `user_profiles.cancel_at_period_end`, and the webhook docstring assumes the Customer Portal sets that flag. On 2026-09-16, 10 of the 14 active subscriptions with a scheduled cancellation had `cancel_at` set and `cancel_at_period_end` false, so those customers never get the flag stored or the Beehiiv `canceling` lifecycle sync. Fixing one writer is not enough: the 6-hourly reconcile or the next `invoice.paid` resets the stored flag, and the webhook re-fires `canceling` on the following update. `getSubscriptionMetrics` already treats either field as a scheduled cancellation.
+- **Noted**: 2026-09-16

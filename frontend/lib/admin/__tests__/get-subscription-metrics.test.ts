@@ -112,6 +112,10 @@ function allSubscriptions() {
       cancelAtPeriodEnd: true,
       currentPeriodEnd: at(2027, 5, 1),
     }),
+    // A renewal failed on two annual seats. Still owed, so still in MRR.
+    makeStripeSubscription({ id: 'sub_past_due', status: 'past_due', interval: 'year', unitAmount: 6999, quantity: 2 }),
+    // Canceling through `cancel_at` alone, flag still false: out of MRR.
+    makeStripeSubscription({ id: 'sub_past_due_canceling', status: 'past_due', cancelAt: at(2026, 9, 5) }),
     // Ended 185 days ago: inside the 187-day fetch, outside the 180-day rate window.
     makeStripeSubscription({
       id: 'sub_stale',
@@ -166,10 +170,19 @@ function iterate<T>(items: T[]): AsyncIterable<T> {
 }
 
 function setStripe(
-  options: { paidThrows?: boolean; openThrows?: boolean; cohortThrows?: boolean; openInvoices?: Stripe.Invoice[] } = {}
+  options: {
+    paidThrows?: boolean;
+    openThrows?: boolean;
+    cohortThrows?: boolean;
+    activeThrows?: boolean;
+    pastDueThrows?: boolean;
+    openInvoices?: Stripe.Invoice[];
+  } = {}
 ) {
   const subs = allSubscriptions();
   subscriptionsList.mockImplementation((params: { status?: string; created?: { gte?: number } }) => {
+    if (params.status === 'active' && options.activeThrows) return rejectingIterable(1);
+    if (params.status === 'past_due' && options.pastDueThrows) return rejectingIterable(1);
     if (params.status === 'all') {
       // A mid-iteration rejection, not a synchronous throw — the shape Stripe
       // actually produces when a later page fails.
@@ -206,7 +219,28 @@ describe('getSubscriptionMetrics', () => {
     const metrics = await getSubscriptionMetrics();
     expect(metrics.activePaid).toEqual({ total: 8, monthly: 5, annual: 3 });
     expect(metrics.trials.total).toBe(1); // only the trialing subscription
-    expect(metrics.pastDue.total).toBe(0);
+    expect(metrics.pastDue.total).toBe(2);
+  });
+
+  it('sums MRR the way Stripe does: active and past_due, less scheduled cancellations', async () => {
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Active: five monthly at $6.99 and two annual at $69.99; sub_pending_cancel
+    // is out. Past due: two annual seats; sub_past_due_canceling is out.
+    // 5 × 6.99 + 4 × 69.99 / 12 = $58.28.
+    expect(metrics.mrr).toBe(58.28);
+  });
+
+  it('reports MRR as unknown when the active fetch fails', async () => {
+    setStripe({ activeThrows: true });
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.mrr).toBeNull();
+  });
+
+  it('reports MRR as unknown when the past_due fetch fails', async () => {
+    setStripe({ pastDueThrows: true });
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.mrr).toBeNull();
   });
 
   it('measures conversion from the paid invoices it fetched', async () => {

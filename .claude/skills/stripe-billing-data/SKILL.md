@@ -78,6 +78,14 @@ if (sub.status !== 'canceled') continue;
 Without that guard a cancellation requested this month for service ending next year is booked as
 this month's churn.
 
+**A cancellation can be scheduled through `cancel_at` alone**, leaving `cancel_at_period_end`
+`false`. Treat a subscription that has not yet ended (`active`, `trialing`, `past_due`) as canceling
+when either is set:
+
+```ts
+const canceling = sub.cancel_at !== null || sub.cancel_at_period_end;
+```
+
 ## Retries are scheduled, not promised
 
 `next_payment_attempt !== null` means Stripe has another attempt **on the calendar**. It does not
@@ -105,6 +113,22 @@ trial end reads as a customer leaving when it is a collection failure.
 `.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries the dated figures and the
 derivation. Read numbers from there rather than from this file, and re-measure before quoting them.
 
+## MRR
+
+Stripe's Billing MRR is the monthly-normalized value of `active` and `past_due` subscriptions,
+**less any subscription with a scheduled cancellation** — Stripe drops it when the cancellation is
+requested, not when service ends. Trials, taxes and metered prices are excluded, and forever
+discounts are always subtracted. `getSubscriptionMetrics` applies the status and
+scheduled-cancellation rules; `computeMrr` reads list prices and subtracts no discount, so a coupon
+or a metered price makes the dashboard read higher than Stripe.
+
+The scheduled-cancellation rule appears only in Stripe's support article *Understanding MRR*
+(`support.stripe.com/questions/understanding-monthly-recurring-revenue-(mrr)`); the analytics docs
+page omits it. Two inputs are account settings no session can read: whether repeating and one-time
+discounts are subtracted, and whether a subscriber counts from the start of the subscription or
+from the first payment. When a figure still differs from Stripe's after the rules above, ask the
+user how those two are configured.
+
 ## Where the code is
 
 | Concern | Location |
@@ -126,11 +150,14 @@ render unavailable rather than report a confident zero.
 ## Reading live Stripe from a session
 
 There is no `STRIPE_SECRET_KEY` in the local environment — the key lives in Vercel. Use the
-claude.ai Stripe MCP connector; the user authenticates it by running `/mcp`.
+claude.ai Stripe MCP connector. When it lists only `authenticate` and `complete_authentication`, the
+connector is logged out: ask the user to run `/mcp` before anything else, and read account data
+yourself once it reconnects.
 
-`stripe_analytics` is refused — the key lacks `reporting_write`, so Sigma queries and the
-MRR/churn/subscriber metric templates all fail. Read account data with `stripe_api_read` and
-compute those figures from the REST lists instead.
+`stripe_analytics` query runs and metric templates fail with "requires a Sigma subscription or
+trial". Claude in Chrome on `dashboard.stripe.com` returns "Permission denied for this action on
+this domain". So Stripe's own MRR, churn and subscriber figures are the user's to read off the
+Dashboard; compute yours from `stripe_api_read` REST lists and ask for theirs only to compare.
 
 `GetSubscriptions` and `GetInvoices` responses run to hundreds of KB and will overflow a tool
 result; they are written to a file instead. Analyse that file with `jq` or a Python script rather

@@ -62,7 +62,7 @@ export type ReportCardMetrics = {
 };
 
 export type SubscriptionMetrics = {
-  mrr: number; // dollars with cents preserved (e.g. 61.25)
+  mrr: number | null; // dollars with cents preserved (e.g. 61.25); null when a fetch it sums failed
   activePaid: {
     total: number;
     monthly: number;
@@ -580,7 +580,13 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     fetchReportCardMetrics(errors),
   ]);
 
-  const mrr = computeMrr(active.items);
+  // Stripe's MRR counts active and past_due subscriptions, and drops one as soon
+  // as its cancellation is scheduled rather than when service ends. A
+  // cancellation can be scheduled through `cancel_at` alone, so read both fields.
+  const mrrSubs = [...active.items, ...pastDue.items].filter(
+    (sub) => sub.cancel_at === null && !sub.cancel_at_period_end
+  );
+  const mrr = active.ok && pastDue.ok ? computeMrr(mrrSubs) : null;
   const activePaid = bucketActivePaid(active.items);
   const trialBuckets = buildTrialPipeline(trialing.items, nowSec);
   const pastDueOut = buildPastDue(pastDue.items);

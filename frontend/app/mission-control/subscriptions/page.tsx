@@ -119,8 +119,8 @@ export default async function SubscriptionsDashboardPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <KpiCard
               label="MRR"
-              value={formatDollars(metrics.mrr)}
-              sub={`from ${metrics.activePaid.total} active sub${metrics.activePaid.total === 1 ? '' : 's'}`}
+              value={metrics.mrr === null ? '—' : formatDollars(metrics.mrr)}
+              sub={metrics.mrr === null ? 'could not be loaded' : 'active + past due, less scheduled cancellations'}
             />
             <KpiCard
               label="Active Paid"
@@ -353,8 +353,8 @@ export default async function SubscriptionsDashboardPage() {
           <div className="flex items-baseline justify-between">
             <h2 className="font-display text-xl font-semibold">Attention Needed</h2>
             <span className="text-sm text-muted-foreground">
-              {metrics.pastDue.total} past_due {metrics.pastDue.total === 1 ? 'subscription' : 'subscriptions'}{' '}
-              (excluded from MRR)
+              {metrics.pastDue.total} past_due {metrics.pastDue.total === 1 ? 'subscription' : 'subscriptions'} (counted
+              in MRR unless canceling)
             </span>
           </div>
           <Card variant="flat">
