@@ -68,6 +68,27 @@ def team_ids_by_row(
     }
 
 
+def duplicate_identity_rows(
+    rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam], overrides: Mapping[int, dict[str, Any]],
+) -> dict[int, tuple[int, ...]]:
+    """Map every same-cohort duplicate identity to its full roster group."""
+    identities = team_ids_by_row(rows, resolved, overrides)
+    groups: dict[tuple[str, str, str], list[int]] = {}
+    for row in rows:
+        entrant_id = str(row.source_index)
+        team_id = identities.get(entrant_id)
+        if team_id:
+            groups.setdefault(
+                (row.section_age_group, row.section_gender, str(team_id).casefold()), []
+            ).append(row.source_index)
+    return {
+        source_index: tuple(entrants)
+        for entrants in groups.values()
+        if len(entrants) > 1
+        for source_index in entrants
+    }
+
+
 def roster_fingerprint(
     rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam], overrides: Mapping[int, dict[str, Any]],
 ) -> str:
@@ -85,10 +106,18 @@ def prediction_request(
         raise ValueError("Select at least one cohort from this roster.")
     ids = team_ids_by_row(rows, resolved, overrides)
     request: dict[str, dict[str, str]] = {key: {} for key in selected}
+    seen: dict[str, set[str]] = {key: set() for key in request}
     for row in rows:
         key = cohort_key(row.section_age_group, row.section_gender)
         team_id = ids[str(row.source_index)]
         if key in wanted and team_id and _valid_cohort(row.section_age_group, row.section_gender):
+            # Duplicate registrations stay in the roster for explicit placement
+            # review, but Compare needs only one representative of a canonical
+            # team. Sending both would ask it to predict a team against itself.
+            identity_key = str(team_id).casefold()
+            if identity_key in seen[key]:
+                continue
+            seen[key].add(identity_key)
             request[key][str(row.source_index)] = str(team_id)
     return request
 
@@ -233,6 +262,7 @@ def analyze_pack(
     request = prediction_request(rows, resolved, overrides, pack["selected_cohorts"])
     snapshot_predictions = _snapshot_predictions(pack, request)
     identities = team_ids_by_row(rows, resolved, overrides)
+    duplicate_rows = duplicate_identity_rows(rows, resolved, overrides)
     analyses = {}
     for key in pack["selected_cohorts"]:
         cohort_rows = [row for row in rows if cohort_key(row.section_age_group, row.section_gender) == key]
@@ -245,11 +275,17 @@ def analyze_pack(
             identity = identities[entrant_id]
             supplemental = pack["ratings"].get(str(identity), {}) if identity else {}
             evidence = {**supplemental, **team}
+            review_reason = _review_reason(row, evidence, unavailable.get(entrant_id), identity)
+            if row.source_index in duplicate_rows:
+                review_reason = (
+                    "Multiple roster entries resolve to the same PitchRank team. "
+                    "Confirm each registration before seeding."
+                )
             entrants.append(TierEntrant(
                 entrant_id=entrant_id,
                 team_name=str(evidence.get("team_name") or row.team_name_stripped),
                 power_score=_published_score(evidence),
-                review_reason=_review_reason(row, evidence, unavailable.get(entrant_id), identity),
+                review_reason=review_reason,
             ))
         analyses[tuple(key.split("|", 1))] = build_tiers(
             entrants, snapshot_predictions[key], policy=policy, manual_groups=pack.get("manual_groups", {}).get(key),

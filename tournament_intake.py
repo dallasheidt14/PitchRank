@@ -109,7 +109,7 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
-from src.tournaments.seeding_pack import pack_matches
+from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches
 from src.tournaments.seeding_run_store import (
     SeedingRun,
 )
@@ -3574,8 +3574,8 @@ _SEEDING_NEEDS_DECISION = ("review", "unresolved")
 _SEEDING_PLACEHOLDER = (
     "Teams Accepted (16 of 331)\n"
     "Male U14\n"
-    "Club\tTeam\tState\n"
-    "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
+    "Club\tTeam\tState\tRequested flight (optional)\n"
+    "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX\tGold"
 )
 
 # The ages PitchRank boards, read from the config the rest of the app uses so the
@@ -3661,6 +3661,7 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
             ),
             lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
             lookup_exact_name=make_exact_name_lookup(supabase_client),
+            lookup_team_details=(make_team_details_lookup(supabase_client) if supabase_client is not None else None),
             delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
             on_progress=on_progress,
         )
@@ -4188,6 +4189,9 @@ def _run_seeding_name_lookup(
                 ),
                 lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
                 lookup_exact_name=name_lookup,
+                lookup_team_details=(
+                    make_team_details_lookup(supabase_client) if supabase_client is not None else None
+                ),
                 delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
                 **({"historical_context": True} if keys == _BACKTEST_KEYS else {}),
             )
@@ -4263,18 +4267,31 @@ def _seeding_result_frame(
 ) -> pd.DataFrame:
     """One row per roster team, in the order the director listed them."""
     by_index = {item.source_index: item for item in resolved}
+    duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
     records = []
     for row in parsed.rows:
         item = by_index[row.source_index]
         status_key, matched_name, team_id_master = _seeding_row_outcome(row, item, overrides)
+        duplicate_indices = duplicates.get(row.source_index, ())
+        review_notes = [item.review_reason] if item.review_reason else []
+        if duplicate_indices:
+            status_key = "review"
+            numbers = ", ".join(str(index + 1) for index in duplicate_indices)
+            review_notes.append(
+                f"Roster rows {numbers} resolve to the same PitchRank team in this cohort. "
+                "Confirm each registration before seeding."
+            )
         records.append(
             {
                 "#": row.source_index + 1,
                 "Cohort": f"{_display_gender(row.section_gender)} {row.section_age_group.upper()}",
                 "Club": row.club_raw,
                 "Team": row.team_name_raw,
+                "Requested flight": row.requested_flight,
+                "Listed division": row.listed_division,
                 "Status": _SEEDING_STATUS_LABEL[status_key],
                 "Matched to": matched_name,
+                "Review": " ".join(review_notes),
                 "team_id_master": team_id_master,
                 "Candidates": "; ".join(_seeding_candidate_label(candidate) for candidate in item.candidates),
             }
@@ -4308,6 +4325,8 @@ def _render_seeding_override(
         if item.candidates:
             found = "; ".join(_seeding_candidate_label(c) for c in item.candidates)
             st.caption("Searched and found: " + _as_plain_text(found))
+        if item.review_reason:
+            st.caption(_as_plain_text(item.review_reason))
 
         pasted = st.text_input(
             "GotSport link, GotSport id, or team_id_master",
@@ -4842,10 +4861,15 @@ def _render_seeding_progress_metrics(
     ``_SEEDING_NEEDS_DECISION`` about which teams get an override box.
     """
     by_index = {item.source_index: item for item in resolved}
+    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
     outstanding = [
         row
         for row in parsed.rows
-        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+        if (
+            by_index[row.source_index].status in _SEEDING_NEEDS_DECISION
+            and row.source_index not in overrides
+        )
+        or row.source_index in duplicate_rows
     ]
 
     columns = st.columns(4)
@@ -4882,7 +4906,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
     st.markdown("### Seeding intake")
     st.caption(
         "Paste the director's accepted-teams list. Age and gender come from the section "
-        "headings, so keep lines like 'Male U14' in."
+        "headings, so keep lines like 'Male U14' in. A fourth Requested flight column is "
+        "optional; existing three-column lists still work."
     )
     _render_seeding_run_controls()
     st.text_area(
@@ -4915,6 +4940,15 @@ def _render_seeding_tab(supabase_client: Any) -> None:
     )
 
     _render_seeding_warnings(parsed)
+
+    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
+    if duplicate_rows:
+        duplicate_groups = len(set(duplicate_rows.values()))
+        st.warning(
+            f"{len(duplicate_rows)} registration rows share a PitchRank team within the same cohort "
+            f"across {duplicate_groups} match{'es' if duplicate_groups != 1 else ''}. "
+            "Review every flagged row before seeding."
+        )
 
     frame = _seeding_result_frame(parsed, resolved, overrides)
     st.dataframe(frame, width="stretch", hide_index=True)

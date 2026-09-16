@@ -21,6 +21,7 @@ from src.tournaments.seeding_pack import (
     team_ids_by_row,
 )
 from src.tournaments.seeding_predictions import SeedingPredictionBatch
+from src.tournaments.seeding_sheet import build_cohort_sheets
 
 IDS = [f"00000000-0000-4000-8000-{number:012d}" for number in range(1, 6)]
 ROWS = parse_roster(
@@ -89,6 +90,72 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
 def test_a_la_carte_request_keeps_row_identity_and_uses_manual_matches():
     result = prediction_request(ROWS, RESOLVED, {1: {"team_id_master": IDS[4]}}, ["u12|Male"])
     assert result == {"u12|Male": {"0": IDS[0], "1": IDS[4]}}
+
+
+def test_duplicate_identity_uses_one_compare_representative_and_reviews_every_registration():
+    rows = parse_roster(
+        "Male U12\nClub A\tFirst registration\tTX\n"
+        "Club B\tSecond registration\tTX\nClub C\tDistinct team\tTX"
+    ).rows
+    resolved = (
+        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master=IDS[0]),
+        ResolvedTeam(source_index=1, status="exact_name", team_id_master=IDS[0]),
+        ResolvedTeam(source_index=2, status="gotsport_id", team_id_master=IDS[1]),
+    )
+
+    request = prediction_request(rows, resolved, {}, ["u12|Male"])
+
+    assert request == {"u12|Male": {"0": IDS[0], "2": IDS[1]}}
+    pack = make_pack(
+        rows,
+        resolved,
+        {},
+        ["u12|Male"],
+        _batch(request),
+        {team_id: {"state": "TX", "rank_in_state_final": 10} for team_id in IDS[:2]},
+    )
+    analysis = analyze_pack(pack, rows, resolved, {})[("u12", "Male")]
+
+    assert analysis.ordered_ids == ("2",)
+    assert analysis.review == {
+        "0": "Multiple roster entries resolve to the same PitchRank team. Confirm each registration before seeding.",
+        "1": "Multiple roster entries resolve to the same PitchRank team. Confirm each registration before seeding.",
+    }
+    assert len(analysis.ordered_ids) + len(analysis.review) == len(rows)
+    assert len({team["team_id_master"] for team in pack["teams"]["u12|Male"].values()}) == 2
+    identities = team_ids_by_row(rows, resolved, {})
+    sheets = build_cohort_sheets(
+        rows,
+        resolved,
+        {},
+        snapshot_ratings(pack, identities),
+        tier_analyses={("u12", "Male"): analysis},
+    )
+    assert [team.team_name for team in (*sheets[0].rated, *sheets[0].unrated)] == [
+        "First registration",
+        "Second registration",
+        "Distinct team",
+    ]
+    assert [team.review_reason for team in sheets[0].rated[:2]] == [
+        "Multiple roster entries resolve to the same PitchRank team. Confirm each registration before seeding."
+    ] * 2
+
+
+def test_override_that_separates_duplicate_identities_restores_tier_eligibility():
+    rows = parse_roster("Male U12\nClub A\tTeam A\tTX\nClub B\tTeam B\tTX").rows
+    resolved = tuple(
+        ResolvedTeam(source_index=index, status="gotsport_id", team_id_master=IDS[0])
+        for index in range(2)
+    )
+    overrides = {1: {"team_id_master": IDS[1]}}
+
+    request = prediction_request(rows, resolved, overrides, ["u12|Male"])
+    pack = make_pack(rows, resolved, overrides, ["u12|Male"], _batch(request), {})
+    analysis = analyze_pack(pack, rows, resolved, overrides)[("u12", "Male")]
+
+    assert request == {"u12|Male": {"0": IDS[0], "1": IDS[1]}}
+    assert analysis.review == {}
+    assert set(analysis.ordered_ids) == {"0", "1"}
 
 
 @pytest.mark.parametrize("selected", [[], ["u13|Male"], ["u12|Male", "u13|Male"]])

@@ -13,11 +13,17 @@ Sell a complete event pack or a pack containing only the requested cohorts.
    uses installed Edge/Chrome or Playwright Chromium; if needed, run
    `npx --prefix frontend playwright install chromium`.
 2. Name the event. Paste its accepted teams with age/gender headings, reopen a
-   saved run, or capture the GotSport event. A two-division probe is only a sample;
+   saved run, or capture the GotSport event. Pasted rows may include an optional
+   fourth column for the team's requested flight. A captured event's published
+   division is retained separately as its listed division; it is not treated as
+   a request from the team. A two-division probe is only a sample;
    finish the whole-event capture before selling a complete tournament pack.
    Confirm the imported team and cohort counts against the director's list.
-3. Resolve team identities. Every accepted row stays in the sheet, including
-   teams whose identity or eligibility needs review.
+3. Resolve team identities. A unique same-name result still requires review when
+   the submitted and matched club or state conflict. The review table also flags
+   every registration row that resolves to the same PitchRank team within one
+   cohort. Every accepted row stays in the sheet, including teams whose identity
+   or eligibility needs review.
 4. Under **Competitive seeding sheets**, select **All imported cohorts** for the
    event pack or **Choose cohorts** for an à la carte order. Click
    **Build matchup tiers**. This reads current data and compares every eligible
@@ -52,7 +58,9 @@ finished pool assignments, or a guarantee about any result.
 Seeding uses the website Compare predictor, calibration files, team inputs,
 and 365-day scored-game window. It does not convert the displayed
 PowerScore difference into a separate estimate. PowerScore is displayed on the
-website's 0–100 scale and orders teams within each tier.
+website's 0–100 scale, already adjusts for age, and orders teams within each
+tier, including younger teams playing up. A state rank still describes the
+team's own PitchRank age and gender cohort.
 
 The default placement preferences require **every pairing** within a suggested
 tier to have both:
@@ -85,6 +93,12 @@ a provisional score or little recent history. Unresolved, duplicate-identity,
 inactive, missing-score, wrong-gender, and older-than-cohort teams stay in
 **Placement review**. Younger teams may play up. Low prediction confidence alone
 does not exclude a team: close matchups can naturally have an uncertain winner.
+
+The customer PDF uses the registered tournament name as the primary name. When
+PitchRank's matched name differs, it appears beneath it for verification. A
+**Plays up** badge identifies starred registrations, and requested-flight or
+listed-division context appears beside the PowerScore when available. Duplicate
+PitchRank matches remain visible and carry a review warning.
 
 The customer PDF leads with the recommended tier sizes and three direct steps:
 build flights from the same tier, seed each tier from top to bottom, and use a

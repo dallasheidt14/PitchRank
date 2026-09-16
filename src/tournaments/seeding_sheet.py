@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import html
 import math
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,6 +68,11 @@ class SheetTeam:
     entrant_id: str = ""
     team_id_master: str | None = None
     review_reason: str | None = None
+    pitchrank_team_name: str | None = None
+    plays_up: bool = False
+    play_up_from_age_group: str | None = None
+    requested_flight: str | None = None
+    listed_division: str | None = None
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,30 @@ def _team_id_for(row: RosterRow, item: ResolvedTeam | None, overrides: Mapping[i
     return (item.team_id_master if item else None) or None
 
 
+def _materially_different_name(first: str, second: str) -> bool:
+    """Ignore casing and punctuation when deciding whether two display names differ."""
+    def comparable(value: str) -> str:
+        return "".join(character for character in value.casefold() if character.isalnum())
+
+    return bool(second.strip()) and comparable(first) != comparable(second)
+
+
+def _ranked_age_group(rating: Mapping[str, Any]) -> str | None:
+    age = rating.get("age")
+    if isinstance(age, int) and not isinstance(age, bool) and 1 <= age <= 99:
+        return f"u{age}"
+    age_group = str(rating.get("age_group") or "").strip().lower().replace(" ", "")
+    match = re.fullmatch(r"u?([0-9]{1,2})", age_group)
+    return f"u{int(match.group(1))}" if match else None
+
+
+def _play_up_from_age_group(rating: Mapping[str, Any], entered_age_group: str) -> str | None:
+    ranked = _ranked_age_group(rating)
+    ranked_age = _age_sort_key(ranked or "")
+    entered_age = _age_sort_key(entered_age_group)
+    return ranked if ranked_age and entered_age and ranked_age < entered_age else None
+
+
 def build_cohort_sheets(
     rows: Sequence[RosterRow],
     resolved: Sequence[ResolvedTeam],
@@ -108,9 +138,9 @@ def build_cohort_sheets(
 ) -> tuple[CohortSheet, ...]:
     """Group a resolved roster into one sheet per cohort, strongest first.
 
-    A team we hold a rating for is shown under the name we hold, not the name
-    the roster used: the two often differ, and the stored name is the one a
-    director will find if they look the team up.
+    The registration name stays primary because it is the name a tournament
+    director has on their event roster. A materially different PitchRank name
+    is retained as secondary identity context.
     """
     if len({row.source_index for row in rows}) != len(rows):
         raise ValueError("Each roster row must have a unique source index.")
@@ -132,9 +162,14 @@ def build_cohort_sheets(
         if score is not None and (not math.isfinite(score) or not 0 <= score <= 1):
             score = None
         analysis = (tier_analyses or {}).get(cohort)
+        registered_name = row.registered_name
+        pitchrank_name = str(rating.get("team_name") or "").strip()
         team = SheetTeam(
-            team_name=str(rating.get("team_name") or row.team_name_stripped),
-            club_name=str(rating.get("club_name") or row.club_raw),
+            team_name=registered_name,
+            club_name=str(row.club_raw or rating.get("club_name") or ""),
+            pitchrank_team_name=(
+                pitchrank_name if _materially_different_name(registered_name, pitchrank_name) else None
+            ),
             power_score=score,
             state_rank=rating.get("rank_in_state_final"),
             state=str(rating["state"]).strip() if rating.get("state") else None,
@@ -142,6 +177,10 @@ def build_cohort_sheets(
             entrant_id=str(row.source_index),
             team_id_master=team_id,
             review_reason=analysis.review.get(str(row.source_index)) if analysis else None,
+            plays_up=bool(row.has_star_marker),
+            play_up_from_age_group=_play_up_from_age_group(rating, row.section_age_group),
+            requested_flight=str(getattr(row, "requested_flight", "") or "").strip() or None,
+            listed_division=str(getattr(row, "listed_division", "") or "").strip() or None,
         )
         if score is not None and rating.get("status") != "Inactive":
             grouped[cohort].append(team)
@@ -194,14 +233,18 @@ def make_ratings_lookup(supabase_client: Any) -> Callable[[Sequence[str]], dict[
                 )
             for row in (
                 supabase_client.table("teams")
-                .select("team_id_master,team_name,club_name")
+                .select("team_id_master,team_name,club_name,age_group")
                 .in_("team_id_master", batch)
                 .execute()
                 .data
                 or []
             ):
                 ratings.setdefault(str(row["team_id_master"]), {}).update(
-                    {"team_name": row.get("team_name"), "club_name": row.get("club_name")}
+                    {
+                        "team_name": row.get("team_name"),
+                        "club_name": row.get("club_name"),
+                        "age_group": row.get("age_group"),
+                    }
                 )
 
         return ratings
@@ -283,12 +326,30 @@ def _rows_html(
         )
         note = (placement_notes or {}).get(team.entrant_id) or team.review_reason or ""
         note_class = "placement boundary-note" if note.startswith("Boundary option") else "placement"
+        pitchrank_name = (
+            f'<span class="pitchrank-name">PitchRank: {html.escape(team.pitchrank_team_name)}</span>'
+            if team.pitchrank_team_name else ""
+        )
+        if team.plays_up and team.play_up_from_age_group:
+            play_up = (
+                f'<span class="play-up">Plays up from '
+                f'{html.escape(team.play_up_from_age_group.upper())}</span>'
+            )
+        elif team.plays_up:
+            play_up = '<span class="play-up">Plays up</span>'
+        else:
+            play_up = ""
+        flight_context = ""
+        if team.requested_flight:
+            flight_context += f'<span class="flight">Requested: {html.escape(team.requested_flight)}</span>'
+        if team.listed_division:
+            flight_context += f'<span class="flight">Listed: {html.escape(team.listed_division)}</span>'
         cells.append(
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}">'
             f'<td class="pos">{position if numbered else "-"}</td>'
-            f'<td class="team">{html.escape(team.team_name)}{flag}'
+            f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
             f'<span class="club">{html.escape(team.club_name)}</span></td>'
-            f'<td class="num score">{_score(team.power_score)}</td>'
+            f'<td class="num score">{_score(team.power_score)}{flight_context}</td>'
             f'<td class="num state">{html.escape(_state_rank(team))}</td>'
             f'<td class="{note_class}">{html.escape(note)}</td></tr>'
         )
@@ -459,7 +520,10 @@ def _sheet_html(
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
         notes = f'<aside class="guidance"><h2>Before you finalize</h2><ul>{items}</ul></aside>'
-    explanation = "PitchRank score uses the published 0–100 scale. Rankings are specific to each age group and gender."
+    explanation = (
+        "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
+        "State rank is that team's rank within its own PitchRank age and gender group."
+    )
     guide = ""
     if analysis is not None:
         if any(tier.entrant_ids for tier in analysis.tiers):
@@ -472,7 +536,8 @@ def _sheet_html(
     <span>Only the team beside the tier line should move. Move one team at a time.</span></div>
   </div>
   <p class="guide-foot"><strong>Use the tier first.</strong>
-   PitchRank score and state rank are supporting context.</p>"""
+   PitchRank score already adjusts for age, so a younger team playing up can be compared here. State rank is within
+   that team's own PitchRank age and gender group.</p>"""
         else:
             guide_body = """<p class="manual-guide">Review each team’s note before seeding. Use recent results,
    prior division, or club input to place every team in the closest competitive group.</p>"""
@@ -581,15 +646,20 @@ def render_sheet_html(
  line-height: 1.35; overflow-wrap: anywhere; }}
  .pos {{ text-align: center; font-weight: 700; color: {BRAND["forest"]}; font-variant-numeric: tabular-nums; }}
  .team {{ font-weight: 700; }}
+ .pitchrank-name {{ display: block; font-size: 9px; font-weight: 400; color: {BRAND["forest"]}; margin-top: 2px; }}
  .club {{ display: block; font-size: 9px; font-weight: 400; color: {BRAND["muted"]}; margin-top: 2px; }}
  .num {{ text-align: center; font-variant-numeric: tabular-nums; }}
  .columns th.num, .columns th.pos {{ text-align: center; }}
  .score {{ font-weight: 700; }}
+ .flight {{ display: block; margin-top: 2px; font-size: 8px; line-height: 1.25; font-weight: 400;
+ color: {BRAND["muted"]}; }}
  .state, .placement {{ font-size: 9.5px; }}
  .placement {{ color: {BRAND["muted"]}; }}
  .boundary-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
  .flag {{ display: inline-block; margin-left: 5px; border: 1px solid {BRAND["rule"]}; border-radius: 2px;
  padding: 1px 3px; font-size: 8px; font-weight: 400; }}
+ .play-up {{ display: inline-block; margin-left: 5px; border-radius: 2px; background: #E6F2EF;
+ color: {BRAND["forest_deep"]}; padding: 1px 4px; font-size: 8px; font-weight: 700; }}
  .review .tier-heading th {{ border-top: 2px solid {BRAND["yellow"]}; border-bottom-color: #D8C56A;
  background: #FFF8D9; }}
  .review .tier-title {{ color: {BRAND["forest_deep"]}; }}

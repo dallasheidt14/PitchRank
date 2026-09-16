@@ -100,6 +100,15 @@ def test_both_markers_are_stripped():
     assert row.has_c_marker is True
 
 
+def test_an_internal_asterisk_is_part_of_the_registered_name_not_a_play_up_marker():
+    parsed = parse_roster("Male U13\nA Club\tA*B Academy\tTX")
+
+    row = parsed.rows[0]
+    assert row.team_name_stripped == "A*B Academy"
+    assert row.registered_name == "A*B Academy"
+    assert row.has_star_marker is False
+
+
 def test_interior_hyphen_c_is_not_treated_as_a_marker():
     parsed = parse_roster("Male U13\nSoccer Evolution RGV\tRGV Rush Blue 2014c\tTX")
 
@@ -129,6 +138,18 @@ def test_state_column_is_optional():
     parsed = parse_roster("Male U14\nA Club\tA Team")
 
     assert parsed.rows[0].state == ""
+    assert parsed.rows[0].requested_flight == ""
+    assert parsed.rows[0].listed_division == ""
+
+
+def test_fourth_column_preserves_the_requested_flight():
+    parsed = parse_roster(
+        "Male U14\nClub\tTeam\tState\tRequested flight\n"
+        "A Club\tA Team\tTX\t Gold "
+    )
+
+    assert parsed.rows[0].requested_flight == "Gold"
+    assert parsed.rows[0].listed_division == ""
 
 
 def test_source_index_is_sequential_across_cohorts():

@@ -8,6 +8,8 @@ network or Supabase — and no Streamlit runtime is required.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from src.tournaments.event_roster_intake import (
@@ -116,6 +118,38 @@ def test_a_scraped_row_carries_the_division_cohort_and_no_club():
     assert row.club_raw == ""
     assert row.state == ""
     assert (row.has_star_marker, row.has_c_marker) == (False, False)
+    assert row.listed_division == "U-13 BOYS GOLD"
+    assert row.requested_flight == ""
+
+
+def test_a_scraped_trailing_star_is_a_play_up_marker_and_not_part_of_the_registered_name():
+    parsed, _ = to_seeding_rows(_roster(_team(0, team_name="Team 0*")), {})
+
+    row = parsed.rows[0]
+    assert row.team_name_raw == "Team 0*"
+    assert row.team_name_stripped == "Team 0"
+    assert row.registered_name == "Team 0"
+    assert row.has_star_marker is True
+
+
+def test_a_scraped_internal_asterisk_remains_literal():
+    parsed, _ = to_seeding_rows(_roster(_team(0, team_name="A*B Academy")), {})
+
+    row = parsed.rows[0]
+    assert row.team_name_stripped == "A*B Academy"
+    assert row.registered_name == "A*B Academy"
+    assert row.has_star_marker is False
+
+
+def test_event_division_is_neutral_metadata_and_is_sanitized():
+    parsed, _ = to_seeding_rows(
+        _roster(_team(0, division_label=" U13 Gold\x1b[2J ")),
+        {},
+    )
+
+    row = parsed.rows[0]
+    assert row.listed_division == " U13 Gold[2J "
+    assert row.requested_flight == ""
 
 
 def test_a_control_character_is_stripped_from_a_provider_name():
@@ -207,6 +241,7 @@ def test_a_known_id_that_resolves_on_retry_never_reaches_the_name_search():
         gotsport_search=_never_called,
         lookup_provider_id=lambda pid: "uuid-a" if pid == "521426" else None,
         lookup_exact_name=_never_called,
+        lookup_team_details=_never_called,
     )
 
     assert spliced[0].status == "gotsport_id"
@@ -229,6 +264,34 @@ def test_a_known_id_falls_back_to_an_exact_name_and_keeps_the_id():
     assert spliced[0].status == "exact_name"
     assert spliced[0].team_id_master == "uuid-b"
     assert spliced[0].provider_team_id == "521426", "the event published this id; a name match does not retire it"
+
+
+def test_a_known_id_exact_name_fallback_keeps_a_club_conflict_for_review():
+    parsed, resolved = _pair(provider_team_id="521426")
+    parsed = ParsedRoster(
+        rows=(replace(parsed.rows[0], club_raw="Submitted FC", state="TX"),),
+        warnings=parsed.warnings,
+    )
+
+    spliced = resolve_unlinked(
+        parsed,
+        resolved,
+        indices=(0,),
+        gotsport_search=_never_called,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["uuid-b"],
+        lookup_team_details=lambda _team_id: {
+            "team_id_master": "uuid-b",
+            "team_name": "Team 0",
+            "club_name": "Other Academy",
+            "state_code": "TX",
+        },
+    )
+
+    assert spliced[0].status == "review"
+    assert spliced[0].provider_team_id == "521426"
+    assert spliced[0].candidates[0]["team_id_master"] == "uuid-b"
+    assert spliced[0].review_reason == "Club conflict: submitted 'Submitted FC', candidate 'Other Academy'."
 
 
 def test_a_known_id_matching_two_teams_is_offered_as_a_choice():
@@ -690,6 +753,6 @@ def test_historical_name_lookup_reads_all_ages_and_refuses_sql_wildcard_hits():
     client = SimpleNamespace(table=lambda name: Query() if name == "teams" else _never_called())
     assert make_historical_name_lookup(client)("FC_One", "u12", "Male") == ["u12-team", "u13-team"]
     assert executed == [[
-        ("ilike", "team_name", "FC_One"), ("eq", "is_deprecated", False),
+        ("ilike", "team_name", r"FC\_One"), ("eq", "is_deprecated", False),
         ("range", 0, 999), ("eq", "gender", "Male"),
     ]]

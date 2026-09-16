@@ -15,6 +15,8 @@ import pytest
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_sheet import (
+    CohortSheet,
+    SheetTeam,
     build_cohort_sheets,
     fetch_ranking_run_date,
     render_sheet_html,
@@ -62,7 +64,7 @@ def test_one_sheet_per_cohort():
 def test_rated_teams_are_ordered_strongest_first():
     u14 = _sheets()[0]
 
-    assert [team.team_name for team in u14.rated] == ["Laredo Heat Red U14", "Barcelona SC Aztecas U14"]
+    assert [team.team_name for team in u14.rated] == ["Laredo Heat 2013 Red", "Barcelona SC 13B Aztecas"]
 
 
 def test_a_team_with_no_rating_falls_below_the_line():
@@ -88,9 +90,25 @@ def test_a_ranked_team_carries_its_score_and_state_rank():
     assert top.state_rank == 33
 
 
-def test_the_teams_own_name_is_used_when_we_have_a_rating_for_it():
+def test_registered_name_stays_primary_and_a_different_pitchrank_name_is_secondary():
     """The roster calls it `Barcelona SC 13B Aztecas`; we hold `Barcelona SC Aztecas U14`."""
-    assert _sheets()[0].rated[1].team_name == "Barcelona SC Aztecas U14"
+    team = _sheets()[0].rated[1]
+
+    assert team.team_name == "Barcelona SC 13B Aztecas"
+    assert team.pitchrank_team_name == "Barcelona SC Aztecas U14"
+
+    document = render_sheet_html(
+        "STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+    row = document.split('data-entrant="0"', 1)[1].split("</tr>", 1)[0]
+    assert row.index("Barcelona SC 13B Aztecas") < row.index("PitchRank: Barcelona SC Aztecas U14")
+
+
+def test_equivalent_pitchrank_name_is_not_repeated():
+    ratings = dict(RATINGS)
+    ratings["m-barca"] = {**RATINGS["m-barca"], "team_name": "BARCELONA SC 13B AZTECAS!"}
+
+    assert _sheets(ratings)[0].rated[1].pitchrank_team_name is None
 
 
 def test_an_inactive_team_with_a_score_but_no_rank_falls_below_the_line():
@@ -124,8 +142,8 @@ def test_provisional_score_status_is_not_shown_as_a_customer_warning():
     )
 
     assert [team.team_name for team in sheets[0].rated] == [
-        "Laredo Heat Red U14",
-        "Barcelona SC Aztecas U14",
+        "Laredo Heat 2013 Red",
+        "Barcelona SC 13B Aztecas",
         "STX Elevate FC 2012/13 JG",
     ]
     assert sheets[0].unrated == ()
@@ -139,7 +157,8 @@ def test_an_override_supplies_the_team_id_used_for_the_rating():
     parsed = parse_roster(PASTE)
     sheets = build_cohort_sheets(parsed.rows, RESOLVED, {3: {"team_id_master": "m-laredo"}}, RATINGS)
 
-    assert [team.team_name for team in sheets[1].rated] == ["Laredo Heat Red U14"]
+    assert [team.team_name for team in sheets[1].rated] == ["Tyler FC 15B"]
+    assert sheets[1].rated[0].pitchrank_team_name == "Laredo Heat Red U14"
 
 
 # -------- rendering -------------------------------------------------------
@@ -253,6 +272,134 @@ def test_the_sheet_shows_state_rank_and_not_ranked_games():
 
     assert "State rank" in html
     assert "Ranked games" not in html
+
+
+def test_play_up_marker_becomes_a_plain_language_badge_with_ranked_age():
+    ratings = {
+        **RATINGS,
+        "m-tyler": {
+            "team_name": "Tyler FC 2015 Boys",
+            "club_name": "Tyler FC",
+            "power_score_final": 0.41,
+            "status": "Active",
+            "rank_in_state_final": 95,
+            "state": "TX",
+            "age": 12,
+        },
+    }
+    parsed = parse_roster(PASTE)
+    sheets = build_cohort_sheets(parsed.rows, RESOLVED, {3: {"team_id_master": "m-tyler"}}, ratings)
+
+    assert sheets[1].rated[0].plays_up is True
+    assert sheets[1].rated[0].play_up_from_age_group == "u12"
+    document = render_sheet_html(
+        "STX Cup 2026", sheets, generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+    row = document.split('data-entrant="3"', 1)[1].split("</tr>", 1)[0]
+    assert "Tyler FC 15B" in row
+    assert "Plays up from U12" in row
+    assert "Tyler FC 15B*" not in row
+
+
+@pytest.mark.parametrize("ranked_age", [14, 15])
+def test_play_up_badge_does_not_claim_same_age_or_older_team_is_the_origin(ranked_age):
+    ratings = {
+        **RATINGS,
+        "m-tyler": {
+            "team_name": "Tyler FC",
+            "club_name": "Tyler FC",
+            "power_score_final": 0.41,
+            "status": "Active",
+            "rank_in_state_final": 95,
+            "state": "TX",
+            "age": ranked_age,
+        },
+    }
+    parsed = parse_roster(PASTE)
+    sheets = build_cohort_sheets(parsed.rows, RESOLVED, {3: {"team_id_master": "m-tyler"}}, ratings)
+
+    assert sheets[1].rated[0].play_up_from_age_group is None
+    document = render_sheet_html(
+        "STX Cup 2026", sheets, generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+    row = document.split('data-entrant="3"', 1)[1].split("</tr>", 1)[0]
+    assert "Plays up" in row
+    assert "Plays up from" not in row
+
+
+def test_registered_name_keeps_unknown_c_suffix_while_replacing_only_the_star_marker():
+    parsed = parse_roster("Male U14\nClub\tFire 13B*-c\tTX")
+    resolved = (ResolvedTeam(source_index=0, status="exact_name", team_id_master="fire"),)
+    ratings = {
+        "fire": {
+            "team_name": "Fire 13B",
+            "club_name": "Club",
+            "power_score_final": 0.50,
+            "status": "Active",
+            "rank_in_state_final": 50,
+            "state": "TX",
+            "age": 13,
+        }
+    }
+
+    sheet = build_cohort_sheets(parsed.rows, resolved, {}, ratings)[0]
+    assert sheet.rated[0].team_name == "Fire 13B-c"
+    document = render_sheet_html(
+        "STX Cup 2026", (sheet,), generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+    row = document.split('data-entrant="0"', 1)[1].split("</tr>", 1)[0]
+    assert "Fire 13B-c" in row
+    assert "Fire 13B*-c" not in row
+
+
+def test_requested_flight_and_event_listed_division_are_labeled_separately_beside_score():
+    sheet = CohortSheet(
+        age_group="u14",
+        gender="Male",
+        rated=(
+            SheetTeam("Requested Team", "Club", power_score=0.55, entrant_id="1", requested_flight="Gold"),
+            SheetTeam("Listed Team", "Club", power_score=0.50, entrant_id="2", listed_division="Premier"),
+        ),
+        unrated=(),
+    )
+    document = render_sheet_html(
+        "STX Cup 2026", (sheet,), generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+
+    requested_row = document.split('data-entrant="1"', 1)[1].split("</tr>", 1)[0]
+    listed_row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
+    assert "55.0" in requested_row and "Requested: Gold" in requested_row
+    assert "Listed: Premier" not in requested_row
+    assert "50.0" in listed_row and "Listed: Premier" in listed_row
+    assert "Requested: Gold" not in listed_row
+
+
+def test_roster_flight_fields_reach_the_sheet_model_without_changing_their_meaning():
+    parsed = parse_roster(
+        "Male U14\nClub\tTeam\tState\tRequested flight\n"
+        "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX\tGold"
+    )
+    pasted_sheet = build_cohort_sheets(parsed.rows, RESOLVED[:1], {}, RATINGS)[0]
+    event_row = replace(parsed.rows[0], requested_flight="", listed_division="U14 Boys Premier")
+    event_sheet = build_cohort_sheets((event_row,), RESOLVED[:1], {}, RATINGS)[0]
+
+    assert pasted_sheet.rated[0].requested_flight == "Gold"
+    assert pasted_sheet.rated[0].listed_division is None
+    assert event_sheet.rated[0].requested_flight is None
+    assert event_sheet.rated[0].listed_division == "U14 Boys Premier"
+
+
+def test_score_explanation_handles_play_up_teams_and_own_cohort_state_rank():
+    plain_document = render_sheet_html(
+        "STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+    tier_document = _render_tier()
+
+    for document in (plain_document, tier_document):
+        assert "PitchRank score already adjusts for age" in document
+        assert "younger team playing up can be compared" in document
+        assert "own PitchRank age and gender group" in document
+        assert "Rankings are specific to each age group and gender" not in document
 
 
 def test_a_ranked_teams_state_rank_reaches_the_page_with_its_state():

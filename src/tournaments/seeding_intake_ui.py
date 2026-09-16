@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -11,7 +11,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from config.settings import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
-from src.tournaments.roster_paste import ParsedRoster
+from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_pack import (
     analyze_pack,
@@ -89,8 +89,49 @@ def _policy_controls(pack: dict[str, Any], save: Callable[[], bool]) -> None:
             st.rerun()
 
 
+def _identity_columns(
+    entrant_id: str, teams: Mapping[str, dict[str, Any]], roster_rows: Mapping[str, RosterRow],
+) -> dict[str, str]:
+    row = roster_rows.get(entrant_id)
+    team = teams.get(entrant_id, {})
+    registered_name = row.registered_name if row else ""
+    pitchrank_name = str(team.get("team_name") or "").strip()
+
+    def comparable(value: str) -> str:
+        return "".join(character for character in value.casefold() if character.isalnum())
+
+    different_name = bool(pitchrank_name and comparable(registered_name) != comparable(pitchrank_name))
+
+    roster_note = ""
+    if row and row.has_star_marker:
+        age = team.get("age")
+        entered = row.section_age_group.lower().removeprefix("u")
+        entered_age = int(entered) if entered.isdigit() else None
+        if (
+            isinstance(age, int)
+            and not isinstance(age, bool)
+            and entered_age is not None
+            and age < entered_age
+        ):
+            roster_note = f"Plays up from U{age}"
+        else:
+            roster_note = "Plays up"
+    if row:
+        requested = str(getattr(row, "requested_flight", "") or "").strip()
+        listed = str(getattr(row, "listed_division", "") or "").strip()
+        flight_note = f"Requested: {requested}" if requested else f"Listed: {listed}" if listed else ""
+        roster_note = " · ".join(value for value in (roster_note, flight_note) if value)
+
+    return {
+        "Team": registered_name or pitchrank_name or "Unknown team",
+        "PitchRank match": pitchrank_name if different_name else "",
+        "Roster context": roster_note,
+    }
+
+
 def _render_cohort_review(
-    key: str, analysis: Any, pack: dict[str, Any], save: Callable[[], bool], names: dict[str, str],
+    key: str, analysis: Any, pack: dict[str, Any], save: Callable[[], bool],
+    roster_rows: Mapping[str, RosterRow],
 ) -> None:
     teams = pack["teams"].get(key, {})
     st.markdown(f"##### {cohort_label(key)}")
@@ -115,7 +156,7 @@ def _render_cohort_review(
                 placement_note = f"Boundary option: move {direction} to Tier {target} if needed"
             rows.append({
                 "Entrant": entrant_id,
-                "Team": teams.get(entrant_id, {}).get("team_name") or names[entrant_id],
+                **_identity_columns(entrant_id, teams, roster_rows),
                 "Tier": tier.number,
                 "Placement note": placement_note,
             })
@@ -126,7 +167,7 @@ def _render_cohort_review(
         with st.form(f"_seeding_tier_form_{key}_{generation}"):
             edited = st.data_editor(
                 pd.DataFrame(rows), hide_index=True, use_container_width=True,
-                disabled=["Entrant", "Team", "Placement note"],
+                disabled=["Entrant", "Team", "PitchRank match", "Roster context", "Placement note"],
                 column_config={
                     "Entrant": None,
                     "Tier": st.column_config.NumberColumn(
@@ -169,7 +210,7 @@ def _render_cohort_review(
     if analysis.review:
         st.info("Teams needing placement review remain on the sheet and are not assigned to the weakest tier.")
         st.dataframe(pd.DataFrame([
-            {"Team": teams.get(entrant, {}).get("team_name") or names[entrant], "Reason": reason}
+            {**_identity_columns(entrant, teams, roster_rows), "Reason": reason}
             for entrant, reason in analysis.review.items()
         ]), hide_index=True, use_container_width=True)
     if not rows:
@@ -246,9 +287,9 @@ def render_seeding_pack(
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
     _policy_controls(pack, save)
     with st.expander("Review and adjust tiers", expanded=True):
-        names = {str(row.source_index): row.team_name_raw for row in parsed.rows}
+        roster_rows = {str(row.source_index): row for row in parsed.rows}
         for key in selected:
-            _render_cohort_review(key, analyses[tuple(key.split("|", 1))], pack, save, names)
+            _render_cohort_review(key, analyses[tuple(key.split("|", 1))], pack, save, roster_rows)
     identities = team_ids_by_row(parsed.rows, resolved, overrides)
     sheets = build_cohort_sheets(
         selected_rows, resolved, overrides, snapshot_ratings(pack, identities), tier_analyses=analyses,
