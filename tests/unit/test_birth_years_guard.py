@@ -94,6 +94,46 @@ ROOT = Path(__file__).resolve().parents[2]
         # A bare two-digit number is a squad number until something marks it a year.
         ("Arsenal 11 B", set()),
         ("6/7 Grinch Unit", set()),
+        # A U-age label directly after the number is what marks it. Leagues in the
+        # Carolinas write a cohort this way, the number being the band's older
+        # birth year: "15 (U11)" is the 2015 half of the 2016/2015 band. Without
+        # this both sides of "13 (13U) X" and "12 (U14) X" state nothing, and the
+        # guard cannot see that they are different cohorts.
+        ("15 (U11) TFA Purple", {2015}),
+        ("13 (13U) SGCSA Strikers White", {2013}),
+        ("12 (14U) CCFCY Premier", {2012}),
+        ("10 (U16) NBTSA Bulldogs G", {2010}),
+        ("2015 (11U) SGCSA Strikers White", {2015}),
+        ("13 U14 WCWAA Elite", {2013}),
+        # The band is not required. GotSport's Carolinas rows open with the year
+        # and go straight to the club, and that year is the only thing separating
+        # one cohort from the next in those names.
+        ("13 WUSC Revolution Blue", {2013}),
+        ("09 WUSC Revolution", {2009}),
+        ("12 PGSA Stars Boys", {2012}),
+        ("09 Crows", {2009}),
+        # A number that cannot be a birth year is left alone by the range, which
+        # is what keeps a season label out.
+        ("25 BAC Shooting Stars", set()),
+        ("26 GH Las Ladybugs", set()),
+        # A leading pair is a band and belongs to the band rule, not this one.
+        ("24/25 U12B Thunderbirds", set()),
+        # Only the opening position separates a cohort from a squad number that
+        # happens to sit beside a band: Elite 11 is the squad, 2008 the cohort.
+        ("Elite S.C. 2008 Elite 11 U17", {2008}),
+        ("Elite S.C. Elite 11 U17", set()),
+        # The same anchor keeps out the other things written in front of a band.
+        ("Spring 25 U12 Boys", set()),
+        ("Worthington United 94 U13 Boys Navy III", set()),
+        ("Atletico Academy 8/1/17-7/31/18 BU9", set()),
+        ("NCFC Youth 12 (U14) NCFCY ECNL", set()),
+        # A U-age that opens the name is still only a band, and a leading pair is
+        # left to the band rule, which already reads it.
+        ("12U CSA North King", set()),
+        ("Team 13 Blue", set()),
+        ("07/08 (U19) NCFCY Navy North G", {2007, 2008}),
+        ("Rush 11U (2015) Wisconsin", {2015}),
+        ("Seacoast United - U14G -12/13 Nal", {2012, 2013}),
     ],
 )
 def test_birth_years_notation(name, expected):
@@ -120,6 +160,21 @@ def test_birth_years_notation(name, expected):
         # Silent where it cannot see: no year stated on one side means no verdict.
         ("Rush U18", "Rush U19", False),
         ("FC Dallas Red", "FC Dallas 2009 Red", False),
+        # The cohort-then-band form, which the duplicate scan scores at 1.0
+        # because normalization erases both halves of it.
+        ("13 (13U) OCSA Coastal Crew Blue", "12 (U14) OCSA Coastal Crew Blue", True),
+        ("15 (U11) NCRT Triad White", "14 (U12) NCRT Triad White", True),
+        ("2011 NBTSA Bulldogs G", "10 (U16) NBTSA Bulldogs G", True),
+        # One cohort written two ways is not a conflict.
+        ("12 (U14) CCFC Blue", "12 (U14) CCFC Blue", False),
+        ("2015 (11U) SGCSA Strikers White", "15 (U11) SGCSA Strikers White", False),
+        # u19 holds two birth years, so the stored cohort agreeing proves nothing
+        # and only the names can separate these.
+        ("09 WUSC Revolution", "2007 WUSC Revolution", True),
+        # The same squad written by two providers, one stating a year and one a
+        # band that contains it.
+        ("13 WUSC Revolution Blue", "12-13 (14U) WUSC Revolution Blue", False),
+        ("2014 WUSC Revolution", "13-14 (13U) WUSC Revolution", False),
     ],
 )
 def test_birth_years_conflict(name_a, name_b, conflict):

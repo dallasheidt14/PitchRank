@@ -472,6 +472,23 @@ _AFFIX_2 = re.compile(
     re.I,
 )
 _GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)\b|\b(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
+# A two-digit number that OPENS the name is the cohort. Providers across the
+# Carolinas write a team as "<birth year> <club> <squad>" -- "13 WUSC Revolution
+# Blue" -- sometimes with the age band between them -- "15 (U11) TFA Purple".
+# _AFFIX_2 refuses a bare number without a B/G affix and _UAGE_TOKEN erases the
+# band, so both forms state no year at all: "13 (13U) X" and "12 (U14) X" score
+# 1.0 against each other while the guard stays silent on two cohorts a year apart.
+#
+# Anchored to the start, which is what separates a cohort from every other number
+# written beside a club or a band: a squad ("Elite S.C. 2008 Elite 11 U17" is a
+# 2008 team whose squad is Elite 11), a season ("Spring 25 U12 Boys"), a
+# registration window ("8/1/17-7/31/18 BU9") and a founding year ("Worthington
+# United 94 U13 Boys"). A season that does lead ("25 BAC Shooting Stars") falls
+# outside _BIRTH_YEAR_MIN.._BIRTH_YEAR_MAX and is dropped by the range check.
+#
+# A leading PAIR is a band and belongs to _DUAL_2_2, so a following digit, slash
+# or hyphen ends the match rather than starting one.
+_LEADING_COHORT = re.compile(r"^\s*'?(\d{2})(?![\d/-])(?=[\s(])")
 
 
 def _four_digit_year(two_digits: str) -> int:
@@ -491,6 +508,14 @@ def birth_years(team_name: str | None) -> set[int]:
     text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", team_name))
     years: set[int] = set()
     spans: list[tuple[int, int]] = []
+
+    # Read from the RAW name: the band that can follow the cohort is the first
+    # thing stripped, and a cohort standing on its own has nothing to anchor to.
+    opening = _LEADING_COHORT.match(_FORMAT_TOKEN.sub(" ", team_name))
+    if opening:
+        year = _four_digit_year(opening.group(1))
+        if _BIRTH_YEAR_MIN <= year <= _BIRTH_YEAR_MAX:
+            years.add(year)
 
     def _blanked() -> str:
         chars = list(text)
