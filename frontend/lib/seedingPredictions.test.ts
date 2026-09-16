@@ -281,7 +281,7 @@ describe('Seeding canonical Compare bridge', () => {
     await expect(buildSeedingPredictions(db.client, { cohort: { a: A, b: B } })).rejects.toEqual(error);
   });
 
-  it('pages capped games, preserves every score filter, batches IDs, and deduplicates cross-batch games', async () => {
+  it('pages capped games, keeps the combined ID filter within the URI budget, and deduplicates games', async () => {
     const ids = [A, ...Array.from({ length: 100 }, (_, index) => `team-${String(index).padStart(3, '0')}`)];
     const data = fixtures();
     data.games = [
@@ -301,8 +301,18 @@ describe('Seeding canonical Compare bridge', () => {
       [0, 999],
       [1000, 1999],
       [0, 999],
+      [0, 999],
       [1000, 1999],
     ]);
-    expect(db.queries[0].or?.match(/home_team_master_id\.in\.\(([^)]*)\)/)?.[1].split(',')).toHaveLength(100);
+    const distinctFilters = [...new Set(db.queries.map((query) => query.or))];
+    expect(distinctFilters).toHaveLength(3);
+    expect(
+      distinctFilters.map((filter) =>
+        [...(filter ?? '').matchAll(/(?:home_team_master_id|away_team_master_id)\.in\.\(([^)]*)\)/g)].reduce(
+          (count, match) => count + match[1].split(',').length,
+          0
+        )
+      )
+    ).toEqual([100, 100, 2]);
   });
 });

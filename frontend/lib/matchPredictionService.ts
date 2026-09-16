@@ -359,12 +359,14 @@ export async function fetchPredictionGames(supabase: SupabaseClient, teamIds: st
   cutoffDate.setDate(cutoffDate.getDate() - 365);
 
   // Both Compare and Seeding use this stable order, including same-day games.
-  // Page below the local PostgREST cap and batch IDs below its URI limit.
+  // Page below the local PostgREST cap and keep the complete filter below its
+  // 100-ID URI safeguard. Each team ID appears once per home/away clause.
   const wanted = [...new Set(teamIds)].sort();
   const games = new Map<string, Game>();
   const pageSize = 1000;
-  for (let start = 0; start < wanted.length; start += 100) {
-    const batch = wanted.slice(start, start + 100);
+  const gameIdBatchSize = 50;
+  for (let start = 0; start < wanted.length; start += gameIdBatchSize) {
+    const batch = wanted.slice(start, start + gameIdBatchSize);
     for (let offset = 0; ; offset += pageSize) {
       const { data, error } = await supabase
         .from('games')
