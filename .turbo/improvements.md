@@ -1246,8 +1246,15 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
-- **Where**: teams data, not code; surfaced by `data/exports/weekly_age_recheck.py` (its collision check) and reachable through the `merging-duplicate-teams` skill
-- **Why**: 512 teams as of the 2026-09-16 re-check are held from an otherwise-confirmed age-group correction because a team with the same name and gender already sits in the target cohort. Moving one onto the other would put two identical teams on one board, so the tool holds them; leaving them holds a known-wrong cohort instead. Both readings point at the same cause -- one copy of a real duplicate pair was mislabelled, which is what kept the pair apart and out of reach of the fuzzy duplicate merge (itself disabled: `FUZZY_AUTO_MERGE_ENABLED: 'false'` in `data-hygiene-weekly.yml`). The held list carries the colliding team ids, so the pairs are already identified; what needs deciding is merge direction and which id survives.
+- **Where**: teams data, not code; the candidates are derivable from `teams` alone (below), and `merging-duplicate-teams` owns the decision
+- **Why**: 512 teams as of the 2026-09-16 re-check are held from an otherwise-confirmed age-group correction because a team with the same name and gender already sits in the target cohort. Moving one onto the other would put two identical teams on one board; leaving it holds a known-wrong cohort. Most likely one copy of a duplicate pair was mislabelled, which kept the pair apart and out of reach of the fuzzy duplicate merge (disabled: `FUZZY_AUTO_MERGE_ENABLED: 'false'` in `data-hygiene-weekly.yml`).
+- **First**: matching name and gender is a candidate signal, not proof of one squad, so each pair needs the positive evidence `merging-duplicate-teams` requires -- both names resolving to the same birth-year set, plus schedules that either never share a season or share at least two opponents (`.claude/skills/merging-duplicate-teams/references/evidence-rules.md`, "What a merge requires"). Validate first; merge direction is the last question, not the only one. Pairs failing that bar are the more interesting half: a real cohort error the correction is still blocked on.
+- **Reproduce the candidates** without the gitignored re-check output -- live teams sharing a name and gender across more than one cohort, 3,040 such groups covering 12,336 teams on 2026-09-16, a superset of the 512:
+  ```sql
+  SELECT lower(btrim(team_name)) AS name, gender, COUNT(*) AS teams
+  FROM teams WHERE is_deprecated = false AND btrim(team_name) <> ''
+  GROUP BY 1, 2 HAVING COUNT(DISTINCT age_group) > 1;
+  ```
 - **Noted**: 2026-09-16
 
 ### Bring the age-group correction tools into the repo, with tests

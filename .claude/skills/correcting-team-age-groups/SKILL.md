@@ -49,7 +49,7 @@ For the opposite direction — a name disagreeing with the stored column — rea
 Each rule below is enforced automatically, by a flag, or not at all. Know which.
 
 - **Our own name states a different age** — *partly automatic*. The plan's `D_name_contradicts`
-  tier reads four-digit years only; apostrophe-prefixed bands (`'11/'12`) reach it only under
+  tier reads four-digit years only; apostrophe-prefixed bands, written '11/'12, reach it only under
   `--skip-name-contradictions`, so pass that flag on every apply. `_resolve_band` reads plain
   two-digit bands (`13/14`) but not the apostrophe form, and that gap put one wrong cohort into
   production. These rows usually mean the GotSport link points at another squad.
@@ -68,9 +68,9 @@ time.
 
 ## Step 1: Preflight
 
-Run from `C:\PitchRank`. `data/exports/` is gitignored, so `fix_band_cohorts.py` and
-`weekly_age_recheck.py` exist only in the main checkout and are absent from every worktree.
-They have no tests (IMP-242).
+Run from `C:\PitchRank`. `data/exports/` is gitignored, so `data/exports/fix_band_cohorts.py`
+and `data/exports/weekly_age_recheck.py` exist only in the main checkout and are absent from
+every worktree and every fresh clone. They have no tests (IMP-242).
 
 Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
 `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
