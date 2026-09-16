@@ -33,7 +33,11 @@ bare number, so both sides of `13 (13U) X` and `12 (U14) X` stated no year, scor
 1.0, and the guard stayed silent. 12 of 34 reviewed pairs were two cohorts a year
 apart, and both pairs the decision script approved on its own were a 2011 team about
 to absorb a 2010 team. `_YEAR_THEN_UAGE` closes it; the candidate count fell from 77
-to 46 and the birth-year class from 12 to 0.
+to 46 and the birth-year class from 12 to 0. It is anchored to the start of the
+name, because only the opening position separates a cohort from the other things
+written in front of a band: a squad number (`Elite S.C. 2008 Elite 11 U17`), a
+season (`Spring 25 U12 Boys`), a registration window (`8/1/17-7/31/18 BU9`) and a
+club founding year (`Worthington United 94 U13 Boys`).
 
 **The club precondition refuses this whole class on a string comparison.** 75 of the
 77 candidates were refused as `clubs differ` before a single fixture was read,

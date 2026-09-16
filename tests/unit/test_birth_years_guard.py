@@ -104,10 +104,21 @@ ROOT = Path(__file__).resolve().parents[2]
         ("12 (14U) CCFCY Premier", {2012}),
         ("10 (U16) NBTSA Bulldogs G", {2010}),
         ("2015 (11U) SGCSA Strikers White", {2015}),
-        # The label has to follow the number directly, so a U-age that opens the
-        # name is still only a band, and these keep their existing readings.
+        ("13 U14 WCWAA Elite", {2013}),
+        # Only the opening position separates a cohort from a squad number that
+        # happens to sit beside a band: Elite 11 is the squad, 2008 the cohort.
+        ("Elite S.C. 2008 Elite 11 U17", {2008}),
+        ("Elite S.C. Elite 11 U17", set()),
+        # The same anchor keeps out the other things written in front of a band.
+        ("Spring 25 U12 Boys", set()),
+        ("Worthington United 94 U13 Boys Navy III", set()),
+        ("Atletico Academy 8/1/17-7/31/18 BU9", set()),
+        ("NCFC Youth 12 (U14) NCFCY ECNL", set()),
+        # A U-age that opens the name is still only a band, and a leading pair is
+        # left to the band rule, which already reads it.
         ("12U CSA North King", set()),
         ("Team 13 Blue", set()),
+        ("07/08 (U19) NCFCY Navy North G", {2007, 2008}),
         ("Rush 11U (2015) Wisconsin", {2015}),
         ("Seacoast United - U14G -12/13 Nal", {2012, 2013}),
     ],

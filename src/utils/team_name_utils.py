@@ -472,16 +472,26 @@ _AFFIX_2 = re.compile(
     re.I,
 )
 _GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)\b|\b(?:boys|girls)\s+(\d{2})(?!\d)", re.I)
-# A U-age label directly after the number is another thing that marks it a year.
-# Leagues in the Carolinas name a cohort "<older birth year> (<band>)" -- "15
-# (U11) TFA Purple" is the 2015 half of the 2016/2015 band -- and both halves are
-# erased before any other pass runs: the label by _UAGE_TOKEN, the bare number by
+# A number that OPENS the name and is followed by its age band is a birth year.
+# Leagues in the Carolinas name a cohort "<older birth year> <band>" -- "15 (U11)
+# TFA Purple" is the 2015 half of the 2016/2015 band -- and both halves are erased
+# before any other pass runs: the band by _UAGE_TOKEN, the bare number by
 # _AFFIX_2's affix requirement. So "13 (13U) X" and "12 (U14) X" each state
-# nothing, score 1.0 against each other, and the guard stays silent on two
-# cohorts a year apart. Matched against the RAW name, because the label it
-# depends on is the first thing birth_years strips.
+# nothing, score 1.0 against each other, and the guard stays silent on two cohorts
+# a year apart.
+#
+# Anchored to the start because only the opening position distinguishes this from
+# a squad number that happens to sit beside a band: "Elite S.C. 2008 Elite 11 U17"
+# is a 2008 team whose squad is Elite 11, not a 2008/2011 band. The anchor also
+# keeps out the other things that sit mid-name in front of a band -- a season
+# ("Spring 25 U12 Boys"), a registration window ("8/1/17-7/31/18 BU9") and a club
+# founding year ("Worthington United 94 U13 Boys"). A leading band that is written
+# as a pair ("07/08 (U19) ...") is left to _DUAL_2_2, which already reads it.
+#
+# Matched against the RAW name, because the band it depends on is the first thing
+# birth_years strips.
 _YEAR_THEN_UAGE = re.compile(
-    r"(?<![A-Za-z0-9])'?((?:20)?\d{2})\s*\(?\s*"
+    r"^\s*'?((?:20)?\d{2})\s*\(?\s*"
     r"(?:[BGMF]?U-?\d{1,2}|[BGMF]?\d{1,2}U)[BGMF]?(?![\dA-Za-z])",
     re.I,
 )
@@ -505,9 +515,10 @@ def birth_years(team_name: str | None) -> set[int]:
     years: set[int] = set()
     spans: list[tuple[int, int]] = []
 
-    # Before the label goes: a number the label itself marks as a year.
-    for match in _YEAR_THEN_UAGE.finditer(_FORMAT_TOKEN.sub(" ", team_name)):
-        digits = match.group(1)
+    # Before the band goes: a leading number the band itself marks as a year.
+    opening = _YEAR_THEN_UAGE.match(_FORMAT_TOKEN.sub(" ", team_name))
+    if opening:
+        digits = opening.group(1)
         year = int(digits) if len(digits) == 4 else _four_digit_year(digits)
         if _BIRTH_YEAR_MIN <= year <= _BIRTH_YEAR_MAX:
             years.add(year)
