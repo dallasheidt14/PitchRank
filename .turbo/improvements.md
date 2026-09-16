@@ -1229,3 +1229,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Five files hand-roll the `table().select().eq()…execute()` chain. Verified 2026-09-15: the dry-run test's double records at `insert()` rather than `execute()` and returns `data=None` from `.single().execute()`, which postgrest never does (it raises `APIError` PGRST116), while parametrizing over every autocreating matcher. Only the PlayMetrics double honours both CLAUDE.md double rules; Affinity OR's yields rows at `execute()` but still logs its filter at `eq()`. A `tests/conftest.py` double that raises on `.single()` with zero rows and records at `execute()` lets the rest adopt it.
 - **Noted**: 2026-09-15
 - **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+
+### Read a two-year band written with apostrophes
+
+- **ID**: IMP-240
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation)
+- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. Accepting `'` before either year in the existing pattern is the whole fix.
+- **Noted**: 2026-09-16
+
+### Merge the duplicate teams a cohort correction cannot move
+
+- **ID**: IMP-241
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: teams data, not code; surfaced by `data/exports/weekly_age_recheck.py` (its collision check) and reachable through the `merging-duplicate-teams` skill
+- **Why**: 512 teams as of the 2026-09-16 re-check are held from an otherwise-confirmed age-group correction because a team with the same name and gender already sits in the target cohort. Moving one onto the other would put two identical teams on one board, so the tool holds them; leaving them holds a known-wrong cohort instead. Both readings point at the same cause -- one copy of a real duplicate pair was mislabelled, which is what kept the pair apart and out of reach of the fuzzy duplicate merge (itself disabled: `FUZZY_AUTO_MERGE_ENABLED: 'false'` in `data-hygiene-weekly.yml`). The held list carries the colliding team ids, so the pairs are already identified; what needs deciding is merge direction and which id survives.
+- **Noted**: 2026-09-16
