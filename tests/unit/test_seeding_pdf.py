@@ -1,8 +1,8 @@
 """PDF worker contracts; actual rendering is verified with the artifact QA run."""
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-import subprocess
 
 import pytest
 
