@@ -187,6 +187,9 @@ describe('Seeding canonical Compare bridge', () => {
     });
     expect(db.queries.filter((query) => query.table === 'teams')).toHaveLength(3);
     expect(Object.keys(result.cohorts['u14:Male'].unavailable)).toEqual(['1', '2']);
+    expect(result.cohorts['u14:Male'].unavailable['1']).toBe(
+      'Two roster entries appear to be the same team. Confirm both team matches before seeding.'
+    );
     expect(result.cohorts['u14:Male'].predictions).toEqual([]);
     expect(result.cohorts['u15:Male'].predictions).toHaveLength(2);
   });
@@ -197,16 +200,32 @@ describe('Seeding canonical Compare bridge', () => {
     data.games = [game('only-a', A, 'opponent')];
     const db = database(data);
     const result = await buildSeedingPredictions(db.client, { cohort: { a: A, b: B, c: C } });
-    expect(result.cohorts.cohort.unavailable.b).toMatch(/No published cohort rank/);
-    expect(result.cohorts.cohort.unavailable.c).toMatch(/No scored games/);
+    expect(result.cohorts.cohort.unavailable.b).toBe('Limited recent results. Use club input or recent scores.');
+    expect(result.cohorts.cohort.unavailable.c).toBe('Limited recent results. Use club input or recent scores.');
     expect(result.cohorts.cohort.predictions).toEqual([]);
+  });
+
+  it('gives the director a clear identity check when the matched team no longer exists', async () => {
+    const data = fixtures();
+    data.teams = data.teams.filter((row) => row.team_id_master !== B);
+    const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
+    expect(result.cohorts.cohort.unavailable.b).toBe(
+      'Confirm the club, team name, and age group before seeding.'
+    );
+  });
+
+  it('uses recent-results guidance when Compare lacks enough published data', async () => {
+    const data = fixtures();
+    data.rankings_full[1].games_played = 0;
+    const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
+    expect(result.cohorts.cohort.unavailable.b).toBe('Limited recent results. Use club input or recent scores.');
   });
 
   it('does not count merged-only history that Compare does not consume in its team profile', async () => {
     const data = fixtures();
     data.games = Array.from({ length: 4 }, (_, index) => game(`merged-only-${index}`, OLD_A, B));
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
-    expect(result.cohorts.cohort.unavailable.a).toMatch(/No scored games/);
+    expect(result.cohorts.cohort.unavailable.a).toBe('Limited recent results. Use club input or recent scores.');
     expect(result.cohorts.cohort.teams.a).toBeUndefined();
     expect(result.cohorts.cohort.teams.b.prediction_game_count).toBe(4);
     expect(result.cohorts.cohort.predictions).toEqual([]);

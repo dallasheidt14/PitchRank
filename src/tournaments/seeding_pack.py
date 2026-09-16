@@ -22,6 +22,20 @@ PACK_SCHEMA_VERSION = 1
 # reliable strength. Compare's confidence remains visible above this floor.
 MINIMUM_SCORED_GAMES = 3
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
+_LEGACY_UNAVAILABLE_REASONS = {
+    "Two roster entries resolve to the same team; verify the matches.": (
+        "Two roster entries appear to be the same team. Confirm both team matches before seeding."
+    ),
+    "No published cohort rank; placement review required.": (
+        "Limited recent results. Use club input or recent scores."
+    ),
+    "Current ranking data unavailable; placement review required.": (
+        "Confirm the club and team match. Then use recent results or club input before seeding."
+    ),
+    "No scored games in the Compare lookback window; placement review required.": (
+        "Limited recent results. Use club input or recent scores."
+    ),
+}
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -191,23 +205,23 @@ def _published_score(team: dict[str, Any]) -> float | None:
 
 def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None, identity: str | None) -> str | None:
     if not _valid_cohort(row.section_age_group, row.section_gender):
-        return "Confirm the tournament age group and gender."
+        return "Confirm the listed age group and gender before seeding."
     if not identity:
-        return "Team identity needs review."
+        return "Confirm the club, team name, and age group before seeding."
     if unavailable:
-        return unavailable
+        return _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
     if not team or team.get("rank_in_cohort_final") is None or team.get("status") == "Inactive":
-        return "No current published ranking."
+        return "Limited recent results. Use club input or recent scores."
     if _published_score(team) is None:
-        return "No current published PowerScore."
+        return "No current PitchRank score. Use recent results or club input."
     expected_gender = "M" if row.section_gender == "Male" else "F"
     if team.get("gender") not in {expected_gender, "B" if expected_gender == "M" else "G"}:
-        return "Matched team gender differs from the tournament cohort."
+        return "The matched team may be in a different gender group. Confirm before seeding."
     age = team.get("age")
     if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 99:
-        return "Confirm the matched team's age before placement."
+        return "Confirm the team's age before seeding."
     if age > int(row.section_age_group[1:]):
-        return "Matched team is older than the tournament cohort; confirm eligibility."
+        return "The matched team may be older than this age group. Confirm eligibility before seeding."
     # Younger entrants may intentionally play up. The tournament heading
     # controls their placement, while Compare uses their actual recorded age.
     counts = [team.get("games_played"), team.get("prediction_game_count")]
@@ -215,7 +229,7 @@ def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None
         value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0 for value in counts
     )
     if games < MINIMUM_SCORED_GAMES:
-        return f"Limited match history: {games} scored game(s); placement needs review."
+        return "Limited recent results. Use club input or recent scores."
     return None
 
 

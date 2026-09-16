@@ -125,7 +125,7 @@ export async function buildSeedingPredictions(
         try {
           const team = await fetchPredictionTeam(supabase, teamId, { strict: true });
           if (team.rank_in_cohort_final == null) {
-            unavailableByCanonical.set(teamId, 'No published cohort rank; placement review required.');
+            unavailableByCanonical.set(teamId, 'Limited recent results. Use club input or recent scores.');
           } else {
             for (const value of Object.values(team)) {
               if (typeof value === 'number' && !Number.isFinite(value)) {
@@ -135,8 +135,10 @@ export async function buildSeedingPredictions(
             teamByCanonical.set(teamId, team);
           }
         } catch (error) {
-          if (error instanceof AppError && ['team_not_found', 'prediction_unavailable'].includes(error.code ?? '')) {
-            unavailableByCanonical.set(teamId, 'Current ranking data unavailable; placement review required.');
+          if (error instanceof AppError && error.code === 'team_not_found') {
+            unavailableByCanonical.set(teamId, 'Confirm the club, team name, and age group before seeding.');
+          } else if (error instanceof AppError && error.code === 'prediction_unavailable') {
+            unavailableByCanonical.set(teamId, 'Limited recent results. Use club input or recent scores.');
           } else {
             throw error;
           }
@@ -170,7 +172,8 @@ export async function buildSeedingPredictions(
     for (const entrantId of entrantIds) {
       const resolved = resolvedByRequested.get(entrants[entrantId])!;
       if (canonicalCounts.get(resolved.canonicalTeamId)! > 1) {
-        output.unavailable[entrantId] = 'Two roster entries resolve to the same team; verify the matches.';
+        output.unavailable[entrantId] =
+          'Two roster entries appear to be the same team. Confirm both team matches before seeding.';
         continue;
       }
       const team = teamByCanonical.get(resolved.canonicalTeamId);
@@ -184,7 +187,7 @@ export async function buildSeedingPredictions(
       const ids = new Set([resolved.canonicalTeamId]);
       const teamGames = games.filter((game) => includesTeam(game, ids));
       if (!teamGames.length) {
-        output.unavailable[entrantId] = 'No scored games in the Compare lookback window; placement review required.';
+        output.unavailable[entrantId] = 'Limited recent results. Use club input or recent scores.';
         continue;
       }
       output.teams[entrantId] = {

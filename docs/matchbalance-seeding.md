@@ -68,8 +68,8 @@ Teams are ordered by average predicted signed margin against the cohort. A
 deterministic partition finds the fewest contiguous safe groups, then places
 boundaries at the largest natural breaks in that matchup-strength order. Lower
 within-group risk breaks any remaining tie. A singleton is explicitly labeled
-as having no peer in that tier. Borderline placement notes identify adjacent
-tiers a team also fits without creating an unsafe pairing. Cross-tier reversals
+as having no peer in that tier. **Flexible** notes identify adjacent tiers a team
+also fits without creating an unsafe pairing. Cross-tier reversals
 produce review warnings.
 "Clear separation" requires directional evidence across the tier boundary:
 at least 75% of upper/lower pairings favor the upper tier, at least half exceed
@@ -81,6 +81,13 @@ three scored games in both the published ranking count and the history actually
 consumed by Compare under the canonical team ID.
 Younger teams may play up. Low prediction confidence alone does not exclude a
 team: close matchups can naturally have an uncertain winner.
+
+The customer PDF leads with the recommended tier sizes and three direct steps:
+build flights from the same tier, seed each tier from top to bottom, and use
+Flexible teams when pool sizes do not fit. Technical thresholds, probabilities,
+and predictor diagnostics remain in the operator workflow. The PDF translates
+them into placement actions and labels incomplete teams **Manual placement
+needed** so a director can identify the recommended groups at a glance.
 
 ## Implementation and checks
 

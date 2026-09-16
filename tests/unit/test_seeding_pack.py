@@ -102,7 +102,9 @@ def test_whole_tournament_pack_covers_every_entrant_in_every_cohort():
     analyses = analyze_pack(pack, ROWS, RESOLVED, {})
     assert set(analyses) == {("u12", "Female"), ("u12", "Male"), ("u14", "Male")}
     assert sum(len(item.ordered_ids) + len(item.review) for item in analyses.values()) == 5
-    assert analyses[("u12", "Male")].review == {"2": "Team identity needs review."}
+    assert analyses[("u12", "Male")].review == {
+        "2": "Confirm the club, team name, and age group before seeding."
+    }
 
 
 def test_a_la_carte_snapshot_excludes_other_cohorts_and_ratings():
@@ -181,14 +183,21 @@ def test_three_scored_games_is_an_explicit_floor_on_both_sources(published, load
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
     assert ("0" in result.review) is reviewed
     if reviewed:
-        assert "Limited match history" in result.review["0"]
+        assert result.review["0"] == "Limited recent results. Use club input or recent scores."
 
 
-@pytest.mark.parametrize("age,reason", [(13, "older than"), (None, "Confirm the matched"),
-                                      (True, "Confirm the matched"), ("12", "Confirm the matched")])
+@pytest.mark.parametrize(
+    "age,reason",
+    [
+        (13, "The matched team may be older than this age group. Confirm eligibility before seeding."),
+        (None, "Confirm the team's age before seeding."),
+        (True, "Confirm the team's age before seeding."),
+        ("12", "Confirm the team's age before seeding."),
+    ],
+)
 def test_older_or_unknown_team_age_requires_review(age, reason):
     result = analyze_pack(_pack(change_team={"age": age}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert reason in result.review["0"]
+    assert result.review["0"] == reason
 
 
 def test_younger_team_may_play_up_into_the_tournament_cohort():
@@ -198,7 +207,7 @@ def test_younger_team_may_play_up_into_the_tournament_cohort():
 
 def test_matched_gender_disagreement_requires_review():
     result = analyze_pack(_pack(change_team={"gender": "F"}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert "gender differs" in result.review["0"]
+    assert result.review["0"] == "The matched team may be in a different gender group. Confirm before seeding."
 
 
 @pytest.mark.parametrize("age,gender", [("u²", "Male"), ("u123", "Male"), ("u0", "Male"), ("u12", "Unknown")])
@@ -209,16 +218,22 @@ def test_invalid_tournament_cohort_is_retained_for_review_without_requesting_pre
     assert request == {key: {}}
     pack = _pack([key], rows=rows)
     result = analyze_pack(pack, rows, RESOLVED, {})[(age, gender)]
-    assert result.review == {"0": "Confirm the tournament age group and gender."}
+    assert result.review == {"0": "Confirm the listed age group and gender before seeding."}
 
 
 @pytest.mark.parametrize("score", [None, "unknown", True, 1.5])
 def test_missing_or_invalid_display_score_requires_review_not_default_strength(score):
     result = analyze_pack(_pack(change_team={"power_score_final": score}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert result.review["0"] == "No current published PowerScore."
+    assert result.review["0"] == "No current PitchRank score. Use recent results or club input."
 
 
-def test_unavailable_reason_survives_and_every_roster_row_stays_visible():
+@pytest.mark.parametrize("change_team", [{"rank_in_cohort_final": None}, {"status": "Inactive"}])
+def test_missing_or_inactive_ranking_uses_plain_recent_results_guidance(change_team):
+    result = analyze_pack(_pack(change_team=change_team), ROWS, RESOLVED, {})[("u12", "Male")]
+    assert result.review["0"] == "Limited recent results. Use club input or recent scores."
+
+
+def test_known_duplicate_reason_is_friendly_and_every_roster_row_stays_visible():
     batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
     batch.teams["u12|Male"].pop("0")
     batch.predictions["u12|Male"] = {}
@@ -227,7 +242,51 @@ def test_unavailable_reason_survives_and_every_roster_row_stays_visible():
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
     assert result.ordered_ids == ("1",)
     assert set(result.review) == {"0", "2"}
-    assert "Two roster entries" in result.review["0"]
+    assert result.review["0"] == (
+        "Two roster entries appear to be the same team. Confirm both team matches before seeding."
+    )
+
+
+def test_arbitrary_unavailable_reason_survives_unchanged():
+    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
+    batch.teams["u12|Male"].pop("0")
+    batch.predictions["u12|Male"] = {}
+    batch.unavailable["u12|Male"]["0"] = "Director note: confirm the local team name."
+    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, {})
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.review["0"] == "Director note: confirm the local team name."
+
+
+@pytest.mark.parametrize("reason", [
+    "No published cohort rank; placement review required.",
+    "No scored games in the Compare lookback window; placement review required.",
+])
+def test_saved_legacy_unavailable_reason_uses_plain_recent_results_guidance(reason):
+    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
+    batch.teams["u12|Male"].pop("0")
+    batch.predictions["u12|Male"] = {}
+    batch.unavailable["u12|Male"]["0"] = reason
+    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, {})
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.review["0"] == "Limited recent results. Use club input or recent scores."
+
+
+def test_ambiguous_legacy_ranking_error_preserves_identity_and_recent_results_actions():
+    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
+    batch.teams["u12|Male"].pop("0")
+    batch.predictions["u12|Male"] = {}
+    batch.unavailable["u12|Male"]["0"] = "Current ranking data unavailable; placement review required."
+    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, {})
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.review["0"] == (
+        "Confirm the club and team match. Then use recent results or club input before seeding."
+    )
 
 
 def test_duplicate_prediction_rows_fail_instead_of_overwriting():

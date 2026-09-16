@@ -240,6 +240,20 @@ def _score(value: float | None) -> str:
     return f"{value * 100:.1f}" if value is not None else "-"
 
 
+def _status_label(status: str | None) -> str:
+    return {
+        "Not Enough Ranked Games": "Limited recent results",
+        "Inactive": "No current ranking",
+    }.get(str(status or "").strip(), str(status or "").strip())
+
+
+def _tier_options(numbers: Sequence[int]) -> str:
+    labels = [f"Tier {number}" for number in numbers]
+    if len(labels) < 2:
+        return "".join(labels)
+    return ", ".join(labels[:-1]) + f" or {labels[-1]}"
+
+
 @lru_cache(maxsize=1)
 def _font_css() -> str:
     """Embed installed brand fonts so the downloaded HTML is also offline-ready."""
@@ -263,11 +277,13 @@ def _rows_html(
 ) -> str:
     cells = []
     for position, team in enumerate(teams, start=start):
+        status = _status_label(team.status)
         flag = (
-            f'<span class="flag">{html.escape(str(team.status))}</span>'
-            if team.status and team.status != "Active" else ""
+            f'<span class="flag">{html.escape(status)}</span>'
+            if status and status != "Active" else ""
         )
         note = (placement_notes or {}).get(team.entrant_id) or team.review_reason or ""
+        note_class = "placement flexible-note" if note.startswith("Flexible:") else "placement"
         cells.append(
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}">'
             f'<td class="pos">{position if numbered else "-"}</td>'
@@ -275,24 +291,25 @@ def _rows_html(
             f'<span class="club">{html.escape(team.club_name)}</span></td>'
             f'<td class="num score">{_score(team.power_score)}</td>'
             f'<td class="num state">{html.escape(_state_rank(team))}</td>'
-            f'<td class="placement">{html.escape(note)}</td></tr>'
+            f'<td class="{note_class}">{html.escape(note)}</td></tr>'
         )
     return "".join(cells)
 
 
 def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
                 subtitle: str = "", placement_notes: Mapping[str, str] | None = None,
-                review: bool = False, cohort_label: str = "") -> str:
+                review: bool = False, cohort_label: str = "", purpose: str = "") -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
+    purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     return (
-        f'<table class="grid{" review" if review else ""}">'
+        f'<table class="grid{" review" if review else " tier-table"}">'
         '<colgroup><col class="seed-col"><col class="team-col"><col class="score-col">'
         '<col class="state-col"><col class="notes-col"></colgroup><thead>'
         f'<tr class="tier-heading"><th colspan="5"><span class="tier-title">{html.escape(title)}</span>'
-        f'<span class="count">{len(teams)} {"team" if len(teams) == 1 else "teams"}</span>'
+        f'{purpose_html}<span class="count">{len(teams)} {"team" if len(teams) == 1 else "teams"}</span>'
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
-        '<tr class="columns"><th class="pos">Seed</th><th>Team / club</th>'
-        '<th class="num">PowerScore</th><th class="num">State rank</th><th>Placement notes</th></tr>'
+        '<tr class="columns"><th class="pos">Suggested seed</th><th>Team / club</th>'
+        '<th class="num">PitchRank score</th><th class="num">State rank</th><th>What to know</th></tr>'
         f'</thead><tbody>{_rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes)}'
         '</tbody></table>'
     )
@@ -320,18 +337,16 @@ def _tier_tables(sheet: CohortSheet) -> tuple[str, str]:
         if not members:
             continue
         if len(members) == 1:
-            description = "One team; no within-tier matchup to assess. Review its flight placement."
+            description = "No close peer was found at this level. Review the guidance before finalizing."
         else:
-            description = (
-                f"Widest expected goal gap: {tier.max_expected_margin:.1f} | "
-                f"Highest chance of a 4+ goal margin: {tier.max_blowout_probability:.0%}"
-            )
+            description = "Recommended together for the closest projected games."
         notes = {
-            entrant_id: "Borderline: also fits " + ", ".join(f"Tier {n}" for n in alternatives) + "."
+            entrant_id: f"Flexible: can also play in {_tier_options(alternatives)} if needed."
             for entrant_id, alternatives in analysis.borderline.items() if alternatives
         }
         parts.append(_table_html(f"Tier {tier.number}", members, numbered=True, start=start,
-                                 subtitle=description, placement_notes=notes, cohort_label=cohort_label))
+                                 subtitle=description, placement_notes=notes, cohort_label=cohort_label,
+                                 purpose="Strongest group" if tier.number == 1 else "Next competitive group"))
         start += len(members)
 
     review_teams = [team for team in all_teams if team.entrant_id not in set(tier_ids)]
@@ -341,15 +356,56 @@ def _tier_tables(sheet: CohortSheet) -> tuple[str, str]:
             or "Placement has not been assessed."
             for team in review_teams
         }
-        parts.append(_table_html("Needs placement review", review_teams, numbered=False, review=True,
-                                 subtitle="These teams are included in the field but have no recommended tier.",
+        parts.append(_table_html("Manual placement needed", review_teams, numbered=False, review=True,
+                                 subtitle="Use recent results or club input before assigning these teams to a tier.",
                                  placement_notes=reasons, cohort_label=cohort_label))
-    number = len([tier for tier in analysis.tiers if tier.entrant_ids])
-    summary = f"{start - 1} teams in {number} suggested {('tier' if number == 1 else 'tiers')}"
+    counts = [
+        f"Tier {tier.number} — {len(tier.entrant_ids)} {('team' if len(tier.entrant_ids) == 1 else 'teams')}"
+        for tier in analysis.tiers if tier.entrant_ids
+    ]
     if review_teams:
-        summary += f"; {len(review_teams)} need placement review"
-    summary += ". Check the tier boundaries before assigning flights or pools."
+        counts.append(f"{len(review_teams)} need manual placement")
+    summary = "Recommended starting point: " + " | ".join(counts) + "."
     return "\n".join(parts), summary
+
+
+def _director_guidance(analysis: TierAnalysis) -> list[str]:
+    """Turn model diagnostics into concise actions for the customer PDF."""
+    guidance = []
+    for index, boundary in enumerate(analysis.boundaries, 1):
+        if "Clear separation" in boundary:
+            guidance.append(
+                f"Keep Tier {index} and Tier {index + 1} separate when possible; "
+                "projected results show a meaningful competitive gap."
+            )
+        elif "Overlapping matchups" in boundary:
+            guidance.append(
+                f"Tier {index} and Tier {index + 1} are close. If pool sizes require a change, "
+                "start with a team marked Flexible."
+            )
+        else:
+            guidance.append(str(boundary))
+    for warning in analysis.warnings:
+        if "there is no within-tier matchup to assess" in warning:
+            tier = warning.split(" has one team", 1)[0]
+            guidance.append(
+                f"{tier} has one team. Place it with the closest available group after considering "
+                "recent results or club input."
+            )
+        elif "low outcome confidence" in warning:
+            guidance.append(
+                "Several projected matchups are too close to call. Use recent results or club input to break ties."
+            )
+        elif "strength-order exception" in warning:
+            guidance.append(
+                "A lower-tier team may compete well with an upper tier. Review Flexible teams before finalizing."
+            )
+        elif "exceeds the matchup limits" in warning:
+            tier = warning.split(" exceeds", 1)[0]
+            guidance.append(f"{tier} includes a potentially uneven matchup. Review that group before finalizing.")
+        else:
+            guidance.append(str(warning))
+    return guidance
 
 
 def _sheet_html(
@@ -369,31 +425,41 @@ def _sheet_html(
         summary = "Teams ordered by published PowerScore. Unranked teams need placement review."
     guidance = []
     if analysis is not None:
-        guidance.extend(str(value) for value in analysis.boundaries)
-        guidance.extend(str(value) for value in analysis.warnings)
+        guidance.extend(_director_guidance(analysis))
     if operator_note.strip():
         guidance.append(operator_note.strip())
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
-        notes = f'<aside class="guidance"><h2>Placement guidance</h2><ul>{items}</ul></aside>'
-    explanation = "PowerScore uses the published 0-100 scale. Rankings are specific to each age group and gender."
+        notes = f'<aside class="guidance"><h2>Before you finalize</h2><ul>{items}</ul></aside>'
+    explanation = "PitchRank score uses the published 0–100 scale. Rankings are specific to each age group and gender."
+    guide = ""
     if analysis is not None:
-        explanation = (
-            "Tiers compare this tournament field using expected match competitiveness, not PowerScore gaps. "
-            "Predictions are estimates; tiers guide placement and do not guarantee close games."
-        )
-        if policy is not None:
-            explanation += (
-                f" Suggested limits: expected goal gap up to {policy.max_expected_margin:g}; "
-                f"chance of a 4+ goal margin up to {policy.max_blowout_probability:.0%}."
-            )
+        if any(tier.entrant_ids for tier in analysis.tiers):
+            guide_body = """<div class="guide-grid">
+   <div class="guide-step"><strong>1. Build flights from the same tier</strong>
+    <span>Teams in a tier are the closest projected matchups.</span></div>
+   <div class="guide-step"><strong>2. Seed from top to bottom</strong>
+    <span>Tier 1 is strongest; each following tier is the next level.</span></div>
+   <div class="guide-step"><strong>3. Use Flexible teams when sizes do not fit</strong>
+    <span>Move one team at a time, then recheck the groups.</span></div>
+  </div>
+  <p class="guide-foot"><strong>Use the tier first.</strong>
+   PitchRank score and state rank are supporting context.</p>"""
+        else:
+            guide_body = """<p class="manual-guide">Review each team’s note before seeding. Use recent results,
+   prior division, or club input to place every team in the closest competitive group.</p>"""
+        guide = f"""<section class="seed-guide">
+  <div class="recommendation">{html.escape(summary)}</div>
+  <h2>How to seed this group</h2>
+  {guide_body}
+ </section>"""
     return f"""<section class="sheet">
  <header class="masthead">
   <div class="wordmark"><span class="mb">MatchBalance</span><span class="by">by PitchRank</span></div>
   <div class="stamp">Generated {html.escape(generated_on)}</div>
  </header>
- <div class="kicker">Tournament seeding cheat sheet</div>
+ <div class="kicker">Tournament seeding guide</div>
  <h1 class="event">{html.escape(event_name)}</h1>
  <div class="facts">
   <div class="fact"><span class="label">Age group</span>
@@ -404,8 +470,7 @@ def _sheet_html(
   <div class="fact freshness"><span class="label">Ratings as of</span>
    <span class="value">{html.escape(ranking_run)}</span></div>
  </div>
- <p class="summary">{html.escape(summary)}</p>
- <p class="method">{html.escape(explanation)}</p>
+ {guide or f'<p class="summary">{html.escape(summary)}</p><p class="method">{html.escape(explanation)}</p>'}
  {tables}
  {notes}
  <footer class="foot"><span>{html.escape(cohort)} | {sheet.total_teams} teams</span>
@@ -457,18 +522,34 @@ def render_sheet_html(
  .freshness {{ margin-left: auto; }}
  .freshness .value {{ font-family: "DM Sans", sans-serif; font-size: 13px; padding-top: 6px; }}
  .summary {{ font-size: 11px; line-height: 1.5; margin: 0 0 5mm; }}
+ .seed-guide {{ border: 1px solid {BRAND["rule"]}; border-left: 4px solid {BRAND["yellow"]};
+ background: {BRAND["band"]}; padding: 3mm 4mm; margin: 0 0 4mm; }}
+ .recommendation {{ font-family: Oswald, "Arial Narrow", sans-serif; font-size: 14px; font-weight: 600;
+ color: {BRAND["forest_deep"]}; margin-bottom: 2mm; }}
+ .seed-guide h2 {{ font-size: 11px; color: {BRAND["forest"]}; margin: 0 0 2mm; }}
+ .guide-grid {{ display: flex; gap: 3mm; }}
+ .guide-step {{ flex: 1; min-width: 0; border-left: 1px solid {BRAND["rule"]}; padding-left: 3mm; }}
+ .guide-step:first-child {{ border-left: 0; padding-left: 0; }}
+ .guide-step strong {{ display: block; font-size: 9px; line-height: 1.25; color: {BRAND["forest_deep"]}; }}
+ .guide-step span {{ display: block; margin-top: 1mm; font-size: 8.5px; line-height: 1.3;
+ color: {BRAND["muted"]}; }}
+ .guide-foot {{ font-size: 8.5px; color: {BRAND["muted"]}; margin: 2mm 0 0; }}
+ .manual-guide {{ font-size: 10px; line-height: 1.45; color: {BRAND["muted"]}; margin: 0; }}
  table.grid {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11.5px; margin: 0 0 5mm; }}
- .seed-col {{ width: 7%; }} .team-col {{ width: 42%; }} .score-col {{ width: 13%; }}
- .state-col {{ width: 14%; }} .notes-col {{ width: 24%; }}
+ table.review {{ break-inside: avoid-page; page-break-inside: avoid; }}
+ .seed-col {{ width: 10%; }} .team-col {{ width: 39%; }} .score-col {{ width: 15%; }}
+ .state-col {{ width: 13%; }} .notes-col {{ width: 23%; }}
  .tier-heading th {{ text-align: left; border-top: 2px solid {BRAND["forest"]};
- border-bottom: 1px solid {BRAND["rule"]};
- padding: 7px; background: {BRAND["band"]}; }}
- .tier-title {{ font-family: Oswald, sans-serif; font-size: 16px; color: {BRAND["forest_deep"]}; }}
- .count {{ margin-left: 10px; font-size: 10px; font-weight: 400; color: {BRAND["muted"]}; }}
- .cohort-tag {{ float: right; font-size: 9px; font-weight: 400; color: {BRAND["muted"]}; padding-top: 3px; }}
- .tier-description {{ margin-top: 3px; font-size: 9px; font-weight: 400; line-height: 1.4; color: {BRAND["muted"]}; }}
+ border-bottom: 1px solid {BRAND["forest_deep"]}; padding: 7px; background: {BRAND["forest"]}; }}
+ .tier-title {{ font-family: Oswald, sans-serif; font-size: 17px; color: white; }}
+ .tier-purpose {{ margin-left: 8px; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+ text-transform: uppercase; color: {BRAND["yellow"]}; }}
+ .count {{ margin-left: 10px; font-size: 10px; font-weight: 400; color: #DDEAE6; }}
+ .cohort-tag {{ float: right; font-size: 9px; font-weight: 400; color: #DDEAE6; padding-top: 3px; }}
+ .tier-description {{ margin-top: 3px; font-size: 9px; font-weight: 400; line-height: 1.4; color: #EAF3F0; }}
  .columns th {{ text-align: left; font-size: 8px; text-transform: uppercase; letter-spacing: .035em;
- padding: 7px 6px; border-bottom: 1px solid {BRAND["forest"]}; color: {BRAND["muted"]}; }}
+ padding: 7px 6px; border-bottom: 1px solid {BRAND["forest"]}; color: {BRAND["muted"]};
+ background: #F0F5F3; }}
  table.grid td {{ padding: 5px 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: top;
  line-height: 1.35; overflow-wrap: anywhere; }}
  .pos {{ text-align: center; font-weight: 700; color: {BRAND["forest"]}; font-variant-numeric: tabular-nums; }}
@@ -479,10 +560,15 @@ def render_sheet_html(
  .score {{ font-weight: 700; }}
  .state, .placement {{ font-size: 9.5px; }}
  .placement {{ color: {BRAND["muted"]}; }}
+ .flexible-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
  .flag {{ display: inline-block; margin-left: 5px; border: 1px solid {BRAND["rule"]}; border-radius: 2px;
  padding: 1px 3px; font-size: 8px; font-weight: 400; }}
- .review .tier-heading th {{ border-top-style: dashed; background: #FAF8EE; }}
- .guidance {{ border-left: 3px solid {BRAND["yellow"]}; padding-left: 4mm; margin: 4mm 0; }}
+ .review .tier-heading th {{ border-top: 2px solid {BRAND["yellow"]}; border-bottom-color: #D8C56A;
+ background: #FFF8D9; }}
+ .review .tier-title {{ color: {BRAND["forest_deep"]}; }}
+ .review .count, .review .cohort-tag, .review .tier-description {{ color: {BRAND["muted"]}; }}
+ .guidance {{ border: 1px solid #E7DB9A; border-left: 3px solid {BRAND["yellow"]};
+ background: #FFFCED; padding: 3mm 4mm; margin: 4mm 0; }}
  .guidance h2 {{ font-size: 11px; color: {BRAND["forest"]}; margin: 0 0 2mm; }}
  .guidance ul {{ margin: 0; padding-left: 4mm; font-size: 10px; line-height: 1.5; }}
  .guidance li {{ margin-bottom: 1.5mm; }}
@@ -496,8 +582,8 @@ def render_sheet_html(
  .foot {{ display: none; }}
  table.grid thead {{ display: table-header-group; }}
  table.grid tr {{ break-inside: avoid; page-break-inside: avoid; }}
- .masthead, .facts, .guidance li, .foot {{ break-inside: avoid; }}
- .event, .kicker, .summary, .guidance h2 {{ break-after: avoid; }}
+ .masthead, .facts, .seed-guide, .guide-step, .guidance li, .foot {{ break-inside: avoid; }}
+ .event, .kicker, .summary, .seed-guide h2, .guidance h2 {{ break-after: avoid; }}
  p {{ orphans: 3; widows: 3; }}
  }}
 </style></head><body>{body}</body></html>"""

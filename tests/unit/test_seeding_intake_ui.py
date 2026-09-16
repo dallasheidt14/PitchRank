@@ -67,7 +67,7 @@ def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator)
     assert set(calls[0]) == {"u14|Male", "u15|Female"}
     document = app.session_state["_seeding_sheet_html"]
     assert "Alpha FC" in document and "Beta FC" in document and "New Girls" in document
-    assert "Team identity needs review" in document
+    assert "Confirm the club, team name, and age group before seeding." in document
     click(app, "Generate PDF pack")
     assert app.session_state["_seeding_pdf"].startswith(b"%PDF-")
     app.session_state["_seeding_overrides"] = {0: {"team_id_master": "00000000-0000-0000-0000-000000000009"}}
@@ -203,7 +203,10 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert app.session_state["_seeding_pack"]["manual_groups"]["u14|Male"] == [["0", "1"]]
     assert app.dataframe[0].value["Tier"].tolist() == [1, 1]
     assert any("exceeds the matchup limits" in warning.value for warning in app.warning)
-    assert "exceeds the matchup limits" in app.session_state["_seeding_sheet_html"]
+    assert "Tier 1 includes a potentially uneven matchup. Review that group before finalizing." in (
+        app.session_state["_seeding_sheet_html"]
+    )
+    assert "exceeds the matchup limits" not in app.session_state["_seeding_sheet_html"]
     assert "Director requested one flight; review Alpha versus Beta." in app.session_state["_seeding_sheet_html"]
 
     click(app, "Generate PDF pack")
@@ -213,6 +216,7 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
     assert not any("exceeds the matchup limits" in warning.value for warning in app.warning)
     assert "exceeds the matchup limits" not in app.session_state["_seeding_sheet_html"]
+    assert "includes a potentially uneven matchup" not in app.session_state["_seeding_sheet_html"]
     assert "Director requested one flight; review Alpha versus Beta." in app.session_state["_seeding_sheet_html"]
     # Saving without touching the restored editor must not reapply its old merge.
     click(app, "Save tier decisions")
