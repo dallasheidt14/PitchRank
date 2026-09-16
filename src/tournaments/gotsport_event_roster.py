@@ -17,6 +17,8 @@ That link is published only for teams GotSport itself ranks: 74% of a
 competitive event's teams (52975) and none of a recreational one's (52980).
 A team without it is returned with ``provider_team_id=None`` rather than
 dropped — naming it is the caller's job, not this scraper's.
+Accepted-team rows without a registration link also remain in Seeding, with a
+local occurrence key instead of an invented registration ID.
 
 **An unreadable division label never costs a team.** Linking runs on the
 provider id alone, so the cohort is metadata carried alongside it; skipping a
@@ -33,6 +35,7 @@ import random
 import re
 import time
 import unicodedata
+from collections import Counter
 from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass, fields, replace
@@ -144,8 +147,9 @@ _ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
 _EVENT_PAGE_READY = 'a[href*="group="]'
 _SCHEDULE_READY = "table"
 # The landing page is read this many times and the division ids unioned, because
-# one read can arrive before the list has finished rendering.
-_LANDING_READS = 2
+# one read can arrive before the list has finished rendering. The intake UI uses
+# this public constant when it quotes the paid probe's page cost.
+LANDING_READS = 2
 _TEAM_COUNT = re.compile(r"\b[0-9]{1,2}\s+teams?\b", re.IGNORECASE)
 
 
@@ -165,7 +169,7 @@ class EventRosterTeam:
     """Tournament cohort; ``age_group`` separately scopes current identity lookup."""
     published_cohort_label: str = ""
     source_entry_key: str = ""
-    """Local occurrence key when a published standings row carries no provider ID."""
+    """Local occurrence key when a published team row carries no registration ID."""
 
 
 @dataclass(frozen=True)
@@ -656,6 +660,44 @@ def _record_team(cell, teams: dict[str, str]) -> None:
         name = anchor.get_text(strip=True)
         if match and name:
             teams.setdefault(match.group(1), name)
+
+
+def _seeding_source_rows(
+    html: str, group_id: str, linked_teams: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str], ...]:
+    """Retain ID-less accepted-team rows without requiring posted fixtures.
+
+    Seeding reads the bare Team column, which can precede even standings/PTS.
+    Each published row keeps its own identity. A unique exact name can reuse a
+    linked fixture participant only when the accepted list has one occurrence;
+    two same-named accepted teams must not collapse into one.
+    """
+    candidates: list[tuple[str, str, bool]] = []
+    soup = BeautifulSoup(html or "", "html.parser")
+    for table_index, table in enumerate(soup.find_all("table")):
+        column = None
+        for row_index, row in enumerate(table.find_all("tr")):
+            cells = row.find_all(["td", "th"])
+            headings = [_squashed(cell.get_text(" ")) for cell in cells]
+            if _squashed(_STANDINGS_HEADING) in headings:
+                column = headings.index(_squashed(_STANDINGS_HEADING))
+                continue
+            if column is None or column >= len(cells) or (len(cells) == 1 and cells[0].get("colspan")):
+                continue
+            cell = cells[column]
+            name = printable_text(" ".join(cell.get_text(" ").split())).strip()
+            if not name or _ADVANCEMENT_SLOT.fullmatch(name):
+                continue
+            linked: dict[str, str] = {}
+            _record_team(cell, linked)
+            candidates.append((name, f"standings:{group_id}:{table_index}:{row_index}", bool(linked)))
+
+    occurrences = Counter(_squashed(name) for name, _, _ in candidates)
+    registered = Counter(_squashed(name) for _, name in linked_teams)
+    return tuple(
+        (name, key) for name, key, linked in candidates
+        if not linked and not (occurrences[_squashed(name)] == 1 and registered[_squashed(name)] == 1)
+    )
 
 
 def parse_provider_team_id(html: str) -> str | None:
@@ -1206,7 +1248,10 @@ def scrape_event_roster(
     first puts all several-hundred team pages through one pool instead.
 
     ``limit_groups`` stops after that many divisions, which is how a new event
-    gets priced against a couple of them before paying for all of it. The result
+    gets priced against a couple of them before paying for all of it. When
+    ``wanted_cohorts`` is also set, divisions outside those cohorts do not count
+    toward the limit: their division pages are checked in landing-page order
+    until the requested number of relevant divisions has been found. The result
     reports ``is_complete`` so a truncated or blocked walk cannot be mistaken
     for a whole one.
 
@@ -1218,8 +1263,11 @@ def scrape_event_roster(
     kept: an unreadable label is not evidence a division is unwanted, and
     guessing costs teams.
 
+    ID-less accepted Team rows are retained for name matching even before any
+    fixtures or standings statistics exist.
+
     ``completed_event=True`` keeps all discovered divisions and all published
-    teams, including unranked ages and source-only standings rows. Failed or
+    teams, including unranked ages and fixture-only named participants. Failed or
     unvisited divisions remain explicit placeholders. It also separates the
     tournament's published cohort from a team's current identity lookup age.
     """
@@ -1236,21 +1284,58 @@ def scrape_event_roster(
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
-    if limit_groups is not None and limit_groups < len(group_ids):
-        warnings.append(f"Walked {limit_groups} of {len(group_ids)} divisions; roster is partial")
-        group_ids = group_ids[:limit_groups]
+    effective_wanted = None if completed_event else wanted_cohorts
+    if limit_groups is not None and effective_wanted is not None:
+        divisions, unreadable_divisions, divisions_walked = _read_until_wanted_limit(
+            throttled,
+            event_id,
+            group_ids,
+            limit_groups,
+            effective_wanted,
+            warnings,
+            on_progress=(
+                (lambda done, total: on_phase("Capturing divisions", done, total))
+                if on_phase
+                else None
+            ),
+        )
+    else:
+        if limit_groups is not None and limit_groups < len(group_ids):
+            warnings.append(
+                f"Walked {limit_groups} of {len(group_ids)} divisions; roster is partial"
+            )
+            group_ids = group_ids[:limit_groups]
 
-    divisions, unreadable_divisions = _read_divisions(
-        throttled, event_id, group_ids, max_workers, warnings, completed_event=completed_event,
-        on_progress=(lambda done, total: on_phase("Capturing divisions", done, total)) if on_phase else None,
-    )
+        divisions, unreadable_divisions = _read_divisions(
+            throttled,
+            event_id,
+            group_ids,
+            max_workers,
+            warnings,
+            completed_event=completed_event,
+            on_progress=(
+                (lambda done, total: on_phase("Capturing divisions", done, total))
+                if on_phase
+                else None
+            ),
+        )
+        divisions_walked = len(divisions)
+
     # Counted before the filter: a division we read and then chose not to pay
     # further for was still walked, and `is_complete` compares this against the
     # number found. Counting only the kept ones would report every filtered walk
     # as partial, which retires the full-walk control and disarms the guard that
     # stops a probe overwriting a complete roster.
-    divisions_walked = len(divisions)
-    divisions, skipped = _wanted_divisions(divisions, None if completed_event else wanted_cohorts, warnings)
+    divisions, skipped = _wanted_divisions(divisions, effective_wanted, warnings)
+    if (
+        limit_groups is not None
+        and effective_wanted is not None
+        and divisions_walked < divisions_found
+    ):
+        warnings.append(
+            f"Checked {divisions_walked} of {divisions_found} divisions to sample "
+            f"{len(divisions)} within the ages you rank; roster is partial"
+        )
     # A division we chose not to walk cannot have lost us teams, so its
     # unreadable table is not a gap in this roster. Counting it would make
     # `is_complete` false for a walk that got everything it asked for, and the
@@ -1297,7 +1382,7 @@ def scrape_event_roster(
     # and read by an operator as "the walk failed". They would also arrive
     # before the per-team fetch failures below and win the cap, inverting the
     # ordering `_warnings` exists to guarantee.
-    source_only = {}
+    source_only = {division.group_id: (list(division.seeding_source_teams), ()) for division in divisions}
     if completed_event:
         source_only = {division.group_id: _source_only_participants(division) for division in divisions}
         divisions = [
@@ -1308,11 +1393,10 @@ def scrape_event_roster(
         ]
     pending = [(division, entry) for division in divisions for entry in division.teams]
     source_only_keys: dict[str, list[str]] = {}
-    if completed_event:
-        for division in divisions:
-            entries, _ = source_only[division.group_id]
-            pending.extend((division, ("", name)) for name, _ in entries)
-            source_only_keys[division.group_id] = [key for _, key in entries]
+    for division in divisions:
+        entries, _ = source_only[division.group_id]
+        pending.extend((division, ("", name)) for name, _ in entries)
+        source_only_keys[division.group_id] = [key for _, key in entries]
     team_progress = on_progress
     if on_phase:
         def report_team_progress(done: int, total: int) -> None:
@@ -1330,7 +1414,7 @@ def scrape_event_roster(
             warnings.append(failure)
             unreadable += 1
         source_entry_key = ""
-        if completed_event:
+        if completed_event or not registration_id:
             source_entry_key = (
                 f"registration:{registration_id}" if registration_id
                 else source_only_keys[division.group_id].pop(0)
@@ -1377,6 +1461,8 @@ class _Division:
     structure: ScrapedDivision
     published_age_group: str = ""
     published_cohort_label: str = ""
+    seeding_source_teams: tuple[tuple[str, str], ...] = ()
+    """Accepted name and local occurrence key, for upcoming-event Seeding only."""
 
 
 def _read_group_ids(
@@ -1399,7 +1485,7 @@ def _read_group_ids(
     seen: set[str] = set()
     reads: list[frozenset[str]] = []
     ordered: list[str] = []
-    for _ in range(_LANDING_READS):
+    for _ in range(LANDING_READS):
         html = fetch(f"{EVENT_BASE}/{event_id}")
         if landing_pages is not None:
             landing_pages.append(html)
@@ -1571,13 +1657,14 @@ def _read_divisions(
             gender = parse_header_gender(group_html)
         named = label or f"group {group_id}"
         teams = parse_group_teams(group_html)
+        source_teams = _seeding_source_rows(group_html, group_id, teams) if not completed_event else ()
         if not team_table_found(group_html):
             unreadable.append(group_id)
             warnings.append(
                 f"Division {named}: no team table this module recognizes, so its "
                 "teams could not be read"
             )
-        elif not teams:
+        elif not teams and not source_teams:
             warnings.append(f"Division {named} lists no teams yet")
         divisions.append(
             _Division(
@@ -1586,6 +1673,7 @@ def _read_divisions(
                 age_group=age_group,
                 gender=gender,
                 teams=teams,
+                seeding_source_teams=source_teams,
                 published_age_group=published_age,
                 published_cohort_label=published_label or label if completed_event else "",
                 structure=parse_division_structure(
@@ -1603,6 +1691,55 @@ def _read_divisions(
             )
         )
     return divisions, unreadable
+
+
+def _read_until_wanted_limit(
+    fetch: HtmlFetcher,
+    event_id: str,
+    group_ids: tuple[str, ...],
+    limit_groups: int,
+    wanted_cohorts: Collection[str],
+    warnings: list[str],
+    *,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> tuple[list[_Division], list[str], int]:
+    """Read divisions in order until ``limit_groups`` relevant ones are found.
+
+    Division pages are intentionally read one at a time here. Reading ahead in
+    parallel would make a two-division paid probe buy pages it did not need.
+    Team pages are fetched only after this scan, once outside-cohort divisions
+    have been removed by ``_wanted_divisions``.
+    """
+    divisions: list[_Division] = []
+    unreadable: list[str] = []
+    walked = 0
+    wanted = 0
+    for group_id in group_ids:
+        if wanted >= limit_groups:
+            break
+        captured, captured_unreadable = _read_divisions(
+            fetch,
+            event_id,
+            (group_id,),
+            1,
+            warnings,
+        )
+        walked += 1
+        divisions.extend(captured)
+        unreadable.extend(captured_unreadable)
+        if not captured:
+            # This page was still checked and paid for. Mark it unreadable so a
+            # failed final scan cannot look complete merely because walked now
+            # counts attempts rather than successfully parsed pages.
+            unreadable.append(group_id)
+        else:
+            wanted += sum(
+                not names_cohort_outside(division.label, wanted_cohorts)
+                for division in captured
+            )
+        if on_progress:
+            on_progress(walked, len(group_ids))
+    return divisions, unreadable, walked
 
 
 def _wanted_divisions(

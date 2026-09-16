@@ -7,6 +7,11 @@ escaped before it reaches the page.
 
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+
+import pytest
+
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_sheet import (
@@ -14,6 +19,7 @@ from src.tournaments.seeding_sheet import (
     fetch_ranking_run_date,
     render_sheet_html,
 )
+from src.tournaments.seeding_tiers import TierAnalysis, TierGroup, TierPolicy
 
 PASTE = (
     "Male U14\nClub\tTeam\tState\n"
@@ -102,6 +108,31 @@ def test_an_inactive_team_with_a_score_but_no_rank_falls_below_the_line():
     assert [team.team_name for team in u14.unrated] == ["STX Elevate FC 2012/13 JG"]
     assert u14.unrated[0].power_score == 0.30
     assert u14.unrated[0].status == "Inactive"
+
+
+def test_provisional_score_status_is_not_shown_as_a_customer_warning():
+    ratings = dict(RATINGS)
+    ratings["m-stx"] = {
+        "team_name": "STX Elevate FC 2012/13 JG", "club_name": "STX Elevate FC",
+        "power_score_final": 0.30, "status": "Not Enough Ranked Games",
+        "rank_in_cohort_final": None, "rank_in_state_final": None,
+    }
+
+    sheets = _sheets(ratings)
+    document = render_sheet_html(
+        "STX Cup 2026", sheets[:1], generated_on="2026-09-02", ranking_run="2026-08-31"
+    )
+
+    assert [team.team_name for team in sheets[0].rated] == [
+        "Laredo Heat Red U14",
+        "Barcelona SC Aztecas U14",
+        "STX Elevate FC 2012/13 JG",
+    ]
+    assert sheets[0].unrated == ()
+    assert "Not yet ranked" not in document
+    assert "Not Enough Ranked Games" not in document
+    assert "Unranked Teams" not in document
+    assert ">30.0</td>" in document
 
 
 def test_an_override_supplies_the_team_id_used_for_the_rating():
@@ -235,3 +266,252 @@ def test_the_unranked_note_does_not_tell_the_reader_to_rescrape():
 
     assert "run this again" not in html
     assert "scrape" not in html.lower()
+
+
+def _analysis(**changes):
+    return replace(TierAnalysis(
+        tiers=(
+            TierGroup(1, ("1",), 0.0, 0.0, None),
+            TierGroup(2, ("0",), 0.0, 0.0, None),
+        ),
+        review={"2": "Confirm the club, team name, and age group before seeding."},
+        borderline={"0": (1,)},
+        boundaries=("Keep Tier 1 and Tier 2 in separate flights where possible.",),
+        ordered_ids=("1", "0"),
+        warnings=("Review this single-team tier before assigning a flight.",),
+    ), **changes)
+
+
+def _tier_sheets(analysis=None):
+    return build_cohort_sheets(
+        parse_roster(PASTE).rows, RESOLVED, {}, RATINGS,
+        tier_analyses={("u14", "Male"): analysis or _analysis()},
+    )
+
+
+def _render_tier(analysis=None, **kwargs):
+    return render_sheet_html(
+        "Competitive Cup", _tier_sheets(analysis),
+        generated_on="2026-09-15", ranking_run="2026-09-14", **kwargs,
+    )
+
+
+def test_tier_sheet_carries_identity_and_preserves_every_accepted_row_once():
+    sheets = _tier_sheets()
+    assert [(team.entrant_id, team.team_id_master) for team in sheets[0].rated] == [
+        ("1", "m-laredo"), ("0", "m-barca"),
+    ]
+    assert sheets[0].unrated[0].review_reason == "Confirm the club, team name, and age group before seeding."
+    assert re.findall(r'data-entrant="([^"]+)"', _render_tier()) == ["1", "0", "2", "3"]
+
+
+def test_tier_order_controls_print_order_and_seeds_continue_across_tiers():
+    analysis = _analysis(tiers=(
+        TierGroup(1, ("0",), 0.0, 0.0, None),
+        TierGroup(2, ("1",), 0.0, 0.0, None),
+    ), ordered_ids=("0", "1"))
+    document = _render_tier(analysis)
+    assert re.findall(r'data-entrant="([^"]+)"><td class="pos">([^<]+)', document) == [
+        ("0", "1"), ("1", "2"), ("2", "-"), ("3", "-"),
+    ]
+
+
+def test_missing_analysis_member_is_kept_for_review_instead_of_dropped():
+    document = _render_tier(_analysis(review={}))
+    assert document.count('data-entrant="2"') == 1
+    assert "Placement has not been assessed." in document
+
+
+@pytest.mark.parametrize("analysis", [
+    _analysis(tiers=(
+        TierGroup(1, ("1",), 0.0, 0.0, None),
+        TierGroup(2, ("1",), 0.0, 0.0, None),
+    )),
+    _analysis(review={"1": "Review"}),
+    _analysis(review={"999": "Review"}),
+])
+def test_stale_or_duplicate_analysis_cannot_produce_a_misleading_sheet(analysis):
+    with pytest.raises(ValueError):
+        _render_tier(analysis)
+
+
+def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
+    document = _render_tier(policy=TierPolicy(1.5, 0.2))
+    assert ">53.5</td>" in document
+    assert ">0.535</td>" not in document
+    assert "How to seed this group" in document
+    assert "Build flights from the same tier" in document
+    assert "Seed from top to bottom" in document
+    assert "Use a Boundary option when sizes do not fit" in document
+    assert "Use the tier first" in document
+    assert "Strongest group" in document
+    assert "Next competitive group" in document
+    assert "Suggested seed" in document
+    assert "PitchRank score" in document
+    assert "What to know" in document
+    assert "Manual placement needed" in document
+    assert "Confirm the club, team name, and age group before seeding." in document
+    assert "Limited recent results" not in document
+    assert "Boundary option: If Tier 1 needs one more team, move this team up." in document
+    assert "No close peer was found at this level." in document
+    assert "Keep Tier 1 and Tier 2 in separate flights where possible." in document
+    assert "Review this single-team tier before assigning a flight." in document
+    assert "expected goal gap" not in document
+    assert "chance of a 4+ goal margin" not in document
+
+
+def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
+    analysis = _analysis(
+        tiers=(),
+        review={str(index): "Confirm the team match before seeding." for index in range(3)},
+        borderline={},
+        boundaries=(),
+        ordered_ids=(),
+        warnings=(),
+    )
+    document = _render_tier(analysis)
+
+    assert "Recommended starting point: 3 need manual placement." in document
+    assert "Review each team’s note before seeding." in document
+    assert "Build flights from the same tier" not in document
+    assert "Tier 1 is strongest" not in document
+    assert "Use a Boundary option" not in document
+
+
+def test_multiple_boundary_options_use_an_or_list():
+    analysis = _analysis(
+        tiers=(
+            TierGroup(1, ("1",), 0.0, 0.0, None),
+            TierGroup(2, ("0",), 0.0, 0.0, None),
+            TierGroup(3, ("2",), 0.0, 0.0, None),
+        ),
+        review={},
+        borderline={"0": (1, 3)},
+        boundaries=("Keep these groups separate.", "Keep these groups separate."),
+        ordered_ids=("1", "0", "2"),
+        warnings=(),
+    )
+    document = _render_tier(analysis)
+
+    assert (
+        "Boundary options: If a neighboring tier needs one more team, move this team to Tier 1 or Tier 3."
+        in document
+    )
+
+
+def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
+    analysis = _analysis(
+        borderline={"1": (2,)},
+        boundaries=(
+            "Tier 1 / Tier 2: Overlapping matchups; review the boundary. Upper tier favored in 3/5 "
+            "matchups, with an average expected edge of 0.70 goals; 1/5 exceed the within-tier limits.",
+        ),
+        warnings=(
+            "Tier 2 has one team; there is no within-tier matchup to assess.",
+            "Tiers 1 and 2 have a strength-order exception: at least one lower-tier team is favored.",
+            "3/6 matchups have low outcome confidence. This can reflect closely matched teams.",
+        ),
+    )
+    document = _render_tier(analysis)
+
+    assert "Tier 1 and Tier 2 are close" in document
+    assert "Tier 2 has one team. Place it with the closest available group" in document
+    assert "A lower-tier team may compete well with an upper tier" not in document
+    assert "Several projected matchups are too close to call" not in document
+    assert "expected edge" not in document
+    assert "within-tier limits" not in document
+    assert "low outcome confidence" not in document
+    assert "strength-order exception" not in document
+
+
+def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
+    analysis = _analysis(
+        borderline={},
+        boundaries=(
+            "Tier 1 / Tier 2: Overlapping matchups; review the boundary. Upper tier favored in 3/5 "
+            "matchups, with an average expected edge of 0.70 goals; 1/5 exceed the within-tier limits.",
+        ),
+    )
+
+    document = _render_tier(analysis)
+
+    assert "no automatic team move is recommended" in document
+    assert "use the team marked Boundary option" not in document
+
+
+def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
+    analysis = _analysis(
+        borderline={},
+        boundaries=(
+            "Tier 1 / Tier 2: Ranking/matchup order conflict; review the boundary. Upper tier favored in 0/1 "
+            "matchups, with an average expected edge of -4.00 goals; 1/1 exceed the within-tier limits.",
+        ),
+    )
+
+    document = _render_tier(analysis)
+
+    assert "PitchRank score and the matchup forecast disagree at the Tier 1 / Tier 2 line" in document
+    assert "Ranking/matchup order conflict" not in document
+    assert "use the team marked Boundary option" not in document
+
+
+def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():
+    document = _render_tier()
+
+    tier_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
+    assert tier_table.index("Tier 1") < tier_table.index("</thead>")
+    assert tier_table.index("Suggested seed") < tier_table.index("</thead>")
+    assert "table.grid thead { display: table-header-group; }" in document
+    assert "table.review { break-inside: avoid-page; page-break-inside: avoid; }" in document
+
+
+def test_customer_notes_and_prediction_text_are_escaped():
+    document = _render_tier(
+        _analysis(warnings=("<script>warning</script>",)),
+        operator_notes={("u14", "Male"): "<b>Local knowledge & notes</b>"},
+    )
+    assert "<script>warning</script>" not in document
+    assert "&lt;script&gt;warning&lt;/script&gt;" in document
+    assert "&lt;b&gt;Local knowledge &amp; notes&lt;/b&gt;" in document
+
+
+def test_printable_document_uses_no_remote_font_or_image_requests():
+    document = _render_tier()
+    assert "https://" not in document
+    assert "http://" not in document
+
+
+def test_repeated_master_id_does_not_silently_remove_a_roster_entrant():
+    parsed = parse_roster(PASTE)
+    sheets = build_cohort_sheets(parsed.rows, RESOLVED, {2: {"team_id_master": "m-laredo"}}, RATINGS)
+    assert sum(sheet.total_teams for sheet in sheets) == 4
+    assert [team.entrant_id for team in sheets[0].rated] == ["1", "2", "0"]
+
+
+def test_duplicate_source_indexes_fail_instead_of_overwriting_an_entrant():
+    row = parse_roster(PASTE).rows[0]
+    with pytest.raises(ValueError, match="unique source index"):
+        build_cohort_sheets([row, row], RESOLVED, {}, RATINGS)
+
+
+@pytest.mark.parametrize("score", [float("nan"), float("inf"), -0.1, 1.1, "unknown", "0.55", True, False])
+def test_invalid_score_is_not_printed_as_a_ranked_number(score):
+    ratings = {**RATINGS, "m-stx": {"power_score_final": score, "rank_in_cohort_final": 1}}
+    stx = next(team for team in _sheets(ratings)[0].unrated if team.entrant_id == "2")
+    assert stx.power_score is None
+
+
+@pytest.mark.parametrize("score", ["unknown", True, False])
+def test_invalid_score_still_renders_team_with_its_placement_review_reason(score):
+    ratings = {**RATINGS, "m-stx": {"power_score_final": score, "rank_in_cohort_final": 1}}
+    sheets = build_cohort_sheets(
+        parse_roster(PASTE).rows, RESOLVED, {}, ratings,
+        tier_analyses={("u14", "Male"): _analysis(
+            review={"2": "No current PitchRank score. Use recent results or club input."}
+        )},
+    )
+    document = render_sheet_html("Test Cup", sheets, generated_on="2026-09-15", ranking_run="2026-09-14")
+    assert document.count('data-entrant="2"') == 1
+    assert "No current PitchRank score. Use recent results or club input." in document
+    row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
+    assert '<td class="num score">-</td>' in row

@@ -72,6 +72,8 @@ type RankingRow = {
 };
 
 type RankingsFullRow = {
+  last_calculated?: string | null;
+  status?: string | null;
   age_group?: string | number | null;
   gender?: string | null;
   rank_in_cohort_final?: number | null;
@@ -110,7 +112,7 @@ type MergeRow = {
 };
 
 const BASE_RANKINGS_FULL_FIELDS =
-  'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played';
+  'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played, last_calculated, status';
 const OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS =
   'same_age_games, same_age_game_share, same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, same_age_avg_opp_power_adj, repeat_opponent_share, positive_ml_evidence_scale, publication_cap_rank, publication_cap_score';
 
@@ -121,6 +123,14 @@ function isMissingOptionalPredictionColumn(error: unknown): boolean {
     (message.includes('same_age_') ||
       message.includes('positive_ml_evidence_scale') ||
       message.includes('publication_cap_'))
+  );
+}
+
+function isMissingOptionalGlickoViewColumn(error: unknown, view: string): boolean {
+  const detail = error as { code?: string; message?: string } | null;
+  return (
+    detail?.code === '42703' &&
+    new RegExp(`^column ${view}\\.glicko_(rating|rd|volatility) does not exist$`).test(detail.message ?? '')
   );
 }
 
@@ -162,7 +172,7 @@ async function resolveCanonicalTeamId(supabase: SupabaseClient, teamId: string):
   return data?.canonical_team_id ?? teamId;
 }
 
-async function resolvePredictionTeamIds(
+export async function resolvePredictionTeamIds(
   supabase: SupabaseClient,
   teamId: string
 ): Promise<{ canonicalTeamId: string; allTeamIds: string[] }> {
@@ -189,7 +199,13 @@ async function resolvePredictionTeamIds(
   };
 }
 
-async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Promise<TeamWithRanking> {
+export type PredictionTeam = TeamWithRanking & { ratings_as_of: string | null; status: string | null };
+
+export async function fetchPredictionTeam(
+  supabase: SupabaseClient,
+  teamId: string,
+  options: { strict?: boolean; allowEmptyHistory?: boolean } = {}
+): Promise<PredictionTeam> {
   const [teamResult, rankingResult, stateRankingResult, rankingsFullData, predictiveResult] = await Promise.all([
     supabase
       .from('teams')
@@ -223,6 +239,20 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   if (teamResult.error) {
     throw teamResult.error;
   }
+  if (options.strict) {
+    // Legacy ranking views omit Glicko columns. In that schema Compare uses
+    // rankings_full below; preserve that exact path while surfacing read failures.
+    for (const [view, result] of [
+      ['rankings_view', rankingResult],
+      ['state_rankings_view', stateRankingResult],
+    ] as const) {
+      if (result.error && !isMissingOptionalGlickoViewColumn(result.error, view)) throw result.error;
+    }
+    // This supplemental view is absent in the live schema. Compare already
+    // supplies null exp_* inputs there; distinguish that known optional absence
+    // from an actual failed read (auth, network, timeout, or a broken query).
+    if (predictiveResult.error && predictiveResult.error.code !== 'PGRST205') throw predictiveResult.error;
+  }
 
   const teamData = teamResult.data as TeamRow | null;
   const rankingData = rankingResult.data as RankingRow | null;
@@ -252,8 +282,11 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     .eq('team_id_master', teamData.team_id_master)
     .eq('providers.code', 'modular11')
     .limit(1);
+  if (options.strict && modular11AliasResult.error) throw modular11AliasResult.error;
 
-  const team: TeamWithRanking = {
+  const team: PredictionTeam = {
+    ratings_as_of: rankingsFullData?.last_calculated ?? null,
+    status: rankingsFullData?.status ?? null,
     team_id_master: teamData.team_id_master,
     team_name: teamData.team_name,
     club_name: teamData.club_name,
@@ -310,7 +343,7 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
     exp_goals_against: predictiveData?.exp_goals_against ?? null,
   };
 
-  if (team.power_score_final == null || team.games_played <= 0) {
+  if (team.power_score_final == null || (!options.allowEmptyHistory && team.games_played <= 0)) {
     throw new AppError(
       'Prediction unavailable. Match predictions rely on current ranking data for both teams.',
       'prediction_unavailable',
@@ -321,27 +354,41 @@ async function fetchPredictionTeam(supabase: SupabaseClient, teamId: string): Pr
   return team;
 }
 
-async function fetchPredictionGames(supabase: SupabaseClient, teamIds: string[]): Promise<Game[]> {
+export async function fetchPredictionGames(supabase: SupabaseClient, teamIds: string[]): Promise<Game[]> {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 365);
 
-  const { data, error } = await supabase
-    .from('games')
-    .select(
-      'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance'
-    )
-    .gte('game_date', cutoffDate.toISOString().split('T')[0])
-    .not('home_score', 'is', null)
-    .not('away_score', 'is', null)
-    .or(`home_team_master_id.in.(${teamIds.join(',')}),away_team_master_id.in.(${teamIds.join(',')})`)
-    .eq('is_excluded', false)
-    .order('game_date', { ascending: false });
-
-  if (error) {
-    throw error;
+  // Both Compare and Seeding use this stable order, including same-day games.
+  // Page below the local PostgREST cap and keep the complete filter below its
+  // 100-ID URI safeguard. Each team ID appears once per home/away clause.
+  const wanted = [...new Set(teamIds)].sort();
+  const games = new Map<string, Game>();
+  const pageSize = 1000;
+  const gameIdBatchSize = 50;
+  for (let start = 0; start < wanted.length; start += gameIdBatchSize) {
+    const batch = wanted.slice(start, start + gameIdBatchSize);
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from('games')
+        .select(
+          'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance'
+        )
+        .gte('game_date', cutoffDate.toISOString().split('T')[0])
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
+        .or(`home_team_master_id.in.(${batch.join(',')}),away_team_master_id.in.(${batch.join(',')})`)
+        .eq('is_excluded', false)
+        .order('game_date', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as Game[];
+      for (const game of rows) games.set(game.id, game);
+      if (rows.length < pageSize) break;
+    }
   }
 
-  return ((data ?? []) as Game[]).map((game) => ({
+  return [...games.values()].sort(comparePredictionGames).map((game) => ({
     ...game,
     result: game.result ?? null,
     competition: game.competition ?? null,
@@ -357,6 +404,11 @@ async function fetchPredictionGames(supabase: SupabaseClient, teamIds: string[])
     home_provider_id: game.home_provider_id ?? '',
     away_provider_id: game.away_provider_id ?? '',
   }));
+}
+
+export function comparePredictionGames(left: Game, right: Game): number {
+  if (left.game_date !== right.game_date) return left.game_date > right.game_date ? -1 : 1;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
 }
 
 export async function buildMatchPrediction(

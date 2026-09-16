@@ -7,7 +7,7 @@ MatchBalance Backtest supports tournament cohorts from U10 through U18. Combined
 MatchBalance has three distinct product workflows:
 
 - **Backtest** is the sales proof. It takes a completed tournament's exact entrants and verified structure, reseeds those teams using historical competitive strength, and shows how the projected matchup quality would have changed.
-- **Seeding Tab** is the self-service ranking product. It gives a director a ranked list of accepted teams so the director can seed the tournament manually.
+- **Seeding Tab** is the operator-run cheat-sheet service. The operator prepares ranked, matchup-based tier sheets for every requested age/gender cohort and sends PDFs to the director. See [Seeding sheets](matchbalance-seeding.md).
 - **Auto Seeder** is the future premium product. It will create the tournament assignments and apply operational constraints such as club separation, shared coaches, geography, travel, and rematches.
 
 ## Operator workflow

@@ -56,6 +56,7 @@ from src.tournaments.event_team_matcher import (
     search_event_team_in_db,
 )
 from src.tournaments.gotsport_event_roster import (
+    LANDING_READS,
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
@@ -103,23 +104,18 @@ from src.tournaments.seeding_enqueue import (
     make_enqueue_caller,
     make_provider_team_id_lookup,
 )
+from src.tournaments.seeding_intake_ui import invalidate_seeding_exports, render_seeding_pack
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
+from src.tournaments.seeding_pack import pack_matches
 from src.tournaments.seeding_run_store import (
     SeedingRun,
-    slugify,
 )
 from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
 from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
 from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
-from src.tournaments.seeding_sheet import (
-    build_cohort_sheets,
-    fetch_ranking_run_date,
-    make_ratings_lookup,
-    render_sheet_html,
-)
 from src.tournaments.storage import (
     CohortConstraints,
     CohortStructure,
@@ -3644,16 +3640,12 @@ def _seeding_provider_id_lookup(supabase_client: Any) -> ProviderIdLookup:
     return make_provider_id_lookup(supabase_client, _seeding_merge_resolver(supabase_client))
 
 
-def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
-    """Parse the pasted roster, resolve every row, and park the result in session state."""
+def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
+    """Resolve and park the pasted roster, returning whether replacement succeeded."""
     parsed = parse_roster(text)
-    st.session_state._seeding_overrides = {}
-    st.session_state._seeding_resolution_failed = False
-    st.session_state._seeding_sheet_html = None
     if not parsed.rows:
-        _park_seeding_result(None, event_id=None)
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
-        return
+        return False
 
     session = requests.Session()
     progress = st.progress(0.0, text=f"Looking up 0 of {len(parsed.rows)} teams...")
@@ -3674,12 +3666,15 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> None:
         )
     except requests.RequestException as exc:
         st.error(f"GotSport lookup failed: {exc}")
-        return
+        return False
     finally:
         progress.empty()
         session.close()
 
+    st.session_state._seeding_overrides = {}
+    st.session_state._seeding_resolution_failed = False
     _park_seeding_result((parsed, resolved), event_id=None)
+    return True
 
 
 def _run_event_roster_scrape(
@@ -3859,6 +3854,9 @@ def _park_event_roster(
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
         "divisions_walked": roster.divisions_walked,
+        "divisions_skipped": roster.divisions_skipped,
+        "divisions_sampled": len(roster.divisions),
+        "u10_plus_only": keys != _BACKTEST_KEYS,
         "teams": len(roster.teams),
         "linked": sum(1 for team in roster.teams if team.provider_team_id),
         # A walk that lost a division to an unreadable table returned teams and
@@ -3992,8 +3990,9 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
     reads. It is a property over five of them, so a payload keeping only
     ``found`` and ``walked`` rebuilds a walk that lost divisions as a whole one —
     which tells the operator an event is finished with and locks the buttons that
-    would finish it. ``divisions_skipped`` is not one of the five and nothing
-    downstream reads it, so it is not persisted.
+    would finish it. ``divisions_skipped`` is also preserved because the Seeding
+    caption explains how many younger divisions were bypassed to reach its U10+
+    sample.
 
     Best-effort by construction: this exists to protect a paid artifact, so a
     failure to write it must not itself cost the walk.
@@ -4013,6 +4012,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
                 "divisions_found": roster.divisions_found,
                 "divisions_walked": roster.divisions_walked,
                 "divisions_unreadable": roster.divisions_unreadable,
+                "divisions_skipped": roster.divisions_skipped,
                 "divisions_stable": roster.divisions_stable,
                 "teams_unreadable": roster.teams_unreadable,
                 "warnings": list(roster.warnings),
@@ -4110,6 +4110,7 @@ def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[Ev
             divisions_found=int(payload.get("divisions_found") or 0),
             divisions_walked=int(payload.get("divisions_walked") or 0),
             divisions_unreadable=int(payload.get("divisions_unreadable") or 0),
+            divisions_skipped=int(payload.get("divisions_skipped") or 0),
             divisions_stable=payload.get("divisions_stable") in (None, True),
             teams_unreadable=int(payload.get("teams_unreadable") or 0),
             divisions=tuple(_recovered_division(item) for item in payload.get("divisions") or ()),
@@ -4353,6 +4354,8 @@ def _render_seeding_override(
             # for a Backtest-view override would autosave nothing real and mean
             # nothing here.
             if keys is _SEEDING_KEYS:
+                st.session_state.pop("_seeding_pack", None)
+                invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
             st.rerun()
 
@@ -4374,6 +4377,9 @@ def _autosave_seeding_run() -> bool:
     if not name or not result:
         return False
     parsed, resolved = result
+    pack = st.session_state.get("_seeding_pack")
+    if not pack_matches(pack, parsed.rows, resolved, st.session_state._seeding_overrides):
+        pack = None
     try:
         save_seeding_run_file(
             SeedingRun(
@@ -4382,9 +4388,10 @@ def _autosave_seeding_run() -> bool:
                 resolved=resolved,
                 overrides=dict(st.session_state._seeding_overrides),
                 warnings=parsed.warnings,
+                pack=pack,
             )
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         st.warning(f"Could not save this run: {exc}")
         return False
     return True
@@ -4400,6 +4407,7 @@ def _load_seeding_run(slug: str) -> None:
         (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved), event_id=None
     )
     st.session_state._seeding_overrides = dict(run.overrides)
+    st.session_state._seeding_pack = run.pack
     st.session_state._seeding_resolution_failed = False
     st.session_state._seeding_sheet_html = None
     st.session_state._seeding_loaded_slug = slug
@@ -4419,6 +4427,8 @@ def _apply_pending_seeding_widgets() -> None:
         return
     st.session_state["seeding_event_name"] = pending_name
     st.session_state["seeding_roster_text"] = ""
+    for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
+        st.session_state.pop(key, None)
 
 
 def _render_seeding_run_controls() -> None:
@@ -4469,42 +4479,10 @@ def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) ->
 
 
 def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
-    """Build the branded, print-ready cohort sheet.
-
-    Behind a button rather than on every rerun: the ratings come from the
-    database, and a full roster is several round trips.
-    """
-    st.markdown("#### Cohort sheet")
-    event_name = _seeding_run_name()
-    if not event_name:
-        st.caption("Name the event above to build the sheet — the name is its headline.")
-        return
-
-    st.caption("Downloads a designed page. Open it and press Ctrl+P, then Save as PDF.")
-    if st.button("Build the sheet", key="_seeding_build_sheet"):
-        with st.spinner("Fetching ratings..."):
-            ratings = make_ratings_lookup(supabase_client)(_seeding_team_ids(parsed, resolved))
-            sheets = build_cohort_sheets(parsed.rows, resolved, st.session_state._seeding_overrides, ratings)
-            st.session_state._seeding_sheet_html = render_sheet_html(
-                event_name,
-                sheets,
-                generated_on=_long_date(date.today()),
-                ranking_run=fetch_ranking_run_date(supabase_client),
-            )
-
-    document = st.session_state.get("_seeding_sheet_html")
-    if not document:
-        return
-
-    st.download_button(
-        "Download the sheet",
-        data=document.encode("utf-8"),
-        file_name=f"{slugify(event_name)}-matchbalance.html",
-        mime="text/html",
-        key="_seeding_sheet_download",
+    """Review matchup tiers and generate the selected cohort PDF pack."""
+    render_seeding_pack(
+        parsed, resolved, supabase_client, event_name=_seeding_run_name(), save=_autosave_seeding_run,
     )
-    with st.expander("Preview"):
-        components.html(document, height=900, scrolling=True)
 
 
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
@@ -4526,7 +4504,8 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
     st.markdown("#### Refresh the data first")
     st.caption(
         f"Queues {rehearsal.would_queue} teams for a scrape at the same priority a user-clicked "
-        "refresh uses, so their ratings are current before anything is seeded."
+        "refresh uses. After scraping and the next rankings run finish, rebuild matchup tiers "
+        "to use the updated data. Queueing alone does not update this sheet."
     )
     if rehearsal.skipped:
         st.caption(
@@ -4560,7 +4539,9 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
         roster = snapshot.roster
         return {
             "url": url, "limit_groups": snapshot.limit_groups, "divisions_found": roster.divisions_found,
-            "divisions_walked": roster.divisions_walked, "teams": len(roster.teams),
+            "divisions_walked": roster.divisions_walked, "divisions_skipped": roster.divisions_skipped,
+            "divisions_sampled": len(roster.divisions), "u10_plus_only": False,
+            "teams": len(roster.teams),
             "linked": sum(bool(team.provider_team_id) for team in roster.teams),
             "complete": roster.is_complete and roster.completed_event,
         }
@@ -4578,7 +4559,7 @@ def _money(amount: float) -> str:
 
 
 def _seeding_probe_price() -> tuple[float, float]:
-    """What a probe spends: a landing page, its divisions, and their teams.
+    """What a probe spends: landing reads, its divisions, and their teams.
 
     A range because the term that dominates is teams per division, which is the
     quantity the probe is being run to discover in the first place.
@@ -4590,26 +4571,53 @@ def _seeding_probe_price() -> tuple[float, float]:
 
 
 def _probe_pages(teams_per_division: float) -> float:
-    return 1 + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
+    return LANDING_READS + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
 
 
 def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     """What the walk saw, and what the rest of the event would cost."""
     walked = int(probe.get("divisions_walked") or 0)
     found = int(probe.get("divisions_found") or 0)
+    sampled = int(probe.get("divisions_sampled") or 0)
     teams = int(probe.get("teams") or 0)
     linked = int(probe.get("linked") or 0)
-    head = f"Walked {walked} of {found} divisions: {teams} teams, {linked} carrying a GotSport id."
+    u10_plus_only = bool(probe.get("u10_plus_only"))
+    if not u10_plus_only:
+        head = (
+            f"Walked {walked} of {found} divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+    elif probe.get("limit_groups") is None:
+        head = (
+            f"Checked all {walked} divisions and kept {sampled} U10+ divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+    else:
+        head = (
+            f"Checked {walked} of {found} event divisions and captured {sampled} U10+ divisions: "
+            f"{teams} teams, {linked} carrying a GotSport id."
+        )
+
+    if probe.get("limit_groups") is None or (found > 0 and walked >= found):
+        return head
 
     # Team pages are most of an event's bill, so a sample that found no team
     # prices nothing — which is the normal state of an event being seeded before
     # its schedules go up, not a rare one.
-    if not walked or not teams:
+    if not walked or not teams or (u10_plus_only and not sampled):
         return f"{head} That is not enough to price the rest of the event from."
-    if probe.get("limit_groups") is None:
-        return head
 
-    pages = 1 + found + found * teams / walked
+    if u10_plus_only:
+        # The probe can pay for a prefix of younger division pages before it
+        # reaches its two retained U10+ samples. Those skipped divisions had no
+        # team-page cost and must not dilute the sampled teams-per-division rate.
+        # Treat every unvisited division as eligible: its label is still unknown,
+        # and age-sorted events put the remaining U10+ divisions after that prefix.
+        eligible_divisions = sampled + max(found - walked, 0)
+        team_pages = eligible_divisions * teams / sampled
+    else:
+        team_pages = found * teams / walked
+    pages = LANDING_READS + found + team_pages
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
@@ -4684,6 +4692,10 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
     """
     st.session_state[keys.result] = pair
     st.session_state[keys.result_event_id] = event_id if pair else None
+    if keys == _SEEDING_KEYS:
+        st.session_state.pop("_seeding_pack", None)
+        st.session_state.pop("_seeding_pack_unsaved", None)
+        invalidate_seeding_exports(st.session_state)
 
 
 def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> int:
@@ -4695,6 +4707,29 @@ def _parked_roster_size(event_id: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> in
         return 0
     result = st.session_state.get(keys.result)
     return len(result[0].rows) if result else 0
+
+
+def _clear_result_from_other_event(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
+    """Remove an event walk from the view once the URL names another event.
+
+    Every paid walk is already persisted by ``_park_event_roster`` before it
+    reaches session state, so clearing these display fields does not discard the
+    recoverable roster.  It does stop the old rows, decisions and generated
+    sheet from appearing -- or being saved -- beneath a different event URL.
+
+    Pasted rosters and reopened named runs carry no event id and are left alone.
+    A blank URL also leaves the current result alone; only a non-empty input
+    that no longer names the parked event invalidates it.
+    """
+    parked_event_id = st.session_state.get(keys.result_event_id)
+    if not parked_event_id or not str(url or "").strip():
+        return
+    if event_id_from(url) == str(parked_event_id):
+        return
+
+    _park_seeding_result(None, event_id=None, keys=keys)
+    st.session_state[keys.overrides] = {}
+    st.session_state[keys.resolution_failed] = False
 
 
 def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
@@ -4713,8 +4748,9 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         st.markdown("#### Or scrape a GotSport event")
         st.caption(
             "Reads each division's teams and follows every team page for its GotSport id, "
-            "which links a team outright rather than by name. Check a couple of divisions first — "
-            "every page is paid for."
+            "which links a team outright rather than by name. The check keeps only U10 and older. "
+            "It may read younger division pages while finding the first two U10+ divisions, but it "
+            "does not buy those younger teams' pages."
         )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
@@ -4726,6 +4762,8 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         placeholder="https://system.gotsport.com/org_event/events/52975",
         disabled=in_progress,
     )
+    if keys is _SEEDING_KEYS:
+        _clear_result_from_other_event(url, keys=keys)
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
     already_walked = bool(probe.get("complete"))
@@ -4734,7 +4772,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
     with primary:
         full_clicked = st.button(
-            "Scrape the whole event",
+            "Scrape the whole event" if keys == _BACKTEST_KEYS else "Scrape all U10+ divisions",
             key=f"{keys.prefix}_event_full_run",
             type="primary" if keys == _BACKTEST_KEYS else "secondary",
             disabled=(not url or in_progress or already_walked
@@ -4744,7 +4782,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         probe_clicked = st.button(
             "Optional: check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
-            ) if keys == _BACKTEST_KEYS else "Check {} divisions (~{}-{})".format(
+            ) if keys == _BACKTEST_KEYS else "Check {} U10+ divisions (starts around {}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
@@ -4858,8 +4896,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         type="primary",
         disabled=not st.session_state.get("seeding_roster_text"),
     ):
-        _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client)
-        _autosave_seeding_run()
+        if _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client):
+            _autosave_seeding_run()
 
     _render_seeding_event_scrape(supabase_client)
 

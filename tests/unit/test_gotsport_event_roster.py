@@ -1519,6 +1519,87 @@ class TestStandingsTableTeams:
         assert len(roster.teams) == 1
 
 
+def _accepted_team_cells_page(cells, *, points=True):
+    """Accepted teams before fixtures, with optional standings statistics."""
+    rows = "".join(
+        f'<tr><td>{index}</td><td>{cell}</td>{"<td>0</td>" if points else ""}</tr>'
+        for index, cell in enumerate(cells, 1)
+    )
+    return (
+        '<div class="lead">Male U12 - U12 Boys Gold</div>'
+        f'<table><tr><th>#</th><th>Team</th>{"<th>PTS</th>" if points else ""}</tr>{rows}</table>'
+    )
+
+
+@pytest.mark.parametrize("points", [True, False])
+def test_seeding_keeps_every_plain_accepted_team_without_fixtures(points):
+    page = _accepted_team_cells_page([
+        '<a href="?team=4205984">Linked FC</a>',
+        "Plain Text FC",
+        "<strong>North</strong> United",
+    ], points=points)
+    fetch = _fetch_for({
+        "/org_event/events/52975": _landing_html(["483088"]),
+        "schedules?group=483088": page,
+        "schedules?team=4205984": _team_html("521426"),
+    })
+    roster = scrape_event_roster("52975", fetch=fetch)
+
+    assert [team.team_name for team in roster.teams] == ["Linked FC", "Plain Text FC", "North United"]
+    assert [(team.registration_id, team.provider_team_id) for team in roster.teams] == [
+        ("4205984", "521426"), ("", None), ("", None),
+    ]
+    assert [team.source_entry_key for team in roster.teams[1:]] == [
+        "standings:483088:0:2", "standings:483088:0:3",
+    ]
+    assert {(team.age_group, team.gender) for team in roster.teams} == {("u12", "Male")}
+    assert roster.is_complete
+    assert roster.completed_event is False
+    assert not any("lists no teams" in warning for warning in roster.warnings)
+    assert [url for url in fetch.calls if "team=" in url] == [
+        f"{EVENT_BASE}/52975/schedules?team=4205984",
+    ]
+
+
+def test_seeding_preserves_same_named_accepted_occurrences_and_stable_local_keys():
+    page = _accepted_team_cells_page(["Same Name FC", "Same Name FC"])
+    pages = {
+        "/org_event/events/52975": _landing_html(["483088"]),
+        "schedules?group=483088": page,
+    }
+    first = scrape_event_roster("52975", fetch=_fetch_for(pages))
+    second = scrape_event_roster("52975", fetch=_fetch_for(pages))
+    assert [team.team_name for team in first.teams] == ["Same Name FC", "Same Name FC"]
+    assert [team.source_entry_key for team in first.teams] == [
+        "standings:483088:0:1", "standings:483088:0:2",
+    ]
+    assert first.teams == second.teams
+    assert first.is_complete
+
+
+def test_seeding_does_not_collapse_plain_accepted_row_into_same_named_linked_row():
+    page = _accepted_team_cells_page(['<a href="?team=4205984">Shared FC</a>', "Shared FC"])
+    fetch = _fetch_for({
+        "/org_event/events/52975": _landing_html(["483088"]),
+        "schedules?group=483088": page,
+        "schedules?team=4205984": _team_html("521426"),
+    })
+    roster = scrape_event_roster("52975", fetch=fetch)
+    assert [team.team_name for team in roster.teams] == ["Shared FC", "Shared FC"]
+    assert [team.registration_id for team in roster.teams] == ["4205984", ""]
+    assert roster.teams[1].source_entry_key == "standings:483088:0:2"
+
+
+def test_seeding_plain_accepted_rows_skip_blank_and_undecided_slots():
+    page = _accepted_team_cells_page(["", "TBD", "Winner Semi-Final A", "Actual FC"])
+    roster = scrape_event_roster("52975", fetch=_fetch_for({
+        "/org_event/events/52975": _landing_html(["483088"]),
+        "schedules?group=483088": page,
+    }))
+    assert [team.team_name for team in roster.teams] == ["Actual FC"]
+    assert roster.teams[0].source_entry_key == "standings:483088:0:4"
+
+
 class TestCompactBirthYearLabels:
     """`14B` is a 2014 birth year, so U13 — never U14.
 
@@ -1771,6 +1852,23 @@ def _mixed_age_event():
     }
 
 
+def _young_first_event():
+    """Younger divisions precede three divisions inside the ranked ages."""
+    return {
+        "/org_event/events/52975": _landing_html(["7", "8", "10", "11", "12"]),
+        "schedules?group=7": _group_html("U7 Boys USA", [("7", "U7 FC")]),
+        "schedules?group=8": _group_html("U8 Girls Mexico", [("8", "U8 FC")]),
+        "schedules?group=10": _group_html("U10 Boys Gold", [("10", "U10 FC")]),
+        "schedules?group=11": _group_html("U11 Girls Silver", [("11", "U11 FC")]),
+        "schedules?group=12": _group_html("U12 Boys Gold", [("12", "U12 FC")]),
+        "schedules?team=7": _team_html("700"),
+        "schedules?team=8": _team_html("800"),
+        "schedules?team=10": _team_html("1000"),
+        "schedules?team=11": _team_html("1100"),
+        "schedules?team=12": _team_html("1200"),
+    }
+
+
 class TestNamesCohortOutside:
     """What the label said, as distinct from what we board.
 
@@ -1810,6 +1908,49 @@ class TestNamesCohortOutside:
 
 
 class TestCohortFilter:
+    def test_a_limited_probe_finds_two_ranked_age_divisions_after_younger_ones(self):
+        fetch = _fetch_for(_young_first_event())
+
+        roster = scrape_event_roster(
+            "52975",
+            fetch=fetch,
+            limit_groups=2,
+            wanted_cohorts=BOARDED,
+        )
+
+        assert [team.team_name for team in roster.teams] == ["U10 FC", "U11 FC"]
+        assert roster.divisions_found == 5
+        assert roster.divisions_walked == 4
+        assert roster.divisions_skipped == 2
+        assert not any("group=12" in url for url in fetch.calls)
+        assert sorted(url.split("team=")[1] for url in fetch.calls if "team=" in url) == [
+            "10",
+            "11",
+        ]
+        assert any(
+            "Checked 4 of 5 divisions to sample 2 within the ages you rank" in warning
+            for warning in roster.warnings
+        )
+
+    def test_a_failed_division_page_does_not_count_toward_the_u10_sample(self):
+        fetch = _fetch_for(
+            _young_first_event(),
+            failing=frozenset({"schedules?group=8"}),
+        )
+
+        roster = scrape_event_roster(
+            "52975",
+            fetch=fetch,
+            limit_groups=2,
+            wanted_cohorts=BOARDED,
+        )
+
+        assert [team.team_name for team in roster.teams] == ["U10 FC", "U11 FC"]
+        assert roster.divisions_walked == 4
+        assert roster.divisions_skipped == 1
+        assert roster.divisions_unreadable == 1
+        assert len(roster.divisions) == 2
+
     def test_drops_a_division_below_the_boards(self):
         roster = scrape_event_roster(
             "52975", fetch=_fetch_for(_mixed_age_event()), wanted_cohorts=BOARDED
