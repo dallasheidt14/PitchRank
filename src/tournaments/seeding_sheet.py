@@ -242,7 +242,7 @@ def _score(value: float | None) -> str:
 
 def _status_label(status: str | None) -> str:
     return {
-        "Not Enough Ranked Games": "Limited recent results",
+        "Not Enough Ranked Games": "Not yet ranked",
         "Inactive": "No current ranking",
     }.get(str(status or "").strip(), str(status or "").strip())
 
@@ -384,16 +384,32 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
     """Turn model diagnostics into concise actions for the customer PDF."""
     guidance = []
     for index, boundary in enumerate(analysis.boundaries, 1):
+        upper_ids = analysis.tiers[index - 1].entrant_ids
+        lower_ids = analysis.tiers[index].entrant_ids
+        has_boundary_option = any(
+            index + 1 in analysis.borderline.get(entrant_id, ()) for entrant_id in upper_ids
+        ) or any(index in analysis.borderline.get(entrant_id, ()) for entrant_id in lower_ids)
         if "Clear separation" in boundary:
             guidance.append(
                 f"Keep Tier {index} and Tier {index + 1} separate when possible; "
                 "projected results show a meaningful competitive gap."
             )
-        elif "Overlapping matchups" in boundary:
+        elif "Ranking/matchup order conflict" in boundary:
             guidance.append(
-                f"Tier {index} and Tier {index + 1} are close. If pool sizes require a change, "
-                "use the team marked Boundary option."
+                f"PitchRank score and the matchup forecast disagree at the Tier {index} / Tier {index + 1} line. "
+                "Review recent results or club input before finalizing those teams."
             )
+        elif "Overlapping matchups" in boundary:
+            if has_boundary_option:
+                guidance.append(
+                    f"Tier {index} and Tier {index + 1} are close. If pool sizes require a change, "
+                    "use the team marked Boundary option."
+                )
+            else:
+                guidance.append(
+                    f"Tier {index} and Tier {index + 1} have similar projected matchups, but no automatic "
+                    "team move is recommended. Use recent results or club input if the format requires a change."
+                )
         else:
             guidance.append(str(boundary))
     for warning in analysis.warnings:
@@ -404,14 +420,14 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
                 "recent results or club input."
             )
         elif "low outcome confidence" in warning:
-            guidance.append(
-                "Several projected matchups are too close to call. Use recent results or club input to break ties."
-            )
+            # This diagnostic helps the operator inspect the model, but it does
+            # not give a director a different placement action from the tiers.
+            continue
         elif "strength-order exception" in warning:
-            guidance.append(
-                "A lower-tier team may compete well with an upper tier. Review the tier line and any "
-                "Boundary option before finalizing."
-            )
+            # Keep minor prediction/ranking reversals in the operator review.
+            # The customer action is already expressed by the tier line and
+            # any boundary option beside it.
+            continue
         elif "exceeds the matchup limits" in warning:
             tier = warning.split(" exceeds", 1)[0]
             guidance.append(f"{tier} includes a potentially uneven matchup. Review that group before finalizing.")

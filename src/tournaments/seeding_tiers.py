@@ -122,11 +122,11 @@ def _automatic_groups(
     policy: TierPolicy,
     strength: Mapping[str, float],
 ) -> list[tuple[str, ...]]:
-    """Minimum complete-link bands, with boundaries at natural strength breaks.
+    """Minimum complete-link bands, with boundaries at published score breaks.
 
     Interval risk and safety are built in O(n²), followed by an O(n²) dynamic
     program. Among safe partitions with the same minimum tier count, maximize
-    the total adjacent all-field strength gap at the boundaries, then minimize
+    the total adjacent PowerScore gap at the boundaries, then minimize
     total within-tier pair risk. The gap chooses between fully checked bands;
     it never replaces the every-pair safety requirement. A deterministic
     boundary tuple breaks any remaining ties.
@@ -193,13 +193,15 @@ def build_tiers(
     remain explicitly listed for placement review, rather than being treated as
     the weakest teams. All other entrants require a prediction for every peer.
     Manual groups may exceed the policy, but the returned warnings state that.
-    Groups are numbered by matchup strength; PowerScore orders rows *within*
-    each tier for a familiar cheat sheet. ``ordered_ids`` is that displayed order.
+    PowerScore is the published seed order. Automatic tiers are contiguous
+    blocks of that order, while Compare checks every within-tier matchup and
+    chooses the clearest safe boundaries. ``ordered_ids`` is the displayed order.
 
     "Clear separation" requires the upper tier to be favored in at least 75%
     of cross-tier pairs, at least 50% to exceed a within-tier limit, and the
     average signed margin to reach half the margin limit. Other boundaries
-    explicitly describe overlap; a partition alone is not evidence of a gap.
+    explicitly describe overlap or a ranking/matchup order conflict; a partition
+    alone is not evidence of a gap.
     """
     by_id: dict[str, TierEntrant] = {}
     for entrant in entrants:
@@ -213,19 +215,17 @@ def build_tiers(
     review = {key: str(value.review_reason) for key, value in sorted(by_id.items()) if value.review_reason}
     eligible = [key for key in sorted(by_id) if key not in review]
     pairs = _read_pairs(eligible, predictions)
-    strength = {
-        key: math.fsum(_margin(pairs, key, other) for other in eligible if key != other) / max(1, len(eligible) - 1)
+    seed_strength = {
+        key: by_id[key].power_score if by_id[key].power_score is not None else -1.0
         for key in eligible
     }
-    ordered = sorted(eligible, key=lambda key: (-strength[key], *_display_key(by_id[key])))
-    groups = (
-        _automatic_groups(ordered, pairs, policy, strength)
-        if manual_groups is None
-        else _manual_groups(manual_groups, eligible)
-    )
-    # Mixed manual assignments may overlap in strength, but their numbered
-    # tiers must still have a consistent strongest-to-weakest field ordering.
-    groups.sort(key=lambda group: (-math.fsum(strength[key] for key in group) / len(group), tuple(sorted(group))))
+    ordered = sorted(eligible, key=lambda key: _display_key(by_id[key]))
+    if manual_groups is None:
+        groups = _automatic_groups(ordered, pairs, policy, seed_strength)
+    else:
+        # The supplied order is the operator's Tier column. A notes-only save
+        # must preserve suggested seeds even when Compare favors a lower seed.
+        groups = _manual_groups(manual_groups, eligible)
     groups = [tuple(sorted(group, key=lambda key: _display_key(by_id[key]))) for group in groups]
     tiers = []
     warnings = []
@@ -257,7 +257,10 @@ def build_tiers(
             and risky / len(margins) >= 0.5
             and average >= policy.max_expected_margin / 2
         )
-        label = "Clear separation" if clear else "Overlapping matchups; review the boundary"
+        if average < -1e-8:
+            label = "Ranking/matchup order conflict; review the boundary"
+        else:
+            label = "Clear separation" if clear else "Overlapping matchups; review the boundary"
         boundaries.append(
             f"Tier {index + 1} / Tier {index + 2}: {label}. Upper tier favored in {favored}/{len(margins)} "
             f"matchups, with an average expected edge of {average:.2f} goals; "

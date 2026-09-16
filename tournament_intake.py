@@ -56,6 +56,7 @@ from src.tournaments.event_team_matcher import (
     search_event_team_in_db,
 )
 from src.tournaments.gotsport_event_roster import (
+    LANDING_READS,
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
@@ -4543,7 +4544,7 @@ def _money(amount: float) -> str:
 
 
 def _seeding_probe_price() -> tuple[float, float]:
-    """What a probe spends: a landing page, its divisions, and their teams.
+    """What a probe spends: landing reads, its divisions, and their teams.
 
     A range because the term that dominates is teams per division, which is the
     quantity the probe is being run to discover in the first place.
@@ -4555,7 +4556,7 @@ def _seeding_probe_price() -> tuple[float, float]:
 
 
 def _probe_pages(teams_per_division: float) -> float:
-    return 1 + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
+    return LANDING_READS + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
 
 
 def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:

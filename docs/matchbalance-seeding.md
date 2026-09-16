@@ -24,7 +24,8 @@ Sell a complete event pack or a pack containing only the requested cohorts.
    pairing within each selected cohort.
 5. Review the tier sizes, boundary explanations, placement alternatives, and
    warnings. Edit the Tier column and **Save tier decisions** when tournament
-   knowledge calls for an adjustment. Add placement notes for the director.
+   knowledge calls for an adjustment. Manual saves preserve the entered tier
+   order; adding placement notes alone does not reorder teams.
    A manual combination exceeding the selected limits keeps a visible warning
    in the PDF. **Restore suggested tiers** removes that cohort's manual grouping.
 6. Click **Generate PDF pack**, preview the sheets, then **Download PDF pack**.
@@ -64,11 +65,13 @@ cutoffs. Equal expected scores can still have a high blowout risk. A group avera
 cannot conceal a badly overmatched team, and a chain of similar neighbors cannot
 join incompatible endpoints.
 
-Teams are ordered by average predicted signed margin against the cohort. A
-deterministic partition finds the fewest contiguous safe groups, then places
-boundaries at the largest natural breaks in that matchup-strength order. Lower
-within-group risk breaks any remaining tie. A singleton is explicitly labeled
-as having no peer in that tier. A **Boundary option** can only be the last
+PowerScore sets the suggested seed order. Compare evaluates every pair, and a
+deterministic partition finds the fewest contiguous safe groups in that order.
+Among equally small safe partitions, it places boundaries at the largest
+PowerScore breaks; lower within-group matchup risk breaks any remaining tie.
+This means Compare can split the rankings into safer flights but cannot silently
+place a lower-PowerScore team above a higher-PowerScore team. A singleton is
+explicitly labeled as having no peer in that tier. A **Boundary option** can only be the last
 suggested seed in the stronger tier or the first suggested seed in the weaker
 tier. It appears only when moving that one team leaves both resulting tiers
 within the matchup limits; interior teams are never suggested for movement.

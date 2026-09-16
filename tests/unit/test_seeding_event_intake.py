@@ -785,13 +785,13 @@ def test_a_full_walk_quotes_no_further_cost():
 def test_the_probe_price_is_the_arithmetic_it_claims_to_be():
     """Written out rather than derived, so a wrong page count fails here.
 
-    A landing page, then each probed division's own page, then one page per team
-    in them — priced across the teams-per-division spread the constant records.
+    Two landing reads, then each probed division's own page, then one page per
+    team in them — priced across the teams-per-division spread the constant records.
     """
     low, high = tournament_intake._seeding_probe_price()
 
-    assert low == pytest.approx((1 + 2 * (1 + 3.0)) * 0.004)
-    assert high == pytest.approx((1 + 2 * (1 + 9.0)) * 0.004)
+    assert low == pytest.approx((2 + 2 * (1 + 3.0)) * 0.004)
+    assert high == pytest.approx((2 + 2 * (1 + 9.0)) * 0.004)
 
 
 def test_the_probe_buttons_label_carries_that_price(app):
@@ -2028,7 +2028,9 @@ def test_a_bigger_pasted_roster_does_not_suppress_a_paid_walk(app):
     tournament_intake._write_event_roster_recovery(
         _roster(*[_team(index) for index in range(12)]), limit_groups=None
     )
-    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True}))
+    fake_st = _install(
+        app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True})
+    )
     _park_pasted_rows(fake_st, 40)
 
     _render_controls()
@@ -2044,7 +2046,9 @@ def test_another_events_roster_does_not_suppress_this_ones(app, tmp_path):
     tournament_intake._write_event_roster_recovery(
         _roster(*[_team(index) for index in range(3)]), limit_groups=None
     )
-    fake_st = _install(app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True}))
+    fake_st = _install(
+        app, _FakeSt(text={"seeding_event_url": EVENT_URL}, buttons={"_seeding_event_reload_walk": True})
+    )
     other = _roster(*[_team(index) for index in range(9)], event_id="49371")
     parsed_other, resolved_other = to_seeding_rows(other, {})
     tournament_intake._park_seeding_result((parsed_other, resolved_other), event_id="49371")

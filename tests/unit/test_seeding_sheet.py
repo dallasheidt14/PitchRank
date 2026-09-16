@@ -122,7 +122,7 @@ def test_non_active_ranking_status_uses_plain_customer_copy():
         "STX Cup 2026", _sheets(ratings), generated_on="2026-09-02", ranking_run="2026-08-31"
     )
 
-    assert "Limited recent results" in document
+    assert "Not yet ranked" in document
     assert "Not Enough Ranked Games" not in document
 
 
@@ -391,6 +391,7 @@ def test_multiple_boundary_options_use_an_or_list():
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
     analysis = _analysis(
+        borderline={"1": (2,)},
         boundaries=(
             "Tier 1 / Tier 2: Overlapping matchups; review the boundary. Upper tier favored in 3/5 "
             "matchups, with an average expected edge of 0.70 goals; 1/5 exceed the within-tier limits.",
@@ -405,13 +406,43 @@ def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
 
     assert "Tier 1 and Tier 2 are close" in document
     assert "Tier 2 has one team. Place it with the closest available group" in document
-    assert "A lower-tier team may compete well with an upper tier" in document
-    assert "Boundary option" in document
-    assert "Several projected matchups are too close to call" in document
+    assert "A lower-tier team may compete well with an upper tier" not in document
+    assert "Several projected matchups are too close to call" not in document
     assert "expected edge" not in document
     assert "within-tier limits" not in document
     assert "low outcome confidence" not in document
     assert "strength-order exception" not in document
+
+
+def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
+    analysis = _analysis(
+        borderline={},
+        boundaries=(
+            "Tier 1 / Tier 2: Overlapping matchups; review the boundary. Upper tier favored in 3/5 "
+            "matchups, with an average expected edge of 0.70 goals; 1/5 exceed the within-tier limits.",
+        ),
+    )
+
+    document = _render_tier(analysis)
+
+    assert "no automatic team move is recommended" in document
+    assert "use the team marked Boundary option" not in document
+
+
+def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
+    analysis = _analysis(
+        borderline={},
+        boundaries=(
+            "Tier 1 / Tier 2: Ranking/matchup order conflict; review the boundary. Upper tier favored in 0/1 "
+            "matchups, with an average expected edge of -4.00 goals; 1/1 exceed the within-tier limits.",
+        ),
+    )
+
+    document = _render_tier(analysis)
+
+    assert "PitchRank score and the matchup forecast disagree at the Tier 1 / Tier 2 line" in document
+    assert "Ranking/matchup order conflict" not in document
+    assert "use the team marked Boundary option" not in document
 
 
 def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():

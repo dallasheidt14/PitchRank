@@ -147,8 +147,9 @@ _ZENROWS_SIDE_STATUSES = frozenset({408, 422, 425, 429, 500, 502, 503, 504})
 _EVENT_PAGE_READY = 'a[href*="group="]'
 _SCHEDULE_READY = "table"
 # The landing page is read this many times and the division ids unioned, because
-# one read can arrive before the list has finished rendering.
-_LANDING_READS = 2
+# one read can arrive before the list has finished rendering. The intake UI uses
+# this public constant when it quotes the paid probe's page cost.
+LANDING_READS = 2
 _TEAM_COUNT = re.compile(r"\b[0-9]{1,2}\s+teams?\b", re.IGNORECASE)
 
 
@@ -1444,7 +1445,7 @@ def _read_group_ids(
     seen: set[str] = set()
     reads: list[frozenset[str]] = []
     ordered: list[str] = []
-    for _ in range(_LANDING_READS):
+    for _ in range(LANDING_READS):
         html = fetch(f"{EVENT_BASE}/{event_id}")
         if landing_pages is not None:
             landing_pages.append(html)

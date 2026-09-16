@@ -189,10 +189,30 @@ def test_review_entrants_are_retained_explicitly_not_treated_as_weakest():
     assert result.review == {"sparse": "Only two scored games", "unknown": "No published ranking"}
 
 
-def test_predictions_override_powerscore_order_between_tiers():
+def test_powerscore_remains_the_seed_order_when_compare_disagrees():
     roster = [TierEntrant("a", "Higher score", 0.7), TierEntrant("b", "Stronger prediction", 0.5)]
     result = build_tiers(roster, {("a", "b"): prediction(-4, 0.7)})
-    assert result.ordered_ids == ("b", "a")
+    assert result.ordered_ids == ("a", "b")
+    assert result.boundaries == (
+        "Tier 1 / Tier 2: Ranking/matchup order conflict; review the boundary. Upper tier favored in 0/1 "
+        "matchups, with an average expected edge of -4.00 goals; 1/1 exceed the within-tier limits.",
+    )
+    assert result.borderline == {}
+    assert any("strength-order exception" in warning for warning in result.warnings)
+
+
+def test_every_automatic_tier_preserves_monotonic_powerscore_order():
+    ids = ["a", "b", "c", "d", "e"]
+    roster = [
+        TierEntrant(key, f"Team {key}", score)
+        for key, score in zip(ids, [0.9, 0.8, 0.7, 0.6, 0.5], strict=True)
+    ]
+    result = build_tiers(roster, matrix(ids, {key: index for index, key in enumerate(ids)}))
+
+    assert result.ordered_ids == tuple(ids)
+    assert [next(team.power_score for team in roster if team.entrant_id == key) for key in result.ordered_ids] == [
+        0.9, 0.8, 0.7, 0.6, 0.5,
+    ]
 
 
 def test_powerscore_orders_teams_within_the_same_tier():
@@ -251,10 +271,22 @@ def test_manual_unsafe_merge_reports_risk_and_named_pair():
     )
 
 
-def test_manual_tiers_are_numbered_by_matchup_strength():
+def test_manual_tiers_preserve_the_operators_explicit_order():
     result = build_tiers(entrants(["a", "b"]), {("a", "b"): prediction(4)}, manual_groups=[["b"], ["a"]])
-    assert result.ordered_ids == ("a", "b")
+    assert result.ordered_ids == ("b", "a")
     assert [tier.number for tier in result.tiers] == [1, 2]
+    assert any("strength-order exception" in warning for warning in result.warnings)
+
+
+def test_saving_unchanged_suggested_groups_preserves_powerscore_order():
+    roster = [TierEntrant("a", "Higher score", 0.7), TierEntrant("b", "Stronger prediction", 0.5)]
+    predictions = {("a", "b"): prediction(-4, 0.7)}
+    suggested = build_tiers(roster, predictions)
+
+    saved = build_tiers(roster, predictions, manual_groups=[tier.entrant_ids for tier in suggested.tiers])
+
+    assert saved == suggested
+    assert saved.ordered_ids == ("a", "b")
 
 
 def test_manual_nonhierarchical_assignment_reports_order_exception():

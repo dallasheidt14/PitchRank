@@ -183,7 +183,7 @@ def test_three_scored_games_is_an_explicit_floor_on_both_sources(published, load
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
     assert ("0" in result.review) is reviewed
     if reviewed:
-        assert result.review["0"] == "Limited recent results. Use club input or recent scores."
+        assert result.review["0"] == "Fewer than 3 scored games. Use recent results or club input."
 
 
 @pytest.mark.parametrize(
@@ -227,10 +227,19 @@ def test_missing_or_invalid_display_score_requires_review_not_default_strength(s
     assert result.review["0"] == "No current PitchRank score. Use recent results or club input."
 
 
-@pytest.mark.parametrize("change_team", [{"rank_in_cohort_final": None}, {"status": "Inactive"}])
-def test_missing_or_inactive_ranking_uses_plain_recent_results_guidance(change_team):
-    result = analyze_pack(_pack(change_team=change_team), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert result.review["0"] == "Limited recent results. Use club input or recent scores."
+def test_preliminary_score_without_a_published_rank_is_named_clearly():
+    result = analyze_pack(_pack(change_team={"rank_in_cohort_final": None}), ROWS, RESOLVED, {})[
+        ("u12", "Male")
+    ]
+    assert result.review["0"] == (
+        "Not yet ranked. PitchRank has a preliminary score but no published U12 Boys ranking. "
+        "Use recent results or club input."
+    )
+
+
+def test_inactive_ranking_is_named_clearly():
+    result = analyze_pack(_pack(change_team={"status": "Inactive"}), ROWS, RESOLVED, {})[("u12", "Male")]
+    assert result.review["0"] == "No current ranking. Use recent results or club input."
 
 
 def test_known_duplicate_reason_is_friendly_and_every_roster_row_stays_visible():
@@ -273,6 +282,41 @@ def test_saved_legacy_unavailable_reason_uses_plain_recent_results_guidance(reas
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert result.review["0"] == "Limited recent results. Use club input or recent scores."
+
+
+@pytest.mark.parametrize(
+    "unavailable,rank,expected",
+    [
+        (
+            "No published cohort rank; placement review required.",
+            None,
+            "Not yet ranked. PitchRank has a preliminary score but no published U12 Boys ranking. "
+            "Use recent results or club input.",
+        ),
+        (
+            "No scored games in the Compare lookback window; placement review required.",
+            20,
+            "No recent Compare results. Use recent results or club input.",
+        ),
+    ],
+)
+def test_unavailable_team_uses_saved_rating_to_explain_the_review(unavailable, rank, expected):
+    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
+    batch.teams["u12|Male"].pop("0")
+    batch.predictions["u12|Male"] = {}
+    batch.unavailable["u12|Male"]["0"] = unavailable
+    ratings = {
+        IDS[0]: {
+            "team_name": "Preliminary Team",
+            "power_score_final": 0.55,
+            "rank_in_cohort_final": rank,
+        },
+    }
+    pack = make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, ratings)
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.review["0"] == expected
 
 
 def test_ambiguous_legacy_ranking_error_preserves_identity_and_recent_results_actions():

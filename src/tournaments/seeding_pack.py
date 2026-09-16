@@ -36,6 +36,7 @@ _LEGACY_UNAVAILABLE_REASONS = {
         "Limited recent results. Use club input or recent scores."
     ),
 }
+_LIMITED_RESULTS_REASON = "Limited recent results. Use club input or recent scores."
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -203,15 +204,37 @@ def _published_score(team: dict[str, Any]) -> float | None:
     return float(score)
 
 
+def _not_yet_ranked_reason(row: RosterRow) -> str:
+    label = cohort_label(cohort_key(row.section_age_group, row.section_gender))
+    return (
+        f"Not yet ranked. PitchRank has a preliminary score but no published {label} ranking. "
+        "Use recent results or club input."
+    )
+
+
 def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None, identity: str | None) -> str | None:
     if not _valid_cohort(row.section_age_group, row.section_gender):
         return "Confirm the listed age group and gender before seeding."
     if not identity:
         return "Confirm the club, team name, and age group before seeding."
     if unavailable:
-        return _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
-    if not team or team.get("rank_in_cohort_final") is None or team.get("status") == "Inactive":
-        return "Limited recent results. Use club input or recent scores."
+        reason = _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
+        if reason == _LIMITED_RESULTS_REASON:
+            if team.get("status") == "Inactive":
+                return "No current ranking. Use recent results or club input."
+            if _published_score(team) is not None and team.get("rank_in_cohort_final") is None:
+                return _not_yet_ranked_reason(row)
+            if _published_score(team) is not None and team.get("rank_in_cohort_final") is not None:
+                return "No recent Compare results. Use recent results or club input."
+        return reason
+    if not team:
+        return _LIMITED_RESULTS_REASON
+    if team.get("status") == "Inactive":
+        return "No current ranking. Use recent results or club input."
+    if team.get("rank_in_cohort_final") is None:
+        if _published_score(team) is not None:
+            return _not_yet_ranked_reason(row)
+        return "No current PitchRank score. Use recent results or club input."
     if _published_score(team) is None:
         return "No current PitchRank score. Use recent results or club input."
     expected_gender = "M" if row.section_gender == "Male" else "F"
@@ -229,7 +252,7 @@ def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None
         value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0 for value in counts
     )
     if games < MINIMUM_SCORED_GAMES:
-        return "Limited recent results. Use club input or recent scores."
+        return "Fewer than 3 scored games. Use recent results or club input."
     return None
 
 
@@ -255,11 +278,14 @@ def analyze_pack(
         for row in cohort_rows:
             entrant_id = str(row.source_index)
             team = teams.get(entrant_id, {})
+            identity = identities[entrant_id]
+            supplemental = pack["ratings"].get(str(identity), {}) if identity else {}
+            evidence = {**supplemental, **team}
             entrants.append(TierEntrant(
                 entrant_id=entrant_id,
-                team_name=str(team.get("team_name") or row.team_name_stripped),
-                power_score=_published_score(team),
-                review_reason=_review_reason(row, team, unavailable.get(entrant_id), identities[entrant_id]),
+                team_name=str(evidence.get("team_name") or row.team_name_stripped),
+                power_score=_published_score(evidence),
+                review_reason=_review_reason(row, evidence, unavailable.get(entrant_id), identity),
             ))
         analyses[tuple(key.split("|", 1))] = build_tiers(
             entrants, snapshot_predictions[key], policy=policy, manual_groups=pack.get("manual_groups", {}).get(key),
