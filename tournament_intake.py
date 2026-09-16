@@ -4603,10 +4603,20 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     # Team pages are most of an event's bill, so a sample that found no team
     # prices nothing — which is the normal state of an event being seeded before
     # its schedules go up, not a rare one.
-    if not walked or not teams:
+    if not walked or not teams or (u10_plus_only and not sampled):
         return f"{head} That is not enough to price the rest of the event from."
 
-    pages = LANDING_READS + found + found * teams / walked
+    if u10_plus_only:
+        # The probe can pay for a prefix of younger division pages before it
+        # reaches its two retained U10+ samples. Those skipped divisions had no
+        # team-page cost and must not dilute the sampled teams-per-division rate.
+        # Treat every unvisited division as eligible: its label is still unknown,
+        # and age-sorted events put the remaining U10+ divisions after that prefix.
+        eligible_divisions = sampled + max(found - walked, 0)
+        team_pages = eligible_divisions * teams / sampled
+    else:
+        team_pages = found * teams / walked
+    pages = LANDING_READS + found + team_pages
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (

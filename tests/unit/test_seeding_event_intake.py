@@ -823,32 +823,27 @@ def test_no_retry_is_offered_while_the_lookups_are_healthy(app):
 # -------- the price the operator decides on -------------------------------
 
 
-def test_the_caption_prices_the_whole_event_not_the_sample():
-    """The raw checked count captures both age mix and teams per kept division.
+def test_the_caption_prices_remaining_ranked_divisions_from_the_retained_sample():
+    """Skipped younger divisions must not dilute the U10+ team-page estimate.
 
-    This sample checked four raw divisions to reach two U10+ groups with 11
-    teams. Dividing by the two kept groups would charge team pages to every
-    younger division even though their team pages are deliberately skipped.
+    This is the shape of event 55368's paid probe: seven U7-U9 divisions were
+    checked before two retained U10 divisions supplied the 12-team sample. The
+    unvisited suffix is conservatively treated as ranked because its labels have
+    not been read yet.
     """
     caption = tournament_intake._seeding_probe_caption(
         _probe(
-            divisions_found=40,
-            divisions_walked=4,
-            divisions_skipped=2,
+            divisions_found=47,
+            divisions_walked=9,
+            divisions_skipped=7,
             divisions_sampled=2,
-            teams=11,
+            teams=12,
         )
     )
 
-    pages = tournament_intake.LANDING_READS + 40 + 40 * 11 / 4
-    low = pages * 0.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
-    high = pages * 1.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
-    assert f"{tournament_intake._money(low)}-{tournament_intake._money(high)}" in caption
-    wrong_pages = tournament_intake.LANDING_READS + 40 + 40 * 11 / 2
-    wrong_low = wrong_pages * 0.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
-    wrong_high = wrong_pages * 1.5 * tournament_intake._SEEDING_EVENT_PAGE_COST_USD
-    assert f"{tournament_intake._money(wrong_low)}-{tournament_intake._money(wrong_high)}" not in caption
-    assert low < high, "the range reads low to high"
+    assert r"\$0.58-\$1.73" in caption
+    assert r"\$0.22-\$0.67" not in caption, "nine checked pages are not nine team-bearing divisions"
+    assert r"\$0.66-\$1.99" not in caption, "the seven known-younger divisions buy no team pages"
 
 
 def test_a_probe_that_found_no_team_prices_nothing():
