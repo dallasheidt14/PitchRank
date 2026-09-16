@@ -1249,3 +1249,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: teams data, not code; surfaced by `data/exports/weekly_age_recheck.py` (its collision check) and reachable through the `merging-duplicate-teams` skill
 - **Why**: 512 teams as of the 2026-09-16 re-check are held from an otherwise-confirmed age-group correction because a team with the same name and gender already sits in the target cohort. Moving one onto the other would put two identical teams on one board, so the tool holds them; leaving them holds a known-wrong cohort instead. Both readings point at the same cause -- one copy of a real duplicate pair was mislabelled, which is what kept the pair apart and out of reach of the fuzzy duplicate merge (itself disabled: `FUZZY_AUTO_MERGE_ENABLED: 'false'` in `data-hygiene-weekly.yml`). The held list carries the colliding team ids, so the pairs are already identified; what needs deciding is merge direction and which id survives.
 - **Noted**: 2026-09-16
+
+### Bring the age-group correction tools into the repo, with tests
+
+- **ID**: IMP-242
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `data/exports/fix_band_cohorts.py` (`apply_plan`, `name_contradiction`, `attach_fixture_evidence`) and `data/exports/weekly_age_recheck.py` (`pending_population`); both gitignored, plus the Windows task "PitchRank Weekly Age-Group Recheck" that runs the second every Tuesday
+- **Why**: These two wrote `teams.age_group` for 12,083 teams on 2026-09-15/16 and carry the plan/apply/revert path any later batch will reuse, but they sit under `data/` so no CI job has ever imported them. Their correctness rests on parsing rules that fail silently when wrong — IMP-240 is exactly that shape, and it reached a live write. A scheduled task now depends on one of them, so a break is invisible until a week of reports goes missing. Moving them to `scripts/` with unit tests over the decision helpers (band forms, contradiction detection, verdict thresholds) puts them behind the same gate as everything else they write to.
+- **Noted**: 2026-09-16
