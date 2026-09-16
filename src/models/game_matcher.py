@@ -813,8 +813,8 @@ class GameHistoryMatcher:
         Now prioritizes DIRECT ID matching first.
 
         ``state_code`` is forwarded to ``_fuzzy_match_team`` so location-scoring
-        tiebreakers see the provider team's state (used by SincSports discovery).
-        Defaults to ``None`` for backward compatibility with game-import callers.
+        tiebreakers see the provider team's state. Defaults to ``None`` for
+        callers that carry no state.
 
         Returns:
             Dict with:
@@ -860,10 +860,8 @@ class GameHistoryMatcher:
 
         # Strategy 3: Fuzzy match against master teams
         if team_name and age_group and gender:
-            # Only forward state_code when provided — other matcher subclasses
-            # (Affinity-WA, Playmetrics, TGS) override _fuzzy_match_team with
-            # signatures that don't accept the kwarg. SincSports discovery is
-            # the only caller that passes state_code today.
+            # Only forward state_code when provided — some subclasses override
+            # _fuzzy_match_team with a signature that has no state_code kwarg.
             if state_code is not None:
                 fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name, state_code=state_code)
             else:
