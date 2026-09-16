@@ -105,6 +105,19 @@ ROOT = Path(__file__).resolve().parents[2]
         ("10 (U16) NBTSA Bulldogs G", {2010}),
         ("2015 (11U) SGCSA Strikers White", {2015}),
         ("13 U14 WCWAA Elite", {2013}),
+        # The band is not required. GotSport's Carolinas rows open with the year
+        # and go straight to the club, and that year is the only thing separating
+        # one cohort from the next in those names.
+        ("13 WUSC Revolution Blue", {2013}),
+        ("09 WUSC Revolution", {2009}),
+        ("12 PGSA Stars Boys", {2012}),
+        ("09 Crows", {2009}),
+        # A number that cannot be a birth year is left alone by the range, which
+        # is what keeps a season label out.
+        ("25 BAC Shooting Stars", set()),
+        ("26 GH Las Ladybugs", set()),
+        # A leading pair is a band and belongs to the band rule, not this one.
+        ("24/25 U12B Thunderbirds", set()),
         # Only the opening position separates a cohort from a squad number that
         # happens to sit beside a band: Elite 11 is the squad, 2008 the cohort.
         ("Elite S.C. 2008 Elite 11 U17", {2008}),
@@ -155,6 +168,13 @@ def test_birth_years_notation(name, expected):
         # One cohort written two ways is not a conflict.
         ("12 (U14) CCFC Blue", "12 (U14) CCFC Blue", False),
         ("2015 (11U) SGCSA Strikers White", "15 (U11) SGCSA Strikers White", False),
+        # u19 holds two birth years, so the stored cohort agreeing proves nothing
+        # and only the names can separate these.
+        ("09 WUSC Revolution", "2007 WUSC Revolution", True),
+        # The same squad written by two providers, one stating a year and one a
+        # band that contains it.
+        ("13 WUSC Revolution Blue", "12-13 (14U) WUSC Revolution Blue", False),
+        ("2014 WUSC Revolution", "13-14 (13U) WUSC Revolution", False),
     ],
 )
 def test_birth_years_conflict(name_a, name_b, conflict):

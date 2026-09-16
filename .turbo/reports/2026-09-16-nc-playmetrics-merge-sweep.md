@@ -37,7 +37,19 @@ to 46 and the birth-year class from 12 to 0. It is anchored to the start of the
 name, because only the opening position separates a cohort from the other things
 written in front of a band: a squad number (`Elite S.C. 2008 Elite 11 U17`), a
 season (`Spring 25 U12 Boys`), a registration window (`8/1/17-7/31/18 BU9`) and a
-club founding year (`Worthington United 94 U13 Boys`).
+club founding year (`Worthington United 94 U13 Boys`). The band is not required
+either: GotSport's Carolinas rows open with the year and go straight to the club
+(`13 WUSC Revolution Blue`), so a leading two-digit number in the birth-year range
+is read as the cohort wherever it opens a name. A leading season (`25 BAC Shooting
+Stars`) falls outside that range and is dropped by it.
+
+**The scope above is one import; the duplication is state-wide.** Clustering every
+live NC team on the squad identity in its name, with the stored age group and
+gender held equal and cohorts judged from the names, finds 316 clusters covering
+332 rows. 259 of them contain no row from this import at all, and the largest
+group is GotSport against SincSports at 187: the two providers hold the same NC
+clubs under different naming conventions. These are candidates, not verified
+duplicates.
 
 **The club precondition refuses this whole class on a string comparison.** 75 of the
 77 candidates were refused as `clubs differ` before a single fixture was read,
