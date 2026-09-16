@@ -1,7 +1,7 @@
 # MatchBalance Website Lead Capture — Design
 
 - **Date**: 2026-09-16
-- **Status**: draft, awaiting review
+- **Status**: approved 2026-09-16; plan at .turbo/plans/matchbalance-website-lead-capture.md
 - **Surface**: the public Next.js site (`frontend/`). The Streamlit Seeding intake
   (`tournament_intake.py`, `src/tournaments/*`) is untouched.
 - **Branch**: `feat/matchbalance-site`
@@ -31,8 +31,10 @@ not run the intake, take payment, or give directors an account.
 ## Page: `/matchbalance`
 
 `frontend/app/matchbalance/page.tsx`, a server component cloned from
-`frontend/app/report-card/page.tsx`: static `metadata` with canonical, Open Graph and
-Twitter fields; `revalidate = 3600`; no React Query. Add the route to `staticPages` in
+`frontend/app/report-card/page.tsx`: static `metadata` with canonical and Open Graph
+title/description only, as that page does — no Twitter block and no image, because the
+only image is a portrait Letter page that a 2:1 card would crop; `revalidate = 3600`; no
+React Query. Add the route to `staticPages` in
 `frontend/app/sitemap.ts` and to `renderCoreContent()` in
 `frontend/scripts/generate-llms-txt.ts`, then regenerate `public/llms.txt`.
 
@@ -50,8 +52,9 @@ Sections, in order:
    free sample cohort; receive one fixed price for the event; receive the package and
    one update.
 5. **Pricing.** The tables below, verbatim.
-6. **FAQ.** Rendered as `<details>` blocks with a parameterised FAQ JSON-LD component
-   (model: `frontend/components/BlogFAQSchema.tsx`). Covers: which ages are supported,
+6. **FAQ.** Rendered as `<details>` blocks with FAQ JSON-LD from the existing
+   `frontend/components/BlogFAQSchema.tsx`, which is already generic and takes plain-string
+   question/answer pairs. Covers: which ages are supported,
    what happens to teams PitchRank has no current rank for, turnaround, what the update
    covers, whether it works with GotSport events, and what MatchBalance does not do.
 7. **Inquiry form.** See below.
@@ -118,20 +121,30 @@ attached." On error the form stays filled and shows the message.
 ## API route: `POST /api/matchbalance-inquiry`
 
 `frontend/app/api/matchbalance-inquiry/route.ts`, modelled on `app/api/feedback/route.ts`
-for the guards and on `app/api/reports/team-card/route.ts:184-238` for the save plus
-non-blocking sends.
+for the guards and their order, and on `app/api/track-team-view/route.ts:39-45` for the
+awaited service-role save that returns 500 on failure. (The report-card route's
+fire-and-forget insert cannot express that, so it is not the model.)
 
-1. `checkRateLimit('matchbalance:' + ip, 5, 60 * 60 * 1000)` → 429.
-2. `parseJsonBody` → 400 on bad JSON.
-3. Honeypot filled → 200, do nothing. Fill time under 2000 ms → 200, do nothing.
+1. `parseJsonBody` → 400 on bad JSON or a non-object body.
+2. Honeypot filled → 200, do nothing.
+3. `openedAt` and `submittedAt` both required and parseable → else 400. Fill time
+   (`submittedAt - openedAt`, both from the client so clock skew cannot drop a real
+   lead) under 2000 ms → 200, do nothing.
 4. Validate: required strings with length caps (name 120, organization 160, tournament
    200, event dates 120, notes 2000), email via `isValidEmail`, team count an integer
-   0–5000 when present, bracket date parseable when present, event link an `http(s)` URL
-   under 500 chars when present, request type one of `sample` or `quote`. Any failure →
-   400 with a plain message.
-5. Insert one row into `matchbalance_leads` with `createServiceSupabase()`. Failure → 500;
-   nothing else runs.
-6. Fire the two emails without awaiting them; log failures. Return 201 `{ ok: true }`.
+   0–5000 when present, bracket date `YYYY-MM-DD` and parseable when present, event link
+   an `http(s)` URL under 500 chars when present, request type one of `sample` or
+   `quote`. "Present" means not `undefined`, `null` or blank; the form omits blank
+   optionals and the route treats `""` the same way. Any failure → 400 with a plain
+   message.
+5. `checkRateLimit('matchbalance:' + ip, 5, 60 * 60 * 1000)` → 429. It runs last, as in
+   the feedback route, so only well-formed submissions consume a slot and a director
+   correcting a typo is not locked out.
+6. Insert one row into `matchbalance_leads` with `createServiceSupabase()`, awaited.
+   Failure → 500; nothing else runs.
+7. Await both email sends (they never throw; each returns `false` on failure, which is
+   logged). Return 201 `{ ok: true }`. Awaiting matches `/api/feedback`, and an unawaited
+   send on Vercel can be cut off when the response returns.
 
 Auth: none, deliberately. All `/api` routes are outside the middleware matcher, so this
 route is public by construction, and the guards above are its whole defence.
