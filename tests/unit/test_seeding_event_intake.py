@@ -1426,6 +1426,7 @@ def test_every_same_cohort_duplicate_match_is_flagged_without_dropping_a_row():
 
     assert len(frame) == 3
     assert frame["Team"].tolist() == ["Team A", "Team B", "Team C"]
+    assert frame["Status"].tolist() == ["Pick one", "Pick one", "GotSport ID"]
     assert frame.loc[0, "Review"] == frame.loc[1, "Review"]
     assert "rows 1, 2" in frame.loc[0, "Review"]
     assert frame.loc[2, "Review"] == ""
@@ -1447,6 +1448,28 @@ def test_an_override_that_creates_a_same_cohort_duplicate_is_flagged_on_both_row
     )
 
     assert frame["Review"].str.contains("same PitchRank team").tolist() == [True, True]
+
+
+def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique(monkeypatch):
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster("Male U14\nClub A\tTeam A\tTX\nClub B\tTeam B\tTX")
+    resolved = tuple(
+        ResolvedTeam(source_index=index, status="gotsport_id", team_id_master="master-a")
+        for index in range(2)
+    )
+    fake_st = _install(monkeypatch, _FakeSt())
+
+    _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(parsed, resolved, {})
+    assert [row.source_index for row in outstanding] == [0, 1]
+    assert ("Still open", 2) in fake_st.metrics
+
+    _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
+        parsed,
+        resolved,
+        {1: {"team_id_master": "master-b", "team_name": "Corrected team"}},
+    )
+    assert outstanding == []
 
 
 def test_the_same_pitchrank_team_in_different_cohorts_is_not_flagged_as_a_duplicate():

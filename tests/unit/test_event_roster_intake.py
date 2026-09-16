@@ -122,6 +122,25 @@ def test_a_scraped_row_carries_the_division_cohort_and_no_club():
     assert row.requested_flight == ""
 
 
+def test_a_scraped_trailing_star_is_a_play_up_marker_and_not_part_of_the_registered_name():
+    parsed, _ = to_seeding_rows(_roster(_team(0, team_name="Team 0*")), {})
+
+    row = parsed.rows[0]
+    assert row.team_name_raw == "Team 0*"
+    assert row.team_name_stripped == "Team 0"
+    assert row.registered_name == "Team 0"
+    assert row.has_star_marker is True
+
+
+def test_a_scraped_internal_asterisk_remains_literal():
+    parsed, _ = to_seeding_rows(_roster(_team(0, team_name="A*B Academy")), {})
+
+    row = parsed.rows[0]
+    assert row.team_name_stripped == "A*B Academy"
+    assert row.registered_name == "A*B Academy"
+    assert row.has_star_marker is False
+
+
 def test_event_division_is_neutral_metadata_and_is_sanitized():
     parsed, _ = to_seeding_rows(
         _roster(_team(0, division_label=" U13 Gold\x1b[2J ")),

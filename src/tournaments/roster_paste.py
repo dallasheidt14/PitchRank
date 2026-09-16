@@ -10,11 +10,12 @@ Two rules the shape of the source forces:
   a U13 section while its own band reads U12, with nothing marking it as a
   play-up. The cohort token inside a team name is recorded by the resolver as
   a hint and never decides placement here.
-- **Markers are split off, not discarded.** A trailing ``-c`` and an embedded
-  ``*`` appear on the roster and nowhere in our data; eight of a measured 105
-  teams only matched once they were removed. ``*`` reads as playing up on the
-  evidence so far, ``-c`` has no established meaning, so both survive as flags
-  for later analysis rather than being interpreted now.
+- **Markers are split off, not discarded.** A trailing ``-c`` and a trailing
+  ``*`` (immediately before ``-c`` when both occur) appear on the roster and
+  nowhere in our data; eight of a measured 105 teams only matched once they
+  were removed. ``*`` reads as playing up on the evidence so far, ``-c`` has no
+  established meaning, so both survive as flags for later analysis rather than
+  being interpreted now. An asterisk inside a name remains part of the name.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 
 from src.tournaments.seeding_optimizer import normalize_age_group
 
-__all__ = ["ParsedRoster", "RosterRow", "parse_roster"]
+__all__ = ["ParsedRoster", "RosterRow", "parse_roster", "split_roster_markers"]
 
 _GENDER_WORDS = {
     "male": "Male",
@@ -61,7 +62,10 @@ class RosterRow:
     @property
     def registered_name(self) -> str:
         """Tournament-facing name with only the separate play-up marker removed."""
-        return self.team_name_raw.replace("*", "").strip() or self.team_name_stripped
+        if self.has_star_marker:
+            suffix = "-c" if self.has_c_marker else ""
+            return f"{self.team_name_stripped}{suffix}".strip()
+        return self.team_name_raw.strip() or self.team_name_stripped
 
 
 @dataclass(frozen=True)
@@ -78,12 +82,15 @@ def _parse_heading(line: str) -> tuple[str, str] | None:
     return normalize_age_group(age_match.group(1)), _GENDER_WORDS[gender_match.group(1).lower()]
 
 
-def _split_markers(team_name: str) -> tuple[str, bool, bool]:
-    has_star = "*" in team_name
-    stripped = team_name.replace("*", "").strip()
+def split_roster_markers(team_name: str) -> tuple[str, bool, bool]:
+    """Remove only the supported trailing roster markers used for matching."""
+    stripped = team_name.strip()
     has_c = stripped.endswith("-c")
     if has_c:
         stripped = stripped[: -len("-c")].strip()
+    has_star = stripped.endswith("*")
+    if has_star:
+        stripped = stripped[:-1].strip()
     return stripped, has_star, has_c
 
 
@@ -127,7 +134,7 @@ def parse_roster(text: str) -> ParsedRoster:
         team_name_raw = cells[1].strip()
         state = cells[2].strip() if len(cells) > 2 else ""
         requested_flight = cells[3].strip() if len(cells) > 3 else ""
-        stripped, has_star, has_c = _split_markers(team_name_raw)
+        stripped, has_star, has_c = split_roster_markers(team_name_raw)
         rows.append(
             RosterRow(
                 source_index=len(rows),

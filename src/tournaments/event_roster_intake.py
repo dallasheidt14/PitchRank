@@ -29,7 +29,7 @@ import time
 from collections.abc import Mapping, Sequence
 
 from src.tournaments.gotsport_event_roster import EventRoster, printable_text, redact_secret
-from src.tournaments.roster_paste import ParsedRoster, RosterRow
+from src.tournaments.roster_paste import ParsedRoster, RosterRow, split_roster_markers
 from src.tournaments.roster_resolver import (
     ExactNameLookup,
     GotsportSearch,
@@ -75,6 +75,7 @@ def to_seeding_rows(
 
     for team in roster.teams:
         name = printable_text(team.team_name)
+        stripped, has_star, has_c = split_roster_markers(name)
         rows.append(
             RosterRow(
                 source_index=team.source_index,
@@ -83,9 +84,9 @@ def to_seeding_rows(
                 state="",
                 section_age_group=team.age_group,
                 section_gender=team.gender,
-                team_name_stripped=name,
-                has_star_marker=False,
-                has_c_marker=False,
+                team_name_stripped=stripped,
+                has_star_marker=has_star,
+                has_c_marker=has_c,
                 listed_division=printable_text(team.division_label),
             )
         )

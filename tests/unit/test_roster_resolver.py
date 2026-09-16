@@ -15,6 +15,7 @@ from src.tournaments.roster_resolver import (
     build_search_params,
     make_exact_name_lookup,
     make_provider_id_lookup,
+    make_team_details_lookup,
     parse_manual_reference,
     resolve_manual_reference,
     resolve_roster,
@@ -426,8 +427,10 @@ class _FakeQuery:
 
     def __init__(self, rows):
         self._rows = list(rows)
+        self._selected: tuple[str, ...] | None = None
 
-    def select(self, *_args, **_kwargs):
+    def select(self, fields, *_args, **_kwargs):
+        self._selected = tuple(field.strip() for field in fields.split(","))
         return self
 
     def eq(self, column, value):
@@ -458,8 +461,12 @@ class _FakeQuery:
         return self
 
     def execute(self):
+        rows = self._rows
+        if self._selected is not None:
+            rows = [{field: row.get(field) for field in self._selected} for row in rows]
+
         class _Response:
-            data = self._rows
+            data = rows
 
         return _Response()
 
@@ -499,6 +506,34 @@ def test_exact_name_lookup_treats_backslash_percent_and_underscore_as_literals()
     )
 
     assert make_exact_name_lookup(client)(literal_name, "u14", "Male") == ["literal"]
+
+
+def test_unique_exact_name_uses_full_state_when_state_code_is_missing():
+    row = _row("Male U14\nA Club\tA Team\tTX")
+    client = _FakeClient(
+        teams=[{
+            "team_id_master": "master-4",
+            "team_name": "A Team",
+            "club_name": "A Club",
+            "age_group": "u14",
+            "gender": "Male",
+            "state_code": None,
+            "state": "California",
+            "is_deprecated": False,
+        }]
+    )
+
+    resolved = resolve_row(
+        row,
+        gotsport_search=_no_gotsport_hits,
+        lookup_provider_id=_no_local_id,
+        lookup_exact_name=lambda *_args: ["master-4"],
+        lookup_team_details=make_team_details_lookup(client),
+    )
+
+    assert resolved.status == "review"
+    assert resolved.review_reason == "State conflict: submitted 'TX', candidate 'CA'."
+    assert resolved.candidates[0]["state"] == "California"
 
 
 def test_provider_id_lookup_ignores_the_same_id_under_another_provider():

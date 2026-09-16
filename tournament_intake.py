@@ -109,7 +109,7 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
-from src.tournaments.seeding_pack import pack_matches
+from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches
 from src.tournaments.seeding_run_store import (
     SeedingRun,
 )
@@ -4267,7 +4267,7 @@ def _seeding_result_frame(
 ) -> pd.DataFrame:
     """One row per roster team, in the order the director listed them."""
     by_index = {item.source_index: item for item in resolved}
-    duplicates = _seeding_duplicate_rows(parsed, resolved, overrides)
+    duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
     records = []
     for row in parsed.rows:
         item = by_index[row.source_index]
@@ -4275,6 +4275,7 @@ def _seeding_result_frame(
         duplicate_indices = duplicates.get(row.source_index, ())
         review_notes = [item.review_reason] if item.review_reason else []
         if duplicate_indices:
+            status_key = "review"
             numbers = ", ".join(str(index + 1) for index in duplicate_indices)
             review_notes.append(
                 f"Roster rows {numbers} resolve to the same PitchRank team in this cohort. "
@@ -4296,32 +4297,6 @@ def _seeding_result_frame(
             }
         )
     return pd.DataFrame(records)
-
-
-def _seeding_duplicate_rows(
-    parsed: ParsedRoster,
-    resolved: Sequence[ResolvedTeam],
-    overrides: Mapping[int, dict[str, Any]],
-) -> dict[int, tuple[int, ...]]:
-    """Map every same-cohort duplicate match to all roster rows sharing it."""
-    by_index = {item.source_index: item for item in resolved}
-    groups: dict[tuple[str, str, str], list[int]] = {}
-    for row in parsed.rows:
-        item = by_index.get(row.source_index)
-        if item is None or not row.section_age_group or not row.section_gender:
-            continue
-        _, _, team_id_master = _seeding_row_outcome(row, item, overrides)
-        if not team_id_master:
-            continue
-        key = (row.section_age_group, row.section_gender, team_id_master)
-        groups.setdefault(key, []).append(row.source_index)
-
-    return {
-        source_index: tuple(indices)
-        for indices in groups.values()
-        if len(indices) > 1
-        for source_index in indices
-    }
 
 
 def _render_seeding_override(
@@ -4886,10 +4861,15 @@ def _render_seeding_progress_metrics(
     ``_SEEDING_NEEDS_DECISION`` about which teams get an override box.
     """
     by_index = {item.source_index: item for item in resolved}
+    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
     outstanding = [
         row
         for row in parsed.rows
-        if by_index[row.source_index].status in _SEEDING_NEEDS_DECISION and row.source_index not in overrides
+        if (
+            by_index[row.source_index].status in _SEEDING_NEEDS_DECISION
+            and row.source_index not in overrides
+        )
+        or row.source_index in duplicate_rows
     ]
 
     columns = st.columns(4)
@@ -4961,7 +4941,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 
     _render_seeding_warnings(parsed)
 
-    duplicate_rows = _seeding_duplicate_rows(parsed, resolved, overrides)
+    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
     if duplicate_rows:
         duplicate_groups = len(set(duplicate_rows.values()))
         st.warning(

@@ -205,8 +205,7 @@ def _review_candidate(
     provider_hit: dict[str, Any] | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    candidate = dict(provider_hit or {})
-    candidate.update(details or {})
+    candidate = {**(provider_hit or {}), **(details or {})}
     if team_id_master:
         candidate["team_id_master"] = team_id_master
     return candidate
@@ -431,7 +430,7 @@ def make_team_details_lookup(supabase_client: Any) -> TeamDetailsLookup:
     def lookup(team_id_master: str) -> dict[str, Any] | None:
         rows = (
             supabase_client.table("teams")
-            .select("team_id_master,team_name,club_name,age_group,gender,state_code")
+            .select("team_id_master,team_name,club_name,age_group,gender,state_code,state")
             .eq("team_id_master", team_id_master)
             .eq("is_deprecated", False)
             .limit(1)
