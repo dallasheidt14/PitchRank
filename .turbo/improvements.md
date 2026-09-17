@@ -792,6 +792,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/admin/month-projection.ts` (`countAnnualRenewals`, `buildMonthProjection`), `frontend/lib/admin/subscription-metrics.ts` (`bucketActivePaid`)
 - **Why**: A subscription carrying `cancel_at_period_end: true` will definitely lapse at its period end, but both the annual-renewal count and the active monthly base fold it into a population that is then multiplied by an average churn rate, understating the loss. `buildTrialPipeline` already reads the flag for trials and even reports the count separately, so the asymmetry is within one file. Zero effect until April 2027 at the earliest: exactly one active subscription carries the flag, it is annual, and its period ends 2027-06-12 — at which point it would be charged at roughly 0.16 instead of 1.0, understating that month by about $4.90 of the $5.83 at stake. The flag is already fetched on every subscription, so this needs no new data.
 - **Noted**: 2026-09-04
+- **Update (2026-09-16)**: The "exactly one" count read `cancel_at_period_end` alone. Counting `cancel_at` as well (as `isCancellationScheduled` in `frontend/lib/stripe/server.ts` does), 14 active subscriptions had a scheduled cancellation on 2026-09-16, 13 of them monthly. So the effect is not deferred to April 2027: every monthly subscription whose cancellation falls before month end is a certain loss the projection still weights at the average churn rate.
 
 ### Skip operator-decided teams in the contradiction audit's paid probe list
 
@@ -1277,12 +1278,72 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The dashboard MRR is meant to equal Stripe's Billing MRR. Stripe subtracts forever discounts, excludes metered prices, and normalizes every interval (with `interval_count`) to monthly; `computeMrr` does none of this and divides only `year`, so day/week read as monthly. None of it is reachable on 2026-09-16: zero discounts on any active or past_due subscription or item, and every item licensed with `interval_count` 1 on month or year. But checkout sets `allow_promotion_codes: true`, so a coupon can go live with no deploy. Repeating and one-time discounts follow a Billing "Configure" setting the API cannot read, and discounts come back as IDs unless expanded on the list call.
 - **Noted**: 2026-09-16
 
-### Treat a `cancel_at`-only cancellation as canceling wherever the profile flag is written
+### Make the canceling email routing survive out-of-order Stripe webhooks
 
-- **ID**: IMP-244
+- **ID**: IMP-246
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleSubscriptionUpdated`, `handleInvoicePaid`), `frontend/app/api/stripe/sync/route.ts` (`POST`), `scripts/reconcile_stripe_subscriptions.py` (`check_stripe_subscription`); the same single-field read in `frontend/lib/admin/subscription-metrics.ts` (`buildTrialPipeline`) and `frontend/lib/admin/month-projection.ts` (`computeTrialProjection`) miscounts a trial canceled through `cancel_at` as still actionable
-- **Why**: All four read `cancel_at_period_end` alone when writing `user_profiles.cancel_at_period_end`, and the webhook docstring assumes the Customer Portal sets that flag. On 2026-09-16, 10 of the 14 active subscriptions with a scheduled cancellation had `cancel_at` set and `cancel_at_period_end` false, so those customers never get the flag stored or the Beehiiv `canceling` lifecycle sync. Fixing one writer is not enough: the 6-hourly reconcile or the next `invoice.paid` resets the stored flag, and the webhook re-fires `canceling` on the following update. `getSubscriptionMetrics` already treats either field as a scheduled cancellation.
+- **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleCheckoutCompleted` enrollment dedupe, `handleInvoicePaid` paid routing, `handleSubscriptionUpdated` reactivation branch)
+- **Why**: The stored `cancel_at_period_end` flag is how the webhook detects a canceling or reactivation transition, and two orderings still misroute. A checkout event retried after fulfillment that finds a newly scheduled cancellation stores the flag and sets lifecycle `canceling`, but enrollment is skipped because `priorStatus` equals the status, so Cancellation Save never starts and the later update sees no change. And `handleInvoicePaid` routes a trialing or past_due subscriber to `paid` without clearing a stored flag, so if it lands before the update that removed the cancellation, the update routes `paid` again and starts a second Paid Drip journey. Both need delayed, out-of-order delivery; the owner chose to ship without them (PR #1162 review).
 - **Noted**: 2026-09-16
+
+### Revise the blog line that says PitchRank is not for tournament directors
+
+- **ID**: IMP-247
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `frontend/content/blog-posts.tsx` (the "built PitchRank for parents and coaches" paragraph, ~line 819)
+- **Why**: It says PitchRank was built "not for tournament directors or league administrators", which contradicts the /matchbalance sales page aimed at exactly those directors. Kept out of the page build so the blog edit ships as its own change with its `modifiedDate` bumped.
+- **Noted**: 2026-09-16
+
+### Build the Streamlit MatchBalance quote on the public page's fixed tiers
+
+- **ID**: IMP-248
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `tournament_intake.py` Seeding tab and `src/tournaments/seeding_intake_ui.py` (`render_seeding_pack`); no quote code exists yet
+- **Why**: /matchbalance publishes fixed tier prices (`EVENT_PRICING` and `COHORT_PRICING` in `frontend/app/matchbalance/page.tsx`) in place of the original build brief's $3 per team. A grep of `src/tournaments/` and `tournament_intake.py` on 2026-09-16 found no quote or pricing logic, so nothing is wrong today, but whoever builds the operator quote step must use these tiers or quotes will disagree with the page.
+- **Noted**: 2026-09-16
+
+### Seeding sheet state ranks mix full state names and codes
+
+- **ID**: IMP-249
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/tournaments/seeding_pack.py` (`snapshot_ratings`), `src/tournaments/seeding_sheet.py` (`_state_rank`)
+- **Why**: One sheet shows both "Texas #60" and "TX #101". `snapshot_ratings` keeps the Compare predictor's team `state` and only falls back to `make_ratings_lookup`'s `state_rankings_view.state` when the predictor lacks one. The view returns only codes (live: 14,238 rows `TX`, none `Texas`), while `matchPredictionService.ts` selects both `teams.state` and `state_code`, so the full name most likely comes from the predictor side. Visible on the public sample `frontend/public/matchbalance/sample-u13-boys.pdf`; normalize to one form in the sheet, then re-render that sample.
+- **Noted**: 2026-09-16
+
+### Share the MatchBalance inquiry rate limit across serverless instances
+
+- **ID**: IMP-250
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/app/api/matchbalance-inquiry/route.ts` (`POST`, the ``checkRateLimit(`matchbalance:${ip}`, ...)`` call) and `frontend/lib/api/rateLimit.ts` (`checkRateLimit`)
+- **Why**: The 5-per-hour limit lives in a per-instance in-memory `Map`, so each Vercel instance grants its own quota and a scripted caller spread across instances or IPs gets more; the route emails a confirmation to whatever address is submitted. One option is counting `matchbalance_leads` rows with the same `source_ip_masked` in the last hour before the insert. Deferred by the owner on 2026-09-17: the route already refuses non-JSON bodies (so another site cannot post from its visitors' browsers) and the confirmation carries nothing the submitter typed.
+- **Noted**: 2026-09-17
+
+### Extract the helpers the MatchBalance build copied instead of sharing
+
+- **ID**: IMP-251
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: admin `formatDate`/`formatRelative`/`KpiCard` in `frontend/app/mission-control/leads/page.tsx` and `subscriptions/page.tsx`; `formatSupabaseError` in `frontend/lib/admin/matchbalance-leads.ts` and `subscription-metrics.ts`; `bad`/`maskIp`/`isStringWithLen` in `frontend/app/api/matchbalance-inquiry/route.ts` and `app/api/feedback/route.ts`; `escapeHtml` in `frontend/lib/email/matchbalance-inquiry.ts`, `lib/email/feedback.ts` and `app/api/stripe/webhook/route.ts`; the hero stripe band and FAQ `<details>` markup in `frontend/app/matchbalance/page.tsx` and `app/report-card/page.tsx`; `_executable` in six `tests/unit/test_*` migration guards and `_newest_statement` in two of them
+- **Why**: Copies already disagree: the Stripe webhook's `escapeHtml` escapes only `&`, `<` and `>` (enough for its Telegram messages, not for an HTML attribute), and `test_team_page_views_migration.py`'s `_executable` strips only `--` comments, so a block-commented REVOKE passes that guard; only the `test_scrape_requests_rls_migration.py` and `test_matchbalance_leads_migration.py` copies also strip `/* */` comments (helper bodies read 2026-09-17). A fix to date rendering or escaping otherwise has to find every copy. Deferred by the owner on 2026-09-17 to keep the MatchBalance change scoped.
+- **Noted**: 2026-09-17
+
+### Bound the email check and require JSON on the other public POST routes
+
+- **ID**: IMP-252
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/lib/validation.ts` (`isValidEmail`, `EMAIL_REGEX`), called uncapped from `POST` in `frontend/app/api/feedback/route.ts`, `frontend/app/api/newsletter/route.ts` and `frontend/app/api/reports/team-card/route.ts`
+- **Why**: `EMAIL_REGEX` backtracks quadratically on a long malformed value (node, 2026-09-17: 16 KB 48 ms, 32 KB 188 ms, 64 KB 731 ms), and these public routes run it with no length cap, so a large body ties up the function. They also read the body with `request.json()` / `parseJsonBody`, which parse a `text/plain` body, so another site can post to them from visitors' browsers with no CORS preflight. `/api/matchbalance-inquiry` already caps the email at 254 characters and returns 415 without `Content-Type: application/json`; capping inside `isValidEmail` would cover every caller.
+- **Noted**: 2026-09-17

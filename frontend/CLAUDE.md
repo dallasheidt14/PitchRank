@@ -141,6 +141,7 @@ frontend/
 
 - `GET /api/announcements` (intentionally public, limit clamped to 50)
 - `POST /api/newsletter` (rate limited: 5 req/min per IP)
+- `POST /api/matchbalance-inquiry` (requires `Content-Type: application/json`; honeypot + 2s dwell floor answer a silent 201; rate limited 5 req/hour per IP after validation)
 
 ---
 
@@ -182,6 +183,8 @@ const { user, supabase } = auth;
 | `parseJsonBody()`                    | `lib/api/parseJsonBody.ts`  | Safe JSON body parsing with error response                 |
 | `checkRateLimit()` / `getClientIp()` | `lib/api/rateLimit.ts`      | In-memory IP-based rate limiting                           |
 | `resolveDefaultWatchlist()`          | `lib/api/watchlist.ts`      | The `is_default` watchlist, else the newest one, else null |
+
+A public POST route has two gaps the helpers above do not close. `request.json()` and `parseJsonBody()` parse a body sent as `text/plain`, which a page on another site can post from its visitors' browsers with no CORS preflight, so check for `Content-Type: application/json` first (a 415 otherwise; `/api/matchbalance-inquiry` does). And cap a string's length before `isValidEmail()`: its pattern backtracks quadratically on long malformed input.
 
 ### React Query
 
@@ -340,6 +343,7 @@ already works. That is a hosted setting, not code.
 - Dynamic sitemap: `app/sitemap.ts`
 - Canonical URLs in page metadata
 - `robots.noindex` for auth-gated pages
+- A page's `openGraph` replaces the root layout's wholesale, `images` included, so a page that sets `openGraph` must list the image again or its shared link has none
 
 ---
 

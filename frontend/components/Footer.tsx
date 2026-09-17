@@ -43,6 +43,7 @@ export function Footer() {
     ],
     Resources: [
       { name: 'Free Team Report Card', href: '/report-card' },
+      { name: 'MatchBalance for Tournaments', href: '/matchbalance' },
       { name: 'Methodology', href: '/methodology' },
       { name: 'Blog', href: '/blog' },
     ],

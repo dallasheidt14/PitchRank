@@ -56,7 +56,8 @@ Sections, in order:
    `frontend/components/BlogFAQSchema.tsx`, which is already generic and takes plain-string
    question/answer pairs. Covers: which ages are supported,
    what happens to teams PitchRank has no current rank for, turnaround, what the update
-   covers, whether it works with GotSport events, and what MatchBalance does not do.
+   covers, what the director needs to send to get started, and what MatchBalance does not
+   do. The page does not name any registration platform.
 7. **Inquiry form.** See below.
 
 Also add `BreadcrumbSchema`, a nav or footer link (footer at minimum,
@@ -108,7 +109,7 @@ opened-at timestamp from `frontend/components/FeedbackModal.tsx`.
 | Event dates | yes | free text, one line |
 | Approximate number of teams | no | integer |
 | Bracket review date | no | date input; drives turnaround |
-| Event link | no | URL; GotSport or other event page |
+| Event link | no | URL of any event page |
 | What do you need | yes | radio: "Free sample" or "Quote for the whole event" |
 | Anything else | no | textarea |
 | `website` (honeypot) | hidden | visually hidden, `tabIndex=-1`, `autoComplete="off"` |
@@ -125,13 +126,17 @@ for the guards and their order, and on `app/api/track-team-view/route.ts:39-45` 
 awaited service-role save that returns 500 on failure. (The report-card route's
 fire-and-forget insert cannot express that, so it is not the model.)
 
-1. `parseJsonBody` → 400 on bad JSON or a non-object body.
-2. Honeypot filled → 200, do nothing.
+1. `Content-Type` not `application/json` → 415, so another site cannot post from its
+   visitors' browsers without a CORS preflight. `parseJsonBody` → 400 on bad JSON or a
+   non-object body.
+2. Honeypot filled → 201 `{ ok: true }`, do nothing (same status as a real save, so a bot
+   cannot tell it was dropped).
 3. `openedAt` and `submittedAt` both required and parseable → else 400. Fill time
    (`submittedAt - openedAt`, both from the client so clock skew cannot drop a real
-   lead) under 2000 ms → 200, do nothing.
+   lead) under 2000 ms → 201, do nothing.
 4. Validate: required strings with length caps (name 120, organization 160, tournament
-   200, event dates 120, notes 2000), email via `isValidEmail`, team count an integer
+   200, event dates 120, notes 2000), email at most 254 characters (checked before
+   `isValidEmail`, whose pattern is quadratic on long input), team count an integer
    0–5000 when present, bracket date `YYYY-MM-DD` and parseable when present, event link
    an `http(s)` URL under 500 chars when present, request type one of `sample` or
    `quote`. "Present" means not `undefined`, `null` or blank; the form omits blank
@@ -194,7 +199,9 @@ never throw.
 - **Confirmation.** From the same address, to the director. Subject:
   `We received your MatchBalance request`. Body: what happens next (reply within one
   business day; send the accepted-team list or event link by replying), and the free-sample
-  note. No price in this email.
+  note. No price in this email, and nothing the submitter typed: the address is
+  unverified, so echoing a name or tournament would let anyone send branded text to any
+  inbox.
 
 ## Admin: `/mission-control/leads`
 
@@ -230,7 +237,7 @@ code, fix the run data, not the renderer.
 
 - `frontend/app/api/matchbalance-inquiry/__tests__/route.test.ts`, mirroring
   `app/api/feedback/__tests__/route.test.ts`: 400 on each missing required field and each
-  malformed optional field, silent 200 on honeypot and on fast fill, 429 on the sixth call
+  malformed optional field, silent 201 on honeypot and on fast fill, 429 on the sixth call
   in an hour, 201 with the insert recorded by the mock's terminal call and both senders
   invoked once, 500 when the insert fails and no email sent. Use `filteringClientMock` from
   `test/supabase-mock.ts` if any test asserts on a filter.
