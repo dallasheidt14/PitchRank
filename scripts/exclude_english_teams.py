@@ -85,6 +85,31 @@ def _paged(make_query) -> list[dict]:
         off += PAGE
 
 
+class _Identity:
+    """Every team id this tool handles, in the ids the rankings loader compares.
+
+    A probe filed against an id that later merged away describes the team that absorbed it, so
+    the answer has to move with it — otherwise a provider-confirmed US team is judged under an
+    id nothing else mentions, and nothing vetoes listing it.
+    """
+
+    def __init__(self, merge_resolver):
+        # MergeResolver loads on first resolve(), so reading its map before that gives nothing.
+        if merge_resolver is not None and not getattr(merge_resolver, "_loaded", False):
+            merge_resolver.load_merge_map()
+        merge_map = getattr(merge_resolver, "_merge_map", None) or {}
+        self._canonical = dict(merge_map)
+        self._aliases: dict[str, set[str]] = {}
+        for deprecated, canonical in merge_map.items():
+            self._aliases.setdefault(canonical, {canonical}).add(deprecated)
+
+    def canonical(self, team_id):
+        return self._canonical.get(team_id, team_id) if team_id else team_id
+
+    def aliases(self, team_id) -> set[str]:
+        return self._aliases.get(team_id, {team_id})
+
+
 def latest_answers(probe_rows: list[dict]) -> dict[str, tuple[str, str | None]]:
     """Each team's newest answered probe, as (outcome, reported_state_code)."""
     answers: dict[str, tuple[str, str | None]] = {}
@@ -143,10 +168,15 @@ def qualifies(team_id: str, opponents, listed, no_association: set[str], confirm
     )
 
 
-def fetch_opponents(sb, team_ids) -> dict[str, Counter]:
-    """Games played against each opponent, for every team in team_ids, ignoring excluded games."""
+def fetch_opponents(sb, team_ids, identity=None) -> dict[str, Counter]:
+    """Games played against each opponent, for every team in team_ids, ignoring excluded games.
+
+    `identity` resolves merges. Without it a team's games stored under an alias it absorbed are
+    missed, and the same team counts as two opponents under its two ids.
+    """
+    identity = identity or _Identity(None)
     out: dict[str, Counter] = {t: Counter() for t in team_ids}
-    ids = sorted(team_ids)
+    ids = sorted({alias for t in team_ids for alias in identity.aliases(t)})
     for i in range(0, len(ids), ID_BATCH):
         batch = ids[i : i + ID_BATCH]
         for side, other in SIDES:
@@ -158,8 +188,9 @@ def fetch_opponents(sb, team_ids) -> dict[str, Counter]:
                 .order("id", desc=False)
             )
             for g in games:
-                if g[other] and g[other] != g[side]:
-                    out[g[side]][g[other]] += 1
+                team, opponent = identity.canonical(g[side]), identity.canonical(g[other])
+                if opponent and opponent != team and team in out:
+                    out[team][opponent] += 1
     return out
 
 
@@ -196,18 +227,18 @@ def grow(seeds: dict[str, str], load_opponents, no_association: set[str], confir
 
 
 def build_snapshot(sb, merge_resolver=None) -> dict:
+    identity = _Identity(merge_resolver)
     probe_rows = _paged(
         lambda: sb.table("team_state_probe_log")
         .select("team_id_master,outcome,probed_at,reported_state_code")
         .order("id", desc=False)
     )
+    for row in probe_rows:
+        row["team_id_master"] = identity.canonical(row["team_id_master"])
     seeds, no_association, confirmed_us, other_unmapped = classify(latest_answers(probe_rows))
-    listed, opponents = grow(seeds, lambda ids: fetch_opponents(sb, ids), no_association, confirmed_us)
-
-    # The rankings loader compares merge-resolved ids, so a deprecated team is listed under
-    # the team that absorbed it or its games would keep counting there.
-    if merge_resolver is not None:
-        listed = {(merge_resolver.resolve(t) or t): evidence for t, evidence in listed.items()}
+    listed, opponents = grow(
+        seeds, lambda ids: fetch_opponents(sb, ids, identity), no_association, confirmed_us
+    )
 
     ids = sorted(listed)
     teams = {

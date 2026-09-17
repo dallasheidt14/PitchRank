@@ -290,6 +290,40 @@ def test_a_deprecated_team_is_listed_under_the_team_that_absorbed_it(monkeypatch
     assert written["skipped_deprecated_or_missing"] == 0
 
 
+def test_a_us_answer_filed_under_a_merged_away_id_still_vetoes_the_survivor(monkeypatch, tmp_path):
+    """The dangerous half of the same fault: a veto lost to a merge lists a confirmed US team."""
+    db = _league_db(
+        extra_probes=[_probe("old-us", "mapped", "2026-09-01T00:00:00+00:00", "CA")],
+        # Two games against the seed and nothing else: without the veto it would qualify.
+        extra_games=[_game("g7", "seed", "new-us"), _game("g8", "new-us", "seed")],
+        extra_teams=[_team("old-us", state="CA", deprecated=True), _team("new-us", state="CA")],
+        merges=[("old-us", "new-us")],
+    )
+    snapshot = tmp_path / "snapshot.json"
+
+    assert _run_main(monkeypatch, db, ["--snapshot", str(snapshot)]) == 0
+
+    listed = {t["team_id_master"] for t in json.loads(snapshot.read_text(encoding="utf-8"))["teams"]}
+    assert listed == {"seed", "ring-1"}
+
+
+def test_games_stored_under_an_absorbed_alias_count_for_the_surviving_team(monkeypatch, tmp_path):
+    """Games keep the id they were stored with, so a survivor's record spans both ids."""
+    db = _league_db(
+        extra_games=[_game("g7", "old-ring", "seed"), _game("g8", "new-ring", "us-2")],
+        extra_teams=[_team("old-ring", deprecated=True), _team("new-ring")],
+        merges=[("old-ring", "new-ring")],
+    )
+    snapshot = tmp_path / "snapshot.json"
+
+    assert _run_main(monkeypatch, db, ["--snapshot", str(snapshot)]) == 0
+
+    teams = {t["team_id_master"]: t for t in json.loads(snapshot.read_text(encoding="utf-8"))["teams"]}
+    assert set(teams) == {"seed", "ring-1", "new-ring"}
+    assert teams["new-ring"]["evidence"]["opponents"] == 2
+    assert teams["new-ring"]["games_against_unlisted_teams"] == 1
+
+
 def test_the_dry_run_reads_every_page_and_every_batch(monkeypatch, tmp_path):
     """Fixtures under one page or one 100-id batch cannot see a loop that stops after the first."""
     extra_probes = [
