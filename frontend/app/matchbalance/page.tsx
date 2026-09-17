@@ -61,7 +61,7 @@ const EVENT_PRICING = [
   { teams: '151–300', price: '$699' },
   { teams: '301–450', price: '$1,199' },
   { teams: '451–600', price: '$1,499' },
-  { teams: '600+', price: 'Custom quote' },
+  { teams: '601+', price: 'Custom quote' },
 ];
 
 const COHORT_PRICING = [

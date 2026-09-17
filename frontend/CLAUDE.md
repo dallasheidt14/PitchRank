@@ -184,7 +184,7 @@ const { user, supabase } = auth;
 | `checkRateLimit()` / `getClientIp()` | `lib/api/rateLimit.ts`      | In-memory IP-based rate limiting                           |
 | `resolveDefaultWatchlist()`          | `lib/api/watchlist.ts`      | The `is_default` watchlist, else the newest one, else null |
 
-A public POST route has two gaps the helpers above do not close. `request.json()` and `parseJsonBody()` parse a body sent as `text/plain`, which a page on another site can post from its visitors' browsers with no CORS preflight, so check for `Content-Type: application/json` first (a 415 otherwise; `/api/matchbalance-inquiry` does). And cap a string's length before `isValidEmail()`: its pattern backtracks quadratically on long malformed input.
+A public POST route has two gaps the helpers above do not close. `request.json()` and `parseJsonBody()` parse a body sent as plain text, which a page on another site can post from its visitors' browsers with no CORS preflight, so check for `Content-Type: application/json` first (a 415 otherwise; `/api/matchbalance-inquiry` does). And cap a string's length before `isValidEmail()`: its pattern backtracks quadratically on long malformed input.
 
 ### React Query
 

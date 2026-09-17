@@ -75,7 +75,7 @@ Also add `BreadcrumbSchema`, a nav or footer link (footer at minimum,
 | 151–300 | $699 |
 | 301–450 | $1,199 |
 | 451–600 | $1,499 |
-| 600+ | Custom quote |
+| 601+ | Custom quote |
 
 *Need help with only part of your tournament?*
 
