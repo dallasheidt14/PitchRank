@@ -4677,7 +4677,7 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
         f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}; "
-        "a page that needs a retry may be charged up to three attempts."
+        "a page that has to be retried bills up to three times."
     )
 
 
@@ -4797,8 +4797,9 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         st.markdown("#### Option 2 · Import from a GotSport event")
         st.caption(
             "For a whole tournament, enter its GotSport event URL. Step 1 checks two U10+ divisions "
-            "to estimate the cost. Step 2 imports every U10+ division; younger divisions are skipped "
-            "automatically."
+            "to estimate the cost. Some events list younger divisions first, so those division pages "
+            "may be read while finding U10+ divisions; their younger team pages are skipped automatically. "
+            "Step 2 imports every U10+ division."
         )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")

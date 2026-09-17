@@ -717,7 +717,8 @@ def test_the_seeding_intro_discloses_younger_division_page_cost(app):
 
     explanation = " ".join(fake_st.captions)
     assert "younger divisions" in explanation
-    assert "skipped automatically" in explanation
+    assert "division pages" in explanation
+    assert "younger team pages are skipped automatically" in explanation
 
 
 def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
