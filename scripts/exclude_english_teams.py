@@ -68,8 +68,10 @@ US_NATIONAL_ASSOCIATION = "USA"
 
 
 def get_client():
+    # No anon fallback: both tables this reads revoke anon, so that key fails on the first
+    # read with a permission error rather than a missing-credential one.
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
         raise SystemExit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
     return create_client(url, key)
