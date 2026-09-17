@@ -910,7 +910,8 @@ def test_a_full_walk_quotes_no_further_cost():
         _probe(limit_groups=None, divisions_walked=40, teams=220, complete=True)
     )
 
-    assert "$" not in caption, "the whole event has already been walked"
+    assert "Refresh estimate" in caption, "refreshing a completed walk is a paid action"
+    assert "$" in caption
 
 
 def test_a_limited_probe_that_reached_every_division_quotes_no_further_cost():

@@ -4631,11 +4631,23 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     teams = int(probe.get("teams") or 0)
     linked = int(probe.get("linked") or 0)
     u10_plus_only = bool(probe.get("u10_plus_only"))
+    scope = "full U10+ list" if u10_plus_only else "whole event"
     if not u10_plus_only:
-        head = (
-            f"Walked {walked} of {found} divisions: "
-            f"{teams} teams, {linked} carrying a GotSport id."
-        )
+        if probe.get("limit_groups") is None and probe.get("complete"):
+            head = (
+                f"Whole event ready: {found} divisions, {teams} teams "
+                f"({linked} carrying a GotSport id)."
+            )
+        elif probe.get("limit_groups") is None:
+            head = (
+                f"Whole-event walk needs another try: {walked} of {found} divisions, "
+                f"{teams} teams ({linked} carrying a GotSport id)."
+            )
+        else:
+            head = (
+                f"Walked {walked} of {found} divisions: "
+                f"{teams} teams, {linked} carrying a GotSport id."
+            )
     elif probe.get("limit_groups") is None:
         if probe.get("complete"):
             head = (
@@ -4653,7 +4665,16 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
             f"({linked} carrying a GotSport id)."
         )
 
-    if probe.get("limit_groups") is None or (found > 0 and walked >= found):
+    full_walk = probe.get("limit_groups") is None
+    if full_walk and probe.get("complete"):
+        pages = LANDING_READS + found + teams
+        low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+        high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+        return (
+            f"{head} Refresh estimate for the {scope}: {_money(low)}-{_money(high)}; "
+            f"a full retry could reach {_money(high * 3)}."
+        )
+    if full_walk or (found > 0 and walked >= found):
         return head
 
     # Team pages are most of an event's bill, so a sample that found no team
@@ -4676,7 +4697,7 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
-        f"{head} Estimated base cost for the full U10+ list: {_money(low)}-{_money(high)}. "
+        f"{head} Estimated base cost for the {scope}: {_money(low)}-{_money(high)}. "
         f"If every page needs retries, the total could reach {_money(high * 3)}."
     )
 
