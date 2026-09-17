@@ -720,8 +720,8 @@ def test_a_complete_saved_walk_offers_an_explicit_refresh(app):
 
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
-    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == (
         "Refresh the full U10+ list"
     )
 
@@ -1376,6 +1376,24 @@ def test_a_fully_walked_event_cannot_be_bought_twice(app):
     runs: list[dict[str, Any]] = []
     fake_st = _install(
         app,
+        _FakeSt(buttons={"_seeding_event_refresh_run": True}, text={"seeding_event_url": EVENT_URL}),
+    )
+    fake_st.session_state._seeding_event_probe = _probe(limit_groups=None, complete=True)
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda url, c, **kw: runs.append(kw))
+
+    _render_controls()
+
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == "Refresh the full U10+ list"
+    assert runs == [{"limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
+    assert not fake_st.errors
+
+
+def test_a_queued_import_click_does_not_trigger_a_refresh(app):
+    """The refresh button has its own key, so an old import click is ignored."""
+    runs: list[dict[str, Any]] = []
+    fake_st = _install(
+        app,
         _FakeSt(buttons={"_seeding_event_full_run": True}, text={"seeding_event_url": EVENT_URL}),
     )
     fake_st.session_state._seeding_event_probe = _probe(limit_groups=None, complete=True)
@@ -1383,10 +1401,8 @@ def test_a_fully_walked_event_cannot_be_bought_twice(app):
 
     _render_controls()
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
-    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == "Refresh the full U10+ list"
-    assert runs == [{"limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
-    assert not fake_st.errors
+    assert runs == []
+    assert fake_st.errors == []
 
 
 def test_a_probed_but_unwalked_event_is_still_for_sale(app):
@@ -2275,8 +2291,8 @@ def test_opening_a_complete_walk_keeps_refresh_available(app):
 
     _render_controls()
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == "Refresh the full U10+ list"
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == "Refresh the full U10+ list"
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
 
 
 def test_the_reload_is_offered_while_a_probe_describes_the_walk_that_was_lost(app):

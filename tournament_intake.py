@@ -4838,26 +4838,34 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     priced = bool(probe.get("divisions_walked"))
     complete = bool(probe.get("complete"))
     refresh_available = keys is _SEEDING_KEYS and complete
-    already_walked = complete and not refresh_available
+    already_walked = complete and keys == _BACKTEST_KEYS
 
     left, right = st.columns([2, 2])
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
-    if keys == _BACKTEST_KEYS:
-        full_label = "Scrape the whole event"
-    elif refresh_available:
-        full_label = "Refresh the full U10+ list"
-    elif probe.get("limit_groups") is None and probe:
-        full_label = "Retry the full U10+ import"
-    else:
-        full_label = "Step 2: Import every U10+ division"
     with primary:
-        full_clicked = st.button(
-            full_label,
-            key=f"{keys.prefix}_event_full_run",
-            type="primary" if keys == _BACKTEST_KEYS else "secondary",
-            disabled=(not url or in_progress or already_walked
-                      or (keys != _BACKTEST_KEYS and not priced)),
-        )
+        if refresh_available:
+            full_clicked = False
+            refresh_clicked = st.button(
+                "Refresh the full U10+ list",
+                key=f"{keys.prefix}_event_refresh_run",
+                type="secondary",
+                disabled=not url or in_progress or not priced,
+            )
+        else:
+            refresh_clicked = False
+            if keys == _BACKTEST_KEYS:
+                full_label = "Scrape the whole event"
+            elif probe.get("limit_groups") is None and probe:
+                full_label = "Retry the full U10+ import"
+            else:
+                full_label = "Step 2: Import every U10+ division"
+            full_clicked = st.button(
+                full_label,
+                key=f"{keys.prefix}_event_full_run",
+                type="primary" if keys == _BACKTEST_KEYS else "secondary",
+                disabled=(not url or in_progress or already_walked
+                          or (keys != _BACKTEST_KEYS and not priced)),
+            )
     with secondary:
         probe_clicked = st.button(
             "Optional: check {} divisions (~{}-{})".format(
@@ -4891,14 +4899,15 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         _run_event_roster_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
+    elif refresh_clicked and priced:
+        _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
     elif full_clicked and (priced or keys == _BACKTEST_KEYS) and not already_walked:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
-    elif probe_clicked or full_clicked:
+    elif probe_clicked or full_clicked or refresh_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
-        # trigger of any button that was enabled when it was clicked. That covers
-        # editing the URL and clicking in one go, and a second click queued while
-        # the first walk was still running — which would otherwise arrive once the
-        # run it was queued behind had finished, and buy the same event twice.
+        # trigger of any button that was enabled when it was clicked. The import
+        # and refresh actions have different widget keys, so a stale import click
+        # queued during a walk cannot become a paid refresh after that walk finishes.
         st.error(
             "Nothing to buy: check a couple of divisions first, or this event has already been walked."
         )
