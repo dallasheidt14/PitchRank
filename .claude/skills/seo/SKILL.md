@@ -1,10 +1,10 @@
 ---
 name: seo
 description: >
-  PitchRank-specific SEO surfaces and rules — state pillar pages, llms.txt
-  regeneration, the blog frontmatter contract, the topic backlog, and analytics
-  access. Use for any SEO, blog, llms.txt, state-pillar, or search-visibility
-  task on pitchrank.io. Generic SEO methodology (audits, schema, E-E-A-T, Core
+  PitchRank-specific SEO surfaces and rules — state pillar pages and state guide
+  posts, llms.txt regeneration, the blog frontmatter contract, the topic backlog,
+  and analytics access. Use for any SEO, blog, state guide, llms.txt,
+  state-pillar, or search-visibility task on pitchrank.io. Generic SEO methodology (audits, schema, E-E-A-T, Core
   Web Vitals) lives in the toprank and marketing-skills plugins (user-level,
   not tracked in this repo), not here.
 allowed-tools:
@@ -52,6 +52,44 @@ and Content Generation) — it wins on any disagreement.
 3. **Verify every stat before publishing.** Cross-check claims against current
    in-window sources and against previously published posts. Never fabricate
    or infer claims (e.g., seeding rules) without a cited source.
+
+## State Guide Posts
+
+A state guide is `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`.
+Mirror the most recent guide's structure.
+
+1. **Pick the state.** List the guides on `origin/main`, not the local tree. Rank
+   uncovered states by GSC page-dimension impressions on `/rankings/<code>`, which
+   undercounts less than the query dimension, and by published ranked teams.
+2. **Count ranked teams from `rankings_view` with `status = 'Active'`.** Counting every
+   status gives tracked teams, which run several times larger. The view's state column
+   is `state` and its `gender` is `M`/`F`. Status meanings are in
+   `.claude/skills/matching-tournament-rosters/references/reading-the-rankings.md`.
+3. **Scan the state's ranked club names before linking its boards.** Foreign or
+   out-of-state clubs mis-filed under the state code can fill a board, and the guide
+   links every age-group board. When they do, hold the guide and backlog the mis-filing.
+4. **Verify every external claim against a primary source for the current season.**
+   - Take club-to-league membership from the leagues' own member lists: theecnl.com,
+     mlssoccer.com/mlsnext, girlsacademyleague.com (including Aspire), and US Club
+     Soccer's National 1 League. `teams.league` is a manual backfill's guess from team
+     names, not a membership list.
+   - Take State Cup qualification, seeding and advancement from the state
+     association's current rules page.
+   - Confirm club home cities on the club's own site.
+5. **Write the three template lines IMP-247 tracks from sources, not from an older
+   guide:**
+   - how other ranking systems score teams (GotSport also awards league placement points)
+   - how State Cup seeds and qualifies teams (from step 4's rules page)
+   - the academic filter (NCAA initial eligibility uses core-course GPA, not test scores)
+6. **Use the standard internal link set:** `/rankings` once, `/rankings/<code>` three
+   times, the 18 age-group boards (U10–U17 and U19, boys and girls), and
+   `https://pitchrank.io` twice.
+7. **Register the guide.**
+   - Add a `STATE_PILLAR_SLUGS` entry.
+   - Add five `BLOG_FAQS` entries in `frontend/lib/blog-faqs.ts` whose answers match the
+     rendered FAQ text verbatim. Check them with the normalization in
+     `frontend/lib/blog-faqs.test.ts`, whether or not that test lists the new slug.
+   - Regenerate llms.txt.
 
 ## Analytics Access
 

@@ -213,7 +213,47 @@ def _review_candidate(
 
 def escape_ilike_literal(value: str) -> str:
     """Escape Postgres ILIKE metacharacters so a team name stays literal."""
-    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", r"\%")
+        .replace("_", r"\_")
+        .replace("*", r"\*")
+    )
+
+
+def _club_team_splits(value: str) -> Iterable[tuple[str, str]]:
+    """Yield every whitespace boundary as a possible ``club, team`` split.
+
+    GotSport event pages sometimes publish one display label even though
+    PitchRank stores the same identity as separate ``club_name`` and
+    ``team_name`` fields.  Each half is still matched literally; trying the
+    boundaries only lets ``Arizona Soccer Club 2016/17B Navy`` find the row
+    whose club is ``Arizona Soccer Club`` and team is ``2016/17B Navy``.
+    """
+    words = str(value or "").split()
+    for boundary in range(1, len(words)):
+        yield " ".join(words[:boundary]), " ".join(words[boundary:])
+
+
+def _postgrest_ilike_operand(value: str) -> str:
+    """Quote one literal ILIKE value for a PostgREST logical filter."""
+    pattern = escape_ilike_literal(value)
+    quoted = pattern.replace("\\", "\\\\").replace('"', r'\"')
+    return f'"{quoted}"'
+
+
+def _exact_name_or_filter(value: str) -> str:
+    """Match a full team name or any exact ``club_name + team_name`` split."""
+    normalized = " ".join(str(value or "").split())
+    clauses = [f"team_name.ilike.{_postgrest_ilike_operand(normalized)}"]
+    clauses.extend(
+        "and("
+        f"club_name.ilike.{_postgrest_ilike_operand(club_name)},"
+        f"team_name.ilike.{_postgrest_ilike_operand(team_name)}"
+        ")"
+        for club_name, team_name in _club_team_splits(normalized)
+    )
+    return ",".join(clauses)
 
 
 def resolve_row(
@@ -522,21 +562,34 @@ def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) ->
 
 
 def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> ExactNameLookup:
-    """Build a cohort-scoped exact-name lookup returning canonical team ids."""
+    """Build a cohort-scoped literal-name lookup returning canonical team ids.
+
+    Besides the normal ``team_name`` comparison, accept a registered display
+    label when it exactly equals the stored ``club_name + team_name``.  No
+    prefix is stripped heuristically: both stored fields must match one full
+    whitespace-boundary split in the same live cohort.
+    """
 
     def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
         rows = (
             supabase_client.table("teams")
-            .select("team_id_master,team_name")
-            .ilike("team_name", escape_ilike_literal(team_name))
+            .select("team_id_master,team_name,club_name")
             .eq("age_group", age_group)
             .eq("gender", gender)
             .eq("is_deprecated", False)
+            .or_(_exact_name_or_filter(team_name))
             .limit(10)
             .execute()
             .data
             or []
         )
+        expected = _comparable(team_name)
+        rows = [
+            row
+            for row in rows
+            if _comparable(row.get("team_name", "")) == expected
+            or _comparable(f"{row.get('club_name', '')} {row.get('team_name', '')}") == expected
+        ]
         resolved = {_resolved_id(row.get("team_id_master"), merge_resolver) for row in rows}
         return sorted(team_id for team_id in resolved if team_id)
 

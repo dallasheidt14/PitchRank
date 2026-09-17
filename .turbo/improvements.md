@@ -1288,12 +1288,44 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The stored `cancel_at_period_end` flag is how the webhook detects a canceling or reactivation transition, and two orderings still misroute. A checkout event retried after fulfillment that finds a newly scheduled cancellation stores the flag and sets lifecycle `canceling`, but enrollment is skipped because `priorStatus` equals the status, so Cancellation Save never starts and the later update sees no change. And `handleInvoicePaid` routes a trialing or past_due subscriber to `paid` without clearing a stored flag, so if it lands before the update that removed the cancellation, the update routes `paid` again and starts a second Paid Drip journey. Both need delayed, out-of-order delivery; the owner chose to ship without them (PR #1162 review).
 - **Noted**: 2026-09-16
 
-### Share the operator-script and test-double scaffolding instead of copying it per file
+### Fix blog FAQ schema/body drift and add a question→answer parity test
+
+- **ID**: IMP-070
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/lib/blog-faqs.ts` (`BLOG_FAQS`), `frontend/lib/blog-faqs.test.ts` (`NEW_SLUGS`), post bodies in `frontend/content/blog/*.mdx`
+- **Why**: FAQs are dual-source: the visible copy lives in each post body and the JSON-LD copy in `BLOG_FAQS`. Google requires FAQPage answers to be visible on the page, so drift risks rich-result eligibility. The parity test guards only the three slugs hard-coded in `NEW_SLUGS`. With the test's own normalization applied, 22 of the 34 registered slugs that have an MDX post fail question→answer parity. Three questions are registered by several posts ("Should my child be on the highest-ranked team possible?" on 6), so a duplicate allowance must name its owning slugs. Derive the guarded slugs from `STATE_PILLAR_SLUGS` plus the registry keys, so a pillar that never registers FAQs cannot go unguarded, and skip keys with no MDX post. Name known-broken posts in a set that fails once a member is fixed.
+- **Noted**: 2026-07-27
+- **Update (2026-09-17)**: Re-opened from the 2026-09-08 age-out after the Tennessee/Oregon guide review re-measured the drift.
+
+### Correct three shared template claims in the older state guides
 
 - **ID**: IMP-247
 - **Status**: open
 - **Type**: plan
+- **Category**: docs
+- **Where**: `frontend/content/blog/*-youth-soccer-rankings-guide.mdx` (the 23 guides other than Tennessee and Oregon): "How … Rankings Actually Work", "State Cup and Rankings" and "What Coaches Actually Look At" sections
+- **Why**: Three template lines carry claims the Tennessee/Oregon review found wrong or unverified, each under several spellings, so grep every variant. A claim that ranking systems count tournament games only appears in all 23 ("count tournament games only" or "only count tournament games"); 19 attribute it to GotSoccer, and Arizona, Colorado, Michigan and Pennsylvania say "most ranking systems". GotSport awards placement points for leagues too. "GPA and test scores filter players" appears in all 23; NCAA Division I dropped the standardized-test requirement for students enrolling from 2023-08-01. "Higher-ranked teams generally earn better draws" appears in 20 as "better draws" or "better tournament draws". Check it against each state's own State Cup rules rather than removing it: Oregon uses a blind draw and Tennessee qualifies from State League (both verified against the associations' State Cup pages), while Idaho and Oklahoma reportedly seed by prior results (unverified: check their State Cup rules).
+- **Noted**: 2026-09-17
+
+### Remove the Utah state from English club teams on the Utah rankings
+
+- **ID**: IMP-248
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.state_code` for GotSport teams whose raw `teams.state` is NULL, surfacing through `rankings_view` / `state_rankings_view` (state `UT`)
+- **Why**: About 63 of Utah's 272 ranked teams are English academies with `state_code = 'UT'` and no raw state, among them Bromley FC, York City FC, Luton Town Community Trust and 7 Elite Academy (GB). They fill 57 of the 71 places on the Utah U19 boys board (measured 2026-09-17), and they block the Utah state guide. Find how UT was assigned before clearing it. The fix removes the wrong US state; it does not assign a foreign one, since non-US clubs get no state-assignment effort.
+- **Noted**: 2026-09-17
+- **Update (2026-09-17)**: How UT was assigned: `discover_teams_from_opponents.py` gave each newly discovered team the state of the team it had played until #1055 (2026-08-29), and the 2026-08-30 state sweep then propagated the label to clubmates through Tier B. The league is not Utah-only -- the same teams sit under MI (~320) and CA (~195) as well. Being addressed a layer up rather than by clearing the state: `team_ranking_exclusions` (PR #1168) drops these teams and their games from the rankings entirely, which takes them off every state board and the national ones. The reviewed list is 817 teams. Close this entry once that list is applied and the following Monday's run is verified; clearing `state_code` afterwards is optional and would leave them nationally ranked.
+
+### Share the operator-script and test-double scaffolding instead of copying it per file
+
+- **ID**: IMP-249
+- **Status**: open
+- **Type**: plan
 - **Category**: refactor
 - **Where**: `get_client` (10 files under `scripts/`, e.g. `exclude_english_teams.py`, `exclude_none_opponent_games.py`, `apply_vetted_team_merges.py`); `_paged` (3, incl. the `order("id")` variant in `enqueue_helpers.py`); the `_Query`/`_DB` PostgREST double (8 files under `tests/unit/`); `_executable` and friends in the migration guards (7 files under `tests/unit/`)
-- **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks — 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
+- **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks -- 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
 - **Noted**: 2026-09-17
