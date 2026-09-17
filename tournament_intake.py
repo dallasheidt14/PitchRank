@@ -3494,11 +3494,12 @@ _VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
 class _WalkKeys:
     """Session-state key names for one view's paid event walk.
 
-    Both views run the same walk with the same protections — a cross-tab lock, a
-    recovery file written before anything interruptible, a probe that must price
-    the event before the full-walk button unlocks. Only the session entries
-    differ, so they are the parameter and the logic stays single. Two copies of
-    those protections would drift, and the one that drifts costs a paid walk.
+    Both views run the same walk with the same protections — a cross-tab lock
+    and a recovery file written before anything interruptible. The Seeding view
+    also offers an optional small probe for a cost estimate. Only the session
+    entries differ, so they are the parameter and the logic stays single.
+    Two copies of those protections would drift, and the one that drifts costs
+    a paid walk.
     """
 
     prefix: str
@@ -3793,9 +3794,8 @@ def _run_event_roster_scrape(
 
     parsed, resolved = st.session_state[keys.result]
     _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
-    # The gate, the price and the retry button were all drawn from session state
-    # before this ran, so without a rerun they describe the previous walk — and a
-    # full-event button still greyed out invites a second paid probe.
+    # The result, counts and optional estimate were all drawn from session state
+    # before this ran, so without a rerun they would describe the previous walk.
     st.rerun()
 
 
@@ -4409,6 +4409,7 @@ def _autosave_seeding_run() -> bool:
                 overrides=dict(st.session_state._seeding_overrides),
                 warnings=parsed.warnings,
                 pack=pack,
+                source_url=str(st.session_state.get("seeding_event_url") or "").strip(),
             )
         )
     except (OSError, ValueError, TypeError) as exc:
@@ -4432,6 +4433,14 @@ def _load_seeding_run(slug: str) -> None:
     st.session_state._seeding_sheet_html = None
     st.session_state._seeding_loaded_slug = slug
     st.session_state._seeding_pending_name = run.name
+    # New saves retain the exact URL. Older runs used the generated GotSport
+    # name, so recover that common form to keep the one-click scrape path open.
+    source_url = str(run.source_url or "").strip()
+    if not source_url:
+        match = re.search(r"\bGotSport\s+Event\s+(\d+)\b", run.name, flags=re.IGNORECASE)
+        if match:
+            source_url = f"https://system.gotsport.com/org_event/events/{match.group(1)}"
+    st.session_state._seeding_pending_event_url = source_url
 
 
 def _apply_pending_seeding_widgets() -> None:
@@ -4443,9 +4452,13 @@ def _apply_pending_seeding_widgets() -> None:
     that legal however the two controls are later ordered on the page.
     """
     pending_name = st.session_state.pop("_seeding_pending_name", None)
-    if pending_name is None:
+    pending_url = st.session_state.pop("_seeding_pending_event_url", None)
+    if pending_name is None and pending_url is None:
         return
-    st.session_state["seeding_event_name"] = pending_name
+    if pending_name is not None:
+        st.session_state["seeding_event_name"] = pending_name
+    if pending_url:
+        st.session_state["seeding_event_url"] = pending_url
     st.session_state["seeding_roster_text"] = ""
     for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
         st.session_state.pop(key, None)
@@ -4822,16 +4835,16 @@ def _clear_result_from_other_event(url: str, *, keys: _WalkKeys = _SEEDING_KEYS)
 def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
-    The first step checks a small sample so the operator can see the likely
-    cost. The second step imports the full U10+ list after that sample is ready.
+    The Seeding view can scrape the full U10+ event immediately. An optional
+    small sample is available when the operator wants a cost estimate first.
     """
     if keys is _SEEDING_KEYS:
         st.markdown("#### Option 2 · Import from a GotSport event")
         st.caption(
-            "For a whole tournament, enter its GotSport event URL. Step 1 checks two U10+ divisions "
-            "to estimate the cost. Some events list younger divisions first, so those division pages "
-            "may be read while finding U10+ divisions; their younger team pages are skipped automatically. "
-            "Step 2 imports every U10+ division."
+            "For a whole tournament, enter its GotSport event URL and click Scrape the whole U10+ event. "
+            "The optional estimate reads two U10+ divisions first so you can preview likely cost. "
+            "Some events list younger divisions first, so those division pages may be read while finding "
+            "U10+ divisions; their younger team pages are skipped automatically."
         )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
@@ -4869,19 +4882,18 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             elif probe.get("limit_groups") is None and probe:
                 full_label = "Retry the full U10+ import"
             else:
-                full_label = "Step 2: Import every U10+ division"
+                full_label = "Scrape the whole U10+ event"
             full_clicked = st.button(
                 full_label,
                 key=f"{keys.prefix}_event_full_run",
-                type="primary" if keys == _BACKTEST_KEYS else "secondary",
-                disabled=(not url or in_progress or already_walked
-                          or (keys != _BACKTEST_KEYS and not priced)),
+                type="primary",
+                disabled=not url or in_progress or already_walked,
             )
     with secondary:
         probe_clicked = st.button(
             "Optional: check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
-            ) if keys == _BACKTEST_KEYS else "Step 1: Check {} U10+ divisions (starts around {}-{})".format(
+            ) if keys == _BACKTEST_KEYS else "Optional: estimate cost from {} U10+ divisions ({}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
@@ -4894,7 +4906,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             if st.session_state.get(keys.result):
                 st.caption("Review the rows below, then name and save this run.")
             else:
-                st.caption("The sample is saved. Open it below for review, or continue to Step 2.")
+                st.caption("The sample is saved. Open it below for review, or scrape the whole U10+ event.")
 
     _render_recovered_walk(url, supabase_client, in_progress=in_progress, keys=keys)
 
@@ -4912,7 +4924,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         )
     elif refresh_clicked and priced:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
-    elif full_clicked and (priced or keys == _BACKTEST_KEYS) and not already_walked:
+    elif full_clicked and not already_walked:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
     elif probe_clicked or full_clicked or refresh_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
@@ -4920,7 +4932,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         # and refresh actions have different widget keys, so a stale import click
         # queued during a walk cannot become a paid refresh after that walk finishes.
         st.error(
-            "Nothing to buy: check a couple of divisions first, or this event has already been walked."
+            "Nothing to scrape: enter a GotSport event URL, or wait for the current walk to finish."
         )
 
 

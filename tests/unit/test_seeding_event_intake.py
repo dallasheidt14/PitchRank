@@ -2,9 +2,9 @@
 
 Every page of that walk is billed, so the assertions that matter most are the
 ones guarding spend: which division limit each button asks for, that the runner
-forwards it untouched, that the full-event button stays disabled until a probe
-has actually read a division, and that a failure in the free lookups afterwards
-cannot throw away the roster that was paid for.
+forwards it untouched, that the whole-event action uses the URL currently in
+the form, and that a failure in the free lookups afterwards cannot throw away
+the roster that was paid for.
 
 ``tournament_intake.st`` is replaced wholesale, the way the other tests of this
 app's Streamlit-touching helpers do it. Two things that reach the filesystem are
@@ -641,7 +641,7 @@ def test_the_scrape_does_not_save_the_run(app):
     _scrape(limit_groups=None)
 
 
-# -------- the render boundary and its spend gate --------------------------
+# -------- the render boundary and its spend controls ----------------------
 
 
 def _render(monkeypatch, *, url: str, probe: dict[str, Any] | None, buttons: dict[str, bool] | None = None):
@@ -673,12 +673,12 @@ def _probe(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def test_the_full_event_button_is_disabled_until_something_has_been_probed(app):
+def test_the_full_event_button_is_ready_with_a_url_without_a_probe(app):
     fake_st, runs = _render(app, url=EVENT_URL, probe=None)
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
     assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
-        "Step 2: Import every U10+ division"
+        "Scrape the whole U10+ event"
     )
     assert runs == []
 
@@ -738,7 +738,7 @@ def test_the_seeding_intro_discloses_younger_division_page_cost(app):
 def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=_probe(url="https://system.gotsport.com/org_event/events/1"))
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
 
 
 def test_changing_the_url_clears_the_other_events_rows_and_exports_but_not_its_recovery(app):
@@ -785,12 +785,12 @@ def test_an_equivalent_url_keeps_the_parked_event_result(app):
     assert fake_st.session_state._seeding_result_event_id == "52975"
 
 
-def test_a_probe_that_read_no_division_does_not_unlock_the_full_event(app):
+def test_a_probe_that_read_no_division_still_leaves_full_scrape_available(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=_probe(divisions_walked=0, teams=0, linked=0))
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
     assert not any("$" in caption for caption in fake_st.captions), (
-        "two divisions of nothing is not a sample to price an event from"
+        "a sample of nothing should not be used to price an event"
     )
 
 
@@ -812,6 +812,17 @@ def test_the_full_button_asks_for_the_whole_event(app):
         app,
         url=EVENT_URL,
         probe=_probe(),
+        buttons={"_seeding_event_full_run": True},
+    )
+
+    assert runs == [{"url": EVENT_URL, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
+
+
+def test_the_full_button_can_start_without_a_probe(app):
+    _fake_st, runs = _render(
+        app,
+        url=EVENT_URL,
+        probe=None,
         buttons={"_seeding_event_full_run": True},
     )
 
@@ -941,7 +952,7 @@ def test_the_probe_buttons_label_carries_that_price(app):
     low, high = tournament_intake._seeding_probe_price()
 
     assert f"{tournament_intake._SEEDING_EVENT_PROBE_DIVISIONS} U10+ divisions" in label
-    assert "starts around" in label
+    assert "Optional: estimate cost from" in label
     assert f"{tournament_intake._money(low)}-{tournament_intake._money(high)}" in label
 
 
@@ -971,7 +982,7 @@ def test_a_price_is_written_so_streamlit_does_not_read_it_as_maths():
 @pytest.mark.parametrize(
     "text",
     [
-        "Check 2 U10+ divisions",
+        "Optional: estimate cost from 2 U10+ divisions",
         "Estimated base cost for the full U10+ list",
     ],
 )
@@ -1026,14 +1037,8 @@ def test_an_unnamed_run_is_told_to_name_itself_rather_than_offered_a_save(monkey
 # -------- the gate at the moment of spending ------------------------------
 
 
-def test_editing_the_url_after_a_probe_does_not_buy_the_new_event(app):
-    """`disabled` is a render hint; Streamlit still returns the click.
-
-    The operator probes one event, edits the box to another and clicks the
-    full-event button in the same run. The button was enabled when it was drawn,
-    so the trigger arrives alongside the new URL — and a full walk of an unpriced
-    event is the single most expensive thing this tab can do.
-    """
+def test_editing_the_url_after_a_probe_scrapes_the_new_event(app):
+    """The whole-event action always uses the URL currently in the form."""
     other_url = "https://system.gotsport.com/org_event/events/52980"
     runs: list[dict[str, Any]] = []
     fake_st = _install(
@@ -1049,8 +1054,8 @@ def test_editing_the_url_after_a_probe_does_not_buy_the_new_event(app):
 
     _render_controls()
 
-    assert runs == [], "a walk was launched for an event no probe ever priced"
-    assert fake_st.errors, "and the operator was not told why nothing happened"
+    assert runs == [{"url": other_url, "limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
+    assert fake_st.errors == []
 
 
 def test_a_probe_of_the_same_url_still_buys_the_full_event(app):
