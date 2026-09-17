@@ -677,16 +677,62 @@ def test_the_full_event_button_is_disabled_until_something_has_been_probed(app):
     fake_st, runs = _render(app, url=EVENT_URL, probe=None)
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
-    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == "Scrape all U10+ divisions"
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+        "Step 2: Import every U10+ division"
+    )
     assert runs == []
+
+
+def test_a_saved_probe_unlocks_the_full_event_after_a_restart(app):
+    """A paid sample on disk must unlock the next step in a fresh session."""
+    tournament_intake._write_event_roster_recovery(
+        _roster(_team(0), _team(1), divisions_found=40, divisions_walked=2), limit_groups=2
+    )
+
+    fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
+
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
+    assert any("Sample ready" in caption for caption in fake_st.captions)
+    assert fake_st.button_by_key("_seeding_event_reload_walk")["label"] == (
+        "Open the saved sample (free)"
+    )
+
+
+def test_an_incomplete_full_walk_is_marked_for_retry(app):
+    fake_st, _runs = _render(
+        app,
+        url=EVENT_URL,
+        probe=_probe(limit_groups=None, complete=False),
+    )
+
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+        "Retry the full U10+ import"
+    )
+    assert any("Full walk needs another try" in caption for caption in fake_st.captions)
+    assert not any("Full list ready" in caption for caption in fake_st.captions)
+
+
+def test_a_complete_saved_walk_offers_an_explicit_refresh(app):
+    """A complete recovery can be refreshed when an event's registrations change."""
+    tournament_intake._write_event_roster_recovery(
+        _roster(_team(0), divisions_found=1, divisions_walked=1), limit_groups=None
+    )
+
+    fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
+
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == (
+        "Refresh the full U10+ list"
+    )
 
 
 def test_the_seeding_intro_discloses_younger_division_page_cost(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
 
     explanation = " ".join(fake_st.captions)
-    assert "younger division pages" in explanation
-    assert "does not buy those younger teams' pages" in explanation
+    assert "younger divisions" in explanation
+    assert "division pages" in explanation
+    assert "younger team pages are skipped automatically" in explanation
 
 
 def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
@@ -846,6 +892,7 @@ def test_the_caption_prices_remaining_ranked_divisions_from_the_retained_sample(
     )
 
     assert r"\$0.58-\$1.73" in caption
+    assert r"\$5.20" in caption, "the displayed ceiling must account for three attempts per page"
     assert r"\$0.22-\$0.67" not in caption, "nine checked pages are not nine team-bearing divisions"
     assert r"\$0.66-\$1.99" not in caption, "the seven known-younger divisions buy no team pages"
 
@@ -855,15 +902,16 @@ def test_a_probe_that_found_no_team_prices_nothing():
     caption = tournament_intake._seeding_probe_caption(_probe(divisions_walked=2, teams=0, linked=0))
 
     assert "$" not in caption
-    assert "not enough to price" in caption
+    assert "not enough information to estimate" in caption
 
 
 def test_a_full_walk_quotes_no_further_cost():
     caption = tournament_intake._seeding_probe_caption(
-        _probe(limit_groups=None, divisions_walked=40, teams=220)
+        _probe(limit_groups=None, divisions_walked=40, teams=220, complete=True)
     )
 
-    assert "$" not in caption, "the whole event has already been walked"
+    assert "Refresh estimate" in caption, "refreshing a completed walk is a paid action"
+    assert "$" in caption
 
 
 def test_a_limited_probe_that_reached_every_division_quotes_no_further_cost():
@@ -924,7 +972,7 @@ def test_a_price_is_written_so_streamlit_does_not_read_it_as_maths():
     "text",
     [
         "Check 2 U10+ divisions",
-        "The whole event looks like",
+        "Estimated base cost for the full U10+ list",
     ],
 )
 def test_no_money_surface_emits_a_bare_dollar(app, text):
@@ -1324,7 +1372,25 @@ def test_a_recovery_write_that_fails_does_not_cost_the_walk(app):
 
 
 def test_a_fully_walked_event_cannot_be_bought_twice(app):
-    """A second click queued during the walk arrives once the first run ends."""
+    """A completed Seeding walk can be refreshed explicitly for changed rosters."""
+    runs: list[dict[str, Any]] = []
+    fake_st = _install(
+        app,
+        _FakeSt(buttons={"_seeding_event_refresh_run": True}, text={"seeding_event_url": EVENT_URL}),
+    )
+    fake_st.session_state._seeding_event_probe = _probe(limit_groups=None, complete=True)
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda url, c, **kw: runs.append(kw))
+
+    _render_controls()
+
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == "Refresh the full U10+ list"
+    assert runs == [{"limit_groups": None, "keys": tournament_intake._SEEDING_KEYS}]
+    assert not fake_st.errors
+
+
+def test_a_queued_import_click_does_not_trigger_a_refresh(app):
+    """The refresh button has its own key, so an old import click is ignored."""
     runs: list[dict[str, Any]] = []
     fake_st = _install(
         app,
@@ -1335,9 +1401,8 @@ def test_a_fully_walked_event_cannot_be_bought_twice(app):
 
     _render_controls()
 
-    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
-    assert runs == [], "the event was walked in full already; buying it again is pure waste"
-    assert fake_st.errors
+    assert runs == []
+    assert fake_st.errors == []
 
 
 def test_a_probed_but_unwalked_event_is_still_for_sale(app):
@@ -1644,8 +1709,8 @@ def test_the_caption_reports_the_counts_it_was_given():
         )
     )
 
-    assert "Checked 4 of 40 event divisions" in caption
-    assert "captured 2 U10+ divisions" in caption
+    assert "Sample ready: 2 U10+ divisions" in caption
+    assert "Estimated base cost for the full U10+ list" in caption
     assert "11 teams" in caption
     assert "8 carrying a GotSport id" in caption
 
@@ -2213,6 +2278,21 @@ def test_the_offer_stops_once_the_tab_holds_the_walk(app):
 
     with pytest.raises(AssertionError):
         fake_st.button_by_key("_seeding_event_reload_walk")
+
+
+def test_opening_a_complete_walk_keeps_refresh_available(app):
+    tournament_intake._write_event_roster_recovery(
+        _roster(_team(0), divisions_found=1, divisions_walked=1), limit_groups=None
+    )
+    fake_st, _runs = _render(
+        app, url=EVENT_URL, probe=None, buttons={"_seeding_event_reload_walk": True}
+    )
+    fake_st.buttons.clear()
+
+    _render_controls()
+
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["label"] == "Refresh the full U10+ list"
+    assert fake_st.button_by_key("_seeding_event_refresh_run")["disabled"] is False
 
 
 def test_the_reload_is_offered_while_a_probe_describes_the_walk_that_was_lost(app):
