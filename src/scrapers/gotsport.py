@@ -870,6 +870,61 @@ class GotSportScraper(BaseScraper):
 # itself is age-agnostic, so loose values like ``"Unknown"`` fall through.
 _LEADING_U_AGE_RE = re.compile(r"^[Uu](\d{1,2})", re.IGNORECASE)
 
+# Gender as a team, division or bracket label spells it. A lone ``B``/``G`` is
+# deliberately unreadable: it is a flight letter at least as often as a gender,
+# so ``U14 Girls Bracket B`` resolved to boys for as long as a bare-letter branch
+# ran ahead of the words.
+_GENDER_WORD_RE = re.compile(r"\b(?:(boys?|male)|(girls?|female))\b", re.IGNORECASE)
+# ``U14G``, ``BU11``, ``G2016``, ``14B`` -- the letter is glued to the cohort it
+# qualifies, which is what keeps it distinguishable from a lone flight letter.
+_GENDER_COHORT_TOKEN_RE = re.compile(
+    r"\b(?:[Uu]\d{1,2}([BbGg])|([BbGg])[Uu]\d{1,2}|([BbGg])\d{2,4}|\d{2,4}([BbGg]))\b"
+)
+
+# A gender letter may sit against the year (``G2016``, ``16/17G``), so neither
+# pattern can require a word boundary -- only that the digits are not part of a
+# longer number.
+_BIRTH_YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
+# Two-digit band, as clubs write it: ``U9 (17/18)``, ``16/17G``.
+_BIRTH_YEAR_BAND_RE = re.compile(r"(?<!\d)(\d{2})\s*/\s*(\d{2})(?!\d)")
+
+
+def gender_code_from_label(text: Optional[str]) -> Optional[str]:
+    """Read ``"M"``/``"F"`` from a label, or ``None`` when it names no gender.
+
+    ``None`` is a real answer here. Guessing put whole teams on the wrong board,
+    and a caller with no gender can still fall through to another signal.
+    """
+    if not text:
+        return None
+    word = _GENDER_WORD_RE.search(text)
+    if word:
+        return "M" if word.group(1) else "F"
+    token = _GENDER_COHORT_TOKEN_RE.search(text)
+    if token:
+        letter = next(group for group in token.groups() if group)
+        return "M" if letter.upper() == "B" else "F"
+    return None
+
+
+def birth_year_from_label(text: Optional[str]) -> Optional[int]:
+    """Birth year a label states, taking a two-year band's YOUNGER year.
+
+    A band is named for its younger year — ``U9 (17/18)`` is a 2018 cohort — so
+    reading the leading year files the team one age group too high.
+    """
+    if not text:
+        return None
+    full = _BIRTH_YEAR_RE.search(text)
+    if full:
+        return int(full.group(1))
+    band = _BIRTH_YEAR_BAND_RE.search(text)
+    if band:
+        years = sorted(2000 + int(part) for part in band.groups())
+        if years[1] - years[0] == 1:
+            return years[1]
+    return None
+
 # Markers for gotsport's per-event reCAPTCHA v2 challenge page
 # (observed 2026-04-24 on events 45224, 40550, 40610 among others).
 # Detection is permissive: any of these patterns is enough — the three tend
@@ -1241,25 +1296,25 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
             if not bracket_name:
                 # Create bracket name from team data
                 age_group = team.get("display_age_group", "Unknown")
-                gender_code = (
-                    "B" if "Male" in team.get("display_gender", "") or team.get("gender", "").lower() == "m" else "G"
-                )
-                bracket_name = f"{age_group}{gender_code}"
+                gender_code = gender_code_from_label(team.get("display_gender") or team.get("gender"))
+                # A synthesized name feeds the gender readers below, so an unknown
+                # gender must leave no letter rather than a guessed one.
+                bracket_name = f"{age_group}{'B' if gender_code == 'M' else 'G' if gender_code == 'F' else ''}"
 
             if bracket_name not in brackets:
                 brackets[bracket_name] = []
 
             # Extract team info
             team_name = team.get("full_name", f"Team {team_id}")
-            gender_display = team.get("display_gender", "")
-            gender_code = "M" if "Male" in gender_display or team.get("gender", "").lower() == "m" else "F"
+            gender_code = gender_code_from_label(team.get("display_gender") or team.get("gender")) or (
+                gender_code_from_label(bracket_name)
+            )
 
             # Determine ACTUAL age group (not bracket age)
             # Method 1: Try to infer from team name (look for birth year)
             actual_age_group = None
-            birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-            if birth_year_match:
-                birth_year = int(birth_year_match.group(1))
+            birth_year = birth_year_from_label(team_name)
+            if birth_year:
                 # Age group is the year they turn that age, not current age.
                 # Formula: age_group = current_year - birth_year + 1, which
                 # re-derives every Aug 1 — in 2026-27 that makes 2015 a U12 and
@@ -1276,7 +1331,7 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
             if not actual_age_group:
                 display_age = team.get("display_age_group", "")
                 # Only trust it if team name doesn't contradict it
-                if display_age and not birth_year_match:
+                if display_age and not birth_year:
                     actual_age_group = display_age
 
             # Method 3: Use numeric age field if available (might be actual age)
@@ -1348,9 +1403,8 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                             gender = None
 
                             # Method 1: Extract birth year from team name (priority)
-                            birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-                            if birth_year_match:
-                                birth_year = int(birth_year_match.group(1))
+                            birth_year = birth_year_from_label(team_name)
+                            if birth_year:
                                 current_year = CURRENT_YEAR
                                 age_group_number = current_year - birth_year + 1
                                 if 7 <= age_group_number <= 19:
@@ -1361,10 +1415,7 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                                 age_match = re.search(r"U(\d+)", header_text, re.I)
                                 age_group = f"U{age_match.group(1)}"
 
-                            if re.search(r"\b(B|Boys|M|Male)\b", header_text, re.I):
-                                gender = "M"
-                            elif re.search(r"\b(G|Girls|F|Female)\b", header_text, re.I):
-                                gender = "F"
+                            gender = gender_code_from_label(team_name) or gender_code_from_label(header_text)
 
                             brackets[current_bracket].append(
                                 EventTeam(
@@ -1416,9 +1467,8 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                 # Extract age_group from team name's birth year (priority)
                 age_group = None
                 gender = None
-                birth_year_match = re.search(r"\b(20\d{2})\b", team_name)
-                if birth_year_match:
-                    birth_year = int(birth_year_match.group(1))
+                birth_year = birth_year_from_label(team_name)
+                if birth_year:
                     current_year = CURRENT_YEAR
                     age_group_number = current_year - birth_year + 1
                     if 7 <= age_group_number <= 19:
@@ -1428,10 +1478,7 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                 if not age_group and re.search(r"U(\d+)", bracket_name, re.I):
                     age_match = re.search(r"U(\d+)", bracket_name, re.I)
                     age_group = f"U{age_match.group(1)}"
-                if re.search(r"\b(B|Boys|M|Male)\b", bracket_name, re.I):
-                    gender = "M"
-                elif re.search(r"\b(G|Girls|F|Female)\b", bracket_name, re.I):
-                    gender = "F"
+                gender = gender_code_from_label(team_name) or gender_code_from_label(bracket_name)
 
                 brackets[bracket_name].append(
                     EventTeam(
@@ -3035,15 +3082,10 @@ class GotsportScraper(ProviderScraper):
                             if age_match:
                                 age_group = f"U{age_match.group(1)}"
 
-                            # Try to extract gender (B=Boys/Male, G=Girls/Female)
                             # Validator expects: 'Male', 'Female', 'Boys', 'Girls', 'Coed'
-                            if re.search(r"\b([BG])\b", division, re.I):
-                                gender_code = re.search(r"\b([BG])\b", division, re.I).group(1).upper()
-                                gender = "Boys" if gender_code == "B" else "Girls"
-                            elif re.search(r"\b(Boys?|Male)\b", division, re.I):
-                                gender = "Boys"
-                            elif re.search(r"\b(Girls?|Female)\b", division, re.I):
-                                gender = "Girls"
+                            gender_code = gender_code_from_label(division)
+                            if gender_code:
+                                gender = "Boys" if gender_code == "M" else "Girls"
 
                         # FILTER: Skip games for U9 and younger age groups
                         # PitchRank only tracks U10 and older
