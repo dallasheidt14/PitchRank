@@ -4736,8 +4736,13 @@ def _render_recovered_walk(
         f"A saved sample for event {event_id} has {len(roster.teams)} teams. "
         "Open it below to review the rows without paying again."
     )
+    reload_label = (
+        "Load the walk already paid for"
+        if keys == _BACKTEST_KEYS
+        else "Open the saved sample (free)"
+    )
     reload_clicked = st.button(
-        "Open the saved sample (free)",
+        reload_label,
         key=f"{keys.prefix}_event_reload_walk",
         disabled=in_progress,
     )
