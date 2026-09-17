@@ -120,7 +120,12 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from scripts.backfill_state_from_team_name import affiliate_contradicts, state_from_name  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
-from src.utils.team_association_map import to_state_code  # noqa: E402
+from src.utils.team_association_map import (  # noqa: E402
+    MAPPED_OUTCOME,
+    NO_ASSOCIATION_OUTCOME,
+    UNMAPPED_OUTCOME_PREFIX,
+    to_state_code,
+)
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 console = Console()
@@ -214,14 +219,12 @@ def state_source_for(tier: str) -> str:
     return f"tier_{tier.lower()}"
 
 
-# The outcome a probe records when the provider named a state we recognise, and the
-# provenance ``apply_team_state`` stamps for a Tier A write. Both are written in one place
+# The provenance ``apply_team_state`` stamps for a Tier A write. It is written in one place
 # and read in another, and a mismatch is silent: the audit simply finds no anchors and
-# reports a clean zero. So the provenance is derived from the writer above rather than
-# spelled again beside it -- two literals held equal by nothing is how that silence gets in.
+# reports a clean zero. So it is derived from the writer above rather than spelled again
+# beside it -- two literals held equal by nothing is how that silence gets in.
 # ``approve_team_state`` builds the same format independently in SQL, and nothing checks
 # the two against each other.
-MAPPED_OUTCOME = "mapped"
 TIER_A_SOURCE = state_source_for("A")
 # What ``--set`` stamps: an operator's own answer, which no automated write may overwrite.
 OPERATOR_SOURCE = "operator"
@@ -992,10 +995,10 @@ def probe_associations(
 
         raw = str(payload.get("team_association") or "").strip()
         if not raw:
-            return team_id, None, "no association in payload"
+            return team_id, None, NO_ASSOCIATION_OUTCOME
         state = to_state_code(raw)
         return (
-            (team_id, state, MAPPED_OUTCOME) if state else (team_id, None, f"unmapped code {raw}")
+            (team_id, state, MAPPED_OUTCOME) if state else (team_id, None, f"{UNMAPPED_OUTCOME_PREFIX}{raw}")
         )
 
     # The ledger is written here, on the main thread, never inside ``probe``. This loop

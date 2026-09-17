@@ -1318,6 +1318,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams.state_code` for GotSport teams whose raw `teams.state` is NULL, surfacing through `rankings_view` / `state_rankings_view` (state `UT`)
 - **Why**: About 63 of Utah's 272 ranked teams are English academies with `state_code = 'UT'` and no raw state, among them Bromley FC, York City FC, Luton Town Community Trust and 7 Elite Academy (GB). They fill 57 of the 71 places on the Utah U19 boys board (measured 2026-09-17), and they block the Utah state guide. Find how UT was assigned before clearing it. The fix removes the wrong US state; it does not assign a foreign one, since non-US clubs get no state-assignment effort.
 - **Noted**: 2026-09-17
+- **Update (2026-09-17)**: How UT was assigned: `discover_teams_from_opponents.py` gave each newly discovered team the state of the team it had played until #1055 (2026-08-29), and the 2026-08-30 state sweep then propagated the label to clubmates through Tier B. The league is not Utah-only -- the same teams sit under MI (~320) and CA (~195) as well. Being addressed a layer up rather than by clearing the state: `team_ranking_exclusions` (PR #1168) drops these teams and their games from the rankings entirely, which takes them off every state board and the national ones. 817 reviewed teams were written to that table on 2026-09-17. Close this entry once the following Monday's run is verified; clearing `state_code` afterwards is optional and would leave them nationally ranked.
 
 ### Revise the blog line that says PitchRank is not for tournament directors
 
@@ -1393,4 +1394,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/scrape_playmetrics_league.py` `derive_team_age_group` (as it stood before `playmetrics-wi-secl-fall-2026`); WI teams holding PlayMetrics aliases
 - **Why**: The Fall 2025 (`1014-1514`) and Spring 2026 (`1014-1926`) Wisconsin leagues were imported while the parser missed a U-age with a gender letter fused on (`U11B`, `11uG`), falling back to the division's play-up age, and read `2013/2014` bands by the older year. Some WI teams may exist as wrong-cohort duplicates bound by approved aliases. Measure read-only first: WI PlayMetrics-alias teams whose name U-age disagrees with the stored cohort, and whether a same-name sibling sits at the name's cohort. Then use the `correcting-team-age-groups` and `merging-duplicate-teams` skills.
+- **Noted**: 2026-09-17
+
+### Share the operator-script and test-double scaffolding instead of copying it per file
+
+- **ID**: IMP-255
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `get_client` (10 files under `scripts/`, e.g. `exclude_english_teams.py`, `exclude_none_opponent_games.py`, `apply_vetted_team_merges.py`); `_paged` (3, incl. the `order("id")` variant in `enqueue_helpers.py`); the `_Query`/`_DB` PostgREST double (8 files under `tests/unit/`); `_executable` and friends in the migration guards (7 files under `tests/unit/`)
+- **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks -- 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
+- **Noted**: 2026-09-17
+
+### Catch English-league teams that arrive after the exclusion list was built
+
+- **ID**: IMP-256
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/exclude_english_teams.py` (`grow`, `build_snapshot`); `scripts/discover_teams_from_opponents.py` (`_build_team_metadata`, `create_team_and_alias`)
+- **Why**: `team_ranking_exclusions` keeps a listed team out however many new fixtures it plays, but nothing stops a *new* English identity entering. Discovery creates a team from name, age and gender alone and queues it for scraping, and the weekly state job runs with `--no-tier-a`, so nothing asks the provider where a new registration is. A fresh English team playing other unlisted English teams accumulates games and becomes nationally ranked exactly as this population did. The exclusion script is manual, so nobody is told. Wanted: a recurring report of candidates the graph rule reaches but nobody has decided on, and an admission-time rule using the provider's association rather than the opponent's state. Raised by a design review of PR #1168 on 2026-09-17.
+- **Noted**: 2026-09-17
+
+### Give team_ranking_exclusions a correction path when later evidence contradicts a row
+
+- **ID**: IMP-257
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/exclude_english_teams.py` (`apply_snapshot`); `team_ranking_exclusions`
+- **Why**: `--execute` only inserts what is missing, so a row survives evidence that arrives after it was written: a later GotSport probe confirming the team as US, or a fresh snapshot that no longer reaches it, changes nothing, and the team stays unranked with nobody told. Merge expansion compounds it in the other direction -- an exclusion transfers to whatever team absorbs a listed one, so a wrong merge can suppress a US survivor's whole record without a new row being written. Wanted: a report of listed teams whose current evidence disagrees with the reason they were listed, covering both shapes, and a recorded basis for rows admitted by the game graph alone rather than by a provider answer. Deleting a row already restores the team at the next run, so this is about noticing, not about mechanism. Raised by a design review of PR #1168 on 2026-09-17.
 - **Noted**: 2026-09-17

@@ -18,6 +18,7 @@ python scripts/orchestrator_status.py
 | `current_rankings` | Latest rankings (national_rank, state_rank, games_played, SOS) |
 | `games` | Game results (scores, dates, teams) |
 | `teams` | Team info (name, club, state, age_group, gender) |
+| `team_ranking_exclusions` | Teams kept off the boards — every game they played is dropped for both sides |
 
 ## Investigate a Team's Ranking
 

@@ -13,7 +13,9 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
 `compute_rankings_with_ml()` handles one cohort. Canonical stage order:
 
 1. `fetch_games_for_rankings()` — Supabase → engine format (two rows per game); merge
-   resolution via `team_merge_map`
+   resolution via `team_merge_map`, then every game touching a team in
+   `team_ranking_exclusions` is dropped from both sides. That read fails closed: a run
+   raises rather than ranking without the list
 2. Cache check (MD5 of game IDs + lookback + merge version + engine); the cache only
    ever serves Pass 1 — Pass 2 always rebuilds
 3. **Pass 1**: `compute_rankings_v2()` per (age, gender) cohort, `global_strength_map=None`
