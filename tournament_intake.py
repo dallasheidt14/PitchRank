@@ -113,6 +113,7 @@ from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches
 from src.tournaments.seeding_run_store import (
     SeedingRun,
 )
+from src.tournaments.seeding_run_store import default_base_dir as default_seeding_base_dir
 from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
 from src.tournaments.seeding_run_store import load_run as load_seeding_run_file
 from src.tournaments.seeding_run_store import save_run as save_seeding_run_file
@@ -3954,7 +3955,7 @@ def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Pat
 
         key = existing_event_key("gotsport", event_id, base_dir=reports_dir())
         return reports_dir() / key / "intake" / "last_walk.json"
-    return reports_dir() / "seeding" / f"gotsport_{event_id}" / "last_walk.json"
+    return default_seeding_base_dir() / f"gotsport_{event_id}" / "last_walk.json"
 
 
 def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> None:

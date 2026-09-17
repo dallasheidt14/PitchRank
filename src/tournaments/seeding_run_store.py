@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -40,6 +41,9 @@ __all__ = [
 
 RUN_FILENAME = "seeding_run.json"
 
+_SEEDING_DIR_ENV = "MATCHBALANCE_SEEDING_DIR"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
 
 
@@ -64,8 +68,62 @@ class SeedingRunEntry:
     team_count: int
 
 
+def _shared_checkout_root(project_root: Path) -> Path:
+    """Return the primary checkout shared by this repo's linked worktrees.
+
+    Git writes a ``.git`` file in a linked worktree. Its ``commondir`` points
+    back to the primary checkout's ``.git`` directory, whose parent is the one
+    place every worktree can use for local operator data. Invalid or non-Git
+    layouts fall back to the checkout that contains this module.
+    """
+    root = project_root.resolve(strict=False)
+    dot_git = root / ".git"
+    if dot_git.is_dir():
+        return root
+    if not dot_git.is_file():
+        return root
+
+    try:
+        marker = dot_git.read_text(encoding="utf-8").strip()
+        prefix = "gitdir:"
+        if not marker.lower().startswith(prefix):
+            return root
+        git_dir = Path(marker[len(prefix) :].strip())
+        if not git_dir.is_absolute():
+            git_dir = root / git_dir
+        git_dir = git_dir.resolve(strict=False)
+        if not git_dir.is_dir():
+            return root
+
+        common_marker = (git_dir / "commondir").read_text(encoding="utf-8").strip()
+        if not common_marker:
+            return root
+        common_git_dir = Path(common_marker)
+        if not common_git_dir.is_absolute():
+            common_git_dir = git_dir / common_git_dir
+        common_git_dir = common_git_dir.resolve(strict=False)
+        worktrees_dir = (common_git_dir / "worktrees").resolve(strict=False)
+        if (
+            common_git_dir.name.casefold() != ".git"
+            or not common_git_dir.is_dir()
+            or not git_dir.is_relative_to(worktrees_dir)
+        ):
+            return root
+        return common_git_dir.parent
+    except (OSError, RuntimeError, ValueError):
+        return root
+
+
 def default_base_dir() -> Path:
-    return Path("reports") / "seeding"
+    """Return one durable Seeding store shared by every local worktree."""
+    shared_root = _shared_checkout_root(_PROJECT_ROOT)
+    configured = os.getenv(_SEEDING_DIR_ENV, "").strip()
+    if configured:
+        configured_path = Path(configured).expanduser()
+        if not configured_path.is_absolute():
+            configured_path = shared_root / configured_path
+        return configured_path.resolve(strict=False)
+    return shared_root / "reports" / "seeding"
 
 
 def slugify(name: str) -> str:

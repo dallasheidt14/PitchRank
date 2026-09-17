@@ -67,8 +67,9 @@ credentials/
 .turbo/plans/auth-onboarding-lockout-fixes.md
 .turbo/handoff/2026-08-20-team-matching-and-age-correctness.md
 
-# MatchBalance Backtest captures and locks are local runtime data.
+# MatchBalance captures, saved runs, and locks are local runtime data.
 # Keep deliberate source fixtures and existing tracked reports reviewable.
+/reports/seeding/
 /reports/gotsport__*/intake/last_walk.json
 /reports/gotsport__*/intake/event_intake.json
 /reports/gotsport__*/intake/event_links.json
