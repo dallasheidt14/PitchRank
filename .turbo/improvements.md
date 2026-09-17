@@ -1415,3 +1415,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/exclude_english_teams.py` (`grow`, `build_snapshot`); `scripts/discover_teams_from_opponents.py` (`_build_team_metadata`, `create_team_and_alias`)
 - **Why**: `team_ranking_exclusions` keeps a listed team out however many new fixtures it plays, but nothing stops a *new* English identity entering. Discovery creates a team from name, age and gender alone and queues it for scraping, and the weekly state job runs with `--no-tier-a`, so nothing asks the provider where a new registration is. A fresh English team playing other unlisted English teams accumulates games and becomes nationally ranked exactly as this population did. The exclusion script is manual, so nobody is told. Wanted: a recurring report of candidates the graph rule reaches but nobody has decided on, and an admission-time rule using the provider's association rather than the opponent's state. Raised by a design review of PR #1168 on 2026-09-17.
 - **Noted**: 2026-09-17
+
+### Give team_ranking_exclusions a correction path when later evidence contradicts a row
+
+- **ID**: IMP-257
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/exclude_english_teams.py` (`apply_snapshot`); `team_ranking_exclusions`
+- **Why**: `--execute` only inserts what is missing, so a row survives evidence that arrives after it was written: a later GotSport probe confirming the team as US, or a fresh snapshot that no longer reaches it, changes nothing, and the team stays unranked with nobody told. Merge expansion compounds it in the other direction -- an exclusion transfers to whatever team absorbs a listed one, so a wrong merge can suppress a US survivor's whole record without a new row being written. Wanted: a report of listed teams whose current evidence disagrees with the reason they were listed, covering both shapes, and a recorded basis for rows admitted by the game graph alone rather than by a provider answer. Deleting a row already restores the team at the next run, so this is about noticing, not about mechanism. Raised by a design review of PR #1168 on 2026-09-17.
+- **Noted**: 2026-09-17
