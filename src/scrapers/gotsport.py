@@ -1067,6 +1067,53 @@ def _zenrows_get(
     return response
 
 
+_AGE_ADJACENT_GENDER = {"B": "Boys", "M": "Boys", "G": "Girls", "F": "Girls"}
+_EVENT_TEAM_GENDER_CODE = {"Boys": "M", "Girls": "F"}
+
+
+def _parse_division_gender(division: str) -> Optional[str]:
+    """Resolve Boys/Girls from a GotSport division or bracket label.
+
+    Two readings, tried in order of how plainly the provider states the
+    gender: the word itself, then a letter belonging to the age token --
+    glued to it (``U14G``, ``BU11``) or standing beside it (``U13 B D1``).
+    The provider corroborates the second: on event 44540 that division was
+    scraped from a URL carrying ``gender=m``, and its ``High School G D3``
+    from one carrying ``gender=f`` (checked 2026-09-17).
+
+    A letter anywhere else is a bracket name, which is why ``14U Girls B`` is
+    bracket B of a girls division and ``U10 Bracket B`` names no gender at all.
+    A label naming two genders (``BU10/GU10``) names neither.
+
+    Returns None rather than guessing, because the costs are asymmetric: an
+    unresolved gender skips the team, while a wrong one files it onto the
+    opposite board.
+    """
+    named = {
+        gender
+        for pattern, gender in (
+            (r"\b(?:Boys?|Male)\b", "Boys"),
+            (r"\b(?:Girls?|Female)\b", "Girls"),
+        )
+        if re.search(pattern, division, re.I)
+    }
+
+    if not named:
+        # The digit runs are bounded because an age is never more than two
+        # digits, and an unbounded \d+ backtracks quadratically on a long
+        # numeric label.
+        named = {
+            _AGE_ADJACENT_GENDER[(match.group(1) or match.group(2)).upper()]
+            for match in re.finditer(
+                r"(?:U\d{1,2}\s?|\d{1,2}U\s?)([BGMF])\b|\b([BGMF])U\d{1,2}",
+                division,
+                re.I,
+            )
+        }
+
+    return named.pop() if len(named) == 1 else None
+
+
 def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str) -> Dict[str, List[EventTeam]]:
     """Pure-parse counterpart to ``GotsportScraper.extract_event_teams_by_bracket``.
 
@@ -1361,10 +1408,9 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                                 age_match = re.search(r"U(\d+)", header_text, re.I)
                                 age_group = f"U{age_match.group(1)}"
 
-                            if re.search(r"\b(B|Boys|M|Male)\b", header_text, re.I):
-                                gender = "M"
-                            elif re.search(r"\b(G|Girls|F|Female)\b", header_text, re.I):
-                                gender = "F"
+                            header_gender = _parse_division_gender(header_text)
+                            if header_gender:
+                                gender = _EVENT_TEAM_GENDER_CODE[header_gender]
 
                             brackets[current_bracket].append(
                                 EventTeam(
@@ -1428,10 +1474,9 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
                 if not age_group and re.search(r"U(\d+)", bracket_name, re.I):
                     age_match = re.search(r"U(\d+)", bracket_name, re.I)
                     age_group = f"U{age_match.group(1)}"
-                if re.search(r"\b(B|Boys|M|Male)\b", bracket_name, re.I):
-                    gender = "M"
-                elif re.search(r"\b(G|Girls|F|Female)\b", bracket_name, re.I):
-                    gender = "F"
+                bracket_gender = _parse_division_gender(bracket_name)
+                if bracket_gender:
+                    gender = _EVENT_TEAM_GENDER_CODE[bracket_gender]
 
                 brackets[bracket_name].append(
                     EventTeam(
@@ -3035,15 +3080,7 @@ class GotsportScraper(ProviderScraper):
                             if age_match:
                                 age_group = f"U{age_match.group(1)}"
 
-                            # Try to extract gender (B=Boys/Male, G=Girls/Female)
-                            # Validator expects: 'Male', 'Female', 'Boys', 'Girls', 'Coed'
-                            if re.search(r"\b([BG])\b", division, re.I):
-                                gender_code = re.search(r"\b([BG])\b", division, re.I).group(1).upper()
-                                gender = "Boys" if gender_code == "B" else "Girls"
-                            elif re.search(r"\b(Boys?|Male)\b", division, re.I):
-                                gender = "Boys"
-                            elif re.search(r"\b(Girls?|Female)\b", division, re.I):
-                                gender = "Girls"
+                            gender = _parse_division_gender(division)
 
                         # FILTER: Skip games for U9 and younger age groups
                         # PitchRank only tracks U10 and older
