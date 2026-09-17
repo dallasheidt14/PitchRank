@@ -1600,6 +1600,21 @@ def test_the_seeding_tab_warns_before_a_duplicate_match_reaches_the_sheet(monkey
     assert fake_st.dataframes == 1
 
 
+def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster("Male U14\nClub A\tTeam A\tTX")
+    resolved = (ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-a"),)
+    fake_st = _install(app, _FakeSt())
+    fake_st.session_state._seeding_overrides = {}
+
+    tournament_intake._render_seeding_enqueue(parsed, resolved, None)
+
+    assert len(fake_st.warnings) == 1
+    assert "database connection is unavailable" in fake_st.warnings[0]
+    assert fake_st.buttons == []
+
+
 # -------- the tab actually wires its parts together -----------------------
 
 
