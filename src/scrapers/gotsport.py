@@ -881,12 +881,38 @@ _GENDER_COHORT_TOKEN_RE = re.compile(
     r"\b(?:[Uu]\d{1,2}([BbGg])|([BbGg])[Uu]\d{1,2}|([BbGg])\d{2,4}|\d{2,4}([BbGg]))\b"
 )
 
-# A gender letter may sit against the year (``G2016``, ``16/17G``), so neither
-# pattern can require a word boundary -- only that the digits are not part of a
+# A gender letter may sit against the year (``G2016``, ``16/17G``), so none of
+# these may require a word boundary -- only that the digits are not part of a
 # longer number.
+#
+# Bands are matched BEFORE a standalone year, in both spellings clubs use:
+# ``B2014/2015`` and ``U9 (17/18)``. Searching for a lone year first returns the
+# band's leading year and files the team a group too high.
+_BIRTH_YEAR_BAND_RE = re.compile(r"(?<!\d)(20\d{2})\s*/\s*(20\d{2}|\d{2})(?!\d)")
+_BIRTH_YEAR_SHORT_BAND_RE = re.compile(r"(?<!\d)(\d{2})\s*/\s*(\d{2})(?!\d)")
 _BIRTH_YEAR_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
-# Two-digit band, as clubs write it: ``U9 (17/18)``, ``16/17G``.
-_BIRTH_YEAR_BAND_RE = re.compile(r"(?<!\d)(\d{2})\s*/\s*(\d{2})(?!\d)")
+
+# A youth birth year, bounded so a season label (``(25/26)``) or a founding year
+# cannot pose as one. Re-derived from the season rather than written out, the way
+# every other cohort window in this repo is.
+_OLDEST_BIRTH_YEAR = CURRENT_YEAR - 25
+_YOUNGEST_BIRTH_YEAR = CURRENT_YEAR - 4
+
+
+# A provider field holds a gender and nothing else, so a bare letter there is the
+# value rather than a flight code and is safe to read. The same letter inside a
+# label is not, which is why this never runs against one.
+_GENDER_VALUES = {"m": "M", "b": "M", "male": "M", "boy": "M", "boys": "M",
+                  "f": "F", "g": "F", "female": "F", "girl": "F", "girls": "F"}
+
+
+def gender_code_from_value(value: Optional[str]) -> Optional[str]:
+    """Read ``"M"``/``"F"`` from a provider's gender FIELD, or ``None``.
+
+    Use this only where the whole string is the provider's answer. For text that
+    merely contains a gender among other words, use `gender_code_from_label`.
+    """
+    return _GENDER_VALUES.get(str(value or "").strip().lower())
 
 
 def gender_code_from_label(text: Optional[str]) -> Optional[str]:
@@ -911,19 +937,33 @@ def birth_year_from_label(text: Optional[str]) -> Optional[int]:
     """Birth year a label states, taking a two-year band's YOUNGER year.
 
     A band is named for its younger year — ``U9 (17/18)`` is a 2018 cohort — so
-    reading the leading year files the team one age group too high.
+    reading the leading year files the team one age group too high. Bands are
+    therefore read before a standalone year, and a value outside a plausible
+    youth birth year is refused rather than returned, so a season label cannot
+    pose as a cohort and suppress the caller's other sources.
     """
     if not text:
         return None
-    full = _BIRTH_YEAR_RE.search(text)
-    if full:
-        return int(full.group(1))
-    band = _BIRTH_YEAR_BAND_RE.search(text)
-    if band:
-        years = sorted(2000 + int(part) for part in band.groups())
-        if years[1] - years[0] == 1:
+    for pattern in (_BIRTH_YEAR_BAND_RE, _BIRTH_YEAR_SHORT_BAND_RE):
+        band = pattern.search(text)
+        if not band:
+            continue
+        years = sorted(_expand_year(part) for part in band.groups())
+        if years[1] - years[0] == 1 and _is_birth_year(years[1]):
             return years[1]
+    full = _BIRTH_YEAR_RE.search(text)
+    if full and _is_birth_year(int(full.group(1))):
+        return int(full.group(1))
     return None
+
+
+def _expand_year(part: str) -> int:
+    return int(part) if len(part) == 4 else 2000 + int(part)
+
+
+def _is_birth_year(year: int) -> bool:
+    return _OLDEST_BIRTH_YEAR <= year <= _YOUNGEST_BIRTH_YEAR
+
 
 # Markers for gotsport's per-event reCAPTCHA v2 challenge page
 # (observed 2026-04-24 on events 45224, 40550, 40610 among others).
@@ -1296,7 +1336,7 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
             if not bracket_name:
                 # Create bracket name from team data
                 age_group = team.get("display_age_group", "Unknown")
-                gender_code = gender_code_from_label(team.get("display_gender") or team.get("gender"))
+                gender_code = gender_code_from_value(team.get("display_gender") or team.get("gender"))
                 # A synthesized name feeds the gender readers below, so an unknown
                 # gender must leave no letter rather than a guessed one.
                 bracket_name = f"{age_group}{'B' if gender_code == 'M' else 'G' if gender_code == 'F' else ''}"
@@ -1306,7 +1346,7 @@ def extract_event_teams_by_bracket_from_soup(soup: BeautifulSoup, event_id: str)
 
             # Extract team info
             team_name = team.get("full_name", f"Team {team_id}")
-            gender_code = gender_code_from_label(team.get("display_gender") or team.get("gender")) or (
+            gender_code = gender_code_from_value(team.get("display_gender") or team.get("gender")) or (
                 gender_code_from_label(bracket_name)
             )
 

@@ -21,12 +21,11 @@ Measured against live rows on 2026-09-17: 349 teams carried a gender their own
 name contradicted.
 """
 
-import re
 from pathlib import Path
 
 import pytest
 
-from src.scrapers.gotsport import birth_year_from_label, gender_code_from_label
+from src.scrapers.gotsport import birth_year_from_label, gender_code_from_label, gender_code_from_value
 
 
 class TestGenderWordsBeatFlightLetter:
@@ -125,6 +124,76 @@ class TestBirthYearBandTakesYoungerYear:
     def test_non_consecutive_pair_is_not_a_band(self):
         """``11/22`` is a jersey or a date, not a two-year cohort."""
         assert birth_year_from_label("Team 11/22 Red") is None
+
+
+class TestProviderFieldKeepsBareLetters:
+    """A provider's gender FIELD holds nothing but a gender, so ``m`` is the value.
+
+    The label reader refuses a bare letter because a label can carry a flight code.
+    Applying that refusal to the field as well dropped genders the payload states
+    outright, which then collapsed two bracket entries into one.
+    """
+
+    @pytest.mark.parametrize(
+        "value,expected",
+        [("m", "M"), ("M", "M"), ("b", "M"), ("f", "F"), ("F", "F"), ("g", "F"),
+         ("Male", "M"), ("Female", "F"), ("Boys", "M"), ("Girls", "F"), (" m ", "M")],
+    )
+    def test_bare_letter_field_resolves(self, value, expected):
+        assert gender_code_from_value(value) == expected
+
+    @pytest.mark.parametrize("value", ["", None, "Coed", "unknown", "U14 Girls Bracket B"])
+    def test_field_that_is_not_a_gender_is_none(self, value):
+        assert gender_code_from_value(value) is None
+
+    def test_the_label_reader_still_refuses_a_bare_letter(self):
+        """The two readers must not converge; that is the whole distinction."""
+        assert gender_code_from_label("B") is None
+        assert gender_code_from_value("B") == "M"
+
+
+class TestBandBeatsStandaloneYear:
+    """A four-digit band must resolve to its younger year like a two-digit one.
+
+    Searching for a lone year first returns the band's LEADING year, which files
+    the team a group too high -- the exact defect this module exists to prevent,
+    reintroduced through the other spelling.
+    """
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("FC B2014/2015", 2015),
+            ("Sting G2016/2017 Red", 2017),
+            ("Crossfire 2013/2014 Boys", 2014),
+            ("Surf B2016/17 Academy", 2017),
+        ],
+    )
+    def test_four_digit_band_takes_the_younger_year(self, name, expected):
+        assert birth_year_from_label(name) == expected
+
+
+class TestSeasonLabelIsNotABirthYear:
+    """``(25/26)`` is a season, and reading it as a cohort suppressed the fallback.
+
+    The derived age was already rejected as out of range, but a truthy birth year
+    still blocked the provider's own age_group, so the team silently took the
+    bracket's age instead of its own.
+    """
+
+    @pytest.mark.parametrize("name", ["United U12 (25/26) Boys", "MUSC Girls (26/27)", "Rangers 24/25 Select"])
+    def test_season_label_yields_no_birth_year(self, name):
+        assert birth_year_from_label(name) is None
+
+    def test_a_founding_year_older_than_any_player_is_refused(self):
+        """Only a year no current player could hold is separable.
+
+        A recent four-digit year is genuinely ambiguous -- ``2004 Legacy FC`` could
+        be either -- so the window is set to catch the unambiguous case and the
+        caller's own 7..19 range check handles the rest.
+        """
+        assert birth_year_from_label("1998 Legacy FC") is None
+        assert birth_year_from_label("Est 1976 United") is None
 
 
 class TestNoBareLetterGenderPatternsRemain:
