@@ -698,6 +698,20 @@ def test_a_saved_probe_unlocks_the_full_event_after_a_restart(app):
     )
 
 
+def test_an_incomplete_full_walk_is_marked_for_retry(app):
+    fake_st, _runs = _render(
+        app,
+        url=EVENT_URL,
+        probe=_probe(limit_groups=None, complete=False),
+    )
+
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+        "Retry the full U10+ import"
+    )
+    assert any("Full walk needs another try" in caption for caption in fake_st.captions)
+    assert not any("Full list ready" in caption for caption in fake_st.captions)
+
+
 def test_the_seeding_intro_discloses_younger_division_page_cost(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
 
@@ -877,7 +891,7 @@ def test_a_probe_that_found_no_team_prices_nothing():
 
 def test_a_full_walk_quotes_no_further_cost():
     caption = tournament_intake._seeding_probe_caption(
-        _probe(limit_groups=None, divisions_walked=40, teams=220)
+        _probe(limit_groups=None, divisions_walked=40, teams=220, complete=True)
     )
 
     assert "$" not in caption, "the whole event has already been walked"

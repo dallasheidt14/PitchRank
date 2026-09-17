@@ -4637,10 +4637,16 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
             f"{teams} teams, {linked} carrying a GotSport id."
         )
     elif probe.get("limit_groups") is None:
-        head = (
-            f"Full list ready: {sampled} U10+ divisions, {teams} teams "
-            f"({linked} linked automatically)."
-        )
+        if probe.get("complete"):
+            head = (
+                f"Full list ready: {sampled} U10+ divisions, {teams} teams "
+                f"({linked} linked automatically)."
+            )
+        else:
+            head = (
+                f"Full walk needs another try: {sampled} U10+ divisions, {teams} teams "
+                f"({linked} linked automatically)."
+            )
     else:
         head = (
             f"Sample ready: {sampled} U10+ divisions, {teams} teams "
@@ -4670,7 +4676,8 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
-        f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}."
+        f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}; "
+        "a page that needs a retry may be charged up to three attempts."
     )
 
 
@@ -4811,9 +4818,14 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
 
     left, right = st.columns([2, 2])
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
+    full_label = "Scrape the whole event" if keys == _BACKTEST_KEYS else (
+        "Retry the full U10+ import"
+        if probe.get("limit_groups") is None and probe and not probe.get("complete")
+        else "Step 2: Import every U10+ division"
+    )
     with primary:
         full_clicked = st.button(
-            "Scrape the whole event" if keys == _BACKTEST_KEYS else "Step 2: Import every U10+ division",
+            full_label,
             key=f"{keys.prefix}_event_full_run",
             type="primary" if keys == _BACKTEST_KEYS else "secondary",
             disabled=(not url or in_progress or already_walked
