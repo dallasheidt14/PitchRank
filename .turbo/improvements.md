@@ -1277,3 +1277,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/admin/subscription-metrics.ts` (`computeMrr`, `listAll`)
 - **Why**: The dashboard MRR is meant to equal Stripe's Billing MRR. Stripe subtracts forever discounts, excludes metered prices, and normalizes every interval (with `interval_count`) to monthly; `computeMrr` does none of this and divides only `year`, so day/week read as monthly. None of it is reachable on 2026-09-16: zero discounts on any active or past_due subscription or item, and every item licensed with `interval_count` 1 on month or year. But checkout sets `allow_promotion_codes: true`, so a coupon can go live with no deploy. Repeating and one-time discounts follow a Billing "Configure" setting the API cannot read, and discounts come back as IDs unless expanded on the list call.
 - **Noted**: 2026-09-16
+
+### Make the canceling email routing survive out-of-order Stripe webhooks
+
+- **ID**: IMP-246
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleCheckoutCompleted` enrollment dedupe, `handleInvoicePaid` paid routing, `handleSubscriptionUpdated` reactivation branch)
+- **Why**: The stored `cancel_at_period_end` flag is how the webhook detects a canceling or reactivation transition, and two orderings still misroute. A checkout event retried after fulfillment that finds a newly scheduled cancellation stores the flag and sets lifecycle `canceling`, but enrollment is skipped because `priorStatus` equals the status, so Cancellation Save never starts and the later update sees no change. And `handleInvoicePaid` routes a trialing or past_due subscriber to `paid` without clearing a stored flag, so if it lands before the update that removed the cancellation, the update routes `paid` again and starts a second Paid Drip journey. Both need delayed, out-of-order delivery; the owner chose to ship without them (PR #1162 review).
+- **Noted**: 2026-09-16
