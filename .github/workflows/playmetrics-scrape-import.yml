@@ -82,9 +82,10 @@ jobs:
             # Only current-season leagues belong here: every scrape carries the
             # MIN_GAME_DATE floor, so a league whose season ended before the floor
             # scrapes to an empty CSV. Replace a league's URL with its next-season
-            # successor rather than keeping both. Wisconsin (governing body 1014)
-            # has no current league listed for that reason.
+            # successor rather than keeping both.
             URLS=(
+              # Wisconsin Youth Soccer SECL & State League — Fall 2026.
+              "https://playmetricssports.com/g/leagues/1014-2319-3e2c725a/league_view.html"
               # NC Youth Soccer Classic League — Fall 2026.
               "https://playmetricssports.com/g/leagues/1207-2289-46ec05ca/league_view.html"
             )

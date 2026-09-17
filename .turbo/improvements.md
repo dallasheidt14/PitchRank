@@ -1287,3 +1287,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleCheckoutCompleted` enrollment dedupe, `handleInvoicePaid` paid routing, `handleSubscriptionUpdated` reactivation branch)
 - **Why**: The stored `cancel_at_period_end` flag is how the webhook detects a canceling or reactivation transition, and two orderings still misroute. A checkout event retried after fulfillment that finds a newly scheduled cancellation stores the flag and sets lifecycle `canceling`, but enrollment is skipped because `priorStatus` equals the status, so Cancellation Save never starts and the later update sees no change. And `handleInvoicePaid` routes a trialing or past_due subscriber to `paid` without clearing a stored flag, so if it lands before the update that removed the cancellation, the update routes `paid` again and starts a second Paid Drip journey. Both need delayed, out-of-order delivery; the owner chose to ship without them (PR #1162 review).
 - **Noted**: 2026-09-16
+
+### Match each side of an imported game at its own cohort, not the game's
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher.match_game_history` (home and away `_match_team` both take `game_data.get("age_group")`); `src/etl/enhanced_pipeline.py` `_transform_game_perspective`
+- **Why**: Scrapers write an `age_group` per team on each perspective row, but one row per game reaches matching and both sides are matched or autocreated at that row's cohort. So one misread name also misfiles its correctly named opponent. On the Wisconsin SECL Fall 2026 PlayMetrics scrape, a reviewer's import-order replay put 16 misparsed names' spread at up to 36 of 261 teams (the name parse is fixed on `playmetrics-wi-secl-fall-2026`; the spread path is not). Provider-wide, not PlayMetrics-only.
+- **Noted**: 2026-09-17
+
+### Find Wisconsin PlayMetrics teams filed a cohort off by last season's name parse
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/scrape_playmetrics_league.py` `derive_team_age_group` (as it stood before `playmetrics-wi-secl-fall-2026`); WI teams holding PlayMetrics aliases
+- **Why**: The Fall 2025 (`1014-1514`) and Spring 2026 (`1014-1926`) Wisconsin leagues were imported while the parser missed a U-age with a gender letter fused on (`U11B`, `11uG`), falling back to the division's play-up age, and read `2013/2014` bands by the older year. Some WI teams may exist as wrong-cohort duplicates bound by approved aliases. Measure read-only first: WI PlayMetrics-alias teams whose name U-age disagrees with the stored cohort, and whether a same-name sibling sits at the name's cohort. Then use the `correcting-team-age-groups` and `merging-duplicate-teams` skills.
+- **Noted**: 2026-09-17

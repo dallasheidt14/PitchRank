@@ -65,6 +65,14 @@ class TestDeriveTeamAgeGroup:
             ("U11 Boys White", "u10", "u11"),
             ("Forward Madison FC Select U11 Boys", "u10", "u11"),
             ("Mukwonago U18 Girls Blue", "u19", "u19"),
+            # U-token with a gender letter fused on
+            ("LUFC U11B Navy", "u10", "u11"),
+            ("WIUFC U11G Elite I", "u10", "u11"),
+            ("Croatian Eagles 11uB Red 2", "u10", "u11"),
+            ("LUFC U16G Navy", "u17", "u16"),
+            # A two-year band is named by its younger year
+            ("Neenah SC 2014/2015 Boys 11U Red Premier", "u10", "u11"),
+            ("FC Chicago 2014-2015 Elite", "u10", "u11"),
             # Fallback when neither signal present
             ("High School Girls Borts II", "u19", "u19"),
             ("North Shore United High School Girls State Level", "u19", "u19"),
