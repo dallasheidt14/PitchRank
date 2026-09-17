@@ -349,13 +349,17 @@ def _no_lock(_key: str):
 def _reports_under_tmp(monkeypatch, tmp_path):
     """Keep every test in this file out of the operator's own reports directory.
 
-    A walk writes its recovery file through ``reports_dir()``, so a test that
-    exercises the runner without redirecting it drops a fake event into
-    ``reports/seeding/`` on every suite run, beside real saved runs. Autouse
-    rather than part of ``app``: the protection should not depend on which
-    fixture a future test happens to ask for.
+    A Seeding walk writes through the shared Seeding root, while Backtest uses
+    ``reports_dir()``. Redirect both so a test cannot drop a fake event beside
+    the operator's real saved runs. Autouse rather than part of ``app``: the
+    protection should not depend on which fixture a future test asks for.
     """
     monkeypatch.setattr(tournament_intake, "reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        tournament_intake,
+        "default_seeding_base_dir",
+        lambda: tmp_path / "seeding",
+    )
     return tmp_path
 
 
@@ -1264,6 +1268,22 @@ def test_the_walk_resolves_ids_through_the_same_cached_resolver(app):
 
 
 # -------- the recovery file the walk writes before anything else ----------
+
+
+def test_upcoming_recovery_uses_shared_seeding_storage_but_backtest_does_not(
+    app, tmp_path
+):
+    shared = tmp_path / "shared-seeding"
+    reports = tmp_path / "backtest-reports"
+    app.setattr(tournament_intake, "default_seeding_base_dir", lambda: shared)
+    app.setattr(tournament_intake, "reports_dir", lambda: reports)
+
+    assert tournament_intake._event_recovery_path("55368") == (
+        shared / "gotsport_55368" / "last_walk.json"
+    )
+    assert tournament_intake._event_recovery_path("55368", completed_event=True) == (
+        reports / "gotsport__55368__unknown" / "intake" / "last_walk.json"
+    )
 
 
 def test_the_walk_writes_a_recovery_file_before_touching_session_state(app, tmp_path):

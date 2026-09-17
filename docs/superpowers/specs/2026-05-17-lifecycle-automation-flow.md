@@ -38,8 +38,8 @@ Keep the existing `tier` field (Free / Premium) — it's used by Beehiiv's nativ
 | `trialing` → `paid` | First `invoice.paid` after trial conversion (status flips trialing → active) |
 | `paid` → `past_due` | `invoice.payment_failed` |
 | `past_due` → `paid` | `invoice.paid` after retry success |
-| `paid` → `canceling` | `customer.subscription.updated` with `cancel_at_period_end = true` |
-| `canceling` → `paid` | `customer.subscription.updated` with `cancel_at_period_end = false` (reactivation) |
+| `paid` → `canceling` | `customer.subscription.updated` on an `active` subscription with a cancellation scheduled (`cancel_at` set or `cancel_at_period_end = true`) |
+| `canceling` → `paid` | `customer.subscription.updated` with the cancellation removed (reactivation) |
 | `trialing` → `trial_canceled` | `customer.subscription.deleted` while prior status was `trialing` |
 | `paid | canceling | past_due` → `paid_canceled` | `customer.subscription.deleted` while prior status was `active/past_due` |
 | `paid | trialing` → `paid_canceled` | `charge.refunded` |
@@ -63,9 +63,9 @@ ENTRY 1: /report-card form        ENTRY 2: Stripe checkout (trialing)
    (manual handoff today —           ┌──────┴────────────────────────────┐
     see §10 #11)                     ▼          ▼            ▼           ▼
            │                  invoice.paid  sub.deleted  sub.updated  invoice.
-           ▼                  (trialing→     (was        cancel_at_   payment_
-┌──────────────────────┐       active)       trialing)   period_end   failed
-│ Non-Premium Drip     │      ↓              ↓           =true        ↓
+           ▼                  (trialing→     (was        cancel       payment_
+┌──────────────────────┐       active)       trialing)   scheduled    failed
+│ Non-Premium Drip     │      ↓              ↓           (active)     ↓
 │ 4 emails             │ ┌──────────┐ ┌────────────┐  ↓          ┌──────────┐
 │ trigger: Added by API│ │Paid Drip │ │Trial Cancel│ ┌──────────┐│ Dunning  │
 │ per-step gate:       │ │ 2 emails │ │   Drip     │ │Cancel-   ││ 3 emails │
@@ -372,7 +372,7 @@ Trigger: `Added by API` (webhook on `invoice.payment_failed`). Per-step gate: `l
 
 ### 8.5 Cancellation Save
 
-Trigger: `Added by API` (webhook on `customer.subscription.updated` with cancel_at_period_end=true). Per-step gate: `lifecycle is canceling`. Subscribers exit if they reactivate (lifecycle flips back to `paid`).
+Trigger: `Added by API` (webhook on `customer.subscription.updated` when an `active` subscription has a cancellation scheduled through `cancel_at` or `cancel_at_period_end`). Per-step gate: `lifecycle is canceling`. Subscribers exit if they reactivate (lifecycle flips back to `paid`).
 
 | # | Day | Job |
 |---|-----|-----|

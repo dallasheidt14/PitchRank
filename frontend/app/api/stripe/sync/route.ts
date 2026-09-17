@@ -68,7 +68,6 @@ export async function POST(req: Request) {
       subscription_status: status,
       plan,
       subscription_period_end: extractPeriodEnd(subscription),
-      cancel_at_period_end: subscription.cancel_at_period_end ?? false,
       updated_at: new Date().toISOString(),
     };
 

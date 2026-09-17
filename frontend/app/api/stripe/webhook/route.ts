@@ -3,6 +3,7 @@ import {
   WEBHOOK_EVENTS,
   extractPeriodEnd,
   mapStatusToPlan,
+  isCancellationScheduled,
   updateUserProfile,
   isSessionPaymentSettled,
 } from '@/lib/stripe/server';
@@ -264,7 +265,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     subscription_status: subscription.status,
     plan: mapStatusToPlan(subscription.status),
     subscription_period_end: extractPeriodEnd(subscription),
-    cancel_at_period_end: false,
+    cancel_at_period_end: isCancellationScheduled(subscription),
   };
 
   // Check if a user profile already exists for this Stripe customer (authenticated
@@ -458,7 +459,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (rawEmail) {
     try {
       await tagSubscriber(rawEmail);
-      const lifecycle: Lifecycle = subscription.status === 'trialing' ? 'trialing' : 'paid';
+      // A late checkout event can find the paid subscription already set to
+      // cancel; it stores that flag, so it must also route the matching lifecycle.
+      const lifecycle: Lifecycle =
+        subscription.status === 'trialing' ? 'trialing' : baseUpdates.cancel_at_period_end ? 'canceling' : 'paid';
       await setLifecycle(rawEmail, lifecycle);
       if (priorStatus !== subscription.status) {
         await enrollInLifecycleAutomation(rawEmail, lifecycle);
@@ -474,9 +478,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 /**
  * Handle subscription updates (plan changes, renewals, cancellation intent)
  *
- * When a user cancels via Customer Portal, Stripe sets cancel_at_period_end=true
- * but keeps status as "active" until the period ends. We track this flag so the
- * dashboard can show the user as "canceling" rather than misleadingly "active".
+ * A scheduled cancellation keeps the subscription live until it ends; the stored
+ * flag lets the admin dashboard and Beehiiv routing tell a canceling subscriber
+ * from an active one.
  */
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   // Stripe delivers events at-least-once and out of order: a stale
@@ -487,7 +491,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   const customerId = current.customer as string;
   const status = current.status;
   const plan = mapStatusToPlan(status);
-  const canceling = current.cancel_at_period_end ?? false;
+  const canceling = isCancellationScheduled(current);
 
   const prior = await getPriorState(customerId);
 
@@ -499,14 +503,16 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     cancel_at_period_end: canceling,
   });
 
-  // Route Beehiiv on cancel-at-period-end / reactivation transitions
-  if (canceling && !prior.canceling) {
+  // Route Beehiiv on canceling / reactivation transitions. The canceling
+  // sequence is for active subscribers only (not trials or past_due); a
+  // canceled trial is routed to trial_canceled when it ends.
+  if (canceling && !prior.canceling && status === 'active') {
     await syncLifecycle(customerId, 'canceling');
   } else if (!canceling && prior.canceling && status === 'active') {
     await syncLifecycle(customerId, 'paid');
   }
 
-  const label = canceling ? `${status} (canceling at period end)` : status;
+  const label = canceling ? `${status} (canceling)` : status;
   console.log(`[webhook] Subscription updated for customer ${customerId}: ${label}`);
 }
 
@@ -581,7 +587,6 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     subscription_status: subscriptionData.status,
     plan: mapStatusToPlan(subscriptionData.status),
     subscription_period_end: extractPeriodEnd(subscriptionData),
-    cancel_at_period_end: subscriptionData.cancel_at_period_end ?? false,
   });
 
   // Flip lifecycle to `paid` only on trial→paid or past_due→paid transitions.

@@ -63,7 +63,7 @@ finalization and does not move when a partial payment lands.
 
 ## Cancellation timestamps
 
-`canceled_at` is the **request** time for a `cancel_at_period_end` cancellation; `ended_at` is when
+`canceled_at` is the **request** time for a scheduled cancellation; `ended_at` is when
 service actually stopped. They can be a year apart on an annual plan. Prefer `ended_at`, falling
 back to `canceled_at` only when no end was recorded.
 
@@ -79,12 +79,24 @@ Without that guard a cancellation requested this month for service ending next y
 this month's churn.
 
 **A cancellation can be scheduled through `cancel_at` alone**, leaving `cancel_at_period_end`
-`false`. Treat a subscription that has not yet ended (`active`, `trialing`, `past_due`) as canceling
-when either is set:
+`false`. The Customer Portal does exactly that on flexible billing mode, the default for
+subscriptions created on API version `2025-09-30.clover` or later (the client pins a later one).
+Treat a subscription that still grants premium (`active`, `trialing`, `past_due`) as canceling
+when either is set, through `isCancellationScheduled` (`frontend/lib/stripe/server.ts`) rather than
+reading either field yourself. The stored `user_profiles.cancel_at_period_end` column holds that
+helper's result, so it will not match Stripe's raw `cancel_at_period_end`. Write it only from the
+webhook handlers that also route the Beehiiv lifecycle (subscription updated and deleted, checkout
+fulfillment). They detect a canceling or reactivation transition by comparing against the stored
+flag, so a write from anywhere else, such as the sync route, `invoice.paid` or the reconcile job,
+swallows that email.
 
-```ts
-const canceling = sub.cancel_at !== null || sub.cancel_at_period_end;
-```
+**Who cancelled** a scheduled cancellation is readable off `cancellation_details`. A `feedback`
+reason (sometimes with a `comment`) comes from the Customer Portal's cancellation survey, so the
+customer cancelled themselves. A null `feedback` points to the Stripe Dashboard, which is how the
+owner cancels for customers who email in. Treat it as a strong signal rather than proof, since the
+survey is a portal setting. It does not apply to an immediate cancel: a `reason` of
+`payment_failed` or `payment_disputed` is not a person, and the webhook cancels duplicate anonymous
+trials through the API with no feedback.
 
 ## Retries are scheduled, not promised
 
@@ -139,7 +151,7 @@ user how those two are configured.
 | Stripe fetching and assembly | `frontend/lib/admin/subscription-metrics.ts` |
 | Admin dashboard page | `frontend/app/mission-control/subscriptions/` |
 | Checkout, webhook, portal, sync routes | `frontend/app/api/stripe/` |
-| Nightly reconciliation | `scripts/reconcile_stripe_subscriptions.py` |
+| Reconciliation (every 6 hours) | `scripts/reconcile_stripe_subscriptions.py` |
 | Shared test doubles | `frontend/test/fixtures.ts` (`makeStripeSubscription`, `makeStripeInvoice`) |
 
 Every list Stripe returns has a valid empty state, so a failed fetch is indistinguishable from a

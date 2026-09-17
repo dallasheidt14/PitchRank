@@ -1,5 +1,6 @@
 import 'server-only';
 import type Stripe from 'stripe';
+import { isCancellationScheduled } from '@/lib/stripe/server';
 import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
 import { startOfMonth, wallClockDate } from './timezone';
 
@@ -286,9 +287,9 @@ export function computeTrialProjection(
     if (trialEnd === null || trialEnd < monthStart || trialEnd >= monthEnd) continue;
     if (trialEnd < nowSec) {
       if (paidSubIds.has(sub.id)) landedConverted += 1;
-    } else if (!sub.cancel_at_period_end) {
-      // A trial already set to cancel has a known outcome: it will not convert.
-      // Leaving it unresolved would multiply it by the conversion rate.
+    } else if (sub.status !== 'canceled' && !isCancellationScheduled(sub)) {
+      // A trial already canceled or set to cancel has a known outcome: it will
+      // not convert. Leaving it unresolved would multiply it by the conversion rate.
       landingKnownUnresolved += 1;
     }
   }

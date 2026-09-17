@@ -1,6 +1,6 @@
 import 'server-only';
 import type Stripe from 'stripe';
-import { stripe } from '@/lib/stripe/server';
+import { isCancellationScheduled, stripe } from '@/lib/stripe/server';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import {
   buildMonthProjection,
@@ -69,8 +69,8 @@ export type SubscriptionMetrics = {
     annual: number;
   };
   trials: {
-    total: number; // active trials only — excludes those marked cancel_at_period_end
-    canceledPending: number; // trialing + cancel_at_period_end (won't renew)
+    total: number; // active trials only — excludes those already set to cancel
+    canceledPending: number; // trialing and set to cancel (won't renew)
     endingIn3Days: number;
     endingIn7Days: number;
     list: TrialPipelineEntry[];
@@ -281,9 +281,8 @@ export function bucketActivePaid(subs: Stripe.Subscription[]): { total: number; 
 }
 
 /**
- * Build the trial pipeline view. Excludes trials the user has already
- * canceled (cancel_at_period_end=true on a trialing sub) — those won't
- * convert and shouldn't show up as actionable in the dashboard.
+ * Build the trial pipeline view. Excludes trials already set to cancel —
+ * those won't convert and shouldn't show up as actionable in the dashboard.
  *
  * Returns both the actionable count (`activeTotal`) and the canceled-pending
  * count for transparency.
@@ -302,7 +301,7 @@ export function buildTrialPipeline(
   let canceledPending = 0;
   for (const sub of subs) {
     if (!sub.trial_end) continue;
-    if (sub.cancel_at_period_end) {
+    if (isCancellationScheduled(sub)) {
       canceledPending += 1;
       continue;
     }
@@ -581,11 +580,8 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   ]);
 
   // Stripe's MRR counts active and past_due subscriptions, and drops one as soon
-  // as its cancellation is scheduled rather than when service ends. A
-  // cancellation can be scheduled through `cancel_at` alone, so read both fields.
-  const mrrSubs = [...active.items, ...pastDue.items].filter(
-    (sub) => sub.cancel_at === null && !sub.cancel_at_period_end
-  );
+  // as its cancellation is scheduled rather than when service ends.
+  const mrrSubs = [...active.items, ...pastDue.items].filter((sub) => !isCancellationScheduled(sub));
   const mrr = active.ok && pastDue.ok ? computeMrr(mrrSubs) : null;
   const activePaid = bucketActivePaid(active.items);
   const trialBuckets = buildTrialPipeline(trialing.items, nowSec);

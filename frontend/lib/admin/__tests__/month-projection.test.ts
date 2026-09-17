@@ -361,6 +361,26 @@ describe('computeTrialProjection', () => {
     expect(result.landingUnresolved).toBeCloseTo(1 + 0.5 * 19, 5);
   });
 
+  it('treats a trial set to cancel through cancel_at alone as not converting', () => {
+    const subs = [
+      sub({ id: 'live', trialStart: sept(2), trialEnd: sept(9) }),
+      sub({ id: 'quitting', trialStart: sept(2), trialEnd: sept(9), cancelAt: sept(9) }),
+    ];
+    const result = computeTrialProjection(subs, now, NONE, NONE);
+    expect(result.trialsToDate).toBe(2);
+    expect(result.landingUnresolved).toBeCloseTo(1 + 0.5 * 19, 5);
+  });
+
+  it('treats a trial already canceled before its trial end as not converting', () => {
+    const subs = [
+      sub({ id: 'live', trialStart: sept(2), trialEnd: sept(9) }),
+      sub({ id: 'gone', status: 'canceled', trialStart: sept(2), trialEnd: sept(9), cancelAtPeriodEnd: true }),
+    ];
+    const result = computeTrialProjection(subs, now, NONE, NONE);
+    expect(result.trialsToDate).toBe(2);
+    expect(result.landingUnresolved).toBeCloseTo(1 + 0.5 * 19, 5);
+  });
+
   it('leaves a trial still running as unresolved rather than counting it', () => {
     const subs = [sub({ id: 'live', trialStart: sept(2), trialEnd: sept(9) })];
     const result = computeTrialProjection(subs, now, new Set(['live']), NONE);

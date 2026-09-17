@@ -5,7 +5,8 @@ import { makeStripeInvoice, makeStripeSubscription } from '@/test/fixtures';
 const subscriptionsList = vi.fn();
 const invoicesList = vi.fn();
 
-vi.mock('@/lib/stripe/server', () => ({
+vi.mock('@/lib/stripe/server', async (importOriginal) => ({
+  isCancellationScheduled: (await importOriginal<typeof import('@/lib/stripe/server')>()).isCancellationScheduled,
   stripe: {
     subscriptions: { list: (params: unknown) => subscriptionsList(params) },
     invoices: { list: (params: unknown) => invoicesList(params) },
