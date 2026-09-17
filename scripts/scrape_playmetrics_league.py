@@ -240,8 +240,14 @@ def map_min_age_to_age_group(min_age: Optional[int]) -> Optional[str]:
     return None
 
 
-# "U11", "u-11", "11U", "11u" — PitchRank tracks u10-u17 and u19 (u18 merges into u19).
-_TEAM_U_AGE_RE = re.compile(r"\b(?:[Uu]-?(\d{1,2})|(\d{1,2})[Uu])\b")
+# "U11", "u-11", "11U", "11u", and with a gender letter fused on ("U11B", "11uG").
+_TEAM_U_AGE_RE = re.compile(r"\b(?:[Uu]-?(\d{1,2})|(\d{1,2})[Uu])(?!\d)")
+# "2013/2014", "2013 - 2014": a two-year band is named by its younger year. The
+# whole run of separated years is matched, spacing included, so a longer list
+# ("2014 / 2015 / 2016") arrives intact and is rejected below rather than read as
+# the band its first two years resemble.
+_BIRTH_YEAR_RUN_RE = re.compile(r"(?<![0-9])20[0-9]{2}(?:\s*[/-]\s*20[0-9]{2})+(?![0-9])")
+_BIRTH_YEAR_RE = re.compile(r"20[0-9]{2}")
 # ASCII-bounded on purpose: ``\d`` also matches non-ASCII digits, which sort
 # above every real date and would pass a shape check.
 _ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -251,14 +257,18 @@ def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> 
     """Derive age_group from the team's own name; fall back to the division value.
 
     Priority:
-      1. 4-digit birth year (``2015`` → u11 for season 2025).
+      1. Birth year: a two-year band (``2014/2015``) by its younger year, else a
+         single 4-digit year.
       2. ``U11`` / ``11U`` token.
       3. Division-level ``min_age`` mapping (``fallback_age_group``).
 
-    u18 is always remapped to u19 to match PitchRank's age cohorts.
+    A u18 read from the name is filed as u19 to match PitchRank's age cohorts.
     """
     if team_name:
-        birth_year = extract_birth_year_from_name(team_name)
+        run = _BIRTH_YEAR_RUN_RE.search(team_name)
+        years = sorted(int(year) for year in _BIRTH_YEAR_RE.findall(run.group(0))) if run else []
+        is_band = len(years) == 2 and years[1] - years[0] == 1
+        birth_year = years[1] if is_band else extract_birth_year_from_name(team_name)
         if birth_year:
             ag = calculate_age_group_from_birth_year(birth_year)
             if ag:
@@ -268,6 +278,7 @@ def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> 
         m = _TEAM_U_AGE_RE.search(team_name)
         if m:
             num = int(m.group(1) or m.group(2))
+            # PitchRank tracks u10-u17 and u19 (u18 merges into u19).
             if 10 <= num <= 17:
                 return f"u{num}"
             if num in (18, 19):
