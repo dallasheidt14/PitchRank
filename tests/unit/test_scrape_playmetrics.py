@@ -76,6 +76,8 @@ class TestDeriveTeamAgeGroup:
             # A longer list and a non-consecutive pair name no single cohort, so
             # each falls through to the single-year lookup (its first year)
             ("CSC 2014/2015/2016 Boys", "u10", "u12"),
+            ("CSC 2014 / 2015 / 2016 Boys", "u10", "u12"),
+            ("CSC 2014 - 2015 - 2016 Boys", "u10", "u12"),
             ("Club 2012/2015 Girls", "u10", "u14"),
             # Fallback when neither signal present
             ("High School Girls Borts II", "u19", "u19"),

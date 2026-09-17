@@ -242,10 +242,12 @@ def map_min_age_to_age_group(min_age: Optional[int]) -> Optional[str]:
 
 # "U11", "u-11", "11U", "11u", and with a gender letter fused on ("U11B", "11uG").
 _TEAM_U_AGE_RE = re.compile(r"\b(?:[Uu]-?(\d{1,2})|(\d{1,2})[Uu])(?!\d)")
-# "2013/2014", "2013-2014": a two-year band is named by its younger year. A year
-# adjacent to another separator is part of a longer list ("2014/2015/2016"), which
-# names no single cohort -- as does a non-consecutive pair, rejected below.
-_BIRTH_YEAR_BAND_RE = re.compile(r"(?<![0-9/-])(20[0-9]{2})\s*[/-]\s*(20[0-9]{2})(?![0-9/-])")
+# "2013/2014", "2013 - 2014": a two-year band is named by its younger year. The
+# whole run of separated years is matched, spacing included, so a longer list
+# ("2014 / 2015 / 2016") arrives intact and is rejected below rather than read as
+# the band its first two years resemble.
+_BIRTH_YEAR_RUN_RE = re.compile(r"(?<![0-9])20[0-9]{2}(?:\s*[/-]\s*20[0-9]{2})+(?![0-9])")
+_BIRTH_YEAR_RE = re.compile(r"20[0-9]{2}")
 # ASCII-bounded on purpose: ``\d`` also matches non-ASCII digits, which sort
 # above every real date and would pass a shape check.
 _ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -263,9 +265,10 @@ def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> 
     A u18 read from the name is filed as u19 to match PitchRank's age cohorts.
     """
     if team_name:
-        band = _BIRTH_YEAR_BAND_RE.search(team_name)
-        years = sorted(int(year) for year in band.groups()) if band else []
-        birth_year = years[1] if years and years[1] - years[0] == 1 else extract_birth_year_from_name(team_name)
+        run = _BIRTH_YEAR_RUN_RE.search(team_name)
+        years = sorted(int(year) for year in _BIRTH_YEAR_RE.findall(run.group(0))) if run else []
+        is_band = len(years) == 2 and years[1] - years[0] == 1
+        birth_year = years[1] if is_band else extract_birth_year_from_name(team_name)
         if birth_year:
             ag = calculate_age_group_from_birth_year(birth_year)
             if ag:
