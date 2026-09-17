@@ -4507,6 +4507,12 @@ def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]
 
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Queue every resolved team for a fresh scrape before any seeding is proposed."""
+    if supabase_client is None:
+        st.warning(
+            "The database connection is unavailable, so the refresh queue is disabled. "
+            "Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then restart the app."
+        )
+        return
     overrides = st.session_state._seeding_overrides
     provider_id = fetch_gotsport_provider_id(supabase_client)
     lookup_provider_team_id = make_provider_team_id_lookup(supabase_client, provider_id)
