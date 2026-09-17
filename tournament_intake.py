@@ -4595,6 +4595,7 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
         "teams": len(roster.teams),
         "linked": sum(bool(team.provider_team_id) for team in roster.teams),
         "complete": roster.is_complete,
+        "_from_recovery": True,
     }
 
 
@@ -4640,17 +4641,17 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
         if probe.get("complete"):
             head = (
                 f"Full list ready: {sampled} U10+ divisions, {teams} teams "
-                f"({linked} linked automatically)."
+                f"({linked} carrying a GotSport id)."
             )
         else:
             head = (
                 f"Full walk needs another try: {sampled} U10+ divisions, {teams} teams "
-                f"({linked} linked automatically)."
+                f"({linked} carrying a GotSport id)."
             )
     else:
         head = (
             f"Sample ready: {sampled} U10+ divisions, {teams} teams "
-            f"({linked} linked automatically)."
+            f"({linked} carrying a GotSport id)."
         )
 
     if probe.get("limit_groups") is None or (found > 0 and walked >= found):
@@ -4676,8 +4677,8 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
-        f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}; "
-        "a page that has to be retried bills up to three times."
+        f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}. "
+        "The estimate does not include retries; a page that has to be retried bills up to three times."
     )
 
 
@@ -4815,14 +4816,19 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         _clear_result_from_other_event(url, keys=keys)
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
-    already_walked = bool(probe.get("complete"))
+    recovered_complete = bool(probe.get("_from_recovery") and probe.get("complete"))
+    already_walked = bool(probe.get("complete")) and not recovered_complete
 
     left, right = st.columns([2, 2])
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
     full_label = "Scrape the whole event" if keys == _BACKTEST_KEYS else (
+        "Refresh the full U10+ list"
+        if recovered_complete
+        else (
         "Retry the full U10+ import"
         if probe.get("limit_groups") is None and probe and not probe.get("complete")
         else "Step 2: Import every U10+ division"
+        )
     )
     with primary:
         full_clicked = st.button(

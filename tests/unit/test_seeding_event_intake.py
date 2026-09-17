@@ -712,6 +712,20 @@ def test_an_incomplete_full_walk_is_marked_for_retry(app):
     assert not any("Full list ready" in caption for caption in fake_st.captions)
 
 
+def test_a_complete_saved_walk_offers_an_explicit_refresh(app):
+    """A complete recovery can be refreshed when an event's registrations change."""
+    tournament_intake._write_event_roster_recovery(
+        _roster(_team(0), divisions_found=1, divisions_walked=1), limit_groups=None
+    )
+
+    fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
+
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+        "Refresh the full U10+ list"
+    )
+
+
 def test_the_seeding_intro_discloses_younger_division_page_cost(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
 
@@ -1679,7 +1693,7 @@ def test_the_caption_reports_the_counts_it_was_given():
     assert "Sample ready: 2 U10+ divisions" in caption
     assert "Estimated cost for the full U10+ list" in caption
     assert "11 teams" in caption
-    assert "8 linked automatically" in caption
+    assert "8 carrying a GotSport id" in caption
 
 
 # -------- the card an unlinked scraped team is reviewed on ----------------
