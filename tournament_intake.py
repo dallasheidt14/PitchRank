@@ -4595,7 +4595,6 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
         "teams": len(roster.teams),
         "linked": sum(bool(team.provider_team_id) for team in roster.teams),
         "complete": roster.is_complete,
-        "_from_recovery": True,
     }
 
 
@@ -4677,8 +4676,8 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
-        f"{head} Estimated cost for the full U10+ list: {_money(low)}-{_money(high)}. "
-        "The estimate does not include retries; a page that has to be retried bills up to three times."
+        f"{head} Estimated base cost for the full U10+ list: {_money(low)}-{_money(high)}. "
+        f"If every page needs retries, the total could reach {_money(high * 3)}."
     )
 
 
@@ -4816,20 +4815,20 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         _clear_result_from_other_event(url, keys=keys)
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
-    recovered_complete = bool(probe.get("_from_recovery") and probe.get("complete"))
-    already_walked = bool(probe.get("complete")) and not recovered_complete
+    complete = bool(probe.get("complete"))
+    refresh_available = keys is _SEEDING_KEYS and complete
+    already_walked = complete and not refresh_available
 
     left, right = st.columns([2, 2])
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
-    full_label = "Scrape the whole event" if keys == _BACKTEST_KEYS else (
-        "Refresh the full U10+ list"
-        if recovered_complete
-        else (
-        "Retry the full U10+ import"
-        if probe.get("limit_groups") is None and probe and not probe.get("complete")
-        else "Step 2: Import every U10+ division"
-        )
-    )
+    if keys == _BACKTEST_KEYS:
+        full_label = "Scrape the whole event"
+    elif refresh_available:
+        full_label = "Refresh the full U10+ list"
+    elif probe.get("limit_groups") is None and probe:
+        full_label = "Retry the full U10+ import"
+    else:
+        full_label = "Step 2: Import every U10+ division"
     with primary:
         full_clicked = st.button(
             full_label,
@@ -4846,7 +4845,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
-            disabled=not url or in_progress or already_walked,
+            disabled=not url or in_progress or complete,
         )
 
     if probe:
@@ -4867,7 +4866,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 _run_seeding_name_lookup(result[0], result[1], supabase_client, keys=keys)
                 st.rerun()
 
-    if probe_clicked and not already_walked:
+    if probe_clicked and not complete:
         _run_event_roster_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
