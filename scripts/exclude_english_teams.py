@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local", override=True)
 
-from src.rankings.data_adapter import batch_fetch_rows  # noqa: E402
+from src.rankings.data_adapter import MERGE_MAP_LOAD_FAILED, batch_fetch_rows  # noqa: E402
 from src.utils.merge_resolver import MergeResolver  # noqa: E402
 from src.utils.team_association_map import (  # noqa: E402
     MAPPED_OUTCOME,
@@ -97,6 +97,10 @@ class _Identity:
         # MergeResolver loads on first resolve(), so reading its map before that gives nothing.
         if merge_resolver is not None and not getattr(merge_resolver, "_loaded", False):
             merge_resolver.load_merge_map()
+        # A failed read leaves an empty map that reads exactly like "no merges", which would
+        # decide every team under whichever id its games happen to carry.
+        if merge_resolver is not None and merge_resolver.version == MERGE_MAP_LOAD_FAILED:
+            raise SystemExit("Merge map failed to load; re-run rather than deciding on unresolved ids")
         merge_map = getattr(merge_resolver, "_merge_map", None) or {}
         self._canonical = dict(merge_map)
         self._aliases: dict[str, set[str]] = {}

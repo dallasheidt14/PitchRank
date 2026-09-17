@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# What MergeResolver.version reports when its read failed. It reports no merges either way.
+MERGE_MAP_LOAD_FAILED = "error"
+
 
 # --------------------------------------------------------------------
 #  Retry wrapper for Supabase queries
@@ -542,10 +545,18 @@ async def fetch_games_for_rankings(
 
     # A listed team merged into another team keeps its games out: they resolve to the
     # survivor's id above, which the raw list would no longer match.
-    if excluded_team_ids and merge_resolver is not None and merge_resolver.has_merges:
-        excluded_team_ids |= {
-            resolved for resolved in (merge_resolver.resolve(t) for t in excluded_team_ids) if resolved
-        }
+    if excluded_team_ids and merge_resolver is not None:
+        # A failed merge-map read leaves an empty map that reads exactly like "no merges",
+        # which would skip the expansion below and rank a merged-away excluded team again.
+        if merge_resolver.version == MERGE_MAP_LOAD_FAILED:
+            raise RuntimeError(
+                "Merge map failed to load; refusing to rank with an exclusion list that cannot "
+                "be resolved through it"
+            )
+        if merge_resolver.has_merges:
+            excluded_team_ids |= {
+                resolved for resolved in (merge_resolver.resolve(t) for t in excluded_team_ids) if resolved
+            }
 
     # Both columns, so the game leaves the opponent's perspective too, not only the listed team's.
     if excluded_team_ids:

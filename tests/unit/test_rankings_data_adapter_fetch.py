@@ -332,9 +332,11 @@ async def test_fetch_games_for_rankings_reads_exclusions_past_the_first_page(mon
 
 
 class _FakeMergeResolver:
-    def __init__(self, merge_map):
+    def __init__(self, merge_map, version="test"):
         self._merge_map = merge_map
-        self.has_merges = True
+        self.has_merges = bool(merge_map)
+        self._version = version
+        self._loaded = True
 
     def resolve(self, team_id):
         return self._merge_map.get(str(team_id), str(team_id))
@@ -353,7 +355,7 @@ class _FakeMergeResolver:
 
     @property
     def version(self):
-        return "test"
+        return self._version
 
 
 @pytest.mark.asyncio
@@ -401,6 +403,45 @@ async def test_an_excluded_team_merged_into_another_team_stays_excluded(monkeypa
         fake_db,
         today=pd.Timestamp("2026-04-14", tz="UTC"),
         merge_resolver=_FakeMergeResolver({"team-english": "team-survivor"}),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_merge_map_read_stops_the_run_rather_than_passing_as_no_merges(monkeypatch):
+    """MergeResolver swallows its own read failure and then reports no merges, which would
+    skip the expansion above and rank a merged-away excluded team again."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={0: [_game("game-kept", "team-us-a", "team-us-b")]},
+        team_rows={t: _u16_team(t) for t in ("team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+    )
+
+    with pytest.raises(RuntimeError, match="Merge map failed to load"):
+        await data_adapter.fetch_games_for_rankings(
+            fake_db,
+            today=pd.Timestamp("2026-04-14", tz="UTC"),
+            merge_resolver=_FakeMergeResolver({}, version="error"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_merge_map_read_is_not_raised_when_nothing_is_excluded(monkeypatch):
+    """Runs with an empty list are unaffected: this guard is about resolving the list."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={0: [_game("game-kept", "team-us-a", "team-us-b")]},
+        team_rows={t: _u16_team(t) for t in ("team-us-a", "team-us-b")},
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+        merge_resolver=_FakeMergeResolver({}, version="error"),
     )
 
     assert set(result["game_id"]) == {"game-kept"}

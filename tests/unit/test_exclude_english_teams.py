@@ -307,6 +307,27 @@ def test_a_us_answer_filed_under_a_merged_away_id_still_vetoes_the_survivor(monk
     assert listed == {"seed", "ring-1"}
 
 
+def test_a_failed_merge_map_read_stops_the_dry_run(monkeypatch, tmp_path):
+    """An empty map reads exactly like "no merges", so deciding would silently use raw ids."""
+    db = _league_db()
+    snapshot = tmp_path / "snapshot.json"
+
+    def unreadable(_name):
+        raise RuntimeError("connection reset")
+
+    original_table = db.table
+
+    def table(name):
+        return unreadable(name) if name == "team_merge_map" else original_table(name)
+
+    monkeypatch.setattr(db, "table", table)
+
+    with pytest.raises(SystemExit, match="Merge map failed to load"):
+        _run_main(monkeypatch, db, ["--snapshot", str(snapshot)])
+
+    assert not snapshot.exists()
+
+
 def test_games_stored_under_an_absorbed_alias_count_for_the_surviving_team(monkeypatch, tmp_path):
     """Games keep the id they were stored with, so a survivor's record spans both ids."""
     db = _league_db(
