@@ -1380,6 +1380,22 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `EMAIL_REGEX` backtracks quadratically on a long malformed value (node, 2026-09-17: 16 KB 48 ms, 32 KB 188 ms, 64 KB 731 ms), and these public routes run it with no length cap, so a large body ties up the function. They also read the body with `request.json()` / `parseJsonBody`, which parse a `text/plain` body, so another site can post to them from visitors' browsers with no CORS preflight. `/api/matchbalance-inquiry` already caps the email at 254 characters and returns 415 without `Content-Type: application/json`; capping inside `isValidEmail` would cover every caller.
 - **Noted**: 2026-09-17
 
+### Match each side of an imported game at its own cohort, not the game's
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher.match_game_history` (home and away `_match_team` both take `game_data.get("age_group")`); `src/etl/enhanced_pipeline.py` `_transform_game_perspective`
+- **Why**: Scrapers write an `age_group` per team on each perspective row, but one row per game reaches matching and both sides are matched or autocreated at that row's cohort. So one misread name also misfiles its correctly named opponent. On the Wisconsin SECL Fall 2026 PlayMetrics scrape, a reviewer's import-order replay put 16 misparsed names' spread at up to 36 of 261 teams (the name parse is fixed on `playmetrics-wi-secl-fall-2026`; the spread path is not). Provider-wide, not PlayMetrics-only.
+- **Noted**: 2026-09-17
+
+### Find Wisconsin PlayMetrics teams filed a cohort off by last season's name parse
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/scrape_playmetrics_league.py` `derive_team_age_group` (as it stood before `playmetrics-wi-secl-fall-2026`); WI teams holding PlayMetrics aliases
+- **Why**: The Fall 2025 (`1014-1514`) and Spring 2026 (`1014-1926`) Wisconsin leagues were imported while the parser missed a U-age with a gender letter fused on (`U11B`, `11uG`), falling back to the division's play-up age, and read `2013/2014` bands by the older year. Some WI teams may exist as wrong-cohort duplicates bound by approved aliases. Measure read-only first: WI PlayMetrics-alias teams whose name U-age disagrees with the stored cohort, and whether a same-name sibling sits at the name's cohort. Then use the `correcting-team-age-groups` and `merging-duplicate-teams` skills.
+- **Noted**: 2026-09-17
+
 ### Share the operator-script and test-double scaffolding instead of copying it per file
 
 - **ID**: IMP-255
@@ -1388,4 +1404,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `get_client` (10 files under `scripts/`, e.g. `exclude_english_teams.py`, `exclude_none_opponent_games.py`, `apply_vetted_team_merges.py`); `_paged` (3, incl. the `order("id")` variant in `enqueue_helpers.py`); the `_Query`/`_DB` PostgREST double (8 files under `tests/unit/`); `_executable` and friends in the migration guards (7 files under `tests/unit/`)
 - **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks -- 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
+- **Noted**: 2026-09-17
+
+### Catch English-league teams that arrive after the exclusion list was built
+
+- **ID**: IMP-256
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/exclude_english_teams.py` (`grow`, `build_snapshot`); `scripts/discover_teams_from_opponents.py` (`_build_team_metadata`, `create_team_and_alias`)
+- **Why**: `team_ranking_exclusions` keeps a listed team out however many new fixtures it plays, but nothing stops a *new* English identity entering. Discovery creates a team from name, age and gender alone and queues it for scraping, and the weekly state job runs with `--no-tier-a`, so nothing asks the provider where a new registration is. A fresh English team playing other unlisted English teams accumulates games and becomes nationally ranked exactly as this population did. The exclusion script is manual, so nobody is told. Wanted: a recurring report of candidates the graph rule reaches but nobody has decided on, and an admission-time rule using the provider's association rather than the opponent's state. Raised by a design review of PR #1168 on 2026-09-17.
 - **Noted**: 2026-09-17

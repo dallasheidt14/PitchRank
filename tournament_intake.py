@@ -3494,11 +3494,12 @@ _VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
 class _WalkKeys:
     """Session-state key names for one view's paid event walk.
 
-    Both views run the same walk with the same protections — a cross-tab lock, a
-    recovery file written before anything interruptible, a probe that must price
-    the event before the full-walk button unlocks. Only the session entries
-    differ, so they are the parameter and the logic stays single. Two copies of
-    those protections would drift, and the one that drifts costs a paid walk.
+    Both views run the same walk with the same protections — a cross-tab lock
+    and a recovery file written before anything interruptible. The Seeding view
+    also offers an optional small probe for a cost estimate. Only the session
+    entries differ, so they are the parameter and the logic stays single.
+    Two copies of those protections would drift, and the one that drifts costs
+    a paid walk.
     """
 
     prefix: str
@@ -3793,9 +3794,8 @@ def _run_event_roster_scrape(
 
     parsed, resolved = st.session_state[keys.result]
     _run_seeding_name_lookup(parsed, resolved, supabase_client, keys=keys)
-    # The gate, the price and the retry button were all drawn from session state
-    # before this ran, so without a rerun they describe the previous walk — and a
-    # full-event button still greyed out invites a second paid probe.
+    # The result, counts and optional estimate were all drawn from session state
+    # before this ran, so without a rerun they would describe the previous walk.
     st.rerun()
 
 
@@ -4409,6 +4409,7 @@ def _autosave_seeding_run() -> bool:
                 overrides=dict(st.session_state._seeding_overrides),
                 warnings=parsed.warnings,
                 pack=pack,
+                source_url=str(st.session_state.get("seeding_event_url") or "").strip(),
             )
         )
     except (OSError, ValueError, TypeError) as exc:
@@ -4432,6 +4433,14 @@ def _load_seeding_run(slug: str) -> None:
     st.session_state._seeding_sheet_html = None
     st.session_state._seeding_loaded_slug = slug
     st.session_state._seeding_pending_name = run.name
+    # New saves retain the exact URL. Older runs used the generated GotSport
+    # name, so recover that common form to keep the one-click scrape path open.
+    source_url = str(run.source_url or "").strip()
+    if not source_url:
+        match = re.search(r"\bGotSport\s+Event\s+(\d+)\b", run.name, flags=re.IGNORECASE)
+        if match:
+            source_url = f"https://system.gotsport.com/org_event/events/{match.group(1)}"
+    st.session_state._seeding_pending_event_url = source_url
 
 
 def _apply_pending_seeding_widgets() -> None:
@@ -4443,9 +4452,13 @@ def _apply_pending_seeding_widgets() -> None:
     that legal however the two controls are later ordered on the page.
     """
     pending_name = st.session_state.pop("_seeding_pending_name", None)
-    if pending_name is None:
+    pending_url = st.session_state.pop("_seeding_pending_event_url", None)
+    if pending_name is None and pending_url is None:
         return
-    st.session_state["seeding_event_name"] = pending_name
+    if pending_name is not None:
+        st.session_state["seeding_event_name"] = pending_name
+    if pending_url:
+        st.session_state["seeding_event_url"] = pending_url
     st.session_state["seeding_roster_text"] = ""
     for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
         st.session_state.pop(key, None)
@@ -4456,19 +4469,19 @@ def _render_seeding_run_controls() -> None:
     left, right = st.columns([2, 2])
     with left:
         st.text_input(
-            "Event name",
+            "Run name (for saving)",
             key="seeding_event_name",
-            placeholder="STX Cup 2026",
+            placeholder="San Antonio Labor Cup · U10+",
             help="Naming the event saves your work, so a refresh does not lose your manual fixes.",
         )
     with right:
         entries = list_seeding_runs()
         if not entries:
-            st.selectbox("Reopen a saved run", options=[], placeholder="(nothing saved yet)", disabled=True)
+            st.selectbox("Open a saved run", options=[], placeholder="(nothing saved yet)", disabled=True)
             return
         labels = {entry.slug: f"{entry.name} · {entry.team_count} teams" for entry in entries}
         chosen = st.selectbox(
-            "Reopen a saved run",
+            "Open a saved run",
             options=list(labels),
             format_func=lambda slug: labels[slug],
             index=None,
@@ -4507,6 +4520,12 @@ def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]
 
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Queue every resolved team for a fresh scrape before any seeding is proposed."""
+    if supabase_client is None:
+        st.warning(
+            "The database connection is unavailable, so the refresh queue is disabled. "
+            "Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then restart the app."
+        )
+        return
     overrides = st.session_state._seeding_overrides
     provider_id = fetch_gotsport_provider_id(supabase_client)
     lookup_provider_team_id = make_provider_team_id_lookup(supabase_client, provider_id)
@@ -4551,7 +4570,15 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
 
 
 def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:
-    """The last walk's counts, but only while they describe this same URL."""
+    """The last walk's counts, but only while they describe this same URL.
+
+    Seeding recovery is deliberately separate from Streamlit session state.
+    A paid probe survives a restart in ``last_walk.json``; if this helper only
+    reads the in-memory probe, the full-event action is disabled until the
+    operator clicks the recovery button first. Reading the recovery summary
+    here keeps the paid work visible and makes that button an optional review
+    action instead of a gate to the next step.
+    """
     if keys == _BACKTEST_KEYS:
         snapshot = st.session_state.get(keys.snapshot)
         if snapshot is None or snapshot.roster.event_id != event_id_from(url):
@@ -4566,7 +4593,28 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
             "complete": roster.is_complete and roster.completed_event,
         }
     probe = st.session_state.get(keys.probe) or {}
-    return probe if probe.get("url") == url and url else None
+    if probe.get("url") == url and url:
+        return probe
+
+    event_id = event_id_from(url)
+    if not event_id:
+        return None
+    recovered = _recovered_walk(event_id)
+    if recovered is None:
+        return None
+    roster, limit_groups = recovered
+    return {
+        "url": url,
+        "limit_groups": limit_groups,
+        "divisions_found": roster.divisions_found,
+        "divisions_walked": roster.divisions_walked,
+        "divisions_skipped": roster.divisions_skipped,
+        "divisions_sampled": len(roster.divisions),
+        "u10_plus_only": True,
+        "teams": len(roster.teams),
+        "linked": sum(bool(team.provider_team_id) for team in roster.teams),
+        "complete": roster.is_complete,
+    }
 
 
 def _money(amount: float) -> str:
@@ -4602,30 +4650,57 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     teams = int(probe.get("teams") or 0)
     linked = int(probe.get("linked") or 0)
     u10_plus_only = bool(probe.get("u10_plus_only"))
+    scope = "full U10+ list" if u10_plus_only else "whole event"
     if not u10_plus_only:
-        head = (
-            f"Walked {walked} of {found} divisions: "
-            f"{teams} teams, {linked} carrying a GotSport id."
-        )
+        if probe.get("limit_groups") is None and probe.get("complete"):
+            head = (
+                f"Whole event ready: {found} divisions, {teams} teams "
+                f"({linked} carrying a GotSport id)."
+            )
+        elif probe.get("limit_groups") is None:
+            head = (
+                f"Whole-event walk needs another try: {walked} of {found} divisions, "
+                f"{teams} teams ({linked} carrying a GotSport id)."
+            )
+        else:
+            head = (
+                f"Walked {walked} of {found} divisions: "
+                f"{teams} teams, {linked} carrying a GotSport id."
+            )
     elif probe.get("limit_groups") is None:
-        head = (
-            f"Checked all {walked} divisions and kept {sampled} U10+ divisions: "
-            f"{teams} teams, {linked} carrying a GotSport id."
-        )
+        if probe.get("complete"):
+            head = (
+                f"Full list ready: {sampled} U10+ divisions, {teams} teams "
+                f"({linked} carrying a GotSport id)."
+            )
+        else:
+            head = (
+                f"Full walk needs another try: {sampled} U10+ divisions, {teams} teams "
+                f"({linked} carrying a GotSport id)."
+            )
     else:
         head = (
-            f"Checked {walked} of {found} event divisions and captured {sampled} U10+ divisions: "
-            f"{teams} teams, {linked} carrying a GotSport id."
+            f"Sample ready: {sampled} U10+ divisions, {teams} teams "
+            f"({linked} carrying a GotSport id)."
         )
 
-    if probe.get("limit_groups") is None or (found > 0 and walked >= found):
+    full_walk = probe.get("limit_groups") is None
+    if full_walk and probe.get("complete"):
+        pages = LANDING_READS + found + teams
+        low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+        high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
+        return (
+            f"{head} Refresh estimate for the {scope}: {_money(low)}-{_money(high)}; "
+            f"a full retry could reach {_money(high * 3)}."
+        )
+    if full_walk or (found > 0 and walked >= found):
         return head
 
     # Team pages are most of an event's bill, so a sample that found no team
     # prices nothing — which is the normal state of an event being seeded before
     # its schedules go up, not a rare one.
     if not walked or not teams or (u10_plus_only and not sampled):
-        return f"{head} That is not enough to price the rest of the event from."
+        return f"{head} There is not enough information to estimate the full list yet."
 
     if u10_plus_only:
         # The probe can pay for a prefix of younger division pages before it
@@ -4641,8 +4716,8 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     low = pages * (1 - _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     high = pages * (1 + _SEEDING_EVENT_ESTIMATE_SPREAD) * _SEEDING_EVENT_PAGE_COST_USD
     return (
-        f"{head} The whole event looks like {_money(low)}-{_money(high)}, "
-        "and a page that has to be retried bills up to three times."
+        f"{head} Estimated base cost for the {scope}: {_money(low)}-{_money(high)}. "
+        f"If every page needs retries, the total could reach {_money(high * 3)}."
     )
 
 
@@ -4677,11 +4752,16 @@ def _render_recovered_walk(
         return
 
     st.caption(
-        f"A walk of event {event_id} holding {len(roster.teams)} teams is already saved "
-        "here, and loading it costs nothing."
+        f"A saved sample for event {event_id} has {len(roster.teams)} teams. "
+        "Open it below to review the rows without paying again."
+    )
+    reload_label = (
+        "Load the walk already paid for"
+        if keys == _BACKTEST_KEYS
+        else "Open the saved sample (free)"
     )
     reload_clicked = st.button(
-        "Load the walk already paid for",
+        reload_label,
         key=f"{keys.prefix}_event_reload_walk",
         disabled=in_progress,
     )
@@ -4755,22 +4835,16 @@ def _clear_result_from_other_event(url: str, *, keys: _WalkKeys = _SEEDING_KEYS)
 def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
-    Two buttons rather than one, because the walk is billed a page at a time and
-    an event's size is not knowable from its URL: the first prices the event
-    against a couple of divisions, and only a probe that actually read one
-    unlocks the second.
+    The Seeding view can scrape the full U10+ event immediately. An optional
+    small sample is available when the operator wants a cost estimate first.
     """
     if keys is _SEEDING_KEYS:
-        # "Or" because on the Seeding tab this walk is the alternative to
-        # pasting the director's list. The Backtest tab has nothing for it to
-        # be an alternative to, and its caller has already titled the section —
-        # a second heading there just says the same thing twice.
-        st.markdown("#### Or scrape a GotSport event")
+        st.markdown("#### Option 2 · Import from a GotSport event")
         st.caption(
-            "Reads each division's teams and follows every team page for its GotSport id, "
-            "which links a team outright rather than by name. The check keeps only U10 and older. "
-            "It may read younger division pages while finding the first two U10+ divisions, but it "
-            "does not buy those younger teams' pages."
+            "For a whole tournament, enter its GotSport event URL and click Scrape the whole U10+ event. "
+            "The optional estimate reads two U10+ divisions first so you can preview likely cost. "
+            "Some events list younger divisions first, so those division pages may be read while finding "
+            "U10+ divisions; their younger team pages are skipped automatically."
         )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
@@ -4786,35 +4860,53 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         _clear_result_from_other_event(url, keys=keys)
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
-    already_walked = bool(probe.get("complete"))
+    complete = bool(probe.get("complete"))
+    refresh_available = keys is _SEEDING_KEYS and complete
+    already_walked = complete and keys == _BACKTEST_KEYS
 
     left, right = st.columns([2, 2])
     primary, secondary = (left, right) if keys == _BACKTEST_KEYS else (right, left)
     with primary:
-        full_clicked = st.button(
-            "Scrape the whole event" if keys == _BACKTEST_KEYS else "Scrape all U10+ divisions",
-            key=f"{keys.prefix}_event_full_run",
-            type="primary" if keys == _BACKTEST_KEYS else "secondary",
-            disabled=(not url or in_progress or already_walked
-                      or (keys != _BACKTEST_KEYS and not priced)),
-        )
+        if refresh_available:
+            full_clicked = False
+            refresh_clicked = st.button(
+                "Refresh the full U10+ list",
+                key=f"{keys.prefix}_event_refresh_run",
+                type="secondary",
+                disabled=not url or in_progress or not priced,
+            )
+        else:
+            refresh_clicked = False
+            if keys == _BACKTEST_KEYS:
+                full_label = "Scrape the whole event"
+            elif probe.get("limit_groups") is None and probe:
+                full_label = "Retry the full U10+ import"
+            else:
+                full_label = "Scrape the whole U10+ event"
+            full_clicked = st.button(
+                full_label,
+                key=f"{keys.prefix}_event_full_run",
+                type="primary",
+                disabled=not url or in_progress or already_walked,
+            )
     with secondary:
         probe_clicked = st.button(
             "Optional: check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
-            ) if keys == _BACKTEST_KEYS else "Check {} U10+ divisions (starts around {}-{})".format(
+            ) if keys == _BACKTEST_KEYS else "Optional: estimate cost from {} U10+ divisions ({}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
-            disabled=not url or in_progress or already_walked,
+            disabled=not url or in_progress or complete,
         )
 
     if probe:
         st.caption(_seeding_probe_caption(probe))
         if keys is _SEEDING_KEYS:
-            # The Backtest view has no name box and no Save-run button, so this
-            # would point at controls that are not on the page.
-            st.caption("Name this run above and press Save to keep it.")
+            if st.session_state.get(keys.result):
+                st.caption("Review the rows below, then name and save this run.")
+            else:
+                st.caption("The sample is saved. Open it below for review, or scrape the whole U10+ event.")
 
     _render_recovered_walk(url, supabase_client, in_progress=in_progress, keys=keys)
 
@@ -4826,20 +4918,21 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 _run_seeding_name_lookup(result[0], result[1], supabase_client, keys=keys)
                 st.rerun()
 
-    if probe_clicked and not already_walked:
+    if probe_clicked and not complete:
         _run_event_roster_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
-    elif full_clicked and (priced or keys == _BACKTEST_KEYS) and not already_walked:
+    elif refresh_clicked and priced:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
-    elif probe_clicked or full_clicked:
+    elif full_clicked and not already_walked:
+        _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
+    elif probe_clicked or full_clicked or refresh_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
-        # trigger of any button that was enabled when it was clicked. That covers
-        # editing the URL and clicking in one go, and a second click queued while
-        # the first walk was still running — which would otherwise arrive once the
-        # run it was queued behind had finished, and buy the same event twice.
+        # trigger of any button that was enabled when it was clicked. The import
+        # and refresh actions have different widget keys, so a stale import click
+        # queued during a walk cannot become a paid refresh after that walk finishes.
         st.error(
-            "Nothing to buy: check a couple of divisions first, or this event has already been walked."
+            "Nothing to scrape: enter a GotSport event URL, or wait for the current walk to finish."
         )
 
 
@@ -4891,7 +4984,7 @@ def _render_seeding_save() -> None:
     session whose manual fixes are about to be lost.
     """
     if not _seeding_run_name():
-        st.info("Name the event above to save this run, so a refresh does not lose your manual fixes.")
+        st.info("Give this run a name above, then click Save this run before leaving the page.")
         return
     if st.button("Save this run", key="_seeding_save_run") and _autosave_seeding_run():
         st.success("Saved. Reopen it from the dropdown above.")
@@ -4905,12 +4998,17 @@ def _render_seeding_tab(supabase_client: Any) -> None:
     ``src.tournaments.roster_resolver``.
     """
     st.markdown("### Seeding intake")
-    st.caption(
-        "Paste the director's accepted-teams list. Age and gender come from the section "
-        "headings, so keep lines like 'Male U14' in. A fourth Requested flight column is "
-        "optional; existing three-column lists still work."
+    st.info(
+        "Start with one source: enter a GotSport event URL for a whole-tournament list, "
+        "or paste an accepted-teams list you already have. After the teams load, review "
+        "any open matches, save the run, and build matchup tiers."
     )
     _render_seeding_run_controls()
+    st.markdown("#### Option 1 · Paste an accepted-teams list")
+    st.caption(
+        "Age and gender come from the section headings, so keep lines like 'Male U14' in. "
+        "A fourth Requested flight column is optional; existing three-column lists still work."
+    )
     st.text_area(
         "Accepted teams",
         key="seeding_roster_text",

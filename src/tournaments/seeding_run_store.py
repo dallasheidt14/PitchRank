@@ -56,6 +56,7 @@ class SeedingRun:
     warnings: tuple[str, ...] = ()
     saved_at: str = ""
     pack: dict[str, Any] | None = None
+    source_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None) -> Path:
         "overrides": {str(index): value for index, value in run.overrides.items()},
         "warnings": list(run.warnings),
         "pack": run.pack,
+        "source_url": run.source_url,
     }
 
     path = target / RUN_FILENAME
@@ -177,6 +179,7 @@ def load_run(slug: str, *, base_dir: Path | str | None = None) -> SeedingRun:
         warnings=tuple(payload.get("warnings") or ()),
         saved_at=payload.get("saved_at", ""),
         pack=payload.get("pack"),
+        source_url=str(payload.get("source_url") or ""),
     )
 
 

@@ -211,6 +211,13 @@ def test_saved_at_is_stamped_on_save(tmp_path):
     assert load_run("stx-cup-2026", base_dir=tmp_path).saved_at
 
 
+def test_saved_run_retains_the_source_event_url(tmp_path):
+    run = replace(_run(), source_url="https://system.gotsport.com/org_event/events/55368")
+    save_run(run, base_dir=tmp_path)
+
+    assert load_run("stx-cup-2026", base_dir=tmp_path).source_url.endswith("/55368")
+
+
 # -------- listing ---------------------------------------------------------
 
 
