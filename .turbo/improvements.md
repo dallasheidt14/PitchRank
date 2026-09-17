@@ -1318,3 +1318,63 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams.state_code` for GotSport teams whose raw `teams.state` is NULL, surfacing through `rankings_view` / `state_rankings_view` (state `UT`)
 - **Why**: About 63 of Utah's 272 ranked teams are English academies with `state_code = 'UT'` and no raw state, among them Bromley FC, York City FC, Luton Town Community Trust and 7 Elite Academy (GB). They fill 57 of the 71 places on the Utah U19 boys board (measured 2026-09-17), and they block the Utah state guide. Find how UT was assigned before clearing it. The fix removes the wrong US state; it does not assign a foreign one, since non-US clubs get no state-assignment effort.
 - **Noted**: 2026-09-17
+
+### Revise the blog line that says PitchRank is not for tournament directors
+
+- **ID**: IMP-249
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `frontend/content/blog-posts.tsx` (the "built PitchRank for parents and coaches" paragraph, ~line 819)
+- **Why**: It says PitchRank was built "not for tournament directors or league administrators", which contradicts the /matchbalance sales page aimed at exactly those directors. Kept out of the page build so the blog edit ships as its own change with its `modifiedDate` bumped.
+- **Noted**: 2026-09-16
+
+### Build the Streamlit MatchBalance quote on the public page's fixed tiers
+
+- **ID**: IMP-250
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `tournament_intake.py` Seeding tab and `src/tournaments/seeding_intake_ui.py` (`render_seeding_pack`); no quote code exists yet
+- **Why**: /matchbalance publishes fixed tier prices (`EVENT_PRICING` and `COHORT_PRICING` in `frontend/app/matchbalance/page.tsx`) in place of the original build brief's $3 per team. A grep of `src/tournaments/` and `tournament_intake.py` on 2026-09-16 found no quote or pricing logic, so nothing is wrong today, but whoever builds the operator quote step must use these tiers or quotes will disagree with the page.
+- **Noted**: 2026-09-16
+
+### Seeding sheet state ranks mix full state names and codes
+
+- **ID**: IMP-251
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/tournaments/seeding_pack.py` (`snapshot_ratings`), `src/tournaments/seeding_sheet.py` (`_state_rank`)
+- **Why**: One sheet shows both "Texas #60" and "TX #101". `snapshot_ratings` keeps the Compare predictor's team `state` and only falls back to `make_ratings_lookup`'s `state_rankings_view.state` when the predictor lacks one. The view returns only codes (live: 14,238 rows `TX`, none `Texas`), while `matchPredictionService.ts` selects both `teams.state` and `state_code`, so the full name most likely comes from the predictor side. Visible on the public sample `frontend/public/matchbalance/sample-u13-boys.pdf`; normalize to one form in the sheet, then re-render that sample.
+- **Noted**: 2026-09-16
+
+### Share the MatchBalance inquiry rate limit across serverless instances
+
+- **ID**: IMP-252
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `frontend/app/api/matchbalance-inquiry/route.ts` (`POST`, the ``checkRateLimit(`matchbalance:${ip}`, ...)`` call) and `frontend/lib/api/rateLimit.ts` (`checkRateLimit`)
+- **Why**: The 5-per-hour limit lives in a per-instance in-memory `Map`, so each Vercel instance grants its own quota and a scripted caller spread across instances or IPs gets more; the route emails a confirmation to whatever address is submitted. One option is counting `matchbalance_leads` rows with the same `source_ip_masked` in the last hour before the insert. Deferred by the owner on 2026-09-17: the route already refuses non-JSON bodies (so another site cannot post from its visitors' browsers) and the confirmation carries nothing the submitter typed.
+- **Noted**: 2026-09-17
+
+### Extract the helpers the MatchBalance build copied instead of sharing
+
+- **ID**: IMP-253
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: admin `formatDate`/`formatRelative`/`KpiCard` in `frontend/app/mission-control/leads/page.tsx` and `subscriptions/page.tsx`; `formatSupabaseError` in `frontend/lib/admin/matchbalance-leads.ts` and `subscription-metrics.ts`; `bad`/`maskIp`/`isStringWithLen` in `frontend/app/api/matchbalance-inquiry/route.ts` and `app/api/feedback/route.ts`; `escapeHtml` in `frontend/lib/email/matchbalance-inquiry.ts`, `lib/email/feedback.ts` and `app/api/stripe/webhook/route.ts`; the hero stripe band and FAQ `<details>` markup in `frontend/app/matchbalance/page.tsx` and `app/report-card/page.tsx`; `_executable` in six `tests/unit/test_*` migration guards and `_newest_statement` in two of them
+- **Why**: Copies already disagree: the Stripe webhook's `escapeHtml` escapes only `&`, `<` and `>` (enough for its Telegram messages, not for an HTML attribute), and `test_team_page_views_migration.py`'s `_executable` strips only `--` comments, so a block-commented REVOKE passes that guard; only the `test_scrape_requests_rls_migration.py` and `test_matchbalance_leads_migration.py` copies also strip `/* */` comments (helper bodies read 2026-09-17). A fix to date rendering or escaping otherwise has to find every copy. Deferred by the owner on 2026-09-17 to keep the MatchBalance change scoped.
+- **Noted**: 2026-09-17
+
+### Bound the email check and require JSON on the other public POST routes
+
+- **ID**: IMP-254
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/lib/validation.ts` (`isValidEmail`, `EMAIL_REGEX`), called uncapped from `POST` in `frontend/app/api/feedback/route.ts`, `frontend/app/api/newsletter/route.ts` and `frontend/app/api/reports/team-card/route.ts`
+- **Why**: `EMAIL_REGEX` backtracks quadratically on a long malformed value (node, 2026-09-17: 16 KB 48 ms, 32 KB 188 ms, 64 KB 731 ms), and these public routes run it with no length cap, so a large body ties up the function. They also read the body with `request.json()` / `parseJsonBody`, which parse a `text/plain` body, so another site can post to them from visitors' browsers with no CORS preflight. `/api/matchbalance-inquiry` already caps the email at 254 characters and returns 415 without `Content-Type: application/json`; capping inside `isValidEmail` would cover every caller.
+- **Noted**: 2026-09-17

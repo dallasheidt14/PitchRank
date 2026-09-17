@@ -47,11 +47,18 @@ export default function MissionControlPage() {
               Live snapshot of model accuracy, prospective evaluation coverage, and point-in-time training readiness.
             </p>
           </div>
-          <Link href="/mission-control/subscriptions">
-            <Button variant="outline" size="sm">
-              Subscriptions →
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/mission-control/subscriptions">
+              <Button variant="outline" size="sm">
+                Subscriptions →
+              </Button>
+            </Link>
+            <Link href="/mission-control/leads">
+              <Button variant="outline" size="sm">
+                MatchBalance Leads →
+              </Button>
+            </Link>
+          </div>
         </div>
 
         <ModelSnapshotDashboard />
