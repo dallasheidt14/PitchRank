@@ -35,6 +35,7 @@ age_group         TEXT              -- stored lowercase u-form: "u12". Normalize
 gender            TEXT              -- "Male" or "Female"
 state_code        TEXT              -- 2-letter state code
 provider_id       UUID              -- FK to providers(id); there is no provider_code column
+league            TEXT              -- guessed by a manual backfill; NOT current membership
 is_deprecated     BOOLEAN           -- TRUE if merged into another team
 last_scraped_at   TIMESTAMPTZ
 created_at        TIMESTAMPTZ       -- Table-rebuild artifact, NOT when the team appeared
@@ -44,6 +45,12 @@ created_at        TIMESTAMPTZ       -- Table-rebuild artifact, NOT when the team
 2025-11-03, because the rows were rebuilt then. Every team looks equally new.
 `team_scrape_log` begins the same day and carries the same limitation. Derive age from
 game dates instead — a team's first and last `games.game_date` are real.
+
+`league` is written only by `scripts/backfill_team_leagues.py`, which no workflow runs. It
+guesses from `team_name` patterns and `team_alias_map.division`, never clears a label, and
+leaves teams created since its last run NULL. A label survives a club's promotion or a
+retired league, such as NPL and NL after both merged into the National 1 League. Confirm
+any "club X plays in league Y this season" claim against that league's own member list.
 
 ### `games`
 ```sql
