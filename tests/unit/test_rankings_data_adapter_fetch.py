@@ -83,6 +83,12 @@ class _FakeQuery:
                 return None
             return _FakeResult(row)
 
+        if self.table_name == "team_merge_map":
+            rows = self.client.merge_rows
+            if isinstance(rows, Exception):
+                raise rows
+            return _FakeResult(rows[self.offset : self.limit_end + 1])
+
         if self.table_name == "team_ranking_exclusions":
             rows = self.client.excluded_rows
             if isinstance(rows, Exception):
@@ -97,11 +103,12 @@ class _FakeQuery:
 
 
 class _FakeSupabase:
-    def __init__(self, games_pages=None, team_rows=None, provider_row=None, excluded_rows=None):
+    def __init__(self, games_pages=None, team_rows=None, provider_row=None, excluded_rows=None, merge_rows=None):
         self.games_pages = games_pages or {}
         self.team_rows = team_rows or {}
         self.provider_row = provider_row
         self.excluded_rows = excluded_rows if excluded_rows is not None else []
+        self.merge_rows = merge_rows if merge_rows is not None else []
         self.last_games_select = None
 
     def table(self, table_name: str):
@@ -403,6 +410,32 @@ async def test_an_excluded_team_merged_into_another_team_stays_excluded(monkeypa
         fake_db,
         today=pd.Timestamp("2026-04-14", tz="UTC"),
         merge_resolver=_FakeMergeResolver({"team-english": "team-survivor"}),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+@pytest.mark.asyncio
+async def test_a_caller_with_no_resolver_still_excludes_a_merged_away_team(monkeypatch):
+    """compute_rankings_with_ml's fallback and Layer 13's pass no resolver, and an exclusion
+    that skipped resolution there would rank the survivor again."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                _game("game-now-under-survivor", "team-survivor", "team-us-a"),
+                _game("game-kept", "team-us-a", "team-us-b"),
+            ]
+        },
+        team_rows={t: _u16_team(t) for t in ("team-survivor", "team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+        merge_rows=[{"deprecated_team_id": "team-english", "canonical_team_id": "team-survivor"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
     )
 
     assert set(result["game_id"]) == {"game-kept"}

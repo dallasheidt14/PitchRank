@@ -545,17 +545,24 @@ async def fetch_games_for_rankings(
 
     # A listed team merged into another team keeps its games out: they resolve to the
     # survivor's id above, which the raw list would no longer match.
-    if excluded_team_ids and merge_resolver is not None:
+    if excluded_team_ids:
+        # Two callers pass no resolver, and an exclusion that skipped this would let a merged-away
+        # team back onto the boards, so the list gets one either way.
+        exclusion_resolver = merge_resolver
+        if exclusion_resolver is None:
+            from src.utils.merge_resolver import MergeResolver
+
+            exclusion_resolver = MergeResolver(db)
         # A failed merge-map read leaves an empty map that reads exactly like "no merges",
         # which would skip the expansion below and rank a merged-away excluded team again.
-        if merge_resolver.version == MERGE_MAP_LOAD_FAILED:
+        if exclusion_resolver.version == MERGE_MAP_LOAD_FAILED:
             raise RuntimeError(
                 "Merge map failed to load; refusing to rank with an exclusion list that cannot "
                 "be resolved through it"
             )
-        if merge_resolver.has_merges:
+        if exclusion_resolver.has_merges:
             excluded_team_ids |= {
-                resolved for resolved in (merge_resolver.resolve(t) for t in excluded_team_ids) if resolved
+                resolved for resolved in (exclusion_resolver.resolve(t) for t in excluded_team_ids) if resolved
             }
 
     # Both columns, so the game leaves the opponent's perspective too, not only the listed team's.
