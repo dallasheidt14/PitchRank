@@ -441,27 +441,29 @@ class _FakeQuery:
         return self
 
     def ilike(self, column, value):
-        expression = []
-        index = 0
-        while index < len(value):
-            character = value[index]
-            if character == "\\" and index + 1 < len(value):
-                index += 1
-                expression.append(re.escape(value[index]))
-            elif character == "%":
-                expression.append(".*")
-            elif character == "_":
-                expression.append(".")
-            else:
-                expression.append(re.escape(character))
-            index += 1
-        pattern = re.compile("".join(expression), re.IGNORECASE | re.DOTALL)
-        self._rows = [row for row in self._rows if pattern.fullmatch(str(row.get(column, "")))]
+        self._rows = [row for row in self._rows if _fake_ilike_matches(row.get(column, ""), value)]
         return self
 
     def or_(self, expression):
         if self._or_filters is not None:
             self._or_filters.append(expression)
+        clauses = []
+        for clause in _split_postgrest_clauses(expression):
+            if clause.startswith("and(") and clause.endswith(")"):
+                parts = _split_postgrest_clauses(clause[4:-1])
+                if len(parts) != 2:
+                    raise AssertionError(f"unsupported nested OR clause: {clause}")
+                clauses.append([_parse_postgrest_ilike(part) for part in parts])
+            else:
+                clauses.append([_parse_postgrest_ilike(clause)])
+        self._rows = [
+            row
+            for row in self._rows
+            if any(
+                all(_fake_ilike_matches(row.get(column, ""), pattern) for column, pattern in clause)
+                for clause in clauses
+            )
+        ]
         return self
 
     def limit(self, count):
@@ -477,6 +479,73 @@ class _FakeQuery:
             data = rows
 
         return _Response()
+
+
+def _fake_ilike_matches(value, expression):
+    regex_parts = []
+    index = 0
+    expression = str(expression)
+    while index < len(expression):
+        character = expression[index]
+        if character == "\\" and index + 1 < len(expression):
+            index += 1
+            regex_parts.append(re.escape(expression[index]))
+        elif character in {"%", "*"}:
+            regex_parts.append(".*")
+        elif character == "_":
+            regex_parts.append(".")
+        else:
+            regex_parts.append(re.escape(character))
+        index += 1
+    pattern = re.compile("".join(regex_parts), re.IGNORECASE | re.DOTALL)
+    return bool(pattern.fullmatch(str(value)))
+
+
+def _split_postgrest_clauses(expression):
+    clauses = []
+    start = 0
+    depth = 0
+    quoted = False
+    escaped = False
+    for index, character in enumerate(expression):
+        if quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                quoted = False
+            continue
+        if character == '"':
+            quoted = True
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        elif character == "," and depth == 0:
+            clauses.append(expression[start:index])
+            start = index + 1
+    if quoted or depth != 0:
+        raise AssertionError(f"malformed PostgREST filter: {expression}")
+    clauses.append(expression[start:])
+    return clauses
+
+
+def _parse_postgrest_ilike(clause):
+    column, separator, operand = clause.partition(".ilike.")
+    if not separator or not operand.startswith('"') or not operand.endswith('"'):
+        raise AssertionError(f"unsupported PostgREST clause: {clause}")
+    value = operand[1:-1]
+    decoded = []
+    index = 0
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value):
+            decoded.append(value[index + 1])
+            index += 2
+        else:
+            decoded.append(value[index])
+            index += 1
+    return column, "".join(decoded)
 
 
 class _FakeClient:
@@ -496,7 +565,7 @@ PROVIDERS = [{"id": GOTSPORT, "code": "gotsport"}, {"id": OTHER, "code": "sincsp
 
 
 def test_exact_name_lookup_treats_backslash_percent_and_underscore_as_literals():
-    literal_name = r"FC\One_100%"
+    literal_name = r"FC\One_100%*"
     client = _FakeClient(
         teams=[
             {
@@ -508,7 +577,7 @@ def test_exact_name_lookup_treats_backslash_percent_and_underscore_as_literals()
             },
             {
                 "team_id_master": "wildcard",
-                "team_name": "FCXOneA1000",
+                "team_name": "FCXOneA1000Anything",
                 "age_group": "u14",
                 "gender": "Male",
                 "is_deprecated": False,
@@ -561,6 +630,7 @@ def test_combined_name_filter_batches_every_exact_interpretation():
 
 def test_postgrest_name_filter_quotes_reserved_and_ilike_characters():
     assert _postgrest_ilike_operand('FC\\One_100% "Blue,(Team)"') == r'"FC\\\\One\\_100\\% \"Blue,(Team)\""'
+    assert _postgrest_ilike_operand("A*B") == r'"A\\*B"'
 
 
 def test_exact_name_lookup_keeps_direct_and_combined_interpretations_for_review():

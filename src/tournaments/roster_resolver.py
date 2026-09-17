@@ -213,7 +213,12 @@ def _review_candidate(
 
 def escape_ilike_literal(value: str) -> str:
     """Escape Postgres ILIKE metacharacters so a team name stays literal."""
-    return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+    return (
+        value.replace("\\", "\\\\")
+        .replace("%", r"\%")
+        .replace("_", r"\_")
+        .replace("*", r"\*")
+    )
 
 
 def _club_team_splits(value: str) -> Iterable[tuple[str, str]]:
