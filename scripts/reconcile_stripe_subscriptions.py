@@ -2,8 +2,8 @@
 """
 Reconcile Stripe subscriptions with user_profiles in Supabase.
 
-Detects and fixes user_profiles rows whose plan, status, subscription id or
-canceling flag disagree with Stripe.
+Detects and fixes user_profiles rows whose plan, status or subscription id
+disagree with Stripe.
 Sends an email alert via Resend when mismatches are found.
 
 Usage:
@@ -72,8 +72,7 @@ def fetch_stripe_users(supabase):
     response = (
         supabase.table("user_profiles")
         .select(
-            "id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, "
-            "subscription_period_end, cancel_at_period_end"
+            "id, email, plan, subscription_status, stripe_customer_id, stripe_subscription_id, subscription_period_end"
         )
         .not_.is_("stripe_customer_id", "null")
         .execute()
@@ -149,15 +148,16 @@ def reconcile(supabase, dry_run: bool):
         db_plan = row.get("plan") or "free"
         db_status = row.get("subscription_status")
         db_sub_id = row.get("stripe_subscription_id")
-        db_canceling = bool(row.get("cancel_at_period_end"))
 
-        # Check for mismatch
+        # Check for mismatch. The canceling flag is deliberately not compared: the
+        # webhook sends the Beehiiv canceling/reactivation emails only when it sees
+        # the stored flag change, so repairing it here would swallow that transition
+        # for a webhook that arrives late.
         plan_mismatch = db_plan != expected_plan
         status_mismatch = db_status != stripe_status
         sub_id_mismatch = sub_data and db_sub_id != stripe_sub_id
-        canceling_mismatch = db_canceling != cancel_at_period_end
 
-        if not (plan_mismatch or status_mismatch or sub_id_mismatch or canceling_mismatch):
+        if not (plan_mismatch or status_mismatch or sub_id_mismatch):
             logger.info(f"  OK {email}: plan={db_plan}, status={db_status}")
             continue
 
@@ -169,21 +169,16 @@ def reconcile(supabase, dry_run: bool):
                 "plan": db_plan,
                 "subscription_status": db_status,
                 "stripe_subscription_id": db_sub_id,
-                "cancel_at_period_end": db_canceling,
             },
             "after": {
                 "plan": expected_plan,
                 "subscription_status": stripe_status,
                 "stripe_subscription_id": stripe_sub_id,
-                "cancel_at_period_end": cancel_at_period_end,
             },
         }
         mismatches.append(mismatch)
 
-        logger.warning(
-            f"  MISMATCH {email}: plan {db_plan}->{expected_plan}, status {db_status}->{stripe_status}, "
-            f"canceling {db_canceling}->{cancel_at_period_end}"
-        )
+        logger.warning(f"  MISMATCH {email}: plan {db_plan}->{expected_plan}, status {db_status}->{stripe_status}")
 
         if not dry_run:
             update = {
@@ -220,8 +215,6 @@ def send_alert_email(mismatches: list, dry_run: bool):
             f"<td style='padding:6px 12px'>{m['before']['plan']} &rarr; {m['after']['plan']}</td>"
             f"<td style='padding:6px 12px'>"
             f"{m['before']['subscription_status']} &rarr; {m['after']['subscription_status']}</td>"
-            f"<td style='padding:6px 12px'>"
-            f"{m['before']['cancel_at_period_end']} &rarr; {m['after']['cancel_at_period_end']}</td>"
             f"</tr>"
         )
 
@@ -236,7 +229,6 @@ def send_alert_email(mismatches: list, dry_run: bool):
             <th style="padding:8px 12px; text-align:left">User</th>
             <th style="padding:8px 12px; text-align:left">Plan Change</th>
             <th style="padding:8px 12px; text-align:left">Status Change</th>
-            <th style="padding:8px 12px; text-align:left">Canceling</th>
         </tr>
         {rows_html}
     </table>

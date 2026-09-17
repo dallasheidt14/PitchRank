@@ -133,38 +133,41 @@ def test_check_reports_a_cancel_at_only_cancellation(monkeypatch):
     assert reconcile_job.check_stripe_subscription("cus_1")["cancel_at_period_end"] is True
 
 
-def test_reconcile_fixes_a_profile_whose_only_drift_is_the_canceling_flag(monkeypatch):
+def test_reconcile_writes_the_canceling_flag_when_it_fixes_a_status_mismatch(monkeypatch):
     monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
     monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
-    db = _Db([_profile()])
+    db = _Db([_profile(subscription_status="trialing")])
 
     mismatches, checked = reconcile_job.reconcile(db, dry_run=False)
 
     assert checked == 1
-    assert [m["after"]["cancel_at_period_end"] for m in mismatches] == [True]
+    assert len(mismatches) == 1
     assert len(db.executed_updates) == 1
     filters, payload = db.executed_updates[0]
     assert ("id", "user-1") in filters
+    assert payload["subscription_status"] == "active"
     assert payload["cancel_at_period_end"] is True
+
+
+def test_reconcile_leaves_drift_in_the_canceling_flag_alone(monkeypatch):
+    # The webhook sends the Beehiiv canceling email when it sees the stored flag
+    # change; repairing the flag here first would swallow that transition.
+    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
+    monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
+    db = _Db([_profile()])
+
+    mismatches, _ = reconcile_job.reconcile(db, dry_run=False)
+
+    assert mismatches == []
+    assert db.executed_updates == []
 
 
 def test_reconcile_writes_nothing_on_a_dry_run(monkeypatch):
     monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
     monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
-    db = _Db([_profile()])
+    db = _Db([_profile(subscription_status="trialing")])
 
     mismatches, _ = reconcile_job.reconcile(db, dry_run=True)
 
     assert len(mismatches) == 1
-    assert db.executed_updates == []
-
-
-def test_reconcile_leaves_a_profile_that_already_agrees(monkeypatch):
-    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
-    monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
-    db = _Db([_profile(cancel_at_period_end=True)])
-
-    mismatches, _ = reconcile_job.reconcile(db, dry_run=False)
-
-    assert mismatches == []
     assert db.executed_updates == []
