@@ -2,7 +2,8 @@
 """
 Reconcile Stripe subscriptions with user_profiles in Supabase.
 
-Detects and fixes mismatches where the webhook failed to update plan/status.
+Detects and fixes user_profiles rows whose plan, status or subscription id
+disagree with Stripe.
 Sends an email alert via Resend when mismatches are found.
 
 Usage:
@@ -48,8 +49,7 @@ FROM_EMAIL = "PitchRank <newsletter@mail.pitchrank.io>"
 def stripe_status_to_plan(status: str) -> str:
     """Map Stripe subscription status to PitchRank plan.
 
-    Mirrors webhook handler logic in
-    frontend/app/api/stripe/webhook/route.ts lines 158-161.
+    Mirrors mapStatusToPlan in frontend/lib/stripe/server.ts.
     """
     if status in ("active", "trialing", "past_due"):
         return "premium"
@@ -84,13 +84,12 @@ def check_stripe_subscription(customer_id: str):
     except (KeyError, TypeError):
         period_end = None
     if period_end is None:
-        # Fallback: 30 days from now (mirrors webhook handler at route.ts:164-165)
+        # Mirrors extractPeriodEnd's fallback in frontend/lib/stripe/server.ts
         period_end = int(datetime.now(timezone.utc).timestamp()) + 30 * 24 * 60 * 60
     return {
         "status": sub.status,
         "subscription_id": sub.id,
         "period_end": period_end,
-        "cancel_at_period_end": bool(sub.cancel_at_period_end),
     }
 
 
@@ -125,14 +124,12 @@ def reconcile(supabase, dry_run: bool):
             stripe_status = sub_data["status"]
             stripe_sub_id = sub_data["subscription_id"]
             period_end = sub_data["period_end"]
-            cancel_at_period_end = sub_data["cancel_at_period_end"]
         else:
             # No subscription in Stripe
             expected_plan = "free"
             stripe_status = None
             stripe_sub_id = None
             period_end = None
-            cancel_at_period_end = False
 
         db_plan = row.get("plan") or "free"
         db_status = row.get("subscription_status")
@@ -171,7 +168,9 @@ def reconcile(supabase, dry_run: bool):
                 "plan": expected_plan,
                 "subscription_status": stripe_status,
                 "stripe_subscription_id": stripe_sub_id,
-                "cancel_at_period_end": cancel_at_period_end,
+                # cancel_at_period_end is left to the webhook: it sends the Beehiiv
+                # canceling and reactivation emails only when it sees the stored flag
+                # change, so writing it here would swallow that transition.
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             if period_end:

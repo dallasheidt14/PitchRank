@@ -106,21 +106,22 @@ describe('buildTrialPipeline', () => {
     expect(buildTrialPipeline(subs, now).list[0].email).toBe('jane@example.com');
   });
 
-  it('hides trials marked cancel_at_period_end and counts them separately', () => {
+  it('hides trials set to cancel and counts them separately', () => {
     const subs = [
       // active trial — included
       makeSub({ id: 'sub_active', trialEnd: now + 2 * SECONDS_PER_DAY }),
-      // canceled trial — hidden but counted
+      // set to cancel at period end — hidden but counted
       makeSub({
         id: 'sub_canceled_a',
         trialEnd: now + 1 * SECONDS_PER_DAY,
         cancelAtPeriodEnd: true,
         email: 'lapsed.trialer@example.com',
       }),
+      // set to cancel through cancel_at alone — hidden and counted the same way
       makeSub({
         id: 'sub_canceled_b',
         trialEnd: now + 3 * SECONDS_PER_DAY,
-        cancelAtPeriodEnd: true,
+        cancelAt: now + 3 * SECONDS_PER_DAY,
         email: 'second.trialer@example.com',
       }),
     ];

@@ -149,6 +149,13 @@ backlog item, close it in the same PR**: set `- **Status**: done` and add a `- *
 line naming the PR or branch. An entry that shipped but still reads `open` is worse than
 no entry — it sends the next agent to redo finished work.
 
+Closing also means moving the entry into `.turbo/improvements-archive.md`:
+`test_live_file_holds_no_closed_entries` fails while a `done` or `dropped` entry sits in the live
+file. Its failure message says to run `scripts/sweep_improvements.py`; in a feature PR, ignore that
+and cut the entry into the archive by hand. The sweep re-renders every entry, so it reorders fields
+in unrelated ones and detaches nested lists from their field (IMP-236), which buries the real
+change and widens the conflict surface with other branches that touch the backlog.
+
 `Status` is one of `open`, `done`, `deferred`, `dropped`, and nothing else; a dated
 progress note is `- **Update (YYYY-MM-DD)**:`, never a `Status` variant.
 `tests/unit/test_improvements_backlog.py` enforces that, because this file previously
