@@ -51,6 +51,7 @@ function renderCoreContent(): string {
     '## Core Content',
     `- [Methodology](${BASE_URL}/methodology): How PitchRank calculates rankings`,
     `- [National Rankings](${BASE_URL}/rankings): Top youth soccer teams across the United States`,
+    `- [MatchBalance](${BASE_URL}/matchbalance): Ranked seeding sheets for tournament directors, built from PitchRank ratings`,
     `- [About PitchRank](${BASE_URL}/authors/pitchrank-team): The team behind the rankings`,
     '',
   ];

@@ -7,6 +7,7 @@ PitchRank provides the most accurate youth soccer rankings in the United States,
 ## Core Content
 - [Methodology](https://www.pitchrank.io/methodology): How PitchRank calculates rankings
 - [National Rankings](https://www.pitchrank.io/rankings): Top youth soccer teams across the United States
+- [MatchBalance](https://www.pitchrank.io/matchbalance): Ranked seeding sheets for tournament directors, built from PitchRank ratings
 - [About PitchRank](https://www.pitchrank.io/authors/pitchrank-team): The team behind the rankings
 
 ## Blog

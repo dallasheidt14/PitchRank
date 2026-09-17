@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type QueryResult = { data?: unknown; error?: unknown };
+export type QueryResult = { data?: unknown; error?: unknown; count?: number | null };
 
 /**
  * A chainable Supabase query-builder mock.
@@ -15,7 +15,20 @@ export type QueryResult = { data?: unknown; error?: unknown };
 export function queryBuilder(result: QueryResult = { data: null, error: null }) {
   const builder: Record<string, unknown> = {};
   const resolved = Promise.resolve(result);
-  const chainable = ['select', 'insert', 'upsert', 'update', 'delete', 'eq', 'in', 'is', 'neq', 'order', 'limit'];
+  const chainable = [
+    'select',
+    'insert',
+    'upsert',
+    'update',
+    'delete',
+    'eq',
+    'in',
+    'is',
+    'neq',
+    'gte',
+    'order',
+    'limit',
+  ];
   for (const method of chainable) {
     builder[method] = vi.fn(() => builder);
   }
