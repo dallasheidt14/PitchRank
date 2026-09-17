@@ -1083,17 +1083,6 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-07-10
 - **Refs**: Aged out of the live backlog on 2026-09-08 — noted more than 21 days earlier and cleared in a date-based purge, not judged on merit. Re-open by ID if still wanted.
 
-### Fix blog FAQ schema/body drift and add a question→answer parity test
-
-- **ID**: IMP-070
-- **Status**: dropped
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `frontend/lib/blog-faqs.ts` (32 slugs), post bodies in `frontend/content/blog/*.mdx`, new test
-- **Why**: FAQs are dual-source — visible copy in each post body, schema copy in `BLOG_FAQS` — and `BlogFAQSchema` emits JSON-LD with zero visible DOM, so nothing keeps them in sync. Already drifted on `youth-soccer-levels-explained` (`blog-faqs.ts:958`): "What is the difference…" vs body "What's the difference…", "two parallel sanctioning structures" vs "two parallel structures". Google requires FAQPage content be visible on the page, so this risks rich-result eligibility on a post drawing ~24,900 impressions/28d. Audit all 32, then add a vitest asserting question→answer PAIRS (independent string matching lets swapped answers pass); normalize frontmatter, curly/straight apostrophes, markdown links, and `**`. Single-source prior art exists at `RankingsPillar.tsx:12` but is TSX-only.
-- **Noted**: 2026-07-27
-- **Refs**: Aged out of the live backlog on 2026-09-08 — noted more than 21 days earlier and cleared in a date-based purge, not judged on merit. Re-open by ID if still wanted.
-
 ### Add a deterministic sort tiebreak to getAllBlogPosts
 
 - **ID**: IMP-071

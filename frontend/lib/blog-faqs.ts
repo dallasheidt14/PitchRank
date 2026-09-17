@@ -724,6 +724,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'oregon-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Oregon youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Oregon teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 275 ranked Oregon teams drawn from 1,756 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Oregon?',
+      answer:
+        'By ranked team count: Eugene Metro FC (30), Westside Metros FC (27), Capital FC (23), Oregon Premier FC (17), United PDX (16), Eastside Timbers (15), FC Portland Academy (14), Oregon Surf SC (13) and Saints Academy (11).',
+    },
+    {
+      question: 'What youth soccer leagues operate in Oregon?',
+      answer:
+        "ECNL girls teams come from Oregon Surf SC and Portland Thorns Academy. ECNL boys teams come from FC Portland Academy, Eugene Metro FC, Oregon Premier FC, United PDX and Capital FC, and most of those clubs also play ECNL Regional League. MLS NEXT teams come from Westside Metros, Oregon Surf SC, Hillsboro Rush, Saints Academy, Soccer Chance Academy and the Portland Timbers' academy. Girls Academy teams come from Westside Metros and Soccer Chance Academy. State play runs through the Oregon Youth Soccer Association.",
+    },
+    {
+      question: 'Why do Portland teams play so many Washington teams?',
+      answer:
+        "Almost a quarter of the games we've recorded for ranked Oregon teams were against Washington opponents, and most of it comes from the Portland metro, where Vancouver and southwest Washington are a short drive across the Columbia River. Clubs such as Oregon Surf SC and Soccer Chance Academy play more than half of their recorded games against Washington teams, while Capital FC in Salem and Eugene Metro FC play about two-thirds of theirs in state.",
+    },
+    {
+      question: 'How does the Oregon State Cup work?',
+      answer:
+        "The Oregon Youth Soccer Association runs the Oregon State Cup for U11 through U19. Under its 2026-27 rules, U11 teams don't advance beyond the State Cup, the U12 competition decides which teams represent Oregon at the US Youth Soccer Far West U12 Championships, and the U13–U19 competition decides who goes to the US Youth Soccer National Championships.",
+    },
+  ],
+
   'pennsylvania-youth-soccer-rankings-guide': [
     {
       question: 'How are Pennsylvania youth soccer teams ranked?',
@@ -749,6 +777,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How do Philadelphia and Pittsburgh area clubs compare?',
       answer:
         "Philadelphia-area clubs benefit from a higher density of competitive teams and proximity to strong NJ and MD programs, creating tougher schedules. Pittsburgh clubs compete well regionally. Use PitchRank's state filter to compare clubs across both metros.",
+    },
+  ],
+
+  'tennessee-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Tennessee youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Tennessee teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 238 ranked Tennessee teams drawn from 1,308 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Tennessee?',
+      answer:
+        'By ranked team count: Tennessee SC (48), Lobos Rush (28), Germantown Legends (25), FC Alliance (18), Tennessee United SC (17), Nashville United Soccer Academy (15), One Knox Youth Club (12), Chattanooga Red Wolves SC (11) and Chattanooga FC Academy (10).',
+    },
+    {
+      question: 'Does Tennessee have ECNL and MLS NEXT teams?',
+      answer:
+        "Yes, and they're spread across the state. Tennessee SC and FC Alliance field ECNL boys and girls teams, and Germantown Legends, Chattanooga Red Wolves SC, Lobos Rush and Tennessee United SC field ECNL boys teams. All six also field ECNL Regional League teams. MLS NEXT runs through Nashville SC, Nashville United Soccer Academy and Chattanooga FC Academy in the Homegrown Division and through Kings Hammer and One Knox in the Academy Division. Girls Academy teams play through Nashville United Soccer Academy and One Knox.",
+    },
+    {
+      question: 'Why do Tennessee teams play so many out-of-state games?',
+      answer:
+        "Of the 3,893 games we've recorded for ranked Tennessee teams over the past year, only about a third were against other Tennessee teams. Memphis clubs play heavily into Mississippi and Arkansas, Chattanooga and Knoxville clubs into Georgia, and Nashville's national-league programs across the Southeast and Midwest. That spread ties Tennessee rankings closely to the national picture.",
+    },
+    {
+      question: 'How does the Tennessee State Cup work?',
+      answer:
+        'The Tennessee State Soccer Association runs a fall State Cup for boys U15–U19 and a spring State Cup for girls U12–U19 and boys U12–U14. Only the top eight teams in the final Tennessee State League standings qualify. In the U13–U19 age groups, champions of the top National Championship Series division advance directly to the US Youth Soccer National Championships, while Presidents Cup division champions go first to a national qualifier.',
     },
   ],
 
