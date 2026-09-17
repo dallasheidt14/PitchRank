@@ -561,8 +561,15 @@ async def fetch_games_for_rankings(
                 "be resolved through it"
             )
         if exclusion_resolver.has_merges:
+            # Both directions: the team that absorbed a listed one, and every id a listed team
+            # absorbed, since games keep whichever id they were stored with and a caller that
+            # passes no resolver never rewrites them.
+            canonical = {exclusion_resolver.resolve(t) or t for t in excluded_team_ids}
+            excluded_team_ids |= canonical
             excluded_team_ids |= {
-                resolved for resolved in (exclusion_resolver.resolve(t) for t in excluded_team_ids) if resolved
+                deprecated
+                for deprecated in exclusion_resolver.get_deprecated_teams()
+                if exclusion_resolver.resolve(deprecated) in canonical
             }
 
     # Both columns, so the game leaves the opponent's perspective too, not only the listed team's.

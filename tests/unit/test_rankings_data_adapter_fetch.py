@@ -356,6 +356,9 @@ class _FakeMergeResolver:
     def get_deprecated_teams(self):
         return set(self._merge_map)
 
+    def __repr__(self):
+        return f"_FakeMergeResolver({self._merge_map})"
+
     @property
     def merge_count(self):
         return len(self._merge_map)
@@ -431,6 +434,32 @@ async def test_a_caller_with_no_resolver_still_excludes_a_merged_away_team(monke
         team_rows={t: _u16_team(t) for t in ("team-survivor", "team-us-a", "team-us-b")},
         excluded_rows=[{"team_id_master": "team-english"}],
         merge_rows=[{"deprecated_team_id": "team-english", "canonical_team_id": "team-survivor"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_teams_older_games_under_a_previous_id_are_dropped_too(monkeypatch):
+    """Games keep the id they were stored with, and a caller with no resolver never rewrites
+    them, so the opponent's row would otherwise still carry the excluded team."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                _game("game-under-old-id", "team-english-old", "team-us-a"),
+                _game("game-kept", "team-us-a", "team-us-b"),
+            ]
+        },
+        team_rows={t: _u16_team(t) for t in ("team-english-old", "team-english", "team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+        merge_rows=[{"deprecated_team_id": "team-english-old", "canonical_team_id": "team-english"}],
     )
 
     result = await data_adapter.fetch_games_for_rankings(
