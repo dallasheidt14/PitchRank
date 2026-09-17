@@ -12,6 +12,8 @@ import re
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import (
     ResolvedTeam,
+    _exact_name_or_filter,
+    _postgrest_ilike_operand,
     build_search_params,
     make_exact_name_lookup,
     make_provider_id_lookup,
@@ -425,9 +427,10 @@ def test_single_hit_naming_the_roster_team_in_another_case_is_accepted():
 class _FakeQuery:
     """Applies the filters the way PostgREST does, so the assertions test real scoping."""
 
-    def __init__(self, rows):
+    def __init__(self, rows, or_filters=None):
         self._rows = list(rows)
         self._selected: tuple[str, ...] | None = None
+        self._or_filters = or_filters
 
     def select(self, fields, *_args, **_kwargs):
         self._selected = tuple(field.strip() for field in fields.split(","))
@@ -456,6 +459,11 @@ class _FakeQuery:
         self._rows = [row for row in self._rows if pattern.fullmatch(str(row.get(column, "")))]
         return self
 
+    def or_(self, expression):
+        if self._or_filters is not None:
+            self._or_filters.append(expression)
+        return self
+
     def limit(self, count):
         self._rows = self._rows[:count]
         return self
@@ -474,9 +482,12 @@ class _FakeQuery:
 class _FakeClient:
     def __init__(self, **tables):
         self._tables = tables
+        self.table_calls = []
+        self.or_filters = []
 
     def table(self, name):
-        return _FakeQuery(self._tables.get(name, []))
+        self.table_calls.append(name)
+        return _FakeQuery(self._tables.get(name, []), self.or_filters)
 
 
 GOTSPORT = "gs-uuid"
@@ -532,6 +543,24 @@ def test_exact_name_lookup_matches_a_registered_club_plus_team_label():
     )
 
     assert make_exact_name_lookup(client)("Arizona Soccer Club 2016/17B Navy", "u10", "Male") == [expected]
+    assert client.table_calls == ["teams"]
+    assert len(client.or_filters) == 1
+
+
+def test_combined_name_filter_batches_every_exact_interpretation():
+    assert _exact_name_or_filter("Arizona Soccer Club 2016/17B Navy") == ",".join(
+        [
+            'team_name.ilike."Arizona Soccer Club 2016/17B Navy"',
+            'and(club_name.ilike."Arizona",team_name.ilike."Soccer Club 2016/17B Navy")',
+            'and(club_name.ilike."Arizona Soccer",team_name.ilike."Club 2016/17B Navy")',
+            'and(club_name.ilike."Arizona Soccer Club",team_name.ilike."2016/17B Navy")',
+            'and(club_name.ilike."Arizona Soccer Club 2016/17B",team_name.ilike."Navy")',
+        ]
+    )
+
+
+def test_postgrest_name_filter_quotes_reserved_and_ilike_characters():
+    assert _postgrest_ilike_operand('FC\\One_100% "Blue,(Team)"') == r'"FC\\\\One\\_100\\% \"Blue,(Team)\""'
 
 
 def test_exact_name_lookup_keeps_direct_and_combined_interpretations_for_review():

@@ -230,6 +230,27 @@ def _club_team_splits(value: str) -> Iterable[tuple[str, str]]:
         yield " ".join(words[:boundary]), " ".join(words[boundary:])
 
 
+def _postgrest_ilike_operand(value: str) -> str:
+    """Quote one literal ILIKE value for a PostgREST logical filter."""
+    pattern = escape_ilike_literal(value)
+    quoted = pattern.replace("\\", "\\\\").replace('"', r'\"')
+    return f'"{quoted}"'
+
+
+def _exact_name_or_filter(value: str) -> str:
+    """Match a full team name or any exact ``club_name + team_name`` split."""
+    normalized = " ".join(str(value or "").split())
+    clauses = [f"team_name.ilike.{_postgrest_ilike_operand(normalized)}"]
+    clauses.extend(
+        "and("
+        f"club_name.ilike.{_postgrest_ilike_operand(club_name)},"
+        f"team_name.ilike.{_postgrest_ilike_operand(team_name)}"
+        ")"
+        for club_name, team_name in _club_team_splits(normalized)
+    )
+    return ",".join(clauses)
+
+
 def resolve_row(
     row: RosterRow,
     *,
@@ -544,40 +565,26 @@ def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> 
     whitespace-boundary split in the same live cohort.
     """
 
-    def rows_for(
-        team_name: str,
-        age_group: str,
-        gender: str,
-        *,
-        club_name: str | None = None,
-    ) -> list[dict[str, Any]]:
-        query = (
+    def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
+        rows = (
             supabase_client.table("teams")
             .select("team_id_master,team_name,club_name")
-            .ilike("team_name", escape_ilike_literal(team_name))
             .eq("age_group", age_group)
             .eq("gender", gender)
             .eq("is_deprecated", False)
+            .or_(_exact_name_or_filter(team_name))
+            .limit(10)
+            .execute()
+            .data
+            or []
         )
-        if club_name is not None:
-            query = query.ilike("club_name", escape_ilike_literal(club_name))
-        return query.limit(10).execute().data or []
-
-    def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
-        rows = rows_for(team_name, age_group, gender)
         expected = _comparable(team_name)
-        for club_name, split_team_name in _club_team_splits(team_name):
-            candidates = rows_for(
-                split_team_name,
-                age_group,
-                gender,
-                club_name=club_name,
-            )
-            rows.extend(
-                row
-                for row in candidates
-                if _comparable(f"{row.get('club_name', '')} {row.get('team_name', '')}") == expected
-            )
+        rows = [
+            row
+            for row in rows
+            if _comparable(row.get("team_name", "")) == expected
+            or _comparable(f"{row.get('club_name', '')} {row.get('team_name', '')}") == expected
+        ]
         resolved = {_resolved_id(row.get("team_id_master"), merge_resolver) for row in rows}
         return sorted(team_id for team_id in resolved if team_id)
 
