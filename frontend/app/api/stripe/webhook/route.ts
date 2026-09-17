@@ -459,7 +459,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (rawEmail) {
     try {
       await tagSubscriber(rawEmail);
-      const lifecycle: Lifecycle = subscription.status === 'trialing' ? 'trialing' : 'paid';
+      // A late checkout event can find the paid subscription already set to
+      // cancel; it stores that flag, so it must also route the matching lifecycle.
+      const lifecycle: Lifecycle =
+        subscription.status === 'trialing' ? 'trialing' : baseUpdates.cancel_at_period_end ? 'canceling' : 'paid';
       await setLifecycle(rawEmail, lifecycle);
       if (priorStatus !== subscription.status) {
         await enrollInLifecycleAutomation(rawEmail, lifecycle);
@@ -584,7 +587,6 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     subscription_status: subscriptionData.status,
     plan: mapStatusToPlan(subscriptionData.status),
     subscription_period_end: extractPeriodEnd(subscriptionData),
-    cancel_at_period_end: isCancellationScheduled(subscriptionData),
   });
 
   // Flip lifecycle to `paid` only on trial→paid or past_due→paid transitions.

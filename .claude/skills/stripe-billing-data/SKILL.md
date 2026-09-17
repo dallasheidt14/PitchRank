@@ -83,10 +83,12 @@ this month's churn.
 subscriptions created on API version `2025-09-30.clover` or later (the client pins a later one).
 Treat a subscription that still grants premium (`active`, `trialing`, `past_due`) as canceling
 when either is set, through `isCancellationScheduled` (`frontend/lib/stripe/server.ts`) rather than
-reading either field yourself. `scripts/reconcile_stripe_subscriptions.py` carries the Python twin,
-`is_cancellation_scheduled`; change both together. The stored `user_profiles.cancel_at_period_end`
-column holds that helper's result, so it means "cancellation scheduled through either field" and
-will not match Stripe's raw `cancel_at_period_end`.
+reading either field yourself. The stored `user_profiles.cancel_at_period_end` column holds that
+helper's result, so it will not match Stripe's raw `cancel_at_period_end`. Write it only from the
+webhook handlers that also route the Beehiiv lifecycle (subscription updated and deleted, checkout
+fulfillment). They detect a canceling or reactivation transition by comparing against the stored
+flag, so a write from anywhere else, such as the sync route, `invoice.paid` or the reconcile job,
+swallows that email.
 
 **Who cancelled** a scheduled cancellation is readable off `cancellation_details`. A `feedback`
 reason (sometimes with a `comment`) comes from the Customer Portal's cancellation survey, so the

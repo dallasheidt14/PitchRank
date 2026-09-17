@@ -751,8 +751,10 @@ describe('Beehiiv lifecycle routing', () => {
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
   });
 
-  it('keeps a cancel_at-only cancellation marked when an invoice is paid', async () => {
-    setPriorState({ subscription_status: 'active', cancel_at_period_end: true });
+  it('leaves the canceling flag to subscription updates when an invoice is paid', async () => {
+    // Writing it here would swallow the transition the subscription update
+    // needs in order to start the canceling sequence.
+    setPriorState({ subscription_status: 'active', cancel_at_period_end: false });
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
@@ -769,7 +771,7 @@ describe('Beehiiv lifecycle routing', () => {
     expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
       expect.anything(),
       'cus_123',
-      expect.objectContaining({ cancel_at_period_end: true })
+      expect.not.objectContaining({ cancel_at_period_end: expect.anything() })
     );
   });
 
@@ -806,6 +808,7 @@ describe('Beehiiv automation enrollment', () => {
       'BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID',
       'BEEHIIV_PAID_CANCEL_AUTOMATION_ID',
       'BEEHIIV_DUNNING_AUTOMATION_ID',
+      'BEEHIIV_CANCELING_AUTOMATION_ID',
     ]) {
       delete process.env[key];
     }
@@ -926,8 +929,10 @@ describe('Beehiiv automation enrollment', () => {
     );
   });
 
-  it('keeps a scheduled cancellation when a checkout event arrives after it', async () => {
-    setPriorState({ id: '1', subscription_status: 'active' });
+  it('routes a checkout that arrives after the cancellation into the canceling sequence', async () => {
+    process.env.BEEHIIV_CANCELING_AUTOMATION_ID = 'aut_test_canceling';
+    process.env.BEEHIIV_PAID_AUTOMATION_ID = 'aut_test_paid';
+    setPriorState({ id: '1', subscription_status: null });
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_123',
       status: 'active',
@@ -942,11 +947,16 @@ describe('Beehiiv automation enrollment', () => {
       payment_status: 'paid',
     });
 
+    // It stores the flag, so the later subscription update will not see a
+    // transition; the canceling sequence has to start here instead.
     expect(vi.mocked(updateUserProfile)).toHaveBeenCalledWith(
       expect.anything(),
       'cus_123',
       expect.objectContaining({ cancel_at_period_end: true })
     );
+    expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'canceling');
+    expect(vi.mocked(enrollInAutomation)).toHaveBeenCalledWith('test@example.com', 'aut_test_canceling');
+    expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalledWith('test@example.com', 'aut_test_paid');
   });
 });
 
@@ -963,6 +973,7 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
       'BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID',
       'BEEHIIV_PAID_CANCEL_AUTOMATION_ID',
       'BEEHIIV_DUNNING_AUTOMATION_ID',
+      'BEEHIIV_CANCELING_AUTOMATION_ID',
     ]) {
       delete process.env[key];
     }

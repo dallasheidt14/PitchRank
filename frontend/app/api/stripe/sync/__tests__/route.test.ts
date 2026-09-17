@@ -242,7 +242,7 @@ describe('POST /api/stripe/sync', () => {
     expect(update.eq).toHaveBeenCalledWith('id', 'profile-99');
   });
 
-  it('marks a subscription canceling when its cancellation is scheduled through cancel_at alone', async () => {
+  it('leaves the canceling flag to the Stripe webhook', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockSessionsRetrieve.mockResolvedValue(
       makeSession({
@@ -257,7 +257,9 @@ describe('POST /api/stripe/sync', () => {
     const res = await POST(makeRequest({ sessionId: 'cs_test_anon' }));
 
     expect(res.status).toBe(200);
-    expect(update.update).toHaveBeenCalledWith(expect.objectContaining({ cancel_at_period_end: true }));
+    expect(update.update).toHaveBeenCalledWith(
+      expect.not.objectContaining({ cancel_at_period_end: expect.anything() })
+    );
   });
 
   it('returns 500 on unexpected Stripe error', async () => {

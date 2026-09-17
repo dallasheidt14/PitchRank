@@ -95,12 +95,13 @@ export function mapStatusToPlan(status: Stripe.Subscription.Status): 'premium' |
 
 /**
  * Whether a subscription that still grants premium (see mapStatusToPlan) is set
- * to cancel. On flexible
- * billing mode the Customer Portal schedules a cancellation through `cancel_at`
- * alone, leaving `cancel_at_period_end` false, so both are read.
+ * to cancel. On flexible billing mode the Customer Portal schedules a
+ * cancellation through `cancel_at` alone, leaving `cancel_at_period_end` false,
+ * so both are read.
  *
- * `is_cancellation_scheduled` in scripts/reconcile_stripe_subscriptions.py is
- * the Python twin; change both together.
+ * `user_profiles.cancel_at_period_end` stores this result, and only the webhook
+ * handlers that route the matching Beehiiv lifecycle write it: the stored flag
+ * is how they detect a transition, so any other writer would swallow one.
  */
 export function isCancellationScheduled(subscription: Stripe.Subscription): boolean {
   if (mapStatusToPlan(subscription.status) !== 'premium') return false;

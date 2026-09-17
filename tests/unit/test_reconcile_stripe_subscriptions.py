@@ -1,7 +1,8 @@
-"""The scheduled-cancellation rule the reconcile job reads from Stripe and writes to user_profiles.
+"""The reconcile job repairs plan, status and subscription id, and leaves the canceling flag alone.
 
-It must agree with isCancellationScheduled in frontend/lib/stripe/server.ts, or
-the scheduled reconcile writes a different canceling flag than the webhook.
+The Stripe webhook starts the Beehiiv canceling and reactivation emails only when it sees
+user_profiles.cancel_at_period_end change, so a reconcile write to that column would swallow
+the transition for a webhook that arrives late.
 """
 
 import sys
@@ -16,7 +17,6 @@ except ModuleNotFoundError:
     sys.modules["stripe"] = types.ModuleType("stripe")
 
 import scripts.reconcile_stripe_subscriptions as reconcile_job  # noqa: E402
-from scripts.reconcile_stripe_subscriptions import is_cancellation_scheduled  # noqa: E402
 
 PERIOD_END = 1798761600
 
@@ -105,37 +105,13 @@ def _profile(**overrides):
     return row
 
 
-def test_reads_a_cancellation_scheduled_through_cancel_at_alone():
-    assert is_cancellation_scheduled(_sub(cancel_at=PERIOD_END)) is True
-
-
-def test_reads_a_cancellation_scheduled_through_cancel_at_period_end_alone():
-    assert is_cancellation_scheduled(_sub(cancel_at_period_end=True)) is True
-
-
-def test_is_false_with_neither_set():
-    assert is_cancellation_scheduled(_sub()) is False
-
-
-def test_applies_to_trials_and_past_due_subscriptions():
-    assert is_cancellation_scheduled(_sub(status="trialing", cancel_at=PERIOD_END)) is True
-    assert is_cancellation_scheduled(_sub(status="past_due", cancel_at=PERIOD_END)) is True
-
-
-def test_is_false_for_a_subscription_that_no_longer_grants_premium():
-    for status in ("canceled", "unpaid", "paused"):
-        assert is_cancellation_scheduled(_sub(status=status, cancel_at=PERIOD_END)) is False
-        assert is_cancellation_scheduled(_sub(status=status, cancel_at_period_end=True)) is False
-
-
-def test_check_reports_a_cancel_at_only_cancellation(monkeypatch):
-    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
-    assert reconcile_job.check_stripe_subscription("cus_1")["cancel_at_period_end"] is True
-
-
-def test_reconcile_writes_the_canceling_flag_when_it_fixes_a_status_mismatch(monkeypatch):
-    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
+def _quiet(monkeypatch, sub):
+    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(sub))
     monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
+
+
+def test_reconcile_fixes_a_status_mismatch_without_writing_the_canceling_flag(monkeypatch):
+    _quiet(monkeypatch, _sub(cancel_at=PERIOD_END))
     db = _Db([_profile(subscription_status="trialing")])
 
     mismatches, checked = reconcile_job.reconcile(db, dry_run=False)
@@ -146,14 +122,11 @@ def test_reconcile_writes_the_canceling_flag_when_it_fixes_a_status_mismatch(mon
     filters, payload = db.executed_updates[0]
     assert ("id", "user-1") in filters
     assert payload["subscription_status"] == "active"
-    assert payload["cancel_at_period_end"] is True
+    assert "cancel_at_period_end" not in payload
 
 
-def test_reconcile_leaves_drift_in_the_canceling_flag_alone(monkeypatch):
-    # The webhook sends the Beehiiv canceling email when it sees the stored flag
-    # change; repairing the flag here first would swallow that transition.
-    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
-    monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
+def test_reconcile_leaves_a_profile_whose_only_drift_is_the_canceling_flag(monkeypatch):
+    _quiet(monkeypatch, _sub(cancel_at=PERIOD_END))
     db = _Db([_profile()])
 
     mismatches, _ = reconcile_job.reconcile(db, dry_run=False)
@@ -163,8 +136,7 @@ def test_reconcile_leaves_drift_in_the_canceling_flag_alone(monkeypatch):
 
 
 def test_reconcile_writes_nothing_on_a_dry_run(monkeypatch):
-    monkeypatch.setattr(reconcile_job, "stripe", _stripe_returning(_sub(cancel_at=PERIOD_END)))
-    monkeypatch.setattr(reconcile_job.time, "sleep", lambda _: None)
+    _quiet(monkeypatch, _sub(cancel_at=PERIOD_END))
     db = _Db([_profile(subscription_status="trialing")])
 
     mismatches, _ = reconcile_job.reconcile(db, dry_run=True)

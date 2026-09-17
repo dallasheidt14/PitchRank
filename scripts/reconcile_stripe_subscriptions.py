@@ -56,17 +56,6 @@ def stripe_status_to_plan(status: str) -> str:
     return "free"
 
 
-def is_cancellation_scheduled(sub) -> bool:
-    """Whether a subscription that still grants premium is set to cancel.
-
-    Mirrors isCancellationScheduled in frontend/lib/stripe/server.ts, which
-    documents why both fields are read; change both together.
-    """
-    if stripe_status_to_plan(sub.status) != "premium":
-        return False
-    return sub.cancel_at is not None or bool(sub.cancel_at_period_end)
-
-
 def fetch_stripe_users(supabase):
     """Fetch all user_profiles rows with a stripe_customer_id."""
     response = (
@@ -101,7 +90,6 @@ def check_stripe_subscription(customer_id: str):
         "status": sub.status,
         "subscription_id": sub.id,
         "period_end": period_end,
-        "cancel_at_period_end": is_cancellation_scheduled(sub),
     }
 
 
@@ -136,23 +124,18 @@ def reconcile(supabase, dry_run: bool):
             stripe_status = sub_data["status"]
             stripe_sub_id = sub_data["subscription_id"]
             period_end = sub_data["period_end"]
-            cancel_at_period_end = sub_data["cancel_at_period_end"]
         else:
             # No subscription in Stripe
             expected_plan = "free"
             stripe_status = None
             stripe_sub_id = None
             period_end = None
-            cancel_at_period_end = False
 
         db_plan = row.get("plan") or "free"
         db_status = row.get("subscription_status")
         db_sub_id = row.get("stripe_subscription_id")
 
-        # Check for mismatch. The canceling flag is deliberately not compared: the
-        # webhook sends the Beehiiv canceling/reactivation emails only when it sees
-        # the stored flag change, so repairing it here would swallow that transition
-        # for a webhook that arrives late.
+        # Check for mismatch
         plan_mismatch = db_plan != expected_plan
         status_mismatch = db_status != stripe_status
         sub_id_mismatch = sub_data and db_sub_id != stripe_sub_id
@@ -185,7 +168,9 @@ def reconcile(supabase, dry_run: bool):
                 "plan": expected_plan,
                 "subscription_status": stripe_status,
                 "stripe_subscription_id": stripe_sub_id,
-                "cancel_at_period_end": cancel_at_period_end,
+                # cancel_at_period_end is left to the webhook: it sends the Beehiiv
+                # canceling and reactivation emails only when it sees the stored flag
+                # change, so writing it here would swallow that transition.
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             if period_end:
