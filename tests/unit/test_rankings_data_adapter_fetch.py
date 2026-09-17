@@ -4,6 +4,9 @@ import pytest
 from src.rankings import data_adapter
 
 
+MAX_ROWS = 1000
+
+
 class _FakeResult:
     def __init__(self, data):
         self.data = data
@@ -80,14 +83,25 @@ class _FakeQuery:
                 return None
             return _FakeResult(row)
 
+        if self.table_name == "team_ranking_exclusions":
+            rows = self.client.excluded_rows
+            if isinstance(rows, Exception):
+                raise rows
+            # A double that served any window a caller asked for would hide a page size
+            # above PostgREST's max-rows cap, which supabase/config.toml pins at 1,000.
+            ordered = sorted(rows, key=lambda row: row["team_id_master"])
+            window = ordered[self.offset : self.limit_end + 1]
+            return _FakeResult(window[:MAX_ROWS])
+
         raise AssertionError(f"Unexpected table {self.table_name}")
 
 
 class _FakeSupabase:
-    def __init__(self, games_pages=None, team_rows=None, provider_row=None):
+    def __init__(self, games_pages=None, team_rows=None, provider_row=None, excluded_rows=None):
         self.games_pages = games_pages or {}
         self.team_rows = team_rows or {}
         self.provider_row = provider_row
+        self.excluded_rows = excluded_rows if excluded_rows is not None else []
         self.last_games_select = None
 
     def table(self, table_name: str):
@@ -252,6 +266,161 @@ async def test_fetch_games_for_rankings_drops_self_games(monkeypatch):
 
     assert set(result["game_id"]) == {"game-real"}
     assert len(result) == 2
+
+
+def _game(game_id, home, away):
+    return {
+        "id": game_id,
+        "game_date": "2026-04-01",
+        "home_team_master_id": home,
+        "away_team_master_id": away,
+        "home_score": 2,
+        "away_score": 1,
+        "provider_id": "provider-1",
+    }
+
+
+def _u16_team(team_id):
+    return {"team_id_master": team_id, "age_group": "u16", "gender": "Male", "is_deprecated": False, "league": None}
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_drops_every_game_an_excluded_team_played(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                _game("game-excluded-home", "team-english", "team-us-a"),
+                _game("game-excluded-away", "team-us-b", "team-english"),
+                _game("game-kept", "team-us-a", "team-us-b"),
+            ]
+        },
+        team_rows={t: _u16_team(t) for t in ("team-english", "team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+    assert len(result) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_reads_exclusions_past_the_first_page(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [_game("game-excluded", "z-team-english", "team-us-a"), _game("game-kept", "team-us-a", "team-us-b")]
+        },
+        team_rows={t: _u16_team(t) for t in ("z-team-english", "team-us-a", "team-us-b")},
+        # "z-team-english" sorts after every filler, so only a second page reaches it.
+        excluded_rows=[{"team_id_master": f"team-other-{idx:04d}"} for idx in range(1000)]
+        + [{"team_id_master": "z-team-english"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+class _FakeMergeResolver:
+    def __init__(self, merge_map):
+        self._merge_map = merge_map
+        self.has_merges = True
+
+    def resolve(self, team_id):
+        return self._merge_map.get(str(team_id), str(team_id))
+
+    def resolve_dataframe(self, df, columns):
+        for column in columns:
+            df[column] = df[column].astype(str).map(lambda v: self._merge_map.get(v, v))
+        return df
+
+    def get_deprecated_teams(self):
+        return set(self._merge_map)
+
+    @property
+    def merge_count(self):
+        return len(self._merge_map)
+
+    @property
+    def version(self):
+        return "test"
+
+
+@pytest.mark.asyncio
+async def test_a_merged_alias_of_an_excluded_team_stays_excluded(monkeypatch):
+    """Games keep the deprecated id, so the filter must see them after resolution."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                _game("game-via-alias", "team-english-old", "team-us-a"),
+                _game("game-kept", "team-us-a", "team-us-b"),
+            ]
+        },
+        team_rows={t: _u16_team(t) for t in ("team-english-old", "team-english", "team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+        merge_resolver=_FakeMergeResolver({"team-english-old": "team-english"}),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_team_merged_into_another_team_stays_excluded(monkeypatch):
+    """The list holds the id that was listed; a later merge moves its games to the survivor."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={
+            0: [
+                _game("game-now-under-survivor", "team-english", "team-us-a"),
+                _game("game-kept", "team-us-a", "team-us-b"),
+            ]
+        },
+        team_rows={t: _u16_team(t) for t in ("team-english", "team-survivor", "team-us-a", "team-us-b")},
+        excluded_rows=[{"team_id_master": "team-english"}],
+    )
+
+    result = await data_adapter.fetch_games_for_rankings(
+        fake_db,
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+        merge_resolver=_FakeMergeResolver({"team-english": "team-survivor"}),
+    )
+
+    assert set(result["game_id"]) == {"game-kept"}
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_raises_when_the_exclusion_list_cannot_be_read(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+
+    fake_db = _FakeSupabase(
+        games_pages={0: [_game("game-kept", "team-us-a", "team-us-b")]},
+        team_rows={t: _u16_team(t) for t in ("team-us-a", "team-us-b")},
+        excluded_rows=RuntimeError("Could not find the table 'public.team_ranking_exclusions'"),
+    )
+
+    with pytest.raises(RuntimeError, match="refusing to rank without the exclusion list"):
+        await data_adapter.fetch_games_for_rankings(
+            fake_db,
+            today=pd.Timestamp("2026-04-14", tz="UTC"),
+        )
 
 
 def test_batch_fetch_rows_raises_after_exhausted_retries(monkeypatch):

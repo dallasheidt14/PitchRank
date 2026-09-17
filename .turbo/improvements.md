@@ -1287,3 +1287,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/app/api/stripe/webhook/route.ts` (`handleCheckoutCompleted` enrollment dedupe, `handleInvoicePaid` paid routing, `handleSubscriptionUpdated` reactivation branch)
 - **Why**: The stored `cancel_at_period_end` flag is how the webhook detects a canceling or reactivation transition, and two orderings still misroute. A checkout event retried after fulfillment that finds a newly scheduled cancellation stores the flag and sets lifecycle `canceling`, but enrollment is skipped because `priorStatus` equals the status, so Cancellation Save never starts and the later update sees no change. And `handleInvoicePaid` routes a trialing or past_due subscriber to `paid` without clearing a stored flag, so if it lands before the update that removed the cancellation, the update routes `paid` again and starts a second Paid Drip journey. Both need delayed, out-of-order delivery; the owner chose to ship without them (PR #1162 review).
 - **Noted**: 2026-09-16
+
+### Share the operator-script and test-double scaffolding instead of copying it per file
+
+- **ID**: IMP-247
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `get_client` (10 files under `scripts/`, e.g. `exclude_english_teams.py`, `exclude_none_opponent_games.py`, `apply_vetted_team_merges.py`); `_paged` (3, incl. the `order("id")` variant in `enqueue_helpers.py`); the `_Query`/`_DB` PostgREST double (8 files under `tests/unit/`); `_executable` and friends in the migration guards (7 files under `tests/unit/`)
+- **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks — 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
+- **Noted**: 2026-09-17

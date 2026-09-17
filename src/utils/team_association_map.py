@@ -63,6 +63,57 @@ SPLIT = {
 CANADIAN_PROVINCES = frozenset({"AB", "BC", "MB", "NB", "NL", "NS", "ON", "PE", "QC", "SK", "CND"})
 NON_US_BODIES = frozenset({"BRA", "CRC", "GER", "NED", "POL", "RSA", "OTH"})
 
+# GBR plus every English county FA the probe ledger has recorded. Unlike the two sets
+# above, this one is consulted. Held upper-cased because the county names arrive in
+# mixed case.
+ENGLISH_ASSOCIATIONS = frozenset(
+    code.upper()
+    for code in {
+        "GBR",
+        "Berks & Bucks",
+        "Birmingham",
+        "Cheshire",
+        "Cumberland",
+        "Dorset",
+        "Durham",
+        "East Riding",
+        "English Schools",
+        "Essex",
+        "Gloucestershire",
+        "Hampshire",
+        "Kent",
+        "Lancashire",
+        "Liverpool",
+        "London",
+        "Manchester",
+        "Middlesex",
+        "Norfolk",
+        "Northamptonshire",
+        "Sheffield and Hallamshire",
+        "Somerset",
+        "Suffolk",
+        "Surrey",
+        "West Riding",
+        "Wiltshire",
+    }
+)
+
+# The outcomes scripts/assign_team_states.py writes to team_state_probe_log for an
+# answered probe.
+MAPPED_OUTCOME = "mapped"
+NO_ASSOCIATION_OUTCOME = "no association in payload"
+UNMAPPED_OUTCOME_PREFIX = "unmapped code "
+
+
+def is_answer(outcome: str) -> bool:
+    """A request failure, a 404 or a missing alias says nothing about the team, so it must
+    not displace an earlier answer."""
+    return outcome in (MAPPED_OUTCOME, NO_ASSOCIATION_OUTCOME) or outcome.startswith(UNMAPPED_OUTCOME_PREFIX)
+
+
+def is_english_association(association: Optional[str]) -> bool:
+    return (association or "").strip().upper() in ENGLISH_ASSOCIATIONS
+
 
 def to_state_code(association: Optional[str]) -> Optional[str]:
     """The US state a ``team_association`` names, or None.

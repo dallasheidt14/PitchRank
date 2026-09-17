@@ -124,6 +124,38 @@ def batch_fetch_rows(
     return rows
 
 
+def fetch_excluded_team_ids(client) -> set[str]:
+    """Raises rather than returning an empty set: ranking without the list would quietly put
+    every excluded team back on the boards."""
+    team_ids: set[str] = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        try:
+            result = retry_supabase_query(
+                lambda o=offset: (
+                    client.table("team_ranking_exclusions")
+                    .select("team_id_master")
+                    .order("team_id_master", desc=False)
+                    .range(o, o + page_size - 1)
+                    .execute()
+                ),
+                max_retries=4,
+                initial_delay=2.0,
+                description=f"Fetching team_ranking_exclusions at offset {offset}",
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "Failed to read team_ranking_exclusions; refusing to rank without the "
+                f"exclusion list. Error: {str(e)[:200]}"
+            ) from e
+        rows = getattr(result, "data", None) or []
+        team_ids.update(str(row["team_id_master"]) for row in rows)
+        if len(rows) < page_size:
+            return team_ids
+        offset += page_size
+
+
 # --------------------------------------------------------------------
 #  Safe numeric conversion
 # --------------------------------------------------------------------
@@ -238,6 +270,8 @@ async def fetch_games_for_rankings(
         if not getattr(provider_result, "data", None):
             raise RuntimeError(f"Provider filter '{provider_filter}' matched no provider")
         base_query = base_query.eq("provider_id", provider_result.data["id"])
+
+    excluded_team_ids = fetch_excluded_team_ids(db)
 
     # Paginate to fetch all games (Supabase max is 1000 per query)
     games_data = []
@@ -505,6 +539,24 @@ async def fetch_games_for_rankings(
                 f"✅ Deprecated filter: 0 rows removed "
                 f"(all {len(deprecated_team_ids)} deprecated teams properly merged)"
             )
+
+    # A listed team merged into another team keeps its games out: they resolve to the
+    # survivor's id above, which the raw list would no longer match.
+    if excluded_team_ids and merge_resolver is not None and merge_resolver.has_merges:
+        excluded_team_ids |= {
+            resolved for resolved in (merge_resolver.resolve(t) for t in excluded_team_ids) if resolved
+        }
+
+    # Both columns, so the game leaves the opponent's perspective too, not only the listed team's.
+    if excluded_team_ids:
+        involves_excluded = v53e_df["team_id"].astype(str).isin(excluded_team_ids)
+        involves_excluded |= v53e_df["opp_id"].astype(str).isin(excluded_team_ids)
+        if involves_excluded.any():
+            logger.info(
+                f"🚫 Removed {v53e_df.loc[involves_excluded, 'game_id'].nunique():,} games involving "
+                f"{len(excluded_team_ids)} teams excluded from rankings"
+            )
+            v53e_df = v53e_df[~involves_excluded]
 
     # Filter out self-games (team_id == opp_id). These arise when merge
     # resolution maps both sides of an alias-vs-alias game onto the same

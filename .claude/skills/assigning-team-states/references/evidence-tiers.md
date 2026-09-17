@@ -35,6 +35,17 @@ would silently drop four of the five largest cohorts. `src/utils/team_associatio
 holds the mapping and fails closed: an unseen code returns nothing rather than being treated
 as a postal code, which is what would send a Brazilian team to a US state board.
 
+**`AL` is the other false friend**, and it reads as an answer rather than as an unknown code.
+GotSport returns it when it holds no association for the team, and also for a team that really
+is in Alabama (`UNSET_DEFAULT_ASSOCIATION`). `unset_default_disputed` is what separates the
+two, and only a local reading can: `decide` drops the answer when a reading contradicts it and
+keeps it otherwise, which is how Alabama teams still reach Alabama, and the same test gates the
+confirm the paid passes would otherwise write. A reader with no local readings to weigh it
+against has nothing to separate them, so it cannot take `mapped` as the provider vouching for a
+US team — `scripts/exclude_english_teams.py` is deliberately stricter there, counting every
+`AL` as no evidence, because a foreign club registered under the default would otherwise veto
+its own exclusion.
+
 Measured against the club count on 1,572 teams where both answered, they agree 97.1%, and
 where they differ the registration record is usually visibly right from the team's own name.
 

@@ -406,6 +406,8 @@ Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_confi
 ```
 Games (Supabase; 365-day window + 28-day grace taper)
   → Merge Resolution (deprecated → canonical team IDs)
+  → Drop every game with a team in `team_ranking_exclusions` on either side, so a listed
+            team is neither ranked nor an opponent; the read fails closed
   → Pass 1: Glicko-2 convergence per (age, gender) cohort, no cross-age knowledge
   → Global strength map {team_id: mu} from Pass 1
   → Pass 2: re-run each cohort warm-started from Pass 1; cross-age opponents rated
@@ -978,7 +980,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 ## Common Pitfalls
 
 1. **The row cap is 200,000 hosted, 1,000 locally** — an unbounded `.select()` on `games` against the hosted project returned exactly 200,000 rows on 2026-09-09 (`content-range: 0-199999/*`), and explicit limits below it are honoured. A local `supabase start` differs: `supabase/config.toml` commits `max_rows = 1000`, so the same query truncates there at 1,000. Paginate any scan that can grow either way, and read `content-range` before concluding which cap you hit. This file previously stated a flat 1,000 everywhere, which produced a false review finding about truncation in production
-2. **Team merge resolution** — Always apply `MergeResolver` before processing team IDs; deprecated teams must map to canonical
+2. **Team merge resolution** — Always apply `MergeResolver` before processing team IDs; deprecated teams must map to canonical. A table that stores team ids of its own (`team_ranking_exclusions` and anything like it) needs resolving in both directions: a stored id can become deprecated after it is written, and the games it names are read under the survivor's id, so matching only raw ids silently stops covering the team
 3. **Game immutability** — Never UPDATE a game row; quarantine bad data instead
 4. **Age/birth year confusion** — `14B` = birth year 2014 = **U13** in 2026-27, not U14
 5. **Division tier merging** — ECNL ≠ ECNL-RL, HD ≠ AD — never merge teams across tiers
