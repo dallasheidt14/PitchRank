@@ -677,16 +677,33 @@ def test_the_full_event_button_is_disabled_until_something_has_been_probed(app):
     fake_st, runs = _render(app, url=EVENT_URL, probe=None)
 
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is True
-    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == "Scrape all U10+ divisions"
+    assert fake_st.button_by_key("_seeding_event_full_run")["label"] == (
+        "Step 2: Import every U10+ division"
+    )
     assert runs == []
+
+
+def test_a_saved_probe_unlocks_the_full_event_after_a_restart(app):
+    """A paid sample on disk must unlock the next step in a fresh session."""
+    tournament_intake._write_event_roster_recovery(
+        _roster(_team(0), _team(1), divisions_found=40, divisions_walked=2), limit_groups=2
+    )
+
+    fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
+
+    assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
+    assert any("Sample ready" in caption for caption in fake_st.captions)
+    assert fake_st.button_by_key("_seeding_event_reload_walk")["label"] == (
+        "Open the saved sample (free)"
+    )
 
 
 def test_the_seeding_intro_discloses_younger_division_page_cost(app):
     fake_st, _runs = _render(app, url=EVENT_URL, probe=None)
 
     explanation = " ".join(fake_st.captions)
-    assert "younger division pages" in explanation
-    assert "does not buy those younger teams' pages" in explanation
+    assert "younger divisions" in explanation
+    assert "skipped automatically" in explanation
 
 
 def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
@@ -855,7 +872,7 @@ def test_a_probe_that_found_no_team_prices_nothing():
     caption = tournament_intake._seeding_probe_caption(_probe(divisions_walked=2, teams=0, linked=0))
 
     assert "$" not in caption
-    assert "not enough to price" in caption
+    assert "not enough information to estimate" in caption
 
 
 def test_a_full_walk_quotes_no_further_cost():
@@ -924,7 +941,7 @@ def test_a_price_is_written_so_streamlit_does_not_read_it_as_maths():
     "text",
     [
         "Check 2 U10+ divisions",
-        "The whole event looks like",
+        "Estimated cost for the full U10+ list",
     ],
 )
 def test_no_money_surface_emits_a_bare_dollar(app, text):
@@ -1644,10 +1661,10 @@ def test_the_caption_reports_the_counts_it_was_given():
         )
     )
 
-    assert "Checked 4 of 40 event divisions" in caption
-    assert "captured 2 U10+ divisions" in caption
+    assert "Sample ready: 2 U10+ divisions" in caption
+    assert "Estimated cost for the full U10+ list" in caption
     assert "11 teams" in caption
-    assert "8 carrying a GotSport id" in caption
+    assert "8 linked automatically" in caption
 
 
 # -------- the card an unlinked scraped team is reviewed on ----------------
