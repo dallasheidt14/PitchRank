@@ -216,6 +216,20 @@ def escape_ilike_literal(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
 
 
+def _club_team_splits(value: str) -> Iterable[tuple[str, str]]:
+    """Yield every whitespace boundary as a possible ``club, team`` split.
+
+    GotSport event pages sometimes publish one display label even though
+    PitchRank stores the same identity as separate ``club_name`` and
+    ``team_name`` fields.  Each half is still matched literally; trying the
+    boundaries only lets ``Arizona Soccer Club 2016/17B Navy`` find the row
+    whose club is ``Arizona Soccer Club`` and team is ``2016/17B Navy``.
+    """
+    words = str(value or "").split()
+    for boundary in range(1, len(words)):
+        yield " ".join(words[:boundary]), " ".join(words[boundary:])
+
+
 def resolve_row(
     row: RosterRow,
     *,
@@ -522,21 +536,48 @@ def make_provider_id_lookup(supabase_client: Any, merge_resolver: Any = None) ->
 
 
 def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> ExactNameLookup:
-    """Build a cohort-scoped exact-name lookup returning canonical team ids."""
+    """Build a cohort-scoped literal-name lookup returning canonical team ids.
 
-    def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
-        rows = (
+    Besides the normal ``team_name`` comparison, accept a registered display
+    label when it exactly equals the stored ``club_name + team_name``.  No
+    prefix is stripped heuristically: both stored fields must match one full
+    whitespace-boundary split in the same live cohort.
+    """
+
+    def rows_for(
+        team_name: str,
+        age_group: str,
+        gender: str,
+        *,
+        club_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = (
             supabase_client.table("teams")
-            .select("team_id_master,team_name")
+            .select("team_id_master,team_name,club_name")
             .ilike("team_name", escape_ilike_literal(team_name))
             .eq("age_group", age_group)
             .eq("gender", gender)
             .eq("is_deprecated", False)
-            .limit(10)
-            .execute()
-            .data
-            or []
         )
+        if club_name is not None:
+            query = query.ilike("club_name", escape_ilike_literal(club_name))
+        return query.limit(10).execute().data or []
+
+    def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
+        rows = rows_for(team_name, age_group, gender)
+        expected = _comparable(team_name)
+        for club_name, split_team_name in _club_team_splits(team_name):
+            candidates = rows_for(
+                split_team_name,
+                age_group,
+                gender,
+                club_name=club_name,
+            )
+            rows.extend(
+                row
+                for row in candidates
+                if _comparable(f"{row.get('club_name', '')} {row.get('team_name', '')}") == expected
+            )
         resolved = {_resolved_id(row.get("team_id_master"), merge_resolver) for row in rows}
         return sorted(team_id for team_id in resolved if team_id)
 

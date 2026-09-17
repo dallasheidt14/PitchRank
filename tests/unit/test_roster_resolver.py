@@ -508,6 +508,60 @@ def test_exact_name_lookup_treats_backslash_percent_and_underscore_as_literals()
     assert make_exact_name_lookup(client)(literal_name, "u14", "Male") == ["literal"]
 
 
+def test_exact_name_lookup_matches_a_registered_club_plus_team_label():
+    expected = "05742841-3bc5-41de-9820-92976f575d43"
+    client = _FakeClient(
+        teams=[
+            {
+                "team_id_master": expected,
+                "team_name": "2016/17B Navy",
+                "club_name": "Arizona Soccer Club",
+                "age_group": "u10",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+            {
+                "team_id_master": "same-suffix-different-club",
+                "team_name": "2016/17B Navy",
+                "club_name": "Arizona United",
+                "age_group": "u10",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+        ]
+    )
+
+    assert make_exact_name_lookup(client)("Arizona Soccer Club 2016/17B Navy", "u10", "Male") == [expected]
+
+
+def test_exact_name_lookup_keeps_direct_and_combined_interpretations_for_review():
+    client = _FakeClient(
+        teams=[
+            {
+                "team_id_master": "direct-label",
+                "team_name": "Arizona Soccer Club 2016/17B Navy",
+                "club_name": "Different Club",
+                "age_group": "u10",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+            {
+                "team_id_master": "combined-label",
+                "team_name": "2016/17B Navy",
+                "club_name": "Arizona Soccer Club",
+                "age_group": "u10",
+                "gender": "Male",
+                "is_deprecated": False,
+            },
+        ]
+    )
+
+    assert make_exact_name_lookup(client)("Arizona Soccer Club 2016/17B Navy", "u10", "Male") == [
+        "combined-label",
+        "direct-label",
+    ]
+
+
 def test_unique_exact_name_uses_full_state_when_state_code_is_missing():
     row = _row("Male U14\nA Club\tA Team\tTX")
     client = _FakeClient(
