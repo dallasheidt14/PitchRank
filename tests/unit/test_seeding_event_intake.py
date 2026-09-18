@@ -1574,6 +1574,9 @@ def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique
     assert [row.source_index for row in outstanding] == [0, 1]
     assert ("Total Teams", 2) in fake_st.metrics
     assert ("Still open", 2) in fake_st.metrics
+    assert fake_st.infos == [
+        "Ready cohorts: none yet. A cohort is ready when every team in it is matched."
+    ]
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
         parsed,
@@ -1581,6 +1584,36 @@ def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique
         {1: {"team_id_master": "master-b", "team_name": "Corrected team"}},
     )
     assert outstanding == []
+    assert fake_st.successes == ["Ready cohorts (1): Boys U14 (2 teams)"]
+
+
+def test_only_fully_matched_cohorts_are_shown_as_ready(monkeypatch):
+    from src.tournaments.roster_paste import parse_roster
+
+    parsed = parse_roster(
+        "Male U10\nClub A\tTeam A\tAZ\nClub B\tTeam B\tAZ\n"
+        "Female U10\nClub C\tTeam C\tAZ\n"
+        "Male U11\nClub D\tTeam D\tAZ"
+    )
+    resolved = (
+        ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-a"),
+        ResolvedTeam(source_index=1, status="review"),
+        ResolvedTeam(source_index=2, status="exact_name", team_id_master="master-c"),
+        ResolvedTeam(source_index=3, status="unresolved"),
+    )
+    fake_st = _install(monkeypatch, _FakeSt())
+
+    _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
+        parsed,
+        resolved,
+        {1: {"team_id_master": "master-b", "team_name": "Team B"}},
+    )
+
+    assert [row.source_index for row in outstanding] == [3]
+    assert fake_st.successes == [
+        "Ready cohorts (2): Boys U10 (2 teams) · Girls U10 (1 team)"
+    ]
+    assert "Boys U11" not in fake_st.successes[0]
 
 
 def test_the_same_pitchrank_team_in_different_cohorts_is_not_flagged_as_a_duplicate():

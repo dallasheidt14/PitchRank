@@ -4960,7 +4960,7 @@ def _render_seeding_progress_metrics(
     resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]],
 ) -> tuple[dict[int, ResolvedTeam], list[Any]]:
-    """The four-metric row both views show, and who still needs a decision.
+    """Show progress metrics, ready cohorts, and return who still needs a decision.
 
     Single source for what counts as outstanding: ``_WalkKeys``'s own docstring
     warns that two copies of the same protection drift, and a second copy of
@@ -4984,6 +4984,28 @@ def _render_seeding_progress_metrics(
     columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
     columns[2].metric("You fixed", len(overrides))
     columns[3].metric("Still open", len(outstanding))
+
+    open_rows = {row.source_index for row in outstanding}
+    cohort_rows: dict[tuple[str, str], list[int]] = {}
+    for row in parsed.rows:
+        if row.section_age_group and row.section_gender:
+            cohort_rows.setdefault(
+                (row.section_age_group, row.section_gender), []
+            ).append(row.source_index)
+    ready = [
+        (age, gender, len(source_indices))
+        for (age, gender), source_indices in cohort_rows.items()
+        if open_rows.isdisjoint(source_indices)
+    ]
+    if ready:
+        labels = " · ".join(
+            f"{_display_gender(gender)} {age.upper()} "
+            f"({team_count} {'team' if team_count == 1 else 'teams'})"
+            for age, gender, team_count in ready
+        )
+        st.success(f"Ready cohorts ({len(ready)}): {labels}")
+    else:
+        st.info("Ready cohorts: none yet. A cohort is ready when every team in it is matched.")
 
     return by_index, outstanding
 
