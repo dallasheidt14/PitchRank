@@ -658,6 +658,27 @@ def extract_age_group(name, details, season_year=None):
     if match:
         return _age_group_from_birth_year(int(match.group(1)), season_year)
 
+    # Priority 4: U-age with a gender letter attached on either side (BU9, U8B, GU09).
+    # Priority 1's `\b` cannot sit between two letters, so these went unparsed entirely
+    # and every caller fell back to something weaker than the name it was handed --
+    # discovery to the cohort of the team this one played, which is how U7-U9 squads
+    # reached the U11 board.
+    #
+    # It sits below the birth-year rungs rather than beside Priority 1 for the reason
+    # those rungs already record: a U-age is season-relative and goes stale every Aug 1
+    # while a birth year does not, so a name carrying both ("Oakville BU14C 2011") must
+    # be read from the year. Measured on the 20,841 queue rows whose approved alias
+    # gives a true cohort: here it is +278 correct with no row made wrong that was
+    # right before, whereas at Priority 1 it took 41 previously-correct rows with it.
+    #
+    # Two bounds, each load-bearing: the digits are capped at two so "BU2015" stays a
+    # birth year rather than becoming the cohort "u2015", which no board holds; and the
+    # lookbehind stops a club abbreviation supplying the U, so "FCU2017" is a 2017 birth
+    # year. The hyphen form ("U-11") stays unmatched, as above.
+    match = re.search(r"(?<![a-z0-9])[bg]?u([0-9]{1,2})(?![0-9])", name_lower)
+    if match:
+        return normalize_filter_age_group(match.group(1))
+
     # Fallback: use metadata only if nothing found in name
     if details and details.get("age_group"):
         return normalize_filter_age_group(details["age_group"])

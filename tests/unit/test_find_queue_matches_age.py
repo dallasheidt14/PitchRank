@@ -131,6 +131,43 @@ class TestExtractAgeGroupSeasonBoundary:
         assert extract_age_group("Dynamos SC 2016 SC", {}) == "u11"
 
 
+class TestExtractAgeGroupGenderAttachedUAge:
+    """A gender letter touching the U-age must not hide the cohort.
+
+    ``BU9`` and ``U9B`` are ordinary GotSport spellings, and Priority 1 anchors both
+    ends on ``\\b``, which cannot match between two word characters. The cohort went
+    unparsed and ``build_unknown_profile`` fell through to its last resort -- the
+    cohort of the team this one played -- so an eight-year-old squad was stored on
+    whichever board its opponent sat on.
+
+    Every case below kills a mutation no other case here kills: dropping ``[bg]?``,
+    narrowing it to ``[b]``, re-anchoring the right-hand side on ``\\b``, and moving
+    the rung above the birth-year priorities. The pattern's other two guards -- the
+    leading lookbehind and the two-digit cap -- are deliberately left unpinned,
+    because at this position Priority 3 answers first for every name that would
+    exercise them, so any fixture for them would pass whatever the pattern said.
+    They are defensive against the rung being moved, and the last test pins that.
+    """
+
+    def test_gender_letter_before_the_u_age(self):
+        assert extract_age_group("New Canaan FC BU9 Black", {}, season_year=2026) == "u9"
+
+    def test_gender_letter_after_the_u_age(self):
+        assert extract_age_group("GCKA U8B Red", {}, season_year=2026) == "u8"
+
+    def test_a_girls_prefix_resolves_like_a_boys_prefix(self):
+        # Narrowing [bg] to [b] leaves every other case in this class green while
+        # 3,568 girls-prefixed names fall back to the opponent's cohort again.
+        assert extract_age_group("Spokane Shadow - GU11 Pre GA", {}, season_year=2026) == "u11"
+
+    def test_a_birth_year_outranks_a_stale_gender_attached_u_age(self):
+        # The rung sits below the birth-year priorities, and this is what that buys:
+        # a U-age goes stale every Aug 1 while a birth year does not, so a name
+        # holding both must be read from the year. Moving the rung up beside
+        # Priority 1 takes 41 previously-correct queue rows wrong, this one among them.
+        assert extract_age_group("Oakville Soccer Club - BU14C 2011", {}, season_year=2026) == "u16"
+
+
 class _FakeQuery:
     """Chainable supabase query-builder stub that records its filters.
 
