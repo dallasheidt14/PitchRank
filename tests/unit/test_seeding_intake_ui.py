@@ -254,3 +254,116 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     # Saving without touching the restored editor must not reapply its old merge.
     click(app, "Save tier decisions")
     assert app.session_state["_seeding_pack"]["manual_groups"]["u14|Male"] == [["0"], ["1"]]
+
+
+def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch):
+    import tournament_intake as intake
+    from src.tournaments.roster_paste import ParsedRoster
+    from src.tournaments.roster_resolver import ResolvedTeam
+    from tests.unit.test_seeding_event_intake import _FakeSt, _install
+
+    app, _calls = operator
+    click(app, "Build matchup tiers")
+    pack = app.session_state["_seeding_pack"]
+    raw = parse_roster("Male U14\nClub\tTeam\tState\nAlpha\tAlpha FC\tTX\nBeta\tBeta Entry*\tTX\n"
+                       "Female U15\nClub\tTeam\tState\nNew\tNew Girls\tTX")
+    younger = replace(raw.rows[0], source_index=3, section_age_group="u9", team_name_raw="Young")
+    raw = ParsedRoster((*raw.rows, younger), ())
+    resolved = (ResolvedTeam(0, "gotsport_id", team_id_master="00000000-0000-0000-0000-000000000001"),
+                ResolvedTeam(1, "gotsport_id", team_id_master="00000000-0000-0000-0000-000000000002"),
+                ResolvedTeam(2, "unresolved"), ResolvedTeam(3, "unresolved"))
+    fake = _install(monkeypatch, _FakeSt())
+    fake.session_state.update(_seeding_result=(raw, resolved), _seeding_pack=pack, _seeding_overrides={},
+                             seeding_event_name="Cup")
+    saved = []
+    monkeypatch.setattr(intake, "save_seeding_run_file", lambda run, **_kwargs: saved.append(run))
+    assert intake._autosave_seeding_run()
+    assert saved[0].pack == pack
+    assert len(saved[0].rows) == 4
+    # Display-name enrichment leaves identity/cohort inputs unchanged.
+    enriched = tuple(replace(item, matched_name="Display name") for item in resolved)
+    intake._park_seeding_result((raw, enriched), event_id=None)
+    assert fake.session_state["_seeding_pack"] == pack
+
+
+def test_legacy_pack_fingerprint_remains_valid_with_empty_new_provenance_fields():
+    import hashlib
+    import json
+    from dataclasses import asdict
+    from src.tournaments.roster_resolver import ResolvedTeam
+    from src.tournaments.seeding_pack import roster_fingerprint
+
+    rows = parse_roster("Boys U10\nC\tA").rows
+    resolved = [ResolvedTeam(0, "gotsport_id", team_id_master="a")]
+    old_rows = [{key: value for key, value in asdict(row).items()
+                 if key not in {"registration_id", "provider_team_id", "intake_issue"}} for row in rows]
+    legacy = hashlib.sha256(json.dumps({"rows": old_rows, "team_ids": {"0": "a"}},
+                                      sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    assert roster_fingerprint(rows, resolved, {}) == legacy
+
+
+@pytest.mark.parametrize("roster,statuses", [
+    ("Girls U9/U10 Mexico\nC\tMixed", [("gotsport_id", "a")]),
+    ("Boys U10\nC\tUnmatched", [("unresolved", None)]),
+    ("Boys U10\nC\tA\nC\tB", [("gotsport_id", "same"), ("gotsport_id", "same")]),
+])
+def test_selected_unfinished_cohort_exports_remain_draft(roster, statuses):
+    app_code = f'''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_intake_ui import render_seeding_pack
+parsed = parse_roster({roster!r})
+resolved = tuple(ResolvedTeam(index, status, team_id_master=identity)
+                 for index, (status, identity) in enumerate({statuses!r}))
+st.session_state["_seeding_overrides"] = {{}}
+st.session_state["_seeding_assessment"] = {{"coverage": "complete", "completed": list(range(len(parsed.rows)))}}
+render_seeding_pack(parsed, resolved, None, event_name="Draft Cup", save=lambda: True)
+'''
+    app = AppTest.from_string(app_code).run()
+    assert not app.exception
+    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert not any("roster assessed" in message.value for message in app.caption)
+
+
+def test_live_legacy_session_without_assessment_exports_draft(operator):
+    app, _calls = operator
+    assert any("Delivery status: draft" in message.value for message in app.info)
+    click(app, "Build matchup tiers")
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+
+
+def test_compare_discovered_merge_conflicts_mark_csv_and_pdf_as_draft(operator, monkeypatch):
+    app, _calls = operator
+    app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
+    next(widget for widget in app.radio if widget.label == "Sheet pack").set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    assert any("roster assessed" in message.value for message in app.caption)
+    reason = "Two roster entries appear to be the same team. Confirm both team matches before seeding."
+    batch = SeedingPredictionBatch({"u14|Male": {}}, {"u14|Male": {}},
+        {"u14|Male": {"0": reason, "1": reason}}, "2026-09-15T10:00:00+00:00", None, "a" * 64)
+    monkeypatch.setattr(ui, "load_seeding_predictions", lambda *_args, **_kwargs: batch)
+    exported = []
+    original_csv = ui.team_csv
+    def capture_csv(*args, **kwargs):
+        data = original_csv(*args, **kwargs)
+        exported.append(data)
+        return data
+    monkeypatch.setattr(ui, "team_csv", capture_csv)
+    click(app, "Build matchup tiers")
+    assert not app.error
+    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert b"Draft" in exported[-1]
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+
+
+@pytest.mark.parametrize("unavailable", [None, [], {"u14|Male": None}, {"u14|Male": {"0": {}}}])
+def test_malformed_snapshot_shows_rebuild_message_instead_of_crashing(operator, unavailable):
+    app, _calls = operator
+    click(app, "Build matchup tiers")
+    pack = dict(app.session_state["_seeding_pack"])
+    pack["unavailable"] = unavailable
+    app.session_state["_seeding_pack"] = pack
+    app.run()
+    assert not app.exception
+    assert any("needs rebuilding" in message.value for message in app.error)

@@ -57,6 +57,8 @@ class SeedingRun:
     saved_at: str = ""
     pack: dict[str, Any] | None = None
     source_url: str = ""
+    assessment: dict[str, Any] = field(default_factory=dict)
+    cohort_decisions: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -135,8 +137,8 @@ def slugify(name: str) -> str:
     return slug
 
 
-def save_run(run: SeedingRun, *, base_dir: Path | str | None = None) -> Path:
-    """Write the run, replacing any earlier save under the same name."""
+def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_previous: bool = True) -> Path:
+    """Replace the latest save; archive revisions but not automatic progress checkpoints."""
     root = Path(base_dir) if base_dir is not None else default_base_dir()
     target = root / slugify(run.name)
     target.mkdir(parents=True, exist_ok=True)
@@ -150,9 +152,21 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None) -> Path:
         "warnings": list(run.warnings),
         "pack": run.pack,
         "source_url": run.source_url,
+        "assessment": run.assessment,
+        "cohort_decisions": {str(index): value for index, value in run.cohort_decisions.items()},
     }
 
     path = target / RUN_FILENAME
+    if archive_previous and path.exists():
+        # Preserve the exact bytes so a damaged snapshot cannot prevent recovery.
+        previous = path.read_bytes()
+        history = target / "history"
+        history.mkdir(exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        with (history / f"{stamp}.json").open("xb") as archive:
+            archive.write(previous)
+            archive.flush()
+            os.fsync(archive.fileno())
     write_json(path, payload, indent=1)
     return path
 
@@ -180,6 +194,8 @@ def load_run(slug: str, *, base_dir: Path | str | None = None) -> SeedingRun:
         saved_at=payload.get("saved_at", ""),
         pack=payload.get("pack"),
         source_url=str(payload.get("source_url") or ""),
+        assessment=dict(payload.get("assessment") or {}),
+        cohort_decisions={int(index): value for index, value in (payload.get("cohort_decisions") or {}).items()},
     )
 
 

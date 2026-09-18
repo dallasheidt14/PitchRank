@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BASE_URL } from '@/lib/constants';
 import type { FAQ } from '@/lib/blog-faqs';
+import EVENT_PRICING from '@/lib/matchbalance-pricing.json';
 
 export const metadata: Metadata = {
   title: 'MatchBalance Tournament Seeding Sheets',
@@ -53,15 +54,6 @@ const STEPS = [
   'Receive a free sample: one age group and gender from your tournament.',
   'Receive one fixed price for your whole event.',
   'Receive the package, plus one update before your bracket review.',
-];
-
-const EVENT_PRICING = [
-  { teams: 'Up to 75', price: '$199' },
-  { teams: '76–150', price: '$399' },
-  { teams: '151–300', price: '$699' },
-  { teams: '301–450', price: '$1,199' },
-  { teams: '451–600', price: '$1,499' },
-  { teams: '601+', price: 'Custom quote' },
 ];
 
 const COHORT_PRICING = [

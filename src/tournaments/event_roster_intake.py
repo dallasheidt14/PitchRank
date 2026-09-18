@@ -88,6 +88,8 @@ def to_seeding_rows(
                 has_star_marker=has_star,
                 has_c_marker=has_c,
                 listed_division=printable_text(team.division_label),
+                registration_id=str(team.registration_id or ""),
+                provider_team_id=str(team.provider_team_id or ""),
             )
         )
         provider_team_id = team.provider_team_id

@@ -27,6 +27,24 @@ _LEGACY_UNAVAILABLE_REASONS = {
         "Confirm the club and team match. Then use recent results or club input before seeding."
     ),
 }
+_DUPLICATE_IDENTITY_REASONS = frozenset({
+    "Two roster entries resolve to the same team; verify the matches.",
+    "Two roster entries appear to be the same team. Confirm both team matches before seeding.",
+})
+
+
+def has_snapshot_identity_conflict(pack: dict[str, Any], selected: Sequence[str]) -> bool:
+    """Compare can discover merges that were not known when the roster was matched."""
+    unavailable = pack.get("unavailable")
+    if not isinstance(unavailable, dict):
+        return True  # Keep malformed snapshots draft until normal validation reports them.
+    for key in selected:
+        reasons = unavailable.get(key)
+        if not isinstance(reasons, dict):
+            return True
+        if any(not isinstance(reason, str) or reason in _DUPLICATE_IDENTITY_REASONS for reason in reasons.values()):
+            return True
+    return False
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -93,7 +111,15 @@ def roster_fingerprint(
     rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam], overrides: Mapping[int, dict[str, Any]],
 ) -> str:
     """An identity/cohort edit invalidates every derived prediction and export."""
-    payload = {"rows": [asdict(row) for row in rows], "team_ids": team_ids_by_row(rows, resolved, overrides)}
+    records = []
+    for row in rows:
+        record = asdict(row)
+        # Empty provenance fields were absent from legacy saved packs.
+        for key in ("registration_id", "provider_team_id", "intake_issue"):
+            if not record[key]:
+                record.pop(key)
+        records.append(record)
+    payload = {"rows": records, "team_ids": team_ids_by_row(rows, resolved, overrides)}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
