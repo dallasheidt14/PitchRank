@@ -72,6 +72,17 @@ class TestAgeGroupFromBirthYear:
         assert numbers, f"sentinel produced no usable filter: {clause!r}"
         assert all(n > 21 for n in numbers), clause
 
+    def test_u18_is_asked_for_as_u19_because_that_is_where_the_rows_are(self):
+        # teams holds no u18 row -- the band is filed under u19 -- so a clause naming
+        # u18 returns an empty candidate pool and the caller finds no match for a team
+        # that exists. 466 live names resolve to u18.
+        numbers = [int(n) for n in re.findall(r"age_group\.eq\.[uU](\d+)", build_age_group_filter_clause("u18"))]
+        assert numbers == [19, 19]
+
+    def test_u20_is_not_folded_because_teams_are_stored_there(self):
+        numbers = [int(n) for n in re.findall(r"age_group\.eq\.[uU](\d+)", build_age_group_filter_clause("u20"))]
+        assert numbers == [20, 20]
+
     def test_sentinel_is_refused_by_the_persistence_normalizer(self):
         # The regression this guards: a filter-only value reaching a teams INSERT.
         # discover_teams_from_opponents accepts "u" followed only by digits, so

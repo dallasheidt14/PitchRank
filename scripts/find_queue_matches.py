@@ -64,10 +64,23 @@ def normalize_filter_age_group(age_group):
 
 
 def build_age_group_filter_clause(age_group):
-    """Build a Supabase OR clause for exact age-group matches."""
+    """Build a Supabase OR clause for exact age-group matches.
+
+    U18 is asked for as U19, because that is where the rows are: PitchRank folds the
+    U18 band into the U19 board, so ``teams`` holds no u18 row at all and a filter
+    naming u18 returns an empty candidate pool -- the caller then finds no match for a
+    team that plainly exists. 466 live names resolve to u18, and reading the attached
+    spellings ("U18B", "GU18") added 109 of them.
+
+    U20 is deliberately not folded the same way, though the stored-cohort normalizer
+    folds both: 1,595 teams really are stored as u20, so folding it here would hide
+    them.
+    """
     normalized = normalize_filter_age_group(age_group)
     if not normalized:
         return None
+    if normalized == "u18":
+        normalized = "u19"
     values = (normalized, normalized.upper())
     return ",".join(f"age_group.eq.{value}" for value in values)
 
